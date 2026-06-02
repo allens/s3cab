@@ -1,133 +1,320 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Architecture, design philosophy, and conventions for **s3cab**. This file is for
+contributors and for AI assistants working in the codebase — it documents the *why*
+behind decisions, not how to use the tool. User-facing documentation lives in
+[README.md](README.md).
 
-## Project Overview
+---
 
-s3cab is an "eternally open S3 content addressable backup" tool written in Node.js. It creates snapshots of directories, storing file metadata (hash, size, mtime) in compressed TSV files, designed to eventually sync with S3 for backup purposes.
+## What this project is
 
-## Commands
+**s3cab** = **S3 C**ontent **A**ddressable **B**ackup — a CLI for backing up files to
+S3 (or S3-compatible object storage), where objects are stored and keyed by the
+**SHA-256 hash of their contents** rather than by path/name.
 
-### Running Tests
-```bash
-npm test                    # Run all tests
-npm run test:watch         # Run tests in watch mode
-npm run test:snapshot      # Update test snapshots
-npm run test:coverage      # Run tests with coverage report
-```
+### Current status (v0.0.1, pre-release)
 
-### Linting
-```bash
-npm run lint               # Check for linting errors
-npm run lint:fix          # Auto-fix linting errors
-```
+What is **built today** is the **local content-addressable snapshot + diff engine**:
 
-### Building
-```bash
-npm run build             # Build the bundled executable (bin/s3cab.cjs)
-```
+- Walk a directory tree (with exclude globbing).
+- Compute per-file properties — SHA-256 hash, size, mtime.
+- Write an immutable **snapshot manifest** (`.tsv.zst`) describing the tree.
+- Diff two snapshots into added / moved / modified / deleted, using content hashes
+  to detect moves, renames, and duplicates.
 
-### Cleaning
-```bash
-npm run clean             # Clear test S3 bucket (requires AWS profile: s3cab-test)
-npm run clean:config      # Erase local configuration
-```
+What is **not yet built**: the actual upload/download to S3. An early proof-of-concept
+(SSO login, S3 client, multipart upload) is parked in [src/_deprecated/](src/_deprecated/)
+and is the *only* place the AWS SDK is currently used. The content-addressable object
+store (`objects/<sha256>`) and remote snapshot storage are the next milestone.
 
-### Running the CLI
-The CLI entry point is `src/cli.mjs`. Commands are defined in `src/commands/`:
+Treat the README's S3/backup descriptions as the *target*; treat the code in `src/`
+(excluding `_deprecated`) as *what works now*.
 
-```bash
-node src/cli.mjs snapshot <dir>           # Create snapshot of directory
-node src/cli.mjs tree <dir>               # List files in directory (respects exclude rules)
-node src/cli.mjs compare <dir> <current> <previous>  # Compare two snapshots
-node src/cli.mjs list <dir>               # List snapshots in directory
-node src/cli.mjs prop <file>              # Show file properties (hash, size, mtime)
-```
+---
 
-All commands support a `--debug` flag for detailed output.
+## Design philosophy
+
+These principles are the heart of the project. When a decision is unclear, decide in
+favour of these — especially #2, which the others serve.
+
+### 1. Content-addressable, at the file level
+
+Dedup by the **SHA-256 of whole-file contents**. Identical content — anywhere, under
+any name — is stored once. Moving a folder of videos, or backing up duplicate files,
+costs no extra storage.
+
+Dedup is deliberately **file-level only**. No sub-file/block packing, no chunking, no
+delta encoding. Yes, that means a one-byte change to a large file produces a wholly new
+object, and it forgoes some space savings. That cost is **accepted on purpose**: block
+packing would make the stored format opaque and break easy recovery (see #2). The big
+wins (moved/duplicate files) come from file-level hashing anyway, and the largest files
+(video, photos) rarely change in place.
+
+**Why SHA-256:** ubiquitously available in every language/runtime/CLI (`sha256sum`,
+`openssl`, `certutil`, Node's `crypto`), fast enough that I/O — not hashing — is the
+bottleneck, and collision-resistant with an intact security margin. (Note: SHA-1 — what
+Git historically uses — is *not* a good choice here; collision attacks against it are
+real, and in a content-addressable store a collision means silent data loss.)
+
+### 2. No lock-in (hard constraint)
+
+The single most important principle. **If s3cab disappeared tomorrow, a competent
+person should be able to recover their data by hand, or write a replacement tool in an
+afternoon.** Snapshot manifests and the object store use plain, self-evident formats.
+Recoverability is a first-class feature, designed in on purpose — not an afterthought.
+
+This is a **hard constraint, not a preference.** Reject any feature that meaningfully
+harms hand-recoverability, even if it saves space or time. (This is exactly why
+file-level-only dedup is chosen over block packing.)
+
+### 3. Embrace modern *open* tech
+
+Target the newest OS, runtime, and language features deliberately — *provided they are
+standard and open*. Modern ≠ proprietary. The project happily requires recent tech
+(see `engines.node`), but only open, widely-implemented tech.
+
+Worked examples:
+- **zstd** — an open standard, native in Node and in Windows 11 (not Win10 out of the
+  box). Chosen for snapshot compression after testing several algorithms; best
+  speed/ratio balance.
+- **Node 25+** — for native built-ins that remove the need for dependencies (see #5).
+
+### 4. TSV snapshot manifests
+
+Snapshots are tab-separated values. This flows directly from #2.
+
+- **Editor-readable.** Fixed-width leading columns scan cleanly even unaligned.
+- **Deliberate column order for visual alignment:** fixed-width fields first
+  (`hash` → `size` → `mtime`), variable-length `path` **last**, so the left edge stays
+  aligned and the ragged part is pushed right.
+- **Opens cleanly in Excel** (treated as an "open enough" standard) → instant
+  sort/filter/pivot over a backup manifest. (Caveat: don't let Excel re-save and mangle
+  it.)
+- **TSV > CSV > JSON** for this job: tabs almost never occur in real paths, so we avoid
+  CSV's comma-quoting *and* JSON's escaping — notably JSON would force escaping every
+  Windows backslash (`C:\\Users\\...`). Less escaping = more directly recoverable.
+
+See the format spec at the top of [src/snapshot-file.mjs](src/snapshot-file.mjs) and
+the data-model section below.
+
+### 5. Built-ins over dependencies (high bar for libraries)
+
+Prefer Node/JS built-ins. The bar to add a third-party dependency is high, and applies
+to **runtime deps, CLI ergonomics, and dev tooling** alike:
+
+- Arg parsing → Node's `node:util` **`parseArgs`**, *not* commander.
+- Terminal output → plain ANSI / `process.stderr`, *not* chalk.
+- Tests → Node's built-in **`node:test`** runner, *not* Jest (especially) or Vitest.
+  This is a deliberate choice; contributors should **not** introduce a test framework.
+
+**Permitted runtime dependencies are exactly two kinds:**
+1. **Genuinely too big to hand-craft** → the **AWS SDK** (SigV4, multipart, SSO/OIDC).
+   This is *the* sanctioned exception; reimplementing it by hand would be absurd.
+2. **Polyfills of actual standards**, accepted *temporarily*, removed the moment the
+   native version ships → **`@js-temporal/polyfill`**. Filling a standards gap is fine;
+   reaching for a convenience lib is not.
+
+**Dev dependencies get a more relaxed bar** — they never ship to users and don't affect
+recoverability. The notable one is **esbuild**, used only to bundle the ESM source into
+a single CommonJS file for native-executable packaging (see Tooling & build). Even here
+the same instinct applies: it exists to bridge a gap, and Node's growing native
+capabilities may remove the need for it over time.
+
+### 6. Minimal, simple code
+
+Code should be as **small and low-surface-area** as possible — easy for a newcomer (or
+future maintainer) to pick up. This is in honest **tension** with #5: avoiding a library
+can mean writing bespoke code, which *adds* code.
+
+**Resolution — minimize total complexity (bespoke code + dependency weight):**
+- Modern Node usually makes the bespoke alternative *tiny* (parseArgs vs commander,
+  ANSI vs chalk) → write the small code, skip the dep. Both #5 and #6 win.
+- When an honest reimplementation would be **large or risky** (SigV4, multipart, SSO),
+  the library wins. The AWS SDK is the worked example of #5 yielding to #6.
+
+Where #2 protects the **format**, #6 protects the **tool**: transparent format +
+transparent code = nothing about this project is a black box.
+
+### 7. Plain JavaScript, typed via JSDoc
+
+Source is plain JS; full type-checking comes from **JSDoc annotations +
+`jsconfig.json`**, enforced in the editor. In the spirit of open & simple: no
+build/transpile step for source — the code you read is the code that runs.
+
+**Flagged for reconsideration:** the original draw of pure JS was avoiding a toolchain.
+Node now runs TypeScript natively and non-experimentally, so that argument is much
+weaker. JS for now, but this is an open question — parallel to the Temporal polyfill: a
+stance modern Node may make obsolete.
+
+---
 
 ## Architecture
 
-### Core Components
+### Entry point & command dispatch
 
-**CLI Layer** (`src/cli.mjs`)
-- Command-line argument parsing using Node's `util.parseArgs`
-- Command registry with standardized option/argument structure
-- Error handling and usage display
-- All commands return data structures (not just side effects)
+[src/cli.mjs](src/cli.mjs) is the real entry point. It defines a `commands` registry
+(an object keyed by command name); each command is `{ summary, args?, options?, exec }`.
+Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegative`,
+`allowPositionals`), a generic `usage()`/help generator, and a shared error handler are
+all driven off that registry. Adding a command = adding one entry.
 
-**Commands** (`src/commands/`)
-- `tree.mjs`: File discovery with glob-based exclusion patterns (reads `.s3cab/exclude.txt`)
-- `snapshot.mjs`: Creates timestamped snapshots, compares with previous snapshot
-- `compare.mjs`: Diffs two snapshots to find added/modified/deleted/moved files
-- `list.mjs`: Lists available snapshots in chronological order
-- `prop.mjs`: Computes file properties (SHA-256 hash, size, mtime) with optional lookup from previous snapshot
+> Note: `package.json` `main` (`src/index.mjs`) and `bin` (`bin/s3cab.cjs`) point at
+> files that don't exist yet — `src/cli.mjs` is the working entry. See Known gaps.
 
-**Snapshot System** (`src/snapshot-file.mjs`)
-- Snapshot file format: TSV with fixed-width columns (43-char hash, 11-char size, 24-char ISO timestamp, path)
-- Snapshots stored in `.s3cab/snapshots/` as `YYYY-MM-DDTHHMM.tsv.gz`
-- Comment lines start with `#` (e.g., `#ERROR` for file read failures)
-- Reading/writing uses streaming for memory efficiency
+### Commands (`src/commands/`) — all currently local
 
-**Utilities**
-- `logger.mjs`: Logging helpers, byte/duration formatting, dual output (console + file stream)
-- `read-lines.mjs`: Line-by-line file reading with comment filtering
-- `error.mjs`: Custom error types (e.g., `ParseArgsError`)
+| Command    | File           | Purpose |
+|------------|----------------|---------|
+| `tree`     | tree.mjs       | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
+| `snapshot` | snapshot.mjs   | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
+| `prop`     | prop.mjs       | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
+| `compare`  | compare.mjs    | Diff two snapshots → added / moved / modified / deleted. |
+| `list`     | list.mjs       | List snapshot names (sorted newest-first), or `--latest`. |
+| `foo`      | (in cli.mjs)   | Placeholder; should be removed. |
 
-### Data Flow
+### Core modules
 
-1. **Snapshot creation**: `tree()` → `prop()` (with optional previous snapshot lookup) → write `.s3cab/snapshots/*.tsv.gz` → `compare()` with previous
-2. **Exclude system**: `.s3cab/exclude.txt` uses glob patterns (`*`, `**`, `/` separator) to filter files during tree walk
-3. **File hashing**: SHA-256 in base64url format (43 chars), computed via streaming for large files
-4. **Temporal**: Uses `@js-temporal/polyfill` for precise timestamp handling
+- **[src/snapshot-file.mjs](src/snapshot-file.mjs)** — the snapshot format hub. Reads
+  and writes manifests, handles zstd compress/decompress transparently, and provides
+  `withSnapshotFile()` which writes to a temp file (`.snapshot.tsv.zst`) and atomically
+  `rename`s it into place. The temp file's existence doubles as a crude concurrency
+  guard against overlapping snapshots.
+- **[src/format.mjs](src/format.mjs)** — human formatting via built-in `Intl`
+  (`Intl.NumberFormat` compact bytes, `Intl.DurationFormat`). No dependency.
+- **[src/read-lines.mjs](src/read-lines.mjs)** — read a text file into trimmed,
+  comment-stripped, non-empty lines (used for the exclude file).
+- **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
 
-### Key Patterns
+### Key data-flow behaviours
 
-- **Streaming everywhere**: File reads/writes use Node streams to handle large files
-- **Lookup optimization**: When creating snapshots, unchanged files (by mtime/size) reuse hashes from previous snapshot
-- **Immutable snapshots**: Snapshots are never modified after creation (comparison creates new snapshot)
-- **Module organization**: Each command is self-contained with co-located tests (`*.test.mjs`)
+- **Incremental hashing (lookup optimization).** `snapshot` reads the previous snapshot;
+  for each file, if **size and mtime are unchanged**, it reuses the previous hash
+  instead of re-reading and re-hashing the file. `--no-lookup` (`-n`) forces a full
+  re-hash. This is the main performance lever.
+- **Streaming throughout.** `snapshot` is a `pipeline()` of async generators
+  (`tree → progress → props → stringify → zstd → file`), so memory stays flat on huge
+  trees. Files ≥ 5 MB are hashed via a stream rather than read whole.
+- **Move/rename/duplicate detection via content hash.** `compare`/`diff` builds a
+  hash→paths map of the previous snapshot, then classifies each current path:
+  - *modified* — same path, different hash
+  - *moved* — a deleted path's hash reappears at a new path (`→` = rename in same dir,
+    `→→` = moved across dirs)
+  - *added* — genuinely new (records `==` duplicates if the content already existed)
+  - *deleted* — previous path absent and not matched as a move
+- **Resource management** uses `await using` / `Symbol.dispose` for file handles and
+  progress indicators.
 
-## File Structure
+---
+
+## Data model & formats
+
+### On-disk layout (per backed-up directory)
 
 ```
-src/
-  cli.mjs              # CLI entry point
-  commands/            # Command implementations
-    snapshot.mjs       # Snapshot creation
-    compare.mjs        # Snapshot comparison
-    tree.mjs           # File tree walking with exclusions
-    prop.mjs           # File property computation
-    list.mjs           # Snapshot listing
-    *.test.mjs         # Co-located tests
-  snapshot-file.mjs    # Snapshot file format I/O
-  logger.mjs           # Logging utilities
-  read-lines.mjs       # Line reading utility
-  error.mjs            # Custom error types
-  _deprecated/         # Old code kept for reference
-
-.s3cab/
-  exclude.txt          # Glob patterns to exclude from snapshots
-  snapshots/           # Timestamped snapshot files (*.tsv.gz)
-
-test/
-  fixtures/            # Test fixture directories
-  *.mjs                # Test files
+<dir>/.s3cab/
+  exclude.txt                  # exclude globs (optional)
+  snapshots/
+    2025-11-10T2104.tsv.zst    # one immutable snapshot per run, zstd-compressed
+    2025-11-11T0830.tsv.zst
 ```
 
-## Important Implementation Details
+- Snapshot name is a timestamp `YYYY-MM-DDTHHMM` (the `:` is stripped). Newest-first
+  ordering is lexical on the name.
+- The reader accepts a bare `.tsv` or `.tsv.zst` (or extensionless) name, so an
+  uncompressed manifest can be dropped in for inspection. With `--debug`, `snapshot`
+  also writes a decompressed `.snapshot.tsv` alongside for transparency.
 
-- **Node version**: Requires Node.js >=25.2.1 (see `engines` in package.json, `.nvmrc`)
-- **Module system**: ES Modules (`"type": "module"` in package.json, `.mjs` extensions)
-- **Testing**: Uses Node's built-in test runner with `--experimental-test-module-mocks`
-- **AWS SDK**: Dependencies include `@aws-sdk/client-s3`, `@aws-sdk/lib-storage` (S3 integration not yet fully implemented)
-- **Path handling**: All paths normalized with `realpathSync.native()`, uses `/` as separator in snapshots
-- **Concurrency**: No lock file yet (TODO in snapshot.mjs:34) - concurrent snapshots can collide
+### Snapshot line format (TSV)
 
-## Testing Patterns
+```
+<hash>\t<size>\t<mtime>\t<path>
+```
 
-Tests use Node's built-in test runner with:
-- Test files named `*.test.mjs` (excluded from snapshots via `.s3cab/exclude.txt`)
-- Fixtures in `test/fixtures/`
-- Environment variables loaded from `.env.testing`
-- Mock support via `--experimental-test-module-mocks`
+- `hash` — **SHA-256 in lowercase hex** (64 chars). Empty-file hash is the well-known
+  `e3b0c4…b855`.
+- `size` — bytes, right-aligned to width 10.
+- `mtime` — ISO-8601 to ms, width 24.
+- `path` — absolute path, unlimited length, **last** so alignment survives.
+- **Comment / metadata lines** begin with `#`:
+  - `#SNAPSHOT` — header line (carries the snapshot's dir + timestamp).
+  - `#EXCLUDED` — a path skipped by an exclude rule or an unsupported file type
+    (records which pattern matched).
+  - `#<error message>` — a per-file error (e.g. unreadable file) recorded inline rather
+    than aborting the whole snapshot.
+
+> **Edge case to handle before release:** a path containing a literal tab or newline
+> would break a line. Needs a documented rule (reject / encode / comment).
+
+### Exclude globbing
+
+Documented in [doc/exclude.md](doc/exclude.md); implemented in
+[src/commands/tree.mjs](src/commands/tree.mjs) (`createMatcher`). Globs are translated
+to `RegExp` (using `RegExp.escape`, Node 24+):
+
+- `/` is always the path separator (Windows `\` is normalized to `/` for matching).
+- `*` — one or more chars within a single segment.
+- `**/` — zero or more whole segments.
+- `?` — a single char.
+- Case-insensitive matching on Windows (`win32`), case-sensitive elsewhere.
+- `.s3cab/` is always skipped by the walker.
+
+### Intended S3 layout (target, not yet implemented)
+
+```
+s3://<bucket>/<prefix>/
+  objects/<sha256>            # immutable content-addressed blobs
+  snapshots/<set>/<timestamp>.tsv[.zst]
+```
+
+This is the design intent carried over from the early notes; the upload path that would
+populate it lives, as a POC only, in [src/_deprecated/](src/_deprecated/).
+
+---
+
+## Build → native executable (the non-obvious parts)
+
+> The exact npm scripts live in [package.json](package.json) and aren't repeated here.
+> This section records only the *why*.
+
+The distribution goal is a **single native executable** — a user shouldn't need Node
+installed to run s3cab. Producing it is two steps: [build.cjs](build.cjs) uses **esbuild**
+to bundle the ESM source into one **CommonJS** file (the native-bundle step doesn't
+accept ESM — that's the entire reason esbuild is a dependency), then `pkg` packages that
+into binaries.
+
+**`pkg` is itself a reconsideration item:** Node now ships **Single Executable
+Applications (SEA)** natively, which is the more in-philosophy way to produce the binary
+(#3/#5). Migrating `pkg` → native SEA is on the roadmap; esbuild stays only as long as a
+separate ESM→CJS bundling step is needed. (The `bin/` source isn't committed yet — see
+Known gaps.)
+
+Tests deliberately use the built-in `node:test` runner with no framework (see #5).
+
+---
+
+## Known gaps & cleanup items
+
+Pre-release housekeeping and open decisions surfaced from the code:
+
+- **S3 upload/download not implemented** in active code; POC only in `_deprecated/`.
+  Building the `objects/<sha256>` store + remote snapshots is the next milestone.
+- **Stale format comment:** [src/snapshot-file.mjs](src/snapshot-file.mjs) header still
+  describes the hash as base64url (43 chars); the real format is **hex (64 chars)**.
+  Base64url was an abandoned space-saving experiment (negligible gain once compressed,
+  and hex is more recognizable/recoverable). Fix the comment.
+- **package.json paths:** `main` (`src/index.mjs`) and `bin` (`bin/s3cab.cjs`) reference
+  non-existent files; `bin/s3cab.mjs` build entry is also missing. Real entry is
+  `src/cli.mjs`. Reconcile before publishing.
+- **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
+  whether keeping the latest manifest uncompressed for transparency is a real feature.
+- **Remove the Temporal polyfill** once native `Temporal` is available in the target
+  Node (per #5).
+- **Migrate `pkg` → Node native SEA** for the native executable build, and drop esbuild
+  if the ESM→CJS bundling step is no longer required (per #3/#5).
+- **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
+- **Concurrency guard** for snapshots is only the temp-file check; a proper lock file is
+  a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
+- **Remove the `foo` placeholder command.**
+- **Fix typos** in [doc/exclude.md](doc/exclude.md).
+- **Define behaviour** for paths containing tabs/newlines in the TSV (see above).
