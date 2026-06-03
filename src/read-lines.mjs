@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+/** @param {string} path */
 export function readLines(path) {
   return readFileSync(path)
     .toString() // text file

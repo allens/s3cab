@@ -7,12 +7,15 @@ import { secondsSince } from "../format.mjs";
 import { readLines } from "../read-lines.mjs";
 import { formatSnapshotLine } from "../snapshot-file.mjs";
 
+/** @typedef {{ write: (line: string) => unknown }} LineWriter */
+
 /**
  * Recursively list files in a directory.
  * @param {string} dir - Directory to list files from
+ * @param {import("node:stream").Writable} [writeStream]
  * @returns {Array<string>} Array of file paths
  */
-export function tree(dir = ".", writeStream = null) {
+export function tree(dir = ".", writeStream) {
   const start = Temporal.Now.instant();
 
   dir = realpathSync.native(dir);
@@ -20,7 +23,9 @@ export function tree(dir = ".", writeStream = null) {
   console.warn("Finding files in", `'${dir}'`);
 
   // Create exclude predicatetr
-  let walkCallbackFn = null;
+  /** @type {((dirent: import("node:fs").Dirent) => string | null) | undefined} */
+  let walkCallbackFn;
+  /** @type {string[]} */
   let excludes = [];
   const excludeFilePath = join(dir, ".s3cab", "exclude.txt");
   if (existsSync(excludeFilePath)) {
@@ -57,9 +62,10 @@ export function tree(dir = ".", writeStream = null) {
  * Create a predicate function to exclude files based on patterns.
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
- * @returns {(dirent: import("fs").Dirent) => string} walk callback function
+ * @param {LineWriter} [snapshotWriteStream]
+ * @returns {(dirent: import("fs").Dirent) => string | null} walk callback function
  */
-function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream = null) {
+function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
   const matchers = patterns.map((pattern) =>
     createMatcher(join(baseDir, pattern)),
   );
@@ -79,7 +85,7 @@ function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream = null) {
 
       if (index >= 0) {
         snapshotWriteStream?.write(
-          formatSnapshotLine("#EXCLUDED", fileType, patterns.at(index), path),
+          formatSnapshotLine("#EXCLUDED", fileType, patterns[index], path),
         );
         return null;
       }
@@ -148,11 +154,11 @@ function createMatcher(pattern) {
 /**
  * Recursively walk through a directory and yield file paths.
  * @param {string} dir - Directory to walk through
- * @param  {(dirent: import("fs").Dirent) => string} [callbackFn] - Callback function to process files
+ * @param  {(dirent: import("fs").Dirent) => string | null} [callbackFn] - Callback function to process files
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
-function* walkFiles(dir, callbackFn = null) {
+function* walkFiles(dir, callbackFn) {
   for (const dirent of readdirSync(dir, { withFileTypes: true })) {
     const { parentPath, name } = dirent;
 

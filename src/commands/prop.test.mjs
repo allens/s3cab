@@ -17,7 +17,7 @@ describe("prop", () => {
       mtime: "2025-01-15T10:30:00.000Z",
       hash: "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a",
     });
-    assert.ok(hashDuration >= 0 && hashDuration <= 100);
+    assert.ok(hashDuration !== undefined && hashDuration >= 0 && hashDuration <= 100);
   });
 
   it("gets large file properties", async () => {
@@ -32,7 +32,7 @@ describe("prop", () => {
       mtime: "2025-01-15T10:30:00.000Z",
       hash: "eb6183addde05c2196ce25e6fa34a4baf20f9bf30d33892f452a9a1e88c9a472",
     });
-    assert.ok(hashDuration > 0);
+    assert.ok(hashDuration !== undefined && hashDuration > 0);
   });
 
   it("gets empty file properties", async () => {
@@ -50,7 +50,7 @@ describe("prop", () => {
       mtime: "2025-01-15T10:30:00.000Z",
       hash: SHA256_EMPTY_STRING,
     });
-    assert.ok(hashDuration <= 0.1);
+    assert.ok(hashDuration !== undefined && hashDuration <= 0.1);
   });
 
   it("throws for empty file path", async () => {

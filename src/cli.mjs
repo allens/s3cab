@@ -76,7 +76,7 @@ export const commands = {
   },
   foo: {
     summary: "A foo command that does nothing",
-    exec: async () => "✅✏️🆕🚫➕✓☑☐□⮽⮾",
+    exec: async () => ["✅✏️🆕🚫➕✓☑☐□⮽⮾"],
   },
 };
 

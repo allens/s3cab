@@ -20,7 +20,7 @@ import { basename, join } from "node:path";
  * @param {string} dir - Directory to list files from
  * @param {object} [options]
  * @param {boolean} [options.latest] - Return only the latest snapshot file
- * @returns {string[] | string} Array of snapshot names or the latest snapshot name
+ * @returns {string[] | string | undefined} Array of snapshot names or the latest snapshot name
  */
 export function list(dir = ".", options = {}) {
   dir = realpathSync.native(dir);

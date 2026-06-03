@@ -96,7 +96,7 @@ export function createSnapshotDir(baseDir) {
 /**
  * Read a snapshot from snapshot directory
  * @param {string} dir - Snapshot directory
- * @param {string} name - Snapshot name
+ * @param {string} [name] - Snapshot name
  * @returns {Promise<SnapshotLookup>} Snapshot lookup
  */
 export async function readSnapshot(dir, name) {

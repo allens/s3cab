@@ -105,16 +105,17 @@ async function streamHash(path) {
   return hash.digest("hex");
 }
 
+/** @type {{ path: string, stat: fs.Stats } | undefined} */
+let _lstatCache;
+
 /**
  * Cached lstatSync to avoid multiple fs.lstatSync calls for the same path.
  * @param {string} path - File path
  * @returns {fs.Stats} File stats
  */
 function lstatSync(path) {
-  if (path !== _lstatCachedPath) {
-    _lstatCachedPath = path;
-    _lstatCached = fs.lstatSync(path);
+  if (!_lstatCache || _lstatCache.path !== path) {
+    _lstatCache = { path, stat: fs.lstatSync(path) };
   }
-  return _lstatCached;
+  return _lstatCache.stat;
 }
-let _lstatCachedPath, _lstatCached;

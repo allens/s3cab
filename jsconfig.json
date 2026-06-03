@@ -6,7 +6,7 @@
     "checkJs": true,
     "lib": ["ESNext"],
     "types": ["node"],
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true

@@ -31,12 +31,10 @@ export async function compare(
   if (!currentSnapshotName) {
     currentSnapshotName = snapshotNames.at(0);
   }
-  const currentSnapshot = await readSnapshot(dir, currentSnapshotName);
-  if (!currentSnapshot) {
-    throw new Error(
-      `Current snapshot not found: ${currentSnapshotName} in directory: ${dir}`,
-    );
+  if (!currentSnapshotName) {
+    throw new Error(`No snapshots found in directory: ${dir}`);
   }
+  const currentSnapshot = await readSnapshot(dir, currentSnapshotName);
 
   // Previous snapshot
   if (!previousSnapshotName) {
@@ -102,10 +100,12 @@ function getPathsByHash(snapshotLookup) {
   const hashLookup = new Map();
 
   snapshotLookup.forEach(({ hash }, path) => {
-    if (!hashLookup.has(hash)) {
-      hashLookup.set(hash, new Set());
+    let paths = hashLookup.get(hash);
+    if (!paths) {
+      paths = new Set();
+      hashLookup.set(hash, paths);
     }
-    hashLookup.get(hash).add(path);
+    paths.add(path);
   });
 
   return hashLookup;
@@ -174,7 +174,7 @@ export function diff(previousSnapshot, currentSnapshot) {
         added.set(addedPath, notMovedPaths);
       }
     } else {
-      added.set(addedPath, null);
+      added.set(addedPath, new Set());
     }
   }
 

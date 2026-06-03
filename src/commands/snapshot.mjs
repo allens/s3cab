@@ -21,7 +21,7 @@ import { tree } from "./tree.mjs";
  * @param {object} [options]
  * @param {boolean} [options.noLookup] - Do not lookup previous snapshot
  * @param {boolean} [options.debug] - Enable debug mode
- * @returns {Promise<object>} Path to the created snapshot file
+ * @returns {Promise<import("./compare.mjs").CompareResult>} Diff against the previous snapshot
  */
 export async function snapshot(dir = ".", options = {}) {
   // TODO - some kind of lock file to stop concurrent snapshots
@@ -31,7 +31,8 @@ export async function snapshot(dir = ".", options = {}) {
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);
 
-  let lookup = null;
+  /** @type {import("../snapshot-file.mjs").SnapshotLookup | undefined} */
+  let lookup;
   const latestSnapshotName = list(dir, { latest: true });
   if (!options.noLookup && latestSnapshotName) {
     console.warn("Reading previous snapshot", `'${latestSnapshotName}'`);
@@ -53,9 +54,11 @@ export async function snapshot(dir = ".", options = {}) {
         ),
       );
 
+      const files = tree(dir, writeStream);
+
       await pipeline(
-        tree(dir, writeStream),
-        withProgress("Generating snapshot file..."),
+        files,
+        withProgress("Generating snapshot file...", files.length),
         createPropsGenerator(lookup),
         stringifySnapshot,
         writeStream,
@@ -75,9 +78,14 @@ export async function snapshot(dir = ".", options = {}) {
   return await compare(dir, newSnapshotName, latestSnapshotName);
 }
 
-function withProgress(label) {
+/**
+ * @param {string} label
+ * @param {number} total
+ */
+function withProgress(label, total) {
+  /** @param {AsyncIterable<string>} paths */
   return async function* (paths) {
-    using progress = createProgress(label, paths.length);
+    using progress = createProgress(label, total);
     for await (const path of paths) {
       progress.next();
       yield path;
@@ -90,18 +98,22 @@ function withProgress(label) {
  * @param {Map<string, import("../commands/prop.mjs").Props>} [lookup] - Snapshot lookup map or path to snapshot file
  * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, import("../commands/prop.mjs").Props|Error]>}
  */
-export function createPropsGenerator(lookup = null) {
+export function createPropsGenerator(lookup) {
   return async function* (paths) {
     for await (const path of paths) {
       try {
         yield [path, await prop(path, { lookup })];
       } catch (err) {
-        yield [path, err];
+        yield [path, err instanceof Error ? err : new Error(String(err))];
       }
     }
   };
 }
 
+/**
+ * @param {string} label
+ * @param {number} total
+ */
 function createProgress(label, total) {
   const start = Temporal.Now.instant();
 
