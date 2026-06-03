@@ -1,16 +1,24 @@
-# I should be excluded from the root but not /test folder
-README.md
-**\node_modules\
-.git\
+# Exclude rules for backing up this repository with s3cab itself.
+# Syntax: see doc/exclude.md. '/' is always the separator, '**/' spans whole
+# directories, '*' matches within a single segment, and a trailing '/' marks a
+# directory. (The walker always skips .s3cab/, so it needs no rule here.)
 
-**\*.tmp
+# Dependencies and VCS metadata
+**/node_modules/
+.git/
 
+# Build output and packaged binaries
+bin/
+build/
+dist/
+s3cab-linux
+s3cab-macos
+s3cab-win.exe
 
-# These files should be both in test and test\subdir
-test\.DS_Store
-test\subdir\Thumbs.db
+# Test, coverage, and temporary output
+coverage/
+test/.tmp*/
+**/*.tmp
 
-../I break out
-c:\I'm also out
-*.test.mjs
-.\NOTES.md
+# Logs
+**/*.log

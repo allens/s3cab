@@ -3,7 +3,7 @@
 require("esbuild")
   .build({
     logLevel: "info",
-    entryPoints: ["bin/s3cab.mjs"],
+    entryPoints: ["src/cli.mjs"],
     bundle: true,
     outfile: "bin/s3cab.cjs",
     platform: "node",
