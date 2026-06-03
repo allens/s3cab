@@ -16,12 +16,11 @@
   "bin": "bin/s3cab.cjs",
   "repository": "allens/s3cab.git",
   "scripts": {
-    "clean": "aws --profile s3cab-test s3 rm s3://s3cab-test --recursive",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test --env-file=.env.testing --experimental-test-module-mocks",
+    "test": "node --test",
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",

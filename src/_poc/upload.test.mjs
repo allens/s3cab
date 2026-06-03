@@ -19,7 +19,11 @@ const BUCKET = "s3cab-test";
 // TODO fixme
 // mockHomedir();
 
-describe("upload-file", async () => {
+// Parked POC spec: every case is unimplemented (it.skip), and the before() hook
+// uses mock.module (needs --experimental-test-module-mocks). Skip the whole suite
+// so the default `npm test` gate stays free of AWS/experimental coupling. To work
+// on the upload path, un-skip and run via the command in this dir's README.
+describe.skip("upload-file", async () => {
   let uploadFileCommand;
 
   let emptyFile, file1, file2;
