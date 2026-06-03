@@ -6,7 +6,14 @@
       "Bash(git stash *)",
       "Bash(git checkout *)",
       "Bash(git add *)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "PowerShell(npm outdated)",
+      "PowerShell(npm run lint; Write-Output \"---LINT EXIT $LASTEXITCODE---\"; npm test; Write-Output \"---TEST EXIT $LASTEXITCODE---\"; node build.cjs; Write-Output \"---BUILD EXIT $LASTEXITCODE---\")",
+      "PowerShell(npm install --save-dev @eslint/js@latest eslint@latest globals@latest typescript@latest esbuild@latest; Write-Output \"---INSTALL EXIT $LASTEXITCODE---\")",
+      "PowerShell(npm run lint; Write-Output \"---LINT EXIT $LASTEXITCODE---\"; npx tsc -p jsconfig.json --noEmit; Write-Output \"---TSC EXIT $LASTEXITCODE---\")",
+      "PowerShell(npx tsc -p jsconfig.json --noEmit 2>&1 | Select-String -Pattern '^src/' | Where-Object { $_ -notmatch '_deprecated' }; Write-Output \"---ACTIVE SRC TSC DONE---\")",
+      "PowerShell(npm run lint; Write-Output \"---LINT EXIT $LASTEXITCODE---\"; node --test --env-file=.env.testing --experimental-test-module-mocks test/ 2>&1 | Select-String -Pattern '# \\(pass|fail|skip\\)|failing tests|✖'; Write-Output \"---TEST DONE---\")",
+      "PowerShell(npm install --package-lock-only --registry https://registry.npmjs.org/; Write-Output \"---EXIT $LASTEXITCODE---\")"
     ]
   }
 }
