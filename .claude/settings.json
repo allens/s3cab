@@ -20,7 +20,11 @@
       "Bash(npm show *)",
       "Bash(npm install *)",
       "Bash(npm view *)",
-      "Bash(npx prettier *)"
+      "Bash(npx prettier *)",
+      "Bash(git commit *)",
+      "Bash(node --test --env-file=.env.testing src/commands/tree.test.mjs)",
+      "Bash(node --test --env-file=.env.testing test/e2e.mjs)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

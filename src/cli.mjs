@@ -73,10 +73,6 @@ export const commands = {
     },
     exec: async (options, [dir] = []) => list(dir, options),
   },
-  foo: {
-    summary: "A foo command that does nothing",
-    exec: async () => ["✅✏️🆕🚫➕✓☑☐□⮽⮾"],
-  },
 };
 
 const start = Temporal.Now.instant();
