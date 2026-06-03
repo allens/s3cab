@@ -16,7 +16,11 @@
       "PowerShell(npm install --package-lock-only --registry https://registry.npmjs.org/; Write-Output \"---EXIT $LASTEXITCODE---\")",
       "Bash(npm update *)",
       "Bash(npm list *)",
-      "Bash(npm audit *)"
+      "Bash(npm audit *)",
+      "Bash(npm show *)",
+      "Bash(npm install *)",
+      "Bash(npm view *)",
+      "Bash(npx prettier *)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Architecture, design philosophy, and conventions for **s3cab**. This file is for
-contributors and for AI assistants working in the codebase — it documents the *why*
+contributors and for AI assistants working in the codebase — it documents the _why_
 behind decisions, not how to use the tool. User-facing documentation lives in
 [README.md](README.md).
 
@@ -16,8 +16,8 @@ value** (see #2, no lock-in): docs that lie about behaviour undermine the whole 
    target; the code in `src/` excluding `_deprecated/` is what works now). Flag drift you
    notice — stale comments, `package.json` paths to non-existent files, etc.; the "Known
    gaps & cleanup items" section is the running list.
-2. **CLAUDE.md carries only what is *not* trivially knowable from the code** — the
-   non-obvious *why*. Do **not** restate `package.json` scripts, or build/test/lint
+2. **CLAUDE.md carries only what is _not_ trivially knowable from the code** — the
+   non-obvious _why_. Do **not** restate `package.json` scripts, or build/test/lint
    commands, or anything a contributor could derive by reading the source. Developer
    setup instructions, if wanted, belong in the README (or a dedicated dev doc), not here.
 
@@ -45,12 +45,12 @@ What is **built today** is the **local content-addressable snapshot + diff engin
   to detect moves, renames, and duplicates.
 
 What is **not yet built**: the actual upload/download to S3. An early proof-of-concept
-(SSO login, S3 client, multipart upload) is parked in [src/_deprecated/](src/_deprecated/)
-and is the *only* place the AWS SDK is currently used. The content-addressable object
+(SSO login, S3 client, multipart upload) is parked in [src/\_deprecated/](src/_deprecated/)
+and is the _only_ place the AWS SDK is currently used. The content-addressable object
 store (`objects/<sha256>`) and remote snapshot storage are the next milestone.
 
-Treat the README's S3/backup descriptions as the *target*; treat the code in `src/`
-(excluding `_deprecated`) as *what works now*.
+Treat the README's S3/backup descriptions as the _target_; treat the code in `src/`
+(excluding `_deprecated`) as _what works now_.
 
 ---
 
@@ -75,7 +75,7 @@ wins (moved/duplicate files) come from file-level hashing anyway, and the larges
 **Why SHA-256:** ubiquitously available in every language/runtime/CLI (`sha256sum`,
 `openssl`, `certutil`, Node's `crypto`), fast enough that I/O — not hashing — is the
 bottleneck, and collision-resistant with an intact security margin. (Note: SHA-1 — what
-Git historically uses — is *not* a good choice here; collision attacks against it are
+Git historically uses — is _not_ a good choice here; collision attacks against it are
 real, and in a content-addressable store a collision means silent data loss.)
 
 ### 2. No lock-in (hard constraint)
@@ -89,13 +89,14 @@ This is a **hard constraint, not a preference.** Reject any feature that meaning
 harms hand-recoverability, even if it saves space or time. (This is exactly why
 file-level-only dedup is chosen over block packing.)
 
-### 3. Embrace modern *open* tech
+### 3. Embrace modern _open_ tech
 
-Target the newest OS, runtime, and language features deliberately — *provided they are
-standard and open*. Modern ≠ proprietary. The project happily requires recent tech
+Target the newest OS, runtime, and language features deliberately — _provided they are
+standard and open_. Modern ≠ proprietary. The project happily requires recent tech
 (see `engines.node`), but only open, widely-implemented tech.
 
 Worked examples:
+
 - **zstd** — an open standard, native in Node and in Windows 11 (not Win10 out of the
   box). Chosen for snapshot compression after testing several algorithms; best
   speed/ratio balance.
@@ -113,7 +114,7 @@ Snapshots are tab-separated values. This flows directly from #2.
   sort/filter/pivot over a backup manifest. (Caveat: don't let Excel re-save and mangle
   it.)
 - **TSV > CSV > JSON** for this job: tabs almost never occur in real paths, so we avoid
-  CSV's comma-quoting *and* JSON's escaping — notably JSON would force escaping every
+  CSV's comma-quoting _and_ JSON's escaping — notably JSON would force escaping every
   Windows backslash (`C:\\Users\\...`). Less escaping = more directly recoverable.
 
 See the format spec at the top of [src/snapshot-file.mjs](src/snapshot-file.mjs) and
@@ -124,15 +125,16 @@ the data-model section below.
 Prefer Node/JS built-ins. The bar to add a third-party dependency is high, and applies
 to **runtime deps, CLI ergonomics, and dev tooling** alike:
 
-- Arg parsing → Node's `node:util` **`parseArgs`**, *not* commander.
-- Terminal output → plain ANSI / `process.stderr`, *not* chalk.
-- Tests → Node's built-in **`node:test`** runner, *not* Jest (especially) or Vitest.
+- Arg parsing → Node's `node:util` **`parseArgs`**, _not_ commander.
+- Terminal output → plain ANSI / `process.stderr`, _not_ chalk.
+- Tests → Node's built-in **`node:test`** runner, _not_ Jest (especially) or Vitest.
   This is a deliberate choice; contributors should **not** introduce a test framework.
 
 **Permitted runtime dependencies are exactly two kinds:**
+
 1. **Genuinely too big to hand-craft** → the **AWS SDK** (SigV4, multipart, SSO/OIDC).
-   This is *the* sanctioned exception; reimplementing it by hand would be absurd.
-2. **Polyfills of actual standards**, accepted *temporarily*, removed the moment the
+   This is _the_ sanctioned exception; reimplementing it by hand would be absurd.
+2. **Polyfills of actual standards**, accepted _temporarily_, removed the moment the
    native version ships. Filling a standards gap is fine; reaching for a convenience lib
    is not. There are currently **none**: `@js-temporal/polyfill` was the worked example,
    and it was duly dropped once native `Temporal` landed in the target Node (≥26.3.0) —
@@ -148,10 +150,11 @@ capabilities may remove the need for it over time.
 
 Code should be as **small and low-surface-area** as possible — easy for a newcomer (or
 future maintainer) to pick up. This is in honest **tension** with #5: avoiding a library
-can mean writing bespoke code, which *adds* code.
+can mean writing bespoke code, which _adds_ code.
 
 **Resolution — minimize total complexity (bespoke code + dependency weight):**
-- Modern Node usually makes the bespoke alternative *tiny* (parseArgs vs commander,
+
+- Modern Node usually makes the bespoke alternative _tiny_ (parseArgs vs commander,
   ANSI vs chalk) → write the small code, skip the dep. Both #5 and #6 win.
 - When an honest reimplementation would be **large or risky** (SigV4, multipart, SSO),
   the library wins. The AWS SDK is the worked example of #5 yielding to #6.
@@ -168,7 +171,7 @@ build/transpile step for source — the code you read is the code that runs.
 **Flagged for reconsideration:** the original draw of pure JS was avoiding a toolchain.
 Node now runs TypeScript natively and non-experimentally, so that argument is much
 weaker. JS for now, but this is an open question — parallel to the Temporal polyfill,
-which modern Node *did* make obsolete (it has since been removed): a stance modern Node
+which modern Node _did_ make obsolete (it has since been removed): a stance modern Node
 may likewise overtake.
 
 ---
@@ -188,14 +191,14 @@ all driven off that registry. Adding a command = adding one entry.
 
 ### Commands (`src/commands/`) — all currently local
 
-| Command    | File           | Purpose |
-|------------|----------------|---------|
-| `tree`     | tree.mjs       | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
-| `snapshot` | snapshot.mjs   | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
-| `prop`     | prop.mjs       | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
-| `compare`  | compare.mjs    | Diff two snapshots → added / moved / modified / deleted. |
-| `list`     | list.mjs       | List snapshot names (sorted newest-first), or `--latest`. |
-| `foo`      | (in cli.mjs)   | Placeholder; should be removed. |
+| Command    | File         | Purpose                                                                                                    |
+| ---------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `tree`     | tree.mjs     | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
+| `snapshot` | snapshot.mjs | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous.      |
+| `prop`     | prop.mjs     | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB).                                   |
+| `compare`  | compare.mjs  | Diff two snapshots → added / moved / modified / deleted.                                                   |
+| `list`     | list.mjs     | List snapshot names (sorted newest-first), or `--latest`.                                                  |
+| `foo`      | (in cli.mjs) | Placeholder; should be removed.                                                                            |
 
 ### Core modules
 
@@ -221,11 +224,11 @@ all driven off that registry. Adding a command = adding one entry.
   trees. Files ≥ 5 MB are hashed via a stream rather than read whole.
 - **Move/rename/duplicate detection via content hash.** `compare`/`diff` builds a
   hash→paths map of the previous snapshot, then classifies each current path:
-  - *modified* — same path, different hash
-  - *moved* — a deleted path's hash reappears at a new path (`→` = rename in same dir,
+  - _modified_ — same path, different hash
+  - _moved_ — a deleted path's hash reappears at a new path (`→` = rename in same dir,
     `→→` = moved across dirs)
-  - *added* — genuinely new (records `==` duplicates if the content already existed)
-  - *deleted* — previous path absent and not matched as a move
+  - _added_ — genuinely new (records `==` duplicates if the content already existed)
+  - _deleted_ — previous path absent and not matched as a move
 - **Resource management** uses `await using` / `Symbol.dispose` for file handles and
   progress indicators.
 
@@ -292,14 +295,14 @@ s3://<bucket>/<prefix>/
 ```
 
 This is the design intent carried over from the early notes; the upload path that would
-populate it lives, as a POC only, in [src/_deprecated/](src/_deprecated/).
+populate it lives, as a POC only, in [src/\_deprecated/](src/_deprecated/).
 
 ---
 
 ## Build → native executable (the non-obvious parts)
 
 > The exact npm scripts live in [package.json](package.json) and aren't repeated here.
-> This section records only the *why*.
+> This section records only the _why_.
 
 The distribution goal is a **single native executable** — a user shouldn't need Node
 installed to run s3cab. Producing it is two steps: [build.cjs](build.cjs) uses **esbuild**

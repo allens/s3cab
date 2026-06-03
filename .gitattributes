@@ -1,0 +1,9 @@
+# Normalize line endings: store text as LF in the repo and check out as LF
+# on every platform, so the working tree is deterministic regardless of each
+# contributor's core.autocrlf setting.
+* text=auto eol=lf
+
+# Snapshot manifests are LF text; the zstd-compressed form is binary.
+*.tsv text eol=lf
+*.tsv.zst binary
+*.zst binary

@@ -30,7 +30,7 @@ is never locked in**:
 
 - **🔁 Real change detection.** Comparing two snapshots shows exactly what was **added,
   moved, renamed, modified, or deleted**. Because it matches on content hashes, a moved
-  or renamed file is recognised as the *same* file — not a delete plus an add.
+  or renamed file is recognised as the _same_ file — not a delete plus an add.
 
 - **🧱 Modern, open building blocks.** Standard SHA-256 hashing, zstd compression, and a
   current Node.js runtime. Deliberately modern — but never proprietary.
@@ -40,13 +40,13 @@ is never locked in**:
 s3cab is currently a **local content-addressable snapshot engine**. These commands work
 today (no cloud involved yet):
 
-| Command    | What it does |
-|------------|--------------|
-| `snapshot` | Take a snapshot of a directory: hash every file and write a manifest. |
+| Command    | What it does                                                                  |
+| ---------- | ----------------------------------------------------------------------------- |
+| `snapshot` | Take a snapshot of a directory: hash every file and write a manifest.         |
 | `compare`  | Show what changed between two snapshots (added / moved / modified / deleted). |
-| `list`     | List the snapshots taken for a directory. |
-| `tree`     | List the files in a directory, honouring exclude rules. |
-| `prop`     | Show the hash, size, and modified time of a single file. |
+| `list`     | List the snapshots taken for a directory.                                     |
+| `tree`     | List the files in a directory, honouring exclude rules.                       |
+| `prop`     | Show the hash, size, and modified time of a single file.                      |
 
 **Planned:** uploading and downloading content to S3 / S3-compatible storage — the
 content-addressed object store (`objects/<hash>`) and remote snapshots — which will turn
@@ -104,5 +104,5 @@ node src/cli.mjs <command> [options] [args]
 
 ---
 
-*Contributors: see [CLAUDE.md](CLAUDE.md) for architecture, design philosophy, and
-conventions.*
+_Contributors: see [CLAUDE.md](CLAUDE.md) for architecture, design philosophy, and
+conventions._

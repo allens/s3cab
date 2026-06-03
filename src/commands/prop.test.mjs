@@ -17,7 +17,9 @@ describe("prop", () => {
       mtime: "2025-01-15T10:30:00.000Z",
       hash: "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a",
     });
-    assert.ok(hashDuration !== undefined && hashDuration >= 0 && hashDuration <= 100);
+    assert.ok(
+      hashDuration !== undefined && hashDuration >= 0 && hashDuration <= 100,
+    );
   });
 
   it("gets large file properties", async () => {
