@@ -71,7 +71,7 @@ export async function prop(path, options = {}) {
     return fromLookup;
   }
 
-  let hash = null;
+  let hash;
   if (size >= 5_000_000) {
     hash = await streamHash(path);
   } else if (size) {
