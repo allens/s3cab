@@ -6,3 +6,8 @@ coverage
 .s3cab
 *.tsv
 *.tsv.zst
+
+# Docs are hand-authored. Prettier's Markdown formatting churns prose emphasis
+# (*x* -> _x_) and pads table cells with trailing whitespace, which makes the
+# frequently AI-edited CLAUDE.md tables fragile to edit. Keep md out.
+*.md

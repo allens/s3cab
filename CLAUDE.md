@@ -100,7 +100,7 @@ Worked examples:
 - **zstd** — an open standard, native in Node and in Windows 11 (not Win10 out of the
   box). Chosen for snapshot compression after testing several algorithms; best
   speed/ratio balance.
-- **Node 25+** — for native built-ins that remove the need for dependencies (see #5).
+- **Node 26+** — for native built-ins that remove the need for dependencies (see #5).
 
 ### 4. TSV snapshot manifests
 
@@ -186,19 +186,19 @@ Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegati
 `allowPositionals`), a generic `usage()`/help generator, and a shared error handler are
 all driven off that registry. Adding a command = adding one entry.
 
-> Note: `package.json` `main` (`src/index.mjs`) and `bin` (`bin/s3cab.cjs`) point at
-> files that don't exist yet — `src/cli.mjs` is the working entry. See Known gaps.
+> Note: `package.json` `main` is `src/cli.mjs` (the working entry). `bin` is
+> `bin/s3cab.cjs` — the esbuild bundle produced by `npm run build`, a gitignored
+> build artifact rather than committed source (see Build).
 
 ### Commands (`src/commands/`) — all currently local
 
-| Command    | File         | Purpose                                                                                                    |
-| ---------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
-| `tree`     | tree.mjs     | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
-| `snapshot` | snapshot.mjs | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous.      |
-| `prop`     | prop.mjs     | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB).                                   |
-| `compare`  | compare.mjs  | Diff two snapshots → added / moved / modified / deleted.                                                   |
-| `list`     | list.mjs     | List snapshot names (sorted newest-first), or `--latest`.                                                  |
-| `foo`      | (in cli.mjs) | Placeholder; should be removed.                                                                            |
+| Command | File | Purpose |
+| --- | --- | --- |
+| `tree` | tree.mjs | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
+| `snapshot` | snapshot.mjs | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
+| `prop` | prop.mjs | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
+| `compare` | compare.mjs | Diff two snapshots → added / moved / modified / deleted. |
+| `list` | list.mjs | List snapshot names (sorted newest-first), or `--latest`. |
 
 ### Core modules
 
@@ -306,17 +306,44 @@ populate it lives, as a POC only, in [src/\_deprecated/](src/_deprecated/).
 
 The distribution goal is a **single native executable** — a user shouldn't need Node
 installed to run s3cab. Producing it is two steps: [build.cjs](build.cjs) uses **esbuild**
-to bundle the ESM source into one **CommonJS** file (the native-bundle step doesn't
-accept ESM — that's the entire reason esbuild is a dependency), then `pkg` packages that
-into binaries.
+to bundle the ESM source (entry: `src/cli.mjs`) into one **CommonJS** file, `bin/s3cab.cjs`
+(the native-bundle step doesn't accept ESM — that's the entire reason esbuild is a
+dependency; the `#!/usr/bin/env node` shebang is injected by esbuild's banner). `npm run build`
+produces that bundle, which is a generated, gitignored artifact. A second step would then
+package the bundle into platform binaries.
 
 **`pkg` is itself a reconsideration item:** Node now ships **Single Executable
 Applications (SEA)** natively, which is the more in-philosophy way to produce the binary
 (#3/#5). Migrating `pkg` → native SEA is on the roadmap; esbuild stays only as long as a
-separate ESM→CJS bundling step is needed. (The `bin/` source isn't committed yet — see
-Known gaps.)
+separate ESM→CJS bundling step is needed. Note `pkg` is **not currently a dependency**, so
+the packaging step can't run yet — finishing it (or replacing it with SEA) is open work.
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
+
+---
+
+## Formatting, line endings & tooling (the non-obvious why)
+
+- **Line endings are normalised to LF via [.gitattributes](.gitattributes)**
+  (`* text=auto eol=lf`). This is deliberate and load-bearing: the working tree is LF on
+  every platform, so Prettier's default `endOfLine` is satisfied with **no `.prettierrc`
+  needed**. Beware the Windows trap that motivated it — PowerShell's `>` / `Out-File`
+  (and some editors) emit **UTF-16 + CRLF**; `.nvmrc` had silently become UTF-16 this way,
+  which `nvm`/`fnm` can't parse. Author dotfiles as plain UTF-8/ASCII with LF.
+- **Prettier formats code only; Markdown is excluded** ([.prettierignore](.prettierignore)).
+  Its prose-emphasis restyle (`*x*` → `_x_`) and table-cell padding add churn and make the
+  frequently AI-edited CLAUDE.md tables fragile to edit, for no real gain (`proseWrap`
+  doesn't reflow prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores
+  generated build artifacts** (`bin/`, `build/`, `coverage/`, `dist/`) — otherwise it lints
+  the bundled output.
+- **`.gitignore` ignores the repo's own snapshot output with a root-anchored
+  `/.s3cab/snapshots/`**, so committed test fixtures under
+  `test/fixtures/**/.s3cab/snapshots/` stay tracked. Don't broaden it to `**/.s3cab/`.
+- **The repo dogfoods itself:** the root [.s3cab/exclude.txt](.s3cab/exclude.txt) is a real
+  exclude config (node_modules, .git, build output…), so `s3cab tree .` / `snapshot .`
+  works on the repo itself. Exclude behaviour is covered by
+  [src/commands/tree.test.mjs](src/commands/tree.test.mjs); end-to-end CLI behaviour by
+  [test/e2e.mjs](test/e2e.mjs), which spawns `node src/cli.mjs` as a subprocess.
 
 ---
 
@@ -330,16 +357,16 @@ Pre-release housekeeping and open decisions surfaced from the code:
   describes the hash as base64url (43 chars); the real format is **hex (64 chars)**.
   Base64url was an abandoned space-saving experiment (negligible gain once compressed,
   and hex is more recognizable/recoverable). Fix the comment.
-- **package.json paths:** `main` (`src/index.mjs`) and `bin` (`bin/s3cab.cjs`) reference
-  non-existent files; `bin/s3cab.mjs` build entry is also missing. Real entry is
-  `src/cli.mjs`. Reconcile before publishing.
+- **Native-executable packaging is unfinished:** `npm run build` makes the bundle, but
+  `pkg` isn't installed and the `pkg` → Node SEA migration (per #3/#5) is still open. Drop
+  esbuild if the ESM→CJS bundling step becomes unnecessary.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
-- **Migrate `pkg` → Node native SEA** for the native executable build, and drop esbuild
-  if the ESM→CJS bundling step is no longer required (per #3/#5).
+- **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in `src/_deprecated/`
+  and the untyped `test/helper.test.mjs`. Outside the active `src/` set, but a typing pass
+  would let type-checking gate cleanly.
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check; a proper lock file is
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
-- **Remove the `foo` placeholder command.**
 - **Fix typos** in [doc/exclude.md](doc/exclude.md).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see above).
