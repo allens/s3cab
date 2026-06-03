@@ -1,4 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
 import assert from "node:assert";
 import {
   cpSync,

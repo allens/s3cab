@@ -1,4 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
 import { assert } from "node:console";
 import crypto, { createHash } from "node:crypto";
 import fs, { createReadStream, readFileSync } from "node:fs";

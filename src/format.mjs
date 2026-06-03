@@ -1,5 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
-
 const byteValueNumberFormatter = Intl.NumberFormat("en", {
   notation: "compact",
   style: "unit",

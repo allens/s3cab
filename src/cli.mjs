@@ -1,4 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
 import { parseArgs } from "node:util";
 import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";

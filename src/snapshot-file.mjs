@@ -1,4 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
 import assert from "node:assert";
 import { createReadStream, existsSync, mkdirSync } from "node:fs";
 import { open, rename, writeFile } from "node:fs/promises";

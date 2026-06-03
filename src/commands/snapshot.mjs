@@ -1,4 +1,3 @@
-import { Temporal } from "@js-temporal/polyfill";
 import { createReadStream, createWriteStream, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";

@@ -112,8 +112,10 @@ to **runtime deps, CLI ergonomics, and dev tooling** alike:
 1. **Genuinely too big to hand-craft** → the **AWS SDK** (SigV4, multipart, SSO/OIDC).
    This is *the* sanctioned exception; reimplementing it by hand would be absurd.
 2. **Polyfills of actual standards**, accepted *temporarily*, removed the moment the
-   native version ships → **`@js-temporal/polyfill`**. Filling a standards gap is fine;
-   reaching for a convenience lib is not.
+   native version ships. Filling a standards gap is fine; reaching for a convenience lib
+   is not. There are currently **none**: `@js-temporal/polyfill` was the worked example,
+   and it was duly dropped once native `Temporal` landed in the target Node (≥26.3.0) —
+   `Temporal` is now used as a global. The AWS SDK is therefore the only runtime dep.
 
 **Dev dependencies get a more relaxed bar** — they never ship to users and don't affect
 recoverability. The notable one is **esbuild**, used only to bundle the ESM source into
@@ -144,8 +146,9 @@ build/transpile step for source — the code you read is the code that runs.
 
 **Flagged for reconsideration:** the original draw of pure JS was avoiding a toolchain.
 Node now runs TypeScript natively and non-experimentally, so that argument is much
-weaker. JS for now, but this is an open question — parallel to the Temporal polyfill: a
-stance modern Node may make obsolete.
+weaker. JS for now, but this is an open question — parallel to the Temporal polyfill,
+which modern Node *did* make obsolete (it has since been removed): a stance modern Node
+may likewise overtake.
 
 ---
 
@@ -308,8 +311,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   `src/cli.mjs`. Reconcile before publishing.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
-- **Remove the Temporal polyfill** once native `Temporal` is available in the target
-  Node (per #5).
 - **Migrate `pkg` → Node native SEA** for the native executable build, and drop esbuild
   if the ESM→CJS bundling step is no longer required (per #3/#5).
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
