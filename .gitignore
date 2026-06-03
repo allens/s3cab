@@ -131,3 +131,6 @@ test/fixtures/dir1/.s3cab/snapshot-log.tsv
 test/.tmp/*
 snapshot.txt
 .s3cab/~snapshot.tsv
+
+# Claude Code local (personal) settings
+.claude/settings.local.json
