@@ -12,12 +12,11 @@
   },
   "license": "GPL-3.0-or-later",
   "author": "Allen Shiels <allen@shiels.dev> (https://github.com/allens/)",
-  "main": "src/index.mjs",
+  "main": "src/cli.mjs",
   "bin": "bin/s3cab.cjs",
   "repository": "allens/s3cab.git",
   "scripts": {
     "clean": "aws --profile s3cab-test s3 rm s3://s3cab-test --recursive",
-    "clean:config": "node s3cab.mjs init --erase",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
