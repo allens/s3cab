@@ -13,7 +13,7 @@ value** (see #2, no lock-in): docs that lie about behaviour undermine the whole 
 1. **Keep docs rigorously in sync with the code — never aspirational or stale.** Before
    writing a claim, verify it against the actual code. Always distinguish what is **built
    today** from what is **planned/target** (the README's S3/backup descriptions are the
-   target; the code in `src/` excluding `_deprecated/` is what works now). Flag drift you
+   target; the code in `src/` excluding `_poc/` is what works now). Flag drift you
    notice — stale comments, `package.json` paths to non-existent files, etc.; the "Known
    gaps & cleanup items" section is the running list.
 2. **CLAUDE.md carries only what is _not_ trivially knowable from the code** — the
@@ -45,12 +45,14 @@ What is **built today** is the **local content-addressable snapshot + diff engin
   to detect moves, renames, and duplicates.
 
 What is **not yet built**: the actual upload/download to S3. An early proof-of-concept
-(SSO login, S3 client, multipart upload) is parked in [src/\_deprecated/](src/_deprecated/)
-and is the _only_ place the AWS SDK is currently used. The content-addressable object
-store (`objects/<sha256>`) and remote snapshot storage are the next milestone.
+(SSO login, S3 client, multipart upload) lives in [src/\_poc/](src/_poc/) and is the
+_only_ place the AWS SDK is currently used. `_poc/` is an **experimental sandbox**: some
+of it will be promoted into the real codebase, some will be deleted — none of it is wired
+into the live CLI. The content-addressable object store (`objects/<sha256>`) and remote
+snapshot storage are the next milestone.
 
 Treat the README's S3/backup descriptions as the _target_; treat the code in `src/`
-(excluding `_deprecated`) as _what works now_.
+(excluding `_poc`) as _what works now_.
 
 ---
 
@@ -295,7 +297,7 @@ s3://<bucket>/<prefix>/
 ```
 
 This is the design intent carried over from the early notes; the upload path that would
-populate it lives, as a POC only, in [src/\_deprecated/](src/_deprecated/).
+populate it lives, as a POC only, in [src/\_poc/](src/_poc/).
 
 ---
 
@@ -344,6 +346,14 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
   works on the repo itself. Exclude behaviour is covered by
   [src/commands/tree.test.mjs](src/commands/tree.test.mjs); end-to-end CLI behaviour by
   [test/e2e.mjs](test/e2e.mjs), which spawns `node src/cli.mjs` as a subprocess.
+- **Test layout convention:** unit tests are **co-located** with their source as
+  `*.test.mjs`; [test/](test/) holds only cross-cutting tests (`e2e.mjs`), shared
+  `fixtures/`, and `_poc/home/` ($HOME fixtures for the experimental S3 POC). See
+  [test/README.md](test/README.md). Node's runner executes **every** `*.{js,mjs,cjs}`
+  under a `test/` dir (not just `*.test.*`), so keep non-test `.mjs` (scratch scripts,
+  shared helpers) **out** of `test/` or they run as phantom empty tests — scratch goes
+  in [scripts/](scripts/); the POC's mock-`$HOME` helper lives in `src/_poc/`
+  beside the test that uses it.
 
 ---
 
@@ -351,7 +361,8 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **S3 upload/download not implemented** in active code; POC only in `_deprecated/`.
+- **S3 upload/download not implemented** in active code; experimental POC only in
+  [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
 - **Stale format comment:** [src/snapshot-file.mjs](src/snapshot-file.mjs) header still
   describes the hash as base64url (43 chars); the real format is **hex (64 chars)**.
@@ -362,9 +373,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
   esbuild if the ESM→CJS bundling step becomes unnecessary.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
-- **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in `src/_deprecated/`
-  and the untyped `test/helper.test.mjs`. Outside the active `src/` set, but a typing pass
-  would let type-checking gate cleanly.
+- **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental
+  [src/\_poc/](src/_poc/) sandbox. Outside the active `src/` set, so the tsc helper in
+  `.claude/settings.json` filters `_poc` out; a typing pass would let it gate cleanly.
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check; a proper lock file is
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
