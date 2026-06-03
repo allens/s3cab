@@ -13,15 +13,15 @@ import { secondsSince } from "./format.mjs";
 // Each line represents a file with the following tab-separated fields:
 // col1<TAB>col2<TAB>col3<TAB>path<TAB>optional_extra_fields
 // Column widths are:
-// col1: 43 characters (length of base64url-encoded SHA256 hash)
-// col2: 11 characters (file size in bytes as string long enough to go to double digit Gigabytes)
+// col1: 64 characters (length of lowercase hex-encoded SHA-256 hash)
+// col2: 10 characters (file size in bytes as string long enough to go to double digit Gigabytes)
 // col3: 24 characters (ISO 8601 datetime string to milliseconds precision)
 // path: unlimited length (file path)
 // # : comment line
 // For included files  the fields are:
 // hash<TAB>size<TAB>mtime<TAB>path
 // where:
-// hash: SHA256 hash of the file content in base64url encoding
+// hash: SHA-256 hash of the file content in lowercase hex encoding
 // mtime: modification time in ISO 8601 format
 // size: size of the file in bytes (right-aligned)
 // For comment lines the fields are:

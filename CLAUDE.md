@@ -261,7 +261,9 @@ all driven off that registry. Adding a command = adding one entry.
 ```
 
 - `hash` — **SHA-256 in lowercase hex** (64 chars). Empty-file hash is the well-known
-  `e3b0c4…b855`.
+  `e3b0c4…b855`. (Base64url was an abandoned space-saving experiment — 43 chars vs 64 —
+  dropped because the gain is negligible once the manifest is zstd-compressed, and hex
+  is more recognizable and hand-recoverable, per #2.)
 - `size` — bytes, right-aligned to width 10.
 - `mtime` — ISO-8601 to ms, width 24.
 - `path` — absolute path, unlimited length, **last** so alignment survives.
@@ -364,10 +366,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
-- **Stale format comment:** [src/snapshot-file.mjs](src/snapshot-file.mjs) header still
-  describes the hash as base64url (43 chars); the real format is **hex (64 chars)**.
-  Base64url was an abandoned space-saving experiment (negligible gain once compressed,
-  and hex is more recognizable/recoverable). Fix the comment.
 - **Native-executable packaging is unfinished:** `npm run build` makes the bundle, but
   `pkg` isn't installed and the `pkg` → Node SEA migration (per #3/#5) is still open. Drop
   esbuild if the ESM→CJS bundling step becomes unnecessary.
