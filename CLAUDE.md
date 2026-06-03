@@ -5,6 +5,27 @@ contributors and for AI assistants working in the codebase — it documents the 
 behind decisions, not how to use the tool. User-facing documentation lives in
 [README.md](README.md).
 
+### Documentation discipline (applies to this file and the README)
+
+Two standing rules govern the docs. They matter because **transparency is a core project
+value** (see #2, no lock-in): docs that lie about behaviour undermine the whole premise.
+
+1. **Keep docs rigorously in sync with the code — never aspirational or stale.** Before
+   writing a claim, verify it against the actual code. Always distinguish what is **built
+   today** from what is **planned/target** (the README's S3/backup descriptions are the
+   target; the code in `src/` excluding `_deprecated/` is what works now). Flag drift you
+   notice — stale comments, `package.json` paths to non-existent files, etc.; the "Known
+   gaps & cleanup items" section is the running list.
+2. **CLAUDE.md carries only what is *not* trivially knowable from the code** — the
+   non-obvious *why*. Do **not** restate `package.json` scripts, or build/test/lint
+   commands, or anything a contributor could derive by reading the source. Developer
+   setup instructions, if wanted, belong in the README (or a dedicated dev doc), not here.
+
+The split itself: **README.md** is user-facing (what it is, why, status, commands,
+install/usage, license — examples use Windows paths, the primary target). **CLAUDE.md**
+is for contributors/AI (architecture, the design philosophy below, data formats,
+conventions, and the pre-release TODO list).
+
 ---
 
 ## What this project is
