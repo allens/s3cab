@@ -13,7 +13,15 @@
   "license": "GPL-3.0-or-later",
   "author": "Allen Shiels <allen@shiels.dev> (https://github.com/allens/)",
   "main": "src/cli.mjs",
-  "bin": "dist/s3cab.js",
+  "bin": {
+    "s3cab": "src/cli.mjs"
+  },
+  "files": [
+    "src",
+    "doc",
+    "!src/_poc",
+    "!src/**/*.test.mjs"
+  ],
   "repository": "allens/s3cab.git",
   "scripts": {
     "lint": "eslint .",

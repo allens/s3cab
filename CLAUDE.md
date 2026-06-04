@@ -188,9 +188,10 @@ Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegati
 `allowPositionals`), a generic `usage()`/help generator, and a shared error handler are
 all driven off that registry. Adding a command = adding one entry.
 
-> Note: `package.json` `main` is `src/cli.mjs` (the working entry). `bin` is
-> `dist/s3cab.js` — the esbuild ESM bundle produced by `npm run build`, a gitignored
-> build artifact rather than committed source (see Build).
+> Note: both `package.json` `main` and `bin` (`s3cab`) point at `src/cli.mjs` — it carries
+> a `#!/usr/bin/env node` shebang so it runs directly as the npm-installed command. The
+> esbuild bundle (`dist/s3cab.js`) is _not_ referenced here; it exists only as the SEA
+> input (see Build → "npm package" for why npm ships source, not the bundle).
 
 ### Commands (`src/commands/`) — all currently local
 
@@ -315,10 +316,13 @@ installed to run s3cab. Producing it is two steps:
    ESM source (entry: `src/cli.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
    configured to **bundle only** — no `target`/`minify`, so it inlines imports without
    down-levelling or otherwise rewriting the JS; the output is the same modern syntax that
-   runs from source. The `#!/usr/bin/env node` shebang is injected by esbuild's banner.
-   esbuild exists purely because SEA needs a **single standalone file** (a SEA main may
-   only `import`/`require` built-ins, not other files) — _not_ to convert module format.
-   The bundle is a generated, gitignored artifact.
+   runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
+   (`src/cli.mjs`, so that file _also_ works as the npm `bin` — see "npm package" below);
+   esbuild **preserves an entry point's shebang** into the bundle, so build.cjs adds no
+   banner (a banner would duplicate it, and a second `#!` line is a syntax error). esbuild
+   exists purely because SEA needs a **single standalone file** (a SEA main may only
+   `import`/`require` built-ins, not other files) — _not_ to convert module format. The
+   bundle is a generated, gitignored artifact.
 2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
    copy of the node binary and writes the executable in one step — no `postject`, no extra
    dependency. The per-target configs live in [sea/](sea/) and are **static, committed
@@ -373,6 +377,23 @@ OS-independent). `release.yml` deliberately does **not** trigger on branches/PRs
 release workflow keeps its own single-OS lint+test gate to re-check the one commit CI
 doesn't see — the tag. Both pin the same `NODE_VERSION` and default to
 `permissions: contents: read` (the release job alone opts up to `contents: write`).
+
+**npm package — ships source, not the bundle.** The native binary is one distribution
+channel; publishing to npm is the other, and they have **opposite** needs. npm installs a
+file tree and lets Node resolve imports across files, so the npm package ships the plain
+`src/` modules and points `bin` at `src/cli.mjs` directly — **no bundle, no build step on
+publish.** (Shipping readable source rather than an opaque blob is also the #2/#7 choice:
+the code you install is the code that runs.) The bundle exists _only_ for SEA's single-file
+constraint. Consequences worth knowing:
+
+- The `files` allowlist uses **negation** (`"!src/_poc"`, `"!src/**/*.test.mjs"`) to keep
+  the experimental sandbox and co-located tests out of the tarball. Verify with
+  `npm pack --dry-run` after touching it — that's the source of truth (currently 14 files).
+- The **AWS SDK is a normal npm `dependency`** here (npm installs it). In the SEA channel
+  the _same_ dep is instead inlined into the bundle (`aws-crt` left external → JS fallback).
+  One dependency, two fates. NB: today the live CLI doesn't import it yet (only `_poc`
+  does), so it's effectively unused weight until the S3 milestone lands — at which point it
+  also starts bloating the SEA binary.
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 
