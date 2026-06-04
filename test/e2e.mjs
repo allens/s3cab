@@ -9,10 +9,12 @@ import { describe, it } from "node:test";
 const CLI = "src/cli.mjs";
 
 // The packaged SEA executable, built on demand by `npm run build:exe`. Its path
-// is read from sea-config.json so this test can't drift from the build config.
-// It's a ~100 MB artifact that doesn't exist in a normal checkout, so the smoke
-// test below skips itself unless the binary has actually been built.
-const EXE = JSON.parse(readFileSync("sea-config.json", "utf8")).output;
+// is read from this host's static SEA config (sea/<target>.json) so this test
+// can't drift from the build config. It's a ~100 MB artifact that doesn't exist
+// in a normal checkout, so the smoke test below skips itself unless the binary
+// has actually been built.
+const HOST_TARGET = `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`;
+const EXE = JSON.parse(readFileSync(`sea/${HOST_TARGET}.json`, "utf8")).output;
 
 /**
  * Run the s3cab CLI as a child process.
@@ -54,7 +56,11 @@ describe("cli (e2e)", () => {
   // produces correct output. Skipped unless `npm run build:exe` has built it.
   it(
     "packaged exe runs and computes a file's properties",
-    { skip: existsSync(EXE) ? false : `${EXE} not built (run \`npm run build:exe\`)` },
+    {
+      skip: existsSync(EXE)
+        ? false
+        : `${EXE} not built (run \`npm run build:exe\`)`,
+    },
     async () => {
       await using dir = await mkdtempDisposable(join("test", ".tmp"));
       const file = join(dir.path, "hello.txt");

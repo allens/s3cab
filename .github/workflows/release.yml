@@ -3,8 +3,9 @@
 # Design: build NATIVELY per runner rather than cross-compiling. Each runner's own
 # node both produces the SEA blob and is the base binary, so the "same version"
 # rule is satisfied by construction — and the macOS runner can sign with the real
-# `codesign` (which only exists on macOS). scripts/build-sea-cross.mjs detects the
-# host target and builds with the runner's node (no download).
+# `codesign` (which only exists on macOS). Each job just runs `--build-sea` against
+# its platform's static config in sea/ (no script, no download — setup-node provides
+# the node, and an omitted `executable` defaults to that running node).
 #
 # Triggers: a `v*` tag (cuts a GitHub Release) or manual dispatch (artifacts only).
 
@@ -37,14 +38,37 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
+      # `bin` is the built executable name (it's plain `s3cab[.exe]` on every
+      # platform — see sea/<target>.json); `archive` is the per-platform release
+      # asset wrapping that bare binary, so the four downloads don't collide.
       matrix:
         include:
-          - { target: linux-x64, runner: ubuntu-latest, artifact: s3cab-linux-x64 }
+          - {
+              target: linux-x64,
+              runner: ubuntu-latest,
+              bin: s3cab,
+              archive: s3cab-linux-x64.tar.gz,
+            }
           # GitHub-hosted arm64 Linux runner (public repos). Swap to ubuntu-22.04-arm if needed.
-          - { target: linux-arm64, runner: ubuntu-24.04-arm, artifact: s3cab-linux-arm64 }
+          - {
+              target: linux-arm64,
+              runner: ubuntu-24.04-arm,
+              bin: s3cab,
+              archive: s3cab-linux-arm64.tar.gz,
+            }
           # macos-14 is Apple Silicon (arm64).
-          - { target: darwin-arm64, runner: macos-14, artifact: s3cab-darwin-arm64 }
-          - { target: win-x64, runner: windows-latest, artifact: s3cab-win-x64.exe }
+          - {
+              target: darwin-arm64,
+              runner: macos-14,
+              bin: s3cab,
+              archive: s3cab-darwin-arm64.tar.gz,
+            }
+          - {
+              target: win-x64,
+              runner: windows-latest,
+              bin: s3cab.exe,
+              archive: s3cab-win-x64.zip,
+            }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,7 +79,7 @@ jobs:
       - name: Build native SEA executable
         run: |
           npm run build
-          node scripts/build-sea-cross.mjs ${{ matrix.target }}
+          node --build-sea=sea/${{ matrix.target }}.json
 
       # Ad-hoc codesign so the binary launches on Apple Silicon (which refuses
       # unsigned binaries). NOTE: ad-hoc signing is enough to RUN, but not to
@@ -63,19 +87,30 @@ jobs:
       # (set up later via secrets; see CLAUDE.md known gaps).
       - name: Codesign (macOS, ad-hoc)
         if: runner.os == 'macOS'
-        run: codesign --force --sign - "dist/${{ matrix.artifact }}"
+        run: codesign --force --sign - "dist/${{ matrix.bin }}"
 
       # Smoke-test the freshly built binary on its native runner.
       - name: Smoke test
         shell: bash
         run: |
-          ./dist/${{ matrix.artifact }} list
-          ./dist/${{ matrix.artifact }} prop package.json
+          ./dist/${{ matrix.bin }} list
+          ./dist/${{ matrix.bin }} prop package.json
+
+      # Wrap the bare `s3cab[.exe]` in a per-platform archive for release: tar.gz
+      # everywhere except Windows (zip, more native there). `-C dist` keeps the
+      # archive flat — it contains just the binary, no `dist/` prefix.
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        run: tar -czf "${{ matrix.archive }}" -C dist "${{ matrix.bin }}"
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/${{ matrix.bin }}" -DestinationPath "${{ matrix.archive }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: dist/${{ matrix.artifact }}
+          path: ${{ matrix.archive }}
           if-no-files-found: error
 
   release:

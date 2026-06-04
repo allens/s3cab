@@ -25,8 +25,7 @@
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
     "build": "node build.cjs",
-    "build:exe": "npm run build && node --build-sea=sea-config.json",
-    "build:cross": "npm run build && node scripts/build-sea-cross.mjs"
+    "build:exe": "npm run build && node --build-sea=sea/win-x64.json"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.947.0",

@@ -319,30 +319,36 @@ installed to run s3cab. Producing it is two steps:
    esbuild exists purely because SEA needs a **single standalone file** (a SEA main may
    only `import`/`require` built-ins, not other files) — _not_ to convert module format.
    The bundle is a generated, gitignored artifact.
-2. **Package** (`npm run build:exe`): `node --build-sea=sea-config.json` (Node ≥ 26)
-   embeds the bundle into a copy of the node binary and writes `dist/s3cab.exe` in one
-   step — no `postject`, no extra dependency. [sea-config.json](sea-config.json) sets
+2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
+   copy of the node binary and writes the executable in one step — no `postject`, no extra
+   dependency. The per-target configs live in [sea/](sea/) and are **static, committed
+   JSON** (not generated): they differ in exactly one field, `output` — and even that only
+   by extension (`dist/s3cab.exe` on Windows, `dist/s3cab` elsewhere). The binary is
+   deliberately just **`s3cab`** on every platform; the per-platform tag belongs on the
+   _release archive_, not the executable (see Releases). Each config sets
    `"mainFormat": "module"`, which is what lets SEA run an **ESM** main (without it SEA
-   defaults to CommonJS and rejects the `import` syntax). Caveat: `mainFormat: "module"`
-   can't be combined with `"useSnapshot"`.
+   defaults to CommonJS and rejects the `import` syntax; caveat: it can't be combined with
+   `"useSnapshot"`). They deliberately **omit `executable`**, so SEA injects into the node
+   _running_ `--build-sea` — i.e. you always get a native binary for the host you build on.
 
-**Cross-platform** (`npm run build:cross` →
-[scripts/build-sea-cross.mjs](scripts/build-sea-cross.mjs)): `--build-sea`'s `executable`
-config field names the base binary to inject into, and the injector understands ELF /
-Mach-O / PE — so this host can produce Linux/macOS binaries too. The script downloads the
-node build matching **`process.version`** (so the version always lines up — the one hard
-SEA rule) from `nodejs.org/dist`, checksum-verifies it against `SHASUMS256.txt`, and
-injects with `useCodeCache`/`useSnapshot` **false** (mandatory cross-platform — they embed
-host-specific data). The downloaded binaries cache under `build/` (gitignored). One thing
-can't be done off-Mac: **macOS binaries must be codesigned to run** (Apple Silicon refuses
-unsigned), and `codesign` is macOS-only — so mac targets are emitted unsigned with a
-warning, to be signed on a Mac or via `rcodesign`.
+**Build model: each OS builds its own binary; no cross-compilation.** `--build-sea` _can_
+cross-inject (its `executable` field plus an injector that understands ELF / Mach-O / PE),
+but a binary built for another OS can't be run or smoke-tested where it's built, and mac
+binaries built off-Mac can't be codesigned (so won't launch). So we don't: the local
+`npm run build:exe` builds the host's target (it points at `sea/win-x64.json`, the primary
+dev target — on another OS run `node --build-sea=sea/<your-target>.json` directly after
+`npm run build`), and the full matrix is built in CI.
 
-The same script powers **releases** ([.github/workflows/release.yml](.github/workflows/release.yml)):
-rather than cross-compile, CI builds each platform **natively** on its own runner — the
-script detects the host target and uses the runner's own node (no download, version matches
-by construction), and the macOS runner signs with the real `codesign`. A `v*` tag publishes
-a GitHub Release via the `gh` CLI (no marketplace actions beyond the official `actions/*`).
+**Releases** ([.github/workflows/release.yml](.github/workflows/release.yml)) build each
+platform **natively on its own runner**: `setup-node` provisions the pinned node (so the
+"base binary must match the running node version" rule holds by construction — that node is
+both builder and base), the job runs `--build-sea=sea/<target>.json`, and the macOS runner
+signs with the real `codesign`. The bare `s3cab[.exe]` is then wrapped in a per-platform
+**archive** — `s3cab-<target>.tar.gz` everywhere, `s3cab-win-x64.zip` on Windows — so the
+four release assets don't collide while the binary _inside_ stays plainly `s3cab`. (Bonus:
+the archive roughly thirds the ~100 MB download.) A `v*` tag publishes a GitHub Release via
+the `gh` CLI (no marketplace actions beyond the official `actions/*`). Node provisioning is
+thus the pipeline's job — there is no longer any in-repo node-download/checksum/extract step.
 
 This is the **`pkg` → native SEA migration** (per #3/#5) now done: `pkg` is gone, and the
 in-philosophy native tooling produces the binary. esbuild stays only as long as Node needs
@@ -392,14 +398,15 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
-- **Native-executable packaging works**, including cross-platform: `npm run build:exe` →
-  `dist/s3cab.exe`, `npm run build:cross` → Linux/macOS binaries, and CI
-  ([.github/workflows/release.yml](.github/workflows/release.yml)) builds all platforms
-  natively on their own runners (the `pkg` → SEA migration is done). Remaining: **macOS
-  notarization** — CI ad-hoc-signs the mac binary (enough to _run_), but Gatekeeper-clean
-  _distribution_ needs a Developer ID cert + notarization wired in via secrets. Local
-  `build:cross` mac binaries are unsigned (sign on a Mac or via `rcodesign`). Also drop
-  esbuild if Node ever bundles multi-file SEA inputs natively.
+- **Native-executable packaging works**: `npm run build:exe` builds the host's binary from
+  its static [sea/](sea/) config, and CI
+  ([.github/workflows/release.yml](.github/workflows/release.yml)) builds every platform
+  natively on its own runner (the `pkg` → SEA migration is done; cross-compilation from one
+  host was deliberately dropped — see Build). Remaining: **macOS notarization** — CI
+  ad-hoc-signs the mac binary (enough to _run_), but Gatekeeper-clean _distribution_ needs a
+  Developer ID cert + notarization wired in via secrets. A local mac build (run on a Mac)
+  is unsigned until you `codesign` it (or use `rcodesign`). Also drop esbuild if Node ever
+  bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental
