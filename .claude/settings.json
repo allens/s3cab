@@ -46,6 +46,7 @@
       "Bash(node --test*)",
       "Bash(npm run build*)",
       "Bash(gh auth *)",
+      "PowerShell(npm run clean:dry)",
       "Skill(update-config)",
       "Skill(update-config:*)"
     ]
