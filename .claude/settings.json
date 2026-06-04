@@ -29,6 +29,7 @@
       "Bash(git commit *)",
       "Bash(git stash *)",
       "Bash(git check-ignore *)",
+      "Bash(git fetch *)",
       "Bash(npm audit *)",
       "Bash(npm install)",
       "Bash(npm ci)",
@@ -44,6 +45,7 @@
       "Bash(npx tsc*)",
       "Bash(node --test*)",
       "Bash(node build.cjs*)",
+      "Bash(gh auth *)",
       "Skill(update-config)",
       "Skill(update-config:*)"
     ]
