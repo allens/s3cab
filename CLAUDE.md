@@ -347,12 +347,32 @@ signs with the real `codesign`. The bare `s3cab[.exe]` is then wrapped in a per-
 **archive** — `s3cab-<target>.tar.gz` everywhere, `s3cab-win-x64.zip` on Windows — so the
 four release assets don't collide while the binary _inside_ stays plainly `s3cab`. (Bonus:
 the archive roughly thirds the ~100 MB download.) A `v*` tag publishes a GitHub Release via
-the `gh` CLI (no marketplace actions beyond the official `actions/*`). Node provisioning is
-thus the pipeline's job — there is no longer any in-repo node-download/checksum/extract step.
+the `gh` CLI (no marketplace actions beyond the official `actions/*`), attaching a
+`SHA256SUMS` file so downloads are verifiable — apt for a SHA-256-addressed tool — and
+marking `v0.x`/`-rc` tags `--prerelease`. Node provisioning is thus the pipeline's job —
+there is no longer any in-repo node-download/checksum/extract step.
+
+**glibc floor — the Linux build targets pin `ubuntu-22.04`, not `-latest`.** A native
+binary links against the _builder's_ glibc, so building on 24.04 would refuse to start on
+older distros (`GLIBC_2.3x not found`); 22.04 (glibc 2.35) widens the supported floor while
+still meeting Node 26's own glibc minimum. This applies only to the **build** matrix — the
+test/release jobs stay on `-latest`, since glibc only constrains the artifact we _ship_.
 
 This is the **`pkg` → native SEA migration** (per #3/#5) now done: `pkg` is gone, and the
 in-philosophy native tooling produces the binary. esbuild stays only as long as Node needs
 a separate single-file bundling step; if Node gains native multi-file SEA, esbuild can go too.
+
+**CI vs release — two workflows, deliberately split.**
+[.github/workflows/ci.yml](.github/workflows/ci.yml) is the everyday gate: lint +
+test on every push to `main` and every PR. Tests run a **three-OS matrix**
+(ubuntu/windows/macos) because the code genuinely branches on platform
+(case-insensitive glob matching on `win32`, `\`→`/` normalization, `.exe`/zstd
+handling) — a Linux-only run wouldn't exercise those paths; lint runs once (it's
+OS-independent). `release.yml` deliberately does **not** trigger on branches/PRs (only
+`v*` tags + manual dispatch), so CI is what keeps the tree green between releases; the
+release workflow keeps its own single-OS lint+test gate to re-check the one commit CI
+doesn't see — the tag. Both pin the same `NODE_VERSION` and default to
+`permissions: contents: read` (the release job alone opts up to `contents: write`).
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 

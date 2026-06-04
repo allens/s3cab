@@ -16,6 +16,11 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege by default: jobs are read-only unless they opt in. The release
+# job overrides this with `contents: write` to create the release + upload assets.
+permissions:
+  contents: read
+
 env:
   # Pin to the engines floor so release artifacts are reproducible. setup-node and
   # --build-sea use the same node, so host == target version automatically.
@@ -43,16 +48,22 @@ jobs:
       # asset wrapping that bare binary, so the four downloads don't collide.
       matrix:
         include:
+          # Linux: build on the OLDEST supported ubuntu, not `-latest`. A native
+          # binary links against the builder's glibc, so building on 24.04 (glibc
+          # 2.39) would refuse to start on anything older with `GLIBC_2.3x not
+          # found`. 22.04 (glibc 2.35) widens the floor while still satisfying
+          # Node 26's own glibc requirement. (The test/release jobs stay on
+          # `-latest` — glibc only matters for the artifact we ship.)
           - {
               target: linux-x64,
-              runner: ubuntu-latest,
+              runner: ubuntu-22.04,
               bin: s3cab,
               archive: s3cab-linux-x64.tar.gz,
             }
-          # GitHub-hosted arm64 Linux runner (public repos). Swap to ubuntu-22.04-arm if needed.
+          # GitHub-hosted arm64 Linux runner (public repos), same glibc reasoning.
           - {
               target: linux-arm64,
-              runner: ubuntu-24.04-arm,
+              runner: ubuntu-22.04-arm,
               bin: s3cab,
               archive: s3cab-linux-arm64.tar.gz,
             }
@@ -124,7 +135,26 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+
+      # Ship a checksums file alongside the binaries so downloads are verifiable
+      # — fitting for a tool whose whole premise is SHA-256 content addressing.
+      # `*` is expanded before SHA256SUMS is created, so it never hashes itself.
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" artifacts/* --repo "${{ github.repository }}" --generate-notes
+        run: |
+          tag="${{ github.ref_name }}"
+          # Mark pre-1.0 (v0.x) or semver-prerelease (v1.2.3-rc1) tags as prerelease
+          # so they don't show as "Latest" in the Releases UI.
+          prerelease=
+          case "$tag" in
+            v0.* | *-*) prerelease=--prerelease ;;
+          esac
+          gh release create "$tag" artifacts/* \
+            --repo "${{ github.repository }}" \
+            --generate-notes \
+            $prerelease
