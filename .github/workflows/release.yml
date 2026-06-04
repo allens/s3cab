@@ -158,3 +158,43 @@ jobs:
             --repo "${{ github.repository }}" \
             --generate-notes \
             $prerelease
+
+  # Publish the npm package (source, not the binary — see CLAUDE.md "npm package").
+  # Runs in parallel with `release`, both gated on a v* tag and on `build` passing.
+  publish-npm:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC, so `npm publish --provenance` can attest the build
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org # sets up auth from NODE_AUTH_TOKEN
+
+      # The git tag is the source of truth for the version; fail fast and clearly
+      # if package.json disagrees (npm would otherwise reject it late, or publish
+      # the wrong number). Strips the leading `v`: v0.0.1 -> 0.0.1.
+      - name: Tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          test "$tag" = "$pkg" || { echo "tag v$tag != package.json $pkg" >&2; exit 1; }
+
+      # No build/prepack: we publish the source tree (the `files` allowlist). The
+      # dist-tag deliberately differs from the GitHub-release prerelease rule —
+      # only a semver-prerelease tag (v1.2.3-rc1) goes to `next`; a plain v0.x
+      # publishes to `latest`, so the first real release supersedes the stale
+      # 0.0.0 oclif build that currently holds `latest` on npm.
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *-*) disttag=next ;;
+            *) disttag=latest ;;
+          esac
+          npm publish --provenance --access public --tag "$disttag"

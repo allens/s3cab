@@ -326,7 +326,14 @@ installed to run s3cab. Producing it is two steps:
    not other files) — _not_ to convert module format. The bundle is a generated, gitignored
    artifact. (The CLI defaults to `--log-level=info`, so the build still prints the output
    path + size; it exits non-zero on failure for free — which is why the old `build.cjs`
-   wrapper, a CommonJS file just to set those, was dropped.)
+   wrapper, a CommonJS file just to set those, was dropped.) `npm run clean` removes the
+   bundle and every other build/test artifact; it delegates to `git clean -fdX` rather than
+   listing paths, so it stays in sync with `.gitignore` for free and needs no `rimraf`-style
+   dep (#5) and works on Windows (the primary target). `clean:dry` (`-n`) previews first —
+   worth it because `-X` also wipes _all_ ignored files — including `node_modules/` (so a
+   reinstall follows), `.claude/settings.local.json`, `.env`, and dogfood snapshots under
+   `/.s3cab/snapshots/`. Full clean by design; `-e /node_modules` would spare deps if that
+   ever proves annoying.
 2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
    copy of the node binary and writes the executable in one step — no `postject`, no extra
    dependency. The per-target configs live in [sea/](sea/) and are **static, committed
@@ -398,6 +405,14 @@ constraint. Consequences worth knowing:
   One dependency, two fates. NB: today the live CLI doesn't import it yet (only `_poc`
   does), so it's effectively unused weight until the S3 milestone lands — at which point it
   also starts bloating the SEA binary.
+- **Publishing** is the `publish-npm` job in `release.yml` (tag-gated, parallel to the
+  binary `release` job). It uses **OIDC provenance** (`--provenance`, needs
+  `id-token: write` + a public repo) rather than a long-lived token in the publish step —
+  attestation that fits #2; it still needs an `NPM_TOKEN` secret for auth. A guard fails the
+  job if the `v*` tag doesn't equal `package.json` `version`. **dist-tag logic differs from
+  the GitHub-release prerelease rule on purpose:** only a semver-prerelease tag (`v*-rc`)
+  goes to npm's `next`; a plain `v0.x` publishes to `latest` — needed because the registry
+  already holds a stale `s3cab@0.0.0` (the old oclif prototype, same owner) on `latest`.
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 
