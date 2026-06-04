@@ -426,7 +426,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   ad-hoc-signs the mac binary (enough to _run_), but Gatekeeper-clean _distribution_ needs a
   Developer ID cert + notarization wired in via secrets. A local mac build (run on a Mac)
   is unsigned until you `codesign` it (or use `rcodesign`). Also drop esbuild if Node ever
-  bundles multi-file SEA inputs natively.
+  bundles multi-file SEA inputs natively. **Not yet validated on real runners:** the
+  `release` workflow (and the `ci` workflow) have only been built/reasoned about locally —
+  the Linux/macOS binaries are produced solely in CI and have never been built or run here,
+  so the first `workflow_dispatch` / `v0.0.x` tag is the real smoke test (watch the macOS
+  smoke test after ad-hoc signing, and the arm64 runner labels). **Only `darwin-arm64` ships
+  on macOS** — no Intel `darwin-x64` build yet; adding one is a `sea/darwin-x64.json` + one
+  matrix row if Intel-Mac support is wanted.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental
