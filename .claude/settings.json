@@ -44,7 +44,7 @@
       "Bash(npx prettier *)",
       "Bash(npx tsc*)",
       "Bash(node --test*)",
-      "Bash(node build.cjs*)",
+      "Bash(npm run build*)",
       "Bash(gh auth *)",
       "Skill(update-config)",
       "Skill(update-config:*)"

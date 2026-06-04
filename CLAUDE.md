@@ -312,17 +312,21 @@ populate it lives, as a POC only, in [src/\_poc/](src/_poc/).
 The distribution goal is a **single native executable** — a user shouldn't need Node
 installed to run s3cab. Producing it is two steps:
 
-1. **Bundle** (`npm run build`): [build.cjs](build.cjs) uses **esbuild** to bundle the
-   ESM source (entry: `src/cli.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
-   configured to **bundle only** — no `target`/`minify`, so it inlines imports without
-   down-levelling or otherwise rewriting the JS; the output is the same modern syntax that
-   runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
+1. **Bundle** (`npm run build`): a one-line **esbuild** invocation (the `build` script in
+   [package.json](package.json), calling esbuild's CLI directly — no wrapper script) bundles
+   the ESM source (entry: `src/cli.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
+   invoked **bundle-only** — `--bundle`, no `--target`/`--minify`, so it inlines imports
+   without down-levelling or otherwise rewriting the JS; the output is the same modern syntax
+   that runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
    (`src/cli.mjs`, so that file _also_ works as the npm `bin` — see "npm package" below);
-   esbuild **preserves an entry point's shebang** into the bundle, so build.cjs adds no
-   banner (a banner would duplicate it, and a second `#!` line is a syntax error). esbuild
-   exists purely because SEA needs a **single standalone file** (a SEA main may only
-   `import`/`require` built-ins, not other files) — _not_ to convert module format. The
-   bundle is a generated, gitignored artifact.
+   esbuild **preserves an entry point's shebang** into the bundle, so no banner is needed (a
+   banner would duplicate it, and a second `#!` line is a syntax error). `--external:aws-crt`
+   keeps the AWS SDK's optional native addon out of the bundle. esbuild exists purely because
+   SEA needs a **single standalone file** (a SEA main may only `import`/`require` built-ins,
+   not other files) — _not_ to convert module format. The bundle is a generated, gitignored
+   artifact. (The CLI defaults to `--log-level=info`, so the build still prints the output
+   path + size; it exits non-zero on failure for free — which is why the old `build.cjs`
+   wrapper, a CommonJS file just to set those, was dropped.)
 2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
    copy of the node binary and writes the executable in one step — no `postject`, no extra
    dependency. The per-target configs live in [sea/](sea/) and are **static, committed

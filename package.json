@@ -32,7 +32,7 @@
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
-    "build": "node build.cjs",
+    "build": "esbuild src/cli.mjs --bundle --outfile=dist/s3cab.js --platform=node --format=esm --external:aws-crt",
     "build:exe": "npm run build && node --build-sea=sea/win-x64.json"
   },
   "dependencies": {
