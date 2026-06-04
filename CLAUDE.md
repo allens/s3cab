@@ -144,9 +144,9 @@ to **runtime deps, CLI ergonomics, and dev tooling** alike:
 
 **Dev dependencies get a more relaxed bar** — they never ship to users and don't affect
 recoverability. The notable one is **esbuild**, used only to bundle the ESM source into
-a single CommonJS file for native-executable packaging (see Tooling & build). Even here
-the same instinct applies: it exists to bridge a gap, and Node's growing native
-capabilities may remove the need for it over time.
+a single ESM file for native-executable packaging (see Tooling & build). Even here
+the same instinct applies: it exists to bridge a gap (SEA needs one standalone file),
+and Node's growing native capabilities may remove the need for it over time.
 
 ### 6. Minimal, simple code
 
@@ -189,7 +189,7 @@ Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegati
 all driven off that registry. Adding a command = adding one entry.
 
 > Note: `package.json` `main` is `src/cli.mjs` (the working entry). `bin` is
-> `bin/s3cab.cjs` — the esbuild bundle produced by `npm run build`, a gitignored
+> `dist/s3cab.js` — the esbuild ESM bundle produced by `npm run build`, a gitignored
 > build artifact rather than committed source (see Build).
 
 ### Commands (`src/commands/`) — all currently local
@@ -309,18 +309,44 @@ populate it lives, as a POC only, in [src/\_poc/](src/_poc/).
 > This section records only the _why_.
 
 The distribution goal is a **single native executable** — a user shouldn't need Node
-installed to run s3cab. Producing it is two steps: [build.cjs](build.cjs) uses **esbuild**
-to bundle the ESM source (entry: `src/cli.mjs`) into one **CommonJS** file, `bin/s3cab.cjs`
-(the native-bundle step doesn't accept ESM — that's the entire reason esbuild is a
-dependency; the `#!/usr/bin/env node` shebang is injected by esbuild's banner). `npm run build`
-produces that bundle, which is a generated, gitignored artifact. A second step would then
-package the bundle into platform binaries.
+installed to run s3cab. Producing it is two steps:
 
-**`pkg` is itself a reconsideration item:** Node now ships **Single Executable
-Applications (SEA)** natively, which is the more in-philosophy way to produce the binary
-(#3/#5). Migrating `pkg` → native SEA is on the roadmap; esbuild stays only as long as a
-separate ESM→CJS bundling step is needed. Note `pkg` is **not currently a dependency**, so
-the packaging step can't run yet — finishing it (or replacing it with SEA) is open work.
+1. **Bundle** (`npm run build`): [build.cjs](build.cjs) uses **esbuild** to bundle the
+   ESM source (entry: `src/cli.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
+   configured to **bundle only** — no `target`/`minify`, so it inlines imports without
+   down-levelling or otherwise rewriting the JS; the output is the same modern syntax that
+   runs from source. The `#!/usr/bin/env node` shebang is injected by esbuild's banner.
+   esbuild exists purely because SEA needs a **single standalone file** (a SEA main may
+   only `import`/`require` built-ins, not other files) — _not_ to convert module format.
+   The bundle is a generated, gitignored artifact.
+2. **Package** (`npm run build:exe`): `node --build-sea=sea-config.json` (Node ≥ 26)
+   embeds the bundle into a copy of the node binary and writes `dist/s3cab.exe` in one
+   step — no `postject`, no extra dependency. [sea-config.json](sea-config.json) sets
+   `"mainFormat": "module"`, which is what lets SEA run an **ESM** main (without it SEA
+   defaults to CommonJS and rejects the `import` syntax). Caveat: `mainFormat: "module"`
+   can't be combined with `"useSnapshot"`.
+
+**Cross-platform** (`npm run build:cross` →
+[scripts/build-sea-cross.mjs](scripts/build-sea-cross.mjs)): `--build-sea`'s `executable`
+config field names the base binary to inject into, and the injector understands ELF /
+Mach-O / PE — so this host can produce Linux/macOS binaries too. The script downloads the
+node build matching **`process.version`** (so the version always lines up — the one hard
+SEA rule) from `nodejs.org/dist`, checksum-verifies it against `SHASUMS256.txt`, and
+injects with `useCodeCache`/`useSnapshot` **false** (mandatory cross-platform — they embed
+host-specific data). The downloaded binaries cache under `build/` (gitignored). One thing
+can't be done off-Mac: **macOS binaries must be codesigned to run** (Apple Silicon refuses
+unsigned), and `codesign` is macOS-only — so mac targets are emitted unsigned with a
+warning, to be signed on a Mac or via `rcodesign`.
+
+The same script powers **releases** ([.github/workflows/release.yml](.github/workflows/release.yml)):
+rather than cross-compile, CI builds each platform **natively** on its own runner — the
+script detects the host target and uses the runner's own node (no download, version matches
+by construction), and the macOS runner signs with the real `codesign`. A `v*` tag publishes
+a GitHub Release via the `gh` CLI (no marketplace actions beyond the official `actions/*`).
+
+This is the **`pkg` → native SEA migration** (per #3/#5) now done: `pkg` is gone, and the
+in-philosophy native tooling produces the binary. esbuild stays only as long as Node needs
+a separate single-file bundling step; if Node gains native multi-file SEA, esbuild can go too.
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 
@@ -338,7 +364,7 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
   Its prose-emphasis restyle (`*x*` → `_x_`) and table-cell padding add churn and make the
   frequently AI-edited CLAUDE.md tables fragile to edit, for no real gain (`proseWrap`
   doesn't reflow prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores
-  generated build artifacts** (`bin/`, `build/`, `coverage/`, `dist/`) — otherwise it lints
+  generated build artifacts** (`build/`, `coverage/`, `dist/`) — otherwise it lints
   the bundled output.
 - **`.gitignore` ignores the repo's own snapshot output with a root-anchored
   `/.s3cab/snapshots/`**, so committed test fixtures under
@@ -366,9 +392,14 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
-- **Native-executable packaging is unfinished:** `npm run build` makes the bundle, but
-  `pkg` isn't installed and the `pkg` → Node SEA migration (per #3/#5) is still open. Drop
-  esbuild if the ESM→CJS bundling step becomes unnecessary.
+- **Native-executable packaging works**, including cross-platform: `npm run build:exe` →
+  `dist/s3cab.exe`, `npm run build:cross` → Linux/macOS binaries, and CI
+  ([.github/workflows/release.yml](.github/workflows/release.yml)) builds all platforms
+  natively on their own runners (the `pkg` → SEA migration is done). Remaining: **macOS
+  notarization** — CI ad-hoc-signs the mac binary (enough to _run_), but Gatekeeper-clean
+  _distribution_ needs a Developer ID cert + notarization wired in via secrets. Local
+  `build:cross` mac binaries are unsigned (sign on a Mac or via `rcodesign`). Also drop
+  esbuild if Node ever bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental

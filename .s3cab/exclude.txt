@@ -7,13 +7,9 @@
 **/node_modules/
 .git/
 
-# Build output and packaged binaries
-bin/
+# Build output and packaged binaries (esbuild bundle + SEA executable)
 build/
 dist/
-s3cab-linux
-s3cab-macos
-s3cab-win.exe
 
 # Test, coverage, and temporary output
 coverage/

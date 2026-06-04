@@ -1,0 +1,6 @@
+{
+  "main": "dist/s3cab.js",
+  "mainFormat": "module",
+  "output": "dist/s3cab.exe",
+  "disableExperimentalSEAWarning": true
+}

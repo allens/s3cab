@@ -1,13 +1,18 @@
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-// Drive the real CLI entry as a subprocess. (The packaged native binary is a
-// separate, not-yet-wired build target; the source entry is what runs today.)
+// Drive the real CLI entry as a subprocess.
 const CLI = "src/cli.mjs";
+
+// The packaged SEA executable, built on demand by `npm run build:exe`. Its path
+// is read from sea-config.json so this test can't drift from the build config.
+// It's a ~100 MB artifact that doesn't exist in a normal checkout, so the smoke
+// test below skips itself unless the binary has actually been built.
+const EXE = JSON.parse(readFileSync("sea-config.json", "utf8")).output;
 
 /**
  * Run the s3cab CLI as a child process.
@@ -15,6 +20,14 @@ const CLI = "src/cli.mjs";
  */
 function run(...args) {
   return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+}
+
+/**
+ * Run the packaged native executable as a child process.
+ * @param {...string} args
+ */
+function runExe(...args) {
+  return spawnSync(EXE, args, { encoding: "utf8" });
 }
 
 describe("cli (e2e)", () => {
@@ -36,4 +49,25 @@ describe("cli (e2e)", () => {
     assert.strictEqual(status, 127);
     assert.match(stderr, /Unknown command/);
   });
+
+  // Smoke test the packaged SEA executable: it boots, runs the ESM main, and
+  // produces correct output. Skipped unless `npm run build:exe` has built it.
+  it(
+    "packaged exe runs and computes a file's properties",
+    { skip: existsSync(EXE) ? false : `${EXE} not built (run \`npm run build:exe\`)` },
+    async () => {
+      await using dir = await mkdtempDisposable(join("test", ".tmp"));
+      const file = join(dir.path, "hello.txt");
+      writeFileSync(file, "hello");
+
+      const { status, stdout } = runExe("prop", file);
+
+      assert.strictEqual(status, 0);
+      // SHA-256 of "hello".
+      assert.match(
+        stdout,
+        /2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824/,
+      );
+    },
+  );
 });

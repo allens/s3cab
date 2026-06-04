@@ -1,0 +1,95 @@
+# Build native s3cab executables on each platform's own runner and publish them.
+#
+# Design: build NATIVELY per runner rather than cross-compiling. Each runner's own
+# node both produces the SEA blob and is the base binary, so the "same version"
+# rule is satisfied by construction — and the macOS runner can sign with the real
+# `codesign` (which only exists on macOS). scripts/build-sea-cross.mjs detects the
+# host target and builds with the runner's node (no download).
+#
+# Triggers: a `v*` tag (cuts a GitHub Release) or manual dispatch (artifacts only).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  # Pin to the engines floor so release artifacts are reproducible. setup-node and
+  # --build-sea use the same node, so host == target version automatically.
+  NODE_VERSION: "26.3.0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-latest, artifact: s3cab-linux-x64 }
+          # GitHub-hosted arm64 Linux runner (public repos). Swap to ubuntu-22.04-arm if needed.
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, artifact: s3cab-linux-arm64 }
+          # macos-14 is Apple Silicon (arm64).
+          - { target: darwin-arm64, runner: macos-14, artifact: s3cab-darwin-arm64 }
+          - { target: win-x64, runner: windows-latest, artifact: s3cab-win-x64.exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+
+      - name: Build native SEA executable
+        run: |
+          npm run build
+          node scripts/build-sea-cross.mjs ${{ matrix.target }}
+
+      # Ad-hoc codesign so the binary launches on Apple Silicon (which refuses
+      # unsigned binaries). NOTE: ad-hoc signing is enough to RUN, but not to
+      # distribute past Gatekeeper — that needs a Developer ID cert + notarization
+      # (set up later via secrets; see CLAUDE.md known gaps).
+      - name: Codesign (macOS, ad-hoc)
+        if: runner.os == 'macOS'
+        run: codesign --force --sign - "dist/${{ matrix.artifact }}"
+
+      # Smoke-test the freshly built binary on its native runner.
+      - name: Smoke test
+        shell: bash
+        run: |
+          ./dist/${{ matrix.artifact }} list
+          ./dist/${{ matrix.artifact }} prop package.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release + upload assets
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" artifacts/* --repo "${{ github.repository }}" --generate-notes

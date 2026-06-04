@@ -13,7 +13,7 @@
   "license": "GPL-3.0-or-later",
   "author": "Allen Shiels <allen@shiels.dev> (https://github.com/allens/)",
   "main": "src/cli.mjs",
-  "bin": "bin/s3cab.cjs",
+  "bin": "dist/s3cab.js",
   "repository": "allens/s3cab.git",
   "scripts": {
     "lint": "eslint .",
@@ -24,8 +24,9 @@
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
-    "pkg": "pkg . --no-bytecode --public --public-packages *",
-    "build": "node build.cjs"
+    "build": "node build.cjs",
+    "build:exe": "npm run build && node --build-sea=sea-config.json",
+    "build:cross": "npm run build && node scripts/build-sea-cross.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.947.0",

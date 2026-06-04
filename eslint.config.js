@@ -5,7 +5,7 @@ import globals from "globals";
 
 export default defineConfig([
   // Generated build artifacts — not linted (esbuild bundle, coverage, etc.).
-  { ignores: ["bin/", "build/", "coverage/", "dist/"] },
+  { ignores: ["build/", "coverage/", "dist/"] },
   {
     files: ["**/*.{js,mjs,cjs}"],
     plugins: { js },

@@ -25,13 +25,11 @@ test/zblob.bin
 .env
 .env.test
 
-# Build artifacts: esbuild bundle + pkg native binaries
+# Build artifacts: esbuild ESM bundle (dist/s3cab.js), the SEA native binaries
+# (dist/s3cab.exe and cross-built dist/s3cab-<platform>) — everything in dist/.
 /dist/
-bin/s3cab.cjs
-bin/s3cab.exe
-s3cab-linux
-s3cab-macos
-s3cab-win.exe
+# Cross-build cache: downloaded + extracted node binaries for other platforms.
+/build/
 
 # npm pack output
 *.tgz
