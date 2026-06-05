@@ -1,6 +1,6 @@
 {
   "name": "s3cab",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "description": "Open eternal S3 content addressable backup",
   "keywords": [
     "backup",
