@@ -373,6 +373,17 @@ the `gh` CLI (no marketplace actions beyond the official `actions/*`), attaching
 marking `v0.x`/`-rc` tags `--prerelease`. Node provisioning is thus the pipeline's job —
 there is no longer any in-repo node-download/checksum/extract step.
 
+**A fifth release asset — the portable Node bundle.** Alongside the four native binaries,
+the `bundle` job ships the esbuild bundle (`dist/s3cab.js`) itself as a release asset: the
+same single ESM file that feeds SEA, but run directly with `node s3cab.js`. It's the
+**any-platform, bring-your-own-Node** channel — built **once** (the bundle is
+platform-independent, so no matrix) and uploaded **un-archived** (it's a tiny self-contained
+script, not a ~100 MB binary, and won't name-collide with the `s3cab-<target>` archives). It
+carries the entry's `#!/usr/bin/env node` shebang, so on unix it's directly executable. This
+is a third distribution channel, parallel to the native binaries and the npm package — and
+note the bundle is now built in CI for _two_ reasons (SEA input **and** a shipped asset),
+where before it was purely SEA's single-file input.
+
 **glibc floor — the Linux build targets pin `ubuntu-22.04`, not `-latest`.** A native
 binary links against the _builder's_ glibc, so building on 24.04 would refuse to start on
 older distros (`GLIBC_2.3x not found`); 22.04 (glibc 2.35) widens the supported floor while
@@ -395,13 +406,14 @@ release workflow keeps its own single-OS lint+test gate to re-check the one comm
 doesn't see — the tag. Both pin the same `NODE_VERSION` and default to
 `permissions: contents: read` (the release job alone opts up to `contents: write`).
 
-**npm package — ships source, not the bundle.** The native binary is one distribution
-channel; publishing to npm is the other, and they have **opposite** needs. npm installs a
-file tree and lets Node resolve imports across files, so the npm package ships the plain
-`src/` modules and points `bin` at `src/cli.mjs` directly — **no bundle, no build step on
-publish.** (Shipping readable source rather than an opaque blob is also the #2/#7 choice:
-the code you install is the code that runs.) The bundle exists _only_ for SEA's single-file
-constraint. Consequences worth knowing:
+**npm package — ships source, not the bundle.** There are now three distribution channels —
+the native binaries, the portable `dist/s3cab.js` bundle (both above), and the npm package —
+and the npm one has **opposite** needs to the bundle. npm installs a file tree and lets Node
+resolve imports across files, so the npm package ships the plain `src/` modules and points
+`bin` at `src/s3cab.mjs` directly — **no bundle, no build step on publish.** (Shipping
+readable source rather than an opaque blob is also the #2/#7 choice: the code you install is
+the code that runs.) The bundle is _not_ what npm ships — it exists for SEA's single-file
+constraint and, now, as the portable release asset. Consequences worth knowing:
 
 - The `files` allowlist uses **negation** (`"!src/_poc"`, `"!src/**/*.test.mjs"`) to keep
   the experimental sandbox and co-located tests out of the tarball. Verify with
