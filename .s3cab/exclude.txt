@@ -1,0 +1,16 @@
+# I should be excluded from the root but not /test folder
+README.md
+**\node_modules\
+.git\
+
+**\*.tmp
+
+
+# These files should be both in test and test\subdir
+test\.DS_Store
+test\subdir\Thumbs.db
+
+../I break out
+c:\I'm also out
+*.test.mjs
+.\NOTES.md

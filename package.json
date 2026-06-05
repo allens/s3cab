@@ -1,0 +1,53 @@
+{
+  "name": "s3cab",
+  "version": "0.0.1",
+  "description": "Open eternal S3 content addressable backup",
+  "keywords": [
+    "backup",
+    "s3"
+  ],
+  "homepage": "https://github.com/allens/s3cab#readme",
+  "bugs": {
+    "url": "https://github.com/allens/s3cab/issues"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "Allen Shiels <allen@shiels.dev> (https://github.com/allens/)",
+  "main": "src/index.mjs",
+  "bin": "bin/s3cab.cjs",
+  "repository": "allens/s3cab.git",
+  "scripts": {
+    "clean": "aws --profile s3cab-test s3 rm s3://s3cab-test --recursive",
+    "clean:config": "node s3cab.mjs init --erase",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "node --test --env-file=.env.testing --experimental-test-module-mocks",
+    "test:watch": "npm run test -- --watch",
+    "test:snapshot": "npm run test -- --test-update-snapshots",
+    "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
+    "pkg": "pkg . --no-bytecode --public --public-packages *",
+    "build": "cross-env NODE_OPTIONS=--experimental-vm-modules build.cjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.947.0",
+    "@aws-sdk/client-sso": "^3.947.0",
+    "@aws-sdk/client-sso-oidc": "^3.947.0",
+    "@aws-sdk/lib-storage": "^3.947.0",
+    "@js-temporal/polyfill": "^0.5.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^25.0.3",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.27.1",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.7.4",
+    "rimraf": "^6.1.2",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=25.2.1"
+  },
+  "type": "module"
+}

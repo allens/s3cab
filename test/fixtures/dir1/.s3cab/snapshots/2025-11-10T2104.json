@@ -1,0 +1,21 @@
+{
+  "10MB.txt": {
+    "size": 10485760,
+    "mtime": "2025-12-09T21:06:18.847Z",
+    "hash": "eb6183addde05c2196ce25e6fa34a4baf20f9bf30d33892f452a9a1e88c9a472"
+  },
+  "goodbye-world.txt": {
+    "size": 14,
+    "mtime": "2025-11-03T18:29:20.802Z",
+    "hash": "df7fe0fcaae2a9bd0b39b2792d03dbcc85cb13891356577e527e34800bfceff0"
+  },
+  "hello-world.txt": {
+    "size": 12,
+    "mtime": "2021-01-01T00:00:00.000Z",
+    "hash": "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a"
+  },
+  "zero-size": {
+    "size": 0,
+    "mtime": "2021-01-01T00:00:00.000Z"
+  }
+}

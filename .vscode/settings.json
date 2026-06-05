@@ -1,0 +1,13 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  },
+  "nodejs-testing.envFile": "${workspaceFolder}/.env.testing",
+  "nodejs-testing.extensions": [
+    {
+      "extensions": ["mjs", "cjs", "js"],
+      "parameters": ["--experimental-test-module-mocks"]
+    }
+  ],
+  "editor.formatOnSave": true
+}

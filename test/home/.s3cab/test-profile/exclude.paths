@@ -1,0 +1,7 @@
+# Here are some files I'd like to ignore
+.git/
+node_modules/
+# I don't like this one
+lcov.info
+*.cjs
+package.*
