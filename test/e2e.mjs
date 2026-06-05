@@ -64,13 +64,14 @@ describe("cli (e2e)", () => {
   });
 
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and
-  // produces correct output. Skipped unless `npm run build:exe` has built it.
+  // produces correct output. Skipped unless `npm run build:win` / `build:linux`
+  // has built it.
   it(
     "packaged exe runs and computes a file's properties",
     {
       skip: existsSync(EXE)
         ? false
-        : `${EXE} not built (run \`npm run build:exe\`)`,
+        : `${EXE} not built (run \`npm run build:win\` / \`build:linux\`)`,
     },
     async () => {
       await using dir = await mkdtempDisposable(join("test", ".tmp"));

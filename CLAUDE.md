@@ -527,8 +527,11 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental
-  [src/\_poc/](src/_poc/) sandbox. Outside the active `src/` set, so the tsc helper in
-  `.claude/settings.json` filters `_poc` out; a typing pass would let it gate cleanly.
+  [src/\_poc/](src/_poc/) sandbox (plus loose scratch files under `scripts/` and JS pulled
+  in transitively from the AWS SDK under `node_modules/`). These are all outside the active
+  `src/` set, which is itself clean — so a type check has to be read by filtering output to
+  `src/` excluding `_poc`; a typing pass over `_poc` would let `tsc` gate cleanly without
+  filtering.
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check; a proper lock file is
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).

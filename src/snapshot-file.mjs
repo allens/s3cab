@@ -156,7 +156,7 @@ export async function readSnapshotFile(path) {
 
 /**
  * Convert snapshot data to TSV lines.
- * @param {SnapshotLookup} snapshot - Snapshot data
+ * @param {Iterable<SnapshotEntry> | AsyncIterable<SnapshotEntry>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */
