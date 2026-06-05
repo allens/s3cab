@@ -337,8 +337,12 @@ installed to run s3cab. Producing it is two steps:
    dep (#5) and works on Windows (the primary target). `clean:dry` (`-n`) previews first —
    worth it because `-X` also wipes _all_ ignored files — including `node_modules/` (so a
    reinstall follows), `.claude/settings.local.json`, `.env`, and dogfood snapshots under
-   `/.s3cab/snapshots/`. Full clean by design; `-e /node_modules` would spare deps if that
-   ever proves annoying.
+   `/.s3cab/snapshots/`. Full clean by design. Note `git clean -e <pattern>` can _not_ spare a
+   specific file here: `-e` only **adds** patterns to the ignore set, and under `-X` (remove
+   ignored) that makes a file _more_ likely to be deleted, not less (verified). The only way
+   to keep an ignored file across a clean is to stop ignoring it (a `!`negation in
+   `.gitignore`), which then makes it show as untracked — not worth it for a personal/local
+   file, so the clean stays a true reset-to-fresh-checkout.
 2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
    copy of the node binary and writes the executable in one step — no `postject`, no extra
    dependency. The per-target configs live in [sea/](sea/) and are **static, committed
