@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import pkg from "../package.json" with { type: "json" };
+
 import { formatByteValue, secondsSince } from "./format.mjs";
 
 import { ParseArgsError } from "./error.mjs";
@@ -10,8 +12,8 @@ import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
 
-/** * @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
-/** * @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions*/
+/** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
+/** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
 
 /**
  * @typedef {Object} Command
@@ -82,6 +84,14 @@ const start = Temporal.Now.instant();
 const debug = Boolean(process.env.S3CAB_DEBUG);
 
 const [execPath, jsPath, commandName, ...args] = process.argv;
+
+// Global --version, handled before command dispatch. pkg.version is the single
+// source of truth (package.json); esbuild inlines this JSON into the SEA bundle,
+// so the native binary reports the same version as the npm/source CLI.
+if (commandName === "--version" || commandName === "-v") {
+  console.log(pkg.version);
+  process.exit(0);
+}
 
 const command = commands[commandName];
 

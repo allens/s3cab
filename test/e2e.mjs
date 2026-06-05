@@ -8,13 +8,17 @@ import { describe, it } from "node:test";
 // Drive the real CLI entry as a subprocess.
 const CLI = "src/s3cab.mjs";
 
-// The packaged SEA executable, built on demand by `npm run build:exe`. Its path
+// The packaged SEA executable, built on demand by `npm run build:win` /
+// `build:linux`. Its path
 // is read from this host's static SEA config (sea/<target>.json) so this test
 // can't drift from the build config. It's a ~100 MB artifact that doesn't exist
 // in a normal checkout, so the smoke test below skips itself unless the binary
 // has actually been built.
 const HOST_TARGET = `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`;
 const EXE = JSON.parse(readFileSync(`sea/${HOST_TARGET}.json`, "utf8")).output;
+
+// package.json version is the single source of truth; `--version` must echo it.
+const VERSION = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 /**
  * Run the s3cab CLI as a child process.
@@ -50,6 +54,13 @@ describe("cli (e2e)", () => {
 
     assert.strictEqual(status, 127);
     assert.match(stderr, /Unknown command/);
+  });
+
+  it("--version prints the package version", () => {
+    const { status, stdout } = run("--version");
+
+    assert.strictEqual(status, 0);
+    assert.strictEqual(stdout.trim(), VERSION);
   });
 
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and

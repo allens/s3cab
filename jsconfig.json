@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "checkJs": true,
+    "resolveJsonModule": true,
     "lib": ["ESNext"],
     "types": ["node"],
     "strict": true,

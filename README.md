@@ -1,5 +1,6 @@
 # s3cab
 
+[![npm](https://img.shields.io/npm/v/s3cab)](https://www.npmjs.com/package/s3cab)
 [![status: WIP · pre-release](https://img.shields.io/badge/status-WIP%20%C2%B7%20pre--release-orange)](#status)
 [![license: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![node: ≥26.3.0](https://img.shields.io/badge/node-%E2%89%A526.3.0-brightgreen)](package.json)
@@ -8,7 +9,7 @@
 any S3-compatible object storage), storing data by the **hash of its contents** so that
 identical files are never stored twice, in a format that will never lock you in.
 
-> ⚠️ **Pre-release (v0.0.1), under active development.** Today s3cab builds and compares
+> ⚠️ **Pre-release, under active development.** Today s3cab builds and compares
 > **local** content-addressable snapshots. Uploading to S3 is the next milestone — see
 > [Status](#status). Expect things to change.
 

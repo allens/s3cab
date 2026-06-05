@@ -3,7 +3,7 @@ import { dirname, relative } from "node:path";
 import { readSnapshot } from "../snapshot-file.mjs";
 import { list } from "./list.mjs";
 
-/** @typedef
+/**
  * @typedef {Object} CompareResult
  * @property {string[]} added
  * @property {string[]} moved
@@ -82,7 +82,7 @@ export async function compare(
 /** @typedef {Map<string, string>} PathFromToLookup */
 /** @typedef {Map<string, PathSet>} PathDuplicatesLookup */
 
-/** @typedef
+/**
  * @typedef {Object} DiffResult
  * @property {PathDuplicatesLookup} added
  * @property {PathFromToLookup} moved

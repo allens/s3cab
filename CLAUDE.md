@@ -34,7 +34,7 @@ conventions, and the pre-release TODO list).
 S3 (or S3-compatible object storage), where objects are stored and keyed by the
 **SHA-256 hash of their contents** rather than by path/name.
 
-### Current status (v0.0.1, pre-release)
+### Current status (pre-release)
 
 What is **built today** is the **local content-addressable snapshot + diff engine**:
 
@@ -202,6 +202,15 @@ Adding a command = adding one entry. Debug output is gated by the **`S3CAB_DEBUG
 environment variable** (any non-empty value), not a CLI flag — it's a cross-cutting
 concern, so it lives outside per-command option parsing and is merged into the options
 bag passed to each command's `exec`.
+
+**`--version` / `-v`** is the one other pre-dispatch global: handled before the command
+lookup, it prints `package.json`'s `version` and exits. That version is the **single
+source of truth** — imported via `import pkg from "../package.json" with { type: "json" }`,
+which works from source (npm resolves `../package.json`) and is **inlined by esbuild** into
+the SEA bundle, so the native binary reports the same number without reading a file at
+runtime. The git tag is kept in lockstep by the release guard (and bumping via
+`npm version <x>` edits `package.json` + tags atomically); docs avoid pinning the number
+(README uses a live `img.shields.io/npm/v/s3cab` badge) so nothing drifts.
 
 > Note: `package.json` `bin` (`s3cab`) points at `src/s3cab.mjs` — it carries a
 > `#!/usr/bin/env node` shebang so it runs directly as the npm-installed command. There is
@@ -529,21 +538,20 @@ Pre-release housekeeping and open decisions surfaced from the code:
 ### [src/s3cab.mjs](src/s3cab.mjs) — deferred review observations
 
 Open items from a review pass over the entry point. None block use; roughly ordered by
-impact. (The error-path collapse, `errorHandler` inlining, and the `--debug` flag →
-`S3CAB_DEBUG` env-var switch from the same pass are already done.)
+impact. (The error-path collapse, `errorHandler` inlining, the `--debug` flag →
+`S3CAB_DEBUG` env-var switch, the malformed `@typedef` comments → cleared the lone `TS8021`,
+and the global `--version` flag are all already done.)
 
 - **Output vs the `exec` return type.** Dispatch does `console.log(result)` where
   `Command.exec` is typed `Promise<string[] | object>`. `console.log(['a','b'])` prints
   `[ 'a', 'b' ]` (bracketed/quoted), not one line per entry. Either join the array case
   (`result.join("\n")`) or narrow the typedef to what commands actually return — **decide
   which** (deliberately left open).
-- **Malformed `@typedef` comments** at the top of the file (`/** * @typedef …`): the stray
-  `* ` is what produces the lone pre-existing `TS8021` from `tsc`. Fixing the comment
-  clears it.
-- **Help is incomplete.** `usage()` prints `[options]` only when a command defines its
-  own options, and nothing documents the global `S3CAB_DEBUG` env var. The options loop
-  also assumes every option has a `short` (would render `-undefined` otherwise) — latent,
-  since all current options have one.
+- **Help is still incomplete.** There's a global `--version` but no `--version` in any
+  command's `usage()`, no top-level `--help`, and nothing documents the global
+  `S3CAB_DEBUG` env var. `usage()` prints `[options]` only when a command defines its own,
+  and the options loop assumes every option has a `short` (would render `-undefined`
+  otherwise) — latent, since all current options have one.
 - **Import side-effect / testability.** The file both `export`s `commands` and runs the
   CLI as a top-level side-effect, so it can't be `import`ed (e.g. to unit-test the
   registry) without firing dispatch — deliberate (see Architecture), but if testing
