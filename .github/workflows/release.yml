@@ -175,7 +175,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.ref_name }}"
-          # Mark pre-1.0 (v0.x) or semver-prerelease (v1.2.3-rc1) tags as prerelease
+          # Mark pre-1.0 (v0.x) or semver-prerelease (v1.2.3-alpha.1) tags as prerelease
           # so they don't show as "Latest" in the Releases UI.
           prerelease=
           case "$tag" in
@@ -222,9 +222,8 @@ jobs:
 
       # No build/prepack: we publish the source tree (the `files` allowlist). The
       # dist-tag deliberately differs from the GitHub-release prerelease rule —
-      # only a semver-prerelease tag (v1.2.3-rc1) goes to `next`; a plain v0.x
-      # publishes to `latest`, so the first real release supersedes the stale
-      # 0.0.0 oclif build that currently holds `latest` on npm.
+      # only a semver-prerelease tag (v0.0.2-alpha.1) goes to `next`; a plain v0.x
+      # publishes to `latest` (the default `npm install`).
       - name: Publish
         run: |
           case "${GITHUB_REF_NAME}" in

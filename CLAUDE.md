@@ -398,7 +398,7 @@ four release assets don't collide while the binary _inside_ stays plainly `s3cab
 the archive roughly thirds the ~100 MB download.) A `v*` tag publishes a GitHub Release via
 the `gh` CLI (no marketplace actions beyond the official `actions/*`), attaching a
 `SHA256SUMS` file so downloads are verifiable — apt for a SHA-256-addressed tool — and
-marking `v0.x`/`-rc` tags `--prerelease`. Node provisioning is thus the pipeline's job —
+marking `v0.x`/`-alpha` tags `--prerelease`. Node provisioning is thus the pipeline's job —
 there is no longer any in-repo node-download/checksum/extract step.
 
 **A fifth release asset — the portable Node bundle.** Alongside the four native binaries,
@@ -461,9 +461,10 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
   (`npm install -g npm@latest`) before publishing, since Node's bundled npm may predate OIDC
   support. A guard fails the job if the `v*` tag doesn't equal `package.json` `version`.
   **dist-tag logic differs from
-  the GitHub-release prerelease rule on purpose:** only a semver-prerelease tag (`v*-rc`)
-  goes to npm's `next`; a plain `v0.x` publishes to `latest` — needed because the registry
-  already holds a stale `s3cab@0.0.0` (the old oclif prototype, same owner) on `latest`.
+  the GitHub-release prerelease rule on purpose:** only a semver-prerelease tag
+  (`v*-alpha.N`) goes to npm's `next`; a plain `v0.x` publishes to `latest` (the default
+  `npm install`). (`0.0.1` shipped to `latest` on 2026-06-05; the old `s3cab@0.0.0` oclif
+  prototype that previously squatted `latest` has since been unpublished.)
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 
