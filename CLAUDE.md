@@ -161,6 +161,18 @@ can mean writing bespoke code, which _adds_ code.
 - When an honest reimplementation would be **large or risky** (SigV4, multipart, SSO),
   the library wins. The AWS SDK is the worked example of #5 yielding to #6.
 
+**Keep the count of functions and modules down.** Fewer named units = less surface
+area to learn, the same instinct as preferring built-ins over deps. The bar for
+extracting a function or a shared module is *reuse*, not tidiness:
+
+- Extract a **function** when the code is actually reused. Don't split code out
+  purely to give a block a name or to shorten a function — inline, locally-obvious code
+  beats a one-call helper.
+- Promote code into a **shared module** only once it's used by **more than one of the
+  main command modules** (`src/commands/`). Until a second command needs it, let it live
+  where it's used. (This is exactly how the existing core modules in `src/` earned their
+  place.)
+
 Where #2 protects the **format**, #6 protects the **tool**: transparent format +
 transparent code = nothing about this project is a black box.
 
@@ -431,10 +443,15 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
   does), so it's effectively unused weight until the S3 milestone lands — at which point it
   also starts bloating the SEA binary.
 - **Publishing** is the `publish-npm` job in `release.yml` (tag-gated, parallel to the
-  binary `release` job). It uses **OIDC provenance** (`--provenance`, needs
-  `id-token: write` + a public repo) rather than a long-lived token in the publish step —
-  attestation that fits #2; it still needs an `NPM_TOKEN` secret for auth. A guard fails the
-  job if the `v*` tag doesn't equal `package.json` `version`. **dist-tag logic differs from
+  binary `release` job). It uses npm **Trusted Publishing** — the job authenticates to the
+  registry via its **OIDC** token (`id-token: write` + a public repo), so there is **no
+  long-lived `NPM_TOKEN` secret** at all; provenance attestation is produced automatically
+  (no explicit token in the publish step fits #2). This needs a one-time **trusted
+  publisher** configured for the `s3cab` package on npmjs.com (publisher: GitHub Actions,
+  repo `allens/s3cab`, workflow `release.yml`), and npm ≥ 11.5.1 — so the job refreshes npm
+  (`npm install -g npm@latest`) before publishing, since Node's bundled npm may predate OIDC
+  support. A guard fails the job if the `v*` tag doesn't equal `package.json` `version`.
+  **dist-tag logic differs from
   the GitHub-release prerelease rule on purpose:** only a semver-prerelease tag (`v*-rc`)
   goes to npm's `next`; a plain `v0.x` publishes to `latest` — needed because the registry
   already holds a stale `s3cab@0.0.0` (the old oclif prototype, same owner) on `latest`.

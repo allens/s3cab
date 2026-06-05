@@ -211,14 +211,21 @@ jobs:
           pkg="$(node -p 'require("./package.json").version')"
           test "$tag" = "$pkg" || { echo "tag v$tag != package.json $pkg" >&2; exit 1; }
 
+      # Trusted Publishing: npm authenticates to the registry via THIS job's OIDC
+      # token (id-token: write) — no long-lived NPM_TOKEN secret. Requires a
+      # trusted publisher configured for the `s3cab` package on npmjs.com
+      # (publisher: GitHub Actions, repo allens/s3cab, workflow release.yml).
+      # OIDC trusted publishing needs npm >= 11.5.1, so refresh npm first (Node's
+      # bundled npm may predate it). Provenance is generated automatically.
+      - name: Update npm (for OIDC trusted publishing)
+        run: npm install -g npm@latest
+
       # No build/prepack: we publish the source tree (the `files` allowlist). The
       # dist-tag deliberately differs from the GitHub-release prerelease rule —
       # only a semver-prerelease tag (v1.2.3-rc1) goes to `next`; a plain v0.x
       # publishes to `latest`, so the first real release supersedes the stale
       # 0.0.0 oclif build that currently holds `latest` on npm.
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           case "${GITHUB_REF_NAME}" in
             *-*) disttag=next ;;
