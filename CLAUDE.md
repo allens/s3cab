@@ -463,8 +463,7 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
   **dist-tag logic differs from
   the GitHub-release prerelease rule on purpose:** only a semver-prerelease tag
   (`v*-alpha.N`) goes to npm's `next`; a plain `v0.x` publishes to `latest` (the default
-  `npm install`). (`0.0.1` shipped to `latest` on 2026-06-05; the old `s3cab@0.0.0` oclif
-  prototype that previously squatted `latest` has since been unpublished.)
+  `npm install`).
 
 Tests deliberately use the built-in `node:test` runner with no framework (see #5).
 
