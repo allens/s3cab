@@ -508,3 +508,32 @@ Pre-release housekeeping and open decisions surfaced from the code:
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Fix typos** in [doc/exclude.md](doc/exclude.md).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see above).
+
+### [src/s3cab.mjs](src/s3cab.mjs) — deferred review observations
+
+Open items from a review pass over the entry point. None block use; roughly ordered by
+impact. (The error-path collapse, `errorHandler` inlining, and the `--debug` flag →
+`S3CAB_DEBUG` env-var switch from the same pass are already done.)
+
+- **Output vs the `exec` return type.** Dispatch does `console.log(result)` where
+  `Command.exec` is typed `Promise<string[] | object>`. `console.log(['a','b'])` prints
+  `[ 'a', 'b' ]` (bracketed/quoted), not one line per entry. Either join the array case
+  (`result.join("\n")`) or narrow the typedef to what commands actually return — **decide
+  which** (deliberately left open).
+- **Malformed `@typedef` comments** at the top of the file (`/** * @typedef …`): the stray
+  `* ` is what produces the lone pre-existing `TS8021` from `tsc`. Fixing the comment
+  clears it.
+- **Help is incomplete.** `usage()` prints `[options]` only when a command defines its
+  own options, and nothing documents the global `S3CAB_DEBUG` env var. The options loop
+  also assumes every option has a `short` (would render `-undefined` otherwise) — latent,
+  since all current options have one.
+- **Import side-effect / testability.** The file both `export`s `commands` and runs the
+  CLI as a top-level side-effect, so it can't be `import`ed (e.g. to unit-test the
+  registry) without firing dispatch — deliberate (see Architecture), but if testing
+  pressure appears, guard the run block with `if (import.meta.main)` to keep the single
+  file while making the export safely importable.
+- **Consistency nits:** `compare`'s args use bare keys (`directory`/`current`/`previous`)
+  vs the `<dir>` angle-bracket convention elsewhere; `tree`/`list` mark their `exec`
+  arrows `async` while `snapshot`/`prop`/`compare` don't (none need to — `exec` is always
+  awaited); `tree` carries an empty `options: {}` that can be dropped; the commented-out
+  `SIGINT` handler at the bottom is dead code — wire up or delete (per #6).
