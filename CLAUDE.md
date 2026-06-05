@@ -355,7 +355,8 @@ installed to run s3cab. Producing it is two steps:
 cross-inject (its `executable` field plus an injector that understands ELF / Mach-O / PE),
 but a binary built for another OS can't be run or smoke-tested where it's built, and mac
 binaries built off-Mac can't be codesigned (so won't launch). So we don't: the local
-`npm run build:exe` builds the host's target (it points at `sea/win-x64.json`, the primary
+`npm run build:win` / `npm run build:linux` build those targets from their static
+[sea/](sea/) configs (`sea/win-x64.json` / `sea/linux-x64.json`; Windows is the primary
 dev target — on another OS run `node --build-sea=sea/<your-target>.json` directly after
 `npm run build`), and the full matrix is built in CI.
 
@@ -463,8 +464,8 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
-- **Native-executable packaging works**: `npm run build:exe` builds the host's binary from
-  its static [sea/](sea/) config, and CI
+- **Native-executable packaging works**: `npm run build:win` / `npm run build:linux` build
+  those binaries from their static [sea/](sea/) configs, and CI
   ([.github/workflows/release.yml](.github/workflows/release.yml)) builds every platform
   natively on its own runner (the `pkg` → SEA migration is done; cross-compilation from one
   host was deliberately dropped — see Build). Remaining: **macOS notarization** — CI

@@ -31,8 +31,9 @@
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "npm run test -- --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
-    "build": "esbuild src/cli.mjs --bundle --outfile=dist/s3cab.js --platform=node --format=esm --external:aws-crt",
-    "build:exe": "npm run build && node --build-sea=sea/win-x64.json",
+    "build": "esbuild src/s3cab.mjs --bundle --outdir=dist --platform=node --format=esm --external:aws-crt",
+    "build:win": "npm run build && node --build-sea=sea/win-x64.json",
+    "build:linux": "npm run build && node --build-sea=sea/linux-x64.json",
     "clean": "git clean -fdX",
     "clean:dry": "git clean -ndX"
   },
