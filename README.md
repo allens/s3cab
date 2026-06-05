@@ -1,5 +1,9 @@
 # s3cab
 
+[![status: WIP · pre-release](https://img.shields.io/badge/status-WIP%20%C2%B7%20pre--release-orange)](#status)
+[![license: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+[![node: ≥26.3.0](https://img.shields.io/badge/node-%E2%89%A526.3.0-brightgreen)](package.json)
+
 **S3 Content Addressable Backup** — a command-line tool for backing up files to S3 (or
 any S3-compatible object storage), storing data by the **hash of its contents** so that
 identical files are never stored twice, in a format that will never lock you in.
