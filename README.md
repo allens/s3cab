@@ -95,7 +95,7 @@ tool approaches its first real release. For now it runs from source on a recent 
 (see `engines` and `scripts` in [package.json](package.json)):
 
 ```
-node src/cli.mjs <command> [options] [args]
+node src/s3cab.mjs <command> [options] [args]
 ```
 
 ## License

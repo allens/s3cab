@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 // Drive the real CLI entry as a subprocess.
-const CLI = "src/cli.mjs";
+const CLI = "src/s3cab.mjs";
 
 // The packaged SEA executable, built on demand by `npm run build:exe`. Its path
 // is read from this host's static SEA config (sea/<target>.json) so this test

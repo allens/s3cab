@@ -12,9 +12,8 @@
   },
   "license": "GPL-3.0-or-later",
   "author": "Allen Shiels <allen@shiels.dev> (https://github.com/allens/)",
-  "main": "src/cli.mjs",
   "bin": {
-    "s3cab": "src/cli.mjs"
+    "s3cab": "src/s3cab.mjs"
   },
   "files": [
     "src",

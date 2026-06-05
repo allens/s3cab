@@ -5,7 +5,7 @@ status and design intent in [../../CLAUDE.md](../../CLAUDE.md)). This is the _on
 place the AWS SDK is currently used.
 
 **Status:** experimental. Nothing here is wired into the live CLI
-([../cli.mjs](../cli.mjs)). Some of it will be promoted into the real codebase once
+([../s3cab.mjs](../s3cab.mjs)). Some of it will be promoted into the real codebase once
 the content-addressable object store (`objects/<sha256>`) milestone begins; some will
 be rewritten or deleted. Treat it as a reference, not as shipping code — it is not held
 to the project's type/test standards (the `tsc` helper in `.claude/settings.json`

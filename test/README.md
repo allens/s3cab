@@ -8,7 +8,7 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
 - **Unit tests are co-located with their source** as `*.test.mjs` next to the
   module they cover (e.g. [../src/commands/tree.test.mjs](../src/commands/tree.test.mjs)).
 - **This directory holds cross-cutting tests and shared data:**
-  - [e2e.mjs](e2e.mjs) — end-to-end CLI behaviour; spawns `node src/cli.mjs` as
+  - [e2e.mjs](e2e.mjs) — end-to-end CLI behaviour; spawns `node src/s3cab.mjs` as
     a subprocess.
   - [fixtures/](fixtures/) — input trees and committed snapshot manifests used
     by the tests. (Note: `/.s3cab/snapshots/` is gitignored at the repo root only,

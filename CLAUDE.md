@@ -182,16 +182,21 @@ may likewise overtake.
 
 ### Entry point & command dispatch
 
-[src/cli.mjs](src/cli.mjs) is the real entry point. It defines a `commands` registry
+[src/s3cab.mjs](src/s3cab.mjs) is the real entry point. It defines a `commands` registry
 (an object keyed by command name); each command is `{ summary, args?, options?, exec }`.
 Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegative`,
 `allowPositionals`), a generic `usage()`/help generator, and a shared error handler are
 all driven off that registry. Adding a command = adding one entry.
 
-> Note: both `package.json` `main` and `bin` (`s3cab`) point at `src/cli.mjs` — it carries
-> a `#!/usr/bin/env node` shebang so it runs directly as the npm-installed command. The
-> esbuild bundle (`dist/s3cab.js`) is _not_ referenced here; it exists only as the SEA
-> input (see Build → "npm package" for why npm ships source, not the bundle).
+> Note: `package.json` `bin` (`s3cab`) points at `src/s3cab.mjs` — it carries a
+> `#!/usr/bin/env node` shebang so it runs directly as the npm-installed command. There is
+> deliberately **no `main`**: s3cab is a CLI, not a library, and `src/s3cab.mjs` is unsafe to
+> `import` as one — it runs CLI logic (reads `process.argv`, may `process.exit`, dispatches a
+> command) as a top-level side-effect. A library entry, if ever wanted, would be a separate
+> side-effect-free re-export barrel pointing `main` at _it_, never at the CLI file; the
+> per-command functions in `src/commands/` are already cleanly exported for that. The esbuild
+> bundle (`dist/s3cab.js`) is _not_ referenced here either; it exists only as the SEA input
+> (see Build → "npm package" for why npm ships source, not the bundle).
 
 ### Commands (`src/commands/`) — all currently local
 
@@ -314,11 +319,11 @@ installed to run s3cab. Producing it is two steps:
 
 1. **Bundle** (`npm run build`): a one-line **esbuild** invocation (the `build` script in
    [package.json](package.json), calling esbuild's CLI directly — no wrapper script) bundles
-   the ESM source (entry: `src/cli.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
+   the ESM source (entry: `src/s3cab.mjs`) into one **ESM** file, `dist/s3cab.js`. esbuild is
    invoked **bundle-only** — `--bundle`, no `--target`/`--minify`, so it inlines imports
    without down-levelling or otherwise rewriting the JS; the output is the same modern syntax
    that runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
-   (`src/cli.mjs`, so that file _also_ works as the npm `bin` — see "npm package" below);
+   (`src/s3cab.mjs`, so that file _also_ works as the npm `bin` — see "npm package" below);
    esbuild **preserves an entry point's shebang** into the bundle, so no banner is needed (a
    banner would duplicate it, and a second `#!` line is a syntax error). `--external:aws-crt`
    keeps the AWS SDK's optional native addon out of the bundle. esbuild exists purely because
@@ -439,7 +444,7 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
   exclude config (node_modules, .git, build output…), so `s3cab tree .` / `snapshot .`
   works on the repo itself. Exclude behaviour is covered by
   [src/commands/tree.test.mjs](src/commands/tree.test.mjs); end-to-end CLI behaviour by
-  [test/e2e.mjs](test/e2e.mjs), which spawns `node src/cli.mjs` as a subprocess.
+  [test/e2e.mjs](test/e2e.mjs), which spawns `node src/s3cab.mjs` as a subprocess.
 - **Test layout convention:** unit tests are **co-located** with their source as
   `*.test.mjs`; [test/](test/) holds only cross-cutting tests (`e2e.mjs`), shared
   `fixtures/`, and `_poc/home/` ($HOME fixtures for the experimental S3 POC). See
