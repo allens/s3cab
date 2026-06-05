@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
+
+import { formatByteValue, secondsSince } from "./format.mjs";
+
+import { ParseArgsError } from "./error.mjs";
 import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
+import { parseArgs } from "node:util";
 import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
-import { ParseArgsError } from "./error.mjs";
-import { formatByteValue, secondsSince } from "./format.mjs";
 
 /** * @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** * @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions*/
@@ -77,6 +79,7 @@ export const commands = {
 };
 
 const start = Temporal.Now.instant();
+const debug = Boolean(process.env.S3CAB_DEBUG);
 
 const [execPath, jsPath, commandName, ...args] = process.argv;
 
@@ -94,61 +97,38 @@ if (!command) {
 try {
   const { values: options, positionals } = parseArgs({
     args,
-    options: {
-      debug: {
-        type: "boolean",
-        description: "Enable debug output",
-      },
-      ...command.options,
-    },
+    options: { ...command.options },
     allowPositionals: true,
     allowNegative: true,
   });
 
-  if (options.debug) {
-    console.warn({
-      execPath,
-      jsPath,
-      commandName,
-      positionals,
-      options,
-    });
+  if (debug) {
+    console.warn({ execPath, jsPath, commandName, positionals, options });
   }
 
-  command
-    .exec(options, positionals)
-    .then(console.log)
-    .catch(errorHandler(commandName, command))
-    .finally(() => {
-      if (options.debug) {
-        console.warn(
-          "Memory usage:",
-          formatByteValue(process.memoryUsage().heapUsed),
-        );
-        console.warn("Runtime:", secondsSince(start));
-      }
-    });
-} catch (err) {
-  errorHandler(commandName, command)(err);
-}
+  const result = await command.exec({ ...options, debug }, positionals);
 
-/**
- * Create an error handler for a command.
- * @param {string} commandName
- * @param {Command} command
- * @returns {(error: any) => void}
- */
-function errorHandler(commandName, command) {
-  return (error) => {
-    console.error("ERROR:", error);
-    console.error();
-    if (error instanceof ParseArgsError) {
-      usage(commandName, command);
-    } else if (error.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
-      usage(commandName, command);
-    }
-    process.exitCode = 1;
-  };
+  console.log(result);
+} catch (error) {
+  console.error("ERROR:", error);
+  console.error();
+  if (error instanceof ParseArgsError) {
+    usage(commandName, command);
+  } else if (
+    /** @type {NodeJS.ErrnoException} */ (error).code ===
+    "ERR_PARSE_ARGS_UNKNOWN_OPTION"
+  ) {
+    usage(commandName, command);
+  }
+  process.exitCode = 1;
+} finally {
+  if (debug) {
+    console.warn(
+      "Memory usage:",
+      formatByteValue(process.memoryUsage().heapUsed),
+    );
+    console.warn("Runtime:", secondsSince(start));
+  }
 }
 
 /**

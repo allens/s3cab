@@ -184,9 +184,12 @@ may likewise overtake.
 
 [src/s3cab.mjs](src/s3cab.mjs) is the real entry point. It defines a `commands` registry
 (an object keyed by command name); each command is `{ summary, args?, options?, exec }`.
-Dispatch, `parseArgs` option merging (with a global `--debug` flag, `allowNegative`,
-`allowPositionals`), a generic `usage()`/help generator, and a shared error handler are
-all driven off that registry. Adding a command = adding one entry.
+Dispatch, `parseArgs` option merging, `allowNegative`/`allowPositionals`, a generic
+`usage()`/help generator, and a shared error handler are all driven off that registry.
+Adding a command = adding one entry. Debug output is gated by the **`S3CAB_DEBUG`
+environment variable** (any non-empty value), not a CLI flag — it's a cross-cutting
+concern, so it lives outside per-command option parsing and is merged into the options
+bag passed to each command's `exec`.
 
 > Note: `package.json` `bin` (`s3cab`) points at `src/s3cab.mjs` — it carries a
 > `#!/usr/bin/env node` shebang so it runs directly as the npm-installed command. There is
@@ -257,8 +260,8 @@ all driven off that registry. Adding a command = adding one entry.
 - Snapshot name is a timestamp `YYYY-MM-DDTHHMM` (the `:` is stripped). Newest-first
   ordering is lexical on the name.
 - The reader accepts a bare `.tsv` or `.tsv.zst` (or extensionless) name, so an
-  uncompressed manifest can be dropped in for inspection. With `--debug`, `snapshot`
-  also writes a decompressed `.snapshot.tsv` alongside for transparency.
+  uncompressed manifest can be dropped in for inspection. With `S3CAB_DEBUG` set,
+  `snapshot` also writes a decompressed `.snapshot.tsv` alongside for transparency.
 
 ### Snapshot line format (TSV)
 
@@ -495,7 +498,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
   smoke test after ad-hoc signing, and the arm64 runner labels). **Only `darwin-arm64` ships
   on macOS** — no Intel `darwin-x64` build yet; adding one is a `sea/darwin-x64.json` + one
   matrix row if Intel-Mac support is wanted.
-- **"Latest snapshot uncompressed"** currently only happens behind `--debug`. Decide
+- **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental
   [src/\_poc/](src/_poc/) sandbox. Outside the active `src/` set, so the tsc helper in
