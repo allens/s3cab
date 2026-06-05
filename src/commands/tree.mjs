@@ -65,9 +65,10 @@ export function tree(dir = ".", writeStream) {
  * @returns {(dirent: import("fs").Dirent) => string | null} walk callback function
  */
 function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
-  const matchers = patterns.map((pattern) =>
-    createMatcher(join(baseDir, pattern)),
-  );
+  const matchers = patterns.map((pattern) => ({
+    pattern,
+    matcher: createMatcher(join(baseDir, pattern)),
+  }));
 
   return (dirent) => {
     const path = resolve(dirent.parentPath, dirent.name);
@@ -80,11 +81,11 @@ function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
         testString += posix.sep;
       }
 
-      const index = matchers.findIndex((matcher) => matcher.test(testString));
+      const match = matchers.find(({ matcher }) => matcher.test(testString));
 
-      if (index >= 0) {
+      if (match) {
         snapshotWriteStream?.write(
-          formatSnapshotLine("#EXCLUDED", fileType, patterns[index], path),
+          formatSnapshotLine("#EXCLUDED", fileType, match.pattern, path),
         );
         return null;
       }

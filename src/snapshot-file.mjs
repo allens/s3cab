@@ -138,9 +138,11 @@ export async function readSnapshotFile(path) {
     assert(line.trim() !== "", "Empty line in snapshot file");
     const [hash, size, mtime, path] = line.split("\t").map((s) => s.trim());
 
-    if (hash.startsWith("#")) {
+    if (hash?.startsWith("#")) {
       continue;
     }
+
+    assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
 
     lookup.set(path, {
       size: Number(size),

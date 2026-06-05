@@ -54,7 +54,10 @@ export const commands = {
         description: "Path to snapshot file to lookup properties from",
       },
     },
-    exec: (options, [file] = []) => prop(file, options),
+    exec: (options, [file] = []) => {
+      if (!file) throw new ParseArgsError("Missing required argument: <file>");
+      return prop(file, options);
+    },
   },
   compare: {
     summary: "Show differences between two snapshots",
@@ -76,7 +79,7 @@ export const commands = {
         description: "Return only the latest snapshot file",
       },
     },
-    exec: async (options, [dir] = []) => list(dir, options),
+    exec: async (options, [dir = "."] = []) => list(dir, options),
   },
 };
 
@@ -93,9 +96,9 @@ if (commandName === "--version" || commandName === "-v") {
   process.exit(0);
 }
 
-const command = commands[commandName];
+const command = commandName ? commands[commandName] : undefined;
 
-if (!command) {
+if (!commandName || !command) {
   if (commandName) {
     console.error(`Unknown command: ${commandName}`);
   }
