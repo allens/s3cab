@@ -509,21 +509,27 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone.
-- **Native-executable packaging works**: `npm run build:win` / `npm run build:linux` build
-  those binaries from their static [sea/](sea/) configs, and CI
-  ([.github/workflows/release.yml](.github/workflows/release.yml)) builds every platform
-  natively on its own runner (the `pkg` → SEA migration is done; cross-compilation from one
-  host was deliberately dropped — see Build). Remaining: **macOS notarization** — CI
-  ad-hoc-signs the mac binary (enough to _run_), but Gatekeeper-clean _distribution_ needs a
-  Developer ID cert + notarization wired in via secrets. A local mac build (run on a Mac)
-  is unsigned until you `codesign` it (or use `rcodesign`). Also drop esbuild if Node ever
-  bundles multi-file SEA inputs natively. **Not yet validated on real runners:** the
-  `release` workflow (and the `ci` workflow) have only been built/reasoned about locally —
-  the Linux/macOS binaries are produced solely in CI and have never been built or run here,
-  so the first `workflow_dispatch` / `v0.0.x` tag is the real smoke test (watch the macOS
-  smoke test after ad-hoc signing, and the arm64 runner labels). **Only `darwin-arm64` ships
-  on macOS** — no Intel `darwin-x64` build yet; adding one is a `sea/darwin-x64.json` + one
-  matrix row if Intel-Mac support is wanted.
+- **Native-executable packaging works and is validated on real runners.** `npm run
+  build:win` / `npm run build:linux` build those binaries from their static [sea/](sea/)
+  configs, and CI ([.github/workflows/release.yml](.github/workflows/release.yml)) builds
+  every platform natively on its own runner (the `pkg` → SEA migration is done;
+  cross-compilation from one host was deliberately dropped — see Build). The full matrix has
+  now run for real (a `workflow_dispatch` dry-run plus the `v0.0.1-rc.1` and `v0.0.1` tags):
+  all four binaries build, smoke-test, and archive, and the macOS ad-hoc sign + npm publish
+  + GitHub Release all succeed. Open items:
+  - **macOS notarization — deliberately skipped (costs money).** CI ad-hoc-signs the mac
+    binary, enough to _run_; Gatekeeper-clean _distribution_ would need a paid Apple
+    Developer ID + notarization, which we're not doing. Browser-downloaded copies hit a
+    quarantine warning; the README documents the `xattr -dr com.apple.quarantine` workaround
+    (and that `curl`/`npm`/bundle installs avoid it). A local mac build is likewise unsigned
+    until you `codesign` it (or use `rcodesign`).
+  - **macOS is labelled `macos`, not `darwin`,** in the release-asset + `sea/` config names
+    (friendlier on a download), even though `process.platform` is `darwin` — `test/e2e.mjs`
+    maps the one to the other.
+  - **Only `macos-arm64` ships** — no Intel `macos-x64` build, on purpose: Intel Macs are
+    legacy and those users can still use `npm` or the portable bundle. Adding it later is a
+    `sea/macos-x64.json` + one `macos-13` (Intel) matrix row.
+  - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
 - **`npx tsc` is not clean:** pre-existing `noImplicitAny` errors in the experimental

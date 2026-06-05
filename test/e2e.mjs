@@ -14,7 +14,15 @@ const CLI = "src/s3cab.mjs";
 // can't drift from the build config. It's a ~100 MB artifact that doesn't exist
 // in a normal checkout, so the smoke test below skips itself unless the binary
 // has actually been built.
-const HOST_TARGET = `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`;
+// Map Node's process.platform to our sea/ target labels: "win"/"macos" read better
+// than the raw "win32"/"darwin" in release-asset and config names.
+const PLATFORM =
+  process.platform === "win32"
+    ? "win"
+    : process.platform === "darwin"
+      ? "macos"
+      : process.platform;
+const HOST_TARGET = `${PLATFORM}-${process.arch}`;
 const EXE = JSON.parse(readFileSync(`sea/${HOST_TARGET}.json`, "utf8")).output;
 
 // package.json version is the single source of truth; `--version` must echo it.

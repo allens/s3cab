@@ -103,6 +103,21 @@ tool approaches its first real release. For now it runs from source on a recent 
 node src/s3cab.mjs <command> [options] [args]
 ```
 
+### macOS note
+
+The prebuilt macOS binary on the [Releases](https://github.com/allens/s3cab/releases) page
+is ad-hoc signed, so it runs, but it is **not notarized** (that needs a paid Apple Developer
+account). If you download the archive in a **web browser**, macOS may block it ("Apple could
+not verify…"). Clear the quarantine flag and run it:
+
+```
+xattr -dr com.apple.quarantine ./s3cab
+```
+
+Downloading via the terminal (`curl`/`wget`), installing with `npm`, or running the portable
+`s3cab.js` bundle on your own Node all sidestep this entirely — the latter two work on Intel
+Macs too.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE) © Allen Shiels
