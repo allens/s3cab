@@ -27,7 +27,8 @@
       "Bash(gh auth *)",
       "PowerShell(npm run clean:dry)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(git ls-remote *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
