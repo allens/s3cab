@@ -28,7 +28,8 @@
       "PowerShell(npm run clean:dry)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(git ls-remote *)"
+      "Bash(git ls-remote *)",
+      "Bash(gh run *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
