@@ -1,26 +1,5 @@
 {
   "permissions": {
-    "deny": [
-      "Bash(git checkout -- *)",
-      "PowerShell(git checkout -- *)",
-      "Bash(git checkout .)",
-      "PowerShell(git checkout .)",
-      "Bash(git reset --hard *)",
-      "PowerShell(git reset --hard *)",
-      "Bash(git clean *)",
-      "PowerShell(git clean *)",
-      "Bash(git push --force*)",
-      "PowerShell(git push --force*)",
-      "Bash(git push -f *)",
-      "PowerShell(git push -f *)",
-      "Bash(rm -rf *)",
-      "PowerShell(Remove-Item -Recurse*)",
-      "Bash(curl *)",
-      "PowerShell(curl *)",
-      "Bash(wget *)",
-      "PowerShell(Invoke-WebRequest *)",
-      "PowerShell(iwr *)"
-    ],
     "allow": [
       "Bash(git add *)",
       "Bash(git branch *)",
@@ -49,6 +28,27 @@
       "PowerShell(npm run clean:dry)",
       "Skill(update-config)",
       "Skill(update-config:*)"
+    ],
+    "deny": [
+      "Bash(git checkout -- *)",
+      "PowerShell(git checkout -- *)",
+      "Bash(git checkout .)",
+      "PowerShell(git checkout .)",
+      "Bash(git reset --hard *)",
+      "PowerShell(git reset --hard *)",
+      "Bash(git clean *)",
+      "PowerShell(git clean *)",
+      "Bash(git push --force*)",
+      "PowerShell(git push --force*)",
+      "Bash(git push -f *)",
+      "PowerShell(git push -f *)",
+      "Bash(rm -rf *)",
+      "PowerShell(Remove-Item -Recurse*)",
+      "Bash(curl *)",
+      "PowerShell(curl *)",
+      "Bash(wget *)",
+      "PowerShell(Invoke-WebRequest *)",
+      "PowerShell(iwr *)"
     ]
   }
 }
