@@ -54,10 +54,7 @@ export const commands = {
         description: "Path to snapshot file to lookup properties from",
       },
     },
-    exec: (options, [file] = []) => {
-      if (!file) throw new ParseArgsError("Missing required argument: <file>");
-      return prop(file, options);
-    },
+    exec: (options, [file] = []) => prop(file, options),
   },
   compare: {
     summary: "Show differences between two snapshots",
@@ -79,7 +76,7 @@ export const commands = {
         description: "Return only the latest snapshot file",
       },
     },
-    exec: async (options, [dir = "."] = []) => list(dir, options),
+    exec: async (options, [dir] = []) => list(dir, options),
   },
 };
 

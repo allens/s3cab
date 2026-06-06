@@ -3,14 +3,14 @@ import { basename, join } from "node:path";
 
 /**
  * @overload
- * @param {string} dir
+ * @param {string} [dir]
  * @param {{ latest: true }} options
  * @returns {string | undefined}
  */
 
 /**
  * @overload
- * @param {string} dir
+ * @param {string} [dir]
  * @param {{ latest?: false }} [options]
  * @returns {string[]}
  */
