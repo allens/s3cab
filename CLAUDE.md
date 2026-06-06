@@ -238,7 +238,7 @@ is earned by logic, not reserved ahead of it.
 | `list` | list.mjs | built | List snapshot names (sorted newest-first), or `--latest`. `--remote`/`-r` (list backed-up snapshots) throws — not yet implemented. |
 | `compare` | compare.mjs | built | Diff two snapshots → added / moved / modified / deleted. `--remote`/`-r` throws — not yet implemented. |
 | `status` | _(inline stub)_ | stub | Show which snapshots are backed up and what a backup would upload (≈ `compare` of latest-local vs remote). |
-| `init` | _(inline stub)_ | stub | Initialize a repo: prepare the remote bucket **and** link the local dir to it (one command, both halves). |
+| `setup` | _(inline stub)_ | stub | Set up a backup destination: prepare the remote bucket **and** link the local dir to it (one command, both halves). |
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
@@ -251,7 +251,11 @@ local and remote are the *same operation pointed elsewhere*, and a flag avoids a
 two-level dispatcher (#6). The transfer verbs are **`backup`/`restore`** (not
 `push`/`pull` or `upload`/`download`): the most domain-honest pair, and they avoid
 implying the bidirectional *sync* that `push`/`pull` connote — s3cab is one-directional
-archival. `login` (SSO) is intentionally **not** a command yet (undecided — may lean on
+archival. **Audience is ordinary, non-technical folks**, so user-facing names favour
+consumer backup vocabulary over git/dev jargon — the setup command is **`setup`, not
+`init`** for that reason. (Calls weighed but *kept* as-is: `--remote` over `--cloud`,
+`verify` over `check`, and the dev-flavoured diagnostics `tree`/`prop` left alone.)
+`login` (SSO) is intentionally **not** a command yet (undecided — may lean on
 the standard AWS credential chain instead). `compare`'s arg **order/direction**
 (currently `<current> <previous>`, i.e. NEW→OLD, the reverse of `diff`) is still an open
 decision; only the arg-key format was tidied to the `<dir>` convention.
@@ -533,7 +537,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 upload/download not implemented** in active code; experimental POC only in
   [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
   Building the `objects/<sha256>` store + remote snapshots is the next milestone. The
-  **CLI surface is now scaffolded ahead of it**: `init`/`backup`/`restore`/`status`/
+  **CLI surface is now scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/
   `verify` are registered as inline stubs and `--remote` is wired onto `list`/`compare`,
   all throwing `notImplemented()` for now (see the Commands table). Filling these in is
   the milestone work; promote each stub into its own `src/commands/` file as it gains a

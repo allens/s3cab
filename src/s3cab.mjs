@@ -100,14 +100,13 @@ export const commands = {
   },
 
   // ── Remote backup commands (S3 milestone — not yet implemented) ─────────
-  init: {
-    summary:
-      "Initialize an s3cab repository: prepare the remote and link this directory to it",
+  setup: {
+    summary: "Set up a backup destination and link this directory to it",
     args: {
-      "<dir>": "Local directory to initialize",
-      "<remote>": "Remote bucket/URL to back up to",
+      "<dir>": "Local directory to set up",
+      "<remote>": "Cloud bucket/URL to back up to",
     },
-    exec: () => notImplemented("init"),
+    exec: () => notImplemented("setup"),
   },
   backup: {
     summary: "Back up a snapshot (manifest + objects) to the remote",
