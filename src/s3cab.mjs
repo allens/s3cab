@@ -196,7 +196,7 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  topUsage();
+  topUsage(console.log);
   process.exit(0);
 }
 
@@ -210,7 +210,7 @@ if (!command) {
 
 // Per-command help: `s3cab <command> --help`.
 if (args.includes("--help") || args.includes("-h")) {
-  usage(commandName, command);
+  usage(commandName, command, console.log);
   process.exit(0);
 }
 
@@ -253,17 +253,20 @@ try {
 
 /**
  * Display top-level help: the available commands with their summaries.
+ * @param {(...args: unknown[]) => void} [log] - Output sink: `console.log`
+ *   (stdout) when help is explicitly requested, `console.error` (stderr,
+ *   default) when shown as part of an error.
  */
-function topUsage() {
-  console.error("s3cab — S3 Content Addressable Backup\n");
-  console.error("Usage: s3cab <command> [options] [args]\n");
-  console.error("Commands:");
+function topUsage(log = console.error) {
+  log("s3cab — S3 Content Addressable Backup\n");
+  log("Usage: s3cab <command> [options] [args]\n");
+  log("Commands:");
   for (const [name, { summary, planned }] of Object.entries(commands)) {
     const note = planned ? " (not yet available)" : "";
-    console.error(`  ${name}`.padEnd(12) + summary + note);
+    log(`  ${name}`.padEnd(12) + summary + note);
   }
-  console.error("\nRun 's3cab <command> --help' for a command's options.");
-  console.error("Run 's3cab --version' to print the version.");
+  log("\nRun 's3cab <command> --help' for a command's options.");
+  log("Run 's3cab --version' to print the version.");
 }
 
 /**
@@ -298,42 +301,45 @@ function printResult(result) {
  * Display usage information for a command.
  * @param {string} commandName - Command name
  * @param {Command} command - Command definition
+ * @param {(...args: unknown[]) => void} [log] - Output sink: `console.log`
+ *   (stdout) when help is explicitly requested, `console.error` (stderr,
+ *   default) when shown as part of an error.
  */
-function usage(commandName, command) {
+function usage(commandName, command, log = console.error) {
   const { args, options, summary, description } = command;
 
   let usage = `Usage: s3cab ${commandName} `;
   if (options) usage += "[options] ";
   if (args) usage += Object.keys(args).join(" ");
-  console.error(usage);
-  console.error();
+  log(usage);
+  log();
 
   if (summary) {
-    console.error(summary);
-    console.error();
+    log(summary);
+    log();
   }
 
   if (args) {
-    console.error("Arguments:");
+    log("Arguments:");
     for (const [name, description = ""] of Object.entries(args)) {
-      console.error(`  ${name}`.padEnd(24) + description);
+      log(`  ${name}`.padEnd(24) + description);
     }
-    console.error();
+    log();
   }
 
   if (options) {
-    console.error("Options:");
+    log("Options:");
     for (const [name, { short, description = "" }] of Object.entries(options)) {
       const flags = short ? `-${short}, --${name}` : `--${name}`;
-      console.error(`  ${flags}`.padEnd(24) + description);
+      log(`  ${flags}`.padEnd(24) + description);
     }
-    console.error();
+    log();
   }
 
   if (description) {
-    console.error("Description:");
-    console.error(description);
-    console.error();
+    log("Description:");
+    log(description);
+    log();
   }
 }
 

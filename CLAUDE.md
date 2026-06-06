@@ -229,6 +229,14 @@ args/options) and `--version` are handled pre-dispatch; command results are prin
 `printResult` (one item per line; objects-of-arrays print a heading per non-empty group),
 so output is never truncated the way `console.log` truncates a long array.
 
+**Stream discipline:** a command's _real output_ — results (`printResult`), `--version`,
+and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
+warnings, and usage shown as part of an _error_ (bad args, unknown command) — goes to
+**stderr**. So `s3cab tree . > files.txt` captures just the file list, and
+`s3cab --help | less` works. This is why `usage()`/`topUsage()` take a `log` sink: it's
+`console.log` for an explicit help request, `console.error` (the default) on the error
+path.
+
 | Command | File | Status | Purpose |
 | --- | --- | --- | --- |
 | `snapshot` | snapshot.mjs | built | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
