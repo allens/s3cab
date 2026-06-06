@@ -30,29 +30,20 @@ conventions, and the pre-release TODO list).
 
 ## What this project is
 
-**s3cab** = **S3 C**ontent **A**ddressable **B**ackup — a CLI for backing up files to
-S3 (or S3-compatible object storage), where objects are stored and keyed by the
-**SHA-256 hash of their contents** rather than by path/name.
+**s3cab** = **S3 C**ontent **A**ddressable **B**ackup. [README.md](README.md) covers what
+it is, why, and status — not repeated here. What matters for working in the code:
 
-### Current status (pre-release)
+- **Built today:** the local snapshot + diff engine — walk a tree (with exclude
+  globbing) → compute per-file SHA-256/size/mtime → write an immutable `.tsv.zst`
+  manifest → diff two snapshots into added/moved/modified/deleted via content hashes
+  (so moves, renames, and duplicates are detected).
+- **Not yet built:** upload/download to S3. The early proof-of-concept (SSO login, S3
+  client, multipart upload) lives in [src/\_poc/](src/_poc/) — the _only_ place the AWS
+  SDK is used, an **experimental sandbox** wired into nothing; some will be promoted, some
+  deleted. The `objects/<sha256>` store + remote snapshots are the next milestone.
 
-What is **built today** is the **local content-addressable snapshot + diff engine**:
-
-- Walk a directory tree (with exclude globbing).
-- Compute per-file properties — SHA-256 hash, size, mtime.
-- Write an immutable **snapshot manifest** (`.tsv.zst`) describing the tree.
-- Diff two snapshots into added / moved / modified / deleted, using content hashes
-  to detect moves, renames, and duplicates.
-
-What is **not yet built**: the actual upload/download to S3. An early proof-of-concept
-(SSO login, S3 client, multipart upload) lives in [src/\_poc/](src/_poc/) and is the
-_only_ place the AWS SDK is currently used. `_poc/` is an **experimental sandbox**: some
-of it will be promoted into the real codebase, some will be deleted — none of it is wired
-into the live CLI. The content-addressable object store (`objects/<sha256>`) and remote
-snapshot storage are the next milestone.
-
-Treat the README's S3/backup descriptions as the _target_; treat the code in `src/`
-(excluding `_poc`) as _what works now_.
+Treat the README's S3/backup descriptions as the _target_; treat `src/` (excluding
+`_poc`) as _what works now_.
 
 ---
 
@@ -228,15 +219,29 @@ The registry in [src/s3cab.mjs](src/s3cab.mjs) groups commands as **local snapsh
 **remote backup**, and **diagnostics**. The local commands are **built**; the remote
 ones (plus `status`/`verify`) are **registered stubs** — they appear in the CLI with
 real args/options/help, but their `exec` calls the shared `notImplemented()` helper and
-throws, pending the S3 milestone. Stubs are deliberately kept inline in the registry
-(not given their own `src/commands/` files) until they gain real bodies — per #6, a file
-is earned by logic, not reserved ahead of it.
+throws, pending the S3 milestone. Stubs carry `planned: true`, which `--help` renders as
+`(not yet available)`. They're deliberately kept inline in the registry (not given their
+own `src/commands/` files) until they gain real bodies — per #6, a file is earned by
+logic, not reserved ahead of it.
+
+`--help` (top-level lists commands; `<command> --help` prints that command's
+args/options) and `--version` are handled pre-dispatch; command results are printed by
+`printResult` (one item per line; objects-of-arrays print a heading per non-empty group),
+so output is never truncated the way `console.log` truncates a long array.
+
+**Stream discipline:** a command's _real output_ — results (`printResult`), `--version`,
+and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
+warnings, and usage shown as part of an _error_ (bad args, unknown command) — goes to
+**stderr**. So `s3cab tree . > files.txt` captures just the file list, and
+`s3cab --help | less` works. This is why `usage()`/`topUsage()` take a `log` sink: it's
+`console.log` for an explicit help request, `console.error` (the default) on the error
+path.
 
 | Command | File | Status | Purpose |
 | --- | --- | --- | --- |
 | `snapshot` | snapshot.mjs | built | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
 | `list` | list.mjs | built | List snapshot names (sorted newest-first), or `--latest`. `--remote`/`-r` (list backed-up snapshots) throws — not yet implemented. |
-| `compare` | compare.mjs | built | Diff two snapshots → added / moved / modified / deleted. `--remote`/`-r` throws — not yet implemented. |
+| `compare` | compare.mjs | built | Diff two snapshots (`--since` older → `--until` newer) → added / moved / modified / deleted. Defaults: `until`=latest, `since`=the one before it, so bare `compare <dir>` shows recent changes. `--remote`/`-r` throws — not yet implemented. |
 | `status` | _(inline stub)_ | stub | Show which snapshots are backed up and what a backup would upload (≈ `compare` of latest-local vs remote). |
 | `setup` | _(inline stub)_ | stub | Set up a backup destination: prepare the remote bucket **and** link the local dir to it (one command, both halves). |
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
@@ -256,9 +261,12 @@ consumer backup vocabulary over git/dev jargon — the setup command is **`setup
 `init`** for that reason. (Calls weighed but *kept* as-is: `--remote` over `--cloud`,
 `verify` over `check`, and the dev-flavoured diagnostics `tree`/`prop` left alone.)
 `login` (SSO) is intentionally **not** a command yet (undecided — may lean on
-the standard AWS credential chain instead). `compare`'s arg **order/direction**
-(currently `<current> <previous>`, i.e. NEW→OLD, the reverse of `diff`) is still an open
-decision; only the arg-key format was tidied to the `<dir>` convention.
+the standard AWS credential chain instead). `compare` takes the two snapshots as
+**`--since` (older) / `--until` (newer) options, not positionals**: a leading
+defaultable `<dir>` positional would otherwise force `compare . <snap>` (you'd have to
+type the dir to reach a snapshot positional), and `--since` reads naturally, fixes the
+direction to old→new (like `diff`), and extends to dates later. Single-snapshot use is
+deliberately "since X → latest" (the useful baseline case), not "X vs its predecessor".
 
 ### Core modules
 
@@ -277,8 +285,11 @@ decision; only the arg-key format was tidied to the `<dir>` convention.
 
 - **Incremental hashing (lookup optimization).** `snapshot` reads the previous snapshot;
   for each file, if **size and mtime are unchanged**, it reuses the previous hash
-  instead of re-reading and re-hashing the file. `--no-lookup` (`-n`) forces a full
-  re-hash. This is the main performance lever.
+  instead of re-reading and re-hashing the file. `--rehash` forces a full re-hash. This
+  is the main performance lever. (The option is `rehash`, a plain positive flag —
+  deliberately _not_ a `--no-lookup` negation: a camelCase `noLookup` key made the
+  natural `--no-lookup` an unknown option, and `allowNegative` only negates the literal
+  key.)
 - **Streaming throughout.** `snapshot` is a `pipeline()` of async generators
   (`tree → progress → props → stringify → zstd → file`), so memory stays flat on huge
   trees. Files ≥ 5 MB are hashed via a stream rather than read whole.
@@ -580,27 +591,20 @@ Pre-release housekeeping and open decisions surfaced from the code:
 ### [src/s3cab.mjs](src/s3cab.mjs) — deferred review observations
 
 Open items from a review pass over the entry point. None block use; roughly ordered by
-impact. (The error-path collapse, `errorHandler` inlining, the `--debug` flag →
-`S3CAB_DEBUG` env-var switch, the malformed `@typedef` comments → cleared the lone `TS8021`,
-and the global `--version` flag are all already done.)
+impact. (Already done: the error-path collapse, `errorHandler` inlining, `--debug` →
+`S3CAB_DEBUG` env var, the malformed `@typedef` fixes, the global `--version`, terminal
+output via `printResult` (one item per line, never truncated) over a narrowed `exec`
+return type, and top-level + per-command `--help` — `usage()` now renders short-less
+options correctly and top-level help marks stub commands `(not yet available)`.)
 
-- **Output vs the `exec` return type.** Dispatch does `console.log(result)` where
-  `Command.exec` is typed `Promise<string[] | object>`. `console.log(['a','b'])` prints
-  `[ 'a', 'b' ]` (bracketed/quoted), not one line per entry. Either join the array case
-  (`result.join("\n")`) or narrow the typedef to what commands actually return — **decide
-  which** (deliberately left open).
-- **Help is still incomplete.** There's a global `--version` but no `--version` in any
-  command's `usage()`, no top-level `--help`, and nothing documents the global
-  `S3CAB_DEBUG` env var. `usage()` prints `[options]` only when a command defines its own,
-  and the options loop assumes every option has a `short` (would render `-undefined`
-  otherwise) — latent, since all current options have one.
+- **Help — remaining gaps.** Per-command `usage()` doesn't list the universal
+  `--help`/`--version`, and nothing documents the global `S3CAB_DEBUG` env var.
 - **Import side-effect / testability.** The file both `export`s `commands` and runs the
   CLI as a top-level side-effect, so it can't be `import`ed (e.g. to unit-test the
   registry) without firing dispatch — deliberate (see Architecture), but if testing
   pressure appears, guard the run block with `if (import.meta.main)` to keep the single
   file while making the export safely importable.
-- **Consistency nits:** `compare`'s args use bare keys (`directory`/`current`/`previous`)
-  vs the `<dir>` angle-bracket convention elsewhere; `tree`/`list` mark their `exec`
-  arrows `async` while `snapshot`/`prop`/`compare` don't (none need to — `exec` is always
-  awaited); `tree` carries an empty `options: {}` that can be dropped; the commented-out
-  `SIGINT` handler at the bottom is dead code — wire up or delete (per #6).
+- **Consistency nits:** `tree`/`list` mark their `exec` arrows `async` while the others
+  don't (none need to — `exec` is always awaited); the commented-out `SIGINT` handler at
+  the bottom is dead code — wire up or delete (per #6). (Resolved: `compare`'s bare arg
+  keys — it now takes `<dir>` + `--since`/`--until` options; `tree`'s empty `options: {}`.)
