@@ -15,7 +15,7 @@ describe("compare", async () => {
       new File(["contents1"], "file1.txt"),
     ]);
 
-    const result = await compare(dir.path, "current");
+    const result = await compare(dir.path, { until: "current" });
 
     assert.deepStrictEqual(result, {
       added: ["file1.txt"],
@@ -36,7 +36,10 @@ describe("compare", async () => {
       new File(["contents1"], "newname.txt"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: [],
@@ -57,7 +60,10 @@ describe("compare", async () => {
       new File(["contents1"], "newdir/file1.txt"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: [],
@@ -78,7 +84,10 @@ describe("compare", async () => {
       new File(["contents1"], "newdir/file1.txt"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: [],
@@ -102,7 +111,10 @@ describe("compare", async () => {
       new File(["contents1"], "file.Y"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: ["file.Y == file.A"],
@@ -129,7 +141,10 @@ describe("compare", async () => {
       new File(["contents1"], "file.Z"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: ["file.Y == file.A,file.B", "file.Z == file.A,file.B"],
@@ -155,7 +170,10 @@ describe("compare", async () => {
       new File(["contents1"], "file.Z"),
     ]);
 
-    const result = await compare(dir.path, "current", "previous");
+    const result = await compare(dir.path, {
+      since: "previous",
+      until: "current",
+    });
 
     assert.deepStrictEqual(result, {
       added: [

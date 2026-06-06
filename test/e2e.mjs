@@ -71,6 +71,21 @@ describe("cli (e2e)", () => {
     assert.strictEqual(stdout.trim(), VERSION);
   });
 
+  it("--help lists the available commands on stdout", () => {
+    const { status, stdout } = run("--help");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Commands:/);
+    assert.match(stdout, /snapshot/);
+  });
+
+  it("<command> --help shows that command's usage on stdout", () => {
+    const { status, stdout } = run("compare", "--help");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /--since/);
+  });
+
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and
   // produces correct output. Skipped unless `npm run build:win` / `build:linux`
   // has built it.
