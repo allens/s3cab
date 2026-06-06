@@ -40,7 +40,7 @@ describe("snapshot", () => {
   before(async () => {});
   it("return no such file or directory with directory does not exist", async () => {
     const dir = "./test/fixtures/snapshot-dir-does-not-exist";
-    const options = { noLookup: true };
+    const options = { rehash: true };
 
     const promise = snapshot(dir, options);
 
@@ -52,7 +52,7 @@ describe("snapshot", () => {
 
   it.skip("creates snapshot for existing directory", async () => {
     const dir = "./test";
-    const options = { noLookup: true };
+    const options = { rehash: true };
     const result = await snapshot(dir, options);
     // assertions here
     assert.ok(result);
@@ -68,7 +68,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
 
-    await snapshot(workDir(), { noLookup: true });
+    await snapshot(workDir(), { rehash: true });
 
     mockIsoDateTime = "2025-01-15T10:31:00";
 
@@ -90,7 +90,7 @@ describe("snapshot", () => {
     renameSync(workDir("move.txt"), workDir("dir", "move.txt"));
 
     const { added, modified, deleted, moved } = await snapshot(workDir(), {
-      noLookup: false,
+      rehash: false,
     });
 
     assert.deepStrictEqual(added, [normalize("./added.txt")]);

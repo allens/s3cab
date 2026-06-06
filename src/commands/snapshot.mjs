@@ -18,7 +18,7 @@ import { tree } from "./tree.mjs";
  * Create a snapshot of a directory.
  * @param {string} dir - Directory to snapshot
  * @param {object} [options]
- * @param {boolean} [options.noLookup] - Do not lookup previous snapshot
+ * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.debug] - Enable debug mode
  * @returns {Promise<import("./compare.mjs").CompareResult>} Diff against the previous snapshot
  */
@@ -33,7 +33,7 @@ export async function snapshot(dir = ".", options = {}) {
   /** @type {import("../snapshot-file.mjs").SnapshotLookup | undefined} */
   let lookup;
   const latestSnapshotName = list(dir, { latest: true });
-  if (!options.noLookup && latestSnapshotName) {
+  if (!options.rehash && latestSnapshotName) {
     console.warn("Reading previous snapshot", `'${latestSnapshotName}'`);
     lookup = await readSnapshot(dir, latestSnapshotName);
   }

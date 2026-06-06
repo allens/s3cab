@@ -17,7 +17,7 @@ import { basename, join } from "node:path";
 
 /**
  * List snapshots in a directory.
- * @param {string} dir - Directory to list files from
+ * @param {string} dir - Directory whose snapshots to list
  * @param {object} [options]
  * @param {boolean} [options.latest] - Return only the latest snapshot file
  * @param {boolean} [options.remote] - List snapshots backed up to the remote

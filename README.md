@@ -9,8 +9,8 @@
 any S3-compatible object storage), storing data by the **hash of its contents** so that
 identical files are never stored twice, in a format that will never lock you in.
 
-> ⚠️ **Pre-release, under active development.** Today s3cab builds and compares
-> **local** content-addressable snapshots. Uploading to S3 is the next milestone — see
+> ⚠️ **Pre-release, under active development.** Today s3cab takes and compares **local**
+> snapshots of your files. Backing up to the cloud is the next milestone — see
 > [Status](#status). Expect things to change.
 
 ## Why s3cab?
@@ -42,20 +42,59 @@ is never locked in**:
 
 ## Status
 
-s3cab is currently a **local content-addressable snapshot engine**. These commands work
-today (no cloud involved yet):
+s3cab is currently a **local snapshot engine** — it records and compares the state of
+your files. No cloud is involved yet. These commands work today:
 
-| Command    | What it does                                                                  |
-| ---------- | ----------------------------------------------------------------------------- |
-| `snapshot` | Take a snapshot of a directory: hash every file and write a manifest.         |
-| `compare`  | Show what changed between two snapshots (added / moved / modified / deleted). |
-| `list`     | List the snapshots taken for a directory.                                     |
-| `tree`     | List the files in a directory, honouring exclude rules.                       |
-| `prop`     | Show the hash, size, and modified time of a single file.                      |
+| Command                | What it does                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `s3cab snapshot <dir>` | Take a snapshot of a directory, then show what changed since the previous one.     |
+| `s3cab list <dir>`     | List the snapshots taken for a directory.                                          |
+| `s3cab compare <dir>`  | Show what changed between two snapshots (added / moved / renamed / modified / deleted). |
+| `s3cab tree <dir>`     | List the files in a directory, honouring exclude rules.                            |
+| `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
 
-**Planned:** uploading and downloading content to S3 / S3-compatible storage — the
-content-addressed object store (`objects/<hash>`) and remote snapshots — which will turn
-s3cab from a local snapshotting engine into a full backup tool.
+Every command defaults `<dir>` to the current folder, so `s3cab snapshot` snapshots where
+you are. Run any command with `--help` to see its options.
+
+### Coming next
+
+Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool.
+These commands are already part of the interface but **not yet functional** (they exit
+with a "not yet implemented" message):
+
+| Command                        | Will do                                                          |
+| ------------------------------ | --------------------------------------------------------------- |
+| `s3cab setup <dir> <bucket>`   | Set up a cloud backup destination for a directory.              |
+| `s3cab backup <dir>`           | Upload a snapshot, and the files it references, to the cloud.   |
+| `s3cab restore <dir> [paths…]` | Restore files from a backup.                                    |
+| `s3cab status <dir>`           | Show what is backed up and what a backup would upload.          |
+| `s3cab verify <dir>`           | Check that a backup is complete and undamaged.                  |
+
+(`list` and `compare` will also gain a `--remote` flag to work against the cloud copy.)
+
+## Quick start
+
+```console
+> s3cab snapshot C:\Users\me\Photos
+Generating new snapshot: 2025-11-11T0830
+
+# ...add, move, or edit some files, then snapshot again —
+# s3cab shows what changed since last time:
+> s3cab snapshot C:\Users\me\Photos
+Generating new snapshot: 2025-11-12T0915
+Added:
+  2025\new.jpg
+Moved:
+  2024\IMG_001.jpg →→ 2024\sorted\IMG_001.jpg
+
+# List every snapshot you've taken:
+> s3cab list C:\Users\me\Photos
+2025-11-12T0915
+2025-11-11T0830
+
+# Compare two snapshots (defaults to the latest two; --since picks an older one):
+> s3cab compare C:\Users\me\Photos --since 2025-11-11T0830
+```
 
 ## How it works
 
@@ -87,21 +126,33 @@ To inspect a compressed snapshot by hand, decompress it with any zstd tool
 (`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
 story — no s3cab required.
 
-> s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
-> goal for later. Snapshot paths are absolute and use the native OS path style.
-
 Exclude rules live in `.s3cab/exclude.txt`; see [doc/exclude.md](doc/exclude.md) for the
 glob syntax.
 
-## Installation & usage
+> s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
+> goal for later. Snapshot paths are absolute and use the native OS path style.
 
-📌 Full installation, AWS setup, and command walkthroughs will be documented here as the
-tool approaches its first real release. For now it runs from source on a recent Node.js
-(see `engines` and `scripts` in [package.json](package.json)):
+## Installing & running
 
-```
-node src/s3cab.mjs <command> [options] [args]
-```
+Pick whichever suits you — all three run the same tool:
+
+- **npm** (needs [Node.js](https://nodejs.org) ≥ 26.3.0):
+
+  ```console
+  > npm install -g s3cab
+  > s3cab snapshot C:\Users\me\Photos
+  ```
+
+- **Prebuilt binary** — download the archive for your platform from the
+  [Releases](https://github.com/allens/s3cab/releases) page and run `s3cab`. No Node.js
+  required. (See the macOS note below.)
+
+- **From source** (needs Node.js ≥ 26.3.0) — clone the repo and run the entry point
+  directly:
+
+  ```console
+  > node src/s3cab.mjs snapshot C:\Users\me\Photos
+  ```
 
 ### macOS note
 
@@ -110,8 +161,8 @@ is ad-hoc signed, so it runs, but it is **not notarized** (that needs a paid App
 account). If you download the archive in a **web browser**, macOS may block it ("Apple could
 not verify…"). Clear the quarantine flag and run it:
 
-```
-xattr -dr com.apple.quarantine ./s3cab
+```console
+> xattr -dr com.apple.quarantine ./s3cab
 ```
 
 Downloading via the terminal (`curl`/`wget`), installing with `npm`, or running the portable
