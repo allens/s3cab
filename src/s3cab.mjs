@@ -24,14 +24,20 @@ import { tree } from "./commands/tree.mjs";
  * @property {string} [description]
  */
 
+/**
+ * Stub for a command whose implementation awaits the S3 upload milestone.
+ * @param {string} name - Command name
+ * @returns {never}
+ */
+const notImplemented = (name) => {
+  throw new Error(
+    `Not yet implemented: ${name} (S3 upload milestone in progress)`,
+  );
+};
+
 /** @type {Record<string, Command>} */
 export const commands = {
-  tree: {
-    summary: "List files in a directory",
-    args: { "<dir>": "Directory to list files from" },
-    options: {},
-    exec: async (options, [dir] = []) => tree(dir),
-  },
+  // ── Local snapshot commands ────────────────────────────────────────────
   snapshot: {
     summary: "Take a snapshot of a directory",
     args: { "<dir>": "Directory to take a snapshot of" },
@@ -44,6 +50,110 @@ export const commands = {
     },
     exec: (options, [dir] = []) => snapshot(dir, options),
   },
+  list: {
+    summary: "List snapshots in a directory",
+    args: { "<dir>": "Directory to list snapshots from" },
+    options: {
+      latest: {
+        type: "boolean",
+        short: "l",
+        description: "Return only the latest snapshot file",
+      },
+      remote: {
+        type: "boolean",
+        short: "r",
+        description:
+          "List snapshots backed up to the remote instead of locally",
+      },
+    },
+    exec: async (options, [dir] = []) => list(dir, options),
+  },
+  compare: {
+    summary: "Show differences between two snapshots",
+    args: {
+      "<dir>": "Directory containing the snapshots to compare",
+      "<current>": "Current snapshot name (default: latest)",
+      "<previous>": "Previous snapshot name (default: the one before current)",
+    },
+    options: {
+      remote: {
+        type: "boolean",
+        short: "r",
+        description: "Compare against snapshots backed up to the remote",
+      },
+    },
+    exec: (options, [dir, current, previous] = []) =>
+      compare(dir, current, previous, options),
+  },
+  status: {
+    summary:
+      "Show which snapshots are backed up and what a backup would upload",
+    args: { "<dir>": "Directory to report status for" },
+    options: {
+      remote: {
+        type: "boolean",
+        short: "r",
+        description: "Query the remote for backed-up state",
+      },
+    },
+    exec: () => notImplemented("status"),
+  },
+
+  // ── Remote backup commands (S3 milestone — not yet implemented) ─────────
+  init: {
+    summary:
+      "Initialize an s3cab repository: prepare the remote and link this directory to it",
+    args: {
+      "<dir>": "Local directory to initialize",
+      "<remote>": "Remote bucket/URL to back up to",
+    },
+    exec: () => notImplemented("init"),
+  },
+  backup: {
+    summary: "Back up a snapshot (manifest + objects) to the remote",
+    args: { "<dir>": "Directory whose snapshot to back up" },
+    options: {
+      snapshot: {
+        type: "string",
+        short: "s",
+        description: "Snapshot to back up (default: latest)",
+      },
+    },
+    exec: () => notImplemented("backup"),
+  },
+  restore: {
+    summary: "Restore files from a backed-up snapshot",
+    args: {
+      "<dir>": "Directory the snapshot was taken from",
+      "[<path>...]": "Paths/globs to restore (default: everything)",
+    },
+    options: {
+      snapshot: {
+        type: "string",
+        short: "s",
+        description: "Snapshot to restore from (default: latest)",
+      },
+      output: {
+        type: "string",
+        short: "o",
+        description: "Directory to restore into (default: alongside originals)",
+      },
+    },
+    exec: () => notImplemented("restore"),
+  },
+  verify: {
+    summary:
+      "Verify remote integrity: every referenced object exists and hashes match",
+    args: { "<dir>": "Directory whose backups to verify" },
+    exec: () => notImplemented("verify"),
+  },
+
+  // ── Diagnostics ─────────────────────────────────────────────────────────
+  tree: {
+    summary: "List files in a directory",
+    args: { "<dir>": "Directory to list files from" },
+    exec: async (options, [dir] = []) => tree(dir),
+  },
   prop: {
     summary: "Show properties of a file",
     args: { "<file>": "File to show properties of" },
@@ -54,28 +164,6 @@ export const commands = {
       },
     },
     exec: (options, [file] = []) => prop(file, options),
-  },
-  compare: {
-    summary: "Show differences between two snapshots",
-    args: {
-      directory: "Directory containing the snapshots to compare",
-      current: "Current snapshot name",
-      previous: "Previous snapshot name",
-    },
-    exec: (options, [dir, current, previous] = []) =>
-      compare(dir, current, previous),
-  },
-  list: {
-    summary: "List snapshots in a directory",
-    args: { "<dir>": "Directory to list snapshots from" },
-    options: {
-      latest: {
-        type: "boolean",
-        short: "l",
-        description: "Return only the latest snapshot file",
-      },
-    },
-    exec: async (options, [dir] = []) => list(dir, options),
   },
 };
 

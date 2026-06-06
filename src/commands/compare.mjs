@@ -16,13 +16,22 @@ import { list } from "./list.mjs";
  * @param {string} dir - Snapshot directory
  * @param {string} [currentSnapshotName] - Current snapshot name
  * @param {string} [previousSnapshotName] - Previous snapshot name
+ * @param {object} [options]
+ * @param {boolean} [options.remote] - Compare against snapshots on the remote
  * @returns {Promise<CompareResult>} Diff results
  */
 export async function compare(
   dir = ".",
   currentSnapshotName,
   previousSnapshotName,
+  options = {},
 ) {
+  if (options.remote) {
+    throw new Error(
+      "Not yet implemented: compare --remote (S3 upload milestone in progress)",
+    );
+  }
+
   dir = realpathSync.native(dir);
 
   const snapshotNames = list(dir);

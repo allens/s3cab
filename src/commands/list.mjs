@@ -20,9 +20,16 @@ import { basename, join } from "node:path";
  * @param {string} dir - Directory to list files from
  * @param {object} [options]
  * @param {boolean} [options.latest] - Return only the latest snapshot file
+ * @param {boolean} [options.remote] - List snapshots backed up to the remote
  * @returns {string[] | string | undefined} Array of snapshot names or the latest snapshot name
  */
 export function list(dir = ".", options = {}) {
+  if (options.remote) {
+    throw new Error(
+      "Not yet implemented: list --remote (S3 upload milestone in progress)",
+    );
+  }
+
   dir = realpathSync.native(dir);
 
   const snapshotDir = join(dir, ".s3cab", "snapshots");
