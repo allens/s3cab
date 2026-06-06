@@ -58,7 +58,7 @@ describe("prop", () => {
   it("throws for empty file path", async () => {
     await assert.rejects(prop(""), {
       code: "ERR_PARSE_ARGS",
-      message: "No file path specified",
+      message: "Missing required argument: <file>",
     });
   });
 
