@@ -50,7 +50,6 @@ export const commands = {
     options: {
       lookup: {
         type: "string",
-        short: "l",
         description: "Path to snapshot file to lookup properties from",
       },
     },
@@ -171,7 +170,8 @@ function usage(commandName, command) {
   if (options) {
     console.error("Options:");
     for (const [name, { short, description = "" }] of Object.entries(options)) {
-      console.error(`  -${short}, --${name}`.padEnd(24) + description);
+      const flags = short ? `-${short}, --${name}` : `--${name}`;
+      console.error(`  ${flags}`.padEnd(24) + description);
     }
     console.error();
   }
