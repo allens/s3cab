@@ -236,7 +236,7 @@ is earned by logic, not reserved ahead of it.
 | --- | --- | --- | --- |
 | `snapshot` | snapshot.mjs | built | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
 | `list` | list.mjs | built | List snapshot names (sorted newest-first), or `--latest`. `--remote`/`-r` (list backed-up snapshots) throws — not yet implemented. |
-| `compare` | compare.mjs | built | Diff two snapshots → added / moved / modified / deleted. `--remote`/`-r` throws — not yet implemented. |
+| `compare` | compare.mjs | built | Diff two snapshots (`--since` older → `--until` newer) → added / moved / modified / deleted. Defaults: `until`=latest, `since`=the one before it, so bare `compare <dir>` shows recent changes. `--remote`/`-r` throws — not yet implemented. |
 | `status` | _(inline stub)_ | stub | Show which snapshots are backed up and what a backup would upload (≈ `compare` of latest-local vs remote). |
 | `setup` | _(inline stub)_ | stub | Set up a backup destination: prepare the remote bucket **and** link the local dir to it (one command, both halves). |
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
@@ -256,9 +256,12 @@ consumer backup vocabulary over git/dev jargon — the setup command is **`setup
 `init`** for that reason. (Calls weighed but *kept* as-is: `--remote` over `--cloud`,
 `verify` over `check`, and the dev-flavoured diagnostics `tree`/`prop` left alone.)
 `login` (SSO) is intentionally **not** a command yet (undecided — may lean on
-the standard AWS credential chain instead). `compare`'s arg **order/direction**
-(currently `<current> <previous>`, i.e. NEW→OLD, the reverse of `diff`) is still an open
-decision; only the arg-key format was tidied to the `<dir>` convention.
+the standard AWS credential chain instead). `compare` takes the two snapshots as
+**`--since` (older) / `--until` (newer) options, not positionals**: a leading
+defaultable `<dir>` positional would otherwise force `compare . <snap>` (you'd have to
+type the dir to reach a snapshot positional), and `--since` reads naturally, fixes the
+direction to old→new (like `diff`), and extends to dates later. Single-snapshot use is
+deliberately "since X → latest" (the useful baseline case), not "X vs its predecessor".
 
 ### Core modules
 
@@ -599,8 +602,7 @@ and the global `--version` flag are all already done.)
   registry) without firing dispatch — deliberate (see Architecture), but if testing
   pressure appears, guard the run block with `if (import.meta.main)` to keep the single
   file while making the export safely importable.
-- **Consistency nits:** `compare`'s args use bare keys (`directory`/`current`/`previous`)
-  vs the `<dir>` angle-bracket convention elsewhere; `tree`/`list` mark their `exec`
-  arrows `async` while `snapshot`/`prop`/`compare` don't (none need to — `exec` is always
-  awaited); `tree` carries an empty `options: {}` that can be dropped; the commented-out
-  `SIGINT` handler at the bottom is dead code — wire up or delete (per #6).
+- **Consistency nits:** `tree`/`list` mark their `exec` arrows `async` while the others
+  don't (none need to — `exec` is always awaited); the commented-out `SIGINT` handler at
+  the bottom is dead code — wire up or delete (per #6). (Resolved: `compare`'s bare arg
+  keys — it now takes `<dir>` + `--since`/`--until` options; `tree`'s empty `options: {}`.)

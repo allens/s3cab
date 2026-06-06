@@ -12,20 +12,16 @@ import { list } from "./list.mjs";
  */
 
 /**
- * Diff two snapshots.
+ * Show what changed between two snapshots, from an older (`since`) to a newer
+ * (`until`) one.
  * @param {string} dir - Snapshot directory
- * @param {string} [currentSnapshotName] - Current snapshot name
- * @param {string} [previousSnapshotName] - Previous snapshot name
  * @param {object} [options]
+ * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
+ * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
  * @param {boolean} [options.remote] - Compare against snapshots on the remote
  * @returns {Promise<CompareResult>} Diff results
  */
-export async function compare(
-  dir = ".",
-  currentSnapshotName,
-  previousSnapshotName,
-  options = {},
-) {
+export async function compare(dir = ".", options = {}) {
   if (options.remote) {
     throw new Error(
       "Not yet implemented: compare --remote (S3 upload milestone in progress)",
@@ -36,35 +32,27 @@ export async function compare(
 
   const snapshotNames = list(dir);
 
-  // Current snapshot
-  if (!currentSnapshotName) {
-    currentSnapshotName = snapshotNames.at(0);
-  }
-  if (!currentSnapshotName) {
+  // Newer side (`until`) defaults to the latest snapshot.
+  const until = options.until ?? snapshotNames.at(0);
+  if (!until) {
     throw new Error(`No snapshots found in directory: ${dir}`);
   }
-  const currentSnapshot = await readSnapshot(dir, currentSnapshotName);
+  const untilSnapshot = await readSnapshot(dir, until);
 
-  // Previous snapshot
-  if (!previousSnapshotName) {
-    const currentSnapshotIndex = snapshotNames.indexOf(currentSnapshotName);
-    previousSnapshotName = snapshotNames.at(currentSnapshotIndex + 1);
-  }
-  let previousSnapshot = await readSnapshot(dir, previousSnapshotName);
-  if (!previousSnapshot) {
-    previousSnapshot = new Map();
+  // Older side (`since`) defaults to the snapshot immediately before `until`.
+  const since =
+    options.since ?? snapshotNames.at(snapshotNames.indexOf(until) + 1);
+
+  let sinceSnapshot = await readSnapshot(dir, since);
+  if (!sinceSnapshot) {
+    sinceSnapshot = new Map();
   } else {
-    console.warn(
-      "Comparing snapshot",
-      `'${currentSnapshotName}'`,
-      "with",
-      `'${previousSnapshotName}'`,
-    );
+    console.warn("Comparing", `'${since}'`, "→", `'${until}'`);
   }
 
   const { added, moved, modified, deleted } = diff(
-    previousSnapshot,
-    currentSnapshot,
+    sinceSnapshot,
+    untilSnapshot,
   );
 
   return {

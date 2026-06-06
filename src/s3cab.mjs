@@ -69,21 +69,25 @@ export const commands = {
     exec: async (options, [dir] = []) => list(dir, options),
   },
   compare: {
-    summary: "Show differences between two snapshots",
-    args: {
-      "<dir>": "Directory containing the snapshots to compare",
-      "<current>": "Current snapshot name (default: latest)",
-      "<previous>": "Previous snapshot name (default: the one before current)",
-    },
+    summary: "Show what changed between two snapshots",
+    args: { "<dir>": "Directory containing the snapshots to compare" },
     options: {
+      since: {
+        type: "string",
+        description:
+          "Older snapshot to compare from (default: the one before --until)",
+      },
+      until: {
+        type: "string",
+        description: "Newer snapshot to compare to (default: latest)",
+      },
       remote: {
         type: "boolean",
         short: "r",
         description: "Compare against snapshots backed up to the remote",
       },
     },
-    exec: (options, [dir, current, previous] = []) =>
-      compare(dir, current, previous, options),
+    exec: (options, [dir] = []) => compare(dir, options),
   },
   status: {
     summary:

@@ -74,7 +74,10 @@ export async function snapshot(dir = ".", options = {}) {
   }
 
   // Compare with previous snapshot
-  return await compare(dir, newSnapshotName, latestSnapshotName);
+  return await compare(dir, {
+    since: latestSnapshotName,
+    until: newSnapshotName,
+  });
 }
 
 /**
