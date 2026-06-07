@@ -196,7 +196,7 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  topUsage(console.log);
+  usage(undefined, console.log);
   process.exit(0);
 }
 
@@ -204,13 +204,13 @@ const command = commands[commandName];
 
 if (!command) {
   console.error(`Unknown command: ${commandName}\n`);
-  topUsage();
+  usage();
   process.exit(127);
 }
 
 // Per-command help: `s3cab <command> --help`.
 if (args.includes("--help") || args.includes("-h")) {
-  usage(commandName, command, console.log);
+  usage(commandName, console.log);
   process.exit(0);
 }
 
@@ -238,12 +238,12 @@ try {
   console.error("ERROR:", error);
   console.error();
   if (error instanceof ParseArgsError) {
-    usage(commandName, command);
+    usage(commandName);
   } else if (
     /** @type {NodeJS.ErrnoException} */ (error).code ===
     "ERR_PARSE_ARGS_UNKNOWN_OPTION"
   ) {
-    usage(commandName, command);
+    usage(commandName);
   }
   process.exitCode = 1;
 } finally {
@@ -257,32 +257,29 @@ try {
 }
 
 /**
- * Display top-level help: the available commands with their summaries.
+ * Display help. With no (or an unrecognized) `commandName`, prints the
+ * top-level command list; otherwise prints that command's args/options.
+ * @param {string} [commandName] - Command to describe; omit for top-level help
  * @param {(...args: unknown[]) => void} [log] - Output sink: `console.log`
  *   (stdout) when help is explicitly requested, `console.error` (stderr,
  *   default) when shown as part of an error.
  */
-function topUsage(log = console.error) {
-  log("s3cab — S3 Content Addressable Backup\n");
-  log("Usage: s3cab <command> [options] [args]\n");
-  log("Commands:");
-  for (const [name, { summary, planned }] of Object.entries(commands)) {
-    const note = planned ? " (not yet available)" : "";
-    log(`  ${name}`.padEnd(12) + summary + note);
-  }
-  log("\nRun 's3cab <command> --help' for a command's options.");
-  log("Run 's3cab --version' to print the version.");
-}
+function usage(commandName, log = console.error) {
+  const command = commandName ? commands[commandName] : undefined;
 
-/**
- * Display usage information for a command.
- * @param {string} commandName - Command name
- * @param {Command} command - Command definition
- * @param {(...args: unknown[]) => void} [log] - Output sink: `console.log`
- *   (stdout) when help is explicitly requested, `console.error` (stderr,
- *   default) when shown as part of an error.
- */
-function usage(commandName, command, log = console.error) {
+  if (!command) {
+    log("s3cab — S3 Content Addressable Backup\n");
+    log("Usage: s3cab <command> [options] [args]\n");
+    log("Commands:");
+    for (const [name, { summary, planned }] of Object.entries(commands)) {
+      const note = planned ? " (not yet available)" : "";
+      log(`  ${name}`.padEnd(12) + summary + note);
+    }
+    log("\nRun 's3cab <command> --help' for a command's options.");
+    log("Run 's3cab --version' to print the version.");
+    return;
+  }
+
   const { args, options, summary, description } = command;
 
   let usage = `Usage: s3cab ${commandName} `;
