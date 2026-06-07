@@ -196,7 +196,7 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  usage();
+  console.log(usage());
   process.exit(0);
 }
 
@@ -204,13 +204,13 @@ const command = commands[commandName];
 
 if (!command) {
   console.error(`Unknown command: ${commandName}\n`);
-  usage(undefined, console.error);
+  console.error(usage());
   process.exit(127);
 }
 
 // Per-command help: `s3cab <command> --help`.
 if (args.includes("--help") || args.includes("-h")) {
-  usage(commandName);
+  console.log(usage(commandName));
   process.exit(0);
 }
 
@@ -238,12 +238,12 @@ try {
   console.error("ERROR:", error);
   console.error();
   if (error instanceof ParseArgsError) {
-    usage(commandName, console.error);
+    console.error(usage(commandName));
   } else if (
     /** @type {NodeJS.ErrnoException} */ (error).code ===
     "ERR_PARSE_ARGS_UNKNOWN_OPTION"
   ) {
-    usage(commandName, console.error);
+    console.error(usage(commandName));
   }
   process.exitCode = 1;
 } finally {
@@ -257,64 +257,63 @@ try {
 }
 
 /**
- * Display help. With no (or an unrecognized) `commandName`, prints the
- * top-level command list; otherwise prints that command's args/options.
+ * Build help text. With no (or an unrecognized) `commandName`, returns the
+ * top-level command list; otherwise returns that command's args/options. The
+ * caller prints it — `console.log` (stdout) for an explicit help request,
+ * `console.error` (stderr) when shown as part of an error.
  * @param {string} [commandName] - Command to describe; omit for top-level help
- * @param {(...args: unknown[]) => void} [log] - Output sink. Defaults to
- *   `console.log` (stdout), since showing help is normal output; error callers
- *   pass `console.error` to route it to stderr instead.
+ * @returns {string}
  */
-function usage(commandName, log = console.log) {
+function usage(commandName) {
   const command = commandName ? commands[commandName] : undefined;
 
   if (!command) {
-    log("s3cab — S3 Content Addressable Backup\n");
-    log("Usage: s3cab <command> [options] [args]\n");
-    log("Commands:");
-    for (const [name, { summary, planned }] of Object.entries(commands)) {
-      const note = planned ? " (not yet available)" : "";
-      log(`  ${name}`.padEnd(12) + summary + note);
-    }
-    log("\nRun 's3cab <command> --help' for a command's options.");
-    log("Run 's3cab --version' to print the version.");
-    return;
+    return [
+      "s3cab — S3 Content Addressable Backup",
+      "",
+      "Usage: s3cab <command> [options] [args]",
+      "",
+      "Commands:",
+      ...Object.entries(commands).map(
+        ([name, { summary, planned }]) =>
+          `  ${name}`.padEnd(12) + summary + (planned ? " (not yet available)" : ""),
+      ),
+      "",
+      "Run 's3cab <command> --help' for a command's options.",
+      "Run 's3cab --version' to print the version.",
+    ].join("\n");
   }
 
   const { args, options, summary, description } = command;
+  const lines = [];
 
-  let usage = `Usage: s3cab ${commandName} `;
-  if (options) usage += "[options] ";
-  if (args) usage += Object.keys(args).join(" ");
-  log(usage);
-  log();
+  let usageLine = `Usage: s3cab ${commandName} `;
+  if (options) usageLine += "[options] ";
+  if (args) usageLine += Object.keys(args).join(" ");
+  lines.push(usageLine, "");
 
-  if (summary) {
-    log(summary);
-    log();
-  }
+  if (summary) lines.push(summary, "");
 
   if (args) {
-    log("Arguments:");
+    lines.push("Arguments:");
     for (const [name, description = ""] of Object.entries(args)) {
-      log(`  ${name}`.padEnd(24) + description);
+      lines.push(`  ${name}`.padEnd(24) + description);
     }
-    log();
+    lines.push("");
   }
 
   if (options) {
-    log("Options:");
+    lines.push("Options:");
     for (const [name, { short, description = "" }] of Object.entries(options)) {
       const flags = short ? `-${short}, --${name}` : `--${name}`;
-      log(`  ${flags}`.padEnd(24) + description);
+      lines.push(`  ${flags}`.padEnd(24) + description);
     }
-    log();
+    lines.push("");
   }
 
-  if (description) {
-    log("Description:");
-    log(description);
-    log();
-  }
+  if (description) lines.push("Description:", description, "");
+
+  return lines.join("\n");
 }
 
 // process.on("SIGINT", () => {
