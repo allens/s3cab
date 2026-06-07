@@ -4,13 +4,13 @@ import pkg from "../package.json" with { type: "json" };
 
 import { formatByteValue, secondsSince } from "./format.mjs";
 
-import { ParseArgsError } from "./error.mjs";
+import { parseArgs } from "node:util";
 import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
-import { parseArgs } from "node:util";
 import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
+import { ParseArgsError } from "./error.mjs";
 
 /** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
@@ -272,12 +272,17 @@ function usage(commandName) {
     const { args, options, summary, description } = command;
 
     let usageLine = `Usage: s3cab ${commandName} `;
-    if (options) usageLine += "[options] ";
-    if (args) usageLine += Object.keys(args).join(" ");
+    if (options) {
+      usageLine += "[options] ";
+    }
+    if (args) {
+      usageLine += Object.keys(args).join(" ");
+    }
     lines.push(usageLine, "");
 
-    if (summary) lines.push(summary, "");
-
+    if (summary) {
+      lines.push(summary, "");
+    }
     if (args) {
       lines.push("Arguments:");
       for (const [name, description = ""] of Object.entries(args)) {
@@ -288,14 +293,18 @@ function usage(commandName) {
 
     if (options) {
       lines.push("Options:");
-      for (const [name, { short, description = "" }] of Object.entries(options)) {
+      for (const [name, { short, description = "" }] of Object.entries(
+        options,
+      )) {
         const flags = short ? `-${short}, --${name}` : `--${name}`;
         lines.push(`  ${flags}`.padEnd(24) + description);
       }
       lines.push("");
     }
 
-    if (description) lines.push("Description:", description, "");
+    if (description) {
+      lines.push("Description:", description, "");
+    }
   } else {
     lines.push(
       "s3cab — S3 Content Addressable Backup",
@@ -305,7 +314,9 @@ function usage(commandName) {
       "Commands:",
       ...Object.entries(commands).map(
         ([name, { summary, planned }]) =>
-          `  ${name}`.padEnd(12) + summary + (planned ? " (not yet available)" : ""),
+          `  ${name}`.padEnd(12) +
+          summary +
+          (planned ? " (not yet available)" : ""),
       ),
       "",
       "Run 's3cab <command> --help' for a command's options.",
