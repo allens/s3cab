@@ -235,7 +235,7 @@ try {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   }
 } catch (error) {
-  console.error("ERROR:", error);
+  console.error("ERROR:", debug ? error : /** @type {Error} */ (error).message);
   console.error();
   if (error instanceof ParseArgsError) {
     console.error(usage(commandName));
@@ -283,6 +283,7 @@ function usage(commandName) {
     if (summary) {
       lines.push(summary, "");
     }
+
     if (args) {
       lines.push("Arguments:");
       for (const [name, description = ""] of Object.entries(args)) {
