@@ -228,7 +228,12 @@ try {
 
   const result = await command.exec({ ...options, debug }, positionals);
 
-  printResult(result);
+  // Serialize to stdout as JSON. JSON.stringify never truncates (unlike
+  // console.log on a large array/object), and stdout keeps results separate
+  // from the progress/warnings on stderr (see Stream discipline).
+  if (result !== undefined) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  }
 } catch (error) {
   console.error("ERROR:", error);
   console.error();
@@ -267,34 +272,6 @@ function topUsage(log = console.error) {
   }
   log("\nRun 's3cab <command> --help' for a command's options.");
   log("Run 's3cab --version' to print the version.");
-}
-
-/**
- * Print a command's result for the terminal: one item per line, never
- * truncated (unlike `console.log` on a large array/object). A plain array
- * prints one entry per line; an object of arrays prints a heading per non-empty
- * group (e.g. compare's added/moved/modified/deleted); a plain object prints
- * `key: value` lines (e.g. a file's properties).
- * @param {string | string[] | object | undefined} result
- */
-function printResult(result) {
-  if (result === undefined || result === null) return;
-
-  if (typeof result !== "object") {
-    console.log(result);
-  } else if (Array.isArray(result)) {
-    for (const item of result) console.log(item);
-  } else {
-    for (const [key, value] of Object.entries(result)) {
-      if (Array.isArray(value)) {
-        if (value.length === 0) continue;
-        console.log(`${key.charAt(0).toUpperCase()}${key.slice(1)}:`);
-        for (const item of value) console.log(`  ${item}`);
-      } else {
-        console.log(`${key}: ${value}`);
-      }
-    }
-  }
 }
 
 /**

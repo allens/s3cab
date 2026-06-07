@@ -225,11 +225,17 @@ own `src/commands/` files) until they gain real bodies — per #6, a file is ear
 logic, not reserved ahead of it.
 
 `--help` (top-level lists commands; `<command> --help` prints that command's
-args/options) and `--version` are handled pre-dispatch; command results are printed by
-`printResult` (one item per line; objects-of-arrays print a heading per non-empty group),
-so output is never truncated the way `console.log` truncates a long array.
+args/options) and `--version` are handled pre-dispatch. **Each `exec` just calls its core
+command function and returns that value as-is** (no per-command output formatting — the
+execs stay one-liners); dispatch serializes the result to stdout with
+`JSON.stringify(result, null, 2)` (a `undefined` result prints nothing). JSON is chosen
+deliberately over `console.log(result)`: `console.log` routes a large array/object through
+`util.inspect`, which **truncates** (`… N more items`) — fatal for a backup tool whose
+whole job is "show me everything that changed" — whereas `JSON.stringify` serializes the
+whole structure and handles every command's shape (array, object, string) uniformly, so
+there is **no** bespoke result-printer to maintain (#6).
 
-**Stream discipline:** a command's _real output_ — results (`printResult`), `--version`,
+**Stream discipline:** a command's _real output_ — results, `--version`,
 and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
 warnings, and usage shown as part of an _error_ (bad args, unknown command) — goes to
 **stderr**. So `s3cab tree . > files.txt` captures just the file list, and
@@ -593,9 +599,10 @@ Pre-release housekeeping and open decisions surfaced from the code:
 Open items from a review pass over the entry point. None block use; roughly ordered by
 impact. (Already done: the error-path collapse, `errorHandler` inlining, `--debug` →
 `S3CAB_DEBUG` env var, the malformed `@typedef` fixes, the global `--version`, terminal
-output via `printResult` (one item per line, never truncated) over a narrowed `exec`
-return type, and top-level + per-command `--help` — `usage()` now renders short-less
-options correctly and top-level help marks stub commands `(not yet available)`.)
+output via `JSON.stringify` to stdout (never truncated, unlike `console.log`) with each
+`exec` returning its core function's value unmodified, and top-level + per-command `--help`
+— `usage()` now renders short-less options correctly and top-level help marks stub
+commands `(not yet available)`.)
 
 - **Help — remaining gaps.** Per-command `usage()` doesn't list the universal
   `--help`/`--version`, and nothing documents the global `S3CAB_DEBUG` env var.
