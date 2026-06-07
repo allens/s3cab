@@ -40,7 +40,7 @@ describe.skip("upload-file", async () => {
     await utimes(emptyFile, new Date(), mtime);
     await utimes(file1, new Date(), mtime);
 
-    mock.module("./s3.mjs", {
+    mock.module("../s3.mjs", {
       namedExports: {
         putFile,
       },

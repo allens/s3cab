@@ -37,10 +37,13 @@ it is, why, and status — not repeated here. What matters for working in the co
   globbing) → compute per-file SHA-256/size/mtime → write an immutable `.tsv.zst`
   manifest → diff two snapshots into added/moved/modified/deleted via content hashes
   (so moves, renames, and duplicates are detected).
-- **Not yet built:** upload/download to S3. The early proof-of-concept (SSO login, S3
-  client, multipart upload) lives in [src/\_poc/](src/_poc/) — the _only_ place the AWS
-  SDK is used, an **experimental sandbox** wired into nothing; some will be promoted, some
-  deleted. The `objects/<sha256>` store + remote snapshots are the next milestone.
+- **Not yet built:** upload/download to S3. What remains in [src/\_poc/](src/_poc/), an
+  **experimental sandbox** wired into nothing, is the SSO-login POC ([login.mjs](src/_poc/login.mjs))
+  and a parked `upload-file` command stub + its skipped test; the `objects/<sha256>` store +
+  remote snapshots are the next milestone. The S3 milestone has _started_: the S3 client and
+  its operations have been promoted into [src/s3.mjs](src/s3.mjs) (the single SDK boundary —
+  see Core modules), used so far by the `objects` command, so the production CLI now uses the
+  AWS SDK directly and `_poc` no longer carries its own SDK copy.
 
 Treat the README's S3/backup descriptions as the _target_; treat `src/` (excluding
 `_poc`) as _what works now_.
@@ -233,7 +236,9 @@ deliberately over `console.log(result)`: `console.log` routes a large array/obje
 `util.inspect`, which **truncates** (`… N more items`) — fatal for a backup tool whose
 whole job is "show me everything that changed" — whereas `JSON.stringify` serializes the
 whole structure and handles every command's shape (array, object, string) uniformly, so
-there is **no** bespoke result-printer to maintain (#6).
+there is **no** bespoke result-printer to maintain (#6). The one deliberate exception is
+`objects`, whose result is meant to be saved as a plain-hash lookup file: it writes its own
+newline-delimited output and returns `undefined`, rather than emit a quoted JSON array.
 
 **Stream discipline:** a command's _real output_ — results, `--version`,
 and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
@@ -254,6 +259,7 @@ visibly next to the other prints at the call site.
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
+| `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
 
@@ -287,6 +293,16 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
 - **[src/read-lines.mjs](src/read-lines.mjs)** — read a text file into trimmed,
   comment-stripped, non-empty lines (used for the exclude file).
 - **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
+- **[src/s3.mjs](src/s3.mjs)** — the **single module that imports the AWS S3 SDK**; all S3
+  access goes through it. Its client is **lazily constructed** (`client()` builds the
+  `S3Client` on first use), so commands that never touch S3 (`list`, `tree`, …) don't
+  resolve AWS region/credentials and therefore don't fail when none are configured — even
+  though every command shares the one entry point. That lazy boundary, plus keeping the one
+  heavyweight dependency in a single place, is why this is a shared module despite thin
+  usage today, overriding the usual "promote on the second caller" bar (#6). Only `objects`
+  calls it so far; the upload/download operations (moved here out of the old `_poc/s3.mjs`)
+  have **no caller yet** — deliberately promoted ahead of `backup`/`restore`/`setup`, and
+  esbuild tree-shakes the unused ones out of the SEA bundle until a command imports them.
 
 ### Key data-flow behaviours
 
@@ -368,14 +384,20 @@ to `RegExp` (using `RegExp.escape`, Node 24+):
 
 ### Intended S3 layout (target, not yet implemented)
 
+**One s3cab repository == one bucket**, with a fixed, well-known structure at the bucket
+root — _not_ an arbitrary prefix within a shared bucket. The fixed layout is what lets a
+tool (or a person) find everything by convention alone (#2): objects always live under
+`objects/`, snapshots under `snapshots/`.
+
 ```
-s3://<bucket>/<prefix>/
+s3://<bucket>/
   objects/<sha256>            # immutable content-addressed blobs
   snapshots/<set>/<timestamp>.tsv[.zst]
 ```
 
 This is the design intent carried over from the early notes; the upload path that would
-populate it lives, as a POC only, in [src/\_poc/](src/_poc/).
+populate it lives, as a POC only, in [src/\_poc/](src/_poc/). The `objects` command already
+reads `objects/` per this layout (and so rejects a bucket sub-path as a target).
 
 ---
 
@@ -491,12 +513,13 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
 
 - The `files` allowlist uses **negation** (`"!src/_poc"`, `"!src/**/*.test.mjs"`) to keep
   the experimental sandbox and co-located tests out of the tarball. Verify with
-  `npm pack --dry-run` after touching it — that's the source of truth (currently 14 files).
+  `npm pack --dry-run` after touching it — that's the source of truth (currently 16 files).
 - The **AWS SDK is a normal npm `dependency`** here (npm installs it). In the SEA channel
   the _same_ dep is instead inlined into the bundle (`aws-crt` left external → JS fallback).
-  One dependency, two fates. NB: today the live CLI doesn't import it yet (only `_poc`
-  does), so it's effectively unused weight until the S3 milestone lands — at which point it
-  also starts bloating the SEA binary.
+  One dependency, two fates. NB: the production CLI now imports it from exactly one module,
+  `src/s3.mjs` (used so far only by `objects`); the upload/download path is still to come,
+  so most of the SDK's surface is still unused until the rest of the S3 milestone lands —
+  and it bloats the SEA binary as soon as it's imported at all.
 - **Publishing** is the `publish-npm` job in `release.yml` (tag-gated, parallel to the
   binary `release` job). It uses npm **Trusted Publishing** — the job authenticates to the
   registry via its **OIDC** token (`id-token: write` + a public repo), so there is **no
@@ -552,14 +575,15 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **S3 upload/download not implemented** in active code; experimental POC only in
-  [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
-  Building the `objects/<sha256>` store + remote snapshots is the next milestone. The
-  **CLI surface is now scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/
-  `verify` are registered as inline stubs and `--remote` is wired onto `list`/`compare`,
-  all throwing `notImplemented()` for now (see the Commands table). Filling these in is
-  the milestone work; promote each stub into its own `src/commands/` file as it gains a
-  real body.
+- **S3 backup/restore flow not built yet.** Listing works — the `objects` command, via the
+  [src/s3.mjs](src/s3.mjs) SDK boundary — but the upload/download _commands_ don't: the
+  promoted `putFile`/read-stream ops in `src/s3.mjs` have no caller, and the
+  `objects/<sha256>` store + remote-snapshot wiring is the next milestone. SSO login stays a
+  POC in [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README). The
+  **CLI surface is scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/`verify`
+  are inline stubs and `--remote` is wired onto `list`/`compare`, all throwing
+  `notImplemented()` for now (see the Commands table); promote each stub into its own
+  `src/commands/` file as it gains a real body.
 - **Native-executable packaging works and is validated on real runners.** `npm run
   build:win` / `npm run build:linux` build those binaries from their static [sea/](sea/)
   configs, and CI ([.github/workflows/release.yml](.github/workflows/release.yml)) builds

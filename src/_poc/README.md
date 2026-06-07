@@ -1,8 +1,9 @@
 # `_poc/` — experimental sandbox
 
 Proof-of-concept code for the **not-yet-built S3 upload/download path** (see the
-status and design intent in [../../CLAUDE.md](../../CLAUDE.md)). This is the _only_
-place the AWS SDK is currently used.
+status and design intent in [../../CLAUDE.md](../../CLAUDE.md)). The S3 client and its
+operations have moved out to [../s3.mjs](../s3.mjs) (the single SDK boundary); what's left
+here is the SSO-login POC and the parked `upload-file` command stub + test.
 
 **Status:** experimental. Nothing here is wired into the live CLI
 ([../s3cab.mjs](../s3cab.mjs)). Some of it will be promoted into the real codebase once
@@ -16,10 +17,8 @@ filters it out).
 | File | What it is | Likely fate |
 | --- | --- | --- |
 | [login.mjs](login.mjs) | AWS SSO/OIDC login flow | promote (SSO is the sanctioned AWS SDK use, #5) |
-| [s3.mjs](s3.mjs) | S3 client wrappers (put/get/head/list) | promote, likely reshaped around `objects/<sha256>` |
-| [upload.mjs](upload.mjs) | `upload-file` command, multipart + skip-if-unmodified | revisit — overlaps the planned snapshot-driven upload |
-| [list-objects.mjs](list-objects.mjs) | `list-objects` command | revisit / likely drop |
-| [upload.test.mjs](upload.test.mjs) | tests for `upload.mjs` (`describe.skip`, all `it.skip`) | revive with the upload path, or drop |
+| [upload.mjs](upload.mjs) | `upload-file` command stub (will drive `putFile` in [../s3.mjs](../s3.mjs)) | revisit — overlaps the planned snapshot-driven upload |
+| [upload.test.mjs](upload.test.mjs) | tests for `upload.mjs` (`describe.skip`, all `it.skip`; mocks `../s3.mjs`) | revive with the upload path, or drop |
 | [helper.mjs](helper.mjs) | mock-`$HOME` test scaffolding (points at `test/_poc/home/`) | currently unused; lives here so the test runner doesn't execute it |
 | [.env.testing](.env.testing) | sets `AWS_PROFILE=s3cab-test` for the POC tests/CLI | kept until the upload path lands |
 

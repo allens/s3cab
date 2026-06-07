@@ -43,7 +43,8 @@ is never locked in**:
 ## Status
 
 s3cab is currently a **local snapshot engine** — it records and compares the state of
-your files. No cloud is involved yet. These commands work today:
+your files. Backing up to the cloud is the next milestone. These local commands work
+today:
 
 | Command                | What it does                                                                       |
 | ---------------------- | --------------------------------------------------------------------------------- |
@@ -54,7 +55,9 @@ your files. No cloud is involved yet. These commands work today:
 | `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
 
 Every command defaults `<dir>` to the current folder, so `s3cab snapshot` snapshots where
-you are. Run any command with `--help` to see its options.
+you are. Run any command with `--help` to see its options. (One cloud command, `objects`,
+also works already — it's an advanced diagnostic, covered under
+[Cloud repositories](#cloud-repositories).)
 
 ### Coming next
 
@@ -71,6 +74,34 @@ with a "not yet implemented" message):
 | `s3cab verify <dir>`           | Check that a backup is complete and undamaged.                  |
 
 (`list` and `compare` will also gain a `--remote` flag to work against the cloud copy.)
+
+### Cloud repositories
+
+A cloud backup lives in **its own S3 bucket** — _one repository is one bucket_, not a
+folder inside a shared one. Inside, the structure is fixed and well-known, so anything
+(s3cab, another tool, or you by hand) can find everything by convention:
+
+```
+s3://my-backup-bucket/
+  objects/<sha256>             # your files, each stored once under its content hash
+  snapshots/…                  # the manifests that say which objects make up each snapshot
+```
+
+That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
+look up its hash in a snapshot and download `objects/<that-hash>`.
+
+The `objects` command lists a repository's stored object hashes, **one per line**. It's an
+advanced/diagnostic command — most people never run it directly; its real job is to produce
+a lookup file so a future `backup` can skip re-uploading files already stored:
+
+```console
+> s3cab objects my-backup-bucket               # one sha256 per line, to stdout
+> s3cab objects my-backup-bucket -f have.txt   # …or written to a file
+```
+
+(`<bucket>` is a plain S3 bucket name — one repository is one bucket.)
+
+It uses your standard AWS credentials/profile.
 
 ## Quick start
 
