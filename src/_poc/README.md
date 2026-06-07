@@ -16,9 +16,8 @@ filters it out).
 | File | What it is | Likely fate |
 | --- | --- | --- |
 | [login.mjs](login.mjs) | AWS SSO/OIDC login flow | promote (SSO is the sanctioned AWS SDK use, #5) |
-| [s3.mjs](s3.mjs) | S3 client wrappers (put/get/head/list) | promote, likely reshaped around `objects/<sha256>` |
+| [s3.mjs](s3.mjs) | S3 client wrappers (put/get/head/list) | list + lazy client **promoted** to [../s3.mjs](../s3.mjs); the upload/download bits (put/get/head, multipart) stay here until their milestone |
 | [upload.mjs](upload.mjs) | `upload-file` command, multipart + skip-if-unmodified | revisit — overlaps the planned snapshot-driven upload |
-| [list-objects.mjs](list-objects.mjs) | `list-objects` command | revisit / likely drop |
 | [upload.test.mjs](upload.test.mjs) | tests for `upload.mjs` (`describe.skip`, all `it.skip`) | revive with the upload path, or drop |
 | [helper.mjs](helper.mjs) | mock-`$HOME` test scaffolding (points at `test/_poc/home/`) | currently unused; lives here so the test runner doesn't execute it |
 | [.env.testing](.env.testing) | sets `AWS_PROFILE=s3cab-test` for the POC tests/CLI | kept until the upload path lands |

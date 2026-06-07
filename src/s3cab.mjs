@@ -7,6 +7,7 @@ import { formatByteValue, secondsSince } from "./format.mjs";
 import { parseArgs } from "node:util";
 import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
+import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
@@ -157,6 +158,21 @@ export const commands = {
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
+  objects: {
+    summary: "List a repository's stored object hashes (one per line)",
+    args: {
+      "<bucket>": "The repository's S3 bucket name",
+    },
+    options: {
+      file: {
+        type: "string",
+        short: "f",
+        description:
+          "Write the hashes to this file (one per line) instead of stdout",
+      },
+    },
+    exec: (options, [bucket] = []) => objects(bucket, options),
+  },
   tree: {
     summary: "List the files in a directory",
     args: { "<dir>": "The directory to list" },

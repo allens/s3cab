@@ -38,9 +38,12 @@ it is, why, and status — not repeated here. What matters for working in the co
   manifest → diff two snapshots into added/moved/modified/deleted via content hashes
   (so moves, renames, and duplicates are detected).
 - **Not yet built:** upload/download to S3. The early proof-of-concept (SSO login, S3
-  client, multipart upload) lives in [src/\_poc/](src/_poc/) — the _only_ place the AWS
-  SDK is used, an **experimental sandbox** wired into nothing; some will be promoted, some
-  deleted. The `objects/<sha256>` store + remote snapshots are the next milestone.
+  client, multipart upload) lives in [src/\_poc/](src/_poc/), an **experimental sandbox**
+  wired into nothing; some will be promoted, some deleted. The `objects/<sha256>` store +
+  remote snapshots are the next milestone. The S3 milestone has _started_: the first
+  promoted pieces are [src/s3.mjs](src/s3.mjs) (the SDK boundary — see Core modules) and
+  the `objects` command that uses it, so the production CLI now uses the AWS SDK too —
+  encapsulated in `src/s3.mjs`, with `_poc` keeping its own sandbox copy.
 
 Treat the README's S3/backup descriptions as the _target_; treat `src/` (excluding
 `_poc`) as _what works now_.
@@ -233,7 +236,11 @@ deliberately over `console.log(result)`: `console.log` routes a large array/obje
 `util.inspect`, which **truncates** (`… N more items`) — fatal for a backup tool whose
 whole job is "show me everything that changed" — whereas `JSON.stringify` serializes the
 whole structure and handles every command's shape (array, object, string) uniformly, so
-there is **no** bespoke result-printer to maintain (#6).
+there is **no** bespoke result-printer to maintain (#6). The one deliberate exception is
+`objects`: a plumbing command whose contract is a flat newline-delimited hash stream
+consumed as a lookup file, so it writes that itself (to `--file` or stdout) and returns
+`undefined` — opting out of JSON serialization on purpose, because a lookup file wants
+bare `hash\n` lines, not a quoted/escaped JSON array.
 
 **Stream discipline:** a command's _real output_ — results, `--version`,
 and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
@@ -254,6 +261,7 @@ visibly next to the other prints at the call site.
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
+| `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — ordinary users won't call it directly). Lists a repository's stored object hashes, **one sha256 per line**, under the fixed `objects/` prefix; `--file`/`-f` writes them to a file, else stdout. Intended consumer is `backup`: a hash lookup so already-stored objects aren't re-uploaded. Takes a `<bucket>` — a plain S3 bucket name (one repo == one bucket; no URI parsing). Output is line-delimited, **not** the JSON the other commands return (a lookup file wants bare hashes), so it writes its own output and returns nothing — see the dispatch note above. S3 access goes through `src/s3.mjs` (the lazy SDK boundary), not the SDK directly. First production command to use the AWS SDK (promoted from `_poc`). |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
 
@@ -287,6 +295,18 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
 - **[src/read-lines.mjs](src/read-lines.mjs)** — read a text file into trimmed,
   comment-stripped, non-empty lines (used for the exclude file).
 - **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
+- **[src/s3.mjs](src/s3.mjs)** — the **single production module that imports the AWS S3
+  SDK**; all S3 access goes through its exports (currently `listObjects`/`parseS3Uri`).
+  `listObjects` takes an `s3://bucket/prefix` URI (kept general for future callers); the
+  `objects` command, which only deals in bucket names, builds that URI itself.
+  Two reasons it's a shared module despite only `objects` calling it today, both of which
+  override the usual "promote on the second caller" bar (#6): (1) the SDK is the one
+  heavyweight dependency, worth keeping behind a single boundary, and (2) its client is
+  **lazily constructed** (`client()` builds the `S3Client` on first use), so commands that
+  never touch S3 (`list`, `tree`, …) don't resolve AWS region/credentials and so don't
+  error without configured creds — even though every command shares the one entry point.
+  The upload/download operations are still POC-only in [src/\_poc/s3.mjs](src/_poc/s3.mjs)
+  (its own SDK copy), to be folded in here as the S3 milestone promotes them.
 
 ### Key data-flow behaviours
 
@@ -368,14 +388,20 @@ to `RegExp` (using `RegExp.escape`, Node 24+):
 
 ### Intended S3 layout (target, not yet implemented)
 
+**One s3cab repository == one bucket**, with a fixed, well-known structure at the bucket
+root — _not_ an arbitrary prefix within a shared bucket. The fixed layout is what lets a
+tool (or a person) find everything by convention alone (#2): objects always live under
+`objects/`, snapshots under `snapshots/`.
+
 ```
-s3://<bucket>/<prefix>/
+s3://<bucket>/
   objects/<sha256>            # immutable content-addressed blobs
   snapshots/<set>/<timestamp>.tsv[.zst]
 ```
 
 This is the design intent carried over from the early notes; the upload path that would
-populate it lives, as a POC only, in [src/\_poc/](src/_poc/).
+populate it lives, as a POC only, in [src/\_poc/](src/_poc/). The `objects` command already
+reads `objects/` per this layout (and so rejects a bucket sub-path as a target).
 
 ---
 
@@ -491,12 +517,13 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
 
 - The `files` allowlist uses **negation** (`"!src/_poc"`, `"!src/**/*.test.mjs"`) to keep
   the experimental sandbox and co-located tests out of the tarball. Verify with
-  `npm pack --dry-run` after touching it — that's the source of truth (currently 14 files).
+  `npm pack --dry-run` after touching it — that's the source of truth (currently 16 files).
 - The **AWS SDK is a normal npm `dependency`** here (npm installs it). In the SEA channel
   the _same_ dep is instead inlined into the bundle (`aws-crt` left external → JS fallback).
-  One dependency, two fates. NB: today the live CLI doesn't import it yet (only `_poc`
-  does), so it's effectively unused weight until the S3 milestone lands — at which point it
-  also starts bloating the SEA binary.
+  One dependency, two fates. NB: the production CLI now imports it from exactly one module,
+  `src/s3.mjs` (used so far only by `objects`); the upload/download path is still to come,
+  so most of the SDK's surface is still unused until the rest of the S3 milestone lands —
+  and it bloats the SEA binary as soon as it's imported at all.
 - **Publishing** is the `publish-npm` job in `release.yml` (tag-gated, parallel to the
   binary `release` job). It uses npm **Trusted Publishing** — the job authenticates to the
   registry via its **OIDC** token (`id-token: write` + a public repo), so there is **no
