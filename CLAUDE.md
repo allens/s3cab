@@ -237,10 +237,8 @@ deliberately over `console.log(result)`: `console.log` routes a large array/obje
 whole job is "show me everything that changed" — whereas `JSON.stringify` serializes the
 whole structure and handles every command's shape (array, object, string) uniformly, so
 there is **no** bespoke result-printer to maintain (#6). The one deliberate exception is
-`objects`: a plumbing command whose contract is a flat newline-delimited hash stream
-consumed as a lookup file, so it writes that itself (to `--file` or stdout) and returns
-`undefined` — opting out of JSON serialization on purpose, because a lookup file wants
-bare `hash\n` lines, not a quoted/escaped JSON array.
+`objects`, whose result is meant to be saved as a plain-hash lookup file: it writes its own
+newline-delimited output and returns `undefined`, rather than emit a quoted JSON array.
 
 **Stream discipline:** a command's _real output_ — results, `--version`,
 and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
@@ -261,7 +259,7 @@ visibly next to the other prints at the call site.
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
-| `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — ordinary users won't call it directly). Lists a repository's stored object hashes, **one sha256 per line**, under the fixed `objects/` prefix; `--file`/`-f` writes them to a file, else stdout. Intended consumer is `backup`: a hash lookup so already-stored objects aren't re-uploaded. Takes a `<bucket>` — a plain S3 bucket name (one repo == one bucket; no URI parsing). Output is line-delimited, **not** the JSON the other commands return (a lookup file wants bare hashes), so it writes its own output and returns nothing — see the dispatch note above. S3 access goes through `src/s3.mjs` (the lazy SDK boundary), not the SDK directly. First production command to use the AWS SDK (promoted from `_poc`). |
+| `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
 
@@ -296,22 +294,15 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
   comment-stripped, non-empty lines (used for the exclude file).
 - **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
 - **[src/s3.mjs](src/s3.mjs)** — the **single module that imports the AWS S3 SDK**; all S3
-  access goes through its exports: `listObjects`/`parseS3Uri` (used now by `objects`) plus
-  the upload/download operations promoted from the old `_poc/s3.mjs` — `putFile`,
-  `createS3ReadStream`, `bucketPolicy`, `emptyBucket` (`getMetadata` stays private). The
-  upload/download set has **no caller yet** — it's promoted ahead of the
-  `backup`/`restore`/`setup` commands on purpose, to keep a single SDK boundary (and so
-  `_poc` no longer needs its own SDK copy); esbuild tree-shakes the unused exports out of
-  the SEA bundle until a command imports them. `listObjects` takes an `s3://bucket/prefix`
-  URI (kept general for future callers); the `objects` command, which only deals in bucket
-  names, builds that URI itself. Two reasons this is a shared module despite the thin
-  current usage, both overriding the usual "promote on the second caller" bar (#6): (1) the
-  SDK is the one heavyweight dependency, worth keeping behind a single boundary, and (2) its
-  client is **lazily constructed** (`client()` builds the `S3Client` on first use), so
-  commands that never touch S3 (`list`, `tree`, …) don't resolve AWS region/credentials and
-  so don't error without configured creds — even though every command shares the one entry
-  point. (Stream discipline applies here too: upload progress and `emptyBucket`'s
-  per-object log go to **stderr**, not stdout.)
+  access goes through it. Its client is **lazily constructed** (`client()` builds the
+  `S3Client` on first use), so commands that never touch S3 (`list`, `tree`, …) don't
+  resolve AWS region/credentials and therefore don't fail when none are configured — even
+  though every command shares the one entry point. That lazy boundary, plus keeping the one
+  heavyweight dependency in a single place, is why this is a shared module despite thin
+  usage today, overriding the usual "promote on the second caller" bar (#6). Only `objects`
+  calls it so far; the upload/download operations (moved here out of the old `_poc/s3.mjs`)
+  have **no caller yet** — deliberately promoted ahead of `backup`/`restore`/`setup`, and
+  esbuild tree-shakes the unused ones out of the SEA bundle until a command imports them.
 
 ### Key data-flow behaviours
 
@@ -584,14 +575,15 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **S3 upload/download not implemented** in active code; experimental POC only in
-  [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README).
-  Building the `objects/<sha256>` store + remote snapshots is the next milestone. The
-  **CLI surface is now scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/
-  `verify` are registered as inline stubs and `--remote` is wired onto `list`/`compare`,
-  all throwing `notImplemented()` for now (see the Commands table). Filling these in is
-  the milestone work; promote each stub into its own `src/commands/` file as it gains a
-  real body.
+- **S3 backup/restore flow not built yet.** Listing works — the `objects` command, via the
+  [src/s3.mjs](src/s3.mjs) SDK boundary — but the upload/download _commands_ don't: the
+  promoted `putFile`/read-stream ops in `src/s3.mjs` have no caller, and the
+  `objects/<sha256>` store + remote-snapshot wiring is the next milestone. SSO login stays a
+  POC in [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README). The
+  **CLI surface is scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/`verify`
+  are inline stubs and `--remote` is wired onto `list`/`compare`, all throwing
+  `notImplemented()` for now (see the Commands table); promote each stub into its own
+  `src/commands/` file as it gains a real body.
 - **Native-executable packaging works and is validated on real runners.** `npm run
   build:win` / `npm run build:linux` build those binaries from their static [sea/](sea/)
   configs, and CI ([.github/workflows/release.yml](.github/workflows/release.yml)) builds

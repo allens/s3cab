@@ -43,8 +43,8 @@ is never locked in**:
 ## Status
 
 s3cab is currently a **local snapshot engine** — it records and compares the state of
-your files. The cloud backup workflow is still to come; the one cloud-touching command
-so far is the `objects` diagnostic below. These commands work today:
+your files. Backing up to the cloud is the next milestone. These local commands work
+today:
 
 | Command                | What it does                                                                       |
 | ---------------------- | --------------------------------------------------------------------------------- |
@@ -53,10 +53,11 @@ so far is the `objects` diagnostic below. These commands work today:
 | `s3cab compare <dir>`  | Show what changed between two snapshots (added / moved / renamed / modified / deleted). |
 | `s3cab tree <dir>`     | List the files in a directory, honouring exclude rules.                            |
 | `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
-| `s3cab objects <bucket>` | _(advanced)_ List a cloud repository's stored object hashes, one per line (needs an S3 bucket — see below). |
 
 Every command defaults `<dir>` to the current folder, so `s3cab snapshot` snapshots where
-you are. Run any command with `--help` to see its options.
+you are. Run any command with `--help` to see its options. (One cloud command, `objects`,
+also works already — it's an advanced diagnostic, covered under
+[Cloud repositories](#cloud-repositories).)
 
 ### Coming next
 
