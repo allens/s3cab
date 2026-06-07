@@ -196,7 +196,7 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  usage(undefined, console.log);
+  usage();
   process.exit(0);
 }
 
@@ -204,13 +204,13 @@ const command = commands[commandName];
 
 if (!command) {
   console.error(`Unknown command: ${commandName}\n`);
-  usage();
+  usage(undefined, console.error);
   process.exit(127);
 }
 
 // Per-command help: `s3cab <command> --help`.
 if (args.includes("--help") || args.includes("-h")) {
-  usage(commandName, console.log);
+  usage(commandName);
   process.exit(0);
 }
 
@@ -238,12 +238,12 @@ try {
   console.error("ERROR:", error);
   console.error();
   if (error instanceof ParseArgsError) {
-    usage(commandName);
+    usage(commandName, console.error);
   } else if (
     /** @type {NodeJS.ErrnoException} */ (error).code ===
     "ERR_PARSE_ARGS_UNKNOWN_OPTION"
   ) {
-    usage(commandName);
+    usage(commandName, console.error);
   }
   process.exitCode = 1;
 } finally {
@@ -260,11 +260,11 @@ try {
  * Display help. With no (or an unrecognized) `commandName`, prints the
  * top-level command list; otherwise prints that command's args/options.
  * @param {string} [commandName] - Command to describe; omit for top-level help
- * @param {(...args: unknown[]) => void} [log] - Output sink: `console.log`
- *   (stdout) when help is explicitly requested, `console.error` (stderr,
- *   default) when shown as part of an error.
+ * @param {(...args: unknown[]) => void} [log] - Output sink. Defaults to
+ *   `console.log` (stdout), since showing help is normal output; error callers
+ *   pass `console.error` to route it to stderr instead.
  */
-function usage(commandName, log = console.error) {
+function usage(commandName, log = console.log) {
   const command = commandName ? commands[commandName] : undefined;
 
   if (!command) {
