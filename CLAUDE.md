@@ -37,13 +37,13 @@ it is, why, and status — not repeated here. What matters for working in the co
   globbing) → compute per-file SHA-256/size/mtime → write an immutable `.tsv.zst`
   manifest → diff two snapshots into added/moved/modified/deleted via content hashes
   (so moves, renames, and duplicates are detected).
-- **Not yet built:** upload/download to S3. The early proof-of-concept (SSO login, S3
-  client, multipart upload) lives in [src/\_poc/](src/_poc/), an **experimental sandbox**
-  wired into nothing; some will be promoted, some deleted. The `objects/<sha256>` store +
-  remote snapshots are the next milestone. The S3 milestone has _started_: the first
-  promoted pieces are [src/s3.mjs](src/s3.mjs) (the SDK boundary — see Core modules) and
-  the `objects` command that uses it, so the production CLI now uses the AWS SDK too —
-  encapsulated in `src/s3.mjs`, with `_poc` keeping its own sandbox copy.
+- **Not yet built:** upload/download to S3. What remains in [src/\_poc/](src/_poc/), an
+  **experimental sandbox** wired into nothing, is the SSO-login POC ([login.mjs](src/_poc/login.mjs))
+  and a parked `upload-file` command stub + its skipped test; the `objects/<sha256>` store +
+  remote snapshots are the next milestone. The S3 milestone has _started_: the S3 client and
+  its operations have been promoted into [src/s3.mjs](src/s3.mjs) (the single SDK boundary —
+  see Core modules), used so far by the `objects` command, so the production CLI now uses the
+  AWS SDK directly and `_poc` no longer carries its own SDK copy.
 
 Treat the README's S3/backup descriptions as the _target_; treat `src/` (excluding
 `_poc`) as _what works now_.
@@ -295,18 +295,23 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
 - **[src/read-lines.mjs](src/read-lines.mjs)** — read a text file into trimmed,
   comment-stripped, non-empty lines (used for the exclude file).
 - **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
-- **[src/s3.mjs](src/s3.mjs)** — the **single production module that imports the AWS S3
-  SDK**; all S3 access goes through its exports (currently `listObjects`/`parseS3Uri`).
-  `listObjects` takes an `s3://bucket/prefix` URI (kept general for future callers); the
-  `objects` command, which only deals in bucket names, builds that URI itself.
-  Two reasons it's a shared module despite only `objects` calling it today, both of which
-  override the usual "promote on the second caller" bar (#6): (1) the SDK is the one
-  heavyweight dependency, worth keeping behind a single boundary, and (2) its client is
-  **lazily constructed** (`client()` builds the `S3Client` on first use), so commands that
-  never touch S3 (`list`, `tree`, …) don't resolve AWS region/credentials and so don't
-  error without configured creds — even though every command shares the one entry point.
-  The upload/download operations are still POC-only in [src/\_poc/s3.mjs](src/_poc/s3.mjs)
-  (its own SDK copy), to be folded in here as the S3 milestone promotes them.
+- **[src/s3.mjs](src/s3.mjs)** — the **single module that imports the AWS S3 SDK**; all S3
+  access goes through its exports: `listObjects`/`parseS3Uri` (used now by `objects`) plus
+  the upload/download operations promoted from the old `_poc/s3.mjs` — `putFile`,
+  `createS3ReadStream`, `bucketPolicy`, `emptyBucket` (`getMetadata` stays private). The
+  upload/download set has **no caller yet** — it's promoted ahead of the
+  `backup`/`restore`/`setup` commands on purpose, to keep a single SDK boundary (and so
+  `_poc` no longer needs its own SDK copy); esbuild tree-shakes the unused exports out of
+  the SEA bundle until a command imports them. `listObjects` takes an `s3://bucket/prefix`
+  URI (kept general for future callers); the `objects` command, which only deals in bucket
+  names, builds that URI itself. Two reasons this is a shared module despite the thin
+  current usage, both overriding the usual "promote on the second caller" bar (#6): (1) the
+  SDK is the one heavyweight dependency, worth keeping behind a single boundary, and (2) its
+  client is **lazily constructed** (`client()` builds the `S3Client` on first use), so
+  commands that never touch S3 (`list`, `tree`, …) don't resolve AWS region/credentials and
+  so don't error without configured creds — even though every command shares the one entry
+  point. (Stream discipline applies here too: upload progress and `emptyBucket`'s
+  per-object log go to **stderr**, not stdout.)
 
 ### Key data-flow behaviours
 
