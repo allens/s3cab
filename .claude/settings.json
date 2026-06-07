@@ -30,6 +30,8 @@
       "Bash(npx tsc*)",
       "Bash(node --test*)",
       "Bash(node src/s3cab.mjs*)",
+      "Bash(echo *)",
+      "Bash(diff *)",
       "Bash(gh auth *)",
       "Bash(gh pr *)",
       "Bash(gh run *)",
@@ -37,7 +39,8 @@
       "PowerShell(npm run clean:dry)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "WebFetch(domain:docs.claude.com)"
+      "WebFetch(domain:docs.claude.com)",
+      "Read(/tmp/**)"
     ],
     "deny": [
       "Bash(git checkout -- *)",

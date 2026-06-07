@@ -239,9 +239,10 @@ there is **no** bespoke result-printer to maintain (#6).
 and explicitly-requested `--help` — goes to **stdout**; everything else — progress,
 warnings, and usage shown as part of an _error_ (bad args, unknown command) — goes to
 **stderr**. So `s3cab tree . > files.txt` captures just the file list, and
-`s3cab --help | less` works. This is why `usage()`/`topUsage()` take a `log` sink: it's
-`console.log` for an explicit help request, `console.error` (the default) on the error
-path.
+`s3cab --help | less` works. This is why `usage()` _returns_ the help text rather than
+printing it: the caller chooses the stream — `console.log` for an explicit help request,
+`console.error` when the help is shown as part of an error — so the stream choice sits
+visibly next to the other prints at the call site.
 
 | Command | File | Status | Purpose |
 | --- | --- | --- | --- |
