@@ -266,9 +266,38 @@ try {
  */
 function usage(commandName) {
   const command = commandName ? commands[commandName] : undefined;
+  const lines = [];
 
-  if (!command) {
-    return [
+  if (command) {
+    const { args, options, summary, description } = command;
+
+    let usageLine = `Usage: s3cab ${commandName} `;
+    if (options) usageLine += "[options] ";
+    if (args) usageLine += Object.keys(args).join(" ");
+    lines.push(usageLine, "");
+
+    if (summary) lines.push(summary, "");
+
+    if (args) {
+      lines.push("Arguments:");
+      for (const [name, description = ""] of Object.entries(args)) {
+        lines.push(`  ${name}`.padEnd(24) + description);
+      }
+      lines.push("");
+    }
+
+    if (options) {
+      lines.push("Options:");
+      for (const [name, { short, description = "" }] of Object.entries(options)) {
+        const flags = short ? `-${short}, --${name}` : `--${name}`;
+        lines.push(`  ${flags}`.padEnd(24) + description);
+      }
+      lines.push("");
+    }
+
+    if (description) lines.push("Description:", description, "");
+  } else {
+    lines.push(
       "s3cab — S3 Content Addressable Backup",
       "",
       "Usage: s3cab <command> [options] [args]",
@@ -281,37 +310,8 @@ function usage(commandName) {
       "",
       "Run 's3cab <command> --help' for a command's options.",
       "Run 's3cab --version' to print the version.",
-    ].join("\n");
+    );
   }
-
-  const { args, options, summary, description } = command;
-  const lines = [];
-
-  let usageLine = `Usage: s3cab ${commandName} `;
-  if (options) usageLine += "[options] ";
-  if (args) usageLine += Object.keys(args).join(" ");
-  lines.push(usageLine, "");
-
-  if (summary) lines.push(summary, "");
-
-  if (args) {
-    lines.push("Arguments:");
-    for (const [name, description = ""] of Object.entries(args)) {
-      lines.push(`  ${name}`.padEnd(24) + description);
-    }
-    lines.push("");
-  }
-
-  if (options) {
-    lines.push("Options:");
-    for (const [name, { short, description = "" }] of Object.entries(options)) {
-      const flags = short ? `-${short}, --${name}` : `--${name}`;
-      lines.push(`  ${flags}`.padEnd(24) + description);
-    }
-    lines.push("");
-  }
-
-  if (description) lines.push("Description:", description, "");
 
   return lines.join("\n");
 }
