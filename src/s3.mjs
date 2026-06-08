@@ -8,6 +8,7 @@ import {
   StorageClass,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
+import { loadDotEnv, resolveCredentials } from "./auth.mjs";
 import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
@@ -27,10 +28,19 @@ let _client;
  * commands that never touch S3 (`list`, `tree`, …) fail when no AWS credentials
  * are configured — even though they share this app's single entry point. Only
  * the S3 operations below call this, so those commands never trigger it.
+ *
+ * Credentials come from `src/auth.mjs` (`.env` → standard AWS chain → app-managed
+ * `s3cab login` cache → actionable error — see specs/auth.md); `.env` is loaded
+ * here, immediately before the client is built, so its AWS_* vars are in place.
  * @returns {S3Client}
  */
 function client() {
-  return (_client ??= new S3Client({ followRegionRedirects: true }));
+  if (_client) return _client;
+  loadDotEnv();
+  return (_client = new S3Client({
+    followRegionRedirects: true,
+    credentials: resolveCredentials,
+  }));
 }
 
 /**
