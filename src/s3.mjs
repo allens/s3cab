@@ -23,21 +23,28 @@ import { PassThrough, Readable } from "node:stream";
 let _client;
 
 /**
- * The shared S3 client, constructed on first use. Construction is deferred on
- * purpose: it resolves AWS region/credentials, so building it eagerly would make
- * commands that never touch S3 (`list`, `tree`, …) fail when no AWS credentials
- * are configured — even though they share this app's single entry point. Only
- * the S3 operations below call this, so those commands never trigger it.
+ * The shared S3 client, constructed on first use. Deferred on purpose: it
+ * resolves AWS region/credentials, so building it eagerly would make commands
+ * that never touch S3 (`list`, `tree`, …) fail when none are configured — even
+ * though they share this app's single entry point. Only the S3 operations below
+ * call this, so those commands never trigger it.
  *
  * Credentials come from `src/auth.mjs` (`.env` → standard AWS chain → app-managed
  * `s3cab login` cache → actionable error — see specs/auth.md); `.env` is loaded
- * here, immediately before the client is built, so its AWS_* vars are in place.
+ * here, immediately before the client is built, so its AWS_* vars (including any
+ * region override) are in place.
  * @returns {S3Client}
  */
 function client() {
   if (_client) return _client;
   loadDotEnv();
   return (_client = new S3Client({
+    // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
+    // *a* region to sign the first request, so default to us-east-1 (always
+    // reachable) when none is set; `followRegionRedirects` then auto-corrects to
+    // the bucket's real region via its 301. An explicit env override still wins.
+    region:
+      process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1",
     followRegionRedirects: true,
     credentials: resolveCredentials,
   }));
