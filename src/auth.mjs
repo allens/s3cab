@@ -1,10 +1,9 @@
 import { GetRoleCredentialsCommand, SSOClient } from "@aws-sdk/client-sso";
 import { CreateTokenCommand, SSOOIDCClient } from "@aws-sdk/client-sso-oidc";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 // AWS authentication / credential resolution. This is the single source of truth
 // for *how* s3cab obtains AWS credentials; the S3 SDK boundary (`src/s3.mjs`)
@@ -71,7 +70,7 @@ export async function readLoginCache() {
  * @returns {Promise<string>} The path written.
  */
 export async function writeLoginCache(cache) {
-  await mkdir(join(homedir(), ".s3cab"), { recursive: true, mode: 0o700 });
+  await mkdir(dirname(loginCachePath), { recursive: true, mode: 0o700 });
   await writeFile(loginCachePath, JSON.stringify(cache, null, 2), {
     mode: 0o600,
   });
@@ -91,9 +90,13 @@ let dotEnvLoaded = false;
 export function loadDotEnv() {
   if (dotEnvLoaded) return;
   dotEnvLoaded = true;
-  const path = resolve(process.cwd(), ".env");
-  if (existsSync(path)) {
-    process.loadEnvFile(path);
+  try {
+    process.loadEnvFile(); // loads ./.env from the cwd; throws ENOENT if absent
+  } catch (error) {
+    // No .env is the normal case; only a real read error is worth surfacing.
+    if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") {
+      throw error;
+    }
   }
 }
 
@@ -116,6 +119,15 @@ with: credential_process = s3cab credential-process`;
 // the credentials it returns and re-invokes the provider near expiry, so a single
 // chain instance is reused across refreshes.
 const standardChain = fromNodeProviderChain();
+
+/** `error.code` marking "no app-managed login cache exists" (vs. one that is unusable). */
+const NO_LOGIN = "S3CAB_NO_LOGIN";
+
+/** Refresh the SSO access token once within this window of expiry (matches the SDK). */
+const TOKEN_EXPIRY_WINDOW_MS = 5 * 60 * 1000;
+
+const SESSION_EXPIRED_MESSAGE =
+  "s3cab login session has expired (run `s3cab login`)";
 
 /**
  * The credential provider s3cab hands to its AWS clients. Implements the
@@ -144,13 +156,6 @@ export const resolveCredentials = async (awsIdentityProperties) => {
     }
   }
 };
-
-/** `error.code` marking "no app-managed login cache exists" (vs. one that is unusable). */
-const NO_LOGIN = "S3CAB_NO_LOGIN";
-
-// Refresh the SSO access token once it is within this window of expiry, matching
-// the SDK's own pre-expiry refresh behaviour for credentials it caches.
-const TOKEN_EXPIRY_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * Resolve temporary AWS role credentials from s3cab's own app-managed login
@@ -218,7 +223,7 @@ async function validSsoAccessToken(cache) {
 
   const { refreshToken } = cache.token;
   if (!refreshToken) {
-    throw new Error("s3cab login session has expired (run `s3cab login`)");
+    throw new Error(SESSION_EXPIRED_MESSAGE);
   }
 
   const oidc = new SSOOIDCClient({ region: cache.region });
@@ -234,13 +239,11 @@ async function validSsoAccessToken(cache) {
     );
   } catch (error) {
     // Refresh token rejected/expired, or the client registration has lapsed.
-    throw new Error("s3cab login session has expired (run `s3cab login`)", {
-      cause: error,
-    });
+    throw new Error(SESSION_EXPIRED_MESSAGE, { cause: error });
   }
 
   if (!refreshed.accessToken) {
-    throw new Error("s3cab login session has expired (run `s3cab login`)");
+    throw new Error(SESSION_EXPIRED_MESSAGE);
   }
 
   await writeLoginCache({

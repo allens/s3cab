@@ -260,8 +260,8 @@ visibly next to the other prints at the call site.
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
-| `login` | login.mjs | experimental | AWS SSO/OIDC device-authorization login: registers (requesting the `refresh_token` grant), shows the URL+code, **polls** `CreateToken` until approved, then persists the session to `~/.s3cab/auth.json` (see `auth.mjs`). Prints only a non-secret summary. Still rough: hardcoded start URL/region (`--start-url`/`--region` to override) and first-account/first-role selection. |
-| `credential-process` | credential-process.mjs | built | **Advanced** integration surface (specs/auth.md). Emits the app-managed login's credentials as standard `credential_process` JSON (`Version`/`AccessKeyId`/`SecretAccessKey`/`SessionToken`/`Expiration`) on stdout — for users who wire s3cab into their own AWS profile as a credential helper. Reuses `resolveAppManagedAwsCredentials` (app-managed only, not the full chain); the dispatcher's stdout-JSON + stderr-for-everything-else gives the "never leak secrets to stderr" contract for free. |
+| `login` | login.mjs | experimental (Tier 2, AWS-only) | Optional AWS-CLI-replacement convenience — **not** the main auth path (most users use access keys via `.env`/a profile). AWS SSO/OIDC device-authorization login: registers (requesting the `refresh_token` grant), shows the URL+code, **polls** `CreateToken` until approved, then persists the session to `~/.s3cab/auth.json` (see `auth.mjs`). Prints only a non-secret summary. Deliberately frozen/rough: hardcoded start URL/region (`--start-url`/`--region` override) and first-account/first-role selection (not being built out). |
+| `credential-process` | credential-process.mjs | experimental (Tier 2, AWS-only) | Optional companion to `login` (specs/auth.md). Emits the app-managed login's credentials as standard `credential_process` JSON (`Version`/`AccessKeyId`/`SecretAccessKey`/`SessionToken`/`Expiration`) on stdout — for users who wire s3cab into their own AWS profile as a credential helper. Reuses `resolveAppManagedAwsCredentials` (app-managed only, not the full chain); the dispatcher's stdout-JSON + stderr-for-everything-else gives the "never leak secrets to stderr" contract for free. |
 | `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
@@ -308,6 +308,13 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
   calls it so far; the upload/download operations (moved here out of the old `_poc/s3.mjs`)
   have **no caller yet** — deliberately promoted ahead of `backup`/`restore`/`setup`, and
   esbuild tree-shakes the unused ones out of the SEA bundle until a command imports them.
+  **Provider-agnostic (Tier 1, see [specs/s3-provider-compatibility.md](specs/s3-provider-compatibility.md)):**
+  a custom endpoint is first-class — `customEndpoint()` honours the SDK-native
+  `AWS_ENDPOINT_URL_S3`/`AWS_ENDPOINT_URL`, and its presence is the single "not AWS" signal.
+  Off-AWS, `client()` passes `endpoint` instead of the AWS-only `followRegionRedirects`, and
+  `putFile` omits the AWS-only `StorageClass`/`ServerSideEncryption` (the `x-amz-meta-*`
+  metadata is portable, so it always goes). `bucketPolicy` stays AWS-only and unused until
+  `setup` is built.
 - **[src/auth.mjs](src/auth.mjs)** — AWS **credential resolution** (the model is specified in
   [specs/auth.md](specs/auth.md)). Single source of truth for *how* s3cab gets credentials:
   `resolveCredentials` (the provider `s3.mjs` hands its client) tries, in order, a loaded
@@ -328,8 +335,15 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
   missing cache throws a marked `NO_LOGIN` error → the full actionable message; a *present but
   unusable* session (expired, no/failed refresh) surfaces its **specific** reason instead.
   Phase 4 = the `credential-process` command ([src/commands/credential-process.mjs](src/commands/credential-process.mjs))
-  reuses that same resolver to emit standard process-credential JSON. Remaining (Phase 5):
-  the `help auth` topic + README docs.
+  reuses that same resolver to emit standard process-credential JSON. Phase 5 = the `help auth`
+  topic + README + the actionable error. **Tiering (per
+  [specs/s3-provider-compatibility.md](specs/s3-provider-compatibility.md)):** the `.env` +
+  standard-chain + endpoint path is **Tier 1** — the portable core every S3-compatible provider
+  can use. The bespoke SSO `login` + `credential-process` are **Tier 2** — an optional,
+  **experimental, AWS-only** convenience (an AWS-CLI-replacement; `aws sso login` flows through
+  Tier 1 via the standard chain too). Tier 2 is deliberately **frozen** — don't extend it (e.g.
+  the "first-account/first-role" selection is intentionally *not* being built out); it can be
+  kept, deferred, or dropped without affecting any non-AWS user.
 
   > Why a bespoke cache and not the SDK's native SSO cache: the JS SDK has **no public API**
   > for the interactive device-auth login (only the AWS *CLI* does), and its token cache path

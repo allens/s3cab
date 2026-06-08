@@ -161,7 +161,16 @@ export const commands = {
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
   login: {
-    summary: "Log in to AWS via SSO (experimental)",
+    summary: "Log in to AWS via SSO (experimental, AWS-only)",
+    description:
+      "Optional, experimental, and AWS-only. Most people authenticate with an\n" +
+      "access key + secret (via .env) or an existing AWS profile — see\n" +
+      "'s3cab help auth'; this command is just a convenience.\n\n" +
+      "It signs in to AWS IAM Identity Center (SSO) for users who don't already\n" +
+      "have working AWS credentials and may not have the AWS CLI, and caches the\n" +
+      "session for later non-interactive use. (If you do have the AWS CLI, its\n" +
+      "'aws sso login' works too — s3cab reads that session via the standard\n" +
+      "credential chain.) It does not modify ~/.aws/config or ~/.aws/credentials.",
     options: {
       "start-url": {
         type: "string",
@@ -179,11 +188,12 @@ export const commands = {
       }),
   },
   "credential-process": {
-    summary: "Emit AWS credentials as credential_process JSON (advanced)",
+    summary: "Emit AWS credentials as credential_process JSON (experimental, AWS-only)",
     description:
-      "Outputs credentials from your `s3cab login` session in AWS's standard\n" +
-      "credential_process JSON format. Intended for advanced users who want to\n" +
-      "wire s3cab into an AWS profile as a credential helper:\n\n" +
+      "Optional, experimental companion to 's3cab login' (AWS-only). Outputs the\n" +
+      "credentials from your login session in AWS's standard credential_process\n" +
+      "JSON format, for advanced users who want to wire s3cab into an AWS profile\n" +
+      "as a credential helper:\n\n" +
       "  [profile s3cab]\n" +
       "  credential_process = s3cab credential-process\n\n" +
       "s3cab does not create or edit AWS shared config automatically; configure\n" +

@@ -23,6 +23,21 @@ import { PassThrough, Readable } from "node:stream";
 let _client;
 
 /**
+ * The custom S3 endpoint, if one is configured — present for any S3-compatible
+ * provider that isn't AWS (Cloudflare R2, Backblaze B2, MinIO, Wasabi, …). Its
+ * presence is the single `targets-AWS?` signal: a set endpoint means "not AWS",
+ * which gates the AWS-only behaviours (region redirects, storage class, SSE).
+ *
+ * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
+ * rather than inventing new surface (#5/#6); a friendlier per-destination
+ * endpoint UX belongs to the `setup` command. Read only after `loadDotEnv()`, so
+ * a value supplied via `.env` is in scope.
+ * @returns {string | undefined}
+ */
+const customEndpoint = () =>
+  process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
+
+/**
  * The shared S3 client, constructed on first use. Deferred on purpose: it
  * resolves AWS region/credentials, so building it eagerly would make commands
  * that never touch S3 (`list`, `tree`, …) fail when none are configured — even
@@ -32,20 +47,23 @@ let _client;
  * Credentials come from `src/auth.mjs` (`.env` → standard AWS chain → app-managed
  * `s3cab login` cache → actionable error — see specs/auth.md); `.env` is loaded
  * here, immediately before the client is built, so its AWS_* vars (including any
- * region override) are in place.
+ * region or endpoint override) are in place.
  * @returns {S3Client}
  */
 function client() {
   if (_client) return _client;
   loadDotEnv();
+  const endpoint = customEndpoint();
   return (_client = new S3Client({
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
-    // *a* region to sign the first request, so default to us-east-1 (always
-    // reachable) when none is set; `followRegionRedirects` then auto-corrects to
-    // the bucket's real region via its 301. An explicit env override still wins.
+    // *a* region to sign the first request, so default to us-east-1 when none is
+    // set. An explicit env override still wins (and is required by providers that
+    // care about the region label). On AWS, `followRegionRedirects` then
+    // auto-corrects to the bucket's real region via its 301 — an AWS-only
+    // behaviour, so it is dropped (and `endpoint` used instead) off AWS.
     region:
       process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1",
-    followRegionRedirects: true,
+    ...(endpoint ? { endpoint } : { followRegionRedirects: true }),
     credentials: resolveCredentials,
   }));
 }
@@ -150,14 +168,23 @@ export async function putFile(path, uri, options = {}) {
     }
   }
 
+  const s3 = client(); // also loads .env, so customEndpoint() is in scope below
+
   const upload = new Upload({
-    client: client(),
+    client: s3,
     params: {
       Bucket,
       Key,
       Body: createReadStream(path),
-      ServerSideEncryption: ServerSideEncryption.AES256,
-      StorageClass: StorageClass.INTELLIGENT_TIERING,
+      // StorageClass + ServerSideEncryption are AWS-isms that S3-compatible
+      // providers (R2/B2/Spaces) reject; send them only when targeting AWS.
+      // The x-amz-meta-* metadata below is portable, so it always goes.
+      ...(customEndpoint()
+        ? {}
+        : {
+            ServerSideEncryption: ServerSideEncryption.AES256,
+            StorageClass: StorageClass.INTELLIGENT_TIERING,
+          }),
       Metadata: {
         "x-amz-meta-hostname": hostname(),
         "x-amz-meta-username": userInfo().username,
@@ -232,7 +259,10 @@ async function getMetadata(uri) {
 }
 
 /**
- * An IAM policy granting list + per-object access to a bucket.
+ * An IAM policy granting list + per-object access to a bucket. **AWS-only** —
+ * the `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS. Unused today
+ * (only `setup`, a stub, would call it); provider-aware bucket creation/policy is
+ * deferred to when `setup` is actually built (see specs/s3-provider-compatibility.md).
  * @param {string} bucketName
  */
 export const bucketPolicy = (bucketName) => ({
