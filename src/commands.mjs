@@ -6,6 +6,7 @@ import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
+import { upload } from "./commands/upload.mjs";
 
 /** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
@@ -207,6 +208,21 @@ export const commands = {
       },
     },
     exec: (options, [bucket] = []) => objects(bucket, options),
+  },
+  upload: {
+    summary: "Upload a single file to a repository's object store",
+    args: {
+      "<bucket>": "The repository's S3 bucket name",
+      "<file>": "The file to upload",
+    },
+    options: {
+      force: {
+        type: "boolean",
+        short: "f",
+        description: "Re-upload even if the object already exists",
+      },
+    },
+    exec: (options, [bucket, file] = []) => upload(bucket, file, options),
   },
   tree: {
     summary: "List the files in a directory",

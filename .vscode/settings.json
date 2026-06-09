@@ -2,7 +2,6 @@
   "editor.codeActionsOnSave": {
     "source.organizeImports": "explicit"
   },
-  "nodejs-testing.envFile": "${workspaceFolder}/src/_poc/.env.testing",
   "nodejs-testing.extensions": [
     {
       "extensions": ["mjs", "cjs", "js"],
