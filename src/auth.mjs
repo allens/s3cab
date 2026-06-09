@@ -1,7 +1,7 @@
 import { GetRoleCredentialsCommand, SSOClient } from "@aws-sdk/client-sso";
 import { CreateTokenCommand, SSOOIDCClient } from "@aws-sdk/client-sso-oidc";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -70,10 +70,17 @@ export async function readLoginCache() {
  * @returns {Promise<string>} The path written.
  */
 export async function writeLoginCache(cache) {
-  await mkdir(dirname(loginCachePath), { recursive: true, mode: 0o700 });
+  const dir = dirname(loginCachePath);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   await writeFile(loginCachePath, JSON.stringify(cache, null, 2), {
     mode: 0o600,
   });
+  // The `mode:` options above only apply when the dir/file are *created*; an
+  // already-existing cache (e.g. from an earlier version) could carry looser
+  // perms. chmod unconditionally so the owner-only guarantee holds across
+  // re-logins and upgrades. (No-op on Windows, which ignores POSIX mode bits.)
+  await chmod(dir, 0o700);
+  await chmod(loginCachePath, 0o600);
   return loginCachePath;
 }
 
