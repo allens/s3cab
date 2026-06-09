@@ -22,12 +22,13 @@ const { values } = parseArgs({
 
 // Parse ~/.aws/config (INI format)
 function readAwsConfig() {
-  let text = "";
+  let text;
   try {
     text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
   } catch (e) {
     throw new Error(
       `Unable to read AWS config (~/.aws/config): ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
   const sections = {};
@@ -70,7 +71,9 @@ function openBrowser(url) {
         : `xdg-open "${url}"`;
   try {
     execSync(cmd, { stdio: "ignore" });
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 // Write token to ~/.aws/sso/cache/<sha1(startUrl)>.json (same location as AWS CLI)

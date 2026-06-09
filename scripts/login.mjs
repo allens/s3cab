@@ -44,7 +44,7 @@ function b64url(data) {
 
 // Parse ~/.aws/config (INI format)
 function readAwsConfig() {
-  let text = "";
+  let text;
   try {
     text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
   } catch {
@@ -68,8 +68,8 @@ function readAwsConfig() {
 // Set key = value in the named profile in ~/.aws/config
 function setAwsConfigValue(profileName, key, value) {
   const configPath = join(homedir(), ".aws", "config");
-  let text = "";
-  try { text = readFileSync(configPath, "utf8"); } catch {}
+  let text;
+  try { text = readFileSync(configPath, "utf8"); } catch { text = ""; }
 
   const header = profileName === "default" ? "[default]" : `[profile ${profileName}]`;
   const lines = text.split("\n");
@@ -106,7 +106,7 @@ function openBrowser(url) {
     process.platform === "win32" ? `start "" "${url}"`
     : process.platform === "darwin" ? `open "${url}"`
     : `xdg-open "${url}"`;
-  try { execSync(cmd, { stdio: "ignore" }); } catch {}
+  try { execSync(cmd, { stdio: "ignore" }); } catch { return; }
 }
 
 // Spin up a one-shot local HTTP server and return the port + a promise that
