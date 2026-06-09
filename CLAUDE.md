@@ -52,6 +52,10 @@ rather than assuming it is fixed forever.
 4. **After non-trivial work, update CLAUDE.md / README.md** so what you learned is shared at
    the project level (this section exists because that wasn't being done for these very
    rules). A cross-machine rule belongs in source, never only in local memory.
+5. **Refactors and minor chores may ride along with a feature** — the user is relaxed about
+   this; a one-feature commit/PR carrying a small refactor, a settings.json tweak (point 3),
+   or a doc fix needn't be split into its own PR. Don't over-engineer separation. (Still
+   prefer a _separate commit_ per logical change within the PR, as the `chore:` commits do.)
 
 ---
 
