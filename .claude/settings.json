@@ -40,7 +40,9 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "WebFetch(domain:docs.claude.com)",
-      "Read(/tmp/**)"
+      "Read(/tmp/**)",
+      "Bash(npx eslint *)",
+      "Bash(npm pack *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
