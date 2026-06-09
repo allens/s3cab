@@ -126,7 +126,7 @@ class S3ReadStream extends PassThrough {
 export const createS3ReadStream = (uri) => new S3ReadStream(uri);
 
 const PROGRESS_BAR_RANGE = 20;
-const partSize = 5 * 1024 * 1024;
+const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 
 /** @param {import("@aws-sdk/lib-storage").Progress} progress */
 const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
