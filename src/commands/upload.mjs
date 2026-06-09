@@ -25,6 +25,17 @@ const OBJECTS_PREFIX = "objects/";
  * S3 access goes through the `src/s3.mjs` SDK boundary, whose lazily-constructed
  * client means this command costs nothing (and needs no AWS creds) until run.
  *
+ * TODO (important, not yet wired — carried over from the `_poc` `upload-file` stub):
+ * a `--if-modified-from <snapshot>` option. Given a previous snapshot, skip the
+ * upload when this file is *unchanged* since it (same size + mtime) — and skip
+ * even the hashing, by passing the snapshot through to `prop()`'s existing
+ * `lookup` (which reuses the stored hash for an unchanged file). This is the
+ * snapshot-aware skip that `backup` is built on: back up only what changed since
+ * the last backed-up snapshot. Deferred with the rest of the `backup` milestone,
+ * but it's load-bearing for that flow, so don't lose it. (The POC also had a minor
+ * `throwIfNoEntry` flag; `prop()` already errors on a missing/non-regular file, so
+ * that one is largely subsumed.)
+ *
  * @param {string} [bucket] - The repository's S3 bucket name.
  * @param {string} [file] - The file to upload.
  * @param {object} [options]

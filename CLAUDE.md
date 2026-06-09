@@ -296,7 +296,7 @@ visibly next to the other prints at the call site.
 | `login` | login.mjs | experimental (Tier 2, AWS-only) | Optional AWS-CLI-replacement convenience — **not** the main auth path (most users use access keys via `.env`/a profile). AWS SSO/OIDC device-authorization login: registers (requesting the `refresh_token` grant), shows the URL+code, **polls** `CreateToken` until approved, then persists the session to `~/.s3cab/auth.json` (see `auth.mjs`). Prints only a non-secret summary. Deliberately frozen/rough: hardcoded start URL/region (`--start-url`/`--region` override) and first-account/first-role selection (not being built out). |
 | `credential-process` | credential-process.mjs | experimental (Tier 2, AWS-only) | Optional companion to `login` (specs/auth.md). Emits the app-managed login's credentials as standard `credential_process` JSON (`Version`/`AccessKeyId`/`SecretAccessKey`/`SessionToken`/`Expiration`) on stdout — for users who wire s3cab into their own AWS profile as a credential helper. Reuses `resolveAppManagedAwsCredentials` (app-managed only, not the full chain); the dispatcher's stdout-JSON + stderr-for-everything-else gives the "never leak secrets to stderr" contract for free. |
 | `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
-| `upload` | upload.mjs | built | **Plumbing** — the write counterpart of `objects`. Hashes one file (reusing `prop`) and PUTs it at `objects/<sha256>` via `putFile` in [src/s3.mjs](src/s3.mjs); identical content maps to the same key, so it skips an object already present (`putFile`'s conditional PUT) unless `--force`/`-f`. The low-level building block under the not-yet-built snapshot-driven `backup`. |
+| `upload` | upload.mjs | built | **Plumbing** — the write counterpart of `objects`. Hashes one file (reusing `prop`) and PUTs it at `objects/<sha256>` via `putFile` in [src/s3.mjs](src/s3.mjs); identical content maps to the same key, so it skips an object already present (`putFile`'s conditional PUT) unless `--force`/`-f`. The low-level building block under the not-yet-built snapshot-driven `backup`. **Planned (not yet wired, from the POC):** a `--if-modified-from <snapshot>` skip — see the TODO in `upload.mjs`, load-bearing for `backup`. |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
 
@@ -662,7 +662,10 @@ Pre-release housekeeping and open decisions surfaced from the code:
   the [src/s3.mjs](src/s3.mjs) SDK boundary — but the snapshot-driven `backup` that uploads a
   whole manifest's worth of objects, the remote-snapshot wiring under `snapshots/`, and the
   download/`restore` path don't exist (the read-stream/bucket ops in `src/s3.mjs` still have no
-  caller). SSO login has been promoted to an experimental `login` command (still hardcoded —
+  caller). `upload` also still owes its **`--if-modified-from <snapshot>` skip** — the
+  snapshot-aware "only upload what changed" optimization `backup` is built on, carried over from
+  the POC but not yet wired (see the TODO in [src/commands/upload.mjs](src/commands/upload.mjs)).
+  SSO login has been promoted to an experimental `login` command (still hardcoded —
   see its TODOs). The old `src/_poc/` sandbox has been **retired** — its last occupant became
   the `upload` command — so future scratch/experiments go in [scripts/](scripts/), not a parked
   sandbox under `src/`. The **CLI surface is scaffolded ahead of the rest**:
