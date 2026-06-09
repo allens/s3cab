@@ -628,6 +628,18 @@ release workflow keeps its own single-OS lint+test gate to re-check the one comm
 doesn't see — the tag. Both pin the same `NODE_VERSION` and default to
 `permissions: contents: read` (the release job alone opts up to `contents: write`).
 
+**Dependency updates — Dependabot, not Renovate** ([.github\dependabot.yml](.github\dependabot.yml)).
+Native to GitHub and zero extra accounts/config, so it fits #5/#6 where Renovate's extra
+machinery would be over-engineering for a ~5-line dependency surface. **Weekly version
+updates, grouped on purpose:** the five `@aws-sdk/*` packages version in lockstep and publish
+near-daily, so an ungrouped config would flood the PR queue — they're one group; dev deps are
+a second; the `github-actions` ecosystem is covered too (keeps the pinned `actions/*` /
+`setup-node` current). CI gates every PR. The **security** half — vulnerability + malware
+alerts and immediate security PRs — is enabled in repo _settings_ (UI-only, can't live in the
+file): the YAML is scheduled freshness, the settings are CVE-driven reaction. Auto-merge of
+green patch/minor PRs is deliberately **not** enabled yet (a "robot merges to `main`" trust
+call to revisit once the cadence is observed).
+
 **npm package — ships source, not the bundle.** There are now three distribution channels —
 the native binaries, the portable `dist/s3cab.js` bundle (both above), and the npm package —
 and the npm one has **opposite** needs to the bundle. npm installs a file tree and lets Node
