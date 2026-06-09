@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # npm — the 5 AWS SDK packages version in lockstep and publish almost daily,
+  # so they MUST be grouped (and updated weekly, not daily) or they flood the PR
+  # queue. Dev deps grouped too; CI (lint + 3-OS test) gates every PR.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      aws-sdk:
+        patterns: ["@aws-sdk/*"]
+      dev-dependencies:
+        dependency-type: development
+    open-pull-requests-limit: 5
+
+  # GitHub Actions — keeps the pinned actions/* and setup-node in ci.yml /
+  # release.yml current (supply-chain surface + avoids deprecated runner images).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
