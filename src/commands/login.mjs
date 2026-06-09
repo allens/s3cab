@@ -196,7 +196,9 @@ Waiting for authorization…`);
   });
 
   // A confirmation is progress, not the result, so it goes to stderr.
-  console.warn(`Logged in to ${startUrl} — session cached to ${loginCachePath}`);
+  console.warn(
+    `Logged in to ${startUrl} — session cached to ${loginCachePath}`,
+  );
 
   return {
     startUrl,

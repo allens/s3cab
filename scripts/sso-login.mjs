@@ -42,7 +42,8 @@ function readAwsConfig() {
       sections[current] = {};
     } else if (current) {
       const eq = line.indexOf("=");
-      if (eq > 0) sections[current][line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+      if (eq > 0)
+        sections[current][line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
     }
   }
   return sections;
@@ -50,15 +51,18 @@ function readAwsConfig() {
 
 const profileName = values.profile;
 const config = readAwsConfig();
-const sectionKey = profileName === "default" ? "default" : `profile ${profileName}`;
+const sectionKey =
+  profileName === "default" ? "default" : `profile ${profileName}`;
 const profile = config[sectionKey];
 
-if (!profile) throw new Error(`Profile "${profileName}" not found in ~/.aws/config`);
+if (!profile)
+  throw new Error(`Profile "${profileName}" not found in ~/.aws/config`);
 
 const startUrl = profile.sso_start_url;
 const region = profile.sso_region;
 
-if (!startUrl) throw new Error(`sso_start_url missing in profile "${profileName}"`);
+if (!startUrl)
+  throw new Error(`sso_start_url missing in profile "${profileName}"`);
 if (!region) throw new Error(`sso_region missing in profile "${profileName}"`);
 
 // Open URL in the default browser
@@ -93,10 +97,19 @@ function cacheToken(accessToken, expiresIn) {
 const oidc = new SSOOIDCClient({ region });
 
 const { clientId, clientSecret } = await oidc.send(
-  new RegisterClientCommand({ clientName: "s3cab", clientType: "public", scopes: ["sso:account:access"] }),
+  new RegisterClientCommand({
+    clientName: "s3cab",
+    clientType: "public",
+    scopes: ["sso:account:access"],
+  }),
 );
 
-const { deviceCode, verificationUriComplete, userCode, interval = 5 } = await oidc.send(
+const {
+  deviceCode,
+  verificationUriComplete,
+  userCode,
+  interval = 5,
+} = await oidc.send(
   new StartDeviceAuthorizationCommand({ clientId, clientSecret, startUrl }),
 );
 

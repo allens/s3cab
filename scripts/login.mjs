@@ -39,7 +39,9 @@ const { values } = parseArgs({
 
 // base64url without padding
 function b64url(data) {
-  return (Buffer.isBuffer(data) ? data : Buffer.from(data)).toString("base64url");
+  return (Buffer.isBuffer(data) ? data : Buffer.from(data)).toString(
+    "base64url",
+  );
 }
 
 // Parse ~/.aws/config (INI format)
@@ -56,10 +58,13 @@ function readAwsConfig() {
     const line = raw.trim();
     if (!line || line.startsWith("#") || line.startsWith(";")) continue;
     const m = line.match(/^\[(.+)\]$/);
-    if (m) { cur = m[1]; sections[cur] = {}; }
-    else if (cur) {
+    if (m) {
+      cur = m[1];
+      sections[cur] = {};
+    } else if (cur) {
       const eq = line.indexOf("=");
-      if (eq > 0) sections[cur][line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+      if (eq > 0)
+        sections[cur][line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
     }
   }
   return sections;
@@ -69,9 +74,14 @@ function readAwsConfig() {
 function setAwsConfigValue(profileName, key, value) {
   const configPath = join(homedir(), ".aws", "config");
   let text;
-  try { text = readFileSync(configPath, "utf8"); } catch { text = ""; }
+  try {
+    text = readFileSync(configPath, "utf8");
+  } catch {
+    text = "";
+  }
 
-  const header = profileName === "default" ? "[default]" : `[profile ${profileName}]`;
+  const header =
+    profileName === "default" ? "[default]" : `[profile ${profileName}]`;
   const lines = text.split("\n");
   const secIdx = lines.findIndex((l) => l.trim() === header);
 
@@ -81,7 +91,11 @@ function setAwsConfigValue(profileName, key, value) {
     let found = false;
     for (let i = secIdx + 1; i < lines.length; i++) {
       if (lines[i].trim().startsWith("[")) break;
-      if (lines[i].trim().startsWith(key)) { lines[i] = `${key} = ${value}`; found = true; break; }
+      if (lines[i].trim().startsWith(key)) {
+        lines[i] = `${key} = ${value}`;
+        found = true;
+        break;
+      }
     }
     if (!found) lines.splice(secIdx + 1, 0, `${key} = ${value}`);
     text = lines.join("\n");
@@ -93,48 +107,69 @@ function setAwsConfigValue(profileName, key, value) {
 
 // Write token JSON to ~/.aws/login/cache/<sanitised-session-id>.json
 function cacheToken(sessionId, token) {
-  const dir = process.env.AWS_LOGIN_CACHE_DIRECTORY ?? join(homedir(), ".aws", "login", "cache");
+  const dir =
+    process.env.AWS_LOGIN_CACHE_DIRECTORY ??
+    join(homedir(), ".aws", "login", "cache");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Matches botocore JSONFileCache key sanitisation: colons and slashes → dashes
   const file = sessionId.replaceAll(":", "-").replaceAll("/", "-") + ".json";
-  writeFileSync(join(dir, file), JSON.stringify(token, null, 2), { mode: 0o600 });
+  writeFileSync(join(dir, file), JSON.stringify(token, null, 2), {
+    mode: 0o600,
+  });
 }
 
 // Open URL in the default browser
 function openBrowser(url) {
   const cmd =
-    process.platform === "win32" ? `start "" "${url}"`
-    : process.platform === "darwin" ? `open "${url}"`
-    : `xdg-open "${url}"`;
-  try { execSync(cmd, { stdio: "ignore" }); } catch { return; }
+    process.platform === "win32"
+      ? `start "" "${url}"`
+      : process.platform === "darwin"
+        ? `open "${url}"`
+        : `xdg-open "${url}"`;
+  try {
+    execSync(cmd, { stdio: "ignore" });
+  } catch {
+    return;
+  }
 }
 
 // Spin up a one-shot local HTTP server and return the port + a promise that
 // resolves with { code, state } when the browser redirect arrives.
 function startCallbackServer() {
   let resolve;
-  const waitForCode = new Promise((r) => { resolve = r; });
+  const waitForCode = new Promise((r) => {
+    resolve = r;
+  });
   const server = createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end("<h1>Login complete. You can close this tab.</h1>");
     server.close();
-    resolve({ code: url.searchParams.get("code"), state: url.searchParams.get("state") });
+    resolve({
+      code: url.searchParams.get("code"),
+      state: url.searchParams.get("state"),
+    });
   });
   server.listen(0, "127.0.0.1");
-  const port = new Promise((r) => server.once("listening", () => r(server.address().port)));
+  const port = new Promise((r) =>
+    server.once("listening", () => r(server.address().port)),
+  );
   return { port, waitForCode };
 }
 
 // Build a DPoP proof JWT (ES256) for the token endpoint POST
 function makeDpopJwt(privateKey, publicJwk, tokenEndpoint) {
-  const hdr = b64url(JSON.stringify({ alg: "ES256", typ: "dpop+jwt", jwk: publicJwk }));
-  const pay = b64url(JSON.stringify({
-    jti: randomUUID(),
-    htm: "POST",
-    htu: tokenEndpoint,
-    iat: Math.floor(Date.now() / 1000),
-  }));
+  const hdr = b64url(
+    JSON.stringify({ alg: "ES256", typ: "dpop+jwt", jwk: publicJwk }),
+  );
+  const pay = b64url(
+    JSON.stringify({
+      jti: randomUUID(),
+      htm: "POST",
+      htu: tokenEndpoint,
+      iat: Math.floor(Date.now() / 1000),
+    }),
+  );
   // ieee-p1363 gives the raw r||s signature format required by ES256
   const sig = ecSign("SHA256", Buffer.from(`${hdr}.${pay}`), {
     key: privateKey,
@@ -185,13 +220,21 @@ const clientId = isRemote
 
 // ── PKCE ─────────────────────────────────────────────────────────────────────
 
-const PKCE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-const codeVerifier = Array.from(randomBytes(64), (b) => PKCE_CHARS[b % PKCE_CHARS.length]).join("");
-const codeChallenge = b64url(createHash("sha256").update(codeVerifier).digest());
+const PKCE_CHARS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+const codeVerifier = Array.from(
+  randomBytes(64),
+  (b) => PKCE_CHARS[b % PKCE_CHARS.length],
+).join("");
+const codeChallenge = b64url(
+  createHash("sha256").update(codeVerifier).digest(),
+);
 
 // ── DPoP key pair ─────────────────────────────────────────────────────────────
 
-const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const { privateKey, publicKey } = generateKeyPairSync("ec", {
+  namedCurve: "P-256",
+});
 const { kty, crv, x, y } = publicKey.export({ format: "jwk" });
 const publicJwk = { kty, crv, x, y }; // public fields only for DPoP header
 
@@ -220,12 +263,15 @@ if (isRemote) {
   console.log(`\nOpen this URL in your browser:\n\n  ${authUrl}\n`);
 
   const rl = createInterface({ input, output });
-  const raw = await rl.question("Paste the authorization code shown in your browser: ");
+  const raw = await rl.question(
+    "Paste the authorization code shown in your browser: ",
+  );
   rl.close();
 
   const decoded = Buffer.from(raw.trim(), "base64").toString();
   const params = Object.fromEntries(new URLSearchParams(decoded));
-  if (params.state !== state) throw new Error(`State mismatch (expected ${state})`);
+  if (params.state !== state)
+    throw new Error(`State mismatch (expected ${state})`);
   authCode = params.code;
 } else {
   // Same-device: spin up a local server to receive the browser redirect.
@@ -250,8 +296,10 @@ if (isRemote) {
   openBrowser(authUrl);
 
   const { code, state: returnedState } = await waitForCode;
-  if (!code) throw new Error("No authorization code received from browser redirect.");
-  if (returnedState !== state) throw new Error(`State mismatch (expected ${state})`);
+  if (!code)
+    throw new Error("No authorization code received from browser redirect.");
+  if (returnedState !== state)
+    throw new Error(`State mismatch (expected ${state})`);
   authCode = code;
 }
 
