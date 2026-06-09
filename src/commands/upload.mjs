@@ -1,4 +1,4 @@
-import { ParseArgsError } from "../lib/error.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { putFile } from "../lib/s3.mjs";
 import { prop } from "./prop.mjs";
 
@@ -43,12 +43,8 @@ const OBJECTS_PREFIX = "objects/";
  * @returns {Promise<{ hash: string, size: number, key: string, uploaded: boolean }>}
  */
 export async function upload(bucket, file, options = {}) {
-  if (!bucket) {
-    throw new ParseArgsError("Missing required argument: <bucket>");
-  }
-  if (!file) {
-    throw new ParseArgsError("Missing required argument: <file>");
-  }
+  requireArg(bucket, "<bucket>");
+  requireArg(file, "<file>");
 
   // prop() does the file validation (rejects non-regular files) and the streaming
   // SHA-256 hash; reuse it rather than re-deriving either here (#6).

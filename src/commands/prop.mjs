@@ -2,7 +2,7 @@ import { assert } from "node:console";
 import crypto, { createHash } from "node:crypto";
 import fs, { createReadStream, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { ParseArgsError } from "../lib/error.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { readSnapshotFile } from "../lib/snapshot-file.mjs";
 
 /**
@@ -31,9 +31,7 @@ export async function prop(path, options = {}) {
 
   let { lookup } = options;
 
-  if (!path) {
-    throw new ParseArgsError("Missing required argument: <file>");
-  }
+  requireArg(path, "<file>");
 
   if (path instanceof File) {
     assert(!lookup, "Cannot use lookup with File object");

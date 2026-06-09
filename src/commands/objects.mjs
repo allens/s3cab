@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { ParseArgsError } from "../lib/error.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { listObjects } from "../lib/s3.mjs";
 
 // An s3cab repository is one bucket with a fixed, well-known layout: every
@@ -27,9 +27,7 @@ const OBJECTS_PREFIX = "objects/";
  * @returns {Promise<undefined>} Output is streamed, not returned.
  */
 export async function objects(bucket, options = {}) {
-  if (!bucket) {
-    throw new ParseArgsError("Missing required argument: <bucket>");
-  }
+  requireArg(bucket, "<bucket>");
 
   const hashes = [];
   for await (const { Key } of listObjects(`s3://${bucket}/${OBJECTS_PREFIX}`)) {
