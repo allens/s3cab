@@ -75,7 +75,9 @@ export async function prop(path, options = {}) {
   // memory. The 5 MB boundary was chosen empirically on real data; worth
   // re-measuring during any future perf pass (see CLAUDE.md "Known gaps").
   if (size >= 5_000_000) {
-    hash = await streamHash(path);
+    const hasher = createHash("sha256");
+    await pipeline(createReadStream(path), hasher);
+    hash = hasher.digest("hex");
   } else if (size) {
     hash = crypto.hash("sha256", readFileSync(path), "hex");
   } else {
@@ -91,17 +93,6 @@ export async function prop(path, options = {}) {
       .round("milliseconds")
       .total("seconds"),
   };
-}
-
-/**
- * Compute the SHA-256 hash of a file using a stream.
- * @param {string} path - File path
- * @returns {Promise<string>} SHA-256 hash of the file
- */
-async function streamHash(path) {
-  const hash = createHash("sha256");
-  await pipeline(createReadStream(path), hash);
-  return hash.digest("hex");
 }
 
 /** @type {{ path: string, stat: fs.Stats } | undefined} */
