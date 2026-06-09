@@ -38,12 +38,13 @@ it is, why, and status — not repeated here. What matters for working in the co
   manifest → diff two snapshots into added/moved/modified/deleted via content hashes
   (so moves, renames, and duplicates are detected).
 - **Not yet built:** upload/download to S3. What remains in [src/\_poc/](src/_poc/), an
-  **experimental sandbox** wired into nothing, is the SSO-login POC ([login.mjs](src/_poc/login.mjs))
-  and a parked `upload-file` command stub + its skipped test; the `objects/<sha256>` store +
-  remote snapshots are the next milestone. The S3 milestone has _started_: the S3 client and
-  its operations have been promoted into [src/s3.mjs](src/s3.mjs) (the single SDK boundary —
-  see Core modules), used so far by the `objects` command, so the production CLI now uses the
-  AWS SDK directly and `_poc` no longer carries its own SDK copy.
+  **experimental sandbox** wired into nothing, is a parked `upload-file` command stub + its
+  skipped test; the `objects/<sha256>` store + remote snapshots are the next milestone. The S3
+  milestone has _started_: the S3 client and its operations have been promoted into
+  [src/s3.mjs](src/s3.mjs) (the single SDK boundary — see Core modules), used so far by the
+  `objects` command, so the production CLI now uses the AWS SDK directly and `_poc` no longer
+  carries its own SDK copy. The SSO-login POC has likewise been promoted to a real (if still
+  rough) `login` command ([src/commands/login.mjs](src/commands/login.mjs)).
 
 Treat the README's S3/backup descriptions as the _target_; treat `src/` (excluding
 `_poc`) as _what works now_.
@@ -259,6 +260,8 @@ visibly next to the other prints at the call site.
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
 | `restore` | _(inline stub)_ | stub | Granular restore from a backed-up snapshot (`[<path>...]`, `--snapshot`, `--output`). |
 | `verify` | _(inline stub)_ | stub | Integrity check: every object a snapshot references exists remotely and hashes to its key. |
+| `login` | login.mjs | experimental (Tier 2, AWS-only) | Optional AWS-CLI-replacement convenience — **not** the main auth path (most users use access keys via `.env`/a profile). AWS SSO/OIDC device-authorization login: registers (requesting the `refresh_token` grant), shows the URL+code, **polls** `CreateToken` until approved, then persists the session to `~/.s3cab/auth.json` (see `auth.mjs`). Prints only a non-secret summary. Deliberately frozen/rough: hardcoded start URL/region (`--start-url`/`--region` override) and first-account/first-role selection (not being built out). |
+| `credential-process` | credential-process.mjs | experimental (Tier 2, AWS-only) | Optional companion to `login` (specs/auth.md). Emits the app-managed login's credentials as standard `credential_process` JSON (`Version`/`AccessKeyId`/`SecretAccessKey`/`SessionToken`/`Expiration`) on stdout — for users who wire s3cab into their own AWS profile as a credential helper. Reuses `resolveAppManagedAwsCredentials` (app-managed only, not the full chain); the dispatcher's stdout-JSON + stderr-for-everything-else gives the "never leak secrets to stderr" contract for free. |
 | `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
@@ -273,8 +276,10 @@ archival. **Audience is ordinary, non-technical folks**, so user-facing names fa
 consumer backup vocabulary over git/dev jargon — the setup command is **`setup`, not
 `init`** for that reason. (Calls weighed but *kept* as-is: `--remote` over `--cloud`,
 `verify` over `check`, and the dev-flavoured diagnostics `tree`/`prop` left alone.)
-`login` (SSO) is intentionally **not** a command yet (undecided — may lean on
-the standard AWS credential chain instead). `compare` takes the two snapshots as
+`login` (SSO) now exists as an **experimental** command — promoted from the POC to be
+callable, but still rough (hardcoded start URL/region, first-account/first-role), and it
+remains undecided whether s3cab keeps a bespoke SSO flow or leans on the standard AWS
+credential chain instead. `compare` takes the two snapshots as
 **`--since` (older) / `--until` (newer) options, not positionals**: a leading
 defaultable `<dir>` positional would otherwise force `compare . <snap>` (you'd have to
 type the dir to reach a snapshot positional), and `--since` reads naturally, fixes the
@@ -303,6 +308,49 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
   calls it so far; the upload/download operations (moved here out of the old `_poc/s3.mjs`)
   have **no caller yet** — deliberately promoted ahead of `backup`/`restore`/`setup`, and
   esbuild tree-shakes the unused ones out of the SEA bundle until a command imports them.
+  **Provider-agnostic (Tier 1, see [specs/s3-provider-compatibility.md](specs/s3-provider-compatibility.md)):**
+  a custom endpoint is first-class — `customEndpoint()` honours the SDK-native
+  `AWS_ENDPOINT_URL_S3`/`AWS_ENDPOINT_URL`, and its presence is the single "not AWS" signal.
+  Off-AWS, `client()` passes `endpoint` instead of the AWS-only `followRegionRedirects`, and
+  `putFile` omits the AWS-only `StorageClass`/`ServerSideEncryption` (the `x-amz-meta-*`
+  metadata is portable, so it always goes). `bucketPolicy` stays AWS-only and unused until
+  `setup` is built.
+- **[src/auth.mjs](src/auth.mjs)** — AWS **credential resolution** (the model is specified in
+  [specs/auth.md](specs/auth.md)). Single source of truth for *how* s3cab gets credentials:
+  `resolveCredentials` (the provider `s3.mjs` hands its client) tries, in order, a loaded
+  `.env` → the **standard AWS SDK chain** (`fromNodeProviderChain`, the new
+  `@aws-sdk/credential-providers` dep) → the **app-managed `s3cab login` cache**
+  (`resolveAppManagedAwsCredentials`) → a clear, actionable error. `.env` is loaded with
+  Node's native `process.loadEnvFile` — **no dotenv dep** (#5) — via `loadDotEnv`, which
+  `s3.mjs` calls right before building the client. s3cab never writes `~/.aws/*`. **Status:**
+  Phases 1–3 built. Phase 1 = the resolution chain (`.env` → standard chain → app-managed →
+  actionable error), wired into `s3.mjs`. Phase 2 = the app-managed login cache: `login`
+  performs the SSO device-auth flow and persists the session (registration + token + resolved
+  account/role) to `~/.s3cab/auth.json` via `writeLoginCache`/`readLoginCache` (owner-only on
+  POSIX; on Windows the file is user-profile-scoped, as Node ignores POSIX mode bits there).
+  Phase 3 = `resolveAppManagedAwsCredentials` reads that cache, ensures a valid SSO access
+  token (silently refreshing via the OIDC `refresh_token` grant + rewriting the cache when it
+  nears expiry), and exchanges it for short-lived role credentials via `GetRoleCredentials`,
+  returning **expiration-aware** creds so the SDK re-mints them on its own when they lapse. A
+  missing cache throws a marked `NO_LOGIN` error → the full actionable message; a *present but
+  unusable* session (expired, no/failed refresh) surfaces its **specific** reason instead.
+  Phase 4 = the `credential-process` command ([src/commands/credential-process.mjs](src/commands/credential-process.mjs))
+  reuses that same resolver to emit standard process-credential JSON. Phase 5 = the `help auth`
+  topic + README + the actionable error. **Tiering (per
+  [specs/s3-provider-compatibility.md](specs/s3-provider-compatibility.md)):** the `.env` +
+  standard-chain + endpoint path is **Tier 1** — the portable core every S3-compatible provider
+  can use. The bespoke SSO `login` + `credential-process` are **Tier 2** — an optional,
+  **experimental, AWS-only** convenience (an AWS-CLI-replacement; `aws sso login` flows through
+  Tier 1 via the standard chain too). Tier 2 is deliberately **frozen** — don't extend it (e.g.
+  the "first-account/first-role" selection is intentionally *not* being built out); it can be
+  kept, deferred, or dropped without affecting any non-AWS user.
+
+  > Why a bespoke cache and not the SDK's native SSO cache: the JS SDK has **no public API**
+  > for the interactive device-auth login (only the AWS *CLI* does), and its token cache path
+  > is hardcoded to `~/.aws/sso/cache` (not redirectable). Wiring the standard chain to our
+  > login would mean *our* code writing `~/.aws/config` + the token cache — exactly what the
+  > spec forbids. So s3cab owns the storage and uses the SDK only for `GetRoleCredentials` /
+  > `CreateToken` refresh.
 
 ### Key data-flow behaviours
 
@@ -578,8 +626,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **S3 backup/restore flow not built yet.** Listing works — the `objects` command, via the
   [src/s3.mjs](src/s3.mjs) SDK boundary — but the upload/download _commands_ don't: the
   promoted `putFile`/read-stream ops in `src/s3.mjs` have no caller, and the
-  `objects/<sha256>` store + remote-snapshot wiring is the next milestone. SSO login stays a
-  POC in [src/\_poc/](src/_poc/) (some to be promoted, some dropped — see its README). The
+  `objects/<sha256>` store + remote-snapshot wiring is the next milestone. SSO login has been
+  promoted out of the POC to an experimental `login` command (still hardcoded — see its TODOs);
+  the rest of [src/\_poc/](src/_poc/) awaits promotion or removal (see its README). The
   **CLI surface is scaffolded ahead of it**: `setup`/`backup`/`restore`/`status`/`verify`
   are inline stubs and `--remote` is wired onto `list`/`compare`, all throwing
   `notImplemented()` for now (see the Commands table); promote each stub into its own

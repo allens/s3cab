@@ -86,6 +86,14 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /--since/);
   });
 
+  it("help auth prints the credential-resolution topic on stdout", () => {
+    const { status, stdout } = run("help", "auth");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Authentication/);
+    assert.match(stdout, /s3cab login/);
+  });
+
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and
   // produces correct output. Skipped unless `npm run build:win` / `build:linux`
   // has built it.

@@ -101,7 +101,32 @@ a lookup file so a future `backup` can skip re-uploading files already stored:
 
 (`<bucket>` is a plain S3 bucket name — one repository is one bucket.)
 
-It uses your standard AWS credentials/profile.
+### Authentication
+
+s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
+edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
+
+1. a **`.env`** file in the current directory, if present (handy for `AWS_*` keys, including
+   some S3-compatible providers);
+2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO and
+   `credential_process`), and `AWS_*` environment variables;
+3. a session from **`s3cab login`** — a built-in AWS IAM Identity Center (SSO) sign-in for
+   people who don't have the AWS CLI set up:
+
+   ```console
+   > s3cab login
+   To authorize s3cab, open this URL in your browser:
+     https://my-org.awsapps.com/start/#/device?user_code=ABCD-1234
+   …
+   ```
+
+   It opens a browser approval, then caches the **session** (not long-lived keys) in
+   `~/.s3cab/`, refreshing short-lived credentials automatically as needed.
+
+If none of these are configured, s3cab stops and tells you what to do. Run
+**`s3cab help auth`** for the full details. (Advanced: `s3cab credential-process` exposes
+the login session in AWS's standard `credential_process` JSON format, if you'd rather wire
+s3cab into an AWS profile yourself.)
 
 ## Quick start
 

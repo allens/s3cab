@@ -6,7 +6,9 @@ import { formatByteValue, secondsSince } from "./format.mjs";
 
 import { parseArgs } from "node:util";
 import { compare } from "./commands/compare.mjs";
+import { credentialProcess } from "./commands/credential-process.mjs";
 import { list } from "./commands/list.mjs";
+import { login } from "./commands/login.mjs";
 import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
@@ -158,6 +160,46 @@ export const commands = {
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
+  login: {
+    summary: "Log in to AWS via SSO (experimental, AWS-only)",
+    description:
+      "Optional, experimental, and AWS-only. Most people authenticate with an\n" +
+      "access key + secret (via .env) or an existing AWS profile — see\n" +
+      "'s3cab help auth'; this command is just a convenience.\n\n" +
+      "It signs in to AWS IAM Identity Center (SSO) for users who don't already\n" +
+      "have working AWS credentials and may not have the AWS CLI, and caches the\n" +
+      "session for later non-interactive use. (If you do have the AWS CLI, its\n" +
+      "'aws sso login' works too — s3cab reads that session via the standard\n" +
+      "credential chain.) It does not modify ~/.aws/config or ~/.aws/credentials.",
+    options: {
+      "start-url": {
+        type: "string",
+        description: "IAM Identity Center start URL",
+      },
+      region: {
+        type: "string",
+        description: "SSO region",
+      },
+    },
+    exec: (options) =>
+      login({
+        startUrl: /** @type {string | undefined} */ (options["start-url"]),
+        region: /** @type {string | undefined} */ (options.region),
+      }),
+  },
+  "credential-process": {
+    summary: "Emit AWS credentials as credential_process JSON (experimental, AWS-only)",
+    description:
+      "Optional, experimental companion to 's3cab login' (AWS-only). Outputs the\n" +
+      "credentials from your login session in AWS's standard credential_process\n" +
+      "JSON format, for advanced users who want to wire s3cab into an AWS profile\n" +
+      "as a credential helper:\n\n" +
+      "  [profile s3cab]\n" +
+      "  credential_process = s3cab credential-process\n\n" +
+      "s3cab does not create or edit AWS shared config automatically; configure\n" +
+      "this yourself if you want it.",
+    exec: () => credentialProcess(),
+  },
   objects: {
     summary: "List a repository's stored object hashes (one per line)",
     args: {
@@ -192,6 +234,41 @@ export const commands = {
   },
 };
 
+// Help topics shown by `s3cab help <topic>` — conceptual docs that aren't tied to
+// one command. Kept as plain strings here (not imported from `auth.mjs`) so the
+// entry point doesn't eagerly pull the AWS SDK in for every invocation. The auth
+// text mirrors the resolution order implemented in `src/auth.mjs` (specs/auth.md).
+/** @type {Record<string, string>} */
+const helpTopics = {
+  auth: `Authentication
+
+s3cab resolves credentials in this order:
+
+1. If a .env file is present, s3cab loads it first.
+   This allows AWS_* environment variables to be used intentionally.
+
+2. s3cab then uses the standard AWS SDK credential chain.
+   This includes existing AWS_PROFILE, shared AWS profiles,
+   shared credential_process profiles, and AWS_* environment variables.
+
+3. If no standard AWS credentials are available, s3cab falls back
+   to credentials from a prior 's3cab login'.
+
+4. If nothing is configured, run:
+     s3cab login
+
+Supported options:
+  - Existing AWS profile / AWS_PROFILE
+  - Existing shared AWS credential_process setup
+  - .env / AWS_* environment variables
+  - s3cab login
+
+Notes:
+  - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
+  - .env is supported for compatibility, including some S3-compatible providers.
+  - For AWS, temporary credentials from login/profile-based setups are preferred.`,
+};
+
 const start = Temporal.Now.instant();
 const debug = Boolean(process.env.S3CAB_DEBUG);
 
@@ -205,14 +282,15 @@ if (commandName === "--version" || commandName === "-v") {
   process.exit(0);
 }
 
-// Top-level help: no command given, or an explicit help request.
+// Top-level help: no command given, or an explicit help request. `help <topic>`
+// (e.g. `help auth`) prints that topic; otherwise the command list.
 if (
   !commandName ||
   commandName === "help" ||
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  console.log(usage());
+  console.log(helpTopics[args[0] ?? ""] ?? usage());
   process.exit(0);
 }
 
@@ -323,6 +401,9 @@ function usage(commandName) {
       lines.push("Description:", description, "");
     }
   } else {
+    // Align summaries past the widest command name (+ 2-space indent + gutter).
+    const nameColumn =
+      Math.max(...Object.keys(commands).map((name) => name.length)) + 4;
     lines.push(
       "s3cab — S3 Content Addressable Backup",
       "",
@@ -331,12 +412,13 @@ function usage(commandName) {
       "Commands:",
       ...Object.entries(commands).map(
         ([name, { summary, planned }]) =>
-          `  ${name}`.padEnd(12) +
+          `  ${name}`.padEnd(nameColumn) +
           summary +
           (planned ? " (not yet available)" : ""),
       ),
       "",
       "Run 's3cab <command> --help' for a command's options.",
+      "Run 's3cab help auth' for how AWS credentials are resolved.",
       "Run 's3cab --version' to print the version.",
     );
   }
