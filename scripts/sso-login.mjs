@@ -22,7 +22,14 @@ const { values } = parseArgs({
 
 // Parse ~/.aws/config (INI format)
 function readAwsConfig() {
-  const text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
+  let text = "";
+  try {
+    text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
+  } catch (e) {
+    throw new Error(
+      `Unable to read AWS config (~/.aws/config): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   const sections = {};
   let current = null;
   for (const raw of text.split("\n")) {
