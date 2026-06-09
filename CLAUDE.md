@@ -225,8 +225,12 @@ may likewise overtake.
 [src/s3cab.mjs](src/s3cab.mjs) is the real entry point. The `commands` registry it drives
 (an object keyed by command name; each command is `{ summary, args?, options?, exec }`)
 lives in its own module, [src/commands.mjs](src/commands.mjs) — `s3cab.mjs` imports it and
-owns only dispatch: `parseArgs` option merging, `allowNegative`/`allowPositionals`, a generic
-`usage()`/help generator, and a shared error handler, all driven off that registry.
+owns only dispatch: `parseArgs` option merging, `allowNegative`/`allowPositionals`, and a
+shared error handler, all driven off that registry. The help rendering — the `usage()`
+generator and the `help <topic>` strings — lives in a third root module,
+[src/help.mjs](src/help.mjs), keeping the entry point to control flow. `usage(commands, …)`
+takes the registry as an argument (rather than importing it), so it's a pure, testable
+function and `help.mjs` stays decoupled from the dispatcher.
 Adding a command = adding one entry to `commands.mjs`. Debug output is gated by the **`S3CAB_DEBUG`
 environment variable** (any non-empty value), not a CLI flag — it's a cross-cutting
 concern, so it lives outside per-command option parsing and is merged into the options
@@ -323,10 +327,13 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
 
 ### Source layout
 
-`src/` keeps the two **app-level** files at the root — [src/s3cab.mjs](src/s3cab.mjs) (the CLI
-entry + dispatch) and [src/commands.mjs](src/commands.mjs) (the registry that wires them
-together) — and splits the rest into two **sibling** folders: [src/commands/](src/commands/)
-(one file per command) and [src/lib/](src/lib/) (the shared core modules below). The
+`src/` keeps the **app-level shell** files at the root — [src/s3cab.mjs](src/s3cab.mjs) (the
+CLI entry + dispatch), [src/commands.mjs](src/commands.mjs) (the registry that wires them
+together), and [src/help.mjs](src/help.mjs) (the `usage()` renderer + `help` topics) — and
+splits the rest into two **sibling** folders: [src/commands/](src/commands/) (one file per
+command) and [src/lib/](src/lib/) (the shared core modules below). `help.mjs` is root, not
+`lib/`, on purpose: it's bespoke CLI-shell glue tied to the registry shape, cohesive with the
+entry + registry, not a reusable primitive like `format`/`read-lines`. The
 sibling arrangement is deliberate: the shared modules are _depended on by_ the commands, so
 they sit beside `commands/`, not stacked above it at the root. It's a taste-driven reorg, not
 a functional need — so don't read the split as a hard layer boundary (e.g. `snapshot-file.mjs`
@@ -747,11 +754,13 @@ commands `(not yet available)`.)
 
 - **Help — remaining gaps.** Per-command `usage()` doesn't list the universal
   `--help`/`--version`, and nothing documents the global `S3CAB_DEBUG` env var.
-- **Import side-effect / testability.** The file both `export`s `commands` and runs the
-  CLI as a top-level side-effect, so it can't be `import`ed (e.g. to unit-test the
-  registry) without firing dispatch — deliberate (see Architecture), but if testing
-  pressure appears, guard the run block with `if (import.meta.main)` to keep the single
-  file while making the export safely importable.
+- **Import side-effect / testability.** The registry (`commands.mjs`) and the help renderer
+  (`help.mjs`, with its pure `usage(commands, …)`) now live in their own import-safe modules,
+  so both are unit-testable on their own — which was the original motivation for an
+  `import.meta.main` guard. `s3cab.mjs` itself still runs dispatch as a top-level side-effect
+  and so can't be `import`ed, but it no longer `export`s anything to test; its behaviour is
+  covered by [test/e2e.mjs](test/e2e.mjs). If the dispatch flow ever needs unit testing,
+  guard the run block with `if (import.meta.main)`.
 - **Consistency nits:** `tree`/`list` mark their `exec` arrows `async` while the others
   don't (none need to — `exec` is always awaited); the commented-out `SIGINT` handler at
   the bottom is dead code — wire up or delete (per #6). (Resolved: `compare`'s bare arg
