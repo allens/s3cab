@@ -76,12 +76,13 @@ function openBrowser(url) {
 // Write token to ~/.aws/sso/cache/<sha1(startUrl)>.json (same location as AWS CLI)
 function cacheToken(accessToken, expiresIn) {
   const cacheDir = join(homedir(), ".aws", "sso", "cache");
-  mkdirSync(cacheDir, { recursive: true });
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
   const key = createHash("sha1").update(startUrl).digest("hex");
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
   writeFileSync(
     join(cacheDir, `${key}.json`),
     JSON.stringify({ startUrl, region, accessToken, expiresAt }, null, 2),
+    { mode: 0o600 },
   );
   return expiresAt;
 }
