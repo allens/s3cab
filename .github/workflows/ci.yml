@@ -4,8 +4,8 @@
 # so without this nothing would run on branches/PRs. Tests run across all three
 # supported OSes because the code genuinely branches on platform (case-insensitive
 # glob matching on win32, `\`->`/` normalization, `.exe`/zstd handling) — a
-# Linux-only run never exercises those paths. Lint is OS-independent, so it runs
-# once on Linux rather than three times.
+# Linux-only run never exercises those paths. Lint and the Prettier format check
+# are OS-independent, so they run once on Linux rather than three times.
 #
 # release.yml keeps its own single-OS lint+test gate: a `v*` tag is the one commit
 # this workflow does NOT cover, so the tagged build re-checks before publishing.
@@ -40,6 +40,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
 
   test:
     name: test (${{ matrix.os }})
