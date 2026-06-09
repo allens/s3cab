@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
 import { helpTopics, usage } from "./help.mjs";
-import { ParseArgsError } from "./lib/error.mjs";
+import { isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 
 const start = Temporal.Now.instant();
@@ -71,12 +71,7 @@ try {
 } catch (error) {
   console.error("ERROR:", debug ? error : /** @type {Error} */ (error).message);
   console.error();
-  if (error instanceof ParseArgsError) {
-    console.error(usage(commands, commandName));
-  } else if (
-    /** @type {NodeJS.ErrnoException} */ (error).code ===
-    "ERR_PARSE_ARGS_UNKNOWN_OPTION"
-  ) {
+  if (isUsageError(error)) {
     console.error(usage(commands, commandName));
   }
   process.exitCode = 1;
