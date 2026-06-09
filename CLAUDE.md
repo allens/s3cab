@@ -478,8 +478,8 @@ s3://<bucket>/
 ```
 
 This is the design intent carried over from the early notes. The `objects` command already
-reads `objects/` per this layout (and so rejects a bucket sub-path as a target), and `upload`
-writes a single blob to it; the snapshot-driven `backup` that populates `snapshots/` is the
+reads `objects/` per this layout, and `upload` writes a single blob to it; the
+snapshot-driven `backup` that populates `snapshots/` is the remaining piece.
 remaining piece.
 
 ---
