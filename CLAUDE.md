@@ -292,7 +292,7 @@ visibly next to the other prints at the call site.
 | --- | --- | --- | --- |
 | `snapshot` | snapshot.mjs | built | Walk → compute props → stream through zstd → write `<timestamp>.tsv.zst`; then diff against previous. |
 | `list` | list.mjs | built | List snapshot names (sorted newest-first), or `--latest`. `--remote`/`-r` (list backed-up snapshots) throws — not yet implemented. |
-| `compare` | compare.mjs | built | Diff two snapshots (`--since` older → `--until` newer) → added / moved / modified / deleted. Defaults: `until`=latest, `since`=the one before it, so bare `compare <dir>` shows recent changes. `--remote`/`-r` throws — not yet implemented. |
+| `compare` | compare.mjs | built | Diff two snapshots (`--since` older → `--until` newer) → added / moved / modified / deleted. Defaults: `until`=latest, `since`=the one before it, so bare `compare` shows recent changes. `--remote`/`-r` throws — not yet implemented. |
 | `status` | _(inline stub)_ | stub | Show which snapshots are backed up and what a backup would upload (≈ `compare` of latest-local vs remote). |
 | `setup` | _(inline stub)_ | stub | Set up a backup destination: prepare the remote bucket **and** link the local dir to it (one command, both halves). |
 | `backup` | _(inline stub)_ | stub | Send a snapshot (manifest + missing objects) to the remote. |
@@ -324,6 +324,21 @@ defaultable `<dir>` positional would otherwise force `compare . <snap>` (you'd h
 type the dir to reach a snapshot positional), and `--since` reads naturally, fixes the
 direction to old→new (like `diff`), and extends to dates later. Single-snapshot use is
 deliberately "since X → latest" (the useful baseline case), not "X vs its predecessor".
+
+**Argument validation lives in the command functions, not the dispatcher.** A command that
+needs a positional checks it itself and throws `ParseArgsError` via `requireArg()`
+([src/lib/error.mjs](src/lib/error.mjs)) — e.g. `objects`/`upload`/`prop` guard
+`<bucket>`/`<file>`. This is deliberate: the per-command functions are the **library surface**
+(cleanly exported, see Source layout), so a direct caller of `objects(bucket)` must get the
+same guard a CLI user does — validation in the dispatcher would protect only the CLI path. A
+registry-driven scheme (the dispatcher inferring required-ness from the `args` keys) was
+considered and **rejected** for that reason, and because deriving required-ness by parsing
+`<name>`/`[<name>]` display strings is stringly-typed and couples help formatting to
+validation. The `args` keys are therefore **honest about optionality and nothing more**: a key
+in `[brackets]` is optional, a bare `<name>` is required — and commands that default a missing
+positional (`snapshot`/`list`/`compare`/`tree` all default `<dir>` to the current directory)
+use `[<dir>]` so the generated usage text matches real behaviour. `usage()` just prints those
+keys verbatim — it does not parse them.
 
 ### Source layout
 

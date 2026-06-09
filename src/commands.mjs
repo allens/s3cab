@@ -37,7 +37,7 @@ export const commands = {
   // ── Local snapshot commands ────────────────────────────────────────────
   snapshot: {
     summary: "Take a snapshot of a directory",
-    args: { "<dir>": "The directory to snapshot" },
+    args: { "[<dir>]": "The directory to snapshot (default: current directory)" },
     options: {
       rehash: {
         type: "boolean",
@@ -49,7 +49,7 @@ export const commands = {
   },
   list: {
     summary: "List a directory's snapshots",
-    args: { "<dir>": "The directory whose snapshots to list" },
+    args: { "[<dir>]": "The directory whose snapshots to list (default: current directory)" },
     options: {
       latest: {
         type: "boolean",
@@ -66,7 +66,7 @@ export const commands = {
   },
   compare: {
     summary: "Show what changed between two snapshots",
-    args: { "<dir>": "The directory whose snapshots to compare" },
+    args: { "[<dir>]": "The directory whose snapshots to compare (default: current directory)" },
     options: {
       since: {
         type: "string",
@@ -226,7 +226,7 @@ export const commands = {
   },
   tree: {
     summary: "List the files in a directory",
-    args: { "<dir>": "The directory to list" },
+    args: { "[<dir>]": "The directory to list (default: current directory)" },
     exec: async (options, [dir] = []) => tree(dir),
   },
   prop: {
