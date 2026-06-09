@@ -11,13 +11,13 @@ import {
   StartDeviceAuthorizationCommand,
 } from "@aws-sdk/client-sso-oidc";
 import { setTimeout as sleep } from "node:timers/promises";
-import { loginCachePath, writeLoginCache } from "../auth.mjs";
+import { loginCachePath, writeLoginCache } from "../lib/auth.mjs";
 
 // AWS SSO / IAM Identity Center login via the OIDC device-authorization flow.
-// This is the auth counterpart to the S3 operations in `src/s3.mjs`; it imports
+// This is the auth counterpart to the S3 operations in `src/lib/s3.mjs`; it imports
 // the SSO/OIDC SDKs (a different surface from the S3 client) rather than going
 // through that S3-only boundary. The session it obtains is persisted to s3cab's
-// app-managed cache (`src/auth.mjs`, `~/.s3cab/auth.json`) so later commands can
+// app-managed cache (`src/lib/auth.mjs`, `~/.s3cab/auth.json`) so later commands can
 // mint temporary role credentials without re-logging-in — never to `~/.aws`.
 // The model is specified in specs/auth.md.
 

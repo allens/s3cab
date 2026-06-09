@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 // AWS authentication / credential resolution. This is the single source of truth
-// for *how* s3cab obtains AWS credentials; the S3 SDK boundary (`src/s3.mjs`)
+// for *how* s3cab obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`)
 // hands `resolveCredentials` to its client, and `credential-process` (and the
 // `backup`/upload path) reuse `resolveAppManagedAwsCredentials`. The model is
 // specified in specs/auth.md. Resolution order:

@@ -2,8 +2,8 @@ import { assert } from "node:console";
 import crypto, { createHash } from "node:crypto";
 import fs, { createReadStream, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { ParseArgsError } from "../error.mjs";
-import { readSnapshotFile } from "../snapshot-file.mjs";
+import { requireArg } from "../lib/error.mjs";
+import { readSnapshotFile } from "../lib/snapshot-file.mjs";
 
 /**
  * @typedef {Object} Props
@@ -23,7 +23,7 @@ export const SHA256_EMPTY_FILE =
  * Show properties of a file.
  * @param {string | File} [path] - File path
  * @param {object} [options]
- * @param {import("../snapshot-file.mjs").SnapshotLookup | string} [options.lookup] - Snapshot data or path to snapshot file to lookup properties from
+ * @param {import("../lib/snapshot-file.mjs").SnapshotLookup | string} [options.lookup] - Snapshot data or path to snapshot file to lookup properties from
  * @returns {Promise<Props>} File properties
  */
 export async function prop(path, options = {}) {
@@ -31,9 +31,7 @@ export async function prop(path, options = {}) {
 
   let { lookup } = options;
 
-  if (!path) {
-    throw new ParseArgsError("Missing required argument: <file>");
-  }
+  requireArg(path, "<file>");
 
   if (path instanceof File) {
     assert(!lookup, "Cannot use lookup with File object");

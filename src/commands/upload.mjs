@@ -1,5 +1,5 @@
-import { ParseArgsError } from "../error.mjs";
-import { putFile } from "../s3.mjs";
+import { requireArg } from "../lib/error.mjs";
+import { putFile } from "../lib/s3.mjs";
 import { prop } from "./prop.mjs";
 
 // An s3cab repository is one bucket with a fixed, well-known layout: every
@@ -22,7 +22,7 @@ const OBJECTS_PREFIX = "objects/";
  * content. So this skips the upload when the object already exists (via `putFile`'s
  * conditional PUT), unless `--force` overwrites it.
  *
- * S3 access goes through the `src/s3.mjs` SDK boundary, whose lazily-constructed
+ * S3 access goes through the `src/lib/s3.mjs` SDK boundary, whose lazily-constructed
  * client means this command costs nothing (and needs no AWS creds) until run.
  *
  * TODO (important, not yet wired — carried over from the `_poc` `upload-file` stub):
@@ -43,12 +43,8 @@ const OBJECTS_PREFIX = "objects/";
  * @returns {Promise<{ hash: string, size: number, key: string, uploaded: boolean }>}
  */
 export async function upload(bucket, file, options = {}) {
-  if (!bucket) {
-    throw new ParseArgsError("Missing required argument: <bucket>");
-  }
-  if (!file) {
-    throw new ParseArgsError("Missing required argument: <file>");
-  }
+  requireArg(bucket, "<bucket>");
+  requireArg(file, "<file>");
 
   // prop() does the file validation (rejects non-regular files) and the streaming
   // SHA-256 hash; reuse it rather than re-deriving either here (#6).

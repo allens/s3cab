@@ -2,13 +2,13 @@ import { createReadStream, createWriteStream, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
-import { secondsSince } from "../format.mjs";
+import { secondsSince } from "../lib/format.mjs";
 import {
   formatSnapshotLine,
   readSnapshot,
   stringifySnapshot,
   withSnapshotFile,
-} from "../snapshot-file.mjs";
+} from "../lib/snapshot-file.mjs";
 import { compare } from "./compare.mjs";
 import { list } from "./list.mjs";
 import { prop } from "./prop.mjs";
@@ -30,7 +30,7 @@ export async function snapshot(dir = ".", options = {}) {
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);
 
-  /** @type {import("../snapshot-file.mjs").SnapshotLookup | undefined} */
+  /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup | undefined} */
   let lookup;
   const latestSnapshotName = list(dir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
