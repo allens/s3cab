@@ -2,9 +2,9 @@ import assert from "node:assert";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
-import { secondsSince } from "../format.mjs";
-import { readLines } from "../read-lines.mjs";
-import { formatSnapshotLine } from "../snapshot-file.mjs";
+import { secondsSince } from "../lib/format.mjs";
+import { readLines } from "../lib/read-lines.mjs";
+import { formatSnapshotLine } from "../lib/snapshot-file.mjs";
 
 /** @typedef {{ write: (line: string) => unknown }} LineWriter */
 

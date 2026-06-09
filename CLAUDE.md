@@ -70,7 +70,7 @@ it is, why, and status — not repeated here. What matters for working in the co
   (so moves, renames, and duplicates are detected).
 - **Not yet built:** the full snapshot-driven backup/restore flow to S3. The
   `objects/<sha256>` store + remote snapshots are the next milestone. The S3 milestone has
-  _started_: the S3 client and its operations have been promoted into [src/s3.mjs](src/s3.mjs)
+  _started_: the S3 client and its operations have been promoted into [src/lib/s3.mjs](src/lib/s3.mjs)
   (the single SDK boundary — see Core modules), so the production CLI uses the AWS SDK
   directly. Two plumbing commands now exercise that store — `objects` (lists stored hashes)
   and `upload` (hashes one file and PUTs it at `objects/<sha256>`) — and the SSO-login POC has
@@ -147,7 +147,7 @@ Snapshots are tab-separated values. This flows directly from #2.
   CSV's comma-quoting _and_ JSON's escaping — notably JSON would force escaping every
   Windows backslash (`C:\\Users\\...`). Less escaping = more directly recoverable.
 
-See the format spec at the top of [src/snapshot-file.mjs](src/snapshot-file.mjs) and
+See the format spec at the top of [src/lib/snapshot-file.mjs](src/lib/snapshot-file.mjs) and
 the data-model section below.
 
 ### 5. Built-ins over dependencies (high bar for libraries)
@@ -222,11 +222,12 @@ may likewise overtake.
 
 ### Entry point & command dispatch
 
-[src/s3cab.mjs](src/s3cab.mjs) is the real entry point. It defines a `commands` registry
-(an object keyed by command name); each command is `{ summary, args?, options?, exec }`.
-Dispatch, `parseArgs` option merging, `allowNegative`/`allowPositionals`, a generic
-`usage()`/help generator, and a shared error handler are all driven off that registry.
-Adding a command = adding one entry. Debug output is gated by the **`S3CAB_DEBUG`
+[src/s3cab.mjs](src/s3cab.mjs) is the real entry point. The `commands` registry it drives
+(an object keyed by command name; each command is `{ summary, args?, options?, exec }`)
+lives in its own module, [src/commands.mjs](src/commands.mjs) — `s3cab.mjs` imports it and
+owns only dispatch: `parseArgs` option merging, `allowNegative`/`allowPositionals`, a generic
+`usage()`/help generator, and a shared error handler, all driven off that registry.
+Adding a command = adding one entry to `commands.mjs`. Debug output is gated by the **`S3CAB_DEBUG`
 environment variable** (any non-empty value), not a CLI flag — it's a cross-cutting
 concern, so it lives outside per-command option parsing and is merged into the options
 bag passed to each command's `exec`.
@@ -252,7 +253,7 @@ runtime. The git tag is kept in lockstep by the release guard (and bumping via
 
 ### Commands
 
-The registry in [src/s3cab.mjs](src/s3cab.mjs) groups commands as **local snapshot**,
+The registry in [src/commands.mjs](src/commands.mjs) groups commands as **local snapshot**,
 **remote backup**, and **diagnostics**. The local commands are **built**; the remote
 ones (plus `status`/`verify`) are **registered stubs** — they appear in the CLI with
 real args/options/help, but their `exec` calls the shared `notImplemented()` helper and
@@ -296,7 +297,7 @@ visibly next to the other prints at the call site.
 | `login` | login.mjs | experimental (Tier 2, AWS-only) | Optional AWS-CLI-replacement convenience — **not** the main auth path (most users use access keys via `.env`/a profile). AWS SSO/OIDC device-authorization login: registers (requesting the `refresh_token` grant), shows the URL+code, **polls** `CreateToken` until approved, then persists the session to `~/.s3cab/auth.json` (see `auth.mjs`). Prints only a non-secret summary. Deliberately frozen/rough: hardcoded start URL/region (`--start-url`/`--region` override) and first-account/first-role selection (not being built out). |
 | `credential-process` | credential-process.mjs | experimental (Tier 2, AWS-only) | Optional companion to `login` (specs/auth.md). Emits the app-managed login's credentials as standard `credential_process` JSON (`Version`/`AccessKeyId`/`SecretAccessKey`/`SessionToken`/`Expiration`) on stdout — for users who wire s3cab into their own AWS profile as a credential helper. Reuses `resolveAppManagedAwsCredentials` (app-managed only, not the full chain); the dispatcher's stdout-JSON + stderr-for-everything-else gives the "never leak secrets to stderr" contract for free. |
 | `objects` | objects.mjs | built | **Plumbing/diagnostic** (cf. git porcelain vs plumbing — not for everyday use). Lists a repository's stored object hashes, one sha256 per line, under the fixed `objects/` prefix (to `--file` or stdout). The intended consumer is `backup`, as a skip-the-upload lookup — hence the bare-hash output, the one command that opts out of the JSON dispatch (see above). Takes a plain `<bucket>` name (one repo == one bucket). |
-| `upload` | upload.mjs | built | **Plumbing** — the write counterpart of `objects`. Hashes one file (reusing `prop`) and PUTs it at `objects/<sha256>` via `putFile` in [src/s3.mjs](src/s3.mjs); identical content maps to the same key, so it skips an object already present (`putFile`'s conditional PUT) unless `--force`/`-f`. The low-level building block under the not-yet-built snapshot-driven `backup`. **Planned (not yet wired, from the POC):** a `--if-modified-from <snapshot>` skip — see the TODO in `upload.mjs`, load-bearing for `backup`. |
+| `upload` | upload.mjs | built | **Plumbing** — the write counterpart of `objects`. Hashes one file (reusing `prop`) and PUTs it at `objects/<sha256>` via `putFile` in [src/lib/s3.mjs](src/lib/s3.mjs); identical content maps to the same key, so it skips an object already present (`putFile`'s conditional PUT) unless `--force`/`-f`. The low-level building block under the not-yet-built snapshot-driven `backup`. **Planned (not yet wired, from the POC):** a `--if-modified-from <snapshot>` skip — see the TODO in `upload.mjs`, load-bearing for `backup`. |
 | `tree` | tree.mjs | built | Recursively walk a dir; apply exclude globs; skip `.s3cab/`; report file paths and unsupported file types. |
 | `prop` | prop.mjs | built | Compute `{ size, mtime, hash }` for one file (streaming hash for ≥5 MB). |
 
@@ -320,19 +321,39 @@ type the dir to reach a snapshot positional), and `--since` reads naturally, fix
 direction to old→new (like `diff`), and extends to dates later. Single-snapshot use is
 deliberately "since X → latest" (the useful baseline case), not "X vs its predecessor".
 
+### Source layout
+
+`src/` keeps the two **app-level** files at the root — [src/s3cab.mjs](src/s3cab.mjs) (the CLI
+entry + dispatch) and [src/commands.mjs](src/commands.mjs) (the registry that wires them
+together) — and splits the rest into two **sibling** folders: [src/commands/](src/commands/)
+(one file per command) and [src/lib/](src/lib/) (the shared core modules below). The
+sibling arrangement is deliberate: the shared modules are _depended on by_ the commands, so
+they sit beside `commands/`, not stacked above it at the root. It's a taste-driven reorg, not
+a functional need — so don't read the split as a hard layer boundary (e.g. `snapshot-file.mjs`
+in `lib/` still imports `commands/prop.mjs`; that pre-existing coupling is fine). The grouping
+is by **subsystem/cohesion, not by abstract layer** — there's deliberately no `lib/util/`
+junk-drawer split of "generic helpers vs domain core"; if `lib/` ever grows enough to cleave,
+extract a folder named for the subsystem (likely `lib/s3/` as the S3 milestone lands), and
+leave the few generic leaves (`format`, `read-lines`, `error`) flat at `lib/` root.
+
+> **No library entry yet.** There is deliberately no `src/index.mjs` barrel / `main` (see the
+> "no `main`" note above). The per-command functions in `src/commands/` are already cleanly
+> exported, so a re-export barrel is trivial to add the day a real library consumer appears —
+> until then it would be speculative structure (#6).
+
 ### Core modules
 
-- **[src/snapshot-file.mjs](src/snapshot-file.mjs)** — the snapshot format hub. Reads
+- **[src/lib/snapshot-file.mjs](src/lib/snapshot-file.mjs)** — the snapshot format hub. Reads
   and writes manifests, handles zstd compress/decompress transparently, and provides
   `withSnapshotFile()` which writes to a temp file (`.snapshot.tsv.zst`) and atomically
   `rename`s it into place. The temp file's existence doubles as a crude concurrency
   guard against overlapping snapshots.
-- **[src/format.mjs](src/format.mjs)** — human formatting via built-in `Intl`
+- **[src/lib/format.mjs](src/lib/format.mjs)** — human formatting via built-in `Intl`
   (`Intl.NumberFormat` compact bytes, `Intl.DurationFormat`). No dependency.
-- **[src/read-lines.mjs](src/read-lines.mjs)** — read a text file into trimmed,
+- **[src/lib/read-lines.mjs](src/lib/read-lines.mjs)** — read a text file into trimmed,
   comment-stripped, non-empty lines (used for the exclude file).
-- **[src/error.mjs](src/error.mjs)** — `ParseArgsError` for usage-triggering failures.
-- **[src/s3.mjs](src/s3.mjs)** — the **single module that imports the AWS S3 SDK**; all S3
+- **[src/lib/error.mjs](src/lib/error.mjs)** — `ParseArgsError` for usage-triggering failures.
+- **[src/lib/s3.mjs](src/lib/s3.mjs)** — the **single module that imports the AWS S3 SDK**; all S3
   access goes through it. Its client is **lazily constructed** (`client()` builds the
   `S3Client` on first use), so commands that never touch S3 (`list`, `tree`, …) don't
   resolve AWS region/credentials and therefore don't fail when none are configured — even
@@ -349,7 +370,7 @@ deliberately "since X → latest" (the useful baseline case), not "X vs its pred
   `putFile` omits the AWS-only `StorageClass`/`ServerSideEncryption` (the `x-amz-meta-*`
   metadata is portable, so it always goes). `bucketPolicy` stays AWS-only and unused until
   `setup` is built.
-- **[src/auth.mjs](src/auth.mjs)** — AWS **credential resolution** (the model is specified in
+- **[src/lib/auth.mjs](src/lib/auth.mjs)** — AWS **credential resolution** (the model is specified in
   [specs/auth.md](specs/auth.md)). Single source of truth for *how* s3cab gets credentials:
   `resolveCredentials` (the provider `s3.mjs` hands its client) tries, in order, a loaded
   `.env` → the **standard AWS SDK chain** (`fromNodeProviderChain`, the new
@@ -600,7 +621,7 @@ constraint and, now, as the portable release asset. Consequences worth knowing:
 - The **AWS SDK is a normal npm `dependency`** here (npm installs it). In the SEA channel
   the _same_ dep is instead inlined into the bundle (`aws-crt` left external → JS fallback).
   One dependency, two fates. NB: the production CLI now imports it from exactly one module,
-  `src/s3.mjs` (used so far by `objects` and `upload`); the download/restore path is still to
+  `src/lib/s3.mjs` (used so far by `objects` and `upload`); the download/restore path is still to
   come, so much of the SDK's surface is still unused until the rest of the S3 milestone lands —
   and it bloats the SEA binary as soon as it's imported at all.
 - **Publishing** is the `publish-npm` job in `release.yml` (tag-gated, parallel to the
@@ -659,9 +680,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
 
 - **Snapshot-driven backup/restore flow not built yet.** The object-store plumbing works —
   `objects` lists stored hashes and `upload` PUTs a single file at `objects/<sha256>`, both via
-  the [src/s3.mjs](src/s3.mjs) SDK boundary — but the snapshot-driven `backup` that uploads a
+  the [src/lib/s3.mjs](src/lib/s3.mjs) SDK boundary — but the snapshot-driven `backup` that uploads a
   whole manifest's worth of objects, the remote-snapshot wiring under `snapshots/`, and the
-  download/`restore` path don't exist (the read-stream/bucket ops in `src/s3.mjs` still have no
+  download/`restore` path don't exist (the read-stream/bucket ops in `src/lib/s3.mjs` still have no
   caller). `upload` also still owes its **`--if-modified-from <snapshot>` skip** — the
   snapshot-aware "only upload what changed" optimization `backup` is built on, carried over from
   the POC but not yet wired (see the TODO in [src/commands/upload.mjs](src/commands/upload.mjs)).
@@ -698,7 +719,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **`tsc -p jsconfig.json` is not clean.** Most noise is _outside_ the shipping code — loose
   scratch files under [scripts/](scripts/) and JS pulled in transitively from the AWS SDK
   under `node_modules/` — so a type check is read by filtering to `src/`. But `src/` itself is
-  **not** fully clean either: [src/s3.mjs](src/s3.mjs) and
+  **not** fully clean either: [src/lib/s3.mjs](src/lib/s3.mjs) and
   [src/commands/login.mjs](src/commands/login.mjs) carry pre-existing errors (promoted-from-POC
   code that never got a typing pass). A typing pass over those two would let a filtered `src/`
   check gate cleanly. (The retired `_poc` sandbox used to be the bulk of this noise; it is gone.)

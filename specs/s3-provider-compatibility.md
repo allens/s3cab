@@ -73,10 +73,10 @@ a keep-or-drop nice-to-have.
 ## Finding 3 — Refinement checklist (apply *after* the AWS auth work lands)
 
 Concrete code touch-points to provider-neutralize, recorded now so they aren't lost. All in
-[../src/s3.mjs](../src/s3.mjs) unless noted.
+[../src/lib/s3.mjs](../src/lib/s3.mjs) unless noted.
 
 1. **Make the custom endpoint first-class.** ✅ **Done.** `client()`
-   ([../src/s3.mjs](../src/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
+   ([../src/lib/s3.mjs](../src/lib/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
    (honouring SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`) and passes it as
    `endpoint`; its presence is the single "not AWS" signal driving the gating below. We did
    **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var (CLAUDE.md #5/#6); a

@@ -2,16 +2,16 @@
 
 import pkg from "../package.json" with { type: "json" };
 
-import { formatByteValue, secondsSince } from "./format.mjs";
+import { formatByteValue, secondsSince } from "./lib/format.mjs";
 
 import { parseArgs } from "node:util";
 import { commands } from "./commands.mjs";
-import { ParseArgsError } from "./error.mjs";
+import { ParseArgsError } from "./lib/error.mjs";
 
 // Help topics shown by `s3cab help <topic>` — conceptual docs that aren't tied to
 // one command. Kept as plain strings here (not imported from `auth.mjs`) so the
 // entry point doesn't eagerly pull the AWS SDK in for every invocation. The auth
-// text mirrors the resolution order implemented in `src/auth.mjs` (specs/auth.md).
+// text mirrors the resolution order implemented in `src/lib/auth.mjs` (specs/auth.md).
 /** @type {Record<string, string>} */
 const helpTopics = {
   auth: `Authentication

@@ -1,5 +1,5 @@
-import { ParseArgsError } from "../error.mjs";
-import { putFile } from "../s3.mjs";
+import { ParseArgsError } from "../lib/error.mjs";
+import { putFile } from "../lib/s3.mjs";
 import { prop } from "./prop.mjs";
 
 // An s3cab repository is one bucket with a fixed, well-known layout: every
@@ -22,7 +22,7 @@ const OBJECTS_PREFIX = "objects/";
  * content. So this skips the upload when the object already exists (via `putFile`'s
  * conditional PUT), unless `--force` overwrites it.
  *
- * S3 access goes through the `src/s3.mjs` SDK boundary, whose lazily-constructed
+ * S3 access goes through the `src/lib/s3.mjs` SDK boundary, whose lazily-constructed
  * client means this command costs nothing (and needs no AWS creds) until run.
  *
  * TODO (important, not yet wired — carried over from the `_poc` `upload-file` stub):

@@ -10,7 +10,7 @@ import { unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { formatByteValue } from "../src/format.mjs";
+import { formatByteValue } from "../src/lib/format.mjs";
 
 // @ts-ignore - Intl.DurationFormat exists in Node 24+
 const durationFormat = new Intl.DurationFormat();

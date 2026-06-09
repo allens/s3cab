@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { describe, it } from "node:test";
-import { writeSnapshot } from "../snapshot-file.mjs";
+import { writeSnapshot } from "../lib/snapshot-file.mjs";
 import { compare } from "./compare.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));

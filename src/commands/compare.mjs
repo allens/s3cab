@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { dirname, relative } from "node:path";
-import { readSnapshot } from "../snapshot-file.mjs";
+import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { list } from "./list.mjs";
 
 /**
@@ -89,7 +89,7 @@ export async function compare(dir = ".", options = {}) {
 
 /**
  * Create a lookup of hash to set of paths.
- * @param {import("../snapshot-file.mjs").SnapshotLookup} snapshotLookup - Snapshot lookup
+ * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} snapshotLookup - Snapshot lookup
  * @returns {Map<string,PathSet>} Hash to path set lookup
  */
 function getPathsByHash(snapshotLookup) {
@@ -110,8 +110,8 @@ function getPathsByHash(snapshotLookup) {
 
 /**
  * Diff two snapshots.
- * @param {import("../snapshot-file.mjs").SnapshotLookup} previousSnapshot - Previous snapshot lookup
- * @param {import("../snapshot-file.mjs").SnapshotLookup} currentSnapshot - Current snapshot
+ * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} previousSnapshot - Previous snapshot lookup
+ * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} currentSnapshot - Current snapshot
  * @returns {DiffResult} Diff results
  */
 export function diff(previousSnapshot, currentSnapshot) {

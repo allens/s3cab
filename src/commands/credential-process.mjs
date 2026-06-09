@@ -1,4 +1,4 @@
-import { resolveAppManagedAwsCredentials } from "../auth.mjs";
+import { resolveAppManagedAwsCredentials } from "../lib/auth.mjs";
 
 /**
  * Emit AWS credentials in the standard `credential_process` JSON format, sourced

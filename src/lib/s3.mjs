@@ -44,7 +44,7 @@ const customEndpoint = () =>
  * though they share this app's single entry point. Only the S3 operations below
  * call this, so those commands never trigger it.
  *
- * Credentials come from `src/auth.mjs` (`.env` → standard AWS chain → app-managed
+ * Credentials come from `src/lib/auth.mjs` (`.env` → standard AWS chain → app-managed
  * `s3cab login` cache → actionable error — see specs/auth.md); `.env` is loaded
  * here, immediately before the client is built, so its AWS_* vars (including any
  * region or endpoint override) are in place.

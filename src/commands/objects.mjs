@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
-import { ParseArgsError } from "../error.mjs";
-import { listObjects } from "../s3.mjs";
+import { ParseArgsError } from "../lib/error.mjs";
+import { listObjects } from "../lib/s3.mjs";
 
 // An s3cab repository is one bucket with a fixed, well-known layout: every
 // content-addressed object lives under `objects/<sha256>` at the bucket root
@@ -18,7 +18,7 @@ const OBJECTS_PREFIX = "objects/";
  * deliberately *not* the JSON the other commands return (a lookup file wants one
  * bare hash per line), so this command writes its own output and returns nothing.
  *
- * S3 access goes through the `src/s3.mjs` SDK boundary, whose lazily-constructed
+ * S3 access goes through the `src/lib/s3.mjs` SDK boundary, whose lazily-constructed
  * client means this command costs nothing (and needs no AWS creds) until run.
  *
  * @param {string} [bucket] - The repository's S3 bucket name.

@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { prop } from "./commands/prop.mjs";
+import { prop } from "../commands/prop.mjs";
 import { secondsSince } from "./format.mjs";
 
 // Snapshot file format:
@@ -27,7 +27,7 @@ import { secondsSince } from "./format.mjs";
 // For comment lines the fields are:
 // #comment<TAB>context<TAB>dirent_type<TAB>path
 
-/** @typedef {import("./commands/prop.mjs").Props} Props */
+/** @typedef {import("../commands/prop.mjs").Props} Props */
 /** @typedef {[string, Props | Error]} SnapshotEntry */
 /** @typedef {Map<string, Props>} SnapshotLookup */
 
