@@ -26,6 +26,33 @@ install/usage, license — examples use Windows paths, the primary target). **CL
 is for contributors/AI (architecture, the design philosophy below, data formats,
 conventions, and the pre-release TODO list).
 
+### Working conventions (for AI assistants)
+
+Standing operating rules, kept **here in source** rather than any one machine's local
+memory so every session — on any computer — follows them. **When the user has to correct
+you on a decision, record that decision here** (that is how this list grows) — local memory
+is invisible to other machines, so a correction kept only there gets re-litigated elsewhere.
+These are **defaults, not shackles:** if you think the context behind a rule has changed,
+it is fine — encouraged, even, once in a while — to ask the user whether it still holds
+rather than assuming it is fixed forever.
+
+1. **Never `git commit`/`push` without an explicit go-ahead in that same message.** Do the
+   work, show what changed, then wait to be told "commit" / "pr". A go-ahead is per-request,
+   not standing — don't carry it forward to later changes.
+2. **Multiple sessions may run on this repo at once.** Stage only the files _you_ changed
+   (`git add <path>`, never `git add -A`/`.`), so you don't sweep up another session's
+   in-flight work.
+3. **[.claude/settings.json](.claude/settings.json) is a shared, committed project file**
+   (the team-wide permission allow/deny lists), not personal — `settings.local.json` is the
+   gitignored personal override. This does **not** authorise an unprompted commit (rule 1
+   still holds). But _when a commit/PR go-ahead is given_ and the working tree also has
+   changes to `.claude/settings.json`, fold them in rather than setting them aside as
+   unrelated — they need no separate sign-off. Validate via the `update-config` skill first,
+   and keep it as its own `chore:` commit so it reads cleanly apart from the feature change.
+4. **After non-trivial work, update CLAUDE.md / README.md** so what you learned is shared at
+   the project level (this section exists because that wasn't being done for these very
+   rules). A cross-machine rule belongs in source, never only in local memory.
+
 ---
 
 ## What this project is
