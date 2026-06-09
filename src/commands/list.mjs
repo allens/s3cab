@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
+import { notImplemented } from "../lib/error.mjs";
 
 /**
  * @overload
@@ -25,9 +26,7 @@ import { basename, join } from "node:path";
  */
 export function list(dir = ".", options = {}) {
   if (options.remote) {
-    throw new Error(
-      "Not yet implemented: list --remote (S3 upload milestone in progress)",
-    );
+    notImplemented("list --remote");
   }
 
   dir = realpathSync.native(dir);

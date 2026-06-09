@@ -36,3 +36,16 @@ export function isUsageError(error) {
       "ERR_PARSE_ARGS_UNKNOWN_OPTION"
   );
 }
+
+/**
+ * Throw the standard "not built yet" error for a feature awaiting the S3 upload
+ * milestone. Used by the stub commands in the registry and by built commands'
+ * unimplemented branches (e.g. `--remote`), so the message stays in one place.
+ * @param {string} name - The unbuilt feature, e.g. `setup` or `list --remote`
+ * @returns {never}
+ */
+export function notImplemented(name) {
+  throw new Error(
+    `Not yet implemented: ${name} (S3 upload milestone in progress)`,
+  );
+}

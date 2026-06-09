@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
+import { notImplemented } from "../lib/error.mjs";
 import { list } from "./list.mjs";
 
 /**
@@ -23,9 +24,7 @@ import { list } from "./list.mjs";
  */
 export async function compare(dir = ".", options = {}) {
   if (options.remote) {
-    throw new Error(
-      "Not yet implemented: compare --remote (S3 upload milestone in progress)",
-    );
+    notImplemented("compare --remote");
   }
 
   dir = realpathSync.native(dir);
