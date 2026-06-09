@@ -159,12 +159,18 @@ Waiting for authorization…`);
   const { accountList } = await ssoClient.send(
     new ListAccountsCommand({ accessToken }),
   );
-  const { accountId } = accountList[0];
+  const accountId = accountList?.[0]?.accountId;
+  if (!accountId) {
+    throw new Error("No AWS SSO accounts available for this login");
+  }
 
   const { roleList } = await ssoClient.send(
     new ListAccountRolesCommand({ accessToken, accountId }),
   );
-  const { roleName } = roleList[0];
+  const roleName = roleList?.[0]?.roleName;
+  if (!roleName) {
+    throw new Error(`No AWS SSO roles available for account ${accountId}`);
+  }
 
   // Verify the token actually mints role credentials before caching the session,
   // so a successful `login` guarantees a usable session (the creds are discarded).
