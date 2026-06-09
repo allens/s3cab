@@ -44,7 +44,12 @@ function b64url(data) {
 
 // Parse ~/.aws/config (INI format)
 function readAwsConfig() {
-  const text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
+  let text = "";
+  try {
+    text = readFileSync(join(homedir(), ".aws", "config"), "utf8");
+  } catch {
+    return {};
+  }
   const sections = {};
   let cur = null;
   for (const raw of text.split("\n")) {
