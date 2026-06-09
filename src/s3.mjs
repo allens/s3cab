@@ -163,7 +163,7 @@ export async function putFile(path, uri, options = {}) {
 
   if (noClobber && size >= partSize) {
     const metadata = await getMetadata(uri);
-    if (metadata === null) {
+    if (metadata !== null) {
       return false;
     }
   }
