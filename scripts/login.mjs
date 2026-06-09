@@ -94,10 +94,10 @@ function setAwsConfigValue(profileName, key, value) {
 // Write token JSON to ~/.aws/login/cache/<sanitised-session-id>.json
 function cacheToken(sessionId, token) {
   const dir = process.env.AWS_LOGIN_CACHE_DIRECTORY ?? join(homedir(), ".aws", "login", "cache");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Matches botocore JSONFileCache key sanitisation: colons and slashes → dashes
   const file = sessionId.replaceAll(":", "-").replaceAll("/", "-") + ".json";
-  writeFileSync(join(dir, file), JSON.stringify(token, null, 2));
+  writeFileSync(join(dir, file), JSON.stringify(token, null, 2), { mode: 0o600 });
 }
 
 // Open URL in the default browser
