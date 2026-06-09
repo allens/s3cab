@@ -707,6 +707,12 @@ Pre-release housekeeping and open decisions surfaced from the code:
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Fix typos** in [doc/exclude.md](doc/exclude.md).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see above).
+- **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
+  during any future perf/test pass. Files `>= 5_000_000` bytes stream through `streamHash`;
+  smaller ones slurp via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real
+  data and looked good, but predates the one-shot-hash path, so the optimum may have moved. Note
+  `streamHash` now reads at Node's default `highWaterMark` (64 KiB) — the old explicit 8 MB buffer
+  was dropped as a pre-one-shot-hash relic with no measured benefit for SHA-256.
 
 ### [src/s3cab.mjs](src/s3cab.mjs) — deferred review observations
 

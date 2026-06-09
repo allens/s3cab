@@ -71,6 +71,9 @@ export async function prop(path, options = {}) {
   }
 
   let hash;
+  // Slurp small files (one-shot crypto.hash) and stream larger ones to bound
+  // memory. The 5 MB boundary was chosen empirically on real data; worth
+  // re-measuring during any future perf pass (see CLAUDE.md "Known gaps").
   if (size >= 5_000_000) {
     hash = await streamHash(path);
   } else if (size) {
@@ -97,10 +100,7 @@ export async function prop(path, options = {}) {
  */
 async function streamHash(path) {
   const hash = createHash("sha256");
-  await pipeline(
-    createReadStream(path, { highWaterMark: 8 * 1024 * 1024 }),
-    hash,
-  );
+  await pipeline(createReadStream(path), hash);
   return hash.digest("hex");
 }
 
