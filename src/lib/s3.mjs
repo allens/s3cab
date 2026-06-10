@@ -232,7 +232,9 @@ export async function putFile(path, uri, options = {}) {
 async function objectExists(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
-    const { Metadata } = await client().send(new HeadObjectCommand({ Bucket, Key }));
+    const { Metadata } = await client().send(
+      new HeadObjectCommand({ Bucket, Key }),
+    );
     return Object.keys(Metadata ?? {}).length > 0;
   } catch (error) {
     if (/** @type {Error} */ (error).name === "NotFound") {
