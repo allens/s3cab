@@ -14,8 +14,15 @@ export const helpTopics = {
 
 s3cab resolves credentials in this order:
 
-1. If a .env file is present, s3cab loads it first.
-   This allows AWS_* environment variables to be used intentionally.
+1. s3cab loads its own env files first, if present. These set AWS_*
+   variables (a profile, region, endpoint, or keys) and a default
+   S3CAB_BUCKET. Highest precedence first (a file always beats the shell):
+     <dir>/.s3cab/env       per-backup-folder - NOT yet active (coming with
+                            the setup/backup commands)
+     ~/.s3cab/env.<bucket>  per-bucket - used by commands that take a bucket
+                            (e.g. upload, objects)
+     ~/.s3cab/env           per-user defaults - the base layer under the others
+   s3cab does NOT read a .env from the current directory.
 
 2. s3cab then uses the standard AWS SDK credential chain.
    This includes existing AWS_PROFILE, shared AWS profiles,
@@ -30,12 +37,12 @@ s3cab resolves credentials in this order:
 Supported options:
   - Existing AWS profile / AWS_PROFILE
   - Existing shared AWS credential_process setup
-  - .env / AWS_* environment variables
+  - s3cab env files / AWS_* environment variables
   - s3cab login
 
 Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
-  - .env is supported for compatibility, including some S3-compatible providers.
+  - env files are supported for compatibility, including some S3-compatible providers.
   - For AWS, temporary credentials from login/profile-based setups are preferred.`,
 };
 

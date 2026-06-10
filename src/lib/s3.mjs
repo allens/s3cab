@@ -8,7 +8,7 @@ import {
   StorageClass,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { loadDotEnv, resolveCredentials } from "./auth.mjs";
+import { resolveCredentials } from "./auth.mjs";
 import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
@@ -30,8 +30,8 @@ let _client;
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
  * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read only after `loadDotEnv()`, so
- * a value supplied via `.env` is in scope.
+ * endpoint UX belongs to the `setup` command. Read after the caller has loaded
+ * the s3cab env files (e.g. commands call `loadEnv`), so file values are in scope.
  * @returns {string | undefined}
  */
 const customEndpoint = () =>
@@ -44,15 +44,15 @@ const customEndpoint = () =>
  * though they share this app's single entry point. Only the S3 operations below
  * call this, so those commands never trigger it.
  *
- * Credentials come from `src/lib/auth.mjs` (`.env` → standard AWS chain → app-managed
- * `s3cab login` cache → actionable error — see specs/auth.md); `.env` is loaded
- * here, immediately before the client is built, so its AWS_* vars (including any
- * region or endpoint override) are in place.
+ * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
+ * app-managed `s3cab login` cache → actionable error — see specs/auth.md).
+ * Callers are responsible for loading any relevant s3cab env files (e.g.
+ * commands call `loadEnv({ bucket })`), so `process.env` is configured before
+ * this client is constructed.
  * @returns {S3Client}
  */
 function client() {
   if (_client) return _client;
-  loadDotEnv();
   const endpoint = customEndpoint();
   return (_client = new S3Client({
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
@@ -168,7 +168,7 @@ export async function putFile(path, uri, options = {}) {
     }
   }
 
-  const s3 = client(); // also loads .env, so customEndpoint() is in scope below
+  const s3 = client(); // customEndpoint() is in scope below (env already loaded)
 
   const upload = new Upload({
     client: s3,

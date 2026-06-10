@@ -155,8 +155,8 @@ export const commands = {
     summary: "Log in to AWS via SSO (experimental, AWS-only)",
     description:
       "Optional, experimental, and AWS-only. Most people authenticate with an\n" +
-      "access key + secret (via .env) or an existing AWS profile — see\n" +
-      "'s3cab help auth'; this command is just a convenience.\n\n" +
+      "access key + secret (via an s3cab env file) or an existing AWS profile —\n" +
+      "see 's3cab help auth'; this command is just a convenience.\n\n" +
       "It signs in to AWS IAM Identity Center (SSO) for users who don't already\n" +
       "have working AWS credentials and may not have the AWS CLI, and caches the\n" +
       "session for later non-interactive use. (If you do have the AWS CLI, its\n" +

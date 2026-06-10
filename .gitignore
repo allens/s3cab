@@ -21,9 +21,15 @@ test/.tmp*
 test/blob.bin
 test/zblob.bin
 
-# Secrets / local env (.env.testing is committed on purpose — it holds no secrets)
+# Secrets / local env. s3cab no longer reads a cwd .env (see specs/auth.md), but
+# keep it ignored as it's a near-universal secret file. The repo's own dogfood
+# per-folder env (/.s3cab/env, which can carry AWS creds) is ignored too so it
+# can't be committed by accident — root-anchored, like the snapshots rule below,
+# so the tracked /.s3cab/exclude.txt is unaffected.
 .env
 .env.test
+/.s3cab/env
+/.s3cab/env.*
 
 # Build artifacts: esbuild ESM bundle (dist/s3cab.js), the SEA native binaries
 # (dist/s3cab.exe and cross-built dist/s3cab-<platform>) — everything in dist/.
