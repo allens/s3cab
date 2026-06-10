@@ -162,8 +162,8 @@ export async function putFile(path, uri, options = {}) {
   const { size, mtime } = statSync(path);
 
   if (noClobber && size >= partSize) {
-    const metadata = await getMetadata(uri);
-    if (metadata !== null) {
+    const exists = await objectExists(uri);
+    if (exists) {
       return false;
     }
   }
@@ -219,40 +219,26 @@ export async function putFile(path, uri, options = {}) {
 }
 
 /**
- * @typedef {object} ObjectMetadata
- * @property {string} hostname
- * @property {string} username
- * @property {string} path
- * @property {number} size
- * @property {number} mtime
- * @property {Date} date
- */
-
-/**
- * Get the metadata of an S3 object.
+ * Whether an object should count as existing for `putFile`'s multipart
+ * `--no-clobber` preflight. This deliberately mirrors the old `getMetadata()`
+ * behaviour: a successful HEAD only counts when the object has custom metadata.
+ *
+ * This keeps the preflight aligned with the historical semantics: an object that
+ * exists but has no custom metadata is treated as absent here and left to the
+ * upload's conditional PUT (`IfNoneMatch: "*"`) to reject if needed.
  * @param {string} uri - The S3 URI.
- * @returns {Promise<ObjectMetadata | null>} The metadata, or null if absent.
+ * @returns {Promise<boolean>}
  */
-async function getMetadata(uri) {
+async function objectExists(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     const { Metadata } = await client().send(
       new HeadObjectCommand({ Bucket, Key }),
     );
-    if (!Metadata) {
-      return null;
-    }
-    return {
-      hostname: Metadata["x-amz-meta-hostname"],
-      username: Metadata["x-amz-meta-username"],
-      path: Metadata["x-amz-meta-path"],
-      size: parseInt(Metadata["x-amz-meta-size"]),
-      mtime: parseInt(Metadata["x-amz-meta-mtime"]),
-      date: new Date(Metadata["x-amz-meta-date"]),
-    };
+    return Object.keys(Metadata ?? {}).length > 0;
   } catch (error) {
     if (/** @type {Error} */ (error).name === "NotFound") {
-      return null;
+      return false;
     }
     throw error;
   }
