@@ -4,7 +4,7 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 
 // AWS authentication / credential resolution. This is the single source of truth
@@ -112,8 +112,22 @@ export async function writeLoginCache(cache) {
 /** s3cab's own config/state dir, `~/.s3cab` (never `~/.aws`, which stays user-owned). */
 const s3cabDir = () => join(homedir(), ".s3cab");
 const userEnvPath = () => join(s3cabDir(), "env");
-/** @param {string} bucket */
-const bucketEnvPath = (bucket) => join(s3cabDir(), `env.${bucket}`);
+/**
+ * The per-bucket env file `~/.s3cab/env.<bucket>`. The bucket name must be a
+ * single path segment — it is interpolated into the filename — so reject one
+ * carrying a path separator: otherwise a hostile folder env's `S3CAB_BUCKET`
+ * (e.g. `a/../../../etc/passwd`) could traverse out of `~/.s3cab` and make
+ * `loadEnv` read an arbitrary file. `basename` uses the same platform path
+ * semantics as the `join` below, so it catches exactly the separators that could
+ * traverse here; a clean single-segment name is its own basename (dots are fine).
+ * @param {string} bucket
+ */
+const bucketEnvPath = (bucket) => {
+  if (basename(bucket) !== bucket) {
+    throw new Error(`Invalid bucket name (contains a path separator): ${bucket}`);
+  }
+  return join(s3cabDir(), `env.${bucket}`);
+};
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
@@ -166,7 +180,9 @@ function applyEnvLayer(path, values) {
  */
 export function loadEnv({ dir, bucket } = {}) {
   const user = parseEnvFile(userEnvPath());
-  const folderPath = dir ? join(dir, ".s3cab", "env") : undefined;
+  // resolve() (not join()) so the guard key is canonical/absolute even when a
+  // caller passes a relative dir — keeps the dedup robust and the comment honest.
+  const folderPath = dir ? resolve(dir, ".s3cab", "env") : undefined;
   const folder = folderPath ? parseEnvFile(folderPath) : {};
 
   // Apply the user layer first so higher layers (bucket, then dir) overwrite it.

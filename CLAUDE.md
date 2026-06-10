@@ -406,7 +406,9 @@ leave the few generic leaves (`format`, `read-lines`, `error`) flat at `lib/` ro
   (no dotenv dep, #5) into objects and merges them itself, so the per-key precedence is
   s3cab's, not any loader's fixed semantics; it deliberately does **not** read a cwd `.env`,
   and never `~/.aws/*`. The per-bucket file can't name its own bucket (circular), so the bucket
-  is resolved from an explicit name / dir / user / shell first, then its file is loaded. Each
+  is resolved from an explicit name / dir / user / shell first, then its file is loaded; the
+  bucket name is validated as a single path segment (via `basename`), so a hostile folder env's
+  `S3CAB_BUCKET` can't traverse out of `~/.s3cab`. Each
   file is applied **at most once** per run (the guard is load-bearing for precedence, not just
   perf — re-applying a lower layer would clobber a higher one). The S3 ops in `s3.mjs` call
   `loadEnv({ bucket })` (they know their bucket from the `s3://` URI) before building the

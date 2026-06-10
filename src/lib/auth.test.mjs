@@ -204,4 +204,35 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_PROFILE, "quoted value");
     assert.equal(process.env.AWS_REGION, "us-east-1");
   });
+
+  it("allows dots in a bucket name (e.g. my.bucket)", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.bucket("my.bucket", "AWS_PROFILE=dotted\n");
+
+    const { bucket } = t.loadEnv({ bucket: "my.bucket" });
+
+    assert.equal(bucket, "my.bucket");
+    assert.equal(process.env.AWS_PROFILE, "dotted");
+  });
+
+  it("rejects an explicit bucket name containing a path separator", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+
+    assert.throws(
+      () => t.loadEnv({ bucket: "a/../../../../etc/passwd" }),
+      /Invalid bucket name/,
+    );
+  });
+
+  it("rejects a traversing bucket supplied by a folder env's S3CAB_BUCKET", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    // The phase-2 vector: backing up an untrusted folder whose .s3cab/env tries
+    // to point the per-bucket env path outside ~/.s3cab.
+    t.folder("S3CAB_BUCKET=a/../../../../etc/passwd\n");
+
+    assert.throws(() => t.loadEnv({ dir: t.proj }), /Invalid bucket name/);
+  });
 });
