@@ -124,7 +124,9 @@ const userEnvPath = () => join(s3cabDir(), "env");
  */
 const bucketEnvPath = (bucket) => {
   if (basename(bucket) !== bucket) {
-    throw new Error(`Invalid bucket name (contains a path separator): ${bucket}`);
+    throw new Error(
+      `Invalid bucket name (contains a path separator): ${bucket}`,
+    );
   }
   return join(s3cabDir(), `env.${bucket}`);
 };
@@ -153,11 +155,16 @@ const appliedEnvFiles = new Set();
  * Merge one parsed env layer into process.env, once. Skipping an already-applied
  * file is what keeps precedence correct across multiple `loadEnv` calls: a later
  * call must not re-apply a lower layer over a higher one set by an earlier call.
+ *
+ * A missing/empty file (`{}`) is *not* recorded as applied — there was nothing to
+ * apply, so a file created later in the same process (e.g. by a future `setup`)
+ * still loads on a subsequent call instead of being skipped forever.
  * @param {string} path
  * @param {NodeJS.Dict<string>} values
  */
 function applyEnvLayer(path, values) {
   if (appliedEnvFiles.has(path)) return;
+  if (Object.keys(values).length === 0) return;
   appliedEnvFiles.add(path);
   Object.assign(process.env, values);
 }

@@ -15,8 +15,10 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 // A query string makes each import a distinct module key, so the module's
 // `appliedEnvFiles` guard is reset between tests.
 let moduleCounter = 0;
-const freshLoadEnv = async () =>
-  (await import(`./auth.mjs?case=${moduleCounter++}`)).loadEnv;
+const freshLoadEnv = async () => {
+  const mod = await import(`./auth.mjs?case=${moduleCounter++}`);
+  return mod.loadEnv;
+};
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -192,6 +194,21 @@ describe("loadEnv", () => {
 
     t.loadEnv(); // the client() safety net — must not re-apply the user layer
     assert.equal(process.env.AWS_REGION, "us-bucket");
+  });
+
+  it("loads an env file created after an earlier no-op load", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+
+    // First load: the per-bucket file doesn't exist yet → nothing applied, and
+    // the guard must NOT record a missing file as "applied".
+    t.loadEnv({ bucket: "later" });
+    assert.equal(process.env.AWS_PROFILE, undefined);
+
+    // Create it, then load again in the same process — it must now take effect.
+    t.bucket("later", "AWS_PROFILE=created-later\n");
+    t.loadEnv({ bucket: "later" });
+    assert.equal(process.env.AWS_PROFILE, "created-later");
   });
 
   it("parses comments and quoted values (util.parseEnv)", async () => {
