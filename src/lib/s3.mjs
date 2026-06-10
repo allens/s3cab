@@ -219,21 +219,21 @@ export async function putFile(path, uri, options = {}) {
 }
 
 /**
- * Whether an object exists in S3, via a cheap HEAD probe. `putFile` uses this to
- * skip re-uploading a large object that is already present.
+ * Whether an object should count as existing for `putFile`'s multipart
+ * `--no-clobber` preflight. This deliberately mirrors the old `getMetadata()`
+ * behaviour: a successful HEAD only counts when the object has custom metadata.
  *
- * Object metadata (the `x-amz-meta-*` that `putFile` writes) is deliberately not
- * read back: nothing consumes it today, so this answers only existence. A typed
- * metadata reader can be reintroduced against a real caller when `restore` /
- * `verify` need one.
+ * This keeps the preflight aligned with the historical semantics: an object that
+ * exists but has no custom metadata is treated as absent here and left to the
+ * upload's conditional PUT (`IfNoneMatch: "*"`) to reject if needed.
  * @param {string} uri - The S3 URI.
  * @returns {Promise<boolean>}
  */
 async function objectExists(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
-    await client().send(new HeadObjectCommand({ Bucket, Key }));
-    return true;
+    const { Metadata } = await client().send(new HeadObjectCommand({ Bucket, Key }));
+    return Object.keys(Metadata ?? {}).length > 0;
   } catch (error) {
     if (/** @type {Error} */ (error).name === "NotFound") {
       return false;
