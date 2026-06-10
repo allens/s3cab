@@ -174,10 +174,10 @@ function applyEnvLayer(path, values) {
  * Must run before any AWS client is built so the resolved AWS_* / endpoint /
  * region values are in place. Idempotent per file.
  *
- * Called with no scope (e.g. the lazy `client()` safety net) it applies only the
- * per-user layer; the per-bucket file is loaded only when there is an
- * authoritative bucket — an explicit name, or one resolved from a backup dir —
- * so a no-scope call never pulls in some default bucket's auth file by accident.
+ * Called with no scope it applies only the per-user layer; the per-bucket file is
+ * loaded only when there is an authoritative bucket — an explicit name, or one
+ * resolved from a backup dir — so a no-scope call never pulls in some default
+ * bucket's auth file by accident.
  *
  * @param {object} [scope]
  * @param {string} [scope.dir] - A backup directory, enabling its `<dir>/.s3cab/env`.
