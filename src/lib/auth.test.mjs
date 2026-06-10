@@ -192,7 +192,7 @@ describe("loadEnv", () => {
     t.loadEnv({ bucket: "b" }); // user then bucket → us-bucket
     assert.equal(process.env.AWS_REGION, "us-bucket");
 
-    t.loadEnv(); // the client() safety net — must not re-apply the user layer
+    t.loadEnv(); // a later no-scope call — must not re-apply the user layer
     assert.equal(process.env.AWS_REGION, "us-bucket");
   });
 
