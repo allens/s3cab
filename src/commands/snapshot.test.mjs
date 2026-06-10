@@ -1,4 +1,4 @@
-import assert from "node:assert";
+import assert from "node:assert/strict";
 import {
   cpSync,
   mkdirSync,
@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, normalize, resolve } from "node:path";
-import { before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { snapshot } from "./snapshot.mjs";
 
 /**
@@ -37,25 +37,10 @@ function copyFixtureToWorkDir(fixtureName, testName) {
 }
 
 describe("snapshot", () => {
-  before(async () => {});
-  it("return no such file or directory with directory does not exist", async () => {
+  it("throws ENOENT for a non-existent directory", async () => {
     const dir = "./test/fixtures/snapshot-dir-does-not-exist";
-    const options = { rehash: true };
 
-    const promise = snapshot(dir, options);
-
-    await assert.rejects(
-      promise,
-      `ERROR: ENOENT: no such file or directory, lstat '${resolve(dir)}'`,
-    );
-  });
-
-  it.skip("creates snapshot for existing directory", async () => {
-    const dir = "./test";
-    const options = { rehash: true };
-    const result = await snapshot(dir, options);
-    // assertions here
-    assert.ok(result);
+    await assert.rejects(snapshot(dir, { rehash: true }), { code: "ENOENT" });
   });
 
   it("reports changes between snapshots", async (t) => {

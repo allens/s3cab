@@ -62,7 +62,7 @@ describe("prop", () => {
     });
   });
 
-  it("thows for non-existing file", async () => {
+  it("throws for non-existing file", async () => {
     await assert.rejects(prop("./test/fixtures/dir1/non-existing-file.txt"), {
       code: "ENOENT",
     });
