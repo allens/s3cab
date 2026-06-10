@@ -410,12 +410,18 @@ leave the few generic leaves (`format`, `read-lines`, `error`) flat at `lib/` ro
   bucket name is validated as a single path segment (via `basename`), so a hostile folder env's
   `S3CAB_BUCKET` can't traverse out of `~/.s3cab`. Each
   file is applied **at most once** per run (the guard is load-bearing for precedence, not just
-  perf — re-applying a lower layer would clobber a higher one). The S3 ops in `s3.mjs` call
-  `loadEnv({ bucket })` (they know their bucket from the `s3://` URI) before building the
-  client; `client()` keeps a no-arg `loadEnv()` user-layer safety net. The dir layer + an
-  `S3CAB_BUCKET` default land with `setup`/`backup` (a `repoConfig(dir)` helper that resolves
-  the bucket from the folder env — `setup` writes that file as the folder↔bucket link).
-  s3cab never writes `~/.aws/*`. **Status:**
+  perf — re-applying a lower layer would clobber a higher one). **The command functions do the
+  loading** — they are the library surface, so a direct caller of `objects(bucket)` resolves env
+  exactly as the CLI does, the same reason arg-validation lives in the command (not the
+  dispatcher). Each command loads the env for its scope, right after validating its args:
+  `upload`/`objects` call `loadEnv({ bucket })` (per-user **+** per-bucket) before any S3 access.
+  `s3.mjs` is therefore left a **pure SDK boundary** that only reads `process.env` — it does *not*
+  call `loadEnv` itself. Per-user is the base layer of every `loadEnv` call, so it's always
+  applied under the others. The **dir layer is not wired yet**: `loadEnv({ dir })` exists and is
+  tested, but no command passes `dir`; it lands with the dir-scoped commands (`setup`/`backup`/…),
+  which will call `loadEnv({ dir })` at entry the same way — likely via a `repoConfig(dir)` helper
+  that resolves the bucket from the folder env (`setup` writes that file as the folder↔bucket
+  link), along with an `S3CAB_BUCKET` default. s3cab never writes `~/.aws/*`. **Status:**
   Phases 1–3 built. Phase 1 = the resolution chain (env files → standard chain → app-managed →
   actionable error), wired into `s3.mjs`. Phase 2 = the app-managed login cache: `login`
   performs the SSO device-auth flow and persists the session (registration + token + resolved

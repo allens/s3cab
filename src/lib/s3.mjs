@@ -8,7 +8,7 @@ import {
   StorageClass,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { loadEnv, resolveCredentials } from "./auth.mjs";
+import { resolveCredentials } from "./auth.mjs";
 import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
@@ -30,8 +30,8 @@ let _client;
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
  * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read only after `loadEnv()`, so a
- * value supplied via an s3cab env file is in scope.
+ * endpoint UX belongs to the `setup` command. Read after the dispatcher has
+ * loaded the env files, so a value supplied via an s3cab env file is in scope.
  * @returns {string | undefined}
  */
 const customEndpoint = () =>
@@ -46,14 +46,13 @@ const customEndpoint = () =>
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * app-managed `s3cab login` cache → actionable error — see specs/auth.md). The
- * per-user env layer is loaded here as a safety net, immediately before the
- * client is built; the per-bucket/per-folder layers are loaded by the S3
- * operations below (which know their bucket) before they first reach this.
+ * env files are loaded up front by the CLI dispatcher (`s3cab.mjs`) before the
+ * command runs, so `process.env` (region / endpoint / credentials) is already in
+ * place by the time any S3 operation here builds this client.
  * @returns {S3Client}
  */
 function client() {
   if (_client) return _client;
-  loadEnv();
   const endpoint = customEndpoint();
   return (_client = new S3Client({
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
@@ -90,7 +89,6 @@ export function parseS3Uri(uri) {
  */
 export async function* listObjects(uri) {
   const { Bucket, Key: Prefix } = parseS3Uri(uri);
-  loadEnv({ bucket: Bucket }); // per-bucket/-user env before the client is built
   for await (const page of paginateListObjectsV2(
     { client: client() },
     { Bucket, Prefix },
@@ -108,7 +106,6 @@ class S3ReadStream extends PassThrough {
   /** @param {(error?: Error | null) => void} callback */
   _construct(callback) {
     const { Bucket, Key } = parseS3Uri(this.uri);
-    loadEnv({ bucket: Bucket }); // per-bucket/-user env before the client is built
     client()
       .send(new GetObjectCommand({ Bucket, Key }))
       .then(({ Body }) => {
@@ -161,9 +158,6 @@ export async function putFile(path, uri, options = {}) {
   const { noClobber } = options;
 
   const { Bucket, Key } = parseS3Uri(uri);
-  // Load per-bucket/-user env before anything builds the client — including the
-  // objectExists() probe below, which would otherwise construct it first.
-  loadEnv({ bucket: Bucket });
 
   const { size, mtime } = statSync(path);
 
@@ -280,7 +274,6 @@ export const bucketPolicy = (bucketName) => ({
  * @param {string} bucketName
  */
 export async function emptyBucket(bucketName) {
-  loadEnv({ bucket: bucketName }); // per-bucket/-user env before the client is built
   for await (const { Key } of listObjects(`s3://${bucketName}`)) {
     if (!Key) continue;
     await client().send(new DeleteObjectCommand({ Bucket: bucketName, Key }));

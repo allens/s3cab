@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { loadEnv } from "../lib/auth.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { listObjects } from "../lib/s3.mjs";
 
@@ -28,6 +29,9 @@ const OBJECTS_PREFIX = "objects/";
  */
 export async function objects(bucket, options = {}) {
   requireArg(bucket, "<bucket>");
+  // Resolve env here (the command function is the library surface): the per-user
+  // layer + this bucket's `~/.s3cab/env.<bucket>`, before any S3 access.
+  loadEnv({ bucket });
 
   const hashes = [];
   for await (const { Key } of listObjects(`s3://${bucket}/${OBJECTS_PREFIX}`)) {
