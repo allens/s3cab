@@ -690,6 +690,13 @@ Tests deliberately use the built-in `node:test` runner with no framework (see #5
   doesn't reflow prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores
   generated build artifacts** (`build/`, `coverage/`, `dist/`) — otherwise it lints
   the bundled output.
+- **Don't bury `await` inside a larger statement** (a compound `if`/`while` condition, a
+  ternary, a call argument). Await into a named local on its own line first, then use it:
+  `const exists = await objectExists(uri); if (exists) …`, not
+  `if (… && (await objectExists(uri)))`. The suspension point stays visible and the value
+  gets a name. Neither Prettier nor ESLint enforces this — it's a house style. (When the
+  inline form was guarding a short-circuit, a nested `if` preserves the same conditional
+  evaluation without the inline await.)
 - **`.gitignore` ignores the repo's own snapshot output with a root-anchored
   `/.s3cab/snapshots/`**, so committed test fixtures under
   `test/fixtures/**/.s3cab/snapshots/` stay tracked. Don't broaden it to `**/.s3cab/`.
@@ -753,10 +760,12 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **`tsc -p jsconfig.json` is not clean.** Most noise is _outside_ the shipping code — loose
   scratch files under [scripts/](scripts/) and JS pulled in transitively from the AWS SDK
   under `node_modules/` — so a type check is read by filtering to `src/`. But `src/` itself is
-  **not** fully clean either: [src/lib/s3.mjs](src/lib/s3.mjs) and
-  [src/commands/login.mjs](src/commands/login.mjs) carry pre-existing errors (promoted-from-POC
-  code that never got a typing pass). A typing pass over those two would let a filtered `src/`
-  check gate cleanly. (The retired `_poc` sandbox used to be the bulk of this noise; it is gone.)
+  **not** fully clean either: [src/commands/login.mjs](src/commands/login.mjs) still carries
+  pre-existing errors (promoted-from-POC code that never got a typing pass). A typing pass over
+  it would let a filtered `src/` check gate cleanly. ([src/lib/s3.mjs](src/lib/s3.mjs) was the
+  other such file — its `getMetadata` errors are gone now that the dead metadata-parsing was
+  collapsed into a boolean `objectExists` probe. The retired `_poc` sandbox used to be the bulk
+  of this noise; it is gone.)
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check; a proper lock file is
   a `TODO` in [src/commands/snapshot.mjs](src/commands/snapshot.mjs).

@@ -162,8 +162,8 @@ export async function putFile(path, uri, options = {}) {
   const { size, mtime } = statSync(path);
 
   if (noClobber && size >= partSize) {
-    const metadata = await getMetadata(uri);
-    if (metadata !== null) {
+    const exists = await objectExists(uri);
+    if (exists) {
       return false;
     }
   }
@@ -219,40 +219,24 @@ export async function putFile(path, uri, options = {}) {
 }
 
 /**
- * @typedef {object} ObjectMetadata
- * @property {string} hostname
- * @property {string} username
- * @property {string} path
- * @property {number} size
- * @property {number} mtime
- * @property {Date} date
- */
-
-/**
- * Get the metadata of an S3 object.
+ * Whether an object exists in S3, via a cheap HEAD probe. `putFile` uses this to
+ * skip re-uploading a large object that is already present.
+ *
+ * Object metadata (the `x-amz-meta-*` that `putFile` writes) is deliberately not
+ * read back: nothing consumes it today, so this answers only existence. A typed
+ * metadata reader can be reintroduced against a real caller when `restore` /
+ * `verify` need one.
  * @param {string} uri - The S3 URI.
- * @returns {Promise<ObjectMetadata | null>} The metadata, or null if absent.
+ * @returns {Promise<boolean>}
  */
-async function getMetadata(uri) {
+async function objectExists(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
-    const { Metadata } = await client().send(
-      new HeadObjectCommand({ Bucket, Key }),
-    );
-    if (!Metadata) {
-      return null;
-    }
-    return {
-      hostname: Metadata["x-amz-meta-hostname"],
-      username: Metadata["x-amz-meta-username"],
-      path: Metadata["x-amz-meta-path"],
-      size: parseInt(Metadata["x-amz-meta-size"]),
-      mtime: parseInt(Metadata["x-amz-meta-mtime"]),
-      date: new Date(Metadata["x-amz-meta-date"]),
-    };
+    await client().send(new HeadObjectCommand({ Bucket, Key }));
+    return true;
   } catch (error) {
     if (/** @type {Error} */ (error).name === "NotFound") {
-      return null;
+      return false;
     }
     throw error;
   }
