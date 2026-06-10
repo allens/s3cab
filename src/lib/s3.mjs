@@ -30,8 +30,8 @@ let _client;
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
  * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read after the dispatcher has
- * loaded the env files, so a value supplied via an s3cab env file is in scope.
+ * endpoint UX belongs to the `setup` command. Read after the caller has loaded
+ * the s3cab env files (e.g. commands call `loadEnv`), so file values are in scope.
  * @returns {string | undefined}
  */
 const customEndpoint = () =>
