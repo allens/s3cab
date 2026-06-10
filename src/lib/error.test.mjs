@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ParseArgsError, isUsageError, notImplemented, requireArg } from "./error.mjs";
+import {
+  ParseArgsError,
+  isUsageError,
+  notImplemented,
+  requireArg,
+} from "./error.mjs";
 
 describe("ParseArgsError", () => {
   it("sets ERR_PARSE_ARGS code and message", () => {

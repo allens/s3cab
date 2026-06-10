@@ -11,7 +11,10 @@ describe("readLines", () => {
   it("returns non-empty, non-comment lines with whitespace trimmed", async () => {
     await using dir = await mkTmpDir();
     const file = join(dir.path, "test.txt");
-    writeFileSync(file, "# comment\nline1\n\n  line2  \n# another comment\nline3\n");
+    writeFileSync(
+      file,
+      "# comment\nline1\n\n  line2  \n# another comment\nline3\n",
+    );
 
     assert.deepEqual(readLines(file), ["line1", "line2", "line3"]);
   });
