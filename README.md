@@ -106,8 +106,14 @@ a lookup file so a future `backup` can skip re-uploading files already stored:
 s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
 edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
 
-1. a **`.env`** file in the current directory, if present (handy for `AWS_*` keys, including
-   some S3-compatible providers);
+1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, an endpoint, or a
+   default bucket — including some S3-compatible providers). Highest precedence first, a file
+   always beating the shell:
+   - **`<dir>/.s3cab/env`** — per-backup-folder (picks the folder's bucket via `S3CAB_BUCKET`);
+   - **`~/.s3cab/env.<bucket>`** — per-bucket (how to authenticate to that bucket);
+   - **`~/.s3cab/env`** — your per-user defaults.
+
+   (s3cab does **not** read a `.env` from the current directory.)
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO and
    `credential_process`), and `AWS_*` environment variables;
 3. a session from **`s3cab login`** — a built-in AWS IAM Identity Center (SSO) sign-in for

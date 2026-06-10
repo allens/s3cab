@@ -1,9 +1,11 @@
 import { GetRoleCredentialsCommand, SSOClient } from "@aws-sdk/client-sso";
 import { CreateTokenCommand, SSOOIDCClient } from "@aws-sdk/client-sso-oidc";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { parseEnv } from "node:util";
 
 // AWS authentication / credential resolution. This is the single source of truth
 // for *how* s3cab obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`)
@@ -11,7 +13,8 @@ import { dirname, join } from "node:path";
 // `backup`/upload path) reuse `resolveAppManagedAwsCredentials`. The model is
 // specified in specs/auth.md. Resolution order:
 //
-//   0. load `.env` if present (an explicit user signal — may carry AWS_* vars)
+//   0. load s3cab's layered env files if present (see `loadEnv`) — an explicit
+//      user signal that may carry AWS_* vars, a profile, an endpoint, a bucket
 //   1. the standard AWS SDK credential chain (env, SSO/token cache, shared
 //      config/credentials, web identity, instance metadata, …)
 //   2. s3cab's own app-managed login cache, created by `s3cab login`
@@ -84,38 +87,118 @@ export async function writeLoginCache(cache) {
   return loginCachePath;
 }
 
-let dotEnvLoaded = false;
+// ── Environment-file loading ───────────────────────────────────────────────
+//
+// s3cab reads its own layered env files into process.env before any AWS client
+// is built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
+// profile, a custom endpoint, or a default bucket be configured per-user,
+// per-bucket, or per-backup-folder. The layers, highest precedence first:
+//
+//   dir    <dir>/.s3cab/env       per-backup-folder — which bucket this folder
+//                                  backs up to (S3CAB_BUCKET) + any local override
+//   bucket ~/.s3cab/env.<bucket>  per-bucket — how to authenticate to a bucket
+//                                  (AWS_PROFILE / region / endpoint / keys); the
+//                                  bucket is the natural auth boundary
+//   user   ~/.s3cab/env           per-user defaults
+//   shell  process.env            the real environment (lowest — files win)
+//
+// Files are authoritative over the shell: a value you put in a file always wins.
+// Parsed with the built-in `util.parseEnv` — no dotenv dep (#5) — so the per-key
+// precedence above is enforced by *us*, independent of any one loader's fixed
+// override semantics. The per-bucket file can't name its own bucket (circular):
+// the bucket is resolved from an explicit name or the dir/user/shell layers
+// first, then its env file is loaded.
+
+/** s3cab's own config/state dir, `~/.s3cab` (never `~/.aws`, which stays user-owned). */
+const s3cabDir = () => join(homedir(), ".s3cab");
+const userEnvPath = () => join(s3cabDir(), "env");
+/** @param {string} bucket */
+const bucketEnvPath = (bucket) => join(s3cabDir(), `env.${bucket}`);
 
 /**
- * Load a `.env` file from the current directory into `process.env`, once, if one
- * exists. Uses Node's native `process.loadEnvFile` — no dotenv dependency (#5).
- *
- * The presence of `.env` is treated as a deliberate choice to supply credentials
- * or a profile via environment variables, so its values participate in (and may
- * win) the standard SDK chain in step 1. Must run before any AWS client is built.
+ * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
+ * because `loadEnv` runs on the synchronous client-construction path.
+ * @param {string} path
+ * @returns {NodeJS.Dict<string>}
  */
-export function loadDotEnv() {
-  if (dotEnvLoaded) return;
-  dotEnvLoaded = true;
+function parseEnvFile(path) {
   try {
-    process.loadEnvFile(); // loads ./.env from the cwd; throws ENOENT if absent
+    return parseEnv(readFileSync(path, "utf8"));
   } catch (error) {
-    // No .env is the normal case; only a real read error is worth surfacing.
-    if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") {
-      throw error;
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
+      return {};
     }
+    throw error;
   }
+}
+
+/** Absolute paths of env files already merged into process.env this run. */
+const appliedEnvFiles = new Set();
+
+/**
+ * Merge one parsed env layer into process.env, once. Skipping an already-applied
+ * file is what keeps precedence correct across multiple `loadEnv` calls: a later
+ * call must not re-apply a lower layer over a higher one set by an earlier call.
+ * @param {string} path
+ * @param {NodeJS.Dict<string>} values
+ */
+function applyEnvLayer(path, values) {
+  if (appliedEnvFiles.has(path)) return;
+  appliedEnvFiles.add(path);
+  Object.assign(process.env, values);
+}
+
+/**
+ * Load s3cab's layered env files into process.env (see the layer table above).
+ * Must run before any AWS client is built so the resolved AWS_* / endpoint /
+ * region values are in place. Idempotent per file.
+ *
+ * Called with no scope (e.g. the lazy `client()` safety net) it applies only the
+ * per-user layer; the per-bucket file is loaded only when there is an
+ * authoritative bucket — an explicit name, or one resolved from a backup dir —
+ * so a no-scope call never pulls in some default bucket's auth file by accident.
+ *
+ * @param {object} [scope]
+ * @param {string} [scope.dir] - A backup directory, enabling its `<dir>/.s3cab/env`.
+ * @param {string} [scope.bucket] - A known bucket name (e.g. a CLI `<bucket>` arg),
+ *   used to load `~/.s3cab/env.<bucket>` directly instead of deriving it.
+ * @returns {{ bucket: string | undefined }} The bucket this scope resolves to, if any.
+ */
+export function loadEnv({ dir, bucket } = {}) {
+  const user = parseEnvFile(userEnvPath());
+  const folderPath = dir ? join(dir, ".s3cab", "env") : undefined;
+  const folder = folderPath ? parseEnvFile(folderPath) : {};
+
+  // Apply the user layer first so higher layers (bucket, then dir) overwrite it.
+  applyEnvLayer(userEnvPath(), user);
+
+  // Resolve the operation's bucket only from authoritative signals — an explicit
+  // name or a backup dir. A bare user/shell S3CAB_BUCKET default is not enough to
+  // justify loading a specific bucket's auth file from a no-scope safety call.
+  let resolvedBucket = bucket;
+  if (!resolvedBucket && dir) {
+    resolvedBucket =
+      folder.S3CAB_BUCKET ?? user.S3CAB_BUCKET ?? process.env.S3CAB_BUCKET;
+  }
+
+  if (resolvedBucket) {
+    const path = bucketEnvPath(resolvedBucket);
+    applyEnvLayer(path, parseEnvFile(path));
+  }
+  if (folderPath) applyEnvLayer(folderPath, folder);
+
+  return { bucket: resolvedBucket };
 }
 
 const NO_CREDENTIALS_MESSAGE = `No AWS credentials found.
 
 s3cab tried:
-  1. .env / environment variables
+  1. s3cab env files / environment variables
   2. Standard AWS SDK credential resolution
   3. Cached credentials from \`s3cab login\`
 
 To continue, do one of the following:
-  - create or update a .env file with AWS_* variables
+  - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
   - use an existing AWS profile and set AWS_PROFILE
   - run: s3cab login
 
