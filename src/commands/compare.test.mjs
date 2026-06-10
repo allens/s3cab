@@ -1,4 +1,4 @@
-import assert from "node:assert";
+import assert from "node:assert/strict";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { describe, it } from "node:test";
@@ -7,7 +7,7 @@ import { compare } from "./compare.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
-describe("compare", async () => {
+describe("compare", () => {
   it("shows added file", async () => {
     await using dir = await mkTmpDir();
 
@@ -73,14 +73,18 @@ describe("compare", async () => {
     });
   });
 
-  it("shows moved file and ignores existing file", async () => {
+  it("shows moved file and ignores persisting file with same content", async () => {
     await using dir = await mkTmpDir();
 
+    // file.A persists across both snapshots with the same content as the moved file.
+    // The algorithm must not mistake file.A as the move source.
     await writeSnapshot(dir.path, "previous", [
+      new File(["contents1"], "file.A"),
       new File(["contents1"], "olddir/file1.txt"),
     ]);
 
     await writeSnapshot(dir.path, "current", [
+      new File(["contents1"], "file.A"),
       new File(["contents1"], "newdir/file1.txt"),
     ]);
 
