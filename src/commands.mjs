@@ -19,12 +19,14 @@ import { notImplemented } from "./lib/error.mjs";
  * @property {string} summary
  * @property {string} [description]
  * @property {boolean} [planned] - Scaffolded but not yet implemented (awaiting the S3 milestone)
+ * @property {string} [group] - Top-level help section heading; sticks for the commands that follow, so only the first command of each section sets it
  */
 
 /** @type {Record<string, Command>} */
 export const commands = {
   // ── Local snapshot commands ────────────────────────────────────────────
   snapshot: {
+    group: "Snapshots",
     summary: "Take a snapshot of a directory",
     args: {
       "[<dir>]": "The directory to snapshot (default: current directory)",
@@ -98,6 +100,7 @@ export const commands = {
 
   // ── Remote backup commands (S3 milestone — not yet implemented) ─────────
   setup: {
+    group: "Cloud backup",
     summary: "Set up a cloud backup destination for a directory",
     planned: true,
     args: {
@@ -151,6 +154,7 @@ export const commands = {
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
   objects: {
+    group: "Advanced",
     summary: "List a repository's stored object hashes (one per line)",
     args: {
       "<bucket>": "The repository's S3 bucket name",

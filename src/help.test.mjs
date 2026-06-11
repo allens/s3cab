@@ -42,6 +42,31 @@ describe("usage", () => {
     assert.doesNotMatch(text, /Do the thing \(not yet available\)/);
   });
 
+  it("groups commands under headings, sticky until the next group", () => {
+    /** @type {Record<string, import("./commands.mjs").Command>} */
+    const grouped = {
+      a: { group: "First", summary: "A", exec: () => undefined },
+      b: { summary: "B", exec: () => undefined }, // inherits "First"
+      c: { group: "Second", summary: "C", exec: () => undefined },
+    };
+    const text = usage(grouped);
+
+    assert.match(text, /First:\n {2}a\s+A\n {2}b\s+B\n\nSecond:\n {2}c\s+C/);
+  });
+
+  it("renders one flat Commands list for a registry with no groups", () => {
+    assert.match(usage(fakeRegistry), /Commands:\n {2}go\s/);
+  });
+
+  it("top-level footer lists the help topics", () => {
+    const text = usage(fakeRegistry);
+
+    assert.match(
+      text,
+      new RegExp(`topics: ${Object.keys(helpTopics).join(", ")}`),
+    );
+  });
+
   it("falls back to the top-level list for an unknown command", () => {
     assert.equal(usage(fakeRegistry, "nope"), usage(fakeRegistry));
   });
@@ -56,6 +81,16 @@ describe("usage", () => {
     assert.match(text, /Longer prose about doing the thing\./);
   });
 
+  it("every command's help offers -h/--help, even with no declared options", () => {
+    // The dispatcher answers -h/--help for every command, so usage() must
+    // advertise it whether or not the command declares options of its own.
+    assert.match(usage(fakeRegistry, "go"), /-h, --help\s+Show this help/);
+
+    const text = usage(fakeRegistry, "later"); // declares no options
+    assert.match(text, /Usage: s3cab later \[options\]/);
+    assert.match(text, /-h, --help\s+Show this help/);
+  });
+
   it("renders every real command in the top-level help", () => {
     const text = usage(commands);
 
@@ -66,6 +101,18 @@ describe("usage", () => {
 });
 
 describe("helpTopics", () => {
+  it("exclude topic carries the matching contract from doc/exclude.md", () => {
+    // Mirrors the matcher in src/commands/tree.mjs — if the glob rules change
+    // there, this topic and doc/exclude.md must change with them.
+    const exclude = helpTopics.exclude ?? "";
+
+    assert.match(exclude, /\.s3cab\/exclude\.txt/);
+    assert.match(exclude, /\*\*\/\s+zero or more/);
+    assert.match(exclude, /one or more characters/);
+    assert.match(exclude, /case-insensitive on Windows/);
+    assert.match(exclude, /doc\/exclude\.md/); // links the full online guide
+  });
+
   it("auth topic documents the two-step resolution and no s3cab sign-in flow", () => {
     const auth = helpTopics.auth ?? "";
 

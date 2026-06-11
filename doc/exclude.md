@@ -4,6 +4,9 @@ Files and folders to skip are listed in `<dir>/.s3cab/exclude.txt`, one glob
 pattern per line. Lines starting with `#` are comments; blank lines are ignored.
 (The `.s3cab/` folder itself is always skipped — it needs no rule.)
 
+> For a quick reference in the terminal, run `s3cab help exclude` — it carries
+> the same rules as this page, no browser needed.
+
 ## Globbing
 
 Patterns are matched against the path of each file or directory, relative to the
