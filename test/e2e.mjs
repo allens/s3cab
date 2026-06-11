@@ -64,6 +64,16 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Unknown command/);
   });
 
+  it("the removed login command is gone from the CLI surface", () => {
+    // Deliberately deleted (see specs/auth.md History) — must not come back.
+    const { status } = run("login");
+
+    assert.strictEqual(status, 127);
+
+    const { stdout } = run("--help");
+    assert.doesNotMatch(stdout, /login|credential-process/);
+  });
+
   it("--version prints the package version", () => {
     const { status, stdout } = run("--version");
 
@@ -91,7 +101,7 @@ describe("cli (e2e)", () => {
 
     assert.strictEqual(status, 0);
     assert.match(stdout, /Authentication/);
-    assert.match(stdout, /s3cab login/);
+    assert.match(stdout, /standard AWS SDK credential chain/);
   });
 
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and
