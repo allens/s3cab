@@ -64,6 +64,11 @@ rather than assuming it is fixed forever.
    be the user's parked reminders of an unresolved question, not cruft — e.g. the
    commented-out SIGINT handler in `src/s3cab.mjs` and the `objectPaths.delete` note in
    `src/commands/compare.mjs` are kept on purpose. Flag them as candidates instead.
+7. **Always use the Bash tool, not PowerShell.** Bash is available even on Windows and the
+   project's permission allowlist is Bash-based. The system prompt identifies PowerShell as
+   the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
+   when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
+   cmdlets with no Bash equivalent).
 
 ---
 
