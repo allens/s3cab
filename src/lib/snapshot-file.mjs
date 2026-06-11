@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { createReadStream, existsSync, mkdirSync } from "node:fs";
-import { open, rename, writeFile } from "node:fs/promises";
+import { open, rename } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
@@ -192,6 +192,8 @@ export function formatSnapshotLine(col1, col2, col3, col4) {
   return `${col1}\t${col2}\t${col3}\t${col4}\n`;
 }
 /**
+ * Write a snapshot of the given files, in the same `.tsv.zst` form real
+ * snapshots take (so `list` sees it when the name is datestamped).
  * @param {string} dir
  * @param {string} name
  * @param {Array<string|File>} files
@@ -203,7 +205,7 @@ export async function writeSnapshot(dir, name, files) {
     const path = typeof file === "string" ? file : file.name;
     snapshot.set(resolve(dir, path), await prop(file));
   }
-  const snapshotPath = join(createSnapshotDir(dir), name + ".tsv");
-  await writeFile(snapshotPath, stringifySnapshot(snapshot));
-  return snapshotPath;
+  return withSnapshotFile(dir, name, (stream) =>
+    pipeline(stringifySnapshot(snapshot), stream),
+  );
 }

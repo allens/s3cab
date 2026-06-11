@@ -7,15 +7,21 @@ import { compare } from "./compare.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
+// list() only reports datestamped `.tsv.zst` snapshots, so tests that lean
+// on the default since/until resolution use real-looking names — lexical
+// order is chronological order.
+const PREVIOUS = "2024-01-01T0101";
+const CURRENT = "2024-01-02T0101";
+
 describe("compare", () => {
-  it("shows added file", async () => {
+  it("shows added file (first snapshot compares against an empty baseline)", async () => {
     await using dir = await mkTmpDir();
 
-    await writeSnapshot(dir.path, "current", [
+    await writeSnapshot(dir.path, CURRENT, [
       new File(["contents1"], "file1.txt"),
     ]);
 
-    const result = await compare(dir.path, { until: "current" });
+    const result = await compare(dir.path);
 
     assert.deepStrictEqual(result, {
       added: ["file1.txt"],
@@ -207,5 +213,57 @@ describe("compare", () => {
       compare(dir.path, { since: "current", until: "nope" }),
       /Snapshot 'nope' not found/,
     );
+  });
+
+  it("requires an explicit since when until is not a listed snapshot", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt"),
+    ]);
+
+    // Readable as a snapshot, but its name isn't datestamped so list() — and
+    // therefore the default-predecessor rule — can't see it.
+    await writeSnapshot(dir.path, "debug", [
+      new File(["contents1"], "file1.txt"),
+      new File(["contents2"], "file2.txt"),
+    ]);
+
+    await assert.rejects(
+      compare(dir.path, { until: "debug" }),
+      /not in the snapshot list/,
+    );
+
+    assert.deepStrictEqual(
+      await compare(dir.path, { since: PREVIOUS, until: "debug" }),
+      {
+        added: ["file2.txt"],
+        moved: [],
+        modified: [],
+        deleted: [],
+      },
+    );
+  });
+
+  it("accepts full snapshot filenames", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents1"], "file1.txt"),
+      new File(["contents2"], "file2.txt"),
+    ]);
+
+    const result = await compare(dir.path, { until: CURRENT + ".tsv.zst" });
+
+    assert.deepStrictEqual(result, {
+      added: ["file2.txt"],
+      moved: [],
+      modified: [],
+      deleted: [],
+    });
   });
 });

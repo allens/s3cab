@@ -13,6 +13,13 @@ import { list } from "./list.mjs";
  */
 
 /**
+ * Accept either a bare snapshot name (as `list` reports) or a full snapshot
+ * filename, by stripping the `.tsv`/`.tsv.zst` extension.
+ * @param {string} [name]
+ */
+const normalizeName = (name) => name?.replace(/\.tsv(\.zst)?$/, "");
+
+/**
  * Show what changed between two snapshots, from an older (`since`) to a newer
  * (`until`) one.
  *
@@ -36,15 +43,25 @@ export async function compare(dir = ".", options = {}) {
   const snapshotNames = list(dir);
 
   // Newer side (`until`) defaults to the latest snapshot.
-  const until = options.until ?? snapshotNames.at(0);
+  const until = normalizeName(options.until) ?? snapshotNames.at(0);
   if (!until) {
     throw new Error(`No snapshots found in directory: ${dir}`);
   }
   const untilSnapshot = await readSnapshot(dir, until);
 
   // Older side (`since`) defaults to the snapshot immediately before `until`.
-  const since =
-    options.since ?? snapshotNames.at(snapshotNames.indexOf(until) + 1);
+  let since = normalizeName(options.since);
+  if (since === undefined) {
+    const untilIndex = snapshotNames.indexOf(until);
+    if (untilIndex === -1) {
+      // `until` may still be a readable file outside the listed snapshots
+      // (e.g. a debug .tsv) — but then it has no well-defined predecessor.
+      throw new Error(
+        `Snapshot '${until}' is not in the snapshot list; use --since to pick the older side`,
+      );
+    }
+    since = snapshotNames.at(untilIndex + 1); // undefined when `until` is the oldest
+  }
 
   /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup} */
   let sinceSnapshot;
