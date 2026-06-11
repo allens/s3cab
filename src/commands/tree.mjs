@@ -21,7 +21,7 @@ export function tree(dir = ".", writeStream) {
 
   console.warn("Finding files in", `'${dir}'`);
 
-  // Create exclude predicatetr
+  // Create exclude predicate
   /** @type {((dirent: import("node:fs").Dirent) => string | null) | undefined} */
   let walkCallbackFn;
   /** @type {string[]} */
@@ -130,6 +130,12 @@ function getFileType(dirent) {
 
 /**
  * Create a RegExp matcher from a pattern.
+ *
+ * Users may write patterns with either separator (`/` everywhere; `\` also
+ * works on Windows, where `join` above has already normalized it to the
+ * platform separator). Everything — pattern here, tested path in the walk
+ * callback — is converted to `/` before matching, because the per-segment
+ * globs (`*`, `?`) need one canonical separator to define a segment.
  * @param {string} pattern - Pattern string
  * @returns {RegExp} RegExp matcher
  */

@@ -85,6 +85,9 @@ try {
   }
 }
 
+// TODO: revisit SIGINT handling. This handler was commented out for a reason
+// since forgotten — work out whether the CLI needs one (exit 130 on Ctrl+C?)
+// or whether default termination is fine, then wire it up or remove it.
 // process.on("SIGINT", () => {
 //   console.error("Caught interrupt signal (Ctrl+C)");
 //   process.exit(130); // Exit with code 130 to indicate termination by Ctrl+C

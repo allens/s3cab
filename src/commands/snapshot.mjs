@@ -40,7 +40,7 @@ export async function snapshot(dir = ".", options = {}) {
 
   const snapshotPath = await withSnapshotFile(
     dir,
-    getTimestamp(),
+    newSnapshotName,
     async (writeStream) => {
       writeStream.write(
         formatSnapshotLine(

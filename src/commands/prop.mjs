@@ -1,4 +1,4 @@
-import { assert } from "node:console";
+import assert from "node:assert";
 import crypto, { createHash } from "node:crypto";
 import fs, { createReadStream, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
@@ -10,7 +10,8 @@ import { readSnapshotFile } from "../lib/snapshot-file.mjs";
  * @property {number} size
  * @property {string} mtime
  * @property {string} hash
- * @property {number} [hashDuration]
+ * @property {number} [hashDuration] - Seconds spent hashing (absent when the
+ *   hash came from a snapshot lookup).
  */
 
 /**
@@ -41,7 +42,10 @@ export async function prop(path, options = {}) {
         path.lastModified,
       ).toString(),
       hash: crypto.hash("sha256", await path.text(), "hex"),
-      hashDuration: Temporal.Now.instant().since(start).total("milliseconds"),
+      hashDuration: Temporal.Now.instant()
+        .since(start)
+        .round("milliseconds")
+        .total("seconds"),
     };
   }
 
