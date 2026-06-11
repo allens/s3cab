@@ -190,4 +190,22 @@ describe("compare", () => {
       moved: [],
     });
   });
+
+  it("rejects an explicit snapshot name that does not exist", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, "current", [
+      new File(["contents1"], "file1.txt"),
+    ]);
+
+    await assert.rejects(
+      compare(dir.path, { since: "nope", until: "current" }),
+      /Snapshot 'nope' not found/,
+    );
+
+    await assert.rejects(
+      compare(dir.path, { since: "current", until: "nope" }),
+      /Snapshot 'nope' not found/,
+    );
+  });
 });

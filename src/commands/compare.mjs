@@ -15,6 +15,10 @@ import { list } from "./list.mjs";
 /**
  * Show what changed between two snapshots, from an older (`since`) to a newer
  * (`until`) one.
+ *
+ * Naming a snapshot that doesn't exist is an error, never a silent empty
+ * result. When `until` is the oldest snapshot (or the only one), the
+ * baseline is empty and everything reports as added.
  * @param {string} dir - Snapshot directory
  * @param {object} [options]
  * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
@@ -42,12 +46,20 @@ export async function compare(dir = ".", options = {}) {
   const since =
     options.since ?? snapshotNames.at(snapshotNames.indexOf(until) + 1);
 
-  let sinceSnapshot = await readSnapshot(dir, since);
-  if (!sinceSnapshot) {
+  /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup} */
+  let sinceSnapshot;
+  if (since === undefined) {
+    // Nothing older than `until`: an empty baseline; everything is "added".
     sinceSnapshot = new Map();
   } else {
-    console.warn("Comparing", `'${since}'`, "→", `'${until}'`);
+    sinceSnapshot = await readSnapshot(dir, since);
   }
+  console.warn(
+    "Comparing",
+    since ? `'${since}'` : "(nothing)",
+    "→",
+    `'${until}'`,
+  );
 
   const { added, moved, modified, deleted } = diff(
     sinceSnapshot,

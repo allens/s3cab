@@ -93,25 +93,30 @@ export function createSnapshotDir(baseDir) {
 }
 
 /**
- * Read a snapshot from snapshot directory
+ * Read a snapshot from snapshot directory.
  * @param {string} dir - Snapshot directory
- * @param {string} [name] - Snapshot name
+ * @param {string} name - Snapshot name
  * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ * @throws When the named snapshot does not exist — never silently returns an
+ *   empty lookup, which a caller could mistake for an empty snapshot.
  */
 export async function readSnapshot(dir, name) {
   assert(dir, "No directory specified");
-  if (name) {
-    let snapshotPath = join(resolveSnapshotDir(dir), name);
+  assert(name, "No snapshot name specified");
+  const snapshotPath = join(resolveSnapshotDir(dir), name);
 
-    if (existsSync(snapshotPath)) {
-      return readSnapshotFile(snapshotPath);
-    } else if (existsSync(snapshotPath + ".tsv")) {
-      return readSnapshotFile(snapshotPath + ".tsv");
-    } else if (existsSync(snapshotPath + ".tsv.zst")) {
-      return readSnapshotFile(snapshotPath + ".tsv.zst");
+  for (const path of [
+    snapshotPath,
+    snapshotPath + ".tsv",
+    snapshotPath + ".tsv.zst",
+  ]) {
+    if (existsSync(path)) {
+      return readSnapshotFile(path);
     }
   }
-  return new Map();
+  throw new Error(
+    `Snapshot '${name}' not found in '${resolveSnapshotDir(dir)}'`,
+  );
 }
 
 /**
