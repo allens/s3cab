@@ -30,6 +30,20 @@ internals — e.g. `doc/exclude.md` says which separators you may write in a pat
 the normalize-to-`/` matching machinery is documented where it lives, in
 `src/commands/tree.mjs`.
 
+**Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
+the website/repo docs (README, `doc/` — eventually a proper website) carry everything
+someone needs *before trying s3cab* plus the advanced depth (e.g. the repository/manifest
+format); the built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
+`src/help.mjs`) carry only what a user needs *mid-task in a terminal*. The placement test:
+*"would someone need this mid-task, without reaching for a browser?"* Exclude-pattern
+rules pass (you're editing `exclude.txt` in a shell); the repository format fails (reading
+it is a sit-down activity — and per #2 the format is self-evident from the stored files
+themselves; its docs just save the recoverer time, so online-only is fine). Each help
+topic ends with a link to its fuller online guide; the overlap this leaves (e.g. the glob
+token table appears in both `helpTopics.exclude` and `doc/exclude.md`) is accepted —
+small, and both copies change together with the matcher — rather than papered over with
+generation/sync machinery (#6).
+
 ### Working conventions (for AI assistants)
 
 Standing operating rules, kept **here in source** rather than any one machine's local
@@ -460,8 +474,10 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   inline form was guarding a short-circuit, a nested `if` preserves the same conditional
   evaluation without the inline await.)
 - **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
-  the `typecheck` script. Two non-obvious bits make that possible: `scripts/` (untyped
-  scratch) is excluded, and `jsconfig.json` maps `events`/`punycode`/`string_decoder` back
+  the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
+  scratch, but excluded files just get squiggles from VS Code's inferred project instead —
+  cheaper to keep them typed; they need no extra deps, only JSDoc). One non-obvious bit
+  makes the check possible: `jsconfig.json` maps `events`/`punycode`/`string_decoder` back
   to the builtin type declarations — transitive deps install npm shims of those Node
   builtins, which would otherwise shadow them at type-resolution time and drag their
   untyped CJS internals into the check (see the comment in jsconfig.json).
@@ -516,8 +532,10 @@ Pre-release housekeeping and open decisions surfaced from the code:
   as a crude in-progress lock); a proper lock file is a `TODO` in
   [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see #4 above).
-- **Help gaps:** per-command `usage()` doesn't list the universal `--help`/`--version`,
-  and nothing documents the `S3CAB_DEBUG` env var in the help output.
+- **Stable doc URLs before release.** Help topics and the help footer print GitHub URLs
+  (the placement doctrine's "link to the fuller online guide"); a shipped binary freezes
+  the URLs it prints forever. Before release, stand up the planned proper website (or
+  commit to permanent GitHub paths) and point the help text at stable addresses.
 - **SIGINT handling:** the commented-out handler at the bottom of
   [src/s3cab.mjs](src/s3cab.mjs) is a parked reminder (kept on purpose — convention 6). It
   was disabled for a reason since forgotten; work out whether the CLI needs one, then wire
