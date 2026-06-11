@@ -46,26 +46,13 @@
     ],
     "deny": [
       "Bash(git checkout -- *)",
-      "PowerShell(git checkout -- *)",
       "Bash(git checkout .)",
-      "PowerShell(git checkout .)",
       "Bash(git reset --hard *)",
-      "PowerShell(git reset --hard *)",
       "Bash(git clean *)",
-      "PowerShell(git clean *)",
       "Bash(git push --force*)",
-      "PowerShell(git push --force*)",
       "Bash(git push -f *)",
-      "PowerShell(git push -f *)",
       "Bash(git push *+*)",
-      "PowerShell(git push *+*)",
-      "Bash(rm -rf *)",
-      "PowerShell(Remove-Item -Recurse*)",
-      "Bash(curl *)",
-      "PowerShell(curl *)",
-      "Bash(wget *)",
-      "PowerShell(Invoke-WebRequest *)",
-      "PowerShell(iwr *)"
+      "Bash(rm -rf *)"
     ]
   }
 }
