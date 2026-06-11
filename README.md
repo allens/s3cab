@@ -55,8 +55,8 @@ today:
 | `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
 
 Every command defaults `<dir>` to the current folder, so `s3cab snapshot` snapshots where
-you are. Run any command with `--help` to see its options. (One cloud command, `objects`,
-also works already — it's an advanced diagnostic, covered under
+you are. Run any command with `--help` to see its options. (Two cloud plumbing commands,
+`objects` and `upload`, also work already — advanced building blocks covered under
 [Cloud repositories](#cloud-repositories).)
 
 ### Coming next
@@ -99,7 +99,16 @@ a lookup file so a future `backup` can skip re-uploading files already stored:
 > s3cab objects my-backup-bucket -f have.txt   # …or written to a file
 ```
 
-(`<bucket>` is a plain S3 bucket name — one repository is one bucket.)
+Its write counterpart, `upload`, puts a single file into the store at `objects/<sha256>`.
+Content already in the store is skipped automatically — identical bytes always map to the
+same key — unless you `--force` a re-upload:
+
+```console
+> s3cab upload my-backup-bucket C:\Users\me\Photos\beach.jpg
+```
+
+(`<bucket>` is a plain S3 bucket name — one repository is one bucket. Like `objects`,
+`upload` is plumbing: the building block the snapshot-driven `backup` will drive.)
 
 ### Authentication
 
@@ -116,25 +125,13 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the others.
 
    (s3cab does **not** read a `.env` from the current directory.)
-2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO and
-   `credential_process`), and `AWS_*` environment variables;
-3. a session from **`s3cab login`** — a built-in AWS IAM Identity Center (SSO) sign-in for
-   people who don't have the AWS CLI set up:
+2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
+   sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
 
-   ```console
-   > s3cab login
-   To authorize s3cab, open this URL in your browser:
-     https://my-org.awsapps.com/start/#/device?user_code=ABCD-1234
-   …
-   ```
-
-   It opens a browser approval, then caches the **session** (not long-lived keys) in
-   `~/.s3cab/`, refreshing short-lived credentials automatically as needed.
-
-If none of these are configured, s3cab stops and tells you what to do. Run
-**`s3cab help auth`** for the full details. (Advanced: `s3cab credential-process` exposes
-the login session in AWS's standard `credential_process` JSON format, if you'd rather wire
-s3cab into an AWS profile yourself.)
+If neither is configured, s3cab stops and tells you what to do. Run **`s3cab help auth`**
+for the full details. s3cab has no sign-in flow of its own and stores no credentials: AWS
+IAM Identity Center (SSO) users sign in with the AWS CLI's `aws sso login`, and s3cab picks
+the session up automatically through the standard chain.
 
 ## Quick start
 

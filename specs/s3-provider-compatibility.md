@@ -12,11 +12,13 @@ detail. This note is the *cross-provider* lens on the same surface.
 
 ## Why this exists
 
-s3cab uses the AWS SDK and has built a sophisticated AWS auth stack (the `.env` → standard
-chain → app-managed `login` cache resolver, an SSO/OIDC device-auth `login` command, and a
-`credential-process` helper). That sophistication is **AWS-specific**. This note scopes the
-auth complexity against what the wider S3-compatible ecosystem actually offers, so the design
-is calibrated to reality rather than guessed at.
+s3cab uses the AWS SDK and at one point had built a sophisticated AWS auth stack (the env-file
+→ standard chain → app-managed `login` cache resolver, an SSO/OIDC device-auth `login`
+command, and a `credential-process` helper). That sophistication was **AWS-specific**. This
+note scopes the auth complexity against what the wider S3-compatible ecosystem actually
+offers, so the design is calibrated to reality rather than guessed at. (The conclusion has
+since been acted on: the Tier 2 machinery was removed in 2026-06 — see the History note in
+[auth.md](auth.md).)
 
 **Decision:** s3cab targets S3-compatible providers (Cloudflare R2, Backblaze B2, Wasabi,
 MinIO, …) as **first-class**. AWS is still the most important provider, but s3cab is
@@ -49,26 +51,26 @@ across S3-compatible storage. For every provider except AWS (and self-hosted Min
 reduces to **three strings: endpoint URL, access key, secret key** (+ a region label, often a
 dummy).
 
-Consequently, the SSO/OIDC `login` + app-managed-cache machinery **buys nothing for any
-non-AWS provider**, and even on AWS only helps users who lack the AWS CLI. It is the largest
-single source of auth complexity in the codebase, serving the narrowest audience.
+Consequently, the SSO/OIDC `login` + app-managed-cache machinery **bought nothing for any
+non-AWS provider**, and even on AWS only helped users who lack the AWS CLI. It was the largest
+single source of auth complexity in the codebase, serving the narrowest audience — which is
+why it was removed (2026-06).
 
 ## Finding 2 — The two-tier model
 
 Match the auth model to what the ecosystem offers:
 
 - **Tier 1 — portable core (every provider):** static access key + secret + **endpoint**, via
-  `.env` / environment variables + the standard SDK chain. This is ~90% built already. It is
-  the only auth every S3-compatible provider can use, so it is the foundation.
-- **Tier 2 — AWS convenience (AWS only):** the standard provider chain + the `login` SSO flow
-  + `credential-process`. Useful and worth keeping, but scoped explicitly as an **AWS-only
-  enhancement / AWS-CLI replacement**, orthogonal to S3-compatibility. It can be kept,
-  deferred, or dropped without affecting any non-AWS user.
+  s3cab env files / environment variables + the standard SDK chain. It is the only auth every
+  S3-compatible provider can use, so it is the foundation — and it is what s3cab ships.
+- **Tier 2 — AWS convenience (AWS only):** the bespoke `login` SSO flow + `credential-process`.
+  Scoped as an **AWS-only enhancement / AWS-CLI replacement**, orthogonal to S3-compatibility —
+  and ultimately **dropped** (2026-06): the AWS CLI owns interactive sign-in, and s3cab reads
+  the resulting session through the standard chain.
 
-This answers the CLAUDE.md open question ("undecided whether s3cab keeps a bespoke SSO flow or
-leans on the standard chain"): the bespoke SSO flow is pure AWS-CLI-replacement convenience.
-It is independent of provider-agnostic support — invest in Tier 1 first; treat the SSO flow as
-a keep-or-drop nice-to-have.
+This answered the CLAUDE.md open question ("undecided whether s3cab keeps a bespoke SSO flow
+or leans on the standard chain"): the bespoke SSO flow was pure AWS-CLI-replacement
+convenience, independent of provider-agnostic support. Tier 1 won; Tier 2 was removed.
 
 ## Finding 3 — Refinement checklist (apply *after* the AWS auth work lands)
 

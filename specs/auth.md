@@ -2,7 +2,18 @@
 
 ## Status
 
-Draft / implementation-ready.
+Implemented (see `src/lib/auth.mjs`).
+
+> **History:** earlier revisions of this spec also defined a bespoke `s3cab login`
+> (IAM Identity Center / SSO device-authorization flow), an app-managed session
+> cache at `~/.s3cab/auth.json`, and a `credential-process` helper command built
+> on it. All three were **removed** in 2026-06. Rationale: the only user they
+> served — an SSO user *without* the AWS CLI — barely exists (SSO implies an
+> organization, which hands you the CLI; `aws configure sso` is how SSO profiles
+> are created at all), the standard SDK chain already picks up `aws sso login`
+> sessions with zero s3cab code, and the cache made s3cab the owner of a
+> plaintext refresh-token file. Interactive sign-in is the AWS CLI's job; s3cab
+> consumes the result through the standard chain.
 
 ## Purpose
 
@@ -11,51 +22,22 @@ Define the authentication and credential-resolution model for `s3cab`, a custome
 This design must:
 
 * support existing AWS-native credential setups on the machine through the AWS SDK for JavaScript v3 default Node.js credential chain, which checks supported sources in precedence order and stops at the first valid source, including environment variables, SSO/token cache, shared config/credentials, and other standard providers. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-* support an `s3cab login` convenience flow for users who do not have AWS CLI installed, using AWS SDK IAM Identity Center / SSO capabilities and local cached login state. The AWS SDK v3 supports IAM Identity Center authentication and the IAM Identity Center / SSO APIs expose operations such as role credential retrieval and logout. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-* support `.env`-based credentials for backward compatibility and for some S3-compatible providers that still rely on access-key / secret-key environment variables. Environment variables are a standard credential source in the AWS SDK v3 Node.js provider chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-* avoid automatic modification of `~/.aws/config` and `~/.aws/credentials`. The SDK can read those files if the user already has them, but `s3cab` should not write them itself. AWS documents shared config/credentials support and process-based credentials configured via shared config. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-***
+* support env-file-based credentials for backward compatibility and for S3-compatible providers that rely on access-key / secret-key environment variables. Environment variables are a standard credential source in the AWS SDK v3 Node.js provider chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3)
+* avoid automatic modification of `~/.aws/config` and `~/.aws/credentials`. The SDK can read those files if the user already has them, but `s3cab` must not write them itself.
 
 ## Design Principles
 
-1. **Respect existing AWS setup first.** If the machine already has valid AWS credentials, `s3cab` should use them via the SDK’s standard credential resolution rather than inventing a parallel mechanism. AWS documents that the Node.js SDK already has a default credential provider chain and that applications generally do not need to provide a custom provider explicitly in the common case. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
+1. **Respect existing AWS setup first.** If the machine already has valid AWS credentials, `s3cab` uses them via the SDK's standard credential resolution rather than inventing a parallel mechanism.
 
-2. **Treat s3cab's env files as an explicit user signal.** If s3cab's layered env files (Step 0) exist, the `AWS_*` variables they set are loaded into the environment and allowed to win in normal SDK precedence. Environment variables are a standard high-precedence credential source in the AWS SDK provider chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
+2. **Treat s3cab's env files as an explicit user signal.** If s3cab's layered env files (Step 0) exist, the `AWS_*` variables they set are loaded into the environment and allowed to win in normal SDK precedence.
 
-3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK should use them directly. AWS documents shared config support and `credential_process` integration via shared config. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
+3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK uses them directly.
 
-4. **Use app-managed SSO login as a convenience path.** `s3cab login` exists to help users bootstrap IAM Identity Center / SSO access without requiring AWS CLI. AWS documents IAM Identity Center support in the JS SDK and the supporting APIs for obtaining role credentials. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-
-5. **Expose `credential-process` as an advanced/manual integration surface.** AWS supports process credentials via an external command that writes credential JSON to `stdout`, and the AWS JS credential providers package supports process-based providers. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-***
-
-## Terminology
-
-### Standard AWS credential chain
-
-The AWS SDK for JavaScript v3 Node.js default credential provider chain. It checks standard sources in precedence order and stops at the first valid credentials source. Documented sources include environment variables, SSO/token cache, shared config/credentials, web identity, and instance/container metadata. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-### App-managed login cache
-
-`s3cab`’s own cached login/session state created by `s3cab login`.
-
-This is **not** the same thing as AWS shared-config `credential_process`. AWS shared-config `credential_process` specifically means an external command declared in shared AWS config that writes credential JSON to `stdout`. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-### Temporary AWS role credentials
-
-The short-lived AWS credentials actually used to call S3: `accessKeyId`, `secretAccessKey`, optional `sessionToken`, and expiration. IAM Identity Center / SSO exposes `GetRoleCredentials` for obtaining these short-term role credentials.
-
-### Compatibility env-file mode
-
-`s3cab` loads its layered env files (Step 0) into process environment variables before constructing AWS clients. The AWS SDK then resolves those values through its normal environment-variable provider. Environment variables are part of the standard SDK credential chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-***
+4. **Interactive sign-in is not s3cab's job.** SSO / IAM Identity Center users sign in with `aws sso login` (or any tool that feeds the standard chain); s3cab picks the session up via Step 1. s3cab implements no login flow and stores no tokens of its own.
 
 ## Credential Resolution Order
 
-`s3cab` must resolve credentials in the following order.
+`s3cab` resolves credentials in the following order.
 
 ### Step 0: Load s3cab's env files if present
 
@@ -72,347 +54,70 @@ The layers, **highest precedence first** (a file value always wins over the shel
 
 The per-bucket file cannot name its own bucket (that would be circular): the bucket is resolved from an explicit name (e.g. a CLI `<bucket>` arg) or the dir/user/shell layers first, then `~/.s3cab/env.<bucket>` is loaded. Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so the per-key precedence above is enforced by s3cab rather than by any one loader's fixed override semantics.
 
-This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or a default bucket. Once loaded, those variables participate in the SDK's normal credential resolution, and environment variables are one of the standard high-precedence sources in the provider chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
+This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or a default bucket. Once loaded, those variables participate in the SDK's normal credential resolution.
 
 ### Step 1: Try the standard AWS credential chain
 
-After env-file loading, attempt standard AWS SDK credential resolution first.
+After env-file loading, attempt standard AWS SDK credential resolution.
 
-This should allow all of the following to work with no `s3cab` special-casing:
+This allows all of the following to work with no `s3cab` special-casing:
 
-* `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` from the process environment or an s3cab env file. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-* `AWS_PROFILE` pointing to an existing shared AWS profile. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[docs.amazonaws.cn\]](https://docs.amazonaws.cn/en_us/aws-backup/latest/devguide/s3-backups.html)
-* existing shared profiles with IAM Identity Center / SSO configuration. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-* existing shared profiles that use `credential_process`. AWS documents `credential_process` in shared config, and the AWS JS credential providers support process credentials and shared config/INI resolution. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
+* `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` from the process environment or an s3cab env file
+* `AWS_PROFILE` pointing to an existing shared AWS profile
+* existing shared profiles with IAM Identity Center / SSO configuration (after `aws sso login`)
+* existing shared profiles that use `credential_process`
 
-### Step 2: If standard resolution fails, use the app-managed login cache
+### Step 2: If standard resolution fails, stop with a clear auth error
 
-If Step 1 fails because no standard AWS credentials were found, fall back to `s3cab`’s own cached login/session state created by `s3cab login`.
-
-This fallback is an internal `s3cab` credential source and should be described as an **app-managed credential provider**, not as shared-config AWS `credential_process`. The AWS SDK supports IAM Identity Center / SSO authentication and exposes IAM Identity Center / SSO APIs for obtaining temporary role credentials. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-
-### Step 3: If neither exists, stop with a clear auth error
-
-If standard AWS resolution fails and no app-managed login cache exists, `s3cab` should stop and instruct the user to do one of the following:
+`s3cab` stops and instructs the user to do one of the following:
 
 * provide credentials via an s3cab env file / environment variables,
-* use an existing AWS profile,
-* or run `s3cab login`.
-
-This matches the credential sources supported by the AWS SDK and the intended role of `s3cab login` as a convenience bootstrap path. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-***
-
-## Commands
-
-## `s3cab login`
-
-### Purpose
-
-Interactive bootstrap/sign-in command for users who do not already have working AWS credentials configured and may not have AWS CLI installed.
-
-### Requirements
-
-`s3cab login` must:
-
-* use AWS SDK IAM Identity Center / SSO capabilities rather than shelling out to AWS CLI. AWS documents IAM Identity Center support in the JS SDK and the relevant IAM Identity Center / SSO service APIs. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-* store app-managed cached login/session state in an `s3cab`-owned location.
-* avoid writing `~/.aws/config` or `~/.aws/credentials`. AWS shared config remains user-owned. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-### Terminology note
-
-`s3cab login` should be described as creating or refreshing **app-managed IAM Identity Center / SSO login state**, not as storing long-lived AWS credentials.
-
-The actual AWS credentials ultimately used against S3 should remain temporary role credentials with expiration. IAM Identity Center / SSO role credential APIs return short-term credentials.
-
-***
-
-## `s3cab run`
-
-### Purpose
-
-Perform the backup/upload operation using the credential resolution model defined in this spec.
-
-### Runtime behavior
-
-`s3cab run` must:
-
-1. load `.env` if present;
-2. construct AWS clients using normal SDK configuration first;
-3. attempt standard AWS SDK credential resolution first;
-4. if that fails, obtain credentials from the internal app-managed provider backed by `s3cab login`;
-5. if that also fails, emit a clear, actionable authentication error.
-
-This preserves standard AWS-native behavior while still providing a no-AWS-CLI fallback path. The AWS SDK’s default provider chain supports standard credential resolution, and IAM Identity Center / SSO APIs support the app-managed fallback for obtaining temporary role credentials. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-***
-
-## `s3cab credential-process`
-
-### Purpose
-
-Advanced/manual integration point for users who want to configure `s3cab` as a standard AWS shared-config `credential_process` helper.
-
-AWS documents `credential_process` as a shared config setting that points to an external command which writes credential JSON to `stdout`, and the JS SDK credential providers package supports this model. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-### Requirements
-
-`s3cab credential-process` must:
-
-* call the same internal credential-resolution function used by the `s3cab run` app-managed fallback;
-* write process-credential JSON to `stdout`;
-* never write secrets or tokens to `stderr`. AWS warns that SDKs and tools may capture or log `stderr` for process credential helpers. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-### Standard output contract
-
-The command must emit JSON with the standard process-credential fields:
-
-* `Version`
-* `AccessKeyId`
-* `SecretAccessKey`
-* optional `SessionToken`
-* optional `Expiration`
-
-AWS documents this shape for process credentials. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-### Example manual user configuration
-
-If a user wants to wire `s3cab` into AWS shared config themselves, a profile can look like:
-
-```ini
-[profile s3cab]
-credential_process = "/path/to/s3cab" credential-process
-region = eu-west-1
-```
-
-AWS documents this configuration style for process credentials in shared config. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-***
-
-## Internal Architecture
-
-## Single internal credential resolver
-
-Implement a single internal async function with a shape conceptually like:
-
-```text
-resolveAppManagedAwsCredentials(): Promise<{
-  accessKeyId: string
-  secretAccessKey: string
-  sessionToken?: string
-  expiration?: Date
-}>
-```
-
-This function must:
-
-* read `s3cab`’s cached login/session state;
-* obtain or refresh temporary AWS role credentials;
-* return expiration-aware credentials whenever possible.
-
-This internal function should be the single source of truth used by:
-
-* `s3cab run` fallback;
-* `s3cab credential-process`.
-
-This aligns with the AWS credential-provider model, where providers are async functions that return the AWS credential object shape and may include `expiration` for refresh behavior. AWS documents that the JS credential providers return this shape and that SDK clients cache credentials and refresh them near expiry. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-***
-
-## Credential Refresh and Caching
-
-When used with an AWS SDK client, credentials from supported providers are cached until shortly before expiration, at which point the provider is called again and new credentials are cached. AWS documents refresh behavior for the standard credential provider ecosystem in the JS SDK. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-Therefore:
-
-* the app-managed credential resolver should return expiration-aware temporary credentials whenever possible, so the SDK can refresh correctly. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-* `s3cab credential-process` should emit `Expiration` whenever possible, because the standard process-credential format supports it. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-***
+* use an existing AWS profile (running `aws sso login` first for SSO profiles).
 
 ## Security Model
 
-### Preferred path
-
-Prefer temporary AWS role credentials derived from IAM Identity Center / SSO login state whenever possible.
-
-AWS’s standardized credential guidance emphasizes the use of provider chains and short-lived, refreshable credentials rather than embedding long-lived credentials directly in code. [\[stackoverflow.com\]](https://stackoverflow.com/questions/69469369/using-the-aws-javascript-sdk-v3-is-there-a-credentials-provider-chain-equivale), [\[github.com\]](https://github.com/aws/aws-sdk-js-v3)
-
-### Supported compatibility path
-
-Support `.env` and plain environment variables for backward compatibility and for S3-compatible providers that still require access-key / secret-key configuration.
-
-The AWS SDK supports environment variables as a normal credential source. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-### Operational requirements
-
 * never log credentials or tokens;
-* never write secrets or tokens to `stderr` in `credential-process`; AWS explicitly warns against this for process credential helpers. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-* store app-managed login/session material in an OS-appropriate private location with restrictive permissions;
-* prefer temporary credentials with expiration over long-lived static credentials whenever feasible. AWS’s standardized guidance emphasizes refreshable providers and temporary credentials. [\[stackoverflow.com\]](https://stackoverflow.com/questions/69469369/using-the-aws-javascript-sdk-v3-is-there-a-credentials-provider-chain-equivale), [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
+* prefer temporary credentials with expiration (profile/SSO-based setups) over long-lived static keys whenever feasible — the SDK refreshes expiration-aware providers automatically;
+* long-lived keys, where unavoidable (most S3-compatible providers), live in s3cab env files or the user's own AWS shared config — s3cab stores no credential material of its own.
 
-***
+**Future work:** an optional OS-secure-storage layer (Windows DPAPI / macOS Keychain / libsecret) for users stuck with long-lived keys, slotting into `resolveCredentials` as another source. Not designed yet; noted so the resolver stays pluggable.
 
 ## Non-Goals
 
 `s3cab` must **not**:
 
-* accept raw AWS access keys via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources. The AWS SDK already supports environment variables, shared config, SSO, process credentials, and other standard providers. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md), [\[stackoverflow.com\]](https://stackoverflow.com/questions/69469369/using-the-aws-javascript-sdk-v3-is-there-a-credentials-provider-chain-equivale)
-* invent a custom AWS credential file format that competes with AWS profiles, shared config, or standard environment-variable handling. AWS already standardizes these sources and supports custom integrations through process credentials. [\[stackoverflow.com\]](https://stackoverflow.com/questions/69469369/using-the-aws-javascript-sdk-v3-is-there-a-credentials-provider-chain-equivale), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-* write `~/.aws/config` or `~/.aws/credentials` automatically. Shared AWS config remains user-managed. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
+* implement an interactive sign-in flow or cache login sessions/tokens (see History above — tried and removed);
+* accept raw AWS access keys via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources;
+* invent a custom AWS credential file format that competes with AWS profiles, shared config, or standard environment-variable handling;
+* write `~/.aws/config` or `~/.aws/credentials` automatically. Shared AWS config remains user-managed.
 
-***
+## Authentication error
 
-## Copilot Implementation Brief
-
-### Objective
-
-Implement credential resolution for `s3cab` with the following precedence:
-
-1. load `.env` if present;
-2. try normal AWS SDK v3 credential resolution first;
-3. if that fails, fall back to `s3cab`’s app-managed IAM Identity Center / SSO login cache;
-4. if that fails, emit a clear authentication error.
-
-The AWS SDK v3 Node.js default provider chain already checks standard credential sources in precedence order and stops at the first valid source. Documented sources include environment variables, SSO/token cache, shared config/credentials, web identity, and instance or container metadata. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-### Required commands
-
-#### `s3cab login`
-
-* interactive sign-in/bootstrap command;
-* uses AWS SDK IAM Identity Center / SSO capabilities rather than AWS CLI;
-* stores app-managed cached login/session state in an `s3cab`-owned location;
-* does **not** modify `~/.aws/config` or `~/.aws/credentials`. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3)
-
-#### `s3cab run`
-
-* load `.env` if present;
-* try standard AWS SDK credential resolution first;
-* if missing credentials, call the internal app-managed credential resolver;
-* if that succeeds, use explicit returned credentials for the client;
-* if it fails, emit a user-friendly auth error. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-
-#### `s3cab credential-process`
-
-* call the same internal app-managed credential resolver used by the `run` fallback;
-* print standard process-credential JSON to `stdout`;
-* never write secrets to `stderr`. AWS explicitly warns against writing sensitive data to `stderr` for process credential helpers. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-### Implementation constraints
-
-* do not modify `~/.aws/config` or `~/.aws/credentials`; [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-* do not require AWS CLI for login or runtime; the SDK can read existing AWS config directly, and `s3cab` supplies its own login convenience path; [\[github.com\]](https://github.com/aws/aws-sdk-js-v3)
-* do not bypass `.env` if it exists; loading `.env` is intentional and the resulting env vars may validly take precedence because environment variables are a standard high-precedence source in the SDK chain; [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-* prefer temporary credentials with expiration, because the SDK can refresh expiration-aware providers and caches them near expiry. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-***
-
-## Suggested Help Text
-
-## `s3cab help auth`
-
-```text
-Authentication
-
-s3cab resolves credentials in this order:
-
-1. s3cab loads its own env files first, if present. These set AWS_*
-   variables (a profile, region, endpoint, or keys) and a default
-   S3CAB_BUCKET. Highest precedence first (a file always beats the shell):
-     <dir>/.s3cab/env       per-backup-folder (which bucket this folder uses)
-     ~/.s3cab/env.<bucket>  per-bucket (how to authenticate to that bucket)
-     ~/.s3cab/env           per-user defaults
-   s3cab does NOT read a .env from the current directory.
-
-2. s3cab then uses the standard AWS SDK credential chain.
-   This includes existing AWS_PROFILE, shared AWS profiles,
-   shared credential_process profiles, and AWS_* environment variables.
-
-3. If no standard AWS credentials are available, s3cab falls back
-   to credentials from a prior `s3cab login`.
-
-4. If nothing is configured, run:
-     s3cab login
-
-Supported options:
-  - Existing AWS profile / AWS_PROFILE
-  - Existing shared AWS credential_process setup
-  - s3cab env files / AWS_* environment variables
-  - s3cab login
-
-Notes:
-  - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
-  - env files are supported for compatibility, including some S3-compatible providers.
-  - For AWS, temporary credentials from login/profile-based setups are preferred.
-```
-
-This help text matches the SDK’s standard credential resolution model and the supported process-credential and IAM Identity Center flows. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-## `s3cab login --help`
-
-```text
-Sign in and cache login state for later non-interactive use.
-
-`s3cab login` is a convenience command for users who do not already
-have working AWS credentials configured on this machine.
-
-It does not modify ~/.aws/config or ~/.aws/credentials.
-
-After login, future `s3cab run` commands can use the cached login state
-to obtain temporary AWS credentials automatically if no standard AWS
-credentials are already available.
-```
-
-This wording matches the IAM Identity Center / SSO model of cached login/session state leading to temporary role credentials.
-
-## `s3cab credential-process --help`
-
-```text
-Emit AWS credentials in standard credential_process JSON format.
-
-This command is intended for advanced users who want to manually
-configure an AWS profile that points at s3cab as a credential helper.
-
-s3cab does not create or edit AWS shared config automatically,
-but you may configure this yourself.
-```
-
-AWS documents process credentials exactly as this sort of external command declared in shared config. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management), [\[docs.aws.amazon.com\]](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html)
-
-## Suggested authentication error
+The credential chain's own message is embedded (the chain reports a *missing*
+setup and a *misconfigured* one — a typo'd profile, a broken
+`credential_process` — through the same error type, so s3cab shows the specific
+reason rather than trying to classify):
 
 ```text
 No AWS credentials found.
 
 s3cab tried:
   1. s3cab env files / environment variables
-  2. Standard AWS SDK credential resolution
-  3. Cached credentials from `s3cab login`
+  2. The standard AWS SDK credential chain, which reported:
+     <the chain's own error message>
 
 To continue, do one of the following:
   - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
   - use an existing AWS profile and set AWS_PROFILE
-  - run: s3cab login
+    (for AWS IAM Identity Center, run `aws sso login` first —
+    s3cab picks the session up automatically)
 
-For advanced use, you can also configure an AWS profile manually
-with: credential_process = s3cab credential-process
+Run 's3cab help auth' for details.
 ```
-
-This message accurately reflects the intended precedence and the supported AWS process-credential mechanism. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-***
 
 ## Acceptance Criteria
 
-Implementation is complete when all of the following are true:
-
-* if an s3cab env file exists and defines `AWS_*` variables, those values are loaded before AWS clients are created and are eligible to win through normal SDK precedence. Environment variables are a standard provider source in the SDK chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[github.com\]](https://github.com/awsdocs/aws-sdk-for-javascript-v3/blob/main/doc_source/getting-your-credentials.md)
-* if the machine already has working standard AWS credentials (for example `AWS_PROFILE`, shared SSO config, or existing shared `credential_process`), `s3cab run` succeeds without requiring `s3cab login`. The SDK supports these sources through the standard Node.js credential chain. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-* if no standard AWS credentials exist but `s3cab login` has been run, `s3cab run` succeeds using the app-managed login cache and temporary credentials derived from it. IAM Identity Center / SSO APIs support temporary role credential retrieval. [\[devops.aibit.im\]](https://devops.aibit.im/en/article/best-practices-secure-credentials-aws-cli)
-* `s3cab credential-process` emits valid process-credential JSON and never writes secrets to `stderr`. AWS documents both the JSON contract and the `stderr` caution. [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-* `s3cab` never automatically modifies `~/.aws/config` or `~/.aws/credentials`. [\[github.com\]](https://github.com/aws/aws-sdk-js-v3), [\[deepwiki.com\]](https://deepwiki.com/aws/aws-cli/5.2-credentials-management)
-
-***
-
-If you want, I can also turn this into a **shorter `AUTHENTICATION.md`** version for your repo, or a **Copilot prompt** optimized for implementation planning.
+* if an s3cab env file exists and defines `AWS_*` variables, those values are loaded before AWS clients are created and are eligible to win through normal SDK precedence;
+* if the machine already has working standard AWS credentials (for example `AWS_PROFILE`, shared SSO config, or existing shared `credential_process`), S3-touching commands succeed with no s3cab-specific configuration;
+* if nothing is configured, s3cab emits the clear, actionable authentication error above;
+* `s3cab` never automatically modifies `~/.aws/config` or `~/.aws/credentials`.

@@ -19,6 +19,14 @@ describe("readLines", () => {
     assert.deepEqual(readLines(file), ["line1", "line2", "line3"]);
   });
 
+  it("strips comments even when indented", async () => {
+    await using dir = await mkTmpDir();
+    const file = join(dir.path, "indented.txt");
+    writeFileSync(file, "  # indented comment\nkeep\n\t# tabbed comment\n");
+
+    assert.deepEqual(readLines(file), ["keep"]);
+  });
+
   it("returns empty array for a file with only comments and blank lines", async () => {
     await using dir = await mkTmpDir();
     const file = join(dir.path, "empty.txt");

@@ -45,7 +45,7 @@ const customEndpoint = () =>
  * call this, so those commands never trigger it.
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
- * app-managed `s3cab login` cache → actionable error — see specs/auth.md).
+ * actionable error — see specs/auth.md).
  * Callers are responsible for loading any relevant s3cab env files (e.g.
  * commands call `loadEnv({ bucket })`), so `process.env` is configured before
  * this client is constructed.

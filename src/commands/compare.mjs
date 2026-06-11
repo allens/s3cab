@@ -166,6 +166,8 @@ export function diff(previousSnapshot, currentSnapshot) {
       }
 
       if (!deletedPath) {
+        // Set.difference treats the `moved` Map as set-like: its keys are the
+        // moved-from paths, which is exactly what to subtract here.
         const notMovedPaths = previousPathSetForHash.difference(moved);
         added.set(addedPath, notMovedPaths);
       }

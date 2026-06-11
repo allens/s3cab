@@ -25,25 +25,24 @@ s3cab resolves credentials in this order:
    s3cab does NOT read a .env from the current directory.
 
 2. s3cab then uses the standard AWS SDK credential chain.
-   This includes existing AWS_PROFILE, shared AWS profiles,
-   shared credential_process profiles, and AWS_* environment variables.
+   This includes existing AWS_PROFILE, shared AWS profiles (including
+   SSO sessions from 'aws sso login'), shared credential_process
+   profiles, and AWS_* environment variables.
 
-3. If no standard AWS credentials are available, s3cab falls back
-   to credentials from a prior 's3cab login'.
-
-4. If nothing is configured, run:
-     s3cab login
+3. If nothing is configured, s3cab stops with an error explaining
+   these options.
 
 Supported options:
-  - Existing AWS profile / AWS_PROFILE
+  - Existing AWS profile / AWS_PROFILE (for AWS IAM Identity Center,
+    run 'aws sso login' first — s3cab picks the session up)
   - Existing shared AWS credential_process setup
   - s3cab env files / AWS_* environment variables
-  - s3cab login
 
 Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
   - env files are supported for compatibility, including some S3-compatible providers.
-  - For AWS, temporary credentials from login/profile-based setups are preferred.`,
+  - For AWS, temporary credentials from profile-based setups are preferred
+    over long-lived keys.`,
 };
 
 /**
