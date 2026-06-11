@@ -128,9 +128,8 @@ async function testZstdOptions(inputPath) {
  * @param {string} inputPath - Path to input file
  * @param {object} config - Compression configuration
  * @param {number} config.level - Compression level
- * @param {number}  config.strategy - Compression strategy
+ * @param {number | null} config.strategy - Compression strategy
  * @param {string} config.name - Configuration name
- * @returns {Promise<object>} Test result
  */
 async function testCompression(inputPath, config) {
   const outputPath = join(
