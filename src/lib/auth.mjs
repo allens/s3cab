@@ -146,11 +146,26 @@ export function loadEnv({ dir, bucket } = {}) {
   return { bucket: resolvedBucket };
 }
 
-const NO_CREDENTIALS_MESSAGE = `No AWS credentials found.
+/**
+ * The actionable "no credentials" error, with the credential chain's own
+ * message embedded. The chain reports a *missing* setup and a *misconfigured*
+ * one (typo'd AWS_PROFILE, broken credential_process, …) through the same
+ * error type, so don't try to classify — show the specific reason alongside
+ * the setup guidance. It must live in the message itself: the CLI prints only
+ * `message` unless S3CAB_DEBUG is set (`cause` is kept for that debug path).
+ * @param {unknown} cause - The error thrown by the standard chain.
+ */
+const noCredentialsError = (cause) => {
+  const reason = (cause instanceof Error ? cause.message : String(cause))
+    .trim()
+    .replaceAll("\n", "\n     ");
+  return new Error(
+    `No AWS credentials found.
 
 s3cab tried:
   1. s3cab env files / environment variables
-  2. Standard AWS SDK credential resolution
+  2. The standard AWS SDK credential chain, which reported:
+     ${reason}
 
 To continue, do one of the following:
   - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
@@ -158,7 +173,10 @@ To continue, do one of the following:
     (for AWS IAM Identity Center, run \`aws sso login\` first —
     s3cab picks the session up automatically)
 
-Run 's3cab help auth' for details.`;
+Run 's3cab help auth' for details.`,
+    { cause },
+  );
+};
 
 // The standard AWS SDK Node.js provider chain, built once. The SDK client caches
 // the credentials it returns and re-invokes the provider near expiry, so a single
@@ -179,6 +197,6 @@ export const resolveCredentials = async (awsIdentityProperties) => {
   try {
     return await standardChain(awsIdentityProperties);
   } catch (error) {
-    throw new Error(NO_CREDENTIALS_MESSAGE, { cause: error });
+    throw noCredentialsError(error);
   }
 };

@@ -93,12 +93,18 @@ This allows all of the following to work with no `s3cab` special-casing:
 
 ## Authentication error
 
+The credential chain's own message is embedded (the chain reports a *missing*
+setup and a *misconfigured* one — a typo'd profile, a broken
+`credential_process` — through the same error type, so s3cab shows the specific
+reason rather than trying to classify):
+
 ```text
 No AWS credentials found.
 
 s3cab tried:
   1. s3cab env files / environment variables
-  2. Standard AWS SDK credential resolution
+  2. The standard AWS SDK credential chain, which reported:
+     <the chain's own error message>
 
 To continue, do one of the following:
   - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
