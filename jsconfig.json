@@ -9,7 +9,17 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // Transitive deps ship npm shims of Node builtins (events via
+    // @aws-sdk/lib-storage, string_decoder via readable-stream, punycode via
+    // eslint's ajv). Bare imports of those names resolve to the shims' untyped
+    // CJS instead of the builtin, and checkJs then reports their internals.
+    // Map the names back to the builtin declarations so the check stays clean.
+    "paths": {
+      "events": ["./node_modules/@types/node/events.d.ts"],
+      "punycode": ["./node_modules/@types/node/punycode.d.ts"],
+      "string_decoder": ["./node_modules/@types/node/string_decoder.d.ts"]
+    }
   },
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "scripts"]
 }

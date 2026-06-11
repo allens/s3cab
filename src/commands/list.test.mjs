@@ -7,6 +7,10 @@ import { list } from "./list.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
+/**
+ * @param {string} base
+ * @param {string[]} names
+ */
 function makeSnapshots(base, names) {
   const snapshotDir = join(base, ".s3cab", "snapshots");
   mkdirSync(snapshotDir, { recursive: true });
