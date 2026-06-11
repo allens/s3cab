@@ -44,8 +44,8 @@ export async function prop(path, options = {}) {
       hash: crypto.hash("sha256", await path.text(), "hex"),
       hashDuration: Temporal.Now.instant()
         .since(start)
-        .round("milliseconds")
-        .total("seconds"),
+        .round({ smallestUnit: "milliseconds" })
+        .total({ unit: "seconds" }),
     };
   }
 
