@@ -85,7 +85,8 @@ describe("cli (e2e)", () => {
     const { status, stdout } = run("--help");
 
     assert.strictEqual(status, 0);
-    assert.match(stdout, /Commands:/);
+    assert.match(stdout, /Snapshots:/); // day-to-day group first…
+    assert.match(stdout, /Advanced:/); // …plumbing last
     assert.match(stdout, /snapshot/);
   });
 
@@ -102,6 +103,14 @@ describe("cli (e2e)", () => {
     assert.strictEqual(status, 0);
     assert.match(stdout, /Authentication/);
     assert.match(stdout, /standard AWS SDK credential chain/);
+  });
+
+  it("help exclude prints the exclude-rules topic on stdout", () => {
+    const { status, stdout } = run("help", "exclude");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Excluding files/);
+    assert.match(stdout, /exclude\.txt/);
   });
 
   // Smoke test the packaged SEA executable: it boots, runs the ESM main, and

@@ -187,8 +187,8 @@ To inspect a compressed snapshot by hand, decompress it with any zstd tool
 (`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
 story — no s3cab required.
 
-Exclude rules live in `.s3cab/exclude.txt`; see [doc/exclude.md](doc/exclude.md) for the
-glob syntax.
+Exclude rules live in `.s3cab/exclude.txt`; run `s3cab help exclude` for a quick
+reference, or see [doc/exclude.md](doc/exclude.md) for the full guide.
 
 > s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
 > goal for later. Snapshot paths are absolute and use the native OS path style.

@@ -7,7 +7,14 @@
 // to one command. Kept as plain strings (this module deliberately imports no
 // command/auth code) so the entry point that imports it doesn't transitively
 // pull the AWS SDK in for every invocation. The auth text mirrors the
-// resolution order implemented in `src/lib/auth.mjs` (specs/auth.md).
+// resolution order implemented in `src/lib/auth.mjs` (specs/auth.md); the
+// exclude text mirrors the matcher in `src/commands/tree.mjs` (doc/exclude.md).
+//
+// Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
+// its place here only if a user needs it mid-task in a terminal; each topic
+// ends with a link to the fuller online guide. The links are frozen into every
+// shipped binary — pre-release GitHub URLs are fine, but settle stable doc
+// URLs before release.
 /** @type {Record<string, string>} */
 export const helpTopics = {
   auth: `Authentication
@@ -42,7 +49,33 @@ Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
   - env files are supported for compatibility, including some S3-compatible providers.
   - For AWS, temporary credentials from profile-based setups are preferred
-    over long-lived keys.`,
+    over long-lived keys.
+
+Full guide: https://github.com/allens/s3cab#authentication`,
+
+  exclude: `Excluding files
+
+Files and folders to skip are listed in <dir>/.s3cab/exclude.txt, one
+glob pattern per line. Lines starting with # are comments and blank
+lines are ignored. (The .s3cab folder itself is always skipped.)
+
+Patterns match each file or folder's path relative to the snapshot
+directory. Write / between folders; on Windows \\ works too.
+
+  *    one or more characters, within a single name
+  **/  zero or more whole folders
+  ?    exactly one character
+
+A pattern ending in / matches a folder and everything inside it.
+Matching is case-insensitive on Windows, case-sensitive elsewhere.
+
+Examples:
+  **/node_modules/   every node_modules folder, wherever it appears
+  build/             the top-level build folder only
+  Tests/**/*.js      .js files anywhere under Tests
+  **/log.txt         a file named log.txt in any folder
+
+Full guide: https://github.com/allens/s3cab/blob/main/doc/exclude.md`,
 };
 
 /**
@@ -63,12 +96,11 @@ export function usage(commands, commandName) {
   if (command) {
     const { args, options, summary, description } = command;
 
-    let usageLine = `Usage: s3cab ${commandName} `;
-    if (options) {
-      usageLine += "[options] ";
-    }
+    // Every command accepts [options]: the dispatcher handles -h/--help even
+    // for commands that declare none of their own.
+    let usageLine = `Usage: s3cab ${commandName} [options]`;
     if (args) {
-      usageLine += Object.keys(args).join(" ");
+      usageLine += " " + Object.keys(args).join(" ");
     }
     lines.push(usageLine, "");
 
@@ -84,16 +116,14 @@ export function usage(commands, commandName) {
       lines.push("");
     }
 
-    if (options) {
-      lines.push("Options:");
-      for (const [name, { short, description = "" }] of Object.entries(
-        options,
-      )) {
-        const flags = short ? `-${short}, --${name}` : `--${name}`;
-        lines.push(`  ${flags}`.padEnd(24) + description);
-      }
-      lines.push("");
+    lines.push("Options:");
+    for (const [name, { short, description = "" }] of Object.entries(
+      options ?? {},
+    )) {
+      const flags = short ? `-${short}, --${name}` : `--${name}`;
+      lines.push(`  ${flags}`.padEnd(24) + description);
     }
+    lines.push(`  -h, --help`.padEnd(24) + "Show this help", "");
 
     if (description) {
       lines.push("Description:", description, "");
@@ -106,18 +136,36 @@ export function usage(commands, commandName) {
       "s3cab — S3 Content Addressable Backup",
       "",
       "Usage: s3cab <command> [options] [args]",
-      "",
-      "Commands:",
-      ...Object.entries(commands).map(
-        ([name, { summary, planned }]) =>
-          `  ${name}`.padEnd(nameColumn) +
-          summary +
-          (planned ? " (not yet available)" : ""),
-      ),
+    );
+
+    // Commands render under their registry `group` heading (day-to-day groups
+    // first, plumbing last — the registry's insertion order is the display
+    // order). A group sticks until the next command that sets one, so the
+    // registry only labels the first command of each section; a registry with
+    // no groups at all renders one flat "Commands" list.
+    /** @type {string | undefined} */
+    let group;
+    for (const [name, command] of Object.entries(commands)) {
+      const heading = command.group ?? group ?? "Commands";
+      if (heading !== group) {
+        lines.push("", `${heading}:`);
+        group = heading;
+      }
+      lines.push(
+        `  ${name}`.padEnd(nameColumn) +
+          command.summary +
+          (command.planned ? " (not yet available)" : ""),
+      );
+    }
+
+    lines.push(
       "",
       "Run 's3cab <command> --help' for a command's options.",
-      "Run 's3cab help auth' for how AWS credentials are resolved.",
+      `Run 's3cab help <topic>' for a guide (topics: ${Object.keys(helpTopics).join(", ")}).`,
       "Run 's3cab --version' to print the version.",
+      "Set the S3CAB_DEBUG environment variable for verbose debug output.",
+      "",
+      "Full documentation: https://github.com/allens/s3cab",
     );
   }
 
