@@ -1,14 +1,34 @@
-The syntax for the exclude file:
+# Exclude rules
+
+Files and folders to skip are listed in `<dir>/.s3cab/exclude.txt`, one glob
+pattern per line. Lines starting with `#` are comments; blank lines are ignored.
+(The `.s3cab/` folder itself is always skipped — it needs no rule.)
 
 ## Globbing
 
-The path _separator_ is always the `/` character.
-A _segment_ is everything that comes between the two separators.
+Patterns are matched against the path of each file or directory, relative to the
+snapshot directory. Write `/` between folders; on Windows `\` works too. A
+_segment_ is one folder or file name (the text between two separators).
 
-Single asterix `*` matches one or more characters within one segment.
+| Token  | Matches                                            |
+| ------ | -------------------------------------------------- |
+| `*`    | one or more characters, within a single segment    |
+| `**/`  | zero or more whole segments                        |
+| `?`    | exactly one character                              |
 
-Double asterix `**` matches zero or more characters across multiple segments. No other chact
+A pattern ending in `/` matches a directory (and everything inside it, since the
+walker doesn't descend into an excluded directory).
 
-Example: `Test/**/*.js` will be restricted to the `Tests` directory. The glob will macth the files such as `Tests/HelloWorld.js`, `Tests/UI/HelloWorld.js`, `Tests/UI/Feature1/HelloWorld.js`
+Matching is case-insensitive on Windows and case-sensitive elsewhere.
 
-Example: `**/log.txt` will match a file named `log.txt` in any directory, including the root. The glob will match `log.txt`, `Tests/log.txt` and `Tests/UI/log.txt`
+## Examples
+
+- `Tests/**/*.js` — `.js` files anywhere under the `Tests` directory:
+  `Tests/HelloWorld.js`, `Tests/UI/HelloWorld.js`, `Tests/UI/Feature1/HelloWorld.js`.
+- `**/log.txt` — a file named `log.txt` in any directory, including the root:
+  `log.txt`, `Tests/log.txt`, `Tests/UI/log.txt`.
+- `**/node_modules/` — every `node_modules` directory, wherever it appears.
+- `build/` — the top-level `build` directory only.
+
+For a real-world example, see this repository's own
+[.s3cab/exclude.txt](../.s3cab/exclude.txt).
