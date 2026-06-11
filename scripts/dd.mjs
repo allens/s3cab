@@ -7,6 +7,10 @@ const chunkSize = 64 * 1024; // 64 KB chunks
 
 const stream = createWriteStream(filePath);
 
+/**
+ * @param {number} size
+ * @returns {Promise<void>}
+ */
 function writeRandomData(size) {
   return new Promise((resolve) => {
     const writeChunk = () => {

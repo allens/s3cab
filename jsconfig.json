@@ -21,5 +21,5 @@
       "string_decoder": ["./node_modules/@types/node/string_decoder.d.ts"]
     }
   },
-  "exclude": ["node_modules", "dist", "scripts"]
+  "exclude": ["node_modules", "dist"]
 }
