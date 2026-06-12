@@ -57,7 +57,8 @@ describe("compare", () => {
 
     // No options: latest vs the snapshot immediately before it — were the
     // baseline OLDEST instead, fileB would show as added too.
-    assert.deepStrictEqual(await compare(dir.path), {
+    const latestResult = await compare(dir.path);
+    assert.deepStrictEqual(latestResult, {
       added: ["fileC.txt"],
       moved: [],
       modified: [],
