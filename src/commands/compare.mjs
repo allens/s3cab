@@ -206,8 +206,20 @@ export function diff(previousSnapshot, currentSnapshot) {
       } else {
         // Set.difference treats the `moved` Map as set-like: its keys are the
         // moved-from paths, which is exactly what to subtract here.
-        const notMovedPaths = previousPathSetForHash.difference(moved);
-        added.set(addedPath, notMovedPaths);
+        let sameContentPaths = previousPathSetForHash.difference(moved);
+        if (sameContentPaths.size === 0) {
+          // Every previous holder of this content was claimed as a move
+          // source — point at where the content lives now instead, so a copy
+          // is never mistaken for brand-new content. (No holder can still be
+          // in `deleted` here, else this path would have claimed it as a
+          // move; the filter only narrows the type.)
+          sameContentPaths = new Set(
+            Array.from(previousPathSetForHash, (path) =>
+              moved.get(path),
+            ).filter((path) => path !== undefined),
+          );
+        }
+        added.set(addedPath, sameContentPaths);
       }
     } else {
       added.set(addedPath, new Set());

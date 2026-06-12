@@ -309,6 +309,28 @@ describe("compare", () => {
     });
   });
 
+  it("annotates a copy with the moved-to location when the original moved away", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file.A"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents1"], "file.B"),
+      new File(["contents1"], "file.C"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: ["file.C == file.B"],
+      modified: [],
+      deleted: [],
+      moved: ["file.A → file.B"],
+    });
+  });
+
   it("pairs simultaneous moves by basename", async () => {
     await using dir = await mkTmpDir();
 
