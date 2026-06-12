@@ -49,7 +49,10 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
   suggested kebab-case form (user-chosen, so teach the rule). The captured user/machine
   parts are **sanitized** automatically (lowercase; anything else → `-`; collapse runs;
   trim) — the user never typed them, so silent normalization is fine (Windows usernames
-  may contain spaces/unicode).
+  may contain spaces/unicode). A part the charset can't express at all (an all-non-Latin
+  username sanitizes to "") falls back to a **short stable hash** of the raw value, so
+  identities stay distinct in a shared bucket even when recognisability is unsalvageable
+  (settled in PR #33 review).
 - The identity is informational for recovery, not load-bearing: manifests internally
   record the identity *and* their member directories (see header), so a recoverer can
   always learn what a namespace is by opening one manifest.

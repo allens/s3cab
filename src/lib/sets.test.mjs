@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   formatSets,
   listSets,
+  namespacePart,
   readSet,
   resolveSet,
   sanitizeNamePart,
@@ -55,6 +56,20 @@ describe("sanitizeNamePart", () => {
   it("trims leading/trailing hyphens (and what unicode maps to)", () => {
     assert.equal(sanitizeNamePart("-photos-"), "photos");
     assert.equal(sanitizeNamePart("über_user"), "ber-user");
+  });
+});
+
+describe("namespacePart", () => {
+  it("is the sanitized form when the charset can express the name", () => {
+    assert.equal(namespacePart("Allen Shiels"), "allen-shiels");
+  });
+
+  it("falls back to a short stable hash when sanitization empties the name", () => {
+    const part = namespacePart("田中");
+
+    assert.match(part, /^[0-9a-f]{6}$/);
+    assert.equal(namespacePart("田中"), part); // stable across calls
+    assert.notEqual(namespacePart("佐藤"), part); // distinct identities stay distinct
   });
 });
 
@@ -145,6 +160,24 @@ describe("set store", () => {
     assert.match(env, /^# my note$/m);
     assert.match(env, /^AWS_REGION=eu-west-1$/m);
     assert.match(env, /^S3CAB_BUCKET=my-bucket$/m);
+  });
+
+  it("env updates rewrite every duplicate of a key (parseEnv is last-wins)", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "old" });
+
+    // A hand-made duplicate: parseEnv resolves to the LAST line, so an update
+    // touching only the first occurrence would leave the old value live.
+    const envPath = setEnvPath("photos");
+    writeFileSync(
+      envPath,
+      readFileSync(envPath, "utf8") + "S3CAB_BUCKET=old-duplicate\n",
+    );
+
+    const updated = writeSet("photos", { bucket: "new" });
+
+    assert.equal(updated.bucket, "new");
   });
 
   it("readSet throws for an unknown set", async () => {

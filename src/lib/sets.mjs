@@ -5,6 +5,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
+import { hash } from "node:crypto";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { parseEnv } from "node:util";
@@ -74,6 +75,18 @@ export const sanitizeNamePart = (part) =>
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, "-")
     .replaceAll(/^-+|-+$/g, "");
+
+/**
+ * A captured identity part for the namespace: the sanitized form, or — when
+ * the charset can't express the name at all (e.g. an all-non-Latin username,
+ * which sanitizes to "") — a short stable hash of the raw value. The hash
+ * keeps identities *distinct* in a shared bucket even when recognisability
+ * is unsalvageable; a constant fallback would collide every such user.
+ * (Settled in PR #33 review.)
+ * @param {string} part
+ */
+export const namespacePart = (part) =>
+  sanitizeNamePart(part) || hash("sha256", part, "hex").slice(0, 6);
 
 /**
  * Validate a user-chosen set name against the canonical charset — a name is
@@ -208,8 +221,8 @@ export function writeSet(name, { dirs, bucket } = {}) {
   /** @type {Record<string, string>} */
   const updates = {};
   if (creating) {
-    const user = sanitizeNamePart(userInfo().username);
-    const machine = sanitizeNamePart(hostname());
+    const user = namespacePart(userInfo().username);
+    const machine = namespacePart(hostname());
     updates.S3CAB_NAMESPACE = `${user}@${machine}/${name}`;
   }
   if (bucket) updates.S3CAB_BUCKET = bucket;
@@ -230,9 +243,11 @@ function updateEnvFile(path, updates) {
   let text = readTextFile(path) ?? "";
   for (const [key, value] of Object.entries(updates)) {
     const line = `${key}=${value}`;
-    const existing = new RegExp(`^${key}=.*$`, "m");
+    // Global: replace EVERY occurrence — parseEnv is last-wins, so updating
+    // only the first of hand-made duplicates would leave the old value live.
+    const existing = new RegExp(`^${key}=.*$`, "gm");
     if (existing.test(text)) {
-      text = text.replace(existing, line);
+      text = text.replaceAll(existing, line);
     } else {
       if (text && !text.endsWith("\n")) text += "\n";
       text += line + "\n";
