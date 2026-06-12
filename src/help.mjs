@@ -24,11 +24,12 @@ s3cab resolves credentials in this order:
 1. s3cab loads its own env files first, if present. These set AWS_*
    variables (a profile, region, endpoint, or keys) and a default
    S3CAB_BUCKET. Highest precedence first (a file always beats the shell):
-     <dir>/.s3cab/env       per-backup-folder - NOT yet active (coming with
-                            the setup/backup commands)
-     ~/.s3cab/env.<bucket>  per-bucket - used by commands that take a bucket
-                            (e.g. upload, objects)
-     ~/.s3cab/env           per-user defaults - the base layer under the others
+     ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + overrides
+                              (written by 's3cab setup'; applies as the
+                              set-based commands arrive with backup)
+     ~/.s3cab/env.<bucket>    per-bucket - used by commands that take a bucket
+                              (e.g. upload, objects)
+     ~/.s3cab/env             per-user defaults - the base layer under the others
    s3cab does NOT read a .env from the current directory.
 
 2. s3cab then uses the standard AWS SDK credential chain.

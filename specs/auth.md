@@ -47,12 +47,19 @@ The layers, **highest precedence first** (a file value always wins over the shel
 
 | Layer | Path | Purpose |
 | --- | --- | --- |
-| dir | `<dir>/.s3cab/env` | per-backup-folder: which bucket this folder backs up to (`S3CAB_BUCKET`) + any local override |
+| set | `~/.s3cab/sets/<set>/env` | per-backup-set: which bucket this set backs up to (`S3CAB_BUCKET`, written by `setup`), the pinned identity namespace + any per-set override |
 | bucket | `~/.s3cab/env.<bucket>` | per-bucket: how to authenticate to that bucket (`AWS_PROFILE` / region / endpoint / keys) — the bucket is the natural auth boundary |
 | user | `~/.s3cab/env` | per-user defaults |
 | shell | `process.env` | the real environment (lowest) |
 
-The per-bucket file cannot name its own bucket (that would be circular): the bucket is resolved from an explicit name (e.g. a CLI `<bucket>` arg) or the dir/user/shell layers first, then `~/.s3cab/env.<bucket>` is loaded. Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so the per-key precedence above is enforced by s3cab rather than by any one loader's fixed override semantics.
+The per-bucket file cannot name its own bucket (that would be circular): the bucket is resolved from an explicit name (e.g. a CLI `<bucket>` arg) or the set/user/shell layers first, then `~/.s3cab/env.<bucket>` is loaded. Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so the per-key precedence above is enforced by s3cab rather than by any one loader's fixed override semantics.
+
+> **History:** the top layer was originally specified as a per-backup-folder file,
+> `<dir>/.s3cab/env`. It was implemented and tested but never wired to a command, and
+> the backup-set model ([backup.md](backup.md), 2026-06) replaced it with the per-set
+> layer above before it ever shipped — same layering machinery, only the path changed.
+> Today's commands still don't pass a set scope (`objects`/`upload` use the explicit
+> bucket scope); the set layer activates as the set-first commands land.
 
 This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or a default bucket. Once loaded, those variables participate in the SDK's normal credential resolution.
 

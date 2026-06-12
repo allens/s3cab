@@ -1,8 +1,9 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { parseEnv } from "node:util";
+import { setEnvPath } from "./sets.mjs";
 
 // AWS authentication / credential resolution. This is the single source of truth
 // for *how* s3cab obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`)
@@ -25,10 +26,11 @@ import { parseEnv } from "node:util";
 // s3cab reads its own layered env files into process.env before any AWS client
 // is built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
 // profile, a custom endpoint, or a default bucket be configured per-user,
-// per-bucket, or per-backup-folder. The layers, highest precedence first:
+// per-bucket, or per-backup-set. The layers, highest precedence first:
 //
-//   dir    <dir>/.s3cab/env       per-backup-folder — which bucket this folder
-//                                  backs up to (S3CAB_BUCKET) + any local override
+//   set    ~/.s3cab/sets/<set>/env  per-backup-set — which bucket this set backs
+//                                  up to (S3CAB_BUCKET, written by `setup`), the
+//                                  pinned namespace + any per-set override
 //   bucket ~/.s3cab/env.<bucket>  per-bucket — how to authenticate to a bucket
 //                                  (AWS_PROFILE / region / endpoint / keys); the
 //                                  bucket is the natural auth boundary
@@ -39,7 +41,7 @@ import { parseEnv } from "node:util";
 // Parsed with the built-in `util.parseEnv` — no dotenv dep (#5) — so the per-key
 // precedence above is enforced by *us*, independent of any one loader's fixed
 // override semantics. The per-bucket file can't name its own bucket (circular):
-// the bucket is resolved from an explicit name or the dir/user/shell layers
+// the bucket is resolved from an explicit name or the set/user/shell layers
 // first, then its env file is loaded.
 
 /** s3cab's own config/state dir, `~/.s3cab` (never `~/.aws`, which stays user-owned). */
@@ -48,7 +50,7 @@ const userEnvPath = () => join(s3cabDir(), "env");
 /**
  * The per-bucket env file `~/.s3cab/env.<bucket>`. The bucket name must be a
  * single path segment — it is interpolated into the filename — so reject one
- * carrying a path separator: otherwise a hostile folder env's `S3CAB_BUCKET`
+ * carrying a path separator: otherwise a hostile set env's `S3CAB_BUCKET`
  * (e.g. `a/../../../etc/passwd`) could traverse out of `~/.s3cab` and make
  * `loadEnv` read an arbitrary file. `basename` uses the same platform path
  * semantics as the `join` below, so it catches exactly the separators that could
@@ -109,39 +111,39 @@ function applyEnvLayer(path, values) {
  *
  * Called with no scope it applies only the per-user layer; the per-bucket file is
  * loaded only when there is an authoritative bucket — an explicit name, or one
- * resolved from a backup dir — so a no-scope call never pulls in some default
+ * resolved from a backup set — so a no-scope call never pulls in some default
  * bucket's auth file by accident.
  *
  * @param {object} [scope]
- * @param {string} [scope.dir] - A backup directory, enabling its `<dir>/.s3cab/env`.
+ * @param {string} [scope.set] - A backup set name, enabling its `~/.s3cab/sets/<set>/env`.
  * @param {string} [scope.bucket] - A known bucket name (e.g. a CLI `<bucket>` arg),
  *   used to load `~/.s3cab/env.<bucket>` directly instead of deriving it.
  * @returns {{ bucket: string | undefined }} The bucket this scope resolves to, if any.
  */
-export function loadEnv({ dir, bucket } = {}) {
+export function loadEnv({ set, bucket } = {}) {
   const user = parseEnvFile(userEnvPath());
-  // resolve() (not join()) so the guard key is canonical/absolute even when a
-  // caller passes a relative dir — keeps the dedup robust and the comment honest.
-  const folderPath = dir ? resolve(dir, ".s3cab", "env") : undefined;
-  const folder = folderPath ? parseEnvFile(folderPath) : {};
+  // setEnvPath guards against a name carrying a path separator, so a hostile
+  // set name can't point this read outside ~/.s3cab/sets.
+  const setPath = set ? setEnvPath(set) : undefined;
+  const setLayer = setPath ? parseEnvFile(setPath) : {};
 
-  // Apply the user layer first so higher layers (bucket, then dir) overwrite it.
+  // Apply the user layer first so higher layers (bucket, then set) overwrite it.
   applyEnvLayer(userEnvPath(), user);
 
   // Resolve the operation's bucket only from authoritative signals — an explicit
-  // name or a backup dir. A bare user/shell S3CAB_BUCKET default is not enough to
+  // name or a backup set. A bare user/shell S3CAB_BUCKET default is not enough to
   // justify loading a specific bucket's auth file from a no-scope safety call.
   let resolvedBucket = bucket;
-  if (!resolvedBucket && dir) {
+  if (!resolvedBucket && set) {
     resolvedBucket =
-      folder.S3CAB_BUCKET ?? user.S3CAB_BUCKET ?? process.env.S3CAB_BUCKET;
+      setLayer.S3CAB_BUCKET ?? user.S3CAB_BUCKET ?? process.env.S3CAB_BUCKET;
   }
 
   if (resolvedBucket) {
     const path = bucketEnvPath(resolvedBucket);
     applyEnvLayer(path, parseEnvFile(path));
   }
-  if (folderPath) applyEnvLayer(folderPath, folder);
+  if (setPath) applyEnvLayer(setPath, setLayer);
 
   return { bucket: resolvedBucket };
 }
