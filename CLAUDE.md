@@ -84,7 +84,14 @@ rather than assuming it is fixed forever.
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
-8. **"Work through one by one" is a strict per-step protocol.** When the user says to work
+8. **Do not over-engineer.** A standing edict from the user (2026-06-12), the process-level
+   twin of design principle #6: build the small thing the current need justifies, and
+   generalize only when the second case actually appears — the same later-when-needed bar
+   as function extraction and module promotion. (Worked example: `isENOENT` in
+   `src/lib/error.mjs` was added once the check had four call sites, and shaped as the
+   specific predicate rather than a generic `isErrnoCode(error, code)` — no second error
+   code needed it.)
+9. **"Work through one by one" is a strict per-step protocol.** When the user says to work
    through a list one by one: (a) propose the step and ask any questions; (b) once the
    proposal is agreed, make the code changes and present the diff for review —
    *uncommitted*; (c) move to the next step only when the user has agreed to. Never commit
