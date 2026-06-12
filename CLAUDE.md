@@ -359,7 +359,13 @@ The remote layout (`objects/<sha256>` + `snapshots/` at the **bucket root**, sho
 README) is fixed by convention, *not* an arbitrary prefix within a shared bucket — a fixed,
 well-known structure is what lets a tool (or a person) find everything by convention alone
 (#2). `objects` and `upload` already follow it; the snapshot-driven `backup` that populates
-`snapshots/` is the remaining piece.
+`snapshots/` is the remaining piece. The `snapshots/` half is designed (settled 2026-06)
+in [specs/backup.md](specs/backup.md) around **backup sets** — a named list of dirs as
+the unit of snapshot/backup/restore, configured at `~/.s3cab/sets/<name>/`, identity
+`user@machine:set` pinned at creation. One bucket holds **multiple sets** (dedup shared
+via `objects/`, manifests namespaced as `snapshots/<user>@<machine>/<set>/`), with the
+manifest-last invariant and the diff-vs-latest-remote upload algorithm. Note the spec
+supersedes the current per-dir local model too (`<dir>/.s3cab/` retires when it lands).
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -373,9 +379,10 @@ non-obvious points worth pinning here:
   inherited environment, enforced by s3cab's own merge (built-in `util.parseEnv`, no
   dotenv dep) rather than any loader's fixed semantics.
 - The **dir layer (`<dir>/.s3cab/env`) exists and is tested but is not wired to any
-  command yet** — it lands with the dir-scoped commands (`setup`/`backup`/…), which will
-  call `loadEnv({ dir })` at entry, likely via a `repoConfig(dir)` helper (`setup` writes
-  the folder↔bucket link). s3cab never writes `~/.aws/*`.
+  command yet** — and per [specs/backup.md](specs/backup.md) it is now slated to become a
+  **set layer** (`~/.s3cab/sets/<name>/env`, written by `setup`) rather than ship as a
+  per-dir file; the layering machinery is the same, only the path changes. Update
+  specs/auth.md when that lands. s3cab never writes `~/.aws/*`.
 
 ---
 
@@ -510,7 +517,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **Snapshot-driven backup/restore flow not built yet.** The object-store plumbing works
+- **Snapshot-driven backup/restore flow not built yet** — its design *and* the
+  five-slice implementation plan are settled in [specs/backup.md](specs/backup.md)
+  (backup sets, set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last
+  invariant, diff-vs-latest-remote + objects-cache upload set). The object-store
+  plumbing works
   (`objects`, `upload`, via the `src/lib/s3.mjs` boundary), but the snapshot-driven `backup`,
   the remote-snapshot wiring under `snapshots/`, and the download/`restore` path don't
   exist — the read-stream/bucket ops in `s3.mjs` still have no caller (promoted ahead of
