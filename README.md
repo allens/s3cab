@@ -61,19 +61,24 @@ you are. Run any command with `--help` to see its options. (Two cloud plumbing c
 
 ### Coming next
 
-Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool.
-These commands are already part of the interface but **not yet functional** (they exit
-with a "not yet implemented" message):
+Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool,
+built around **backup sets** — you name a set (say, `photos`), tell s3cab which folders
+belong to it, and from then on every command treats those folders as one unit. Commands
+take the set name, and when you have only one set you can leave it out entirely. These
+commands are already part of the interface but **not yet functional** (they exit with a
+"not yet implemented" message; today's stubs still show the older per-folder arguments):
 
-| Command                        | Will do                                                          |
-| ------------------------------ | --------------------------------------------------------------- |
-| `s3cab setup <dir> <bucket>`   | Set up a cloud backup destination for a directory.              |
-| `s3cab backup <dir>`           | Upload a snapshot, and the files it references, to the cloud.   |
-| `s3cab restore <dir> [paths…]` | Restore files from a backup.                                    |
-| `s3cab status <dir>`           | Show what is backed up and what a backup would upload.          |
-| `s3cab verify <dir>`           | Check that a backup is complete and undamaged.                  |
+| Command                          | Will do                                                                |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `s3cab setup <set> <folder>…`    | Create a backup set from one or more folders (`--bucket` adds cloud).  |
+| `s3cab sets`                     | List your backup sets, their folders, and where they back up to.       |
+| `s3cab backup [<set>]`           | Take a fresh snapshot and upload it, and the files it references.      |
+| `s3cab restore [<set>] [paths…]` | Restore files from a backup.                                           |
+| `s3cab status [<set>]`           | Show what is backed up and what a backup would upload.                 |
+| `s3cab verify [<set>]`           | Check that a backup is complete and undamaged.                         |
 
-(`list` and `compare` will also gain a `--remote` flag to work against the cloud copy.)
+(The local commands — `snapshot`, `list`, `compare`, `tree` — will move to backup sets
+too, and `list`/`compare` gain a `--remote` flag to work against the cloud copy.)
 
 ### Cloud repositories
 
@@ -83,9 +88,16 @@ folder inside a shared one. Inside, the structure is fixed and well-known, so an
 
 ```
 s3://my-backup-bucket/
-  objects/<sha256>             # your files, each stored once under its content hash
-  snapshots/…                  # the manifests that say which objects make up each snapshot
+  objects/<sha256>                       # your files, each stored once under their content hash
+  snapshots/<user>@<machine>/<set>/…     # the manifests that say which objects make up each backup
 ```
+
+One bucket can hold backups from **several people and machines** — they all share
+`objects/` (so duplicate content is still stored once across everything in the bucket),
+while each backup set keeps its own manifests under a prefix like
+`snapshots/allen@allen-pc/photos/`. A manifest only ever appears in `snapshots/` after
+every file it references is safely in `objects/`, so any manifest you find is complete
+and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
 look up its hash in a snapshot and download `objects/<that-hash>`.
