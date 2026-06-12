@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { parseEnv } from "node:util";
+import { isENOENT } from "./error.mjs";
 import { setEnvPath } from "./sets.mjs";
 
 // AWS authentication / credential resolution. This is the single source of truth
@@ -76,9 +77,7 @@ function parseEnvFile(path) {
   try {
     return parseEnv(readFileSync(path, "utf8"));
   } catch (error) {
-    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
-      return {};
-    }
+    if (isENOENT(error)) return {};
     throw error;
   }
 }

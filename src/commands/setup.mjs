@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { ParseArgsError, requireArg } from "../lib/error.mjs";
+import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { listSets, validateSetName, writeSet } from "../lib/sets.mjs";
 
 /**
@@ -36,7 +36,7 @@ export function setup(name, folders = [], options = {}) {
     try {
       real = realpathSync.native(folder);
     } catch (error) {
-      if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
+      if (isENOENT(error)) {
         throw new Error(`Folder not found: ${folder}`, { cause: error });
       }
       throw error;

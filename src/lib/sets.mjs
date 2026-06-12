@@ -8,6 +8,7 @@ import {
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { parseEnv } from "node:util";
+import { isENOENT } from "./error.mjs";
 
 // The backup-set store (specs/backup.md): one folder per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
@@ -54,9 +55,7 @@ function readTextFile(path) {
   try {
     return readFileSync(path, "utf8");
   } catch (error) {
-    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
-      return undefined;
-    }
+    if (isENOENT(error)) return undefined;
     throw error;
   }
 }
@@ -100,9 +99,7 @@ export function listSets() {
   try {
     entries = readdirSync(setsRoot(), { withFileTypes: true });
   } catch (error) {
-    if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") {
-      return [];
-    }
+    if (isENOENT(error)) return [];
     throw error;
   }
   return entries

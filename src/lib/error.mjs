@@ -38,6 +38,15 @@ export function isUsageError(error) {
 }
 
 /**
+ * Whether an error is the filesystem "no such file or directory" error — the
+ * common "treat a missing file as absent, rethrow everything else" guard.
+ * Keeps the unknown→ErrnoException cast in one place.
+ * @param {unknown} error
+ */
+export const isENOENT = (error) =>
+  /** @type {NodeJS.ErrnoException} */ (error)?.code === "ENOENT";
+
+/**
  * Throw the standard "not built yet" error for a feature awaiting the S3 upload
  * milestone. Used by the stub commands in the registry and by built commands'
  * unimplemented branches (e.g. `--remote`), so the message stays in one place.
