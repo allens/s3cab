@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { createReadStream, existsSync, mkdirSync } from "node:fs";
-import { open, rename, writeFile } from "node:fs/promises";
+import { open, rename } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
@@ -93,25 +93,30 @@ export function createSnapshotDir(baseDir) {
 }
 
 /**
- * Read a snapshot from snapshot directory
+ * Read a snapshot from snapshot directory.
  * @param {string} dir - Snapshot directory
- * @param {string} [name] - Snapshot name
+ * @param {string} name - Snapshot name
  * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ * @throws When the named snapshot does not exist — never silently returns an
+ *   empty lookup, which a caller could mistake for an empty snapshot.
  */
 export async function readSnapshot(dir, name) {
   assert(dir, "No directory specified");
-  if (name) {
-    let snapshotPath = join(resolveSnapshotDir(dir), name);
+  assert(name, "No snapshot name specified");
+  const snapshotPath = join(resolveSnapshotDir(dir), name);
 
-    if (existsSync(snapshotPath)) {
-      return readSnapshotFile(snapshotPath);
-    } else if (existsSync(snapshotPath + ".tsv")) {
-      return readSnapshotFile(snapshotPath + ".tsv");
-    } else if (existsSync(snapshotPath + ".tsv.zst")) {
-      return readSnapshotFile(snapshotPath + ".tsv.zst");
+  for (const path of [
+    snapshotPath,
+    snapshotPath + ".tsv",
+    snapshotPath + ".tsv.zst",
+  ]) {
+    if (existsSync(path)) {
+      return readSnapshotFile(path);
     }
   }
-  return new Map();
+  throw new Error(
+    `Snapshot '${name}' not found in '${resolveSnapshotDir(dir)}'`,
+  );
 }
 
 /**
@@ -187,6 +192,8 @@ export function formatSnapshotLine(col1, col2, col3, col4) {
   return `${col1}\t${col2}\t${col3}\t${col4}\n`;
 }
 /**
+ * Write a snapshot of the given files, in the same `.tsv.zst` form real
+ * snapshots take (so `list` sees it when the name is datestamped).
  * @param {string} dir
  * @param {string} name
  * @param {Array<string|File>} files
@@ -198,7 +205,7 @@ export async function writeSnapshot(dir, name, files) {
     const path = typeof file === "string" ? file : file.name;
     snapshot.set(resolve(dir, path), await prop(file));
   }
-  const snapshotPath = join(createSnapshotDir(dir), name + ".tsv");
-  await writeFile(snapshotPath, stringifySnapshot(snapshot));
-  return snapshotPath;
+  return withSnapshotFile(dir, name, (stream) =>
+    pipeline(stringifySnapshot(snapshot), stream),
+  );
 }

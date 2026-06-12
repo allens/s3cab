@@ -42,7 +42,7 @@ export function list(dir = ".", options = {}) {
     .map((dirent) => dirent.name);
 
   const snapshotNamesDescending = fileNames
-    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv.zst$/.test(name))
+    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.zst$/.test(name))
     .map((name) => basename(name, ".tsv.zst"))
     .sort()
     .reverse();

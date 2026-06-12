@@ -50,7 +50,7 @@ today:
 | ---------------------- | --------------------------------------------------------------------------------- |
 | `s3cab snapshot <dir>` | Take a snapshot of a directory, then show what changed since the previous one.     |
 | `s3cab list <dir>`     | List the snapshots taken for a directory.                                          |
-| `s3cab compare <dir>`  | Show what changed between two snapshots (added / moved / renamed / modified / deleted). |
+| `s3cab compare <dir>`  | Show what changed between two snapshots (added / moved / modified / deleted).      |
 | `s3cab tree <dir>`     | List the files in a directory, honouring exclude rules.                            |
 | `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
 
@@ -140,22 +140,33 @@ the session up automatically through the standard chain.
 Generating new snapshot: 2025-11-11T0830
 
 # ...add, move, or edit some files, then snapshot again —
-# s3cab shows what changed since last time:
+# s3cab reports what changed since last time (as JSON):
 > s3cab snapshot C:\Users\me\Photos
 Generating new snapshot: 2025-11-12T0915
-Added:
-  2025\new.jpg
-Moved:
-  2024\IMG_001.jpg →→ 2024\sorted\IMG_001.jpg
+{
+  "added": [
+    "2025\\new.jpg"
+  ],
+  "moved": [
+    "2024\\IMG_001.jpg →→ 2024\\sorted\\IMG_001.jpg"
+  ],
+  "modified": [],
+  "deleted": []
+}
 
 # List every snapshot you've taken:
 > s3cab list C:\Users\me\Photos
-2025-11-12T0915
-2025-11-11T0830
+[
+  "2025-11-12T0915",
+  "2025-11-11T0830"
+]
 
-# Compare two snapshots (defaults to the latest two; --since picks an older one):
+# Compare any two snapshots (defaults to the latest two; --since picks an older one):
 > s3cab compare C:\Users\me\Photos --since 2025-11-11T0830
 ```
+
+How to read the report — the four categories and the `→→` / `==` notations — is
+covered in [doc/compare.md](doc/compare.md).
 
 ## How it works
 

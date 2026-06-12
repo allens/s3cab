@@ -62,6 +62,10 @@ export const commands = {
   },
   compare: {
     summary: "Show what changed between two snapshots",
+    description: `The report compares file content (SHA-256 hashes), never timestamps.
+'old.txt → new.txt' is a rename, '→→' a move to another folder, and
+'new.txt == old.txt' a copy of content that already existed.
+Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
     args: {
       "[<dir>]":
         "The directory whose snapshots to compare (default: current directory)",

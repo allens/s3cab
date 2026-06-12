@@ -10,9 +10,10 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
 - **This directory holds cross-cutting tests and shared data:**
   - [e2e.mjs](e2e.mjs) — end-to-end CLI behaviour; spawns `node src/s3cab.mjs` as
     a subprocess.
-  - [fixtures/](fixtures/) — input trees and committed snapshot manifests used
-    by the tests. (Note: `/.s3cab/snapshots/` is gitignored at the repo root only,
-    so fixture snapshots under `fixtures/**/.s3cab/snapshots/` stay tracked.)
+  - [fixtures/](fixtures/) — input trees used by the tests. (Note:
+    `/.s3cab/snapshots/` is gitignored at the repo root only, so a snapshot
+    manifest can be committed as a fixture under `fixtures/**/.s3cab/snapshots/`
+    if a test ever needs one.)
 
 Node's `node:test` runner executes **every** `*.{js,mjs,cjs}` file under a `test/`
 directory, so non-test helpers and scratch scripts must not live here — shared

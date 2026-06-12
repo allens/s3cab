@@ -76,13 +76,22 @@ rather than assuming it is fixed forever.
    prefer a _separate commit_ per logical change within the PR, as the `chore:` commits do.)
 6. **Don't delete commented-out code or TODO notes as "dead code" without asking.** They may
    be the user's parked reminders of an unresolved question, not cruft — e.g. the
-   commented-out SIGINT handler in `src/s3cab.mjs` and the `objectPaths.delete` note in
-   `src/commands/compare.mjs` are kept on purpose. Flag them as candidates instead.
+   commented-out SIGINT handler in `src/s3cab.mjs` is kept on purpose. Flag them as
+   candidates instead. (The `objectPaths.delete` note in `compare.mjs` was such a parker
+   until it was analysed and resolved, on the user's say-so, in the 2026-06 compare pass.)
 7. **Always use the Bash tool, not PowerShell.** Bash is available even on Windows and the
    project's permission allowlist is Bash-based. The system prompt identifies PowerShell as
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
+8. **"Work through one by one" is a strict per-step protocol.** When the user says to work
+   through a list one by one: (a) propose the step and ask any questions; (b) once the
+   proposal is agreed, make the code changes and present the diff for review —
+   *uncommitted*; (c) move to the next step only when the user has agreed to. Never commit
+   a step sight-unseen, never start the next step unasked, and don't batch the per-step
+   decisions into one up-front question round. The user will say explicitly when firing
+   ahead without asking is wanted. (Recorded 2026-06-12 after three escalating corrections
+   in one session.)
 
 ---
 
@@ -482,8 +491,9 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   builtins, which would otherwise shadow them at type-resolution time and drag their
   untyped CJS internals into the check (see the comment in jsconfig.json).
 - **`.gitignore` ignores the repo's own snapshot output with a root-anchored
-  `/.s3cab/snapshots/`**, so committed test fixtures under
-  `test/fixtures/**/.s3cab/snapshots/` stay tracked. Don't broaden it to `**/.s3cab/`.
+  `/.s3cab/snapshots/`**, so test fixtures under `test/fixtures/**/.s3cab/snapshots/`
+  can be committed and stay tracked (none exist right now). Don't broaden it to
+  `**/.s3cab/`.
 - **The repo dogfoods itself:** the root [.s3cab/exclude.txt](.s3cab/exclude.txt) is a real
   exclude config, so `s3cab tree .` / `snapshot .` works on the repo itself.
 - **Test layout convention:** unit tests are **co-located** with their source as
@@ -532,17 +542,24 @@ Pre-release housekeeping and open decisions surfaced from the code:
   as a crude in-progress lock); a proper lock file is a `TODO` in
   [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see #4 above).
-- **Stable doc URLs before release.** Help topics and the help footer print GitHub URLs
-  (the placement doctrine's "link to the fuller online guide"); a shipped binary freezes
-  the URLs it prints forever. Before release, stand up the planned proper website (or
+- **Stable doc URLs before release.** Help topics, the help footer, and the `compare`
+  command description print GitHub URLs (the placement doctrine's "link to the fuller
+  online guide"); a shipped binary freezes the URLs it prints forever. Before release, stand up the planned proper website (or
   commit to permanent GitHub paths) and point the help text at stable addresses.
 - **SIGINT handling:** the commented-out handler at the bottom of
   [src/s3cab.mjs](src/s3cab.mjs) is a parked reminder (kept on purpose — convention 6). It
   was disabled for a reason since forgotten; work out whether the CLI needs one, then wire
   it up or remove it.
-- **Revisit `compare`/`diff` in detail.** The classification logic works and is
-  well-tested, but it's due a careful pass — including the parked
-  `objectPaths.delete(path)` question commented inside `diff()`.
+- **`compare` errors category** (follow-up to the 2026-06 hardening pass, PR #31 — the
+  careful `compare`/`diff` pass itself is done: snapshot-name resolution errors loudly
+  instead of fabricating empty diffs, and the classification rules are documented in
+  `diff()`'s doc comment + [doc/compare.md](doc/compare.md), each pinned by a test; the
+  parked `objectPaths.delete` question was resolved — no lookup cleanup needed). The
+  remaining caveat: files that fail hashing are stored as `#`-comment lines and report as
+  *deleted*. The honest fix — an explicit `#ERROR` marker in the snapshot format, parsing
+  errors back out on read, new classification rules, and an `errors` field on
+  `CompareResult` — is a deliberate format/contract change for its own PR, launched from
+  the pinned tests.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
