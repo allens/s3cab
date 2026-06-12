@@ -492,15 +492,17 @@ describe("compare", () => {
       /not in the snapshot list/,
     );
 
-    assert.deepStrictEqual(
-      await compare(dir.path, { since: PREVIOUS, until: "debug" }),
-      {
-        added: ["file2.txt"],
-        moved: [],
-        modified: [],
-        deleted: [],
-      },
-    );
+    const result = await compare(dir.path, {
+      since: PREVIOUS,
+      until: "debug",
+    });
+
+    assert.deepStrictEqual(result, {
+      added: ["file2.txt"],
+      moved: [],
+      modified: [],
+      deleted: [],
+    });
   });
 
   it("accepts full snapshot filenames", async () => {
