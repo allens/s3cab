@@ -67,7 +67,8 @@ describe("compare", () => {
 
     // Explicit until: the default baseline is *its* predecessor, not the
     // latest snapshot (the step-2 inversion bug) and not an empty baseline.
-    assert.deepStrictEqual(await compare(dir.path, { until: PREVIOUS }), {
+    const previousResult = await compare(dir.path, { until: PREVIOUS });
+    assert.deepStrictEqual(previousResult, {
       added: ["fileB.txt"],
       moved: [],
       modified: [],
