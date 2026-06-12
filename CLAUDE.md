@@ -491,8 +491,9 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   builtins, which would otherwise shadow them at type-resolution time and drag their
   untyped CJS internals into the check (see the comment in jsconfig.json).
 - **`.gitignore` ignores the repo's own snapshot output with a root-anchored
-  `/.s3cab/snapshots/`**, so committed test fixtures under
-  `test/fixtures/**/.s3cab/snapshots/` stay tracked. Don't broaden it to `**/.s3cab/`.
+  `/.s3cab/snapshots/`**, so test fixtures under `test/fixtures/**/.s3cab/snapshots/`
+  can be committed and stay tracked (none exist right now). Don't broaden it to
+  `**/.s3cab/`.
 - **The repo dogfoods itself:** the root [.s3cab/exclude.txt](.s3cab/exclude.txt) is a real
   exclude config, so `s3cab tree .` / `snapshot .` works on the repo itself.
 - **Test layout convention:** unit tests are **co-located** with their source as
