@@ -88,8 +88,8 @@ folder inside a shared one. Inside, the structure is fixed and well-known, so an
 
 ```
 s3://my-backup-bucket/
-  objects/<sha256>                       # your files, each stored once under their content hash
-  snapshots/<user>@<machine>/<set>/…     # the manifests that say which objects make up each backup
+  objects/<sha256>                       # your files, each stored once under its content hash
+  snapshots/<user>@<machine>/<set>/…     # the manifests that say which objects make up each snapshot
 ```
 
 One bucket can hold backups from **several people and machines** — they all share
