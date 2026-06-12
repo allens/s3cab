@@ -98,6 +98,32 @@ describe("compare", () => {
     });
   });
 
+  it("shows swapped contents as two modifications", async () => {
+    await using dir = await mkTmpDir();
+
+    // Both paths persist, so neither can be a move source (only deleted
+    // paths can) — two files trading hashes are just two modifications,
+    // never an A→B/B→A cross-move of paths that still exist.
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file.A"),
+      new File(["contents2"], "file.B"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents2"], "file.A"),
+      new File(["contents1"], "file.B"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      moved: [],
+      modified: ["file.A", "file.B"],
+      deleted: [],
+    });
+  });
+
   it("shows deleted file", async () => {
     await using dir = await mkTmpDir();
 
