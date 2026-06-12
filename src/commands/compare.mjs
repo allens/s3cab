@@ -138,6 +138,27 @@ function getPathsByHash(snapshotLookup) {
 
 /**
  * Diff two snapshots. Neither input is modified.
+ *
+ * Classification rules (each pinned by a test in compare.test.mjs; the
+ * user-facing guide is doc/compare.md):
+ * - Same path in both snapshots → `modified` when the hash differs; silently
+ *   unchanged when it matches. The hash is the only signal — size/mtime are
+ *   ignored, so a touch never reports as a change.
+ * - Path only in the previous snapshot → `deleted`, unless claimed as a move
+ *   source below.
+ * - Path only in the current snapshot → `moved` when a *deleted* path with
+ *   the same hash exists, otherwise `added`. Move pairing prefers same
+ *   basename, then same parent directory, then any candidate (greedy — see
+ *   the comment at the pairing).
+ * - Only deleted paths can be move sources: rotation/copy-then-edit reports
+ *   as modified plus an annotated copy, and swapped contents report as two
+ *   modifications — never as moves of paths that still exist.
+ * - `added` entries carry the previous-snapshot paths that held the same
+ *   content; when all of those were claimed as move sources, the moved-to
+ *   locations are reported instead.
+ * - Files that failed hashing are stored as #comment lines, invisible here:
+ *   an unreadable file reports as `deleted` (an explicit errors category is
+ *   a planned follow-up — see CLAUDE.md "Known gaps").
  * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} previousSnapshot - Previous snapshot lookup
  * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} currentSnapshot - Current snapshot
  * @returns {DiffResult} Diff results
