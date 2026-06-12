@@ -541,9 +541,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
   as a crude in-progress lock); a proper lock file is a `TODO` in
   [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see #4 above).
-- **Stable doc URLs before release.** Help topics and the help footer print GitHub URLs
-  (the placement doctrine's "link to the fuller online guide"); a shipped binary freezes
-  the URLs it prints forever. Before release, stand up the planned proper website (or
+- **Stable doc URLs before release.** Help topics, the help footer, and the `compare`
+  command description print GitHub URLs (the placement doctrine's "link to the fuller
+  online guide"); a shipped binary freezes the URLs it prints forever. Before release, stand up the planned proper website (or
   commit to permanent GitHub paths) and point the help text at stable addresses.
 - **SIGINT handling:** the commented-out handler at the bottom of
   [src/s3cab.mjs](src/s3cab.mjs) is a parked reminder (kept on purpose — convention 6). It
