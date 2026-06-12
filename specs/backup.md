@@ -2,10 +2,12 @@
 
 ## Status
 
-Designed (2026-06-12), **not yet implemented**. The registry stubs (`backup`, `setup`,
-`verify`, `status`) and the `objects`/`upload` plumbing exist; the `objects/<sha256>`
-half of the remote layout is already live. Everything else here — the backup-set model
-and the `snapshots/` half — is target.
+Designed (2026-06-12), **implementation in progress**. Slice 1 of the plan below is
+built: the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env layer in
+auth. The `objects`/`upload` plumbing and the `objects/<sha256>` half of the remote
+layout were already live. Everything else here — the local engine's move onto sets
+(slice 2), `backup`/`restore`/`status`/`verify` (still registry stubs), and the
+`snapshots/` half — is target.
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded

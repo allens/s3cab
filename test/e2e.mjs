@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -44,6 +44,20 @@ function runExe(...args) {
   return spawnSync(EXE, args, { encoding: "utf8" });
 }
 
+/**
+ * Run the s3cab CLI with homedir() pointed at a temp home (USERPROFILE on
+ * Windows, HOME on POSIX — set both), so set-store commands can't touch the
+ * real `~/.s3cab`.
+ * @param {string} home
+ * @param {...string} args
+ */
+function runWithHome(home, ...args) {
+  return spawnSync(process.execPath, [CLI, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, USERPROFILE: home },
+  });
+}
+
 describe("cli (e2e)", () => {
   it("tree lists the files in a directory", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
@@ -55,6 +69,43 @@ describe("cli (e2e)", () => {
     assert.strictEqual(status, 0);
     assert.match(stdout, /alpha\.txt/);
     assert.match(stdout, /beta\.txt/);
+  });
+
+  it("setup → sets round-trip: create a backup set, then list it", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const photos = join(dir.path, "photos");
+    mkdirSync(home);
+    mkdirSync(photos);
+
+    const created = runWithHome(home, "setup", "photos", photos);
+
+    assert.strictEqual(created.status, 0, created.stderr);
+    const set = JSON.parse(created.stdout);
+    assert.strictEqual(set.name, "photos");
+    assert.match(String(set.namespace), /^[a-z0-9-]+@[a-z0-9-]+\/photos$/);
+
+    const listed = runWithHome(home, "sets");
+
+    assert.strictEqual(listed.status, 0, listed.stderr);
+    assert.match(
+      listed.stdout,
+      /photos\s+\(no bucket — local only\)\s+\(1 folder\)/,
+    );
+  });
+
+  it("setup rejects an invalid set name with the rule and a suggestion", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const photos = join(dir.path, "photos");
+    mkdirSync(home);
+    mkdirSync(photos);
+
+    const { status, stderr } = runWithHome(home, "setup", "My Photos", photos);
+
+    assert.strictEqual(status, 1);
+    assert.match(stderr, /lowercase letters, digits, and hyphens/);
+    assert.match(stderr, /Try: my-photos/);
   });
 
   it("exits 127 on an unknown command", () => {
