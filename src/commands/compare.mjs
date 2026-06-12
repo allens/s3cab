@@ -137,7 +137,7 @@ function getPathsByHash(snapshotLookup) {
 }
 
 /**
- * Diff two snapshots.
+ * Diff two snapshots. Neither input is modified.
  * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} previousSnapshot - Previous snapshot lookup
  * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} currentSnapshot - Current snapshot
  * @returns {DiffResult} Diff results
@@ -157,27 +157,28 @@ export function diff(previousSnapshot, currentSnapshot) {
 
   const previousPathsByHash = getPathsByHash(previousSnapshot);
 
-  previousPathsByHash.forEach((pathSet, hash) => {
-    pathSet.forEach((path) => {
-      const currentProps = currentSnapshot.get(path);
-      if (currentProps) {
-        currentSnapshot.delete(path);
-        // If the path from the previous snapshot exists in the current snapshot and the hash is different, it is modified
-        if (currentProps.hash !== hash) {
-          modified.add(path);
-        } else {
-          // nominally unchanged but we assume this and don't do anything with it
-        }
+  // Paths only in the current snapshot; both-side paths are settled first.
+  const currentOnly = new Map(currentSnapshot);
+
+  previousSnapshot.forEach(({ hash }, path) => {
+    const currentProps = currentOnly.get(path);
+    if (currentProps) {
+      currentOnly.delete(path);
+      // If the path from the previous snapshot exists in the current snapshot and the hash is different, it is modified
+      if (currentProps.hash !== hash) {
+        modified.add(path);
       } else {
-        // If the path from the previous snapshot does NOT exist in the current snapshot, it is deleted or possibly moved
-        deleted.add(path);
+        // nominally unchanged but we assume this and don't do anything with it
       }
-    });
+    } else {
+      // If the path from the previous snapshot does NOT exist in the current snapshot, it is deleted or possibly moved
+      deleted.add(path);
+    }
   });
 
-  // Now current lookup should only have new paths
-  // We just need to work out of they are really new, moved, renamed
-  for (const [addedPath, { hash }] of currentSnapshot) {
+  // Now currentOnly holds only new paths
+  // We just need to work out if they are really new, moved, renamed
+  for (const [addedPath, { hash }] of currentOnly) {
     const previousPathSetForHash = previousPathsByHash.get(hash);
 
     if (previousPathSetForHash) {
