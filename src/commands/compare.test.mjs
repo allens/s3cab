@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
-import { writeSnapshot } from "../lib/snapshot-file.mjs";
+import {
+  stringifySnapshot,
+  withSnapshotFile,
+  writeSnapshot,
+} from "../lib/snapshot-file.mjs";
 import { compare } from "./compare.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -382,6 +387,43 @@ describe("compare", () => {
         `dir1${sep}old.txt → dir1${sep}new.txt`,
         `dir2${sep}old.txt → dir2${sep}new.txt`,
       ],
+    });
+  });
+
+  it("treats a file that failed hashing as deleted", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt"),
+    ]);
+
+    // A file that errors during snapshot (e.g. permission denied) is written
+    // as a #comment line — exactly what the snapshot pipeline produces for
+    // an unreadable file — and the snapshot reader skips comments. So the
+    // path is invisible to compare and reports as deleted even though the
+    // file is still on disk. Documented caveat; revisit when backup/restore
+    // lands.
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [
+              resolve(dir.path, "file1.txt"),
+              new Error("EACCES: permission denied"),
+            ],
+          ]),
+        ),
+        stream,
+      ),
+    );
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      moved: [],
+      modified: [],
+      deleted: ["file1.txt"],
     });
   });
 
