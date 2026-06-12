@@ -115,6 +115,34 @@ describe("compare", () => {
     });
   });
 
+  it("shows rotation as modified plus a copy of the old content", async () => {
+    await using dir = await mkTmpDir();
+
+    // Rotation / copy-then-edit: app.log's old content now lives at
+    // app.log.1, and app.log itself changed. Only *deleted* paths can be
+    // move sources, so this is deliberately NOT reported as a move: from two
+    // snapshots, "copied then edited" and "renamed away then recreated" are
+    // indistinguishable, and modified-plus-copy is the reading that is
+    // verifiably true from the data either way (git's rename detection draws
+    // the same line). The == annotation refers to the previous snapshot:
+    // app.log.1 holds what app.log *used to* contain.
+    await writeSnapshot(dir.path, PREVIOUS, [new File(["old"], "app.log")]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["new"], "app.log"),
+      new File(["old"], "app.log.1"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: ["app.log.1 == app.log"],
+      moved: [],
+      modified: ["app.log"],
+      deleted: [],
+    });
+  });
+
   it("shows renamed file", async () => {
     await using dir = await mkTmpDir();
 
