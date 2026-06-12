@@ -2,6 +2,8 @@ import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
 import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
+import { sets } from "./commands/sets.mjs";
+import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
@@ -102,16 +104,27 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
     exec: () => notImplemented("status"),
   },
 
-  // ── Remote backup commands (S3 milestone — not yet implemented) ─────────
+  // ── Backup sets (specs/backup.md) — the cloud half is not yet implemented ─
   setup: {
-    group: "Cloud backup",
-    summary: "Set up a cloud backup destination for a directory",
-    planned: true,
+    group: "Backup sets",
+    summary: "Create or update a backup set",
     args: {
-      "<dir>": "The directory to back up",
-      "<remote>": "Where to store the backup (an S3 bucket or URL)",
+      "<set>": "The set's name (lowercase letters, digits, and hyphens)",
+      "[<folder>...]":
+        "The folders that make up the set (required when creating)",
     },
-    exec: () => notImplemented("setup"),
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description: "The S3 bucket to back this set up to",
+      },
+    },
+    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+  },
+  sets: {
+    summary: "List your backup sets",
+    exec: () => sets(),
   },
   backup: {
     summary: "Back up a snapshot to the cloud",

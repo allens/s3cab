@@ -2,10 +2,12 @@
 
 ## Status
 
-Designed (2026-06-12), **not yet implemented**. The registry stubs (`backup`, `setup`,
-`verify`, `status`) and the `objects`/`upload` plumbing exist; the `objects/<sha256>`
-half of the remote layout is already live. Everything else here — the backup-set model
-and the `snapshots/` half — is target.
+Designed (2026-06-12), **implementation in progress**. Slice 1 of the plan below is
+built: the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env layer in
+auth. The `objects`/`upload` plumbing and the `objects/<sha256>` half of the remote
+layout were already live. Everything else here — the local engine's move onto sets
+(slice 2), `backup`/`restore`/`status`/`verify` (still registry stubs), and the
+`snapshots/` half — is target.
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
@@ -47,7 +49,10 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
   suggested kebab-case form (user-chosen, so teach the rule). The captured user/machine
   parts are **sanitized** automatically (lowercase; anything else → `-`; collapse runs;
   trim) — the user never typed them, so silent normalization is fine (Windows usernames
-  may contain spaces/unicode).
+  may contain spaces/unicode). A part the charset can't express at all (an all-non-Latin
+  username sanitizes to "") falls back to a **short stable hash** of the raw value, so
+  identities stay distinct in a shared bucket even when recognisability is unsalvageable
+  (settled in PR #33 review).
 - The identity is informational for recovery, not load-bearing: manifests internally
   record the identity *and* their member directories (see header), so a recoverer can
   always learn what a namespace is by opening one manifest.
@@ -410,7 +415,9 @@ Decide the S3 test strategy first (mock at the `s3.mjs` boundary vs a real test
 bucket). Then bottom-up: remote-manifest listing for a namespace → the manifest-diff
 function → the per-bucket objects cache (read/append/`--force`) → the uploader loop
 (conditional PUTs, manifest-last) → `backup` porcelain (snapshot + upload) → `status`
-(read-only diff) → `list --remote`.
+(read-only diff) → `list --remote`. Also: fail-fast bucket-name validation in `setup`
+(a plain single-segment name, not an `s3://` URL or path — deferred from PR #33 review,
+decided here alongside whatever bucket rules the uploader needs).
 
 ### Slice 4 — `restore` + adoption
 

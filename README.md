@@ -54,24 +54,33 @@ today:
 | `s3cab tree <dir>`     | List the files in a directory, honouring exclude rules.                            |
 | `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
 
-Every command defaults `<dir>` to the current folder, so `s3cab snapshot` snapshots where
-you are. Run any command with `--help` to see its options. (Two cloud plumbing commands,
-`objects` and `upload`, also work already — advanced building blocks covered under
-[Cloud repositories](#cloud-repositories).)
+And the first pieces of the backup-set model (see [Coming next](#coming-next)) work too:
+
+| Command                       | What it does                                                                |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination). |
+| `s3cab sets`                  | List your backup sets, their folders, and where they back up to.            |
+
+A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`) — but
+note the snapshot commands above still take a folder, not a set; they move onto sets next.
+
+Every snapshot command defaults `<dir>` to the current folder, so `s3cab snapshot`
+snapshots where you are. Run any command with `--help` to see its options. (Two cloud
+plumbing commands, `objects` and `upload`, also work already — advanced building blocks
+covered under [Cloud repositories](#cloud-repositories).)
 
 ### Coming next
 
 Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool,
 built around **backup sets** — you name a set (say, `photos`), tell s3cab which folders
 belong to it, and from then on every command treats those folders as one unit. Commands
-take the set name, and when you have only one set you can leave it out entirely. These
-commands are already part of the interface but **not yet functional** (they exit with a
+take the set name, and when you have only one set you can leave it out entirely. You can
+already create and list sets today (`setup`/`sets` under [Status](#status)); the commands
+that act on them are part of the interface but **not yet functional** (they exit with a
 "not yet implemented" message; today's stubs still show the older per-folder arguments):
 
 | Command                          | Will do                                                                |
 | -------------------------------- | ---------------------------------------------------------------------- |
-| `s3cab setup <set> <folder>…`    | Create a backup set from one or more folders (`--bucket` adds cloud).  |
-| `s3cab sets`                     | List your backup sets, their folders, and where they back up to.       |
 | `s3cab backup [<set>]`           | Take a fresh snapshot and upload it, and the files it references.      |
 | `s3cab restore [<set>] [paths…]` | Restore files from a backup.                                           |
 | `s3cab status [<set>]`           | Show what is backed up and what a backup would upload.                 |
@@ -130,8 +139,9 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
 1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, an endpoint, or a
    default bucket — including some S3-compatible providers). Highest precedence first, a file
    always beating the shell:
-   - **`<dir>/.s3cab/env`** — per-backup-folder (picks the folder's bucket via `S3CAB_BUCKET`).
-     _Not wired up yet_ — it arrives with the `setup`/`backup` commands;
+   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
+     bucket; add per-set overrides here). It takes effect as the set-based commands arrive
+     with `backup`;
    - **`~/.s3cab/env.<bucket>`** — per-bucket (how to authenticate to that bucket); used by
      commands that take a bucket, like `upload`/`objects`;
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the others.

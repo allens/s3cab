@@ -84,7 +84,14 @@ rather than assuming it is fixed forever.
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
-8. **"Work through one by one" is a strict per-step protocol.** When the user says to work
+8. **Do not over-engineer.** A standing edict from the user (2026-06-12), the process-level
+   twin of design principle #6: build the small thing the current need justifies, and
+   generalize only when the second case actually appears — the same later-when-needed bar
+   as function extraction and module promotion. (Worked example: `isENOENT` in
+   `src/lib/error.mjs` was added once the check had four call sites, and shaped as the
+   specific predicate rather than a generic `isErrnoCode(error, code)` — no second error
+   code needed it.)
+9. **"Work through one by one" is a strict per-step protocol.** When the user says to work
    through a list one by one: (a) propose the step and ask any questions; (b) once the
    proposal is agreed, make the code changes and present the diff for review —
    *uncommitted*; (c) move to the next step only when the user has agreed to. Never commit
@@ -378,11 +385,11 @@ non-obvious points worth pinning here:
 - **Files beat the shell** ("Model A"): a value in an s3cab env file wins over the
   inherited environment, enforced by s3cab's own merge (built-in `util.parseEnv`, no
   dotenv dep) rather than any loader's fixed semantics.
-- The **dir layer (`<dir>/.s3cab/env`) exists and is tested but is not wired to any
-  command yet** — and per [specs/backup.md](specs/backup.md) it is now slated to become a
-  **set layer** (`~/.s3cab/sets/<name>/env`, written by `setup`) rather than ship as a
-  per-dir file; the layering machinery is the same, only the path changes. Update
-  specs/auth.md when that lands. s3cab never writes `~/.aws/*`.
+- The **set layer (`~/.s3cab/sets/<set>/env`, written by `setup`) replaced the
+  never-wired per-dir layer** (backup-sets slice 1, 2026-06 — specs/auth.md's History
+  note has the trail). It is wired into `loadEnv({ set })` and tested, but **no command
+  passes a set scope yet** — that arrives as the set-first commands land
+  ([specs/backup.md](specs/backup.md) slices 2–3). s3cab never writes `~/.aws/*`.
 
 ---
 
@@ -528,10 +535,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   need, deliberately). `upload` still owes its **`--if-modified-from <snapshot>` skip** —
   the snapshot-aware "only upload what changed" optimization `backup` is built on (see the
   TODO in [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
-  The CLI surface is scaffolded ahead of the rest: `setup`/`backup`/`restore`/`status`/
-  `verify` are inline registry stubs and `--remote` is wired onto `list`/`compare`, all
-  throwing `notImplemented()`; promote each stub into its own `src/commands/` file as it
-  gains a real body.
+  **Slice 1 of the plan is built** (2026-06): the set store (`src/lib/sets.mjs`), the
+  real `setup`/`sets` commands, and the set env layer in auth — but no command consumes
+  a set yet; that's slice 2 (the local engine moves onto sets, `<dir>/.s3cab/` retires).
+  The rest of the CLI surface stays scaffolded: `backup`/`restore`/`status`/`verify` are
+  inline registry stubs and `--remote` is wired onto `list`/`compare`, all throwing
+  `notImplemented()`; promote each stub into its own `src/commands/` file as it gains a
+  real body.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:
