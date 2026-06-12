@@ -2,6 +2,7 @@ import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
 import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
+import { sets } from "./commands/sets.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { tree } from "./commands/tree.mjs";
@@ -120,6 +121,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
       },
     },
     exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+  },
+  sets: {
+    summary: "List your backup sets",
+    exec: () => sets(),
   },
   backup: {
     summary: "Back up a snapshot to the cloud",
