@@ -412,7 +412,9 @@ Decide the S3 test strategy first (mock at the `s3.mjs` boundary vs a real test
 bucket). Then bottom-up: remote-manifest listing for a namespace → the manifest-diff
 function → the per-bucket objects cache (read/append/`--force`) → the uploader loop
 (conditional PUTs, manifest-last) → `backup` porcelain (snapshot + upload) → `status`
-(read-only diff) → `list --remote`.
+(read-only diff) → `list --remote`. Also: fail-fast bucket-name validation in `setup`
+(a plain single-segment name, not an `s3://` URL or path — deferred from PR #33 review,
+decided here alongside whatever bucket rules the uploader needs).
 
 ### Slice 4 — `restore` + adoption
 
