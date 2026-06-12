@@ -281,6 +281,60 @@ describe("compare", () => {
     });
   });
 
+  it("pairs simultaneous moves by basename", async () => {
+    await using dir = await mkTmpDir();
+
+    // Both files are empty, so they share one hash — pairing must still line
+    // up x with x and y with y rather than cross-pairing arbitrarily.
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File([""], "olddir/x.txt"),
+      new File([""], "olddir/y.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File([""], "newdir/x.txt"),
+      new File([""], "newdir/y.txt"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      modified: [],
+      deleted: [],
+      moved: [
+        `olddir${sep}x.txt →→ newdir${sep}x.txt`,
+        `olddir${sep}y.txt →→ newdir${sep}y.txt`,
+      ],
+    });
+  });
+
+  it("prefers a same-directory move source when basenames differ", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "dir1/old.txt"),
+      new File(["contents1"], "dir2/old.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents1"], "dir1/new.txt"),
+      new File(["contents1"], "dir2/new.txt"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      modified: [],
+      deleted: [],
+      moved: [
+        `dir1${sep}old.txt → dir1${sep}new.txt`,
+        `dir2${sep}old.txt → dir2${sep}new.txt`,
+      ],
+    });
+  });
+
   it("rejects an explicit snapshot name that does not exist", async () => {
     await using dir = await mkTmpDir();
 

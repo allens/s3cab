@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { notImplemented } from "../lib/error.mjs";
 import { list } from "./list.mjs";
@@ -182,20 +182,28 @@ export function diff(previousSnapshot, currentSnapshot) {
     const previousPathSetForHash = previousPathsByHash.get(hash);
 
     if (previousPathSetForHash) {
-      let deletedPath = null;
-      for (const pathForHash of previousPathSetForHash) {
-        if (deleted.has(pathForHash)) {
-          // moved!
-          deletedPath = pathForHash;
-          deleted.delete(pathForHash);
-          moved.set(pathForHash, addedPath);
-          // TODO: I'm not sure if this is needed
-          // objectPaths.delete(path);
-          break;
-        }
-      }
+      const sources = Array.from(previousPathSetForHash).filter((path) =>
+        deleted.has(path),
+      );
+      const [firstSource] = sources;
 
-      if (!deletedPath) {
+      if (firstSource) {
+        // moved! Pair greedily: same basename, then same parent dir, then
+        // any. Greedy in iteration order, not a globally optimal matching —
+        // an early added path can take a later one's better-matching source.
+        // Accepted: with identical content the pairing is display-only; the
+        // stored objects are the same either way.
+        const source =
+          sources.find((path) => basename(path) === basename(addedPath)) ??
+          sources.find((path) => dirname(path) === dirname(addedPath)) ??
+          firstSource;
+        deleted.delete(source);
+        moved.set(source, addedPath);
+        // No lookup cleanup is needed here (an old parked question): a
+        // claimed source can't be re-claimed, since `sources` only accepts
+        // paths still in `deleted` — and the copy annotations below subtract
+        // the `moved` keys instead, keeping previousPathSetForHash intact.
+      } else {
         // Set.difference treats the `moved` Map as set-like: its keys are the
         // moved-from paths, which is exactly what to subtract here.
         const notMovedPaths = previousPathSetForHash.difference(moved);
