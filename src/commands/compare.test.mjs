@@ -10,6 +10,7 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 // list() only reports datestamped `.tsv.zst` snapshots, so tests that lean
 // on the default since/until resolution use real-looking names — lexical
 // order is chronological order.
+const OLDEST = "2023-12-31T0101";
 const PREVIOUS = "2024-01-01T0101";
 const CURRENT = "2024-01-02T0101";
 
@@ -25,6 +26,43 @@ describe("compare", () => {
 
     assert.deepStrictEqual(result, {
       added: ["file1.txt"],
+      moved: [],
+      modified: [],
+      deleted: [],
+    });
+  });
+
+  it("compares latest against its predecessor by default", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, OLDEST, [
+      new File(["contentsA"], "fileA.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contentsA"], "fileA.txt"),
+      new File(["contentsB"], "fileB.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contentsA"], "fileA.txt"),
+      new File(["contentsB"], "fileB.txt"),
+      new File(["contentsC"], "fileC.txt"),
+    ]);
+
+    // No options: latest vs the snapshot immediately before it — were the
+    // baseline OLDEST instead, fileB would show as added too.
+    assert.deepStrictEqual(await compare(dir.path), {
+      added: ["fileC.txt"],
+      moved: [],
+      modified: [],
+      deleted: [],
+    });
+
+    // Explicit until: the default baseline is *its* predecessor, not the
+    // latest snapshot (the step-2 inversion bug) and not an empty baseline.
+    assert.deepStrictEqual(await compare(dir.path, { until: PREVIOUS }), {
+      added: ["fileB.txt"],
       moved: [],
       modified: [],
       deleted: [],
