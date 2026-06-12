@@ -31,6 +31,52 @@ describe("compare", () => {
     });
   });
 
+  it("shows modified file and ignores a file whose mtime alone changed", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt", { lastModified: 1700000000000 }),
+      new File(["same"], "file2.txt", { lastModified: 1700000000000 }),
+    ]);
+
+    // file1 changes content; file2 keeps its content but is touched.
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents2"], "file1.txt", { lastModified: 1800000000000 }),
+      new File(["same"], "file2.txt", { lastModified: 1800000000000 }),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      moved: [],
+      modified: ["file1.txt"],
+      deleted: [],
+    });
+  });
+
+  it("shows deleted file", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt"),
+      new File(["contents2"], "file2.txt"),
+    ]);
+
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["contents1"], "file1.txt"),
+    ]);
+
+    const result = await compare(dir.path);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      moved: [],
+      modified: [],
+      deleted: ["file2.txt"],
+    });
+  });
+
   it("shows renamed file", async () => {
     await using dir = await mkTmpDir();
 

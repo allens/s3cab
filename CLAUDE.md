@@ -83,6 +83,14 @@ rather than assuming it is fixed forever.
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
+8. **"Work through one by one" is a strict per-step protocol.** When the user says to work
+   through a list one by one: (a) propose the step and ask any questions; (b) once the
+   proposal is agreed, make the code changes and present the diff for review —
+   *uncommitted*; (c) move to the next step only when the user has agreed to. Never commit
+   a step sight-unseen, never start the next step unasked, and don't batch the per-step
+   decisions into one up-front question round. The user will say explicitly when firing
+   ahead without asking is wanted. (Recorded 2026-06-12 after three escalating corrections
+   in one session.)
 
 ---
 
