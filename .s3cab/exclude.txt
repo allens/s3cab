@@ -1,7 +1,10 @@
-# Exclude rules for backing up this repository with s3cab itself.
+# Exclude template for dogfooding s3cab on this repository.
+# Excludes are now per-set (~/.s3cab/sets/<set>/exclude.txt), so this file is a
+# ready-made template rather than a wired config: run `s3cab setup s3cab .` then
+# copy these patterns into ~/.s3cab/sets/s3cab/exclude.txt.
 # Syntax: see doc/exclude.md. '/' is always the separator, '**/' spans whole
 # directories, '*' matches within a single segment, and a trailing '/' marks a
-# directory. (The walker always skips .s3cab/, so it needs no rule here.)
+# directory. (The walker always skips a .s3cab/ folder, so it needs no rule here.)
 
 # Dependencies and VCS metadata
 **/node_modules/

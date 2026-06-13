@@ -29,9 +29,9 @@ export const commands = {
   // ── Local snapshot commands ────────────────────────────────────────────
   snapshot: {
     group: "Snapshots",
-    summary: "Take a snapshot of a directory",
+    summary: "Take a snapshot of a backup set",
     args: {
-      "[<dir>]": "The directory to snapshot (default: current directory)",
+      "[<set>]": "The backup set to snapshot (default: the only set)",
     },
     options: {
       rehash: {
@@ -40,13 +40,13 @@ export const commands = {
           "Re-hash every file instead of reusing unchanged files' hashes from the previous snapshot",
       },
     },
-    exec: (options, [dir] = []) => snapshot(dir, options),
+    exec: (options, [set] = []) => snapshot(set, options),
   },
   list: {
-    summary: "List a directory's snapshots",
+    summary: "List a backup set's snapshots",
     args: {
-      "[<dir>]":
-        "The directory whose snapshots to list (default: current directory)",
+      "[<set>]":
+        "The backup set whose snapshots to list (default: the only set)",
     },
     options: {
       latest: {
@@ -60,7 +60,7 @@ export const commands = {
         description: "List backups in the cloud instead of local snapshots",
       },
     },
-    exec: (options, [dir] = []) => list(dir, options),
+    exec: (options, [set] = []) => list(set, options),
   },
   compare: {
     summary: "Show what changed between two snapshots",
@@ -69,8 +69,8 @@ export const commands = {
 'new.txt == old.txt' a copy of content that already existed.
 Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
     args: {
-      "[<dir>]":
-        "The directory whose snapshots to compare (default: current directory)",
+      "[<set>]":
+        "The backup set whose snapshots to compare (default: the only set)",
     },
     options: {
       since: {
@@ -88,7 +88,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
         description: "Compare backups in the cloud instead of local snapshots",
       },
     },
-    exec: (options, [dir] = []) => compare(dir, options),
+    exec: (options, [set] = []) => compare(set, options),
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",
@@ -202,9 +202,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
     exec: (options, [bucket, file] = []) => upload(bucket, file, options),
   },
   tree: {
-    summary: "List the files in a directory",
-    args: { "[<dir>]": "The directory to list (default: current directory)" },
-    exec: (options, [dir] = []) => tree(dir),
+    summary: "List the files a snapshot of a backup set would include",
+    args: { "[<set>]": "The backup set to list (default: the only set)" },
+    exec: (_options, [set] = []) => tree(set),
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",

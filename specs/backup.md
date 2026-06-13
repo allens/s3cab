@@ -2,12 +2,15 @@
 
 ## Status
 
-Designed (2026-06-12), **implementation in progress**. Slice 1 of the plan below is
-built: the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env layer in
-auth. The `objects`/`upload` plumbing and the `objects/<sha256>` half of the remote
-layout were already live. Everything else here — the local engine's move onto sets
-(slice 2), `backup`/`restore`/`status`/`verify` (still registry stubs), and the
-`snapshots/` half — is target.
+Designed (2026-06-12), **implementation in progress**. Slices 1–2 of the plan below are
+built: slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env
+layer in auth; slice 2 moved the local engine onto sets — `snapshot`/`list`/`compare`/
+`tree` take `[<set>]`, walk every member dir with the set's `exclude.txt`, write one
+manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
+`~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. The `objects`/`upload`
+plumbing and the `objects/<sha256>` half of the remote layout were already live.
+Everything else here — `backup`/`restore`/`status`/`verify` (still registry stubs) and
+the `snapshots/` remote half — is target.
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded

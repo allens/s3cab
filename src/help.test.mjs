@@ -106,7 +106,7 @@ describe("helpTopics", () => {
     // there, this topic and doc/exclude.md must change with them.
     const exclude = helpTopics.exclude ?? "";
 
-    assert.match(exclude, /\.s3cab\/exclude\.txt/);
+    assert.match(exclude, /sets\/<set>\/exclude\.txt/);
     assert.match(exclude, /\*\*\/\s+zero or more/);
     assert.match(exclude, /one or more characters/);
     assert.match(exclude, /case-insensitive on Windows/);

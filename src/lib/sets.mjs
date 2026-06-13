@@ -47,6 +47,18 @@ const setDir = (name) => {
 export const setEnvPath = (name) => join(setDir(name), "env");
 /** @param {string} name */
 const setDirsPath = (name) => join(setDir(name), "dirs.txt");
+/**
+ * The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` — where this set's
+ * manifests live now that `<dir>/.s3cab/` has retired (specs/backup.md slice 2).
+ * @param {string} name
+ */
+export const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
+/**
+ * The set's optional exclude file, `~/.s3cab/sets/<name>/exclude.txt`. Its glob
+ * patterns (doc/exclude.md) apply relative to *each* member directory.
+ * @param {string} name
+ */
+export const setExcludePath = (name) => join(setDir(name), "exclude.txt");
 
 /**
  * Read a file's text, or undefined if it doesn't exist.
