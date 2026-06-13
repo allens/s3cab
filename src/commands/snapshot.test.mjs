@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import {
   cpSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, normalize, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { setup } from "./setup.mjs";
 import { snapshot } from "./snapshot.mjs";
 
 /**
@@ -36,24 +39,53 @@ function copyFixtureToWorkDir(fixtureName, testName) {
   return inWorkDir;
 }
 
-describe("snapshot", () => {
-  it("throws ENOENT for a non-existent directory", async () => {
-    const dir = "./test/fixtures/snapshot-dir-does-not-exist";
+// The set store derives its paths from homedir(); point that at a temp home
+// (USERPROFILE on Windows, HOME on POSIX) so a snapshot can't touch the real
+// `~/.s3cab`, and restore the environment after each test.
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+beforeEach(() => {
+  savedEnv = { ...process.env };
+});
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) delete process.env[key];
+  }
+  Object.assign(process.env, savedEnv);
+});
 
-    await assert.rejects(snapshot(dir, { rehash: true }), { code: "ENOENT" });
+/** @param {string} home */
+function useTempHome(home) {
+  mkdirSync(home, { recursive: true });
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+}
+
+describe("snapshot", () => {
+  it("errors for a set whose folder no longer exists", async () => {
+    const workDir = copyFixtureToWorkDir("before", "snapshot > missing-dir");
+    useTempHome(workDir("home"));
+    mkdirSync(workDir("data"));
+    writeFileSync(workDir("data", "x.txt"), "x");
+    setup("photos", [workDir("data")]);
+    rmSync(workDir("data"), { recursive: true, force: true });
+
+    await assert.rejects(snapshot("photos", { rehash: true }));
   });
 
   it("reports changes between snapshots", async (t) => {
     let mockIsoDateTime = "2025-01-15T10:30:00";
 
-    // Temporal.Now.plainDateTimeISO()
+    // Temporal.Now.plainDateTimeISO() drives the snapshot name and header.
     t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
       Temporal.PlainDateTime.from(mockIsoDateTime),
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
+    useTempHome(workDir("home"));
+    setup("photos", [workDir()]);
 
-    await snapshot(workDir(), { rehash: true });
+    await snapshot("photos", { rehash: true });
 
     mockIsoDateTime = "2025-01-15T10:31:00";
 
@@ -74,7 +106,7 @@ describe("snapshot", () => {
     // Move
     renameSync(workDir("move.txt"), workDir("dir", "move.txt"));
 
-    const { added, modified, deleted, moved } = await snapshot(workDir(), {
+    const { added, modified, deleted, moved } = await snapshot("photos", {
       rehash: false,
     });
 
@@ -86,5 +118,53 @@ describe("snapshot", () => {
       `${normalize("./move.txt")} →→ ${normalize("./dir/move.txt")}`,
       `${normalize("./rename.txt")} → ${normalize("./renamed.txt")}`,
     ]);
+  });
+
+  it("writes the set identity and a #DIR line per member directory", async (t) => {
+    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
+      Temporal.PlainDateTime.from("2025-02-01T09:00:00"),
+    );
+
+    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const home = workDir("home");
+    useTempHome(home);
+    setup("photos", [workDir()]);
+
+    await snapshot("photos", { rehash: true, debug: true });
+
+    // --debug leaves an uncompressed copy beside the manifest; read its header.
+    const decompressed = readFileSync(
+      join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
+      "utf8",
+    );
+    const [snapshotLine, dirLine] = decompressed
+      .split("\n")
+      .filter((line) => line.startsWith("#"));
+    assert.ok(snapshotLine && dirLine, "expected #SNAPSHOT and #DIR headers");
+
+    assert.match(
+      snapshotLine,
+      /^#SNAPSHOT\s+2025-02-01T09:00\s+[a-z0-9-]+@[a-z0-9-]+:photos\s*$/,
+    );
+    assert.match(dirLine, /^#DIR\s/);
+    assert.ok(dirLine.includes(realpathSync.native(workDir())));
+  });
+
+  it("refuses a same-minute snapshot unless overwriting under debug", async (t) => {
+    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
+      Temporal.PlainDateTime.from("2025-03-01T12:00:00"),
+    );
+
+    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    useTempHome(workDir("home"));
+    setup("photos", [workDir()]);
+
+    await snapshot("photos", { rehash: true });
+
+    // Same minute, same name → refused rather than silently overwriting.
+    await assert.rejects(snapshot("photos", { rehash: true }), /same minute/);
+
+    // …but debug mode (S3CAB_DEBUG) is allowed to overwrite while iterating.
+    await snapshot("photos", { rehash: true, debug: true });
   });
 });
