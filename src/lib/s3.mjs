@@ -221,7 +221,8 @@ export async function putFile(path, uri, options = {}) {
   } catch (error) {
     if (
       noClobber &&
-      /** @type {Error} */ (error).name === "PreconditionFailed"
+      Error.isError(error) &&
+      error.name === "PreconditionFailed"
     ) {
       return false;
     } else {
@@ -253,7 +254,7 @@ async function objectExists(uri) {
     );
     return Object.keys(Metadata ?? {}).length > 0;
   } catch (error) {
-    if (/** @type {Error} */ (error).name === "NotFound") {
+    if (Error.isError(error) && error.name === "NotFound") {
       return false;
     }
     throw error;

@@ -166,12 +166,7 @@ function getPathsByHash(snapshotLookup) {
   const hashLookup = new Map();
 
   snapshotLookup.forEach(({ hash }, path) => {
-    let paths = hashLookup.get(hash);
-    if (!paths) {
-      paths = new Set();
-      hashLookup.set(hash, paths);
-    }
-    paths.add(path);
+    hashLookup.getOrInsertComputed(hash, () => new Set()).add(path);
   });
 
   return hashLookup;
