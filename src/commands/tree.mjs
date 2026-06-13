@@ -1,58 +1,89 @@
-import assert from "node:assert";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { secondsSince } from "../lib/format.mjs";
 import { readLines } from "../lib/read-lines.mjs";
+import { resolveSet, setExcludePath } from "../lib/sets.mjs";
 import { formatSnapshotLine } from "../lib/snapshot-file.mjs";
 
 /** @typedef {{ write: (line: string) => unknown }} LineWriter */
 
 /**
- * Recursively list files in a directory.
- * @param {string} dir - Directory to list files from
+ * List the files a snapshot of `setName` would include — the `tree` command,
+ * and the diagnostic answer to "exactly what is in this set". Resolves the set
+ * (sole-set default, or an error listing the sets) and walks it.
+ * @param {string} [setName] - Backup set to list (default: the only set)
  * @param {import("node:stream").Writable} [writeStream]
- * @returns {Array<string>} Array of file paths
+ * @returns {Array<string>} Array of absolute file paths
  */
-export function tree(dir = ".", writeStream) {
+export function tree(setName, writeStream) {
+  return walkSet(resolveSet(setName), writeStream);
+}
+
+/**
+ * Walk a resolved backup set: every member directory, with the set's
+ * `exclude.txt` patterns applied relative to each (specs/backup.md). The
+ * shared core behind both `tree` and `snapshot`.
+ * @param {import("../lib/sets.mjs").BackupSet} set - Resolved backup set
+ * @param {import("node:stream").Writable} [writeStream]
+ * @returns {Array<string>} Array of absolute file paths
+ */
+export function walkSet(set, writeStream) {
+  const excludePath = setExcludePath(set.name);
+  const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
+  if (patterns.length) {
+    console.warn("Using exclude file", `'${excludePath}'`);
+  }
+  return walkDirs(set.dirs, patterns, writeStream);
+}
+
+/**
+ * Recursively list the files in one or more directories, dropping anything an
+ * exclude pattern matches (patterns apply relative to *each* directory). A
+ * directory's contents are accumulated into one list — the same line format
+ * works across roots because snapshot paths are absolute.
+ * @param {string[]} dirs - Directories to walk
+ * @param {string[]} patterns - Exclude glob patterns (doc/exclude.md)
+ * @param {import("node:stream").Writable} [writeStream] - Receives `#EXCLUDED` lines
+ * @returns {Array<string>} Array of absolute file paths
+ */
+export function walkDirs(dirs, patterns, writeStream) {
   const start = Temporal.Now.instant();
 
-  dir = realpathSync.native(dir);
-
-  console.warn("Finding files in", `'${dir}'`);
-
-  // Create exclude predicate
-  /** @type {((dirent: import("node:fs").Dirent) => string | null) | undefined} */
-  let walkCallbackFn;
   /** @type {string[]} */
-  let excludes = [];
-  const excludeFilePath = join(dir, ".s3cab", "exclude.txt");
-  if (existsSync(excludeFilePath)) {
-    console.warn("Using exclude file", `'${excludeFilePath}'`);
+  const files = [];
+  for (let dir of dirs) {
+    dir = realpathSync.native(dir);
+    console.warn("Finding files in", `'${dir}'`);
 
-    walkCallbackFn = createWalkCallbackFn(
-      dir,
-      readLines(excludeFilePath),
-      writeStream ?? {
-        write: (line) => {
-          excludes.push(line);
-        },
-      },
-    );
-  }
+    const walkCallbackFn = patterns.length
+      ? createWalkCallbackFn(dir, patterns, writeStream)
+      : undefined;
 
-  const files = Array.from(walkFiles(dir, walkCallbackFn), (path, index) => {
-    if (index % 500 === 0) {
-      stderr.write(`\rFound ${index} files...`);
+    for (const path of walkFiles(dir, walkCallbackFn)) {
+      if (files.length % 500 === 0) {
+        stderr.write(`\rFound ${files.length} files...`);
+      }
+      files.push(path);
     }
-    return path;
-  });
+  }
 
   stderr.write(secondsSince(start) + "\n");
 
-  excludes.forEach((line) => stderr.write(line));
-
-  assert(files.length === new Set(files).size, "File list contains duplicates");
+  // A file reached by more than one root means the set's member directories
+  // overlap (one nested under another) — name the offender so the user can fix
+  // dirs.txt, rather than failing with a bare "duplicates" invariant.
+  const seen = new Set();
+  for (const path of files) {
+    if (seen.has(path)) {
+      throw new Error(
+        `File found under more than one of the set's folders: ${path}\n` +
+          `The set's folders overlap (one is nested under another). Edit the ` +
+          `set's dirs.txt so its folders don't contain one another.`,
+      );
+    }
+    seen.add(path);
+  }
 
   return files;
 }

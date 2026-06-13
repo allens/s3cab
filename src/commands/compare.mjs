@@ -1,8 +1,8 @@
-import { realpathSync } from "node:fs";
-import { basename, dirname, relative } from "node:path";
-import { readSnapshot } from "../lib/snapshot-file.mjs";
+import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { notImplemented } from "../lib/error.mjs";
-import { list } from "./list.mjs";
+import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { readSnapshot } from "../lib/snapshot-file.mjs";
+import { listSnapshotNames } from "./list.mjs";
 
 /**
  * @typedef {Object} CompareResult
@@ -20,34 +20,75 @@ import { list } from "./list.mjs";
 const normalizeName = (name) => name?.replace(/\.tsv(\.zst)?$/, "");
 
 /**
- * Show what changed between two snapshots, from an older (`since`) to a newer
- * (`until`) one.
- *
- * Naming a snapshot that doesn't exist is an error, never a silent empty
- * result. When `until` is the oldest snapshot (or the only one), the
- * baseline is empty and everything reports as added.
- * @param {string} dir - Snapshot directory
+ * Display a snapshot's absolute path relative to its containing member
+ * directory — so a set's report reads `2025\beach.jpg`, not the full path. A
+ * single-root set is unchanged from the per-directory days; with several roots
+ * each path is shortened against whichever one contains it (the shortest
+ * relative wins when roots nest). A path under no root falls back to absolute.
+ * @param {string[]} dirs - The set's member directories
+ * @param {string} path - An absolute snapshot path
+ */
+function relativeToRoot(dirs, path) {
+  /** @type {string | undefined} */
+  let best;
+  for (const root of dirs) {
+    const rel = relative(root, path);
+    // Inside the root unless `rel` escapes it: a leading `..` *segment* (exactly
+    // `..`, or `..` + separator), or an absolute path. A prefix check alone
+    // would wrongly reject an in-root name that merely starts with `..`
+    // (e.g. `..foo/file.txt`).
+    const escapes =
+      rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
+    if (rel && !escapes) {
+      if (best === undefined || rel.length < best.length) best = rel;
+    }
+  }
+  return best ?? path;
+}
+
+/**
+ * Show what changed between two of a backup set's snapshots, from an older
+ * (`since`) to a newer (`until`) one (specs/backup.md).
+ * @param {string} [setName] - Backup set whose snapshots to compare (default: the only set)
  * @param {object} [options]
  * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
  * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
  * @param {boolean} [options.remote] - Compare against snapshots on the remote
  * @returns {Promise<CompareResult>} Diff results
  */
-export async function compare(dir = ".", options = {}) {
+export async function compare(setName, options = {}) {
   if (options.remote) {
     notImplemented("compare --remote");
   }
 
-  dir = realpathSync.native(dir);
+  const set = resolveSet(setName);
+  return compareSnapshots(setSnapshotsDir(set.name), set.dirs, options);
+}
 
-  const snapshotNames = list(dir);
+/**
+ * Diff two snapshots from a snapshot directory, displaying paths relative to
+ * `dirs` (the set's member directories). The storage core behind `compare`,
+ * reused by `snapshot` for its post-snapshot report.
+ *
+ * Naming a snapshot that doesn't exist is an error, never a silent empty
+ * result. When `until` is the oldest snapshot (or the only one), the baseline
+ * is empty and everything reports as added.
+ * @param {string} snapshotDir - Directory holding the snapshot files
+ * @param {string[]} dirs - The set's member directories (for path display)
+ * @param {object} [options]
+ * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
+ * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
+ * @returns {Promise<CompareResult>} Diff results
+ */
+export async function compareSnapshots(snapshotDir, dirs, options = {}) {
+  const snapshotNames = listSnapshotNames(snapshotDir);
 
   // Newer side (`until`) defaults to the latest snapshot.
   const until = normalizeName(options.until) ?? snapshotNames.at(0);
   if (!until) {
-    throw new Error(`No snapshots found in directory: ${dir}`);
+    throw new Error(`No snapshots found in '${snapshotDir}'`);
   }
-  const untilSnapshot = await readSnapshot(dir, until);
+  const untilSnapshot = await readSnapshot(snapshotDir, until);
 
   // Older side (`since`) defaults to the snapshot immediately before `until`.
   let since = normalizeName(options.since);
@@ -69,7 +110,7 @@ export async function compare(dir = ".", options = {}) {
     // Nothing older than `until`: an empty baseline; everything is "added".
     sinceSnapshot = new Map();
   } else {
-    sinceSnapshot = await readSnapshot(dir, since);
+    sinceSnapshot = await readSnapshot(snapshotDir, since);
   }
   console.warn(
     "Comparing",
@@ -85,21 +126,21 @@ export async function compare(dir = ".", options = {}) {
 
   return {
     added: Array.from(added.entries()).map(([path, previousPaths]) => {
-      let text = relative(dir, path);
+      let text = relativeToRoot(dirs, path);
       if (previousPaths && previousPaths.size) {
         text += " == ";
-        text += Array.from(previousPaths, (path) => relative(dir, path));
+        text += Array.from(previousPaths, (path) => relativeToRoot(dirs, path));
       }
       return text;
     }),
     moved: Array.from(moved.entries()).map(([oldPath, newPath]) => {
-      let text = relative(dir, oldPath);
+      let text = relativeToRoot(dirs, oldPath);
       text += dirname(oldPath) === dirname(newPath) ? " → " : " →→ ";
-      text += relative(dir, newPath);
+      text += relativeToRoot(dirs, newPath);
       return text;
     }),
-    modified: Array.from(modified, (path) => relative(dir, path)),
-    deleted: Array.from(deleted, (path) => relative(dir, path)),
+    modified: Array.from(modified, (path) => relativeToRoot(dirs, path)),
+    deleted: Array.from(deleted, (path) => relativeToRoot(dirs, path)),
   };
 }
 

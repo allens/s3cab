@@ -1,38 +1,65 @@
-import { existsSync, readdirSync, realpathSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { basename } from "node:path";
 import { notImplemented } from "../lib/error.mjs";
+import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 
 /**
  * @overload
- * @param {string} [dir]
+ * @param {string} [setName]
  * @param {{ latest: true }} options
  * @returns {string | undefined}
  */
 
 /**
  * @overload
- * @param {string} [dir]
+ * @param {string} [setName]
+ * @param {{ latest?: false, remote?: boolean }} [options]
+ * @returns {string[]}
+ */
+
+/**
+ * List a backup set's snapshots (specs/backup.md).
+ * @param {string} [setName] - Backup set whose snapshots to list (default: the only set)
+ * @param {object} [options]
+ * @param {boolean} [options.latest] - Return only the latest snapshot name
+ * @param {boolean} [options.remote] - List snapshots backed up to the remote
+ * @returns {string[] | string | undefined} Snapshot names, or the latest name
+ */
+export function list(setName, options = {}) {
+  if (options.remote) {
+    notImplemented("list --remote");
+  }
+
+  const snapshotDir = setSnapshotsDir(resolveSet(setName).name);
+  return options.latest
+    ? listSnapshotNames(snapshotDir, { latest: true })
+    : listSnapshotNames(snapshotDir, {});
+}
+
+/**
+ * @overload
+ * @param {string} snapshotDir
+ * @param {{ latest: true }} options
+ * @returns {string | undefined}
+ */
+
+/**
+ * @overload
+ * @param {string} snapshotDir
  * @param {{ latest?: false }} [options]
  * @returns {string[]}
  */
 
 /**
- * List snapshots in a directory.
- * @param {string} dir - Directory whose snapshots to list
+ * List the snapshot names in a snapshot directory, newest first. The storage
+ * core behind `list` (and reused by `snapshot`/`compare`, which already hold a
+ * resolved snapshot directory).
+ * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {object} [options]
- * @param {boolean} [options.latest] - Return only the latest snapshot file
- * @param {boolean} [options.remote] - List snapshots backed up to the remote
- * @returns {string[] | string | undefined} Array of snapshot names or the latest snapshot name
+ * @param {boolean} [options.latest] - Return only the latest snapshot name
+ * @returns {string[] | string | undefined} Snapshot names, or the latest name
  */
-export function list(dir = ".", options = {}) {
-  if (options.remote) {
-    notImplemented("list --remote");
-  }
-
-  dir = realpathSync.native(dir);
-
-  const snapshotDir = join(dir, ".s3cab", "snapshots");
-
+export function listSnapshotNames(snapshotDir, options = {}) {
   if (!existsSync(snapshotDir)) {
     return options.latest ? undefined : [];
   }
