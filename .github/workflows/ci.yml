@@ -56,8 +56,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-14 is Apple Silicon; mirrors the release build targets.
-        os: [ubuntu-latest, windows-latest, macos-14]
+        # Linux is deliberately omitted here: the coverage gate in the lint job runs
+        # the full suite on ubuntu, so listing ubuntu-latest too would test Linux
+        # twice per run. Windows covers the win32-specific branches; macos-14 (Apple
+        # Silicon, mirroring the release targets) covers the other posix path.
+        os: [windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
