@@ -43,18 +43,12 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       # Coverage gate. OS-independent like lint, so it runs once here rather than
-      # across the matrix. Thresholds are a floor, not a target — bump as coverage
-      # rises. The S3-touching modules read low because their integration tests are
-      # gated off without a test bucket (see CLAUDE.md), hence a global gate, not
-      # per-file. Excludes mirror the published-package boundary (tests, scratch).
-      - name: Coverage gate
-        run: >-
-          node --test --experimental-test-coverage
-          --test-coverage-lines=80
-          --test-coverage-branches=68
-          --test-coverage-functions=70
-          --test-coverage-exclude='**/*.test.mjs'
-          --test-coverage-exclude='scripts/**'
+      # across the matrix. The thresholds + excludes live in the `test:coverage:gate`
+      # npm script so the gate reproduces locally with one command and CI stays a thin
+      # caller. Thresholds are a floor, not a target — bump as coverage rises; they read
+      # low on the S3-touching modules because those integration tests are gated off
+      # without a bucket (see CLAUDE.md), hence a global gate, not per-file.
+      - run: npm run test:coverage:gate
 
   test:
     name: test (${{ matrix.os }})
