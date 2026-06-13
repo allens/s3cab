@@ -121,6 +121,31 @@ README and code don't carry:
   libsecret — likely via OS CLIs, no native dep, per #5), slotting into `resolveCredentials`
   as another source.
 
+### Licensing & contributions (decided 2026-06-13 — don't re-litigate casually)
+
+- **GPL-3.0-or-later, chosen on purpose to keep derivatives open.** The deciding question
+  was "is a *distributed* closed-source proprietary fork acceptable?" — answer: no. GPL's
+  copyleft requires anyone who distributes a modified s3cab to release their source, so a
+  shipped closed fork isn't permitted (it doesn't restrain purely private, undistributed
+  changes; stronger network copyleft like AGPL exists, but plain GPL fits a local CLI). That
+  aligns with the project's anti-black-box ethos (design #2/#6). Apache/MIT were weighed and
+  rejected *because* they permit closed-source forks. Note GPL **v3** specifically: it's
+  one-way compatible with the AWS SDK's Apache-2.0 (GPL-2.0 would not be). The LICENSE file
+  is the verbatim FSF text — leave it untouched.
+- **Contributions take a CLA, not a DCO — to preserve a future dual-licensing option.** The
+  user may ("maybe someday") want to offer s3cab under commercial terms alongside the GPL.
+  That only works if the project holds a broad enough licence to *all* contributions, which
+  a DCO (`Signed-off-by`) does **not** grant — only a CLA does. The CLA is
+  [CLA.md](CLA.md) (Project Harmony HA-CLA-I v1.0, "any-licence" outbound variant); the
+  onboarding flow and one-comment sign-off live in [CONTRIBUTING.md](CONTRIBUTING.md). Every
+  contribution still stays GPL for everyone regardless — the CLA only adds the relicensing
+  headroom. Enforcement is deliberately manual (a PR comment) until volume justifies a
+  CLA-assistant Action — same "wait for the second case" bar as code (#8).
+- **The cheap moment was while solo-authored.** Set up *before* the first external PR, while
+  the user still held 100% of the copyright; after merging an outside contribution under
+  plain GPL, relicensing headroom would have been lost. Recorded here so the rationale
+  survives across machines (convention #4), not just in local memory.
+
 ---
 
 ## Design philosophy
