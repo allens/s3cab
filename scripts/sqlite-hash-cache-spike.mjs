@@ -156,11 +156,16 @@ const reopened = new HashCache(dbFile);
 const sample = records[Math.floor(N / 2)];
 if (!sample) throw new Error("spike needs at least one record");
 const roundTrip = reopened.cachedHash(sample.path, sample.size, sample.mtime);
-console.log("persistence: reopened .db and read back a row →", roundTrip === sample.hash ? "OK" : "MISMATCH");
+console.log(
+  "persistence: reopened .db and read back a row →",
+  roundTrip === sample.hash ? "OK" : "MISMATCH",
+);
 reopened.close();
 
 rmSync(dir, { recursive: true, force: true });
-console.log("throwaway   : deleted the cache dir — recoverable data lost = none");
+console.log(
+  "throwaway   : deleted the cache dir — recoverable data lost = none",
+);
 
 console.log(`
 Findings (for the item-3 decision):
