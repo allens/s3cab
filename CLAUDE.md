@@ -553,14 +553,20 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   gets a name. Neither Prettier nor ESLint enforces this — it's a house style. (When the
   inline form was guarding a short-circuit, a nested `if` preserves the same conditional
   evaluation without the inline await.)
-- **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
+- **The whole-project type check (`tsgo -p jsconfig.json`) is kept clean** and runnable via
   the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
   scratch, but excluded files just get squiggles from VS Code's inferred project instead —
   cheaper to keep them typed; they need no extra deps, only JSDoc). One non-obvious bit
   makes the check possible: `jsconfig.json` maps `events`/`punycode`/`string_decoder` back
   to the builtin type declarations — transitive deps install npm shims of those Node
   builtins, which would otherwise shadow them at type-resolution time and drag their
-  untyped CJS internals into the check (see the comment in jsconfig.json).
+  untyped CJS internals into the check (see the comment in jsconfig.json). The checker is
+  **`tsgo`** (TypeScript 7's Go-native compiler, the `@typescript/native-preview` package),
+  which **replaced `tsc` on 2026-06-13**: faster, and validated to produce the same (zero)
+  errors on this project. Two caveats — it is pinned to a daily `-dev` build until TS 7.0
+  ships stable, and dropping the `typescript` dep means editors use their bundled TypeScript
+  for IntelliSense (only the CLI check is `tsgo`). This also advances the parked
+  plain-JS-vs-TypeScript question (#7).
 - **Snapshots no longer land in the repo tree.** Since slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/` (outside any working copy), so `.gitignore` no longer
   needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
