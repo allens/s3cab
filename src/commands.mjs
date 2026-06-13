@@ -45,7 +45,8 @@ export const commands = {
   list: {
     summary: "List a backup set's snapshots",
     args: {
-      "[<set>]": "The backup set whose snapshots to list (default: the only set)",
+      "[<set>]":
+        "The backup set whose snapshots to list (default: the only set)",
     },
     options: {
       latest: {

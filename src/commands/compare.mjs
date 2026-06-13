@@ -37,7 +37,8 @@ function relativeToRoot(dirs, path) {
     // `..`, or `..` + separator), or an absolute path. A prefix check alone
     // would wrongly reject an in-root name that merely starts with `..`
     // (e.g. `..foo/file.txt`).
-    const escapes = rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
+    const escapes =
+      rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
     if (rel && !escapes) {
       if (best === undefined || rel.length < best.length) best = rel;
     }

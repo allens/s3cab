@@ -219,7 +219,12 @@ export function formatSnapshotLine(col1, col2, col3, col4) {
  * @param {string} [base] - Root the file paths resolve against (default: `snapshotDir`)
  * @returns {Promise<string>} path to written snapshot file
  */
-export async function writeSnapshot(snapshotDir, name, files, base = snapshotDir) {
+export async function writeSnapshot(
+  snapshotDir,
+  name,
+  files,
+  base = snapshotDir,
+) {
   const snapshot = new Map();
   for (const file of files) {
     const path = typeof file === "string" ? file : file.name;

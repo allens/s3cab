@@ -80,7 +80,11 @@ describe("walkDirs", () => {
     write(b, "3.txt");
 
     const found = walkDirs([a, b], [])
-      .map((path) => relative(realpathSync.native(dir.path), path).split(sep).join(posix.sep))
+      .map((path) =>
+        relative(realpathSync.native(dir.path), path)
+          .split(sep)
+          .join(posix.sep),
+      )
       .sort();
 
     assert.deepStrictEqual(found, ["a/1.txt", "a/sub/2.txt", "b/3.txt"]);
@@ -108,7 +112,11 @@ describe("walkDirs", () => {
 
     // `*.tmp` is anchored at each root, so both roots' drop.tmp go.
     const found = walkDirs([a, b], ["*.tmp"])
-      .map((path) => relative(realpathSync.native(dir.path), path).split(sep).join(posix.sep))
+      .map((path) =>
+        relative(realpathSync.native(dir.path), path)
+          .split(sep)
+          .join(posix.sep),
+      )
       .sort();
 
     assert.deepStrictEqual(found, ["a/keep.txt", "b/keep.txt"]);

@@ -74,7 +74,9 @@ describe("compare", () => {
 
     // Explicit until: the default baseline is *its* predecessor, not the
     // latest snapshot (the step-2 inversion bug) and not an empty baseline.
-    const previousResult = await compareSnapshots(dir.path, [dir.path], { until: PREVIOUS });
+    const previousResult = await compareSnapshots(dir.path, [dir.path], {
+      until: PREVIOUS,
+    });
     assert.deepStrictEqual(previousResult, {
       added: ["fileB.txt"],
       moved: [],
@@ -470,12 +472,18 @@ describe("compare", () => {
     ]);
 
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], { since: "nope", until: "current" }),
+      compareSnapshots(dir.path, [dir.path], {
+        since: "nope",
+        until: "current",
+      }),
       /Snapshot 'nope' not found/,
     );
 
     await assert.rejects(
-      compareSnapshots(dir.path, [dir.path], { since: "current", until: "nope" }),
+      compareSnapshots(dir.path, [dir.path], {
+        since: "current",
+        until: "nope",
+      }),
       /Snapshot 'nope' not found/,
     );
   });
@@ -524,7 +532,9 @@ describe("compare", () => {
       new File(["contents2"], "file2.txt"),
     ]);
 
-    const result = await compareSnapshots(dir.path, [dir.path], { until: CURRENT + ".tsv.zst" });
+    const result = await compareSnapshots(dir.path, [dir.path], {
+      until: CURRENT + ".tsv.zst",
+    });
 
     assert.deepStrictEqual(result, {
       added: ["file2.txt"],
@@ -570,7 +580,10 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [rootA, rootB]);
 
-    assert.deepStrictEqual(result.added.sort(), [join("sub", "x.txt"), "y.txt"]);
+    assert.deepStrictEqual(result.added.sort(), [
+      join("sub", "x.txt"),
+      "y.txt",
+    ]);
     assert.deepStrictEqual(result.moved, []);
   });
 });

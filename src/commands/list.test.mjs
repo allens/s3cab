@@ -62,7 +62,10 @@ describe("listSnapshotNames", () => {
       "2025-01-14T0830.tsv.zst",
       "2025-01-15T1030.tsv.zst",
     ]);
-    assert.equal(listSnapshotNames(dir.path, { latest: true }), "2025-01-15T1030");
+    assert.equal(
+      listSnapshotNames(dir.path, { latest: true }),
+      "2025-01-15T1030",
+    );
   });
 
   it("latest returns undefined when no snapshots exist", async () => {
