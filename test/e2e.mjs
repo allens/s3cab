@@ -99,6 +99,26 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
+  it("backup on a bucket-less set stops with the bind-bucket command", async () => {
+    // The cloud round-trip (backup → list --remote → status) needs a real
+    // bucket and is covered by the gated lib tests (S3CAB_TEST_BUCKET). Here,
+    // without S3: a set with no bucket can't be backed up, and `backup` points
+    // at the exact command to bind one.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const data = join(dir.path, "data");
+    mkdirSync(home);
+    mkdirSync(data);
+
+    const created = runWithHome(home, "setup", "files", data);
+    assert.strictEqual(created.status, 0, created.stderr);
+
+    const { status, stderr } = runWithHome(home, "backup");
+    assert.strictEqual(status, 1);
+    assert.match(stderr, /no bucket bound/);
+    assert.match(stderr, /s3cab setup files --bucket/);
+  });
+
   it("setup → sets round-trip: create a backup set, then list it", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");

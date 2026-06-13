@@ -8,9 +8,11 @@ import {
   listSets,
   namespacePart,
   readSet,
+  resolveRemoteSet,
   resolveSet,
   sanitizeNamePart,
   setEnvPath,
+  validateBucketName,
   validateSetName,
   writeSet,
 } from "./sets.mjs";
@@ -48,8 +50,8 @@ function useTempHome(root) {
 
 describe("sanitizeNamePart", () => {
   it("lowercases and maps runs of other characters to one hyphen", () => {
-    assert.equal(sanitizeNamePart("Allen Shiels"), "allen-shiels");
-    assert.equal(sanitizeNamePart("ALLEN-PC"), "allen-pc");
+    assert.equal(sanitizeNamePart("Jane Doe"), "jane-doe");
+    assert.equal(sanitizeNamePart("OFFICE-PC"), "office-pc");
     assert.equal(sanitizeNamePart("a__b!!c"), "a-b-c");
   });
 
@@ -61,7 +63,7 @@ describe("sanitizeNamePart", () => {
 
 describe("namespacePart", () => {
   it("is the sanitized form when the charset can express the name", () => {
-    assert.equal(namespacePart("Allen Shiels"), "allen-shiels");
+    assert.equal(namespacePart("Jane Doe"), "jane-doe");
   });
 
   it("falls back to a short stable hash when sanitization empties the name", () => {
@@ -89,6 +91,30 @@ describe("validateSetName", () => {
   it("rejects a name that is not its own canonical form", () => {
     assert.throws(() => validateSetName("-photos"), /Try: photos/);
     assert.throws(() => validateSetName(""), /Invalid set name/);
+  });
+});
+
+describe("validateBucketName", () => {
+  it("accepts a plain bucket name", () => {
+    validateBucketName("my-backup-bucket");
+    validateBucketName("My.Bucket-123"); // provider rules vary; only shape is checked
+  });
+
+  it("rejects an s3:// URL with URL guidance", () => {
+    assert.throws(
+      () => validateBucketName("s3://my-backup-bucket"),
+      /not a URL[\s\S]*s3:\/\/my-backup-bucket/,
+    );
+  });
+
+  it("rejects a path or prefix", () => {
+    assert.throws(() => validateBucketName("bucket/prefix"), /not a path/);
+    assert.throws(() => validateBucketName("bucket\\sub"), /not a path/);
+  });
+
+  it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
+    assert.throws(() => validateBucketName(""), /No bucket name given/);
+    assert.throws(() => validateBucketName(" bucket "), /whitespace/);
   });
 });
 
@@ -231,6 +257,29 @@ describe("resolveSet", () => {
     writeSet("docs", { dirs: ["C:\\Docs"] });
 
     assert.throws(() => resolveSet(), /name one:[\s\S]*docs[\s\S]*photos/);
+  });
+});
+
+describe("resolveRemoteSet", () => {
+  it("returns the set when a bucket and namespace are present", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
+
+    const set = resolveRemoteSet("photos");
+    assert.equal(set.bucket, "b");
+    assert.match(set.namespace, /\/photos$/); // user@machine/photos
+  });
+
+  it("stops with the bind-bucket command for a bucket-less set", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"] });
+
+    assert.throws(
+      () => resolveRemoteSet("photos"),
+      /no bucket bound[\s\S]*s3cab setup photos --bucket/,
+    );
   });
 });
 

@@ -98,7 +98,17 @@ rather than assuming it is fixed forever.
    a step sight-unseen, never start the next step unasked, and don't batch the per-step
    decisions into one up-front question round. The user will say explicitly when firing
    ahead without asking is wanted. (Recorded 2026-06-12 after three escalating corrections
-   in one session.)
+   in one session.) **The default is to commit each step once approved** — present it
+   uncommitted for review (b), then commit that step when the user agrees to move on (c),
+   rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
+   slice was built end-to-end before the first commit, which then couldn't be split into
+   per-step commits without interactive hunk-staging.)
+10. **"Review the PR comments" means give an opinion, not make changes.** When the user
+    asks you to look at review comments on a PR, **assess each one and state your opinion**
+    (valid / not / nuance), then **stop and let the user decide** what to do — do not
+    automatically edit code or offer to push. Apply changes only once the user says which
+    comments to action. (Recorded 2026-06-13 after I jumped from "look at the comments"
+    straight to editing files and offering a commit.)
 
 ---
 
@@ -350,9 +360,14 @@ reads `process.env`.
 **Audience is ordinary, non-technical folks**, so user-facing names favour consumer
 backup vocabulary over git/dev jargon:
 
-- The read commands (`list`, `compare`, `status`) take a **`--remote`/`-r` flag** rather
-  than separate `*-remote` verbs or a `remote` noun-group — local and remote are the *same
-  operation pointed elsewhere*, and a flag avoids a two-level dispatcher (#6).
+- The read commands `list` and `compare` take a **`--remote`/`-r` flag** rather than
+  separate `*-remote` verbs or a `remote` noun-group — local and remote are the *same
+  operation pointed elsewhere*, and a flag avoids a two-level dispatcher (#6). **`status`
+  is the exception: it is remote-only, with no `--remote` flag** (decided in slice 3) —
+  "what a backup would upload" is *inherently* a local-snapshot-vs-remote-manifest
+  comparison, so there is no second mode for the flag to point at. (A local "what changed
+  since the last snapshot" view could be added later, but that is a separate feature, not
+  this command's `--remote` half.)
 - The transfer verbs are **`backup`/`restore`** (not `push`/`pull` or
   `upload`/`download` at the porcelain level): the most domain-honest pair, avoiding the
   bidirectional *sync* connotation of `push`/`pull` — s3cab is one-directional archival.
@@ -391,15 +406,20 @@ The remote layout (`objects/<sha256>` + `snapshots/` at the **bucket root**, sho
 README) is fixed by convention, *not* an arbitrary prefix within a shared bucket — a fixed,
 well-known structure is what lets a tool (or a person) find everything by convention alone
 (#2). `objects` and `upload` already follow it; the snapshot-driven `backup` that populates
-`snapshots/` is the remaining piece. The `snapshots/` half is designed (settled 2026-06)
+`snapshots/` now does too (slice 3). The `snapshots/` half is designed (settled 2026-06)
 in [specs/backup.md](specs/backup.md) around **backup sets** — a named list of dirs as
 the unit of snapshot/backup/restore, configured at `~/.s3cab/sets/<name>/`, identity
 `user@machine:set` pinned at creation. One bucket holds **multiple sets** (dedup shared
 via `objects/`, manifests namespaced as `snapshots/<user>@<machine>/<set>/`), with the
 manifest-last invariant and the diff-vs-latest-remote upload algorithm. The local engine
-now runs **on sets** (slice 2, 2026-06): `snapshot`/`list`/`compare`/`tree` take `[<set>]`,
+runs **on sets** (slice 2, 2026-06): `snapshot`/`list`/`compare`/`tree` take `[<set>]`,
 manifests live in `~/.s3cab/sets/<set>/snapshots/`, and the old per-dir `<dir>/.s3cab/`
-has retired entirely.
+has retired entirely. The **cloud half is built** (slice 3, 2026-06, PR #39): the remote
+engine lives in [src/lib/remote.mjs](src/lib/remote.mjs) (the `snapshots/<namespace>/`
+layer — listing, manifest read, the `uploadCandidates` diff, the per-bucket objects cache
+`~/.s3cab/objects.<bucket>`, and the manifest-last `uploadSnapshot`), with `backup`,
+`status`, and `list --remote` on top; `s3.mjs` stays the generic SDK boundary (it never
+learns the layout). Still target: `restore`, `verify`, adoption, `compare --remote`.
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -414,10 +434,10 @@ non-obvious points worth pinning here:
   dotenv dep) rather than any loader's fixed semantics.
 - The **set layer (`~/.s3cab/sets/<set>/env`, written by `setup`) replaced the
   never-wired per-dir layer** (backup-sets slice 1, 2026-06 — specs/auth.md's History
-  note has the trail). It is wired into `loadEnv({ set })` and tested, but **no command
-  passes a set scope yet** — the local set commands (slice 2) need no credentials, so this
-  arrives with `backup` ([specs/backup.md](specs/backup.md) slice 3). s3cab never writes
-  `~/.aws/*`.
+  note has the trail). It is wired into `loadEnv({ set })`, and the cloud commands now
+  **consume it**: `backup`, `status`, and `list --remote` each `loadEnv({ set })` after
+  resolving the set (slice 3) — the local set commands (slice 2) need no credentials, so
+  they don't. s3cab never writes `~/.aws/*`.
 
 ---
 
@@ -556,6 +576,18 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   (scratch scripts, shared helpers) **out** of `test/` or they run as phantom empty tests —
   scratch goes in [scripts/](scripts/), and a test's shared helper lives beside the test
   that uses it.
+- **S3 tests run against a real bucket, gated — not mocked** (decided slice 3, 2026-06-13).
+  Code that actually calls `s3.mjs` (the remote listing/read, the uploader) is covered by
+  **integration tests against a real test bucket**, gated on a `S3CAB_TEST_BUCKET` env var
+  (plus ambient AWS credentials) and `describe(..., { skip })`-ed **with a message** when
+  it is unset — so local, offline, and fork-CI runs stay green and real coverage runs only
+  where the bucket is wired. The `s3.mjs` boundary is deliberately **not** mocked (no mock
+  framework, #5; and a mock drifts from real AWS conditional-PUT/LIST semantics). The
+  **pure** diff/cache logic (`uploadCandidates`, the objects cache) gets ordinary unit
+  tests needing no bucket, so the bulk of the logic is always exercised. Standing up the
+  test bucket + CI credentials is a **separate, pending task** — a broader testing pass
+  (unit/integration/e2e boundaries, mock-or-not) is planned. Worked example: the gated
+  suites in [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
 
 ---
 
@@ -563,27 +595,25 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **Snapshot-driven backup/restore flow not built yet** — its design *and* the
-  five-slice implementation plan are settled in [specs/backup.md](specs/backup.md)
-  (backup sets, set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last
-  invariant, diff-vs-latest-remote + objects-cache upload set). The object-store
-  plumbing works
-  (`objects`, `upload`, via the `src/lib/s3.mjs` boundary), but the snapshot-driven `backup`,
-  the remote-snapshot wiring under `snapshots/`, and the download/`restore` path don't
-  exist — the read-stream/bucket ops in `s3.mjs` still have no caller (promoted ahead of
-  need, deliberately). `upload` still owes its **`--if-modified-from <snapshot>` skip** —
-  the snapshot-aware "only upload what changed" optimization `backup` is built on (see the
-  TODO in [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
-  **Slices 1–2 of the plan are built** (2026-06): slice 1 gave the set store
-  (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and the set env layer in auth;
-  slice 2 moved the local engine onto sets — `snapshot`/`list`/`compare`/`tree` take
-  `[<set>]` (sole-set default), walk every member dir with the set's `exclude.txt`, write
-  one manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
-  `~/.s3cab/sets/<set>/snapshots/`, and the per-dir `<dir>/.s3cab/` has retired. Next is
-  slice 3 (`backup` + `status`). The rest of the CLI surface stays scaffolded:
-  `backup`/`restore`/`status`/`verify` are inline registry stubs and `--remote` is wired
-  onto `list`/`compare`, all throwing `notImplemented()`; promote each stub into its own
-  `src/commands/` file as it gains a real body.
+- **`restore`/`verify` flow not built yet** — the design *and* the five-slice
+  implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
+  set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last invariant,
+  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 are built** (2026-06):
+  slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
+  the set env layer in auth; slice 2 moved the local engine onto sets —
+  `snapshot`/`list`/`compare`/`tree` take `[<set>]` (sole-set default), walk every member
+  dir with the set's `exclude.txt`, write one manifest (with `#SNAPSHOT` identity + `#DIR`
+  headers) into `~/.s3cab/sets/<set>/snapshots/`, and the per-dir `<dir>/.s3cab/` has
+  retired; slice 3 (PR #39) built the cloud half — the remote engine
+  ([src/lib/remote.mjs](src/lib/remote.mjs)) plus `backup`, `status`, and `list --remote`,
+  so the read-stream/bucket ops in `s3.mjs` now have callers. `upload` still owes its
+  **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
+  *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
+  `backup`'s upload-set diff; see the TODO in
+  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
+  Remaining scaffold: `restore`/`verify` are inline registry stubs and `compare --remote`
+  is wired but throws `notImplemented()`; promote each stub into its own `src/commands/`
+  file as it gains a real body (slices 4–5).
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:

@@ -270,6 +270,16 @@ export const bucketPolicy = (bucketName) => ({
 });
 
 /**
+ * Delete a single S3 object.
+ * @param {string} uri - The `s3://bucket/key` URI of the object.
+ * @returns {Promise<void>}
+ */
+export async function deleteObject(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  await client().send(new DeleteObjectCommand({ Bucket, Key }));
+}
+
+/**
  * Empty an S3 bucket (delete every object in it).
  * @param {string} bucketName
  */

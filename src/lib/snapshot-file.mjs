@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { createReadStream, existsSync, mkdirSync } from "node:fs";
 import { open, rename } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -136,6 +136,23 @@ export async function readSnapshot(snapshotDir, name) {
 }
 
 /**
+ * The snapshot names among a set of snapshot file names, newest first. This
+ * datestamped `.tsv.zst` filter is the one place the snapshot naming convention
+ * is recognised; `list` (local files) and the remote lister (manifest keys with
+ * their `snapshots/<namespace>/` prefix already stripped) both run through here,
+ * so a local and a remote listing sort and filter identically.
+ * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.zst`)
+ * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
+ */
+export function snapshotNames(names) {
+  return [...names]
+    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.zst$/.test(name))
+    .map((name) => basename(name, ".tsv.zst"))
+    .sort()
+    .reverse();
+}
+
+/**
  * Read a snapshot file.
  * @param {string} path - Path to snapshot file
  * @returns {Promise<SnapshotLookup>} Snapshot lookup
@@ -143,15 +160,34 @@ export async function readSnapshot(snapshotDir, name) {
 export async function readSnapshotFile(path) {
   const start = Temporal.Now.instant();
 
-  /** @type {SnapshotLookup} */
-  const lookup = new Map();
-
   const readStream = createReadStream(path);
 
   const input =
     extname(path) === ".zst"
       ? readStream.pipe(createZstdDecompress())
       : readStream;
+
+  const lookup = await parseSnapshotStream(input);
+
+  console.warn(`Read snapshot file '${path}' in ${secondsSince(start)}`);
+
+  return lookup;
+}
+
+/**
+ * Parse a decompressed snapshot TSV stream into a lookup — the line-parsing
+ * core of `readSnapshotFile`, split out so a manifest can be read straight from
+ * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
+ * with no temp file. The caller hands in an already-**decompressed** TSV stream:
+ * `readSnapshotFile` decompresses a `.zst` path itself; the remote reader pipes
+ * the S3 body through zstd. Comment lines — including the `#SNAPSHOT`/`#DIR`
+ * headers — are skipped.
+ * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
+ * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ */
+export async function parseSnapshotStream(input) {
+  /** @type {SnapshotLookup} */
+  const lookup = new Map();
 
   const rl = createInterface({ input, crlfDelay: Infinity });
 
@@ -171,8 +207,6 @@ export async function readSnapshotFile(path) {
       hash,
     });
   }
-
-  console.warn(`Read snapshot file '${path}' in ${secondsSince(start)}`);
 
   return lookup;
 }

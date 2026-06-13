@@ -1,6 +1,11 @@
 import { realpathSync, statSync } from "node:fs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
-import { listSets, validateSetName, writeSet } from "../lib/sets.mjs";
+import {
+  listSets,
+  validateBucketName,
+  validateSetName,
+  writeSet,
+} from "../lib/sets.mjs";
 
 /**
  * Create or update a backup set (specs/backup.md): `~/.s3cab/sets/<set>/` with
@@ -21,6 +26,9 @@ import { listSets, validateSetName, writeSet } from "../lib/sets.mjs";
 export function setup(name, folders = [], options = {}) {
   requireArg(name, "<set>");
   validateSetName(name);
+  // Validate when --bucket is *given at all* (even ""), so an explicit empty
+  // value fails fast rather than silently leaving the set bucket-less.
+  if (options.bucket !== undefined) validateBucketName(options.bucket);
 
   const creating = !listSets().includes(name);
   if (creating && folders.length === 0) {

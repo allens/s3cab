@@ -117,6 +117,46 @@ export function validateSetName(name) {
   );
 }
 
+/**
+ * Validate a user-supplied bucket name at `setup` time — a fail-fast guard
+ * against the two natural mistakes (deferred from PR #33): pasting an `s3://`
+ * URL, or a path/prefix rather than a bare bucket. One s3cab repository is one
+ * whole bucket (CLAUDE.md), so the name must be a single segment.
+ *
+ * Deliberately *not* full AWS bucket-naming validation (length, charset, no
+ * IP-form, …): s3cab also targets non-AWS S3 providers (R2/B2/…) whose rules
+ * differ, so an over-strict check would reject valid names (#8). The provider
+ * rejects a truly malformed name at first use with its own error.
+ * @param {string} bucket
+ */
+export function validateBucketName(bucket) {
+  if (bucket === "") {
+    throw new Error(
+      `No bucket name given. ` +
+        `Pass a plain S3 bucket name, e.g. --bucket my-backup-bucket.`,
+    );
+  }
+  if (/:\/\//.test(bucket)) {
+    throw new Error(
+      `Invalid bucket name: ${bucket}\n` +
+        `Give a plain bucket name, not a URL ` +
+        `(e.g. 'my-backup-bucket', not 's3://my-backup-bucket').`,
+    );
+  }
+  if (bucket.includes("/") || bucket.includes("\\")) {
+    throw new Error(
+      `Invalid bucket name: ${bucket}\n` +
+        `Give a plain bucket name — a single segment, not a path or prefix.`,
+    );
+  }
+  if (bucket.trim() !== bucket) {
+    throw new Error(
+      `Invalid bucket name: ${bucket}\n` +
+        `Give a plain bucket name with no surrounding whitespace.`,
+    );
+  }
+}
+
 /** The names of all backup sets (the folders under `~/.s3cab/sets`), sorted. */
 export function listSets() {
   /** @type {import("node:fs").Dirent[]} */
@@ -190,6 +230,34 @@ export function resolveSet(name) {
   throw new Error(
     `Several backup sets exist — name one:\n\n${formatSets(names.map(readSet))}`,
   );
+}
+
+/**
+ * Resolve a set that is ready for cloud operations: the named set (sole-set
+ * default, via `resolveSet`), guarded to have a bucket bound and a pinned
+ * namespace. The shared front door for `backup`/`status` (and later
+ * `restore`/`verify`) — a bucket-less set is a local-only snapshot engine and
+ * stops here with the exact command to bind one. Env loading stays in each
+ * command (per CLAUDE.md), so this does no `loadEnv` and keeps no auth
+ * dependency (which would also cycle, auth.mjs → sets.mjs).
+ * @param {string} [setName]
+ * @returns {BackupSet & { bucket: string, namespace: string }}
+ */
+export function resolveRemoteSet(setName) {
+  const set = resolveSet(setName);
+  if (!set.bucket) {
+    throw new Error(
+      `Backup set '${set.name}' has no bucket bound — it is local-only.\n` +
+        `Bind one with:  s3cab setup ${set.name} --bucket <bucket>`,
+    );
+  }
+  if (!set.namespace) {
+    throw new Error(
+      `Backup set '${set.name}' has no pinned namespace ` +
+        `(S3CAB_NAMESPACE missing from its env).`,
+    );
+  }
+  return { ...set, bucket: set.bucket, namespace: set.namespace };
 }
 
 /**

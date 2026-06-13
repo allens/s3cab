@@ -42,18 +42,21 @@ is never locked in**:
 
 ## Status
 
-s3cab is currently a **local snapshot engine** — it records and compares the state of
-your files, organised into **backup sets** (a named list of folders that snapshot as one
-unit). Backing up to the cloud is the next milestone. You create a set once, then the
-snapshot commands act on it:
+s3cab records and compares the state of your files, organised into **backup sets** (a
+named list of folders that snapshot as one unit), and **backs them up to S3**. (Restoring
+_through s3cab_ is the next milestone — until then, the open, self-describing format means
+you can always recover by hand; see [Cloud repositories](#cloud-repositories).) You create
+a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination).   |
 | `s3cab sets`                  | List your backup sets, their folders, and where they back up to.              |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
-| `s3cab list [<set>]`          | List the snapshots taken for a set.                                           |
+| `s3cab list [<set>]`          | List a set's snapshots — or its cloud backups with `--remote`.                |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
+| `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
+| `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
@@ -66,19 +69,17 @@ and `upload`, also work already — advanced building blocks covered under
 
 ### Coming next
 
-Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool. The
-**backup set** model is already in place locally (see [Status](#status)); these commands
-extend it to the cloud, but are **not yet functional** (they exit with a "not yet
-implemented" message):
+Backing up already works (see [Status](#status)); these remaining commands complete the
+round-trip — getting your files **back** — and are **not yet functional** (they exit with
+a "not yet implemented" message):
 
 | Command                          | Will do                                                                |
 | -------------------------------- | ---------------------------------------------------------------------- |
-| `s3cab backup [<set>]`           | Take a fresh snapshot and upload it, and the files it references.      |
 | `s3cab restore [<set>] [paths…]` | Restore files from a backup.                                           |
-| `s3cab status [<set>]`           | Show what is backed up and what a backup would upload.                 |
 | `s3cab verify [<set>]`           | Check that a backup is complete and undamaged.                         |
 
-(`list` and `compare` will also gain a `--remote` flag to work against the cloud copy.)
+(`compare` will also gain a `--remote` flag to work against the cloud copy; `list --remote`
+already works.)
 
 ### Cloud repositories
 
@@ -104,7 +105,8 @@ look up its hash in a snapshot and download `objects/<that-hash>`.
 
 The `objects` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is to produce
-a lookup file so a future `backup` can skip re-uploading files already stored:
+a lookup file (the per-bucket objects cache) so `backup` can skip re-uploading files already
+stored:
 
 ```console
 > s3cab objects my-backup-bucket               # one sha256 per line, to stdout
@@ -120,7 +122,7 @@ same key — unless you `--force` a re-upload:
 ```
 
 (`<bucket>` is a plain S3 bucket name — one repository is one bucket. Like `objects`,
-`upload` is plumbing: the building block the snapshot-driven `backup` will drive.)
+`upload` is plumbing: a lower-level building block beside the snapshot-driven `backup`.)
 
 ### Authentication
 

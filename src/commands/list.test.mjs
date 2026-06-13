@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, it } from "node:test";
-import { listSnapshotNames } from "./list.mjs";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { writeSet } from "../lib/sets.mjs";
+import { list, listSnapshotNames } from "./list.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -71,5 +72,38 @@ describe("listSnapshotNames", () => {
   it("latest returns undefined when no snapshots exist", async () => {
     await using dir = await mkTmpDir();
     assert.equal(listSnapshotNames(dir.path, { latest: true }), undefined);
+  });
+});
+
+// The `list` command's --remote path lists S3, so its real coverage is the
+// gated remote.test.mjs (listRemoteSnapshots) + the e2e suite. Without S3, the
+// testable bit is that --remote routes through the cloud-set front door:
+// bucket-less sets stop with the bind-bucket command. Temp-home pattern as in
+// sets.test.mjs.
+/** @type {NodeJS.ProcessEnv} */
+let savedEnv;
+beforeEach(() => {
+  savedEnv = { ...process.env };
+});
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in savedEnv)) delete process.env[key];
+  }
+  Object.assign(process.env, savedEnv);
+});
+
+describe("list --remote", () => {
+  it("stops with the bind-bucket command for a bucket-less set", async () => {
+    await using dir = await mkTmpDir();
+    const home = join(dir.path, "home");
+    mkdirSync(home, { recursive: true });
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    writeSet("photos", { dirs: [join(dir.path, "photos")] });
+
+    await assert.rejects(
+      () => list("photos", { remote: true }),
+      /no bucket bound[\s\S]*s3cab setup photos --bucket/,
+    );
   });
 });

@@ -2,15 +2,19 @@
 
 ## Status
 
-Designed (2026-06-12), **implementation in progress**. Slices 1–2 of the plan below are
-built: slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env
+Designed (2026-06-12), **implementation in progress**. Slices 1–3 of the plan below are
+built. Slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env
 layer in auth; slice 2 moved the local engine onto sets — `snapshot`/`list`/`compare`/
 `tree` take `[<set>]`, walk every member dir with the set's `exclude.txt`, write one
 manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
-`~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. The `objects`/`upload`
-plumbing and the `objects/<sha256>` half of the remote layout were already live.
-Everything else here — `backup`/`restore`/`status`/`verify` (still registry stubs) and
-the `snapshots/` remote half — is target.
+`~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
+the `snapshots/` remote half and the cloud porcelain: the remote repository engine
+(`src/lib/remote.mjs` — remote-manifest listing/read, the upload-set diff
+`uploadCandidates`, the per-bucket objects cache, the manifest-last `uploadSnapshot`),
+plus `backup`, `status`, and `list --remote`. The `objects`/`upload` plumbing and the
+`objects/<sha256>` half of the remote layout were already live. Everything else here —
+`restore`/`verify` (still registry stubs), `setup --from` adoption, and `compare --remote`
+— is target (slices 4–5).
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
@@ -273,8 +277,10 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
    millions of objects mounts up badly, while LIST pages 1,000 keys per request — so
    the listing is fetched rarely, cached locally, and consulted for free. `backup`
    appends every hash it uploads to the cache; refresh any time with `objects -f`.
-   `--force` skips this cache lookup entirely (when in doubt about sync) and falls
-   through to the conditional PUT below.
+   `--skip-cache` skips this cache lookup entirely (when in doubt about sync) and falls
+   through to the conditional PUT below. (The flag is named `--skip-cache`, not the
+   `--force` this spec first used: it only skips the cache and never overwrites, unlike
+   `upload --force`.)
 4. Upload the remaining candidates with the conditional-PUT / no-clobber skip as the
    safety net — it silently no-ops objects that exist but were in neither the latest
    manifest nor the cache (older snapshots, other sets/users/machines, a stale cache).
@@ -290,7 +296,9 @@ a needed upload and break the invariant — but objects are only ever deleted by
 The diff trusts the invariant (latest remote manifest ⇒ its objects exist). Ground-truth
 checking is deliberately **not** `backup`'s job — it belongs to the admin pair below.
 **`status`** is steps 1–2 run read-only ("what would a backup upload"), sharing the
-machinery.
+machinery. It is **remote-only — there is no `--remote` flag** (decided at
+implementation): `status` always compares the set's latest *local* snapshot against its
+latest *remote* manifest, so the flag would have no second mode to point at.
 
 ## Composability: porcelain composes plumbing
 
@@ -412,15 +420,19 @@ error (+ `S3CAB_DEBUG` overwrite). `<dir>/.s3cab/` retires — the biggest user-
 change, so README "How it works", doc/exclude.md, help topics, the repo's own dogfood
 config, and test fixtures all move in this PR.
 
-### Slice 3 — `backup` + `status` (the milestone)
+### Slice 3 — `backup` + `status` (the milestone) — **built (2026-06-13, PR #39)**
 
-Decide the S3 test strategy first (mock at the `s3.mjs` boundary vs a real test
-bucket). Then bottom-up: remote-manifest listing for a namespace → the manifest-diff
-function → the per-bucket objects cache (read/append/`--force`) → the uploader loop
-(conditional PUTs, manifest-last) → `backup` porcelain (snapshot + upload) → `status`
-(read-only diff) → `list --remote`. Also: fail-fast bucket-name validation in `setup`
-(a plain single-segment name, not an `s3://` URL or path — deferred from PR #33 review,
-decided here alongside whatever bucket rules the uploader needs).
+S3 test strategy (decided): S3-touching code is covered by **gated integration tests
+against a real bucket** (`S3CAB_TEST_BUCKET`, skipped with a message when unset) rather
+than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit
+tests. (Standing up the test bucket + CI credentials is a separate task.) Built
+bottom-up: remote-manifest listing for a namespace → the manifest-diff function
+(`uploadCandidates`) → the per-bucket objects cache (read/append/`--skip-cache`) → the
+uploader loop (conditional PUTs, manifest-last) → `backup` porcelain (snapshot + upload)
+→ `status` (read-only diff, remote-only — no `--remote` flag) → `list --remote`. Plus
+fail-fast bucket-name validation in `setup` (a plain single-segment name, not an `s3://`
+URL or path — deferred from PR #33 review). The cache-skip flag is `--skip-cache`, not
+the `--force` first written above (clearer, and it never overwrites like `upload --force`).
 
 ### Slice 4 — `restore` + adoption
 

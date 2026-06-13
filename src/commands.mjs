@@ -1,3 +1,4 @@
+import { backup } from "./commands/backup.mjs";
 import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
 import { objects } from "./commands/objects.mjs";
@@ -5,6 +6,7 @@ import { prop } from "./commands/prop.mjs";
 import { sets } from "./commands/sets.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
+import { status } from "./commands/status.mjs";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { notImplemented } from "./lib/error.mjs";
@@ -92,19 +94,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",
-    planned: true,
-    args: { "<dir>": "The directory to report on" },
-    options: {
-      remote: {
-        type: "boolean",
-        short: "r",
-        description: "Check the cloud for what is already backed up",
-      },
-    },
-    exec: () => notImplemented("status"),
+    args: { "[<set>]": "The backup set to report on (default: the only set)" },
+    exec: (_options, [set] = []) => status(set),
   },
 
-  // ── Backup sets (specs/backup.md) — the cloud half is not yet implemented ─
+  // ── Backup sets (specs/backup.md) — restore/verify still to come ─
   setup: {
     group: "Backup sets",
     summary: "Create or update a backup set",
@@ -127,17 +121,22 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
     exec: () => sets(),
   },
   backup: {
-    summary: "Back up a snapshot to the cloud",
-    planned: true,
-    args: { "<dir>": "The directory to back up" },
+    summary: "Back up a set to the cloud",
+    args: { "[<set>]": "The backup set to back up (default: the only set)" },
     options: {
       snapshot: {
         type: "string",
         short: "s",
-        description: "Which snapshot to back up (default: the latest)",
+        description:
+          "Back up this existing snapshot instead of taking a new one",
+      },
+      "skip-cache": {
+        type: "boolean",
+        description:
+          "Skip the local objects cache and re-check the cloud directly",
       },
     },
-    exec: () => notImplemented("backup"),
+    exec: (options, [set] = []) => backup(set, options),
   },
   restore: {
     summary: "Restore files from a backup",
