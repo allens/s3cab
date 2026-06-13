@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
@@ -71,7 +70,20 @@ export function walkDirs(dirs, patterns, writeStream) {
 
   stderr.write(secondsSince(start) + "\n");
 
-  assert(files.length === new Set(files).size, "File list contains duplicates");
+  // A file reached by more than one root means the set's member directories
+  // overlap (one nested under another) — name the offender so the user can fix
+  // dirs.txt, rather than failing with a bare "duplicates" invariant.
+  const seen = new Set();
+  for (const path of files) {
+    if (seen.has(path)) {
+      throw new Error(
+        `File found under more than one of the set's folders: ${path}\n` +
+          `The set's folders overlap (one is nested under another). Edit the ` +
+          `set's dirs.txt so its folders don't contain one another.`,
+      );
+    }
+    seen.add(path);
+  }
 
   return files;
 }
