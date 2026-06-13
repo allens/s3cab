@@ -89,6 +89,16 @@ describe("setup", () => {
     );
   });
 
+  it("rejects an s3:// URL passed as the bucket, before touching folders", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = useTempHome(dir.path);
+
+    assert.throws(
+      () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
+      /Invalid bucket name[\s\S]*not a URL/,
+    );
+  });
+
   it("rejects a missing folder and a non-folder member", async () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
