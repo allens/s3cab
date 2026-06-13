@@ -56,12 +56,12 @@ Full guide: https://github.com/allens/s3cab#authentication`,
 
   exclude: `Excluding files
 
-Files and folders to skip are listed in <dir>/.s3cab/exclude.txt, one
-glob pattern per line. Lines starting with # are comments and blank
-lines are ignored. (The .s3cab folder itself is always skipped.)
+Files and folders to skip are listed in a backup set's exclude file,
+~/.s3cab/sets/<set>/exclude.txt, one glob pattern per line. Lines
+starting with # are comments and blank lines are ignored.
 
-Patterns match each file or folder's path relative to the snapshot
-directory. Write / between folders; on Windows \\ works too.
+Patterns match each file or folder's path relative to each of the set's
+member directories. Write / between folders; on Windows \\ works too.
 
   *    one or more characters, within a single name
   **/  zero or more whole folders

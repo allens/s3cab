@@ -43,41 +43,33 @@ is never locked in**:
 ## Status
 
 s3cab is currently a **local snapshot engine** — it records and compares the state of
-your files. Backing up to the cloud is the next milestone. These local commands work
-today:
+your files, organised into **backup sets** (a named list of folders that snapshot as one
+unit). Backing up to the cloud is the next milestone. You create a set once, then the
+snapshot commands act on it:
 
-| Command                | What it does                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `s3cab snapshot <dir>` | Take a snapshot of a directory, then show what changed since the previous one.     |
-| `s3cab list <dir>`     | List the snapshots taken for a directory.                                          |
-| `s3cab compare <dir>`  | Show what changed between two snapshots (added / moved / modified / deleted).      |
-| `s3cab tree <dir>`     | List the files in a directory, honouring exclude rules.                            |
-| `s3cab prop <file>`    | Show the hash, size, and modified time of a single file.                           |
+| Command                       | What it does                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination).   |
+| `s3cab sets`                  | List your backup sets, their folders, and where they back up to.              |
+| `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
+| `s3cab list [<set>]`          | List the snapshots taken for a set.                                           |
+| `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
+| `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
+| `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
-And the first pieces of the backup-set model (see [Coming next](#coming-next)) work too:
+A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`). When
+you have only one set you can leave the name out — plain `s3cab snapshot` just works.
 
-| Command                       | What it does                                                                |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination). |
-| `s3cab sets`                  | List your backup sets, their folders, and where they back up to.            |
-
-A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`) — but
-note the snapshot commands above still take a folder, not a set; they move onto sets next.
-
-Every snapshot command defaults `<dir>` to the current folder, so `s3cab snapshot`
-snapshots where you are. Run any command with `--help` to see its options. (Two cloud
-plumbing commands, `objects` and `upload`, also work already — advanced building blocks
-covered under [Cloud repositories](#cloud-repositories).)
+Run any command with `--help` to see its options. (Two cloud plumbing commands, `objects`
+and `upload`, also work already — advanced building blocks covered under
+[Cloud repositories](#cloud-repositories).)
 
 ### Coming next
 
-Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool,
-built around **backup sets** — you name a set (say, `photos`), tell s3cab which folders
-belong to it, and from then on every command treats those folders as one unit. Commands
-take the set name, and when you have only one set you can leave it out entirely. You can
-already create and list sets today (`setup`/`sets` under [Status](#status)); the commands
-that act on them are part of the interface but **not yet functional** (they exit with a
-"not yet implemented" message; today's stubs still show the older per-folder arguments):
+Backing up to S3 will turn s3cab from a local snapshot engine into a full backup tool. The
+**backup set** model is already in place locally (see [Status](#status)); these commands
+extend it to the cloud, but are **not yet functional** (they exit with a "not yet
+implemented" message):
 
 | Command                          | Will do                                                                |
 | -------------------------------- | ---------------------------------------------------------------------- |
@@ -86,8 +78,7 @@ that act on them are part of the interface but **not yet functional** (they exit
 | `s3cab status [<set>]`           | Show what is backed up and what a backup would upload.                 |
 | `s3cab verify [<set>]`           | Check that a backup is complete and undamaged.                         |
 
-(The local commands — `snapshot`, `list`, `compare`, `tree` — will move to backup sets
-too, and `list`/`compare` gain a `--remote` flag to work against the cloud copy.)
+(`list` and `compare` will also gain a `--remote` flag to work against the cloud copy.)
 
 ### Cloud repositories
 
@@ -158,12 +149,16 @@ the session up automatically through the standard chain.
 ## Quick start
 
 ```console
-> s3cab snapshot C:\Users\me\Photos
+# Create a backup set (a name plus the folders it contains):
+> s3cab setup photos C:\Users\me\Photos
+
+# Snapshot the set. With only one set, you can leave its name out:
+> s3cab snapshot
 Generating new snapshot: 2025-11-11T0830
 
 # ...add, move, or edit some files, then snapshot again —
 # s3cab reports what changed since last time (as JSON):
-> s3cab snapshot C:\Users\me\Photos
+> s3cab snapshot
 Generating new snapshot: 2025-11-12T0915
 {
   "added": [
@@ -176,15 +171,15 @@ Generating new snapshot: 2025-11-12T0915
   "deleted": []
 }
 
-# List every snapshot you've taken:
-> s3cab list C:\Users\me\Photos
+# List every snapshot you've taken of the set:
+> s3cab list
 [
   "2025-11-12T0915",
   "2025-11-11T0830"
 ]
 
 # Compare any two snapshots (defaults to the latest two; --since picks an older one):
-> s3cab compare C:\Users\me\Photos --since 2025-11-11T0830
+> s3cab compare --since 2025-11-11T0830
 ```
 
 How to read the report — the four categories and the `→→` / `==` notations — is
@@ -192,36 +187,39 @@ covered in [doc/compare.md](doc/compare.md).
 
 ## How it works
 
-Running `snapshot` on a directory writes an immutable manifest under a `.s3cab/` folder
-beside your files:
+Running `snapshot` walks every folder in the set and writes one immutable manifest into
+the set's own folder under your home directory — never inside your backed-up files:
 
 ```
-my-photos/
-  .s3cab/
-    exclude.txt                  # optional: glob patterns for files to skip
-    snapshots/
-      2025-11-10T2104.tsv.zst    # one snapshot per run (zstd-compressed TSV)
-      2025-11-11T0830.tsv.zst
-  2024/
-  2025/
+~/.s3cab/sets/photos/
+  dirs.txt                       # the folders that make up the set
+  env                            # the set's identity + (optional) cloud bucket
+  exclude.txt                    # optional: glob patterns for files to skip
+  snapshots/
+    2025-11-10T2104.tsv.zst      # one snapshot per run (zstd-compressed TSV)
+    2025-11-11T0830.tsv.zst
 ```
 
 Each manifest is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
 fixed-width leading columns so it stays readable, with the variable-length (and
-platform-native, absolute) path last:
+platform-native, absolute) path last. It opens with a header naming the set's identity
+(`user@machine:set`) and each member folder, so a manifest is self-describing even found
+on its own:
 
 ```
-#SNAPSHOT                                                            2025-11-11T08:30   C:\Users\me\my-photos
-3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\my-photos\2025\beach.jpg
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\my-photos\2024\empty.txt
+#SNAPSHOT                                                            2025-11-11T08:30          allen@allen-pc:photos
+#DIR                                                                                           C:\Users\me\Photos
+3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
 ```
 
 To inspect a compressed snapshot by hand, decompress it with any zstd tool
 (`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
 story — no s3cab required.
 
-Exclude rules live in `.s3cab/exclude.txt`; run `s3cab help exclude` for a quick
-reference, or see [doc/exclude.md](doc/exclude.md) for the full guide.
+Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
+set's folders; run `s3cab help exclude` for a quick reference, or see
+[doc/exclude.md](doc/exclude.md) for the full guide.
 
 > s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
 > goal for later. Snapshot paths are absolute and use the native OS path style.

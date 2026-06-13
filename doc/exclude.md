@@ -1,16 +1,17 @@
 # Exclude rules
 
-Files and folders to skip are listed in `<dir>/.s3cab/exclude.txt`, one glob
-pattern per line. Lines starting with `#` are comments; blank lines are ignored.
-(The `.s3cab/` folder itself is always skipped — it needs no rule.)
+Files and folders to skip are listed in a backup set's exclude file,
+`~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
+`#` are comments; blank lines are ignored.
 
 > For a quick reference in the terminal, run `s3cab help exclude` — it carries
 > the same rules as this page, no browser needed.
 
 ## Globbing
 
-Patterns are matched against the path of each file or directory, relative to the
-snapshot directory. Write `/` between folders; on Windows `\` works too. A
+Patterns are matched against the path of each file or directory, relative to
+**each** of the set's member directories (so one pattern applies the same way to
+every folder in the set). Write `/` between folders; on Windows `\` works too. A
 _segment_ is one folder or file name (the text between two separators).
 
 | Token  | Matches                                            |
