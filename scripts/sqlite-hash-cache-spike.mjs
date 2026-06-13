@@ -24,6 +24,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const N = Number(process.argv[2] ?? 200_000);
+if (!Number.isInteger(N) || N < 1) {
+  throw new Error(`N must be a positive integer (got '${process.argv[2]}')`);
+}
 
 /**
  * Synthetic file records standing in for a walked backup set.
@@ -31,7 +34,7 @@ const N = Number(process.argv[2] ?? 200_000);
  */
 function* fakeFiles(count) {
   for (let i = 0; i < count; i++) {
-    const path = `C:\\Users\\allen\\Pictures\\2024\\IMG_${i.toString().padStart(6, "0")}.jpg`;
+    const path = `C:\\photos\\2024\\IMG_${i.toString().padStart(6, "0")}.jpg`;
     const size = 1_000_000 + ((i * 7919) % 5_000_000);
     const mtime = 1_700_000_000_000 + i * 1000;
     // The "expensive" value the cache exists to avoid recomputing.
