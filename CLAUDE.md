@@ -627,9 +627,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
-- **Wire `typecheck` into CI.** The whole-project `tsc` check is clean as of the auth
-  removal (the promoted-from-POC `login.mjs` was the last `src/` offender); ci.yml doesn't
-  run it yet.
+- **Type check + coverage gate run in CI** (the ci.yml Linux `lint` job, alongside
+  lint/format): `npm run typecheck` plus a `node --test --experimental-test-coverage` run
+  with **global** thresholds (lines 80 / branches 68 / functions 70; `*.test.mjs` and
+  `scripts/` excluded). Global, not per-file, because the S3-touching modules read low —
+  their integration tests are gated off without a bucket (see the S3-tests note above).
+  Thresholds were measured on Windows, so they are a **floor to bump as coverage rises**,
+  not a target. (Resolves the former "wire typecheck into CI" gap.)
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check (its existence doubles
   as a crude in-progress lock); a proper lock file is a `TODO` in
