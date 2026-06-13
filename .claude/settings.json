@@ -32,7 +32,7 @@
       "Bash(npm view *)",
       "Bash(npx eslint *)",
       "Bash(npx prettier *)",
-      "Bash(npx tsc*)",
+      "Bash(npx tsgo*)",
       "Bash(node --test*)",
       "Bash(node src/s3cab.mjs*)",
       "Bash(npm pack *)",
