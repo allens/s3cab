@@ -63,7 +63,22 @@ function client() {
     // behaviour, so it is dropped (and `endpoint` used instead) off AWS.
     region:
       process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1",
-    ...(endpoint ? { endpoint } : { followRegionRedirects: true }),
+    ...(endpoint
+      ? {
+          endpoint,
+          // Off-AWS, don't add the SDK's default data-integrity checksum. Since
+          // v3.730 `requestChecksumCalculation` defaults to "when_supported", so
+          // every upload carries a CRC trailer (CRC64NVME for S3 multipart) — which
+          // several S3-compatible providers (R2 / B2 / MinIO / Wasabi) reject, and
+          // whose CRC64NVME path can require the `@aws-sdk/crc64-nvme` addon our SEA
+          // bundle externalizes. s3cab already SHA-256s every file, so the wire
+          // checksum adds nothing here. "WHEN_REQUIRED" still sends it for the few
+          // operations that mandate one. On AWS the default stands (free integrity).
+          // (specs/s3-provider-compatibility.md)
+          requestChecksumCalculation: "WHEN_REQUIRED",
+          responseChecksumValidation: "WHEN_REQUIRED",
+        }
+      : { followRegionRedirects: true }),
     credentials: resolveCredentials,
   }));
 }

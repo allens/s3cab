@@ -93,6 +93,15 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    off AWS. Now carries an AWS-only doc note; still unused (only `setup`, a stub, would call
    it). Provider-aware bucket creation/policy is deferred to when `setup` is actually built.
 
+4. **Gate the default integrity checksum off-AWS.** ✅ **Done.** Since AWS SDK v3.730
+   `requestChecksumCalculation` defaults to `"when_supported"`, so the SDK adds a CRC trailer
+   (CRC64NVME for S3 multipart) to *every* upload. Several S3-compatible providers
+   (R2 / B2 / MinIO / Wasabi) reject the newer trailer, and the CRC64NVME path can require the
+   `@aws-sdk/crc64-nvme` addon that the SEA bundle externalizes (`--external:aws-crt`).
+   `client()` now sets `requestChecksumCalculation` / `responseChecksumValidation` to
+   `"WHEN_REQUIRED"` when a custom endpoint is present; on AWS the default stands (free wire
+   integrity). s3cab already SHA-256s every file, so the trailer adds nothing off-AWS.
+
 ## Verification (for the future code work, not now)
 
 - Existing tests stay green: `node --test` across [../test/](../test/) and `src/**/*.test.mjs`.
