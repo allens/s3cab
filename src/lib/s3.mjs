@@ -66,14 +66,15 @@ function client() {
     ...(endpoint
       ? {
           endpoint,
-          // Off-AWS, don't add the SDK's default data-integrity checksum. Since
-          // v3.730 `requestChecksumCalculation` defaults to "when_supported", so
-          // every upload carries a CRC trailer (CRC64NVME for S3 multipart) — which
-          // several S3-compatible providers (R2 / B2 / MinIO / Wasabi) reject, and
-          // whose CRC64NVME path can require the `@aws-sdk/crc64-nvme` addon our SEA
-          // bundle externalizes. s3cab already SHA-256s every file, so the wire
-          // checksum adds nothing here. "WHEN_REQUIRED" still sends it for the few
-          // operations that mandate one. On AWS the default stands (free integrity).
+          // Off-AWS, don't add the SDK's default data-integrity checksum. Recent
+          // AWS SDK v3 (since v3.730) computes a checksum whenever the operation
+          // supports one — its default mode — so every upload carries a CRC trailer
+          // (CRC64NVME for S3 multipart), which several S3-compatible providers
+          // (R2 / B2 / MinIO / Wasabi) reject, and whose CRC64NVME path can require
+          // the `@aws-sdk/crc64-nvme` addon our SEA bundle externalizes. s3cab already
+          // SHA-256s every file, so the wire checksum adds nothing here. Switching to
+          // the required-only mode still sends a checksum for the few operations that
+          // mandate one. On AWS the default stands (free integrity).
           // (specs/s3-provider-compatibility.md)
           requestChecksumCalculation: "WHEN_REQUIRED",
           responseChecksumValidation: "WHEN_REQUIRED",
