@@ -112,9 +112,9 @@ describe("validateBucketName", () => {
     assert.throws(() => validateBucketName("bucket\\sub"), /not a path/);
   });
 
-  it("rejects surrounding whitespace and empty", () => {
+  it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
+    assert.throws(() => validateBucketName(""), /No bucket name given/);
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
-    assert.throws(() => validateBucketName(""), /Invalid bucket name/);
   });
 });
 

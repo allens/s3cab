@@ -26,7 +26,9 @@ import {
 export function setup(name, folders = [], options = {}) {
   requireArg(name, "<set>");
   validateSetName(name);
-  if (options.bucket) validateBucketName(options.bucket);
+  // Validate when --bucket is *given at all* (even ""), so an explicit empty
+  // value fails fast rather than silently leaving the set bucket-less.
+  if (options.bucket !== undefined) validateBucketName(options.bucket);
 
   const creating = !listSets().includes(name);
   if (creating && folders.length === 0) {

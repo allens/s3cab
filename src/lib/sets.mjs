@@ -130,6 +130,12 @@ export function validateSetName(name) {
  * @param {string} bucket
  */
 export function validateBucketName(bucket) {
+  if (bucket === "") {
+    throw new Error(
+      `No bucket name given. ` +
+        `Pass a plain S3 bucket name, e.g. --bucket my-backup-bucket.`,
+    );
+  }
   if (/:\/\//.test(bucket)) {
     throw new Error(
       `Invalid bucket name: ${bucket}\n` +
@@ -143,7 +149,7 @@ export function validateBucketName(bucket) {
         `Give a plain bucket name — a single segment, not a path or prefix.`,
     );
   }
-  if (bucket.trim() !== bucket || bucket === "") {
+  if (bucket.trim() !== bucket) {
     throw new Error(
       `Invalid bucket name: ${bucket}\n` +
         `Give a plain bucket name with no surrounding whitespace.`,

@@ -99,6 +99,16 @@ describe("setup", () => {
     );
   });
 
+  it("rejects an explicit empty --bucket rather than silently ignoring it", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = useTempHome(dir.path);
+
+    assert.throws(
+      () => setup("photos", [photos], { bucket: "" }),
+      /No bucket name given/,
+    );
+  });
+
   it("rejects a missing folder and a non-folder member", async () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
