@@ -576,18 +576,26 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   (scratch scripts, shared helpers) **out** of `test/` or they run as phantom empty tests —
   scratch goes in [scripts/](scripts/), and a test's shared helper lives beside the test
   that uses it.
-- **S3 tests run against a real bucket, gated — not mocked** (decided slice 3, 2026-06-13).
-  Code that actually calls `s3.mjs` (the remote listing/read, the uploader) is covered by
-  **integration tests against a real test bucket**, gated on a `S3CAB_TEST_BUCKET` env var
-  (plus ambient AWS credentials) and `describe(..., { skip })`-ed **with a message** when
-  it is unset — so local, offline, and fork-CI runs stay green and real coverage runs only
-  where the bucket is wired. The `s3.mjs` boundary is deliberately **not** mocked (no mock
-  framework, #5; and a mock drifts from real AWS conditional-PUT/LIST semantics). The
-  **pure** diff/cache logic (`uploadCandidates`, the objects cache) gets ordinary unit
-  tests needing no bucket, so the bulk of the logic is always exercised. Standing up the
-  test bucket + CI credentials is a **separate, pending task** — a broader testing pass
-  (unit/integration/e2e boundaries, mock-or-not) is planned. Worked example: the gated
-  suites in [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
+- **S3 tests are gated integration tests against a real bucket today; "mock-or-not" remains
+  open.** Code that actually calls `s3.mjs` (remote listing/read, the uploader) is covered by
+  **integration tests against a real test bucket**, gated on `S3CAB_TEST_BUCKET` (plus ambient
+  AWS credentials) and `describe(..., { skip })`-ed **with a message** when unset — so local,
+  offline, and fork-CI runs stay green and real coverage runs only where the bucket is wired.
+  The **pure** diff/cache logic (`uploadCandidates`, the objects cache) gets ordinary unit
+  tests needing no bucket. There's a **preference, not a hard rule, to avoid mocking**: a fake
+  of the AWS *wire* drifts from real conditional-PUT / LIST semantics. The likely resolution
+  when the planned testing pass lands is to **mock at the `s3.mjs` seam** (stub its exported
+  functions to test command orchestration offline) and keep real AWS semantics e2e on the
+  gated bucket — mocking the seam exercises our code, not AWS, so the drift concern doesn't
+  apply. Any mocking would use **`node:test`'s built-in `mock.module`/`mock.fn`** (zero
+  dependency — #5 is satisfied; there is no "no mock framework" rule). Standing up the test
+  bucket + CI credentials is a **separate, pending task**. Worked example: the gated suites in
+  [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
+- **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
+  (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
+  test files across worker processes in parallel; collapsing to a single process loses
+  that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
+  debugging shared state — just not a speedup.
 
 ---
 
@@ -610,7 +618,12 @@ Pre-release housekeeping and open decisions surfaced from the code:
   **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
   *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
   `backup`'s upload-set diff; see the TODO in
-  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
+  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
+  `node:sqlite`-backed cache was spiked for this and **rejected** (2026-06-13): the
+  in-memory `Map` built from the previous snapshot beats it on both build (~4×) and lookup
+  (~40×), and a flat file would cover the only case sqlite might win (a persistent
+  cross-run remote-hash set). See
+  [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
   Remaining scaffold: `restore`/`verify` are inline registry stubs and `compare --remote`
   is wired but throws `notImplemented()`; promote each stub into its own `src/commands/`
   file as it gains a real body (slices 4–5).

@@ -23,3 +23,16 @@ large-file test data for the benchmark above and other experiments.
 ```sh
 node scripts/dd.mjs
 ```
+
+## sqlite-hash-cache-spike.mjs
+
+Evaluates `node:sqlite` as a local hash cache for the owed
+`upload --if-modified-from` skip, benchmarked against the in-memory `Map`
+approach the snapshot engine uses today. The experiment behind the "don't adopt
+sqlite for this" note in [../CLAUDE.md](../CLAUDE.md) — the `Map` wins on both
+build and lookup, and sqlite would only earn its place for a persistent
+cross-run remote-hash set.
+
+```sh
+node scripts/sqlite-hash-cache-spike.mjs [N]   # N = number of synthetic files
+```

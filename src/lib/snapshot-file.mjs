@@ -219,7 +219,7 @@ export async function parseSnapshotStream(input) {
  */
 export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
-    if (props instanceof Error) {
+    if (Error.isError(props)) {
       yield formatSnapshotLine("#" + props.message, "", "", path);
       continue;
     }
