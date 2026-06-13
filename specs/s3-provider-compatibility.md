@@ -93,6 +93,17 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    off AWS. Now carries an AWS-only doc note; still unused (only `setup`, a stub, would call
    it). Provider-aware bucket creation/policy is deferred to when `setup` is actually built.
 
+4. **Gate the default integrity checksum off-AWS.** ✅ **Done.** Recent AWS SDK v3
+   (since v3.730) computes a data-integrity checksum whenever the operation supports one —
+   its default mode — so the SDK adds a CRC trailer (CRC64NVME for S3 multipart) to *every*
+   upload. Several S3-compatible providers (R2 / B2 / MinIO / Wasabi) reject the newer
+   trailer, and the CRC64NVME path can require the `@aws-sdk/crc64-nvme` addon that the SEA
+   bundle externalizes (`--external:aws-crt`). `client()` now switches
+   `requestChecksumCalculation` / `responseChecksumValidation` to their required-only mode
+   (the `"WHEN_REQUIRED"` client-option value) when a custom endpoint is present; on AWS the
+   default stands (free wire integrity). s3cab already SHA-256s every file, so the trailer
+   adds nothing off-AWS.
+
 ## Verification (for the future code work, not now)
 
 - Existing tests stay green: `node --test` across [../test/](../test/) and `src/**/*.test.mjs`.
@@ -102,6 +113,11 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   container (static keys + endpoint), or real **Cloudflare R2 / Backblaze B2** credentials.
   Confirm `objects` (list) and the upload path succeed **with the storage-class/SSE options
   correctly omitted** — i.e. an upload that would fail today against R2/B2 now succeeds.
+- **Checksum gating has no automated coverage yet** (Finding 3 item 4). A meaningful test
+  must assert the *outgoing request* carries no `x-amz-checksum-*` / CRC trailer when a
+  custom endpoint is set — "upload succeeds against MinIO" alone doesn't prove it (a
+  trailer-tolerant provider passes too). That header-level assertion belongs in the planned
+  testing pass (CLAUDE.md "S3 tests"), not a real-bucket upload-succeeds check.
 - **AWS regression:** with no custom endpoint, confirm `StorageClass` / SSE / region-redirect
   still apply exactly as before.
 
