@@ -1,5 +1,8 @@
-# Ignore artifacts:
+# Ignore build artifacts: the esbuild bundle + SEA binaries (dist/, the real
+# build output), the cross-build node cache (build/), and coverage reports.
+# ESLint ignores the same set; Prettier reads only this file, not .gitignore.
 build
+dist
 coverage
 
 # Never let Prettier touch snapshot manifests or the on-disk store
