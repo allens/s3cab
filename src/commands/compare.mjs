@@ -1,4 +1,4 @@
-import { basename, dirname, isAbsolute, relative } from "node:path";
+import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { notImplemented } from "../lib/error.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
@@ -33,7 +33,12 @@ function relativeToRoot(dirs, path) {
   let best;
   for (const root of dirs) {
     const rel = relative(root, path);
-    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) {
+    // Inside the root unless `rel` escapes it: a leading `..` *segment* (exactly
+    // `..`, or `..` + separator), or an absolute path. A prefix check alone
+    // would wrongly reject an in-root name that merely starts with `..`
+    // (e.g. `..foo/file.txt`).
+    const escapes = rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
+    if (rel && !escapes) {
       if (best === undefined || rel.length < best.length) best = rel;
     }
   }

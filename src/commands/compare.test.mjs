@@ -534,6 +534,22 @@ describe("compare", () => {
     });
   });
 
+  it("keeps a relative display for a top segment that starts with '..'", async () => {
+    await using dir = await mkTmpDir();
+
+    // A folder literally named `..stuff` produces a relative path beginning
+    // with `..` that is NOT a parent escape — it must still display relative,
+    // not fall back to the absolute path.
+    await writeSnapshot(dir.path, PREVIOUS, []);
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["x"], "..stuff/file.txt"),
+    ]);
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(result.added, [join("..stuff", "file.txt")]);
+  });
+
   it("displays each path relative to its own member root (multi-root)", async () => {
     await using dir = await mkTmpDir();
 
