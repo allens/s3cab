@@ -16,6 +16,12 @@ import { prop } from "./prop.mjs";
 import { walkSet } from "./tree.mjs";
 
 /**
+ * @import { Props } from "./prop.mjs"
+ * @import { SnapshotLookup } from "../lib/snapshot-file.mjs"
+ * @import { CompareResult } from "./compare.mjs"
+ */
+
+/**
  * Take a snapshot of a backup set: walk every member directory and write a
  * single manifest into the set's snapshot store, then report what changed
  * since the previous one (specs/backup.md).
@@ -23,7 +29,7 @@ import { walkSet } from "./tree.mjs";
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.debug] - Enable debug mode (and allow a same-minute overwrite)
- * @returns {Promise<import("./compare.mjs").CompareResult>} Diff against the previous snapshot
+ * @returns {Promise<CompareResult>} Diff against the previous snapshot
  */
 export async function snapshot(setName, options = {}) {
   // TODO - some kind of lock file to stop concurrent snapshots
@@ -34,7 +40,7 @@ export async function snapshot(setName, options = {}) {
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);
 
-  /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup | undefined} */
+  /** @type {SnapshotLookup | undefined} */
   let lookup;
   const latestSnapshotName = listSnapshotNames(snapshotDir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
@@ -110,8 +116,8 @@ function withProgress(label, total) {
 
 /**
  * Create an async generator that yields file properties.
- * @param {Map<string, import("../commands/prop.mjs").Props>} [lookup] - Snapshot lookup map or path to snapshot file
- * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, import("../commands/prop.mjs").Props|Error]>}
+ * @param {Map<string, Props>} [lookup] - Snapshot lookup map or path to snapshot file
+ * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, Props|Error]>}
  */
 export function createPropsGenerator(lookup) {
   return async function* (paths) {

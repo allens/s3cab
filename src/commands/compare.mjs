@@ -4,6 +4,8 @@ import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { listSnapshotNames } from "./list.mjs";
 
+/** @import { SnapshotLookup } from "../lib/snapshot-file.mjs" */
+
 /**
  * @typedef {Object} CompareResult
  * @property {string[]} added
@@ -104,7 +106,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     since = snapshotNames.at(untilIndex + 1); // undefined when `until` is the oldest
   }
 
-  /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup} */
+  /** @type {SnapshotLookup} */
   let sinceSnapshot;
   if (since === undefined) {
     // Nothing older than `until`: an empty baseline; everything is "added".
@@ -158,7 +160,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
 
 /**
  * Create a lookup of hash to set of paths.
- * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} snapshotLookup - Snapshot lookup
+ * @param {SnapshotLookup} snapshotLookup - Snapshot lookup
  * @returns {Map<string,PathSet>} Hash to path set lookup
  */
 function getPathsByHash(snapshotLookup) {
@@ -195,8 +197,8 @@ function getPathsByHash(snapshotLookup) {
  * - Files that failed hashing are stored as #comment lines, invisible here:
  *   an unreadable file reports as `deleted` (an explicit errors category is
  *   a planned follow-up — see CLAUDE.md "Known gaps").
- * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} previousSnapshot - Previous snapshot lookup
- * @param {import("../lib/snapshot-file.mjs").SnapshotLookup} currentSnapshot - Current snapshot
+ * @param {SnapshotLookup} previousSnapshot - Previous snapshot lookup
+ * @param {SnapshotLookup} currentSnapshot - Current snapshot
  * @returns {DiffResult} Diff results
  */
 export function diff(previousSnapshot, currentSnapshot) {

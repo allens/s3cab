@@ -10,6 +10,8 @@ import {
   snapshotNames,
 } from "./snapshot-file.mjs";
 
+/** @import { SnapshotLookup } from "./snapshot-file.mjs" */
+
 // The remote half of an s3cab repository's fixed layout (specs/backup.md): a
 // set's manifests live under `snapshots/<namespace>/<name>.tsv.zst`, where the
 // namespace is the set's pinned `user@machine/set` identity. The other half is
@@ -76,7 +78,7 @@ export async function latestRemoteSnapshot(bucket, namespace) {
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @returns {Promise<import("./snapshot-file.mjs").SnapshotLookup>}
+ * @returns {Promise<SnapshotLookup>}
  */
 export async function readRemoteSnapshot(bucket, namespace, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
@@ -94,8 +96,8 @@ export async function readRemoteSnapshot(bucket, namespace, name) {
  * backup, `remote` is empty and every hash is a candidate. The objects cache
  * and the conditional-PUT safety net (steps 3–4) narrow this further; this is
  * the diff alone.
- * @param {import("./snapshot-file.mjs").SnapshotLookup} target - The snapshot being backed up
- * @param {import("./snapshot-file.mjs").SnapshotLookup} remote - The latest remote snapshot (empty for a first backup)
+ * @param {SnapshotLookup} target - The snapshot being backed up
+ * @param {SnapshotLookup} remote - The latest remote snapshot (empty for a first backup)
  * @returns {Set<string>} Candidate object hashes to upload
  */
 export function uploadCandidates(target, remote) {

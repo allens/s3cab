@@ -6,6 +6,12 @@ import { readLines } from "../lib/read-lines.mjs";
 import { resolveSet, setExcludePath } from "../lib/sets.mjs";
 import { formatSnapshotLine } from "../lib/snapshot-file.mjs";
 
+/**
+ * @import { Writable } from "node:stream"
+ * @import { Dirent } from "node:fs"
+ * @import { BackupSet } from "../lib/sets.mjs"
+ */
+
 /** @typedef {{ write: (line: string) => unknown }} LineWriter */
 
 /**
@@ -13,7 +19,7 @@ import { formatSnapshotLine } from "../lib/snapshot-file.mjs";
  * and the diagnostic answer to "exactly what is in this set". Resolves the set
  * (sole-set default, or an error listing the sets) and walks it.
  * @param {string} [setName] - Backup set to list (default: the only set)
- * @param {import("node:stream").Writable} [writeStream]
+ * @param {Writable} [writeStream]
  * @returns {Array<string>} Array of absolute file paths
  */
 export function tree(setName, writeStream) {
@@ -24,8 +30,8 @@ export function tree(setName, writeStream) {
  * Walk a resolved backup set: every member directory, with the set's
  * `exclude.txt` patterns applied relative to each (specs/backup.md). The
  * shared core behind both `tree` and `snapshot`.
- * @param {import("../lib/sets.mjs").BackupSet} set - Resolved backup set
- * @param {import("node:stream").Writable} [writeStream]
+ * @param {BackupSet} set - Resolved backup set
+ * @param {Writable} [writeStream]
  * @returns {Array<string>} Array of absolute file paths
  */
 export function walkSet(set, writeStream) {
@@ -44,7 +50,7 @@ export function walkSet(set, writeStream) {
  * works across roots because snapshot paths are absolute.
  * @param {string[]} dirs - Directories to walk
  * @param {string[]} patterns - Exclude glob patterns (doc/exclude.md)
- * @param {import("node:stream").Writable} [writeStream] - Receives `#EXCLUDED` lines
+ * @param {Writable} [writeStream] - Receives `#EXCLUDED` lines
  * @returns {Array<string>} Array of absolute file paths
  */
 export function walkDirs(dirs, patterns, writeStream) {
@@ -93,7 +99,7 @@ export function walkDirs(dirs, patterns, writeStream) {
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
  * @param {LineWriter} [snapshotWriteStream]
- * @returns {(dirent: import("fs").Dirent) => string | null} walk callback function
+ * @returns {(dirent: Dirent) => string | null} walk callback function
  */
 function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
   const matchers = patterns.map((pattern) => ({
@@ -137,7 +143,7 @@ function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
 
 /**
  * Get the file type of a dirent.
- * @param {import("fs").Dirent} dirent - Directory entry
+ * @param {Dirent} dirent - Directory entry
  * @returns {string} File type
  */
 function getFileType(dirent) {
@@ -191,7 +197,7 @@ function createMatcher(pattern) {
 /**
  * Recursively walk through a directory and yield file paths.
  * @param {string} dir - Directory to walk through
- * @param  {(dirent: import("fs").Dirent) => string | null} [callbackFn] - Callback function to process files
+ * @param  {(dirent: Dirent) => string | null} [callbackFn] - Callback function to process files
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
