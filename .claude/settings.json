@@ -45,8 +45,7 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "WebFetch(domain:docs.claude.com)",
-      "Read(/tmp/**)",
-      "Bash(npm ci *)"
+      "Read(/tmp/**)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
@@ -59,7 +58,6 @@
       "Bash(git push -f *)",
       "Bash(git push *+*)",
       "Bash(rm -rf *)"
-    ],
-    "additionalDirectories": ["\\tmp"]
+    ]
   }
 }
