@@ -588,6 +588,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   test bucket + CI credentials is a **separate, pending task** — a broader testing pass
   (unit/integration/e2e boundaries, mock-or-not) is planned. Worked example: the gated
   suites in [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
+- **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
+  (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
+  test files across worker processes in parallel; collapsing to a single process loses
+  that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
+  debugging shared state — just not a speedup.
 
 ---
 
@@ -610,7 +615,12 @@ Pre-release housekeeping and open decisions surfaced from the code:
   **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
   *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
   `backup`'s upload-set diff; see the TODO in
-  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
+  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
+  `node:sqlite`-backed cache was spiked for this and **rejected** (2026-06-13): the
+  in-memory `Map` built from the previous snapshot beats it on both build (~4×) and lookup
+  (~40×), and a flat file would cover the only case sqlite might win (a persistent
+  cross-run remote-hash set). See
+  [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
   Remaining scaffold: `restore`/`verify` are inline registry stubs and `compare --remote`
   is wired but throws `notImplemented()`; promote each stub into its own `src/commands/`
   file as it gains a real body (slices 4–5).
