@@ -103,6 +103,12 @@ rather than assuming it is fixed forever.
    rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
    slice was built end-to-end before the first commit, which then couldn't be split into
    per-step commits without interactive hunk-staging.)
+10. **"Review the PR comments" means give an opinion, not make changes.** When the user
+    asks you to look at review comments on a PR, **assess each one and state your opinion**
+    (valid / not / nuance), then **stop and let the user decide** what to do — do not
+    automatically edit code or offer to push. Apply changes only once the user says which
+    comments to action. (Recorded 2026-06-13 after I jumped from "look at the comments"
+    straight to editing files and offering a commit.)
 
 ---
 
