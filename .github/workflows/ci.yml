@@ -56,11 +56,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux is deliberately omitted here: the coverage gate in the lint job runs
-        # the full suite on ubuntu, so listing ubuntu-latest too would test Linux
-        # twice per run. Windows covers the win32-specific branches; macos-14 (Apple
-        # Silicon, mirroring the release targets) covers the other posix path.
-        os: [windows-latest, macos-14]
+        # All three OSes run because the code branches on platform (see the file
+        # header). ubuntu-latest stays even though the lint job's coverage gate also
+        # runs the suite on Linux — a small double-run, but `test (ubuntu-latest)` is a
+        # required status check, so dropping it leaves the branch unmergeable.
+        # macos-14 is Apple Silicon; mirrors the release build targets.
+        os: [ubuntu-latest, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
