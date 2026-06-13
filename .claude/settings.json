@@ -60,8 +60,6 @@
       "Bash(git push *+*)",
       "Bash(rm -rf *)"
     ],
-    "additionalDirectories": [
-      "\\tmp"
-    ]
+    "additionalDirectories": ["\\tmp"]
   }
 }
