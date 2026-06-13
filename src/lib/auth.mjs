@@ -157,7 +157,7 @@ export function loadEnv({ set, bucket } = {}) {
  * @param {unknown} cause - The error thrown by the standard chain.
  */
 const noCredentialsError = (cause) => {
-  const reason = (cause instanceof Error ? cause.message : String(cause))
+  const reason = (Error.isError(cause) ? cause.message : String(cause))
     .trim()
     .replaceAll("\n", "\n     ");
   return new Error(

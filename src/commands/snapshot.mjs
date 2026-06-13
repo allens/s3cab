@@ -119,7 +119,7 @@ export function createPropsGenerator(lookup) {
       try {
         yield [path, await prop(path, { lookup })];
       } catch (err) {
-        yield [path, err instanceof Error ? err : new Error(String(err))];
+        yield [path, Error.isError(err) ? err : new Error(String(err))];
       }
     }
   };
