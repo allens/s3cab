@@ -371,8 +371,10 @@ in [specs/backup.md](specs/backup.md) around **backup sets** — a named list of
 the unit of snapshot/backup/restore, configured at `~/.s3cab/sets/<name>/`, identity
 `user@machine:set` pinned at creation. One bucket holds **multiple sets** (dedup shared
 via `objects/`, manifests namespaced as `snapshots/<user>@<machine>/<set>/`), with the
-manifest-last invariant and the diff-vs-latest-remote upload algorithm. Note the spec
-supersedes the current per-dir local model too (`<dir>/.s3cab/` retires when it lands).
+manifest-last invariant and the diff-vs-latest-remote upload algorithm. The local engine
+now runs **on sets** (slice 2, 2026-06): `snapshot`/`list`/`compare`/`tree` take `[<set>]`,
+manifests live in `~/.s3cab/sets/<set>/snapshots/`, and the old per-dir `<dir>/.s3cab/`
+has retired entirely.
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -388,8 +390,9 @@ non-obvious points worth pinning here:
 - The **set layer (`~/.s3cab/sets/<set>/env`, written by `setup`) replaced the
   never-wired per-dir layer** (backup-sets slice 1, 2026-06 — specs/auth.md's History
   note has the trail). It is wired into `loadEnv({ set })` and tested, but **no command
-  passes a set scope yet** — that arrives as the set-first commands land
-  ([specs/backup.md](specs/backup.md) slices 2–3). s3cab never writes `~/.aws/*`.
+  passes a set scope yet** — the local set commands (slice 2) need no credentials, so this
+  arrives with `backup` ([specs/backup.md](specs/backup.md) slice 3). s3cab never writes
+  `~/.aws/*`.
 
 ---
 
@@ -488,7 +491,16 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   Its prose-emphasis restyle (`*x*` → `_x_`) and table-cell padding add churn and make the
   frequently AI-edited docs fragile to edit, for no real gain (`proseWrap` doesn't reflow
   prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores generated
-  build artifacts** — otherwise it lints the bundled output.
+  build artifacts** — otherwise it lints the bundled output. Both ignore lists must cover
+  the same set (`build`, `dist`, `coverage`); Prettier reads only `.prettierignore`, not
+  `.gitignore`, so a dir gitignored as output must also be listed there or `format:check`
+  will parse it once a build exists.
+- **Import order is author-managed; no tool enforces or rewrites it.** A
+  `source.organizeImports`-on-save action was removed from `.vscode/settings.json` (2026-06):
+  it silently reordered/removed imports on save, but only for contributors who had the VS
+  Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
+  by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
+  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against #6/#8).
 - **Don't bury `await` inside a larger statement** (a compound `if`/`while` condition, a
   ternary, a call argument). Await into a named local on its own line first, then use it:
   `const exists = await objectExists(uri); if (exists) …`, not
@@ -504,12 +516,14 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   to the builtin type declarations — transitive deps install npm shims of those Node
   builtins, which would otherwise shadow them at type-resolution time and drag their
   untyped CJS internals into the check (see the comment in jsconfig.json).
-- **`.gitignore` ignores the repo's own snapshot output with a root-anchored
-  `/.s3cab/snapshots/`**, so test fixtures under `test/fixtures/**/.s3cab/snapshots/`
-  can be committed and stay tracked (none exist right now). Don't broaden it to
-  `**/.s3cab/`.
-- **The repo dogfoods itself:** the root [.s3cab/exclude.txt](.s3cab/exclude.txt) is a real
-  exclude config, so `s3cab tree .` / `snapshot .` works on the repo itself.
+- **Snapshots no longer land in the repo tree.** Since slice 2 they live in
+  `~/.s3cab/sets/<set>/snapshots/` (outside any working copy), so `.gitignore` no longer
+  needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
+  guards remain for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt) template.
+- **The repo dogfoods itself via a set:** [.s3cab/exclude.txt](.s3cab/exclude.txt) is kept
+  as a ready-made exclude template — to snapshot this repo, `s3cab setup s3cab .` then copy
+  those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
+  wired automatically now that excludes are per-set under `~/.s3cab`.)
 - **Test layout convention:** unit tests are **co-located** with their source as
   `*.test.mjs`; [test/](test/) holds only cross-cutting tests (`e2e.mjs`) and shared
   `fixtures/`. See [test/README.md](test/README.md). Node's runner executes **every**
@@ -535,13 +549,16 @@ Pre-release housekeeping and open decisions surfaced from the code:
   need, deliberately). `upload` still owes its **`--if-modified-from <snapshot>` skip** —
   the snapshot-aware "only upload what changed" optimization `backup` is built on (see the
   TODO in [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it).
-  **Slice 1 of the plan is built** (2026-06): the set store (`src/lib/sets.mjs`), the
-  real `setup`/`sets` commands, and the set env layer in auth — but no command consumes
-  a set yet; that's slice 2 (the local engine moves onto sets, `<dir>/.s3cab/` retires).
-  The rest of the CLI surface stays scaffolded: `backup`/`restore`/`status`/`verify` are
-  inline registry stubs and `--remote` is wired onto `list`/`compare`, all throwing
-  `notImplemented()`; promote each stub into its own `src/commands/` file as it gains a
-  real body.
+  **Slices 1–2 of the plan are built** (2026-06): slice 1 gave the set store
+  (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and the set env layer in auth;
+  slice 2 moved the local engine onto sets — `snapshot`/`list`/`compare`/`tree` take
+  `[<set>]` (sole-set default), walk every member dir with the set's `exclude.txt`, write
+  one manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
+  `~/.s3cab/sets/<set>/snapshots/`, and the per-dir `<dir>/.s3cab/` has retired. Next is
+  slice 3 (`backup` + `status`). The rest of the CLI surface stays scaffolded:
+  `backup`/`restore`/`status`/`verify` are inline registry stubs and `--remote` is wired
+  onto `list`/`compare`, all throwing `notImplemented()`; promote each stub into its own
+  `src/commands/` file as it gains a real body.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:

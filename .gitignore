@@ -22,10 +22,10 @@ test/blob.bin
 test/zblob.bin
 
 # Secrets / local env. s3cab no longer reads a cwd .env (see specs/auth.md), but
-# keep it ignored as it's a near-universal secret file. The repo's own dogfood
-# per-folder env (/.s3cab/env, which can carry AWS creds) is ignored too so it
-# can't be committed by accident — root-anchored, like the snapshots rule below,
-# so the tracked /.s3cab/exclude.txt is unaffected.
+# keep it ignored as it's a near-universal secret file. A stray env under the
+# repo's /.s3cab/ (which only ships the exclude.txt template now that config is
+# per-set under ~/.s3cab) is guarded too so AWS creds can't be committed by
+# accident — root-anchored, so the tracked /.s3cab/exclude.txt is unaffected.
 .env
 .env.test
 /.s3cab/env
@@ -47,15 +47,11 @@ Thumbs.db
 # Claude Code local (personal) settings
 .claude/settings.local.json
 
-# s3cab snapshot output from dogfooding on this repo. Anchored to the root so
-# committed fixtures under test/fixtures/**/.s3cab/snapshots/ stay tracked.
-/.s3cab/snapshots/
-# Transient snapshot temp/lock file and the --debug decompressed copy.
+# Transient snapshot temp/lock file and the --debug decompressed copy. Snapshots
+# themselves now live in ~/.s3cab/sets/<set>/snapshots/ (outside any working
+# copy), so no in-repo snapshot-output rule is needed any more.
 .snapshot.tsv
 .snapshot.tsv.zst
-# Generated snapshot artifacts under test fixtures. The compare/ fixtures are
-# hand-authored and committed; dir1's .s3cab output is produced by ad-hoc runs.
-/test/fixtures/dir1/.s3cab/snapshots/
 snapshot-log.tsv
 
 # Ad-hoc scratch/debug dumps

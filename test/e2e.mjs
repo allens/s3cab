@@ -59,16 +59,44 @@ function runWithHome(home, ...args) {
 }
 
 describe("cli (e2e)", () => {
-  it("tree lists the files in a directory", async () => {
+  it("tree lists a set's files", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    writeFileSync(join(dir.path, "alpha.txt"), "a");
-    writeFileSync(join(dir.path, "beta.txt"), "b");
+    const home = join(dir.path, "home");
+    const data = join(dir.path, "data");
+    mkdirSync(home);
+    mkdirSync(data);
+    writeFileSync(join(data, "alpha.txt"), "a");
+    writeFileSync(join(data, "beta.txt"), "b");
 
-    const { status, stdout } = run("tree", dir.path);
+    runWithHome(home, "setup", "files", data);
+    const { status, stdout } = runWithHome(home, "tree", "files");
 
     assert.strictEqual(status, 0);
     assert.match(stdout, /alpha\.txt/);
     assert.match(stdout, /beta\.txt/);
+  });
+
+  it("snapshot → list round-trip on a set", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const data = join(dir.path, "data");
+    mkdirSync(home);
+    mkdirSync(data);
+    writeFileSync(join(data, "alpha.txt"), "a");
+
+    const created = runWithHome(home, "setup", "files", data);
+    assert.strictEqual(created.status, 0, created.stderr);
+
+    // First snapshot of the sole set (no name needed): everything is added.
+    const snap = runWithHome(home, "snapshot");
+    assert.strictEqual(snap.status, 0, snap.stderr);
+    const result = JSON.parse(snap.stdout);
+    assert.deepStrictEqual(result.added, ["alpha.txt"]);
+
+    // The snapshot is now listed under the set.
+    const listed = runWithHome(home, "list");
+    assert.strictEqual(listed.status, 0, listed.stderr);
+    assert.match(listed.stdout, /\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
   it("setup → sets round-trip: create a backup set, then list it", async () => {

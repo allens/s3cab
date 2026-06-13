@@ -26,24 +26,49 @@ import { secondsSince } from "./format.mjs";
 // size: size of the file in bytes (right-aligned)
 // For comment lines the fields are:
 // #comment<TAB>context<TAB>dirent_type<TAB>path
+// A manifest opens with two header comment lines (written by `snapshot`):
+//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
+//   #DIR<TAB><TAB><TAB>path                     one per member directory
+// so a manifest is self-describing even found alone (specs/backup.md). Comment
+// lines are skipped on read.
 
 /** @typedef {import("../commands/prop.mjs").Props} Props */
 /** @typedef {[string, Props | Error]} SnapshotEntry */
 /** @typedef {Map<string, Props>} SnapshotLookup */
 
-/** @param {string} dir */
-export const resolveSnapshotDir = (dir) => resolve(dir, ".s3cab", "snapshots");
-
 /**
- * Execute a callback with a managed snapshot file write stream.
+ * Execute a callback with a managed snapshot file write stream, writing into
+ * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/` — this module no
+ * longer knows about `.s3cab`; the caller resolves the path from the set).
  * The FileHandle is automatically disposed when the callback completes.
- * @param {string} dir - Path to snapshot directory
+ *
+ * Snapshot names are minute-precision, so a second snapshot of the same set in
+ * the same minute would collide. That is refused (rather than silently
+ * overwriting a manifest) unless `overwrite` is set — the debug escape hatch
+ * for re-running within a minute (specs/backup.md). The target is checked up
+ * front, before any walking/hashing, so a same-minute re-run fails fast.
+ * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
  * @param {(stream: import("node:stream").Writable) => Promise<void>} callbackFn - Callback receiving the write stream
+ * @param {object} [options]
+ * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
  */
-export async function withSnapshotFile(dir, name, callbackFn) {
-  const snapshotDir = createSnapshotDir(dir);
+export async function withSnapshotFile(
+  snapshotDir,
+  name,
+  callbackFn,
+  { overwrite = false } = {},
+) {
+  mkdirSync(snapshotDir, { recursive: true });
+  const snapshotPath = resolve(snapshotDir, name + ".tsv.zst");
+  if (!overwrite && existsSync(snapshotPath)) {
+    throw new Error(
+      `Snapshot '${name}' already exists in '${snapshotDir}'. A second ` +
+        `snapshot in the same minute is refused so an accidental re-run can't ` +
+        `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
+    );
+  }
   const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
   if (existsSync(tmpPath)) {
     throw new Error(
@@ -68,55 +93,46 @@ export async function withSnapshotFile(dir, name, callbackFn) {
     fd.createWriteStream(),
   );
 
-  // Execute the callback with the write stream
-  await callbackFn(snapshotWriter);
+  // Execute the callback with the write stream. If it throws (e.g. a member
+  // directory vanished mid-walk), tear the writer down and let the already-
+  // running pipeline settle before rethrowing — otherwise it surfaces later as
+  // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
+  try {
+    await callbackFn(snapshotWriter);
+  } catch (error) {
+    snapshotWriter.destroy();
+    await pipelinePromise.catch(() => {});
+    throw error;
+  }
 
   // Wait for the pipeline to complete
   await pipelinePromise;
 
   await fd.close();
 
-  const snapshotPath = resolve(snapshotDir, name + ".tsv.zst");
   await rename(tmpPath, snapshotPath);
   return snapshotPath;
 }
 
 /**
- * Create snapshot directory if it doesn't exist.
- * @param {string} baseDir - Base directory
- * @returns {string} Snapshot directory path
- */
-export function createSnapshotDir(baseDir) {
-  const snapshotDir = resolveSnapshotDir(baseDir);
-  mkdirSync(snapshotDir, { recursive: true });
-  return snapshotDir;
-}
-
-/**
- * Read a snapshot from snapshot directory.
- * @param {string} dir - Snapshot directory
+ * Read a snapshot by name from a snapshot directory.
+ * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string} name - Snapshot name
  * @returns {Promise<SnapshotLookup>} Snapshot lookup
  * @throws When the named snapshot does not exist — never silently returns an
  *   empty lookup, which a caller could mistake for an empty snapshot.
  */
-export async function readSnapshot(dir, name) {
-  assert(dir, "No directory specified");
+export async function readSnapshot(snapshotDir, name) {
+  assert(snapshotDir, "No snapshot directory specified");
   assert(name, "No snapshot name specified");
-  const snapshotPath = join(resolveSnapshotDir(dir), name);
+  const base = join(snapshotDir, name);
 
-  for (const path of [
-    snapshotPath,
-    snapshotPath + ".tsv",
-    snapshotPath + ".tsv.zst",
-  ]) {
+  for (const path of [base, base + ".tsv", base + ".tsv.zst"]) {
     if (existsSync(path)) {
       return readSnapshotFile(path);
     }
   }
-  throw new Error(
-    `Snapshot '${name}' not found in '${resolveSnapshotDir(dir)}'`,
-  );
+  throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
 }
 
 /**
@@ -192,20 +208,29 @@ export function formatSnapshotLine(col1, col2, col3, col4) {
   return `${col1}\t${col2}\t${col3}\t${col4}\n`;
 }
 /**
- * Write a snapshot of the given files, in the same `.tsv.zst` form real
- * snapshots take (so `list` sees it when the name is datestamped).
- * @param {string} dir
+ * Write a snapshot of the given files into `snapshotDir`, in the same
+ * `.tsv.zst` form real snapshots take (so a snapshot lister sees it when the
+ * name is datestamped). File paths are stored absolute, resolved against
+ * `base` (defaulting to `snapshotDir` — handy for tests that store snapshots
+ * alongside the files they describe). Used by tests and `restore` fixtures.
+ * @param {string} snapshotDir
  * @param {string} name
  * @param {Array<string|File>} files
+ * @param {string} [base] - Root the file paths resolve against (default: `snapshotDir`)
  * @returns {Promise<string>} path to written snapshot file
  */
-export async function writeSnapshot(dir, name, files) {
+export async function writeSnapshot(
+  snapshotDir,
+  name,
+  files,
+  base = snapshotDir,
+) {
   const snapshot = new Map();
   for (const file of files) {
     const path = typeof file === "string" ? file : file.name;
-    snapshot.set(resolve(dir, path), await prop(file));
+    snapshot.set(resolve(base, path), await prop(file));
   }
-  return withSnapshotFile(dir, name, (stream) =>
+  return withSnapshotFile(snapshotDir, name, (stream) =>
     pipeline(stringifySnapshot(snapshot), stream),
   );
 }

@@ -1,45 +1,54 @@
-import { createReadStream, createWriteStream, realpathSync } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { secondsSince } from "../lib/format.mjs";
+import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import {
   formatSnapshotLine,
   readSnapshot,
   stringifySnapshot,
   withSnapshotFile,
 } from "../lib/snapshot-file.mjs";
-import { compare } from "./compare.mjs";
-import { list } from "./list.mjs";
+import { compareSnapshots } from "./compare.mjs";
+import { listSnapshotNames } from "./list.mjs";
 import { prop } from "./prop.mjs";
-import { tree } from "./tree.mjs";
+import { walkSet } from "./tree.mjs";
 
 /**
- * Create a snapshot of a directory.
- * @param {string} dir - Directory to snapshot
+ * Take a snapshot of a backup set: walk every member directory and write a
+ * single manifest into the set's snapshot store, then report what changed
+ * since the previous one (specs/backup.md).
+ * @param {string} [setName] - Backup set to snapshot (default: the only set)
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
- * @param {boolean} [options.debug] - Enable debug mode
+ * @param {boolean} [options.debug] - Enable debug mode (and allow a same-minute overwrite)
  * @returns {Promise<import("./compare.mjs").CompareResult>} Diff against the previous snapshot
  */
-export async function snapshot(dir = ".", options = {}) {
+export async function snapshot(setName, options = {}) {
   // TODO - some kind of lock file to stop concurrent snapshots
 
-  dir = realpathSync.native(dir);
+  const set = resolveSet(setName);
+  const snapshotDir = setSnapshotsDir(set.name);
 
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);
 
   /** @type {import("../lib/snapshot-file.mjs").SnapshotLookup | undefined} */
   let lookup;
-  const latestSnapshotName = list(dir, { latest: true });
+  const latestSnapshotName = listSnapshotNames(snapshotDir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
     console.warn("Reading previous snapshot", `'${latestSnapshotName}'`);
-    lookup = await readSnapshot(dir, latestSnapshotName);
+    lookup = await readSnapshot(snapshotDir, latestSnapshotName);
   }
 
+  // The set's pinned identity (user@machine:set) heads the manifest, with one
+  // #DIR line per member directory, so the file is self-describing even when
+  // found alone in a bucket (specs/backup.md).
+  const identity = set.namespace?.replace("/", ":") ?? set.name;
+
   const snapshotPath = await withSnapshotFile(
-    dir,
+    snapshotDir,
     newSnapshotName,
     async (writeStream) => {
       writeStream.write(
@@ -49,11 +58,14 @@ export async function snapshot(dir = ".", options = {}) {
           Temporal.Now.plainDateTimeISO().toString({
             smallestUnit: "minutes",
           }),
-          dir,
+          identity,
         ),
       );
+      for (const dir of set.dirs) {
+        writeStream.write(formatSnapshotLine("#DIR", "", "", dir));
+      }
 
-      const files = tree(dir, writeStream);
+      const files = walkSet(set, writeStream);
 
       await pipeline(
         files,
@@ -63,6 +75,7 @@ export async function snapshot(dir = ".", options = {}) {
         writeStream,
       );
     },
+    { overwrite: Boolean(options.debug) },
   );
 
   if (options.debug) {
@@ -74,7 +87,7 @@ export async function snapshot(dir = ".", options = {}) {
   }
 
   // Compare with previous snapshot
-  return await compare(dir, {
+  return await compareSnapshots(snapshotDir, set.dirs, {
     since: latestSnapshotName,
     until: newSnapshotName,
   });

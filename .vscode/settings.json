@@ -1,12 +1,10 @@
 {
-  "editor.codeActionsOnSave": {
-    "source.organizeImports": "explicit"
-  },
   "nodejs-testing.extensions": [
     {
       "extensions": ["mjs", "cjs", "js"],
       "parameters": ["--experimental-test-module-mocks"]
     }
   ],
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true
 }
