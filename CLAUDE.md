@@ -488,7 +488,16 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   Its prose-emphasis restyle (`*x*` → `_x_`) and table-cell padding add churn and make the
   frequently AI-edited docs fragile to edit, for no real gain (`proseWrap` doesn't reflow
   prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores generated
-  build artifacts** — otherwise it lints the bundled output.
+  build artifacts** — otherwise it lints the bundled output. Both ignore lists must cover
+  the same set (`build`, `dist`, `coverage`); Prettier reads only `.prettierignore`, not
+  `.gitignore`, so a dir gitignored as output must also be listed there or `format:check`
+  will parse it once a build exists.
+- **Import order is author-managed; no tool enforces or rewrites it.** A
+  `source.organizeImports`-on-save action was removed from `.vscode/settings.json` (2026-06):
+  it silently reordered/removed imports on save, but only for contributors who had the VS
+  Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
+  by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
+  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against #6/#8).
 - **Don't bury `await` inside a larger statement** (a compound `if`/`while` condition, a
   ternary, a call argument). Await into a named local on its own line first, then use it:
   `const exists = await objectExists(uri); if (exists) …`, not
