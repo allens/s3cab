@@ -117,7 +117,8 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
   });
 
   it("omits the integrity checksum, SSE, and storage-class headers", async () => {
-    const headers = amzHeaders(await putRequest());
+    const request = await putRequest();
+    const headers = amzHeaders(request);
 
     assert.ok(
       !headers.some((h) => h.startsWith("x-amz-checksum-")),
@@ -126,6 +127,12 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
     assert.ok(
       !headers.includes("x-amz-sdk-checksum-algorithm"),
       `unexpected checksum-algorithm header off-AWS: ${headers.join(", ")}`,
+    );
+    assert.ok(
+      // The checksum can ride as a trailer (streamed body) rather than an
+      // x-amz-checksum-* header — assert that channel is clear too.
+      !headers.includes("x-amz-trailer"),
+      `unexpected checksum trailer off-AWS: ${headers.join(", ")}`,
     );
     assert.ok(
       !headers.includes("x-amz-server-side-encryption"),
@@ -138,7 +145,8 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
   });
 
   it("still sends the portable x-amz-meta-* metadata", async () => {
-    const headers = amzHeaders(await putRequest());
+    const request = await putRequest();
+    const headers = amzHeaders(request);
     assert.ok(
       headers.some((h) => h.startsWith("x-amz-meta-")),
       `portable metadata missing off-AWS: ${headers.join(", ")}`,
@@ -148,11 +156,15 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
 
 describe("AWS upload request shaping (no custom endpoint)", () => {
   it("sends the integrity checksum, SSE, and storage-class headers", async () => {
-    const headers = amzHeaders(await putRequest());
+    const request = await putRequest();
+    const headers = amzHeaders(request);
 
     assert.ok(
-      headers.some((h) => h.startsWith("x-amz-checksum-")),
-      `missing checksum header on AWS: ${headers.join(", ")}`,
+      // Representation-independent: x-amz-sdk-checksum-algorithm is set whether the
+      // checksum rides as an x-amz-checksum-* header (in-memory body) or an
+      // x-amz-trailer (streamed body), so this guards the gate regardless of body.
+      headers.includes("x-amz-sdk-checksum-algorithm"),
+      `missing checksum on AWS: ${headers.join(", ")}`,
     );
     assert.ok(
       headers.includes("x-amz-server-side-encryption"),
