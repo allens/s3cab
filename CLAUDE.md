@@ -611,7 +611,9 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   apply. Any mocking would use **`node:test`'s built-in `mock.module`/`mock.fn`** (zero
   dependency — #5 is satisfied; there is no "no mock framework" rule). Standing up the test
   bucket + CI credentials is a **separate, pending task**. Worked example: the gated suites in
-  [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
+  [src/lib/remote.test.mjs](src/lib/remote.test.mjs). **The fuller plan for the dedicated
+  testing session — the open questions, the "where may real S3 run / abuse-of-resource"
+  framing, and bucket/CI provisioning — lives in [specs/testing.md](specs/testing.md).**
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
   test files across worker processes in parallel; collapsing to a single process loses
