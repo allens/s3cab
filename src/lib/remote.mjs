@@ -1,9 +1,19 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  appendFileSync,
+  createWriteStream,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
+import { rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
+import { isNamespace } from "./sets.mjs";
 import {
   parseSnapshotStream,
   readSnapshot,
@@ -54,6 +64,39 @@ export async function listRemoteSnapshots(bucket, namespace) {
 }
 
 /**
+ * List the distinct backup-set namespaces present in a bucket — the
+ * `user@machine/set` prefixes under `snapshots/`. The discovery aid behind
+ * `setup --from` on a fresh machine, where the user won't recall the exact
+ * pinned identity; also what an adoption's "namespace not found" error offers as
+ * the available choices. Sorted, deduplicated.
+ *
+ * Callers must have loaded the bucket's env (`loadEnv({ bucket })`) first.
+ * @param {string} bucket - The repository's S3 bucket
+ * @returns {Promise<string[]>} Distinct namespaces, sorted
+ */
+export async function listRemoteNamespaces(bucket) {
+  /** @type {Set<string>} */
+  const namespaces = new Set();
+  for await (const { Key } of listObjects(
+    `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
+  )) {
+    // Only real manifest objects, so a stray non-manifest key (a console-made
+    // `snapshots/foo/` folder marker, say) can't surface as a bogus adoption
+    // target. Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the
+    // namespace is everything between the prefix and the final segment, and it
+    // must match the canonical `user@machine/set` shape (a key at some other
+    // depth would otherwise yield an invalid target `validateNamespace` rejects).
+    if (!Key?.endsWith(".tsv.zst")) continue;
+    const rest = Key.slice(SNAPSHOTS_PREFIX.length);
+    const cut = rest.lastIndexOf("/");
+    if (cut === -1) continue;
+    const namespace = rest.slice(0, cut);
+    if (isNamespace(namespace)) namespaces.add(namespace);
+  }
+  return [...namespaces].sort();
+}
+
+/**
  * The latest remote snapshot name for a set, or undefined when it has none yet.
  * The manifest the `backup`/`status` diff starts from (specs/backup.md "How
  * `backup` computes the upload set", step 1).
@@ -84,6 +127,56 @@ export async function readRemoteSnapshot(bucket, namespace, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
   const input = createS3ReadStream(uri).pipe(createZstdDecompress());
   return parseSnapshotStream(input);
+}
+
+/**
+ * Download one content-addressed object to a local path, verifying integrity.
+ * The remote twin of `putFile` for the object store: stream `objects/<hash>`
+ * while hashing it, assert the SHA-256 equals `hash` (the key *is* the content
+ * hash, so a mismatch means the stored object is corrupt or wrong — silent data
+ * loss is exactly what design #1 guards against), then atomically rename into
+ * place. Bytes land in a sibling temp file first, so a crash or a failed
+ * integrity check never leaves a half-written or unverified file at `destPath`.
+ *
+ * The caller owns *where* files go: `destPath`'s parent directory must already
+ * exist (the temp file is a sibling, and the rename needs it), and setting the
+ * restored mtime is the restore loop's job (it places objects, this fetches
+ * their bytes). The `restore` command composes this.
+ *
+ * Callers must have loaded the set's env (`loadEnv({ set })`) first, so the S3
+ * client picks up the right bucket region/credentials/endpoint.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} hash - The object's SHA-256, its key under `objects/`
+ * @param {string} destPath - Where to write the verified object (parent must exist)
+ * @returns {Promise<void>}
+ */
+export async function downloadObject(bucket, hash, destPath) {
+  const uri = `s3://${bucket}/objects/${hash}`;
+  const tmpPath = join(dirname(destPath), `.${basename(destPath)}.s3cab-tmp`);
+
+  const hasher = createHash("sha256");
+  const tap = new Transform({
+    transform(chunk, _encoding, callback) {
+      hasher.update(chunk);
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(createS3ReadStream(uri), tap, createWriteStream(tmpPath));
+    const got = hasher.digest("hex");
+    if (got !== hash) {
+      throw new Error(
+        `Integrity check failed for ${uri}: its content hashes to ${got}, ` +
+          `not ${hash}. The stored object is corrupt or mismatched.`,
+      );
+    }
+    await rename(tmpPath, destPath);
+  } catch (error) {
+    // Never leave the partial/unverified temp file behind (best-effort).
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }
 
 /**

@@ -103,12 +103,23 @@ rather than assuming it is fixed forever.
    rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
    slice was built end-to-end before the first commit, which then couldn't be split into
    per-step commits without interactive hunk-staging.)
-10. **"Review the PR comments" means give an opinion, not make changes.** When the user
-    asks you to look at review comments on a PR, **assess each one and state your opinion**
-    (valid / not / nuance), then **stop and let the user decide** what to do — do not
-    automatically edit code or offer to push. Apply changes only once the user says which
-    comments to action. (Recorded 2026-06-13 after I jumped from "look at the comments"
-    straight to editing files and offering a commit.)
+10. **"Review the PR comments" means critically review them _with the user_ and give
+    suggestions — not make changes.** When the user asks you to look at review comments on a
+    PR, **assess each one and state your opinion** (valid / not / nuance) with a suggested
+    action, then **stop and let the user decide** — do not automatically edit code or offer
+    to push. Apply changes only once the user says which comments to action. **This holds
+    for _every_ wave of comments, including a re-review triggered by a push: each new batch
+    returns to discuss-first — give the rationale and suggestions, then wait. A prior "fix
+    and comment and resolve" go-ahead is per-batch and never carries forward** to the next
+    wave. (Recorded 2026-06-13 after I jumped from "look at the comments" straight to editing
+    files; re-emphasised 2026-06-14 after I treated one batch's "fix" go-ahead as standing
+    and auto-actioned two further review rounds without first reviewing them with the user.)
+11. **Step-by-step feature work lands on a feature branch / PR, never straight on `main`.**
+    The per-step commits of a multi-step feature (convention #9) belong on a `feat/…` branch
+    that becomes one PR — `main` stays at `origin/main` so the feature merges *through* the
+    PR. Branch before the first step's commit (or move the commits onto a branch and reset
+    `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
+    slice's first four steps onto local `main` before the user asked for it to be a PR.)
 
 ---
 
@@ -419,7 +430,12 @@ engine lives in [src/lib/remote.mjs](src/lib/remote.mjs) (the `snapshots/<namesp
 layer — listing, manifest read, the `uploadCandidates` diff, the per-bucket objects cache
 `~/.s3cab/objects.<bucket>`, and the manifest-last `uploadSnapshot`), with `backup`,
 `status`, and `list --remote` on top; `s3.mjs` stays the generic SDK boundary (it never
-learns the layout). Still target: `restore`, `verify`, adoption, `compare --remote`.
+learns the layout). The **restore path is built** (slice 4, 2026-06, PR #44): `remote.mjs`
+gained the verified atomic `downloadObject` and `listRemoteNamespaces`, with
+[src/commands/restore.mjs](src/commands/restore.mjs) (restore to original paths,
+skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`) and `setup --from`
+adoption on top. Still target: `restore --output` re-rooting, `compare --remote`, and
+`verify` (slice 5).
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -540,6 +556,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   the same set (`build`, `dist`, `coverage`); Prettier reads only `.prettierignore`, not
   `.gitignore`, so a dir gitignored as output must also be listed there or `format:check`
   will parse it once a build exists.
+- **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
+  `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
+  `SnapshotLookup`), then bare `{Foo}` in annotations — cleaner than repeating the inline
+  form at each use, and the modern TS-supported style (TS 5.5+). An unused `@import` name is
+  flagged by the type check, so they don't rot.
 - **Import order is author-managed; no tool enforces or rewrites it.** A
   `source.organizeImports`-on-save action was removed from `.vscode/settings.json` (2026-06):
   it silently reordered/removed imports on save, but only for contributors who had the VS
@@ -603,10 +624,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **`restore`/`verify` flow not built yet** — the design *and* the five-slice
+- **`verify` flow + `restore --output` not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
   set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last invariant,
-  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 are built** (2026-06):
+  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
+  path are built** (2026-06):
   slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
   the set env layer in auth; slice 2 moved the local engine onto sets —
   `snapshot`/`list`/`compare`/`tree` take `[<set>]` (sole-set default), walk every member
@@ -624,9 +646,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   (~40×), and a flat file would cover the only case sqlite might win (a persistent
   cross-run remote-hash set). See
   [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
-  Remaining scaffold: `restore`/`verify` are inline registry stubs and `compare --remote`
-  is wired but throws `notImplemented()`; promote each stub into its own `src/commands/`
-  file as it gains a real body (slices 4–5).
+  slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
+  `remote.mjs`'s verified `downloadObject` + `listRemoteNamespaces`) and `setup --from`
+  adoption. Remaining scaffold: `verify` is still an inline registry stub and
+  `compare --remote` is wired but throws `notImplemented()`; `restore --output` re-rooting
+  is the one un-built restore option (needs the manifest's `#DIR` headers, which
+  `parseSnapshotStream` currently drops). Promote each stub into its own `src/commands/`
+  file as it gains a real body (rest of slices 4–5).
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:

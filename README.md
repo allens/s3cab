@@ -43,10 +43,8 @@ is never locked in**:
 ## Status
 
 s3cab records and compares the state of your files, organised into **backup sets** (a
-named list of folders that snapshot as one unit), and **backs them up to S3**. (Restoring
-_through s3cab_ is the next milestone — until then, the open, self-describing format means
-you can always recover by hand; see [Cloud repositories](#cloud-repositories).) You create
-a set once, then the commands act on it:
+named list of folders that snapshot as one unit), **backs them up to S3**, and **restores
+them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
@@ -57,11 +55,18 @@ a set once, then the commands act on it:
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
+| `s3cab restore [<set>] [paths…]` | Restore a set's files from its cloud backup — skips existing files, `--overwrite` to replace. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
 A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`). When
 you have only one set you can leave the name out — plain `s3cab snapshot` just works.
+
+`restore` puts files back to the locations they were backed up from, leaving any that still
+exist untouched (pass `--overwrite` to replace them, `--snapshot <name>` to restore an
+older one, and `paths…` to restore only part of a set). To recover onto a **fresh machine**,
+re-create the set pointed at the existing backup — `s3cab setup <set> --from
+<user@machine/set> --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `objects`
 and `upload`, also work already — advanced building blocks covered under
@@ -69,17 +74,16 @@ and `upload`, also work already — advanced building blocks covered under
 
 ### Coming next
 
-Backing up already works (see [Status](#status)); these remaining commands complete the
-round-trip — getting your files **back** — and are **not yet functional** (they exit with
-a "not yet implemented" message):
+Backing up and restoring already work (see [Status](#status)); this remaining command is
+**not yet functional** (it exits with a "not yet implemented" message):
 
-| Command                          | Will do                                                                |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `s3cab restore [<set>] [paths…]` | Restore files from a backup.                                           |
-| `s3cab verify [<set>]`           | Check that a backup is complete and undamaged.                         |
+| Command                | Will do                                        |
+| ---------------------- | ---------------------------------------------- |
+| `s3cab verify [<set>]` | Check that a backup is complete and undamaged. |
 
-(`compare` will also gain a `--remote` flag to work against the cloud copy; `list --remote`
-already works.)
+(`restore` will also gain `--output <dir>` to recover under a different root — handy across
+machines or OSes; `compare` will gain a `--remote` flag to work against the cloud copy.
+`list --remote` already works.)
 
 ### Cloud repositories
 

@@ -157,6 +157,33 @@ export function validateBucketName(bucket) {
   }
 }
 
+/**
+ * Validate a namespace supplied for adoption (`setup --from`): the pinned
+ * remote identity `user@machine/set`, each part the canonical `[a-z0-9-]+`
+ * charset — so it is a safe `snapshots/<namespace>/` key prefix and matches
+ * exactly what `writeSet` pins when creating normally. User-supplied, so a
+ * malformed value is rejected with the shape rather than silently normalized.
+ * @param {string} namespace
+ */
+export function validateNamespace(namespace) {
+  if (!isNamespace(namespace)) {
+    throw new Error(
+      `Invalid namespace: ${namespace}\n` +
+        `Adopt with a remote namespace of the form user@machine/set ` +
+        `(lowercase letters, digits, and hyphens, e.g. allen@allen-pc/photos).`,
+    );
+  }
+}
+
+/**
+ * Whether a string is a canonical `user@machine/set` namespace — the single
+ * source of truth for the shape, shared by `validateNamespace` (which throws)
+ * and `remote.mjs`'s namespace discovery (which filters keys to real targets).
+ * @param {string} s
+ * @returns {boolean}
+ */
+export const isNamespace = (s) => /^[a-z0-9-]+@[a-z0-9-]+\/[a-z0-9-]+$/.test(s);
+
 /** The names of all backup sets (the folders under `~/.s3cab/sets`), sorted. */
 export function listSets() {
   /** @type {import("node:fs").Dirent[]} */
@@ -284,13 +311,20 @@ export function formatSets(sets) {
  * Create or update a set: write `dirs.txt` when dirs are given, bind the
  * bucket when given, and pin the namespace once at creation. Member dirs are
  * stored as passed — resolving/validating them is the `setup` command's job.
+ *
+ * The namespace is pinned at creation and never changed thereafter. Normally it
+ * is derived fresh from this machine's identity; adoption (`setup --from`)
+ * passes an existing remote `namespace` to pin instead, so a fresh machine can
+ * point a new local set at another machine's backup (specs/backup.md). A given
+ * namespace only takes effect when creating — an existing set's is immutable.
  * @param {string} name - A valid set name (see `validateSetName`)
  * @param {object} [pieces]
  * @param {string[]} [pieces.dirs] - Member directories (absolute paths)
  * @param {string} [pieces.bucket] - The S3 bucket to bind
+ * @param {string} [pieces.namespace] - Pin this remote namespace (adoption); validated by the caller
  * @returns {BackupSet} The set as stored after the write
  */
-export function writeSet(name, { dirs, bucket } = {}) {
+export function writeSet(name, { dirs, bucket, namespace } = {}) {
   const creating = !existsSync(setDir(name));
   mkdirSync(setDir(name), { recursive: true });
 
@@ -303,7 +337,7 @@ export function writeSet(name, { dirs, bucket } = {}) {
   if (creating) {
     const user = namespacePart(userInfo().username);
     const machine = namespacePart(hostname());
-    updates.S3CAB_NAMESPACE = `${user}@${machine}/${name}`;
+    updates.S3CAB_NAMESPACE = namespace ?? `${user}@${machine}/${name}`;
   }
   if (bucket) updates.S3CAB_BUCKET = bucket;
   if (Object.keys(updates).length) updateEnvFile(setEnvPath(name), updates);

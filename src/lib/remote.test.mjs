@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects } from "./s3.mjs";
+import { deleteObject, listObjects, putFile } from "./s3.mjs";
 import { readSnapshot, writeSnapshot } from "./snapshot-file.mjs";
 import {
   appendObjectsCache,
+  downloadObject,
   latestRemoteSnapshot,
+  listRemoteNamespaces,
   listRemoteSnapshots,
   objectsCachePath,
   readObjectsCache,
@@ -262,6 +265,93 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
       );
+    }
+  });
+});
+
+describe("listRemoteNamespaces (real bucket)", { skip }, () => {
+  it("surfaces the user@machine/set prefix of a seeded manifest", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const namespace = `test@s3cab/ns-${Date.now()}`;
+    const name = "2025-02-20T0900";
+
+    const contentDir = join(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const file = join(contentDir, "a.txt");
+    writeFileSync(file, `ns-disco ${namespace}`);
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    await writeSnapshot(snapshotDir, name, [file]);
+    const hashes = [
+      ...new Set(
+        [...(await readSnapshot(snapshotDir, name)).values()].map(
+          (p) => p.hash,
+        ),
+      ),
+    ];
+
+    try {
+      await uploadSnapshot({ bucket, namespace, snapshotDir, name });
+      const found = await listRemoteNamespaces(bucket);
+      assert.ok(
+        found.includes(namespace),
+        `expected ${namespace} among ${found.join(", ")}`,
+      );
+    } finally {
+      for (const hash of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
+      );
+    }
+  });
+});
+
+describe("downloadObject (real bucket)", { skip }, () => {
+  it("downloads and verifies an object, and rejects a corrupt one", async () => {
+    await using dir = await mkTmpDir();
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+
+    // Seed an object at its true content-address, plus a "corrupt" one whose
+    // bytes don't match the key it's stored under (the silent-data-loss case).
+    const content = `gamma ${Date.now()}`;
+    const hash = createHash("sha256").update(content).digest("hex");
+    const wrongHash = createHash("sha256")
+      .update("not the content")
+      .digest("hex");
+    const srcGood = join(dir.path, "good.txt");
+    const srcBad = join(dir.path, "bad.txt");
+    writeFileSync(srcGood, content);
+    writeFileSync(srcBad, content); // stored under wrongHash → mismatch on read
+
+    const restoreDir = join(dir.path, "restore");
+    mkdirSync(restoreDir, { recursive: true });
+    const goodDest = join(restoreDir, "good.txt");
+    const badDest = join(restoreDir, "bad.txt");
+
+    try {
+      await putFile(srcGood, `s3://${bucket}/objects/${hash}`);
+      await putFile(srcBad, `s3://${bucket}/objects/${wrongHash}`);
+
+      await downloadObject(bucket, hash, goodDest);
+      assert.equal(readFileSync(goodDest, "utf8"), content);
+
+      // A hash mismatch must reject and leave nothing (no temp, no dest).
+      await assert.rejects(
+        () => downloadObject(bucket, wrongHash, badDest),
+        /Integrity check failed/,
+      );
+      assert.ok(!existsSync(badDest), "corrupt download must not be placed");
+      assert.ok(
+        !existsSync(join(restoreDir, ".bad.txt.s3cab-tmp")),
+        "temp file must be cleaned up",
+      );
+    } finally {
+      await deleteObject(`s3://${bucket}/objects/${hash}`);
+      await deleteObject(`s3://${bucket}/objects/${wrongHash}`);
     }
   });
 });

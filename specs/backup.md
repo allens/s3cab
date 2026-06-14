@@ -2,19 +2,21 @@
 
 ## Status
 
-Designed (2026-06-12), **implementation in progress**. Slices 1–3 of the plan below are
-built. Slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and the set env
-layer in auth; slice 2 moved the local engine onto sets — `snapshot`/`list`/`compare`/
-`tree` take `[<set>]`, walk every member dir with the set's `exclude.txt`, write one
-manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
+Designed (2026-06-12), **implementation in progress**. Slices 1–3 and the restore half of
+slice 4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and
+the set env layer in auth; slice 2 moved the local engine onto sets —
+`snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every member dir with the set's
+`exclude.txt`, write one manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
 `~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
 the `snapshots/` remote half and the cloud porcelain: the remote repository engine
 (`src/lib/remote.mjs` — remote-manifest listing/read, the upload-set diff
 `uploadCandidates`, the per-bucket objects cache, the manifest-last `uploadSnapshot`),
 plus `backup`, `status`, and `list --remote`. The `objects`/`upload` plumbing and the
-`objects/<sha256>` half of the remote layout were already live. Everything else here —
-`restore`/`verify` (still registry stubs), `setup --from` adoption, and `compare --remote`
-— is target (slices 4–5).
+`objects/<sha256>` half of the remote layout were already live. Slice 4's restore path
+(PR #44) added `restore` (`src/commands/restore.mjs`, on `remote.mjs`'s verified
+`downloadObject` + `listRemoteNamespaces`) and `setup --from` **adoption** for fresh-machine
+recovery. Remaining target: `restore --output` re-rooting, `compare --remote`, and slice 5
+(`verify`/`delete`/`cleanup`).
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
@@ -439,6 +441,16 @@ the `--force` first written above (clearer, and it never overwrites like `upload
 Restore semantics as specified (skip-existing default, `--overwrite`, `--output`
 per-root-basename mapping with clash detection, `paths…` filters, mtime restoration);
 `setup --from` adoption; `compare --remote`.
+
+**Built (PR #44):** `restore` to original locations — skip-existing default + `--overwrite`,
+`--snapshot <name>`, `paths…` prefix filters (`selectEntries`), per-object SHA-256
+verification on download (`downloadObject`), download-once/copy for repeated content, and
+mtime restoration. `setup --from` adoption pins a given remote namespace and binds the
+bucket, verifying the namespace has a backup (listing the bucket's namespaces on a typo via
+`listRemoteNamespaces`); `setup` is now uniformly async. **Deferred from this slice:**
+`--output` re-rooting (the only un-built restore option — surfacing the manifest's `#DIR`
+headers, which `parseSnapshotStream` currently drops, is the prerequisite), and
+`compare --remote` (still a `notImplemented()` stub).
 
 ### Slice 5 — Admin pair
 

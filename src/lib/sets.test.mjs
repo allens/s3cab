@@ -13,6 +13,7 @@ import {
   sanitizeNamePart,
   setEnvPath,
   validateBucketName,
+  validateNamespace,
   validateSetName,
   writeSet,
 } from "./sets.mjs";
@@ -115,6 +116,26 @@ describe("validateBucketName", () => {
   it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
     assert.throws(() => validateBucketName(""), /No bucket name given/);
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
+  });
+});
+
+describe("validateNamespace", () => {
+  it("accepts a canonical user@machine/set namespace", () => {
+    validateNamespace("allen@allen-pc/photos");
+    validateNamespace("u-1@host-2/set-3");
+  });
+
+  it("rejects the wrong shape or charset, teaching the form", () => {
+    for (const bad of [
+      "allen@allen-pc", // no set
+      "allen/photos", // no @machine
+      "allen@allen-pc/photos/extra", // too deep
+      "Allen@allen-pc/photos", // uppercase
+      "allen @pc/photos", // space
+      "",
+    ]) {
+      assert.throws(() => validateNamespace(bad), /Invalid namespace/);
+    }
   });
 });
 
