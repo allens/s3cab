@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
-import { dirname, posix, sep } from "node:path";
+import { dirname, isAbsolute, posix, sep } from "node:path";
 import { stderr } from "node:process";
 import { loadEnv } from "../lib/auth.mjs";
 import {
@@ -71,6 +71,21 @@ export async function restore(setName, paths = [], options = {}) {
   if (paths.length && targets.length === 0) {
     throw new Error(
       `No files in snapshot '${name}' matched: ${paths.join(", ")}`,
+    );
+  }
+
+  // Every target must be absolute on *this* platform before we touch the disk.
+  // A manifest captured on another OS (Windows paths on POSIX, say) or a
+  // hand-edited one would otherwise write files relative to the cwd with
+  // surprising names like `C:\Users\…` — refuse up front rather than scatter
+  // them. Cross-OS restore is what `--output` (planned) re-rooting will be for.
+  const notAbsolute = targets.filter((path) => !isAbsolute(path));
+  if (notAbsolute.length) {
+    throw new Error(
+      `Snapshot '${name}' has ${notAbsolute.length} path(s) that aren't absolute ` +
+        `on this system (e.g. ${notAbsolute.slice(0, 3).join(", ")}). The backup ` +
+        `was likely made on a different OS; restoring it here will need --output ` +
+        `(planned) to re-root under a folder you choose.`,
     );
   }
 
