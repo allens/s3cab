@@ -79,9 +79,11 @@ export async function listRemoteNamespaces(bucket) {
   for await (const { Key } of listObjects(
     `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
   )) {
-    if (!Key) continue;
-    // Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the namespace is
-    // everything between the prefix and the final `/<name>.tsv.zst` segment.
+    // Only real manifest objects, so a stray non-manifest key (a console-made
+    // `snapshots/foo/` folder marker, say) can't surface as a bogus adoption
+    // target. Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the
+    // namespace is everything between the prefix and the final segment.
+    if (!Key?.endsWith(".tsv.zst")) continue;
     const rest = Key.slice(SNAPSHOTS_PREFIX.length);
     const cut = rest.lastIndexOf("/");
     if (cut !== -1) namespaces.add(rest.slice(0, cut));

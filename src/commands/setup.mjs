@@ -120,7 +120,7 @@ async function adopt(name, folders, creating, options) {
     throw new Error(
       `No backups found for '${namespace}' in bucket '${bucket}'.\n` +
         (available.length
-          ? `Backups in this bucket (newest of each shown by 'list'):\n  ${available.join("\n  ")}`
+          ? `Backups exist under these namespaces — adopt one with --from:\n  ${available.join("\n  ")}`
           : `This bucket holds no backups under snapshots/ yet.`),
     );
   }
