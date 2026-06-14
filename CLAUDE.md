@@ -90,7 +90,13 @@ rather than assuming it is fixed forever.
    as function extraction and module promotion. (Worked example: `isENOENT` in
    `src/lib/error.mjs` was added once the check had four call sites, and shaped as the
    specific predicate rather than a generic `isErrnoCode(error, code)` — no second error
-   code needed it.)
+   code needed it.) **This forbids _speculative_ structure, not _justified_ refactoring**
+   (clarified by the user 2026-06-14): when restructuring existing code genuinely improves it
+   — clearer separation, or making a real behaviour testable — don't shy off it out of
+   minimalism, even a sizable refactor. Right-sizing cuts both ways: as small as the need
+   allows, but as large as the need warrants. (Worked example: `clientConfig()` and
+   `putObjectParams()` were extracted from `s3.mjs` so the non-AWS request-shaping gating
+   became unit-testable without a live client — see [src/lib/s3.test.mjs](src/lib/s3.test.mjs).)
 9. **"Work through one by one" is a strict per-step protocol.** When the user says to work
    through a list one by one: (a) propose the step and ask any questions; (b) once the
    proposal is agreed, make the code changes and present the diff for review —
