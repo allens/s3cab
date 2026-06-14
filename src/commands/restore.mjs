@@ -85,31 +85,40 @@ export async function restore(setName, paths = [], options = {}) {
   /** @type {Map<string, string>} */
   const fetched = new Map();
 
-  for (const path of targets) {
-    if (existsSync(path) && !options.overwrite) {
-      skipped.push(path);
-      continue;
-    }
-    const { hash, mtime } = /** @type {Props} */ (manifest.get(path));
-    mkdirSync(dirname(path), { recursive: true });
+  // Track whether a progress line was drawn so the closing newline runs in a
+  // `finally` — even if a download throws mid-loop the terminal cursor is left
+  // on a fresh line, so the error message that follows isn't tacked onto the
+  // half-written progress line.
+  let progressed = false;
+  try {
+    for (const path of targets) {
+      if (existsSync(path) && !options.overwrite) {
+        skipped.push(path);
+        continue;
+      }
+      const { hash, mtime } = /** @type {Props} */ (manifest.get(path));
+      mkdirSync(dirname(path), { recursive: true });
 
-    const source = fetched.get(hash);
-    if (source) {
-      await copyFile(source, path);
-    } else {
-      await downloadObject(set.bucket, hash, path);
-      fetched.set(hash, path);
-    }
-    const when = new Date(mtime);
-    await utimes(path, when, when);
-    restored.push(path);
+      const source = fetched.get(hash);
+      if (source) {
+        await copyFile(source, path);
+      } else {
+        await downloadObject(set.bucket, hash, path);
+        fetched.set(hash, path);
+      }
+      const when = new Date(mtime);
+      await utimes(path, when, when);
+      restored.push(path);
 
-    const done = restored.length + skipped.length;
-    if (done % 50 === 0 || done === targets.length) {
-      stderr.write(`\rRestoring ${done}/${targets.length}...`);
+      const done = restored.length + skipped.length;
+      if (done % 50 === 0 || done === targets.length) {
+        stderr.write(`\rRestoring ${done}/${targets.length}...`);
+        progressed = true;
+      }
     }
+  } finally {
+    if (progressed) stderr.write("\n");
   }
-  stderr.write("\n");
 
   return { set: set.name, snapshot: name, restored, skipped };
 }

@@ -103,7 +103,10 @@ async function adopt(name, folders, creating, options) {
     );
   }
   if (!options.bucket) {
-    throw new Error(
+    // A missing required argument (like requireArg / the missing-folder check),
+    // so ParseArgsError — the CLI prints usage. Value-validation and state
+    // errors below/above stay plain Error (matching validateBucketName et al.).
+    throw new ParseArgsError(
       `Adoption needs the bucket holding the backup:\n` +
         `  s3cab setup ${name} --from ${namespace} --bucket <bucket>`,
     );
