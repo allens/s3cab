@@ -133,12 +133,17 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
     );
   });
 
-  it("still sends the portable x-amz-meta-* metadata", async () => {
+  it("sends the portable metadata as single-prefixed x-amz-meta-* headers", async () => {
     const request = await putRequest();
     const headers = amzHeaders(request);
     assert.ok(
-      headers.some((h) => h.startsWith("x-amz-meta-")),
-      `portable metadata missing off-AWS: ${headers.join(", ")}`,
+      headers.includes("x-amz-meta-hostname"),
+      `expected single-prefixed metadata header: ${headers.join(", ")}`,
+    );
+    assert.ok(
+      // Metadata keys must be bare; pre-prefixing double-prefixes on the wire.
+      !headers.some((h) => h.startsWith("x-amz-meta-x-amz-meta-")),
+      `metadata header is double-prefixed: ${headers.join(", ")}`,
     );
   });
 });

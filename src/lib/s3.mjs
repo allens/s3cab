@@ -200,12 +200,14 @@ export function putObjectParams(path, uri, { size, mtime, noClobber }) {
           StorageClass: StorageClass.INTELLIGENT_TIERING,
         }),
     Metadata: {
-      "x-amz-meta-hostname": hostname(),
-      "x-amz-meta-username": userInfo().username,
-      "x-amz-meta-path": path,
-      "x-amz-meta-size": size.toString(),
-      "x-amz-meta-mtime": mtime.toString(),
-      "x-amz-meta-date": new Date().toISOString(),
+      // Bare keys: S3/the SDK prefixes each with `x-amz-meta-` on the wire (these
+      // become x-amz-meta-hostname, …). Pre-prefixing here double-prefixes them.
+      hostname: hostname(),
+      username: userInfo().username,
+      path,
+      size: size.toString(),
+      mtime: mtime.toString(),
+      date: new Date().toISOString(),
     },
     ...(noClobber ? { IfNoneMatch: "*" } : {}),
   };
