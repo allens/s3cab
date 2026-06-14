@@ -122,10 +122,9 @@ it at **anything** S3-compatible — AWS, R2, B2, Wasabi, or a MinIO they stand 
 *their* choice, *their* account. We **neutrally support** any target without **depending on**
 one. That is strictly better than baking an emulator into CI, and it's free.
 
-- **MinIO — rejected.** The server is AGPL-licensed (open), but the company hollowed out the
-  community edition and steers features to the paid product — open-but-drifting-commercial,
-  the exact sting this project exists to avoid (CLAUDE.md design principle #2, no lock-in). We
-  won't take it as a dependency. A
+- **MinIO — rejected.** The server is AGPL-licensed (open), but we're wary of building CI on a
+  dependency whose open edition's long-term direction feels uncertain to us — the caution
+  behind CLAUDE.md design principle #2 (no lock-in). No criticism of the project intended; a
   contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
 - **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
@@ -163,9 +162,10 @@ nothing guards it yet. Two layers, covering different failure modes:
 **Provider: Cloudflare R2** (lead). Free tier, **egress-free** (no bill-surprise risk even if
 a test misbehaves), and it genuinely *rejects* the newer checksum trailer — so it validates
 the exact gating rather than passing vacuously. Fallback **Backblaze B2** (free 10 GB,
-SigV4-only, also rejects the trailer). **Avoid Wasabi:** its **90-day minimum-storage
-duration** bills objects you create-and-delete immediately — a trap for a churny,
-delete-heavy test bucket.
+SigV4-only, also rejects the trailer). **Wasabi is a poor fit here:** its documented **90-day
+minimum-storage duration** means objects you create and delete immediately still incur
+minimum-storage charges — ill-suited to a churny, delete-heavy test bucket (no knock on it
+generally; just wrong for *this* workload).
 
 ## Provisioning (pickup brief)
 
