@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { clientConfig, putObjectParams } from "./s3.mjs";
@@ -66,10 +63,6 @@ const ENDPOINT_VARS = ["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"];
 
 /** @type {Record<string, string | undefined>} */
 let savedEnv;
-/** @type {string} */
-let tmpDir;
-/** @type {string} */
-let tmpFile;
 
 beforeEach(() => {
   // Start each test from a known no-endpoint state, restoring the host's env after.
@@ -78,9 +71,6 @@ beforeEach(() => {
     savedEnv[v] = process.env[v];
     delete process.env[v];
   }
-  tmpDir = mkdtempSync(join(tmpdir(), "s3cab-s3-test-"));
-  tmpFile = join(tmpDir, "file.txt");
-  writeFileSync(tmpFile, "hello");
 });
 
 afterEach(() => {
@@ -88,21 +78,20 @@ afterEach(() => {
     if (savedEnv[v] === undefined) delete process.env[v];
     else process.env[v] = savedEnv[v];
   }
-  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 /**
  * Capture the PutObject request that `putFile` would send for the current env,
- * built from the real `clientConfig()` + `putObjectParams()`. The Body is replaced
- * with a small string so the raw command serializes cleanly (putFile uploads via a
- * stream); the header gating under test is independent of the body.
+ * built from the real `clientConfig()` + `putObjectParams()`. `putObjectParams`
+ * is pure (putFile supplies the Body stream), so the test needs no real file; a
+ * small string Body lets the raw command serialize cleanly, and the header gating
+ * under test is independent of the body.
  * @returns {Promise<any>}
  */
 function putRequest() {
-  const { size, mtime } = statSync(tmpFile);
-  const params = putObjectParams(tmpFile, "s3://bucket/key", {
-    size,
-    mtime,
+  const params = putObjectParams("/example/file.txt", "s3://bucket/key", {
+    size: 5,
+    mtime: new Date(0),
     noClobber: false,
   });
   return captureRequest(

@@ -176,10 +176,11 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
 /**
  * Build the PutObject params for `putFile`: the off-AWS gating (omit the
  * AWS-only `ServerSideEncryption` / `StorageClass` when a custom endpoint is set)
- * plus the portable `x-amz-meta-*` metadata. Split out so the gating is assertable
- * without performing an upload (src/lib/s3.test.mjs). `customEndpoint()` is read
- * here, so the caller's s3cab env must already be loaded.
- * @param {string} path - The local file path.
+ * plus the portable `x-amz-meta-*` metadata. Pure (no I/O) so the gating is
+ * assertable without performing an upload — the caller supplies the `Body`
+ * stream (src/lib/s3.test.mjs). `customEndpoint()` is read here, so the caller's
+ * s3cab env must already be loaded.
+ * @param {string} path - The local file path (recorded in the metadata).
  * @param {string} uri - The S3 URI.
  * @param {{ size: number, mtime: Date, noClobber?: boolean }} meta
  * @returns {import("@aws-sdk/client-s3").PutObjectCommandInput}
@@ -189,7 +190,6 @@ export function putObjectParams(path, uri, { size, mtime, noClobber }) {
   return {
     Bucket,
     Key,
-    Body: createReadStream(path),
     // StorageClass + ServerSideEncryption are AWS-isms that S3-compatible
     // providers (R2/B2/Spaces) reject; send them only when targeting AWS.
     // The x-amz-meta-* metadata below is portable, so it always goes.
@@ -234,7 +234,10 @@ export async function putFile(path, uri, options = {}) {
   // customEndpoint() is read inside putObjectParams (the caller's env is loaded).
   const upload = new Upload({
     client: client(),
-    params: putObjectParams(path, uri, { size, mtime, noClobber }),
+    params: {
+      ...putObjectParams(path, uri, { size, mtime, noClobber }),
+      Body: createReadStream(path),
+    },
     partSize,
   });
 
