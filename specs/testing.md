@@ -59,7 +59,8 @@ tests, for four reasons:
    types into tests of `remote.mjs` / `backup` / `restore`, coupling them to what the boundary
    exists to hide.
 4. **Zero-dep.** Mocking `s3.mjs` needs only `node:test`'s `mock.module` / `mock.fn`. Mocking
-   the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against #5.
+   the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against CLAUDE.md
+   design principle #5 (the high bar for dependencies).
 
 **Not dogma — the boundary follows what's under test:**
 
@@ -85,17 +86,23 @@ All tear down via `deleteObject` in a `finally`; content is unique per run so th
 
 ## Where real S3 runs (the security model)
 
-**Real AWS runs on PRs, before merge, behind a GitHub Environment with required-reviewer
-approval.** Nothing credentialed runs until a maintainer clicks approve, so an unverified
-malicious or accidental actor **cannot cause any spend** on the project's account — their PR
-sits pending until reviewed. This deliberately beats "post-merge only": you want the real
-test *before* merge, and the approval gate buys the security without deferring the test.
+**Real AWS runs on same-repo (collaborator) PRs, before merge, behind a GitHub Environment
+with required-reviewer approval.** Nothing credentialed runs until a maintainer clicks
+approve, so an unverified malicious or accidental actor **cannot cause any spend** on the
+project's account — their PR sits pending until reviewed. This deliberately beats "post-merge
+only" for the PRs it covers: you want the real test *before* merge, and the approval gate
+buys the security without deferring the test.
 
-- **Fork PRs are safe by GitHub default** — `pull_request` runs from a fork get a read-only
-  token and **no secrets / no OIDC**, so the gated S3 tests simply skip. Never use
-  `pull_request_target` to run untrusted code with credentials (the footgun). Fork
-  contributors still get full *orchestration* coverage from the mocked-seam tier, and the
-  real round-trip runs the moment a maintainer approves their PR.
+- **Fork PRs are safe by GitHub default — and approval does _not_ change that.** A
+  `pull_request` run from a fork gets a read-only token and **no secrets / no OIDC**, and
+  GitHub **never passes secrets to a fork-triggered run regardless of environment approval**
+  (approval gates the job; it does not grant a fork run credentials). So the gated real-S3
+  tests simply **skip** in fork PR CI. Never use `pull_request_target` to run untrusted code
+  with credentials (the footgun). A fork contributor still gets full *orchestration* coverage
+  from the mocked-seam tier in their PR CI; the **real** round-trip runs **post-merge on
+  `main`** (or when a maintainer reproduces the branch in-repo to run it pre-merge) — not in
+  fork PR CI. So "real S3 before merge" holds for *collaborator* PRs; fork PRs get it
+  post-merge.
 - **Collaborators are trusted as much as the owner** — no extra gating beyond the approval
   mechanism (which they pass by being trusted).
 - **Defense-in-depth regardless** (cheap, self-healing):
@@ -117,11 +124,13 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 
 - **MinIO — rejected.** The server is AGPL-licensed (open), but the company hollowed out the
   community edition and steers features to the paid product — open-but-drifting-commercial,
-  the exact sting this project exists to avoid (#2). We won't take it as a dependency. A
+  the exact sting this project exists to avoid (CLAUDE.md design principle #2, no lock-in). We
+  won't take it as a dependency. A
   contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
 - **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
-  container, far too much surface to bolt onto CI for one service (#5 / #6 / #8).
+  container, far too much surface to bolt onto CI for one service (CLAUDE.md design principles
+  #5 / #6 / #8 — built-ins over deps, minimal code, don't over-engineer).
 - **Why no emulator at all:** the only genuine advantage an emulator has over real S3 is
   *no credentials* (so it could run on fork CI / for a contributor with no AWS account). Cost
   is negligible at test volume; the speed difference is seconds. Since fork-CI real-S3 is a
@@ -162,10 +171,11 @@ delete-heavy test bucket.
 
 Strategy is decided; this is the still-pending wiring.
 
-- **Regions:** CI bucket in **`us-east-1`** (AWS's lowest S3 list price + closest to the
-  US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
-  nothing at test-object volume). Local dev in **eu-west-1 (Ireland) / eu-west-2 (London)** —
-  pick on latency, the cost difference is noise.
+- **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
+  the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
+  nothing at test-object volume). Local dev in whatever region is nearest the developer — it's
+  read from env (below), so it never matters to the code, and inter-region cost differences
+  are noise.
 - **Region/bucket are read from the environment, never hardcoded:** tests take the region
   from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET`, so the `us-east-1` CI run and a
   `eu-west-*` local run are the *same* code path.
