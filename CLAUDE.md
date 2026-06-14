@@ -109,6 +109,12 @@ rather than assuming it is fixed forever.
     automatically edit code or offer to push. Apply changes only once the user says which
     comments to action. (Recorded 2026-06-13 after I jumped from "look at the comments"
     straight to editing files and offering a commit.)
+11. **Step-by-step feature work lands on a feature branch / PR, never straight on `main`.**
+    The per-step commits of a multi-step feature (convention #9) belong on a `feat/…` branch
+    that becomes one PR — `main` stays at `origin/main` so the feature merges *through* the
+    PR. Branch before the first step's commit (or move the commits onto a branch and reset
+    `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
+    slice's first four steps onto local `main` before the user asked for it to be a PR.)
 
 ---
 
@@ -419,7 +425,12 @@ engine lives in [src/lib/remote.mjs](src/lib/remote.mjs) (the `snapshots/<namesp
 layer — listing, manifest read, the `uploadCandidates` diff, the per-bucket objects cache
 `~/.s3cab/objects.<bucket>`, and the manifest-last `uploadSnapshot`), with `backup`,
 `status`, and `list --remote` on top; `s3.mjs` stays the generic SDK boundary (it never
-learns the layout). Still target: `restore`, `verify`, adoption, `compare --remote`.
+learns the layout). The **restore path is built** (slice 4, 2026-06, PR #44): `remote.mjs`
+gained the verified atomic `downloadObject` and `listRemoteNamespaces`, with
+[src/commands/restore.mjs](src/commands/restore.mjs) (restore to original paths,
+skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`) and `setup --from`
+adoption on top. Still target: `restore --output` re-rooting, `compare --remote`, and
+`verify` (slice 5).
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -608,10 +619,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **`restore`/`verify` flow not built yet** — the design *and* the five-slice
+- **`verify` flow + `restore --output` not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
   set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last invariant,
-  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 are built** (2026-06):
+  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
+  path are built** (2026-06):
   slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
   the set env layer in auth; slice 2 moved the local engine onto sets —
   `snapshot`/`list`/`compare`/`tree` take `[<set>]` (sole-set default), walk every member
@@ -629,9 +641,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   (~40×), and a flat file would cover the only case sqlite might win (a persistent
   cross-run remote-hash set). See
   [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
-  Remaining scaffold: `restore`/`verify` are inline registry stubs and `compare --remote`
-  is wired but throws `notImplemented()`; promote each stub into its own `src/commands/`
-  file as it gains a real body (slices 4–5).
+  slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
+  `remote.mjs`'s verified `downloadObject` + `listRemoteNamespaces`) and `setup --from`
+  adoption. Remaining scaffold: `verify` is still an inline registry stub and
+  `compare --remote` is wired but throws `notImplemented()`; `restore --output` re-rooting
+  is the one un-built restore option (needs the manifest's `#DIR` headers, which
+  `parseSnapshotStream` currently drops). Promote each stub into its own `src/commands/`
+  file as it gains a real body (rest of slices 4–5).
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:
