@@ -10,6 +10,7 @@ import {
   appendObjectsCache,
   downloadObject,
   latestRemoteSnapshot,
+  listRemoteNamespaces,
   listRemoteSnapshots,
   objectsCachePath,
   readObjectsCache,
@@ -256,6 +257,47 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       await assert.rejects(
         () => uploadSnapshot({ bucket, namespace, snapshotDir, name }),
         /already backed up/,
+      );
+    } finally {
+      for (const hash of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
+      );
+    }
+  });
+});
+
+describe("listRemoteNamespaces (real bucket)", { skip }, () => {
+  it("surfaces the user@machine/set prefix of a seeded manifest", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const namespace = `test@s3cab/ns-${Date.now()}`;
+    const name = "2025-02-20T0900";
+
+    const contentDir = join(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const file = join(contentDir, "a.txt");
+    writeFileSync(file, `ns-disco ${namespace}`);
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    await writeSnapshot(snapshotDir, name, [file]);
+    const hashes = [
+      ...new Set(
+        [...(await readSnapshot(snapshotDir, name)).values()].map(
+          (p) => p.hash,
+        ),
+      ),
+    ];
+
+    try {
+      await uploadSnapshot({ bucket, namespace, snapshotDir, name });
+      const found = await listRemoteNamespaces(bucket);
+      assert.ok(
+        found.includes(namespace),
+        `expected ${namespace} among ${found.join(", ")}`,
       );
     } finally {
       for (const hash of hashes) {

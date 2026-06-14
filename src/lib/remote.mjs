@@ -63,6 +63,33 @@ export async function listRemoteSnapshots(bucket, namespace) {
 }
 
 /**
+ * List the distinct backup-set namespaces present in a bucket — the
+ * `user@machine/set` prefixes under `snapshots/`. The discovery aid behind
+ * `setup --from` on a fresh machine, where the user won't recall the exact
+ * pinned identity; also what an adoption's "namespace not found" error offers as
+ * the available choices. Sorted, deduplicated.
+ *
+ * Callers must have loaded the bucket's env (`loadEnv({ bucket })`) first.
+ * @param {string} bucket - The repository's S3 bucket
+ * @returns {Promise<string[]>} Distinct namespaces, sorted
+ */
+export async function listRemoteNamespaces(bucket) {
+  /** @type {Set<string>} */
+  const namespaces = new Set();
+  for await (const { Key } of listObjects(
+    `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
+  )) {
+    if (!Key) continue;
+    // Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the namespace is
+    // everything between the prefix and the final `/<name>.tsv.zst` segment.
+    const rest = Key.slice(SNAPSHOTS_PREFIX.length);
+    const cut = rest.lastIndexOf("/");
+    if (cut !== -1) namespaces.add(rest.slice(0, cut));
+  }
+  return [...namespaces].sort();
+}
+
+/**
  * The latest remote snapshot name for a set, or undefined when it has none yet.
  * The manifest the `backup`/`status` diff starts from (specs/backup.md "How
  * `backup` computes the upload set", step 1).

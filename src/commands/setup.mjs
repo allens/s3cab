@@ -1,8 +1,11 @@
 import { realpathSync, statSync } from "node:fs";
+import { loadEnv } from "../lib/auth.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
+import { listRemoteNamespaces, listRemoteSnapshots } from "../lib/remote.mjs";
 import {
   listSets,
   validateBucketName,
+  validateNamespace,
   validateSetName,
   writeSet,
 } from "../lib/sets.mjs";
@@ -17,11 +20,19 @@ import {
  * A bucket-less set is a fully working local snapshot engine on purpose — the
  * try-it-first path; `backup` on such a set will point here to bind one.
  *
+ * Adoption (`--from <namespace>`) is the fresh-machine recovery path: instead of
+ * deriving a new identity, it pins an *existing* remote `user@machine/set`
+ * namespace and binds the bucket, so `restore` can pull a backup made elsewhere.
+ * It verifies the namespace really has a backup first (so a typo fails loudly,
+ * listing what is in the bucket) and is the one path here that touches S3 — hence
+ * its async return.
+ *
  * @param {string} [name] - The set's name
  * @param {string[]} [folders] - The member folders (required when creating)
  * @param {object} [options]
  * @param {string} [options.bucket] - The S3 bucket to back the set up to
- * @returns {import("../lib/sets.mjs").BackupSet} The set as stored
+ * @param {string} [options.from] - Adopt this remote `user@machine/set` namespace
+ * @returns {import("../lib/sets.mjs").BackupSet | Promise<import("../lib/sets.mjs").BackupSet>} The set as stored
  */
 export function setup(name, folders = [], options = {}) {
   requireArg(name, "<set>");
@@ -31,6 +42,11 @@ export function setup(name, folders = [], options = {}) {
   if (options.bucket !== undefined) validateBucketName(options.bucket);
 
   const creating = !listSets().includes(name);
+
+  if (options.from !== undefined) {
+    return adopt(name, folders, creating, options);
+  }
+
   if (creating && folders.length === 0) {
     throw new ParseArgsError(
       "Missing required argument: <folder> (a new set needs at least one folder)",
@@ -56,4 +72,56 @@ export function setup(name, folders = [], options = {}) {
   });
 
   return writeSet(name, { dirs, bucket: options.bucket });
+}
+
+/**
+ * Adopt an existing remote backup into a new local set (`setup --from`): pin the
+ * given remote namespace and bind the bucket, so `restore` can recover a backup
+ * made on another machine (specs/backup.md). `dirs.txt` is left empty — restore
+ * reads file paths from the manifest, and re-snapshotting from here (which needs
+ * member dirs) is a separate concern — so adoption takes no folders.
+ * @param {string} name - The (new) local set name
+ * @param {string[]} folders - Positional folders (must be empty for adoption)
+ * @param {boolean} creating - Whether the set is new
+ * @param {{ from?: string, bucket?: string }} options
+ * @returns {Promise<import("../lib/sets.mjs").BackupSet>}
+ */
+async function adopt(name, folders, creating, options) {
+  const namespace = options.from ?? "";
+  validateNamespace(namespace);
+  if (folders.length) {
+    throw new ParseArgsError(
+      "setup --from takes no folders (it adopts an existing remote backup)",
+    );
+  }
+  if (!creating) {
+    throw new Error(
+      `Set '${name}' already exists. Adopt into a new set name — a set's ` +
+        `namespace is pinned at creation and cannot be changed.`,
+    );
+  }
+  if (!options.bucket) {
+    throw new Error(
+      `Adoption needs the bucket holding the backup:\n` +
+        `  s3cab setup ${name} --from ${namespace} --bucket <bucket>`,
+    );
+  }
+  const bucket = options.bucket;
+
+  // First (and only) S3 touch in setup: load the bucket's auth layer, then
+  // confirm the namespace really has a backup before writing anything locally —
+  // a typo'd identity fails loudly, listing what the bucket actually holds.
+  loadEnv({ bucket });
+  const snapshots = await listRemoteSnapshots(bucket, namespace);
+  if (snapshots.length === 0) {
+    const available = await listRemoteNamespaces(bucket);
+    throw new Error(
+      `No backups found for '${namespace}' in bucket '${bucket}'.\n` +
+        (available.length
+          ? `Backups in this bucket (newest of each shown by 'list'):\n  ${available.join("\n  ")}`
+          : `This bucket holds no backups under snapshots/ yet.`),
+    );
+  }
+
+  return writeSet(name, { bucket, namespace });
 }
