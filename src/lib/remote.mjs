@@ -1,6 +1,15 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  appendFileSync,
+  createWriteStream,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
+import { rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
@@ -84,6 +93,56 @@ export async function readRemoteSnapshot(bucket, namespace, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
   const input = createS3ReadStream(uri).pipe(createZstdDecompress());
   return parseSnapshotStream(input);
+}
+
+/**
+ * Download one content-addressed object to a local path, verifying integrity.
+ * The remote twin of `putFile` for the object store: stream `objects/<hash>`
+ * while hashing it, assert the SHA-256 equals `hash` (the key *is* the content
+ * hash, so a mismatch means the stored object is corrupt or wrong — silent data
+ * loss is exactly what design #1 guards against), then atomically rename into
+ * place. Bytes land in a sibling temp file first, so a crash or a failed
+ * integrity check never leaves a half-written or unverified file at `destPath`.
+ *
+ * The caller owns *where* files go: `destPath`'s parent directory must already
+ * exist (the temp file is a sibling, and the rename needs it), and setting the
+ * restored mtime is the restore loop's job (it places objects, this fetches
+ * their bytes). The `restore` command composes this.
+ *
+ * Callers must have loaded the set's env (`loadEnv({ set })`) first, so the S3
+ * client picks up the right bucket region/credentials/endpoint.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} hash - The object's SHA-256, its key under `objects/`
+ * @param {string} destPath - Where to write the verified object (parent must exist)
+ * @returns {Promise<void>}
+ */
+export async function downloadObject(bucket, hash, destPath) {
+  const uri = `s3://${bucket}/objects/${hash}`;
+  const tmpPath = join(dirname(destPath), `.${basename(destPath)}.s3cab-tmp`);
+
+  const hasher = createHash("sha256");
+  const tap = new Transform({
+    transform(chunk, _encoding, callback) {
+      hasher.update(chunk);
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(createS3ReadStream(uri), tap, createWriteStream(tmpPath));
+    const got = hasher.digest("hex");
+    if (got !== hash) {
+      throw new Error(
+        `Integrity check failed for ${uri}: its content hashes to ${got}, ` +
+          `not ${hash}. The stored object is corrupt or mismatched.`,
+      );
+    }
+    await rename(tmpPath, destPath);
+  } catch (error) {
+    // Never leave the partial/unverified temp file behind (best-effort).
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }
 
 /**

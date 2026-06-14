@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects } from "./s3.mjs";
+import { deleteObject, listObjects, putFile } from "./s3.mjs";
 import { readSnapshot, writeSnapshot } from "./snapshot-file.mjs";
 import {
   appendObjectsCache,
+  downloadObject,
   latestRemoteSnapshot,
   listRemoteSnapshots,
   objectsCachePath,
@@ -262,6 +264,52 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
       );
+    }
+  });
+});
+
+describe("downloadObject (real bucket)", { skip }, () => {
+  it("downloads and verifies an object, and rejects a corrupt one", async () => {
+    await using dir = await mkTmpDir();
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+
+    // Seed an object at its true content-address, plus a "corrupt" one whose
+    // bytes don't match the key it's stored under (the silent-data-loss case).
+    const content = `gamma ${Date.now()}`;
+    const hash = createHash("sha256").update(content).digest("hex");
+    const wrongHash = createHash("sha256")
+      .update("not the content")
+      .digest("hex");
+    const srcGood = join(dir.path, "good.txt");
+    const srcBad = join(dir.path, "bad.txt");
+    writeFileSync(srcGood, content);
+    writeFileSync(srcBad, content); // stored under wrongHash → mismatch on read
+
+    const restoreDir = join(dir.path, "restore");
+    mkdirSync(restoreDir, { recursive: true });
+    const goodDest = join(restoreDir, "good.txt");
+    const badDest = join(restoreDir, "bad.txt");
+
+    try {
+      await putFile(srcGood, `s3://${bucket}/objects/${hash}`);
+      await putFile(srcBad, `s3://${bucket}/objects/${wrongHash}`);
+
+      await downloadObject(bucket, hash, goodDest);
+      assert.equal(readFileSync(goodDest, "utf8"), content);
+
+      // A hash mismatch must reject and leave nothing (no temp, no dest).
+      await assert.rejects(
+        () => downloadObject(bucket, wrongHash, badDest),
+        /Integrity check failed/,
+      );
+      assert.ok(!existsSync(badDest), "corrupt download must not be placed");
+      assert.ok(
+        !existsSync(join(restoreDir, ".bad.txt.s3cab-tmp")),
+        "temp file must be cleaned up",
+      );
+    } finally {
+      await deleteObject(`s3://${bucket}/objects/${hash}`);
+      await deleteObject(`s3://${bucket}/objects/${wrongHash}`);
     }
   });
 });
