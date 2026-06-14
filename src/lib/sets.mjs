@@ -166,7 +166,7 @@ export function validateBucketName(bucket) {
  * @param {string} namespace
  */
 export function validateNamespace(namespace) {
-  if (!/^[a-z0-9-]+@[a-z0-9-]+\/[a-z0-9-]+$/.test(namespace)) {
+  if (!isNamespace(namespace)) {
     throw new Error(
       `Invalid namespace: ${namespace}\n` +
         `Adopt with a remote namespace of the form user@machine/set ` +
@@ -174,6 +174,15 @@ export function validateNamespace(namespace) {
     );
   }
 }
+
+/**
+ * Whether a string is a canonical `user@machine/set` namespace — the single
+ * source of truth for the shape, shared by `validateNamespace` (which throws)
+ * and `remote.mjs`'s namespace discovery (which filters keys to real targets).
+ * @param {string} s
+ * @returns {boolean}
+ */
+export const isNamespace = (s) => /^[a-z0-9-]+@[a-z0-9-]+\/[a-z0-9-]+$/.test(s);
 
 /** The names of all backup sets (the folders under `~/.s3cab/sets`), sorted. */
 export function listSets() {

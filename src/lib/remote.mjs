@@ -13,6 +13,7 @@ import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
+import { isNamespace } from "./sets.mjs";
 import {
   parseSnapshotStream,
   readSnapshot,
@@ -82,11 +83,15 @@ export async function listRemoteNamespaces(bucket) {
     // Only real manifest objects, so a stray non-manifest key (a console-made
     // `snapshots/foo/` folder marker, say) can't surface as a bogus adoption
     // target. Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the
-    // namespace is everything between the prefix and the final segment.
+    // namespace is everything between the prefix and the final segment, and it
+    // must match the canonical `user@machine/set` shape (a key at some other
+    // depth would otherwise yield an invalid target `validateNamespace` rejects).
     if (!Key?.endsWith(".tsv.zst")) continue;
     const rest = Key.slice(SNAPSHOTS_PREFIX.length);
     const cut = rest.lastIndexOf("/");
-    if (cut !== -1) namespaces.add(rest.slice(0, cut));
+    if (cut === -1) continue;
+    const namespace = rest.slice(0, cut);
+    if (isNamespace(namespace)) namespaces.add(namespace);
   }
   return [...namespaces].sort();
 }
