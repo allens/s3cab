@@ -54,7 +54,7 @@ describe("setup", () => {
   it("re-running with --bucket alone binds the bucket and keeps the folders", async () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
-    setup("photos", [photos]);
+    await setup("photos", [photos]);
 
     const updated = await setup("photos", [], { bucket: "my-bucket" });
 
@@ -66,14 +66,17 @@ describe("setup", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => setup(undefined), /Missing required argument: <set>/);
+    await assert.rejects(
+      () => setup(undefined),
+      /Missing required argument: <set>/,
+    );
   });
 
   it("requires at least one folder when creating", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(
+    await assert.rejects(
       () => setup("photos", []),
       /Missing required argument: <folder>/,
     );
@@ -83,7 +86,7 @@ describe("setup", () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
 
-    assert.throws(
+    await assert.rejects(
       () => setup("My Photos", [photos]),
       /Invalid set name: My Photos[\s\S]*lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
     );
@@ -93,7 +96,7 @@ describe("setup", () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
 
-    assert.throws(
+    await assert.rejects(
       () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
       /Invalid bucket name[\s\S]*not a URL/,
     );
@@ -103,7 +106,7 @@ describe("setup", () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
 
-    assert.throws(
+    await assert.rejects(
       () => setup("photos", [photos], { bucket: "" }),
       /No bucket name given/,
     );
@@ -115,11 +118,14 @@ describe("setup", () => {
     const file = join(dir.path, "plain.txt");
     writeFileSync(file, "x");
 
-    assert.throws(
+    await assert.rejects(
       () => setup("photos", [join(dir.path, "nope")]),
       /Folder not found: /,
     );
-    assert.throws(() => setup("photos", [photos, file]), /Not a folder: /);
+    await assert.rejects(
+      () => setup("photos", [photos, file]),
+      /Not a folder: /,
+    );
   });
 });
 
@@ -131,8 +137,7 @@ describe("setup --from (adoption)", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     await assert.rejects(
-      async () =>
-        setup("recovery", [], { from: "Not A Namespace", bucket: "b" }),
+      () => setup("recovery", [], { from: "Not A Namespace", bucket: "b" }),
       /Invalid namespace[\s\S]*user@machine\/set/,
     );
   });
@@ -141,7 +146,7 @@ describe("setup --from (adoption)", () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
     await assert.rejects(
-      async () =>
+      () =>
         setup("recovery", [photos], {
           from: "allen@allen-pc/photos",
           bucket: "b",
@@ -153,10 +158,9 @@ describe("setup --from (adoption)", () => {
   it("refuses to adopt into an existing set (namespace is pinned at creation)", async () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
-    setup("photos", [photos]);
+    await setup("photos", [photos]);
     await assert.rejects(
-      async () =>
-        setup("photos", [], { from: "allen@allen-pc/photos", bucket: "b" }),
+      () => setup("photos", [], { from: "allen@allen-pc/photos", bucket: "b" }),
       /already exists/,
     );
   });
@@ -165,7 +169,7 @@ describe("setup --from (adoption)", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     await assert.rejects(
-      async () => setup("recovery", [], { from: "allen@allen-pc/photos" }),
+      () => setup("recovery", [], { from: "allen@allen-pc/photos" }),
       /needs the bucket/,
     );
   });

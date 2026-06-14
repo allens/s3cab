@@ -540,6 +540,11 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   the same set (`build`, `dist`, `coverage`); Prettier reads only `.prettierignore`, not
   `.gitignore`, so a dir gitignored as output must also be listed there or `format:check`
   will parse it once a build exists.
+- **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
+  `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
+  `SnapshotLookup`), then bare `{Foo}` in annotations — cleaner than repeating the inline
+  form at each use, and the modern TS-supported style (TS 5.5+). An unused `@import` name is
+  flagged by the type check, so they don't rot.
 - **Import order is author-managed; no tool enforces or rewrites it.** A
   `source.organizeImports`-on-save action was removed from `.vscode/settings.json` (2026-06):
   it silently reordered/removed imports on save, but only for contributors who had the VS

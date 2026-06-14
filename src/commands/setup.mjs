@@ -10,6 +10,8 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 
+/** @import { BackupSet } from "../lib/sets.mjs" */
+
 /**
  * Create or update a backup set (specs/backup.md): `~/.s3cab/sets/<set>/` with
  * its member folders in `dirs.txt`, the identity namespace pinned into its
@@ -24,17 +26,17 @@ import {
  * deriving a new identity, it pins an *existing* remote `user@machine/set`
  * namespace and binds the bucket, so `restore` can pull a backup made elsewhere.
  * It verifies the namespace really has a backup first (so a typo fails loudly,
- * listing what is in the bucket) and is the one path here that touches S3 — hence
- * its async return.
+ * listing what is in the bucket) — the one path here that touches S3, which is
+ * why `setup` is async (a single return type, like its sibling commands).
  *
  * @param {string} [name] - The set's name
  * @param {string[]} [folders] - The member folders (required when creating)
  * @param {object} [options]
  * @param {string} [options.bucket] - The S3 bucket to back the set up to
  * @param {string} [options.from] - Adopt this remote `user@machine/set` namespace
- * @returns {import("../lib/sets.mjs").BackupSet | Promise<import("../lib/sets.mjs").BackupSet>} The set as stored
+ * @returns {Promise<BackupSet>} The set as stored
  */
-export function setup(name, folders = [], options = {}) {
+export async function setup(name, folders = [], options = {}) {
   requireArg(name, "<set>");
   validateSetName(name);
   // Validate when --bucket is *given at all* (even ""), so an explicit empty
@@ -84,7 +86,7 @@ export function setup(name, folders = [], options = {}) {
  * @param {string[]} folders - Positional folders (must be empty for adoption)
  * @param {boolean} creating - Whether the set is new
  * @param {{ from?: string, bucket?: string }} options
- * @returns {Promise<import("../lib/sets.mjs").BackupSet>}
+ * @returns {Promise<BackupSet>}
  */
 async function adopt(name, folders, creating, options) {
   const namespace = options.from ?? "";

@@ -10,6 +10,8 @@ import {
 } from "../lib/remote.mjs";
 import { resolveRemoteSet } from "../lib/sets.mjs";
 
+/** @import { Props } from "./prop.mjs" */
+
 // The `restore` command (specs/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
 // *content* lives solely in the bucket's `objects/<sha256>` store — so there is
@@ -88,9 +90,7 @@ export async function restore(setName, paths = [], options = {}) {
       skipped.push(path);
       continue;
     }
-    const { hash, mtime } = /** @type {import("./prop.mjs").Props} */ (
-      manifest.get(path)
-    );
+    const { hash, mtime } = /** @type {Props} */ (manifest.get(path));
     mkdirSync(dirname(path), { recursive: true });
 
     const source = fetched.get(hash);
