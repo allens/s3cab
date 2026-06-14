@@ -113,11 +113,13 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   container (static keys + endpoint), or real **Cloudflare R2 / Backblaze B2** credentials.
   Confirm `objects` (list) and the upload path succeed **with the storage-class/SSE options
   correctly omitted** — i.e. an upload that would fail today against R2/B2 now succeeds.
-- **Checksum gating has no automated coverage yet** (Finding 3 item 4). A meaningful test
-  must assert the *outgoing request* carries no `x-amz-checksum-*` / CRC trailer when a
-  custom endpoint is set — "upload succeeds against MinIO" alone doesn't prove it (a
-  trailer-tolerant provider passes too). That header-level assertion belongs in the planned
-  testing pass (CLAUDE.md "S3 tests"), not a real-bucket upload-succeeds check.
+- **Checksum gating now has automated coverage** (Finding 3 item 4). ✅
+  [../src/lib/s3.test.mjs](../src/lib/s3.test.mjs) captures the *outgoing request* (via a
+  custom `requestHandler`, no bucket / no network) and asserts that a custom-endpoint upload
+  carries no `x-amz-checksum-*` / CRC trailer — and, in the same request, no SSE and no
+  storage-class — with the AWS path (no endpoint) asserted to still carry all three. This is
+  the header-level assertion the planned testing pass owed (it does **not** rely on "upload
+  succeeds against a provider", which a trailer-tolerant provider would pass vacuously).
 - **AWS regression:** with no custom endpoint, confirm `StorageClass` / SSE / region-redirect
   still apply exactly as before.
 

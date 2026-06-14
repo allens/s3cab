@@ -143,14 +143,17 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 s3cab targets non-AWS S3 providers as first-class (see
 [s3-provider-compatibility.md](s3-provider-compatibility.md)); `putFile` already omits
 intelligent-tiering, SSE, and the integrity-checksum trailer when a custom endpoint is set
-(that spec's Finding 3). The gating is the **most likely thing to silently regress**, and
-nothing guards it yet. Two layers, covering different failure modes:
+(that spec's Finding 3). The gating is the **most likely thing to silently regress**. Two
+layers guard it, covering different failure modes:
 
-- **Always-on header assertion (no bucket, every PR, incl. forks):** assert an upload through
-  a custom endpoint carries **no** `x-amz-checksum-*` / CRC trailer, **no** SSE, **no**
-  storage-class option — inspecting the *outgoing request* (the spec is explicit that "upload
-  succeeds against a provider" doesn't prove it: a trailer-tolerant provider passes
-  vacuously). This is the missing coverage for that spec's Finding 3.4, and it guards **our**
+- **Always-on header assertion (no bucket, every PR, incl. forks) — ✅ built**
+  ([src/lib/s3.test.mjs](../src/lib/s3.test.mjs)): captures the *outgoing request* (via a
+  custom `requestHandler`, no network) and asserts a custom-endpoint upload carries **no**
+  `x-amz-checksum-*` / CRC trailer, **no** SSE, **no** storage-class — with the AWS path
+  asserted to still carry all three. The capture matters because "upload succeeds against a
+  provider" doesn't prove it (a trailer-tolerant provider passes vacuously). To make the two
+  gates assertable without a live client, `s3.mjs` exposes `clientConfig()` (checksum mode)
+  and `putObjectParams()` (SSE/storage-class). Closes that spec's Finding 3.4; guards **our**
   regressions for free.
 - **Periodic / manual real non-AWS canary:** a small handful of real round-trips (object
   put/list/get, or a backup→restore) against **one** real non-AWS provider, to prove the

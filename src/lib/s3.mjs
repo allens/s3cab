@@ -38,23 +38,16 @@ const customEndpoint = () =>
   process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
 
 /**
- * The shared S3 client, constructed on first use. Deferred on purpose: it
- * resolves AWS region/credentials, so building it eagerly would make commands
- * that never touch S3 (`list`, `tree`, …) fail when none are configured — even
- * though they share this app's single entry point. Only the S3 operations below
- * call this, so those commands never trigger it.
- *
- * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
- * actionable error — see specs/auth.md).
- * Callers are responsible for loading any relevant s3cab env files (e.g.
- * commands call `loadEnv({ bucket })`), so `process.env` is configured before
- * this client is constructed.
- * @returns {S3Client}
+ * The S3 client configuration. Split out from `client()` so the endpoint-driven
+ * gating below (region, checksum mode, region-redirect) can be asserted directly
+ * in tests without a live client — no bucket, no network (src/lib/s3.test.mjs).
+ * Reads `process.env` / `customEndpoint()` at call time, so callers must have
+ * loaded any relevant s3cab env files first.
+ * @returns {import("@aws-sdk/client-s3").S3ClientConfig}
  */
-function client() {
-  if (_client) return _client;
+export function clientConfig() {
   const endpoint = customEndpoint();
-  return (_client = new S3Client({
+  return {
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
     // *a* region to sign the first request, so default to us-east-1 when none is
     // set. An explicit env override still wins (and is required by providers that
@@ -81,7 +74,25 @@ function client() {
         }
       : { followRegionRedirects: true }),
     credentials: resolveCredentials,
-  }));
+  };
+}
+
+/**
+ * The shared S3 client, constructed on first use. Deferred on purpose: it
+ * resolves AWS region/credentials, so building it eagerly would make commands
+ * that never touch S3 (`list`, `tree`, …) fail when none are configured — even
+ * though they share this app's single entry point. Only the S3 operations below
+ * call this, so those commands never trigger it.
+ *
+ * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
+ * actionable error — see specs/auth.md).
+ * Callers are responsible for loading any relevant s3cab env files (e.g.
+ * commands call `loadEnv({ bucket })`), so `process.env` is configured before
+ * this client is constructed.
+ * @returns {S3Client}
+ */
+function client() {
+  return (_client ??= new S3Client(clientConfig()));
 }
 
 /**
@@ -163,6 +174,44 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
 };
 
 /**
+ * Build the PutObject params for `putFile`: the off-AWS gating (omit the
+ * AWS-only `ServerSideEncryption` / `StorageClass` when a custom endpoint is set)
+ * plus the portable `x-amz-meta-*` metadata. Pure (no I/O) so the gating is
+ * assertable without performing an upload — the caller supplies the `Body`
+ * stream (src/lib/s3.test.mjs). `customEndpoint()` is read here, so the caller's
+ * s3cab env must already be loaded.
+ * @param {string} path - The local file path (recorded in the metadata).
+ * @param {string} uri - The S3 URI.
+ * @param {{ size: number, mtime: Date, noClobber?: boolean }} meta
+ * @returns {import("@aws-sdk/client-s3").PutObjectCommandInput}
+ */
+export function putObjectParams(path, uri, { size, mtime, noClobber }) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  return {
+    Bucket,
+    Key,
+    // StorageClass + ServerSideEncryption are AWS-isms that S3-compatible
+    // providers (R2/B2/Spaces) reject; send them only when targeting AWS.
+    // The x-amz-meta-* metadata below is portable, so it always goes.
+    ...(customEndpoint()
+      ? {}
+      : {
+          ServerSideEncryption: ServerSideEncryption.AES256,
+          StorageClass: StorageClass.INTELLIGENT_TIERING,
+        }),
+    Metadata: {
+      "x-amz-meta-hostname": hostname(),
+      "x-amz-meta-username": userInfo().username,
+      "x-amz-meta-path": path,
+      "x-amz-meta-size": size.toString(),
+      "x-amz-meta-mtime": mtime.toString(),
+      "x-amz-meta-date": new Date().toISOString(),
+    },
+    ...(noClobber ? { IfNoneMatch: "*" } : {}),
+  };
+}
+
+/**
  * Upload a file to S3.
  * @param {string} path - The path to the file.
  * @param {string} uri - The S3 URI.
@@ -173,8 +222,6 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
 export async function putFile(path, uri, options = {}) {
   const { noClobber } = options;
 
-  const { Bucket, Key } = parseS3Uri(uri);
-
   const { size, mtime } = statSync(path);
 
   if (noClobber && size >= partSize) {
@@ -184,32 +231,12 @@ export async function putFile(path, uri, options = {}) {
     }
   }
 
-  const s3 = client(); // customEndpoint() is in scope below (env already loaded)
-
+  // customEndpoint() is read inside putObjectParams (the caller's env is loaded).
   const upload = new Upload({
-    client: s3,
+    client: client(),
     params: {
-      Bucket,
-      Key,
+      ...putObjectParams(path, uri, { size, mtime, noClobber }),
       Body: createReadStream(path),
-      // StorageClass + ServerSideEncryption are AWS-isms that S3-compatible
-      // providers (R2/B2/Spaces) reject; send them only when targeting AWS.
-      // The x-amz-meta-* metadata below is portable, so it always goes.
-      ...(customEndpoint()
-        ? {}
-        : {
-            ServerSideEncryption: ServerSideEncryption.AES256,
-            StorageClass: StorageClass.INTELLIGENT_TIERING,
-          }),
-      Metadata: {
-        "x-amz-meta-hostname": hostname(),
-        "x-amz-meta-username": userInfo().username,
-        "x-amz-meta-path": path,
-        "x-amz-meta-size": size.toString(),
-        "x-amz-meta-mtime": mtime.toString(),
-        "x-amz-meta-date": new Date().toISOString(),
-      },
-      ...(noClobber ? { IfNoneMatch: "*" } : {}),
     },
     partSize,
   });
