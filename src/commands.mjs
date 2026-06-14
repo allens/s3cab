@@ -3,6 +3,7 @@ import { compare } from "./commands/compare.mjs";
 import { list } from "./commands/list.mjs";
 import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
+import { restore } from "./commands/restore.mjs";
 import { sets } from "./commands/sets.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
@@ -140,11 +141,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
   },
   restore: {
     summary: "Restore files from a backup",
-    planned: true,
     args: {
-      "<dir>": "The directory the backup was taken from",
+      "[<set>]": "The backup set to restore (default: the only set)",
       "[<path>...]":
-        "Specific files or folders to restore (default: everything)",
+        "Specific files or folders to restore (default: everything). " +
+        "Name the set first when filtering.",
     },
     options: {
       snapshot: {
@@ -152,14 +153,12 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
         short: "s",
         description: "Which snapshot to restore from (default: the latest)",
       },
-      output: {
-        type: "string",
-        short: "o",
-        description:
-          "Where to restore files to (default: their original locations)",
+      overwrite: {
+        type: "boolean",
+        description: "Replace existing files (default: skip them, untouched)",
       },
     },
-    exec: () => notImplemented("restore"),
+    exec: (options, [set, ...paths] = []) => restore(set, paths, options),
   },
   verify: {
     summary: "Check that a backup is complete and undamaged",

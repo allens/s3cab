@@ -1,10 +1,118 @@
-import { posix, sep } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { copyFile, utimes } from "node:fs/promises";
+import { dirname, posix, sep } from "node:path";
+import { stderr } from "node:process";
+import { loadEnv } from "../lib/auth.mjs";
+import {
+  downloadObject,
+  listRemoteSnapshots,
+  readRemoteSnapshot,
+} from "../lib/remote.mjs";
+import { resolveRemoteSet } from "../lib/sets.mjs";
 
 // The `restore` command (specs/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
 // *content* lives solely in the bucket's `objects/<sha256>` store — so there is
-// no `--remote` flag (like `status`). The command body is built in a later
-// slice; this file currently holds only the pure path-filter selector.
+// no `--remote` flag (like `status`).
+
+/**
+ * Restore a set's files from a remote backup (specs/backup.md). Reads the
+ * chosen remote manifest (latest, or `--snapshot <name>`) and writes each file
+ * back to the **original absolute path** it was captured from, **never touching
+ * an existing file** (it is reported skipped) unless `--overwrite` is given — so
+ * the empty-disk and the "I deleted a folder" cases both just work and a
+ * careless restore can't destroy newer work. Positional `paths…` filter what is
+ * restored (see `selectEntries`); with none, the whole snapshot is restored.
+ *
+ * Each object is fetched and integrity-checked by `downloadObject` (its SHA-256
+ * must match the manifest hash), then given the manifest mtime — required, since
+ * the snapshot diff is mtime-based. Content shared across several paths (moved
+ * or duplicated files) is downloaded once and copied to the rest. The manifest-
+ * last upload invariant guarantees every referenced object exists, so there is
+ * no pre-flight; a genuinely missing object surfaces as a failed download.
+ *
+ * The set must have a bucket bound and an existing remote backup. Because the
+ * set is always the first positional, filtering by `paths…` requires naming the
+ * set explicitly (`s3cab restore photos C:\…\beach.jpg`); the sole-set default
+ * applies only when no positionals are given.
+ *
+ * @param {string} [setName] - Backup set to restore (default: the only set)
+ * @param {string[]} [paths] - Positional path filters (empty = restore everything)
+ * @param {{ snapshot?: string, overwrite?: boolean, debug?: boolean }} [options]
+ * @returns {Promise<{ set: string, snapshot: string, restored: string[], skipped: string[] }>}
+ *   `restored` = paths written; `skipped` = existing paths left untouched (rerun with --overwrite to replace).
+ */
+export async function restore(setName, paths = [], options = {}) {
+  const set = resolveRemoteSet(setName);
+  loadEnv({ set: set.name });
+
+  // One listing picks the source and validates `--snapshot` against what's
+  // really there (newest first), so a bad name errors loudly with the choices
+  // rather than failing later on a 404 mid-fetch.
+  const names = await listRemoteSnapshots(set.bucket, set.namespace);
+  if (names.length === 0) {
+    throw new Error(
+      `No backups for set '${set.name}'. Back one up with: s3cab backup ${set.name}`,
+    );
+  }
+  if (options.snapshot && !names.includes(options.snapshot)) {
+    throw new Error(
+      `Snapshot '${options.snapshot}' not found for set '${set.name}'.\n` +
+        `Available snapshots (newest first):\n  ${names.join("\n  ")}`,
+    );
+  }
+  // names is non-empty (guarded above), so the latest is defined.
+  const name = options.snapshot ?? /** @type {string} */ (names[0]);
+
+  const manifest = await readRemoteSnapshot(set.bucket, set.namespace, name);
+  const targets = selectEntries(manifest.keys(), paths);
+  if (paths.length && targets.length === 0) {
+    throw new Error(
+      `No files in snapshot '${name}' matched: ${paths.join(", ")}`,
+    );
+  }
+
+  /** @type {string[]} */
+  const restored = [];
+  /** @type {string[]} */
+  const skipped = [];
+  // First verified local copy of each content hash, so identical content under
+  // several paths downloads once and is copied to the rest (design #1). Only
+  // files *we* downloaded are trusted as a copy source — never a skipped
+  // pre-existing file, whose content is unknown (the skip is content-blind).
+  /** @type {Map<string, string>} */
+  const fetched = new Map();
+
+  for (const path of targets) {
+    if (existsSync(path) && !options.overwrite) {
+      skipped.push(path);
+      continue;
+    }
+    const { hash, mtime } = /** @type {import("./prop.mjs").Props} */ (
+      manifest.get(path)
+    );
+    mkdirSync(dirname(path), { recursive: true });
+
+    const source = fetched.get(hash);
+    if (source) {
+      await copyFile(source, path);
+    } else {
+      await downloadObject(set.bucket, hash, path);
+      fetched.set(hash, path);
+    }
+    const when = new Date(mtime);
+    await utimes(path, when, when);
+    restored.push(path);
+
+    const done = restored.length + skipped.length;
+    if (done % 50 === 0 || done === targets.length) {
+      stderr.write(`\rRestoring ${done}/${targets.length}...`);
+    }
+  }
+  stderr.write("\n");
+
+  return { set: set.name, snapshot: name, restored, skipped };
+}
 
 /**
  * Normalize a path for filter matching: separators to `/`, and case-folded on
