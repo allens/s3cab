@@ -597,23 +597,26 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   (scratch scripts, shared helpers) **out** of `test/` or they run as phantom empty tests —
   scratch goes in [scripts/](scripts/), and a test's shared helper lives beside the test
   that uses it.
-- **S3 tests are gated integration tests against a real bucket today; "mock-or-not" remains
-  open.** Code that actually calls `s3.mjs` (remote listing/read, the uploader) is covered by
-  **integration tests against a real test bucket**, gated on `S3CAB_TEST_BUCKET` (plus ambient
-  AWS credentials) and `describe(..., { skip })`-ed **with a message** when unset — so local,
-  offline, and fork-CI runs stay green and real coverage runs only where the bucket is wired.
-  The **pure** diff/cache logic (`uploadCandidates`, the objects cache) gets ordinary unit
-  tests needing no bucket. There's a **preference, not a hard rule, to avoid mocking**: a fake
-  of the AWS *wire* drifts from real conditional-PUT / LIST semantics. The likely resolution
-  when the planned testing pass lands is to **mock at the `s3.mjs` seam** (stub its exported
-  functions to test command orchestration offline) and keep real AWS semantics e2e on the
-  gated bucket — mocking the seam exercises our code, not AWS, so the drift concern doesn't
-  apply. Any mocking would use **`node:test`'s built-in `mock.module`/`mock.fn`** (zero
-  dependency — #5 is satisfied; there is no "no mock framework" rule). Standing up the test
-  bucket + CI credentials is a **separate, pending task**. Worked example: the gated suites in
-  [src/lib/remote.test.mjs](src/lib/remote.test.mjs). **The fuller plan for the dedicated
-  testing session — the open questions, the "where may real S3 run / abuse-of-resource"
-  framing, and bucket/CI provisioning — lives in [specs/testing.md](specs/testing.md).**
+- **S3 test strategy is settled — the full reasoning lives in
+  [specs/testing.md](specs/testing.md); only the non-obvious posture is pinned here.** In
+  short: pure diff/cache logic (`uploadCandidates`, the objects cache) → ordinary **unit
+  tests**, no bucket; command orchestration + deterministic error injection → **mock the
+  `s3.mjs` seam** (our boundary — `node:test`'s `mock.module`/`mock.fn`, zero-dep; mocking
+  *our* seam exercises our code, not AWS, so the wire-drift concern doesn't apply), run
+  everywhere incl. fork PRs; real round-trips → **real AWS**, gated on `S3CAB_TEST_BUCKET`
+  (+ ambient creds) and `describe(..., { skip })`-ed **with a message** when unset, so
+  offline/fork runs stay green. **Mock at `s3.mjs`, _not_ the AWS SDK:** the SDK is a real
+  boundary (not the wire), but it's large, AWS-owned, and version-churny (the checksum-trailer
+  default shifted in v3.730), so faking its command/response shapes just relocates the drift
+  one layer up and needs a dep (`aws-sdk-client-mock`); `s3.mjs` is our small, stable,
+  zero-dep contract and the single SDK boundary the architecture already draws. The one place
+  tests legitimately drop to the SDK/request layer is asserting `s3.mjs`'s **own** request
+  shaping (the non-AWS checksum/SSE/storage-class gating) — that only manifests in the
+  outgoing request. **No emulator** (MinIO/LocalStack rejected — see the spec). The real-AWS
+  suite runs on PRs **behind a required-reviewer approval Environment** so an untrusted PR
+  can't spend, plus a periodic **Cloudflare R2** canary for non-AWS compatibility. Standing up
+  the bucket + CI credentials is still a **pending task**. Worked example: the gated suites in
+  [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
   test files across worker processes in parallel; collapsing to a single process loses

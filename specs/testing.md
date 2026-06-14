@@ -2,111 +2,214 @@
 
 ## Status
 
-**Planned — a dedicated session, not yet decided.** This doc captures the framing for that
-session so it survives across machines (it was developed in conversation 2026-06-14 and would
-otherwise live only in one machine's local assistant memory). It records the _current_
-posture, the _open_ questions, and a proposed order to settle them — it is **not** a settled
-design. Treat the current scheme (below) as the working default until this session lands.
+**Settled (2026-06-14).** The strategy here is decided; what remains is **implementation**,
+not decision — the real bucket + CI credentials + the non-AWS canary are not wired yet (see
+Provisioning). Until they are, the gated suites skip and the coverage floors hold.
 
-The trigger to do it now: after PR #44 (restore + adoption), the **fundamentals are in
-place**. The full data lifecycle exists end-to-end — hash → snapshot → backup → restore,
-exercised by the gated round-trip in `src/commands/restore.test.mjs` — and **every
-architectural seam a test strategy targets is built and stable**: `s3.mjs` (the single SDK
-boundary), the snapshot TSV parser, the set store (`sets.mjs`), the auth env-layering, and
-the remote engine (`remote.mjs`). The still-unbuilt commands (`verify`, `cleanup`, `delete`,
-`compare --remote`, `restore --output`) add new _logic_ but **no new seams** — they recompose
-existing primitives — so a strategy settled now won't be invalidated by them.
+The trigger was PR #44 (restore + adoption): the full data lifecycle now exists end-to-end
+— hash → snapshot → backup → restore — and **every seam a test strategy targets is built and
+stable**: `s3.mjs` (the single SDK boundary), the snapshot TSV parser, the set store
+(`sets.mjs`), the auth env-layering, and the remote engine (`remote.mjs`). The still-unbuilt
+commands (`verify`, `cleanup`, `delete`, `compare --remote`, `restore --output`) add new
+_logic_ but **no new seams** — so the strategy won't be invalidated by them.
 
-## Current posture (the working default)
+## Test tiers
 
-- **S3-touching code → gated integration tests against a real bucket.** Anything that calls
-  `s3.mjs` (remote listing/read, the uploader, verified download, namespace discovery) is
-  covered by integration tests gated on `S3CAB_TEST_BUCKET` (+ ambient AWS credentials) and
-  `describe(..., { skip })`-ed **with a message** when unset — so local, offline, and fork-CI
-  runs stay green, and real coverage runs only where the bucket is wired.
-- **Pure logic → ordinary unit tests** needing no bucket (e.g. `uploadCandidates`, the objects
-  cache, `selectEntries`, `validateNamespace`/`isNamespace`).
-- **CLI → e2e subprocess** (`test/e2e.mjs`) spawns the built CLI and asserts on stdout/stderr.
-- **Preference, not a hard rule, to avoid mocking:** a fake of the AWS _wire_ drifts from real
-  conditional-PUT / LIST semantics. (See the open question below — this is exactly what the
-  session revisits.)
+- **Unit tests** — pure logic, no I/O, no credentials. The largest, fastest, strongest tier
+  (e.g. `uploadCandidates`, the objects cache, `selectEntries`, `validateNamespace`, the
+  snapshot TSV parser, `read-lines`, `error`). Run everywhere, always.
+- **Mocked-`s3.mjs`-seam tests** — exercise **command orchestration** ("given these objects
+  exist remotely, does `backup` upload the right diff and write the manifest last?") and
+  **deterministic error injection** that real S3 won't produce on demand (mid-upload failure
+  after objects land, truncated download, LIST mid-pagination). Mock at the `s3.mjs` seam —
+  **our** boundary — so the test exercises our code, not AWS, and the wire-drift concern
+  doesn't apply. `node:test`'s `mock.module` / `mock.fn`, zero dependency. Run everywhere,
+  always — **including fork PRs** (no credentials, no container), so a fork contributor's
+  S3-path logic is still covered offline.
+- **Real-AWS integration / e2e** — the actual round-trips (backup→restore, listing, verified
+  download, namespace discovery). The **truth layer**: only real S3 validates our
+  _assumptions about S3_ (conditional-PUT / LIST / checksum semantics a mock would only
+  encode our guesses about).
+- **e2e subprocess** (`test/e2e.mjs`) — a thin cap: spawns the real CLI, asserts
+  stdout/stderr, checks `--version`, smoke-tests the SEA binary when built. Covers CLI
+  wiring / dispatch / stream discipline the integration tier skips. Keep it thin (the
+  pyramid's slow, brittle top).
 
-### Gated suites that exist today (what the bucket must support)
+**Mock-vs-real is balanced per-test, no dogma:** real S3 to validate AWS behaviour and
+round-trips; mocks for failure paths and for offline / no-credential (fork) coverage. They
+cover *different failure spaces* — real S3 can't fail on command; mocks can't catch AWS
+changing under us.
+
+### Which boundary to mock at — `s3.mjs`, not the AWS SDK
+
+The AWS SDK is a *real* boundary, not the wire — `client.send()` returns parsed JS objects,
+not HTTP. So mocking it is legitimate; it's just the **wrong** boundary for orchestration
+tests, for four reasons:
+
+1. **Drift doesn't vanish, it moves up a layer.** Mock the SDK and you hand-author its
+   *response shapes* (`{ ETag, ChecksumCRC64NVME, IsTruncated, … }`) — encoding *your belief*
+   about what the SDK returns, the exact thing you can be wrong about. Mock `s3.mjs` and you
+   author only *our* return values (a `string[]` of keys, a `Buffer`), which we define.
+2. **Whose contract, how big, how stable.** `s3.mjs` is ~6 functions with plain signatures we
+   own and keep stable. The SDK surface is large, AWS-owned, and **version-churny** — the
+   checksum-trailer default shifted in v3.730 (it drove `customEndpoint()`'s gating). Tests
+   pinned to SDK shapes are fragile across SDK bumps; tests pinned to our wrapper aren't.
+3. **It respects the seam.** `s3.mjs` was promoted ahead of its second caller to be the
+   *single* SDK boundary — nothing above it knows the SDK exists. Mocking at the SDK leaks SDK
+   types into tests of `remote.mjs` / `backup` / `restore`, coupling them to what the boundary
+   exists to hide.
+4. **Zero-dep.** Mocking `s3.mjs` needs only `node:test`'s `mock.module` / `mock.fn`. Mocking
+   the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against CLAUDE.md
+   design principle #5 (the high bar for dependencies).
+
+**Not dogma — the boundary follows what's under test:**
+
+| Under test | Mock / drive at | Why |
+| --- | --- | --- |
+| Orchestration above `s3.mjs` (upload diff, manifest-last, skip/overwrite) | the **`s3.mjs` seam** | small, stable, owned contract; tests our code |
+| `s3.mjs`'s **own request shaping** (non-AWS checksum/SSE/storage-class *omission*) | the **SDK / outgoing request** | the behaviour *only* exists in the request the client emits (the always-on header assertion) |
+| `s3.mjs`'s **response handling** (pagination, verified-download checksum) | **real S3** (integration tier) | real SDK → real responses; no hand-authored shapes to drift |
+
+Each layer gets the mechanism that fakes the least.
+
+### Gated suites that exist today
 
 - `src/lib/remote.test.mjs` — `remote snapshot listing`, `uploadSnapshot`,
   `listRemoteNamespaces`, `downloadObject` (verified download).
 - `src/commands/restore.test.mjs` — the **`backup → restore` round-trip** (set up → backup →
   wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`). The
-  single most valuable integration test; **has never actually run** (no bucket wired yet).
+  single most valuable integration test; **has never actually run** (no bucket wired yet) —
+  treat it as a draft until it goes green once.
 
 All tear down via `deleteObject` in a `finally`; content is unique per run so the shared
 `objects/` store stays isolated and cleanup is exact.
 
-## The central open question: mock-or-not at the `s3.mjs` seam
+## Where real S3 runs (the security model)
 
-The likely resolution (recorded in CLAUDE.md's tooling section): **mock at the `s3.mjs`
-seam** — stub its exported functions with `node:test`'s built-in `mock.module`/`mock.fn`
-(zero dependency) to test command orchestration offline — **and keep real AWS semantics e2e
-on the gated bucket**. Mocking the seam exercises _our_ code, not AWS, so the wire-drift
-concern doesn't apply. Not yet committed; the session decides.
+**Real AWS runs on same-repo (collaborator) PRs, before merge, behind a GitHub Environment
+with required-reviewer approval.** Nothing credentialed runs until a maintainer clicks
+approve, so an unverified malicious or accidental actor **cannot cause any spend** on the
+project's account — their PR sits pending until reviewed. This deliberately beats "post-merge
+only" for the PRs it covers: you want the real test *before* merge, and the approval gate
+buys the security without deferring the test.
 
-## The anchoring question: where may real S3 run, and whose code touches it?
+- **Fork PRs are safe by GitHub default — and approval does _not_ change that.** A
+  `pull_request` run from a fork gets a read-only token and **no secrets / no OIDC**, and
+  GitHub **never passes secrets to a fork-triggered run regardless of environment approval**
+  (approval gates the job; it does not grant a fork run credentials). So the gated real-S3
+  tests simply **skip** in fork PR CI. Never use `pull_request_target` to run untrusted code
+  with credentials (the footgun). A fork contributor still gets full *orchestration* coverage
+  from the mocked-seam tier in their PR CI; the **real** round-trip runs **post-merge on
+  `main`** (or when a maintainer reproduces the branch in-repo to run it pre-merge) — not in
+  fork PR CI. So "real S3 before merge" holds for *collaborator* PRs; fork PRs get it
+  post-merge.
+- **Collaborators are trusted as much as the owner** — no extra gating beyond the approval
+  mechanism (which they pass by being trusted).
+- **Defense-in-depth regardless** (cheap, self-healing):
+  - **Tight IAM** — `Get/Put/Delete/List` on the one test bucket, nothing else. (`Delete`
+    because teardown deletes; normal backup creds wouldn't need it — the tests do.)
+  - **Bucket lifecycle auto-expiry** (delete objects after ~a day) — caps cost and
+    self-heals when a crashed mid-run test skips its `finally` teardown.
+  - **Billing alarm** — a backstop for an accidental runaway loop, not just malice.
+  - **OIDC role** over long-lived keys (matches the repo's npm Trusted Publishing OIDC
+    ethos), scoped so a credentialed assume is only reachable through the approved job.
 
-**This is the user's live concern — abuse of the real bucket in PRs — and it is the _same_
-decision as mock-or-not wearing two hats.** Answer "where does real S3 run?" and both the
-security posture and the mocking approach fall out together. Settle this first.
+### No emulator — and why
 
-- **Fork PRs are already safe by GitHub default.** `pull_request` runs from a fork get a
-  read-only token and **no secrets / no OIDC**, so the gated S3 tests simply skip (today's
-  behaviour). Don't break this — and never use `pull_request_target` to run untrusted code
-  with credentials (that is the footgun).
-- **The real exposure is same-repo _collaborator_ branch PRs** — those do get credentials.
-  Containment ladder, increasing strictness:
-  - Tight IAM role: only `Get/Put/Delete/List` on the one test bucket, nothing else.
-  - Bucket **lifecycle auto-expiry** (delete objects after ~a day) + a billing alarm — caps
-    cost and self-heals if a test's teardown is skipped by a crash.
-  - A **GitHub Environment with required-reviewer approval** gating the credentials, so the S3
-    job won't run on a PR until approved.
-  - **OIDC trust policy scoped to `main` only** — no PR branch (even a collaborator's) can
-    assume the role.
-- **The collapse:** if the `s3.mjs` seam is **mocked**, PRs get full command-orchestration
-  coverage _offline_ and need **no** real S3 — so the real bucket can be restricted to
-  **post-merge on `main`**, removing essentially the whole abuse surface. The real-bucket
-  suite becomes a `main` gate, not a PR gate.
+The harness is **provider-agnostic by construction**: it reads `S3CAB_TEST_BUCKET` +
+`AWS_*` (+ `AWS_ENDPOINT_URL_S3` for a custom endpoint). A contributor can therefore point
+it at **anything** S3-compatible — AWS, R2, B2, Wasabi, or a MinIO they stand up themselves —
+*their* choice, *their* account. We **neutrally support** any target without **depending on**
+one. That is strictly better than baking an emulator into CI, and it's free.
 
-## Proposed session order
+- **MinIO — rejected.** The server is AGPL-licensed (open), but the company hollowed out the
+  community edition and steers features to the paid product — open-but-drifting-commercial,
+  the exact sting this project exists to avoid (CLAUDE.md design principle #2, no lock-in). We
+  won't take it as a dependency. A
+  contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
+- **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
+  license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
+  container, far too much surface to bolt onto CI for one service (CLAUDE.md design principles
+  #5 / #6 / #8 — built-ins over deps, minimal code, don't over-engineer).
+- **Why no emulator at all:** the only genuine advantage an emulator has over real S3 is
+  *no credentials* (so it could run on fork CI / for a contributor with no AWS account). Cost
+  is negligible at test volume; the speed difference is seconds. Since fork-CI real-S3 is a
+  *nice-to-have, not essential* (local devs use their own bucket), the emulator's sole
+  justification mostly evaporates — and the mocked-seam tier already covers the
+  credential-free path. Adding a container dependency to buy a deprioritised capability is
+  the over-engineering #8 warns against.
 
-1. **Where may real S3 run?** (`main`-only / Environment-approved / gated PR) — the anchor.
-2. **Mock the `s3.mjs` seam, or not?** — falls out of (1).
-3. **Concrete bucket + IAM + OIDC + lifecycle config** (see provisioning below).
-4. **Re-baseline the coverage floors** once the gated suites actually execute (today's
-   thresholds are Windows-measured floors that read low _because_ the S3 modules are gated
-   off; CLAUDE.md "Known gaps").
+## Non-AWS provider compatibility
 
-## Bucket / CI provisioning notes (pickup brief)
+s3cab targets non-AWS S3 providers as first-class (see
+[s3-provider-compatibility.md](s3-provider-compatibility.md)); `putFile` already omits
+intelligent-tiering, SSE, and the integrity-checksum trailer when a custom endpoint is set
+(that spec's Finding 3). The gating is the **most likely thing to silently regress**, and
+nothing guards it yet. Two layers, covering different failure modes:
 
-- **What the gated tests need of the bucket/role:** IAM `Get/Put/List` **plus `Delete`**
-  (teardown deletes; normal backup creds wouldn't need delete — the tests do). On AWS,
-  `putFile` sends SSE AES256 + intelligent-tiering; off a custom endpoint it drops those (see
-  `customEndpoint()` in `src/lib/s3.mjs`), so a plain bucket is fine.
-- **Credentials must come from the _environment_, not `~/.aws`:** the gated tests call
-  `useTempHome` (redirects `HOME`/`USERPROFILE`), which hides any `~/.aws` profile. CI OIDC /
+- **Always-on header assertion (no bucket, every PR, incl. forks):** assert an upload through
+  a custom endpoint carries **no** `x-amz-checksum-*` / CRC trailer, **no** SSE, **no**
+  storage-class option — inspecting the *outgoing request* (the spec is explicit that "upload
+  succeeds against a provider" doesn't prove it: a trailer-tolerant provider passes
+  vacuously). This is the missing coverage for that spec's Finding 3.4, and it guards **our**
+  regressions for free.
+- **Periodic / manual real non-AWS canary:** a small handful of real round-trips (object
+  put/list/get, or a backup→restore) against **one** real non-AWS provider, to prove the
+  omissions are *actually sufficient* — that the provider genuinely accepts what we send.
+  This catches **their** behaviour changing. **Cadence: not per-PR** — manual or scheduled
+  (≈weekly) / `main`-only; providers change rarely, and this keeps the *second* credential
+  set's exposure minimal.
+
+**Provider: Cloudflare R2** (lead). Free tier, **egress-free** (no bill-surprise risk even if
+a test misbehaves), and it genuinely *rejects* the newer checksum trailer — so it validates
+the exact gating rather than passing vacuously. Fallback **Backblaze B2** (free 10 GB,
+SigV4-only, also rejects the trailer). **Avoid Wasabi:** its **90-day minimum-storage
+duration** bills objects you create-and-delete immediately — a trap for a churny,
+delete-heavy test bucket.
+
+## Provisioning (pickup brief)
+
+Strategy is decided; this is the still-pending wiring.
+
+- **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
+  the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
+  nothing at test-object volume). Local dev in whatever region is nearest the developer — it's
+  read from env (below), so it never matters to the code, and inter-region cost differences
+  are noise.
+- **Region/bucket are read from the environment, never hardcoded:** tests take the region
+  from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET`, so the `us-east-1` CI run and a
+  `eu-west-*` local run are the *same* code path.
+- **What the bucket/role must allow:** IAM `Get/Put/List` **plus `Delete`** (teardown). On
+  AWS, `putFile` sends SSE AES256 + intelligent-tiering; off a custom endpoint it drops those
+  (`customEndpoint()` in `src/lib/s3.mjs`), so a plain bucket is fine.
+- **Credentials come from the _environment_, not `~/.aws`:** the gated tests call
+  `useTempHome` (redirects `HOME`/`USERPROFILE`), hiding any `~/.aws` profile. CI OIDC /
   `AWS_*` env vars work; a local run needs `AWS_*` env vars set.
-- **Creds mechanism:** lean **OIDC role** via `aws-actions/configure-aws-credentials` (matches
-  the repo's no-long-lived-secrets ethos — it already uses npm Trusted Publishing OIDC).
-  Alternative: access-key GitHub secrets (quicker, long-lived — less aligned).
-- **Which OS runs S3 tests:** lean **one (ubuntu)** — the S3 code doesn't branch on platform;
-  the 3-OS matrix exists for the platform-branching code (globs, separator normalization).
-- **Bucket:** create one (e.g. `s3cab-ci-test`), pick a region, add a **lifecycle rule to
-  expire objects after N days** to sweep orphans from any crashed mid-run test.
-- **Cost/secret-free alternative worth weighing:** point the gated tests at a **non-AWS / local
-  S3** (MinIO / LocalStack / R2) via `AWS_ENDPOINT_URL_S3` — `putFile` already drops the
-  AWS-isms off-endpoint, so the gated suites could run in CI with no AWS account at all.
-- **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.mjs` (the
-  current e2e only covers the always-run, no-S3 paths).
+- **CI creds mechanism:** **OIDC role** via `aws-actions/configure-aws-credentials` (no
+  long-lived secrets — matches the repo's existing OIDC posture). The credentialed S3 job
+  lives behind the approval Environment.
+- **Lifecycle:** add a rule to expire objects after N days, to sweep orphans from any crashed
+  mid-run test.
+- **Which OS runs S3 tests:** one (**ubuntu**) — the S3 code doesn't branch on platform; the
+  3-OS matrix exists for the platform-branching code (globs, separator normalization).
+- **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
+  key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
+  per-PR approval job.
+- **Local setup help:** ship copy-paste AWS CLI commands (or a `scripts/` helper) so a user
+  can stand up their own test bucket + lifecycle rule + minimal IAM in one go.
+- **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.mjs` (today's
+  e2e only covers the always-run, no-S3 paths).
+
+## Coverage floors — re-baseline after wiring
+
+Today's global thresholds (lines 80 / branches 68 / functions 70; `*.test.mjs` + `scripts/`
+excluded) read low **because** the S3 modules are gated off without a bucket. Once the gated
+suites actually execute in CI, re-measure and **raise the floors** to lock in the gained
+coverage (they're a floor to bump, not a target — CLAUDE.md "Known gaps").
 
 ## Related
 
 Design specs: [backup.md](backup.md), [auth.md](auth.md),
-[s3-provider-compatibility.md](s3-provider-compatibility.md). The short posture + the
-mock-or-not lean also live in CLAUDE.md's "Formatting, line endings & tooling" section.
+[s3-provider-compatibility.md](s3-provider-compatibility.md). The short posture also lives in
+CLAUDE.md's "Formatting, line endings & tooling" section (the S3-test-strategy bullet), which
+pins the posture and points here for the full reasoning.
