@@ -103,12 +103,17 @@ rather than assuming it is fixed forever.
    rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
    slice was built end-to-end before the first commit, which then couldn't be split into
    per-step commits without interactive hunk-staging.)
-10. **"Review the PR comments" means give an opinion, not make changes.** When the user
-    asks you to look at review comments on a PR, **assess each one and state your opinion**
-    (valid / not / nuance), then **stop and let the user decide** what to do — do not
-    automatically edit code or offer to push. Apply changes only once the user says which
-    comments to action. (Recorded 2026-06-13 after I jumped from "look at the comments"
-    straight to editing files and offering a commit.)
+10. **"Review the PR comments" means critically review them _with the user_ and give
+    suggestions — not make changes.** When the user asks you to look at review comments on a
+    PR, **assess each one and state your opinion** (valid / not / nuance) with a suggested
+    action, then **stop and let the user decide** — do not automatically edit code or offer
+    to push. Apply changes only once the user says which comments to action. **This holds
+    for _every_ wave of comments, including a re-review triggered by a push: each new batch
+    returns to discuss-first — give the rationale and suggestions, then wait. A prior "fix
+    and comment and resolve" go-ahead is per-batch and never carries forward** to the next
+    wave. (Recorded 2026-06-13 after I jumped from "look at the comments" straight to editing
+    files; re-emphasised 2026-06-14 after I treated one batch's "fix" go-ahead as standing
+    and auto-actioned two further review rounds without first reviewing them with the user.)
 11. **Step-by-step feature work lands on a feature branch / PR, never straight on `main`.**
     The per-step commits of a multi-step feature (convention #9) belong on a `feat/…` branch
     that becomes one PR — `main` stays at `origin/main` so the feature merges *through* the
