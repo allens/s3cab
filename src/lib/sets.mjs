@@ -6,10 +6,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { hash } from "node:crypto";
-import { homedir, hostname, userInfo } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
+import { s3cabDir } from "./home.mjs";
 
 // The backup-set store (specs/backup.md): one folder per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
@@ -27,7 +28,7 @@ import { isENOENT } from "./error.mjs";
 // backup history.
 
 /** `~/.s3cab/sets` — one folder per backup set. */
-const setsRoot = () => join(homedir(), ".s3cab", "sets");
+const setsRoot = () => join(s3cabDir(), "sets");
 
 /**
  * A set name is interpolated into a path under `~/.s3cab/sets`, so reject one

@@ -6,12 +6,12 @@ import {
   readFileSync,
 } from "node:fs";
 import { rename, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
+import { s3cabDir } from "./home.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
 import { isNamespace } from "./sets.mjs";
 import {
@@ -223,7 +223,7 @@ export const objectsCachePath = (bucket) => {
       `Invalid bucket name (contains a path separator): ${bucket}`,
     );
   }
-  return join(homedir(), ".s3cab", `objects.${bucket}`);
+  return join(s3cabDir(), `objects.${bucket}`);
 };
 
 /**
