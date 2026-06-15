@@ -219,7 +219,8 @@ runs the suite. Skip it on fork PRs (which get no secrets by design):
 ```yaml
 s3-integration:
   # Same-repo PRs only — forks get no credentials and are covered by the
-  # offline mocked-seam tests instead.
+  # offline mocked-seam tests instead. (Also skips push/non-PR events: with no
+  # PR context the comparison is false.)
   if: github.event.pull_request.head.repo.full_name == github.repository
   runs-on: ubuntu-latest
   environment: s3-integration-tests # the approval gate
