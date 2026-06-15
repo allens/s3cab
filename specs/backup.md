@@ -411,7 +411,7 @@ commands → shared-machinery wiring.
 4. **Set env layer** — `loadEnv({ set })` replaces the never-wired dir layer in
    `auth.mjs`; update its tests, this repo's auth docs (specs/auth.md layer table +
    History note, CLAUDE.md auth bullet).
-5. **e2e + docs** — setup→sets round-trip in `test/e2e.mjs`; README status update
+5. **e2e + docs** — setup→sets round-trip in `test/e2e.test.mjs`; README status update
    (`setup`/`sets` become working local commands).
 
 ### Slice 2 — Local engine moves to sets
