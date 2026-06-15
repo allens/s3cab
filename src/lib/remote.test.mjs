@@ -18,6 +18,7 @@ import {
   uploadCandidates,
   uploadSnapshot,
 } from "./remote.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /**
  * Build a snapshot lookup from a path→hash map — only the hash matters to
@@ -33,9 +34,10 @@ const lookup = (pathToHash) =>
     ]),
   );
 
-// The objects cache derives its path from homedir() at call time and keeps no
-// module state, so each test just points homedir() at a temp dir (USERPROFILE
-// on Windows, HOME on POSIX — set both), mirroring sets.test.mjs.
+// The objects cache derives its path from s3cabDir() at call time and keeps no
+// module state, so each test just points S3CAB_HOME at a temp dir (useTempHome),
+// mirroring sets.test.mjs. HOME is left alone so the gated suites below can still
+// resolve AWS credentials from ~/.aws.
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /** @type {NodeJS.ProcessEnv} */
@@ -49,18 +51,6 @@ afterEach(() => {
   }
   Object.assign(process.env, savedEnv);
 });
-
-/**
- * Point homedir() at a temp home under the disposable root.
- * @param {string} root
- */
-function useTempHome(root) {
-  const home = join(root, "home");
-  mkdirSync(home, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  return home;
-}
 
 // S3 test strategy (specs/backup.md slice 3, decided 2026-06-13): the
 // S3-touching code is exercised against a real test bucket, gated on

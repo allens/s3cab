@@ -14,3 +14,6 @@ coverage
 # (*x* -> _x_) and pads table cells with trailing whitespace, which makes the
 # frequently AI-edited CLAUDE.md tables fragile to edit. Keep md out.
 *.md
+
+# Env-file template (no parser; it's dotenv config, not code).
+.env.test.example

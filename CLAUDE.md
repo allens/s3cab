@@ -97,6 +97,13 @@ rather than assuming it is fixed forever.
    allows, but as large as the need warrants. (Worked example: `clientConfig()` and
    `putObjectParams()` were extracted from `s3.mjs` so the non-AWS request-shaping gating
    became unit-testable without a live client — see [src/lib/s3.test.mjs](src/lib/s3.test.mjs).)
+   **Version gates how bold to be (recorded 2026-06-15):** while the project is **pre-1.0**
+   (`package.json` major version `0`), you have **free rein** for large, correct refactors —
+   favour getting the design *right* over minimizing churn or preserving back-compat; there
+   is no deadline, the goal is to get the project as close to perfect as possible, so do the
+   massive refactor when it is the right thing. **Once it ships 1.0 this reverses:** breaking
+   changes and sweeping refactors then need real care, justification, and a migration story.
+   Check the major version first: `0` → bold; `≥ 1` → conservative.
 9. **"Work through one by one" is a strict per-step protocol.** When the user says to work
    through a list one by one: (a) propose the step and ask any questions; (b) once the
    proposal is agreed, make the code changes and present the diff for review —
@@ -350,7 +357,7 @@ its own doc comment).
   exported, so a side-effect-free re-export barrel is trivial to add the day a real library
   consumer appears — until then it would be speculative structure (#6). (If the dispatch
   flow itself ever needs unit testing, guard the run block with `if (import.meta.main)`;
-  today [test/e2e.mjs](test/e2e.mjs) covers it as a subprocess.)
+  today [test/e2e.test.mjs](test/e2e.test.mjs) covers it as a subprocess.)
 - **`--version` is the single source of truth chain:** `package.json` `version` → imported
   as a JSON module → inlined by esbuild into the SEA bundle, so the native binary reports
   the same number without reading a file at runtime. The release guard keeps the git tag in
@@ -597,12 +604,14 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
   wired automatically now that excludes are per-set under `~/.s3cab`.)
 - **Test layout convention:** unit tests are **co-located** with their source as
-  `*.test.mjs`; [test/](test/) holds only cross-cutting tests (`e2e.mjs`) and shared
-  `fixtures/`. See [test/README.md](test/README.md). Node's runner executes **every**
-  `*.{js,mjs,cjs}` under a `test/` dir (not just `*.test.*`), so keep non-test `.mjs`
-  (scratch scripts, shared helpers) **out** of `test/` or they run as phantom empty tests —
-  scratch goes in [scripts/](scripts/), and a test's shared helper lives beside the test
-  that uses it.
+  `*.test.mjs`; [test/](test/) holds cross-cutting tests (`e2e.test.mjs`), shared
+  `fixtures/`, and shared `helpers/`. See [test/README.md](test/README.md). The runner is
+  pointed at an **explicit glob** — `node --test "src/**/*.test.mjs" "test/**/*.test.mjs"`
+  (the `test` script) — *not* default discovery, which would also run every `.mjs` under
+  `test/`. That's what lets `test/helpers/` hold shared, importable helpers (e.g.
+  [test/helpers/temp-home.mjs](test/helpers/temp-home.mjs)) without them executing as
+  phantom empty tests. So a cross-cutting test helper goes in `test/helpers/`; scratch still
+  goes in [scripts/](scripts/).
 - **S3 test strategy is settled — the full reasoning lives in
   [specs/testing.md](specs/testing.md); only the non-obvious posture is pinned here.** In
   short: pure diff/cache logic (`uploadCandidates`, the objects cache) → ordinary **unit
@@ -620,8 +629,13 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   shaping (the non-AWS checksum/SSE/storage-class gating) — that only manifests in the
   outgoing request. **No emulator** (MinIO/LocalStack rejected — see the spec). The real-AWS
   suite runs on PRs **behind a required-reviewer approval Environment** so an untrusted PR
-  can't spend, plus a periodic **Cloudflare R2** canary for non-AWS compatibility. Standing up
-  the bucket + CI credentials is still a **pending task**. Worked example: the gated suites in
+  can't spend, plus a periodic **Cloudflare R2** canary for non-AWS compatibility. The AWS
+  bucket + OIDC CI are **built** (PR #50): `npm run test:s3` runs the gated suites locally
+  (a `node --test --env-file-if-exists=.env.test` one-liner — credentials come from your
+  `~/.aws` profile because the tests relocate only `S3CAB_HOME`, not `HOME`), the
+  [`ci/aws/`](ci/aws/) artifacts + the ubuntu-only `s3-integration` job carry CI, and
+  [doc/integration-testing.md](doc/integration-testing.md) is the setup guide; the **R2 canary
+  remains pending**. Worked example: the gated suites in
   [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
@@ -671,7 +685,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
     to _run_; Gatekeeper-clean distribution would need a paid Apple Developer ID. The
     README documents the `xattr` workaround for browser downloads.
   - **macOS is labelled `macos`, not `darwin`,** in release-asset + `sea/` config names
-    (friendlier on a download); `test/e2e.mjs` maps `process.platform` to the label.
+    (friendlier on a download); `test/e2e.test.mjs` maps `process.platform` to the label.
   - **Only `macos-arm64` ships** — Intel Macs are legacy; those users have `npm` or the
     portable bundle. Adding it later is one `sea/` config + one `macos-13` matrix row.
   - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.

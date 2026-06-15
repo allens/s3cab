@@ -2,9 +2,12 @@
 
 ## Status
 
-**Settled (2026-06-14).** The strategy here is decided; what remains is **implementation**,
-not decision — the real bucket + CI credentials + the non-AWS canary are not wired yet (see
-Provisioning). Until they are, the gated suites skip and the coverage floors hold.
+**Settled (2026-06-14); AWS wiring built (PR #50, 2026-06-15).** The real bucket + OIDC CI
+are live and the gated suites run green on approved same-repo PRs (see Provisioning for the
+as-built layout; [doc/integration-testing.md](../doc/integration-testing.md) is the how-to).
+Still pending: the non-AWS R2 canary, and (deliberately) the coverage floors stay put — the
+gate runs credential-free in the `lint` job, so the gated suites skip *there* and don't move
+the measured numbers.
 
 The trigger was PR #44 (restore + adoption): the full data lifecycle now exists end-to-end
 — hash → snapshot → backup → restore — and **every seam a test strategy targets is built and
@@ -30,7 +33,7 @@ _logic_ but **no new seams** — so the strategy won't be invalidated by them.
   download, namespace discovery). The **truth layer**: only real S3 validates our
   _assumptions about S3_ (conditional-PUT / LIST / checksum semantics a mock would only
   encode our guesses about).
-- **e2e subprocess** (`test/e2e.mjs`) — a thin cap: spawns the real CLI, asserts
+- **e2e subprocess** (`test/e2e.test.mjs`) — a thin cap: spawns the real CLI, asserts
   stdout/stderr, checks `--version`, smoke-tests the SEA binary when built. Covers CLI
   wiring / dispatch / stream discipline the integration tier skips. Keep it thin (the
   pyramid's slow, brittle top).
@@ -170,9 +173,16 @@ minimum-storage duration** means objects you create and delete immediately still
 minimum-storage charges — ill-suited to a churny, delete-heavy test bucket (no knock on it
 generally; just wrong for *this* workload).
 
-## Provisioning (pickup brief)
+## Provisioning (as-built)
 
-Strategy is decided; this is the still-pending wiring.
+**Built in PR #50 (2026-06-15);** the rationale below is the as-built record. Live AWS
+resources: bucket **`s3cab-ci-test`** (`us-east-1`, 1-day expiry lifecycle), IAM policy
+**`s3cab-ci-test-access`** attached to OIDC role **`s3cab-ci`** (trust scoped to
+`repo:allens/s3cab:environment:s3-integration-tests`), and the approval-gated GitHub
+Environment `s3-integration-tests` (required reviewers + `AWS_ROLE_ARN` secret +
+`S3CAB_TEST_BUCKET` var). Source of truth: the [`ci/aws/`](../ci/aws/) artifacts +
+[doc/integration-testing.md](../doc/integration-testing.md). **Still pending:** the non-AWS
+R2 canary (below).
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
   the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
@@ -191,19 +201,22 @@ Strategy is decided; this is the still-pending wiring.
 - **CI creds mechanism:** **OIDC role** via `aws-actions/configure-aws-credentials` (no
   long-lived secrets — matches the repo's existing OIDC posture). The credentialed S3 job
   lives behind the approval Environment.
-- **Lifecycle:** add a rule to expire objects after N days, to sweep orphans from any crashed
-  mid-run test.
+- **Lifecycle:** ✅ a rule expires objects after 1 day (+ aborts incomplete multipart uploads
+  after 1 day), to sweep orphans from any crashed mid-run test.
 - **Which OS runs S3 tests:** one (**ubuntu**) — the S3 code doesn't branch on platform; the
   3-OS matrix exists for the platform-branching code (globs, separator normalization).
 - **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
   key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
   per-PR approval job.
-- **Local setup help:** ✅ — the portable [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs)
-  stands up the bucket + lifecycle, and [doc/integration-testing.md](../doc/integration-testing.md)
-  is the generic, cross-platform walkthrough (local run + the full GitHub Actions OIDC setup) so
+- **Local setup help:** ✅ — [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs)
+  stands up the bucket + lifecycle; `npm run test:s3` (a `node --test --env-file-if-exists`
+  one-liner) runs the gated suites locally, with credentials read from the developer's
+  `~/.aws` profile — the tests relocate only `S3CAB_HOME`, not `HOME`, so the SDK resolves
+  them normally; and [doc/integration-testing.md](../doc/integration-testing.md) is the
+  generic, cross-platform walkthrough (local dev + the full GitHub Actions OIDC setup) so
   anyone can replicate it for their own account.
-- **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.mjs` (today's
-  e2e only covers the always-run, no-S3 paths).
+- **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`
+  (today's e2e only covers the always-run, no-S3 paths).
 
 ## Coverage floors — re-baseline after wiring
 

@@ -1,7 +1,7 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { s3cabDir } from "./home.mjs";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
 import { setEnvPath } from "./sets.mjs";
@@ -45,8 +45,6 @@ import { setEnvPath } from "./sets.mjs";
 // the bucket is resolved from an explicit name or the set/user/shell layers
 // first, then its env file is loaded.
 
-/** s3cab's own config/state dir, `~/.s3cab` (never `~/.aws`, which stays user-owned). */
-const s3cabDir = () => join(homedir(), ".s3cab");
 const userEnvPath = () => join(s3cabDir(), "env");
 /**
  * The per-bucket env file `~/.s3cab/env.<bucket>`. The bucket name must be a
