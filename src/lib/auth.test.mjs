@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 // Tests for the layered env loading in auth.mjs (see specs/auth.md). loadEnv
-// reads homedir() and mutates process.env, and applies each file at most once
-// per run — so each test (a) points homedir() at a temp dir, (b) gets a *fresh*
+// reads s3cabDir() and mutates process.env, and applies each file at most once
+// per run — so each test (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh*
 // copy of the module so the once-per-run guard starts empty, and (c) has
 // process.env snapshotted and restored around it.
 
@@ -50,16 +50,16 @@ function writeEnv(path, contents) {
 }
 
 /**
- * Wire up a temp home, point homedir() at it, and return a fresh `loadEnv`
+ * Wire up a temp home, point S3CAB_HOME at it, and return a fresh `loadEnv`
  * plus helpers to populate each layer's file.
  * @param {string} root - The disposable temp directory.
  */
 async function setup(root) {
   const home = join(root, "home");
-  // homedir() reads USERPROFILE on Windows, HOME on POSIX — set both. Must be in
-  // place before importing auth.mjs (it derives ~/.s3cab paths from homedir()).
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
+  // Point s3cab's home at the temp dir via S3CAB_HOME (not the OS HOME), so the
+  // loader reads these env files and nothing leaks from the real ~/.s3cab. Set
+  // before importing auth.mjs, which derives its paths from s3cabDir().
+  process.env.S3CAB_HOME = join(home, ".s3cab");
   const loadEnv = await freshLoadEnv();
   return {
     loadEnv,

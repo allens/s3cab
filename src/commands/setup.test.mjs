@@ -4,10 +4,11 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { setup } from "./setup.mjs";
+import { useTempHome as tempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the setup command's create/update semantics and error UX
 // (specs/backup.md). The set store under test keeps no module state, so each
-// test just points homedir() at a temp dir (USERPROFILE/HOME — set both).
+// test just points S3CAB_HOME at a temp dir (via the shared useTempHome).
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -24,17 +25,13 @@ afterEach(() => {
 });
 
 /**
- * Wire up a temp home plus a member folder to enrol, and point homedir() at
- * the home.
+ * Wire up a temp home (via the shared helper) plus a member folder to enrol.
  * @param {string} root - The disposable temp directory.
  */
 function useTempHome(root) {
-  const home = join(root, "home");
+  const home = tempHome(root);
   const photos = join(root, "photos");
-  mkdirSync(home, { recursive: true });
   mkdirSync(photos, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
   return { home, photos };
 }
 

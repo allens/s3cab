@@ -14,6 +14,7 @@ import { join, normalize, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { setup } from "./setup.mjs";
 import { snapshot } from "./snapshot.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /**
  * @param {string} fixtureName
@@ -39,9 +40,9 @@ function copyFixtureToWorkDir(fixtureName, testName) {
   return inWorkDir;
 }
 
-// The set store derives its paths from homedir(); point that at a temp home
-// (USERPROFILE on Windows, HOME on POSIX) so a snapshot can't touch the real
-// `~/.s3cab`, and restore the environment after each test.
+// The set store derives its paths from s3cabDir(); point S3CAB_HOME at a temp
+// dir (via the shared useTempHome) so a snapshot can't touch the real `~/.s3cab`,
+// and restore the environment after each test.
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
 beforeEach(() => {
@@ -54,17 +55,10 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-/** @param {string} home */
-function useTempHome(home) {
-  mkdirSync(home, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-}
-
 describe("snapshot", () => {
   it("errors for a set whose folder no longer exists", async () => {
     const workDir = copyFixtureToWorkDir("before", "snapshot > missing-dir");
-    useTempHome(workDir("home"));
+    useTempHome(workDir());
     mkdirSync(workDir("data"));
     writeFileSync(workDir("data", "x.txt"), "x");
     setup("photos", [workDir("data")]);
@@ -82,7 +76,7 @@ describe("snapshot", () => {
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
-    useTempHome(workDir("home"));
+    useTempHome(workDir());
     setup("photos", [workDir()]);
 
     await snapshot("photos", { rehash: true });
@@ -126,8 +120,7 @@ describe("snapshot", () => {
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
-    const home = workDir("home");
-    useTempHome(home);
+    const home = useTempHome(workDir());
     setup("photos", [workDir()]);
 
     await snapshot("photos", { rehash: true, debug: true });
@@ -156,7 +149,7 @@ describe("snapshot", () => {
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
-    useTempHome(workDir("home"));
+    useTempHome(workDir());
     setup("photos", [workDir()]);
 
     await snapshot("photos", { rehash: true });

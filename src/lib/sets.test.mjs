@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -17,11 +17,12 @@ import {
   validateSetName,
   writeSet,
 } from "./sets.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the backup-set store (specs/backup.md). The store derives every
-// path from homedir() at call time and keeps no module state, so each test
-// just points homedir() at a temp dir (USERPROFILE on Windows, HOME on POSIX
-// — set both) — no fresh-import dance needed, unlike auth.mjs.
+// path from s3cabDir() at call time and keeps no module state, so each test
+// just points S3CAB_HOME at a temp dir (useTempHome) — no fresh-import dance
+// needed, unlike auth.mjs.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -36,18 +37,6 @@ afterEach(() => {
   }
   Object.assign(process.env, savedEnv);
 });
-
-/**
- * Point homedir() at a temp home under the disposable root.
- * @param {string} root
- */
-function useTempHome(root) {
-  const home = join(root, "home");
-  mkdirSync(home, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  return home;
-}
 
 describe("sanitizeNamePart", () => {
   it("lowercases and maps runs of other characters to one hyphen", () => {

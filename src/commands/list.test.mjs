@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { writeSet } from "../lib/sets.mjs";
 import { list, listSnapshotNames } from "./list.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -95,10 +96,7 @@ afterEach(() => {
 describe("list --remote", () => {
   it("stops with the bind-bucket command for a bucket-less set", async () => {
     await using dir = await mkTmpDir();
-    const home = join(dir.path, "home");
-    mkdirSync(home, { recursive: true });
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    useTempHome(dir.path);
     writeSet("photos", { dirs: [join(dir.path, "photos")] });
 
     await assert.rejects(

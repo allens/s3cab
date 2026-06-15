@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { writeSet } from "../lib/sets.mjs";
 import { status } from "./status.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // `status`'s remote diff needs a real bucket, so it is exercised end-to-end by
 // the e2e suite. Testable without S3 is the read-only guard reached before any
@@ -23,15 +23,6 @@ afterEach(() => {
   }
   Object.assign(process.env, savedEnv);
 });
-
-/** @param {string} root */
-function useTempHome(root) {
-  const home = join(root, "home");
-  mkdirSync(home, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  return home;
-}
 
 describe("status", () => {
   it("tells you to snapshot first when the set has no local snapshot", async () => {

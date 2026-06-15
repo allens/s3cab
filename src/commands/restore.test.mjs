@@ -17,6 +17,7 @@ import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
 import { restore, selectEntries } from "./restore.mjs";
 import { setup } from "./setup.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // `selectEntries` is the pure path-filter selector behind `restore [paths…]`.
 // Paths are written with forward slashes: on POSIX they are native, and on
@@ -134,14 +135,6 @@ afterEach(() => {
   }
   Object.assign(process.env, savedEnv);
 });
-
-/** @param {string} root */
-function useTempHome(root) {
-  const home = join(root, "home");
-  mkdirSync(home, { recursive: true });
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-}
 
 const sha256 = (/** @type {string} */ path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
