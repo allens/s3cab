@@ -18,7 +18,8 @@ both forms are given.
 
 ## What the tests need
 
-Two things, both read from the environment:
+These environment inputs (the bucket and credentials are required; region defaults
+to `us-east-1`):
 
 | Variable | Purpose |
 | --- | --- |
