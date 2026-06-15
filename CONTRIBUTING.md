@@ -43,7 +43,7 @@ That covers all of your future contributions. There is no form to fill in or sen
 
 Most of the suite runs offline with no credentials. The real-S3 round-trips
 (backup→restore, listing, verified download) are **gated** on `S3CAB_TEST_BUCKET` and
-skip silently without it — and a fork PR can't run them in CI, because GitHub gives a
+are skipped (with a message) without it — and a fork PR can't run them in CI, because GitHub gives a
 fork-triggered run no credentials by design.
 
 So if your change touches the S3 path — [`src/lib/s3.mjs`](src/lib/s3.mjs),
