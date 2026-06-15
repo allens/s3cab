@@ -234,7 +234,7 @@ s3-integration:
       with:
         node-version: 26.3.0
     - run: npm ci
-    - uses: aws-actions/configure-aws-credentials@v4
+    - uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: us-east-1
