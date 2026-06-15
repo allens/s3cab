@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { deleteObject, listObjects, putFile } from "./s3.mjs";
 import { readSnapshot, writeSnapshot } from "./snapshot-file.mjs";
@@ -216,7 +216,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
     const namespace = `test@s3cab/upload-${Date.now()}`;
     const name = "2025-01-15T1030";
 
-    const contentDir = join(dir.path, "content");
+    const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
     const fileA = join(contentDir, "a.txt");
     const fileB = join(contentDir, "b.txt");
@@ -277,7 +277,7 @@ describe("listRemoteNamespaces (real bucket)", { skip }, () => {
     const namespace = `test@s3cab/ns-${Date.now()}`;
     const name = "2025-02-20T0900";
 
-    const contentDir = join(dir.path, "content");
+    const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
     const file = join(contentDir, "a.txt");
     writeFileSync(file, `ns-disco ${namespace}`);
