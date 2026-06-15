@@ -270,9 +270,31 @@ A throwaway test bucket should never surprise you on the bill:
   (and aborting incomplete multipart uploads after 1 day). This caps cost and
   self-heals orphans left by a test that crashes before cleanup. To add it by hand, see
   the [appendix](#appendix-create-the-bucket-by-hand).
-- **A billing alarm** is a sensible backstop against a runaway loop. Create a CloudWatch
-  `EstimatedCharges` alarm (in `us-east-1`, where billing metrics live) wired to an SNS
-  email topic, set to a low threshold.
+- **A cost backstop** guards against a runaway loop (a misbehaving test spamming
+  requests). The simplest is an account-level **cost budget** in AWS Budgets that emails
+  you when spend crosses a threshold. **Important caveat:** a budget with no cost filter
+  tracks your **whole account's** spend, not this bucket's — so set its limit *above your
+  normal monthly baseline* (a $5 budget on an account already spending $9 just fires
+  immediately). It's an account safety net, not a per-bucket figure. If you already keep
+  an account budget, you likely need nothing more here.
+
+  ```json
+  // budget.json — limit above your baseline
+  { "BudgetName": "account-cost", "BudgetLimit": { "Amount": "<above-baseline>", "Unit": "USD" }, "TimeUnit": "MONTHLY", "BudgetType": "COST" }
+  ```
+  ```json
+  // notifications.json — substitute your email
+  [ { "Notification": { "NotificationType": "ACTUAL", "ComparisonOperator": "GREATER_THAN", "Threshold": 80, "ThresholdType": "PERCENTAGE" }, "Subscribers": [ { "SubscriptionType": "EMAIL", "Address": "you@example.com" } ] } ]
+  ```
+  ```sh
+  aws budgets create-budget --account-id <ACCOUNT_ID> --budget file://budget.json --notifications-with-subscribers file://notifications.json
+  ```
+
+  To alert on *this bucket specifically* instead, add a cost-allocation tag to the bucket
+  and filter the budget by it (the tag must be activated in Billing first, which can take
+  ~a day) — usually overkill for a throwaway bucket the lifecycle rule already keeps near
+  $0. AWS Budgets works in Organization member accounts; on a standalone or *management*
+  account a CloudWatch `EstimatedCharges` alarm (us-east-1) + SNS email is an alternative.
 
 ---
 
