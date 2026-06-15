@@ -1,40 +1,31 @@
-# CI AWS setup (s3cab integration tests)
+# CI AWS resources (s3cab integration tests)
 
-One-time, owner-only provisioning for the real-AWS integration-test suite (see
-[../../specs/testing.md](../../specs/testing.md)). These resources let the
-approval-gated CI job run the gated S3 round-trips against a throwaway bucket.
+The JSON artifacts in this directory provision the real-AWS resources behind the
+gated S3 integration suite (see [../../specs/testing.md](../../specs/testing.md) for
+the strategy). They are applied with the AWS CLI following the full, cross-platform
+walkthrough in **[../../doc/integration-testing.md](../../doc/integration-testing.md)**
+— that guide is generic (anyone can follow it for their own fork/account); this file
+only records **what this project uses**.
 
-**This is project-CI setup, not the contributor path.** A contributor running the
-gated suites against their *own* bucket needs only [the bucket
-script](../../scripts/setup-test-bucket.mjs) plus their own ambient `AWS_*`
-credentials — none of the IAM/OIDC/billing below.
+## Artifacts
 
-The JSON artifacts here are the source of truth; the `aws` CLI commands apply them.
-Region throughout: `us-east-1`.
+- [`policy.json`](policy.json) — least-privilege IAM policy: `Get/Put/Delete` on
+  objects, `ListBucket` on the bucket, scoped to the one test bucket. (`Delete`
+  because test teardown deletes.)
+- [`trust-policy.json`](trust-policy.json) — assume-role trust for the GitHub Actions
+  OIDC role, scoped to this repo's approval-gated Environment so the role is
+  un-assumable except through an approved run. Carries an **`ACCOUNT_ID` placeholder**
+  (substituted at apply time) so the real account ID never lands in this public repo.
 
-## 1. Bucket + lifecycle
+## This project's values
 
-Created by the portable Node script (cross-platform, no AWS CLI needed):
+| Resource | Name | Region |
+| --- | --- | --- |
+| Test bucket | `s3cab-ci-test` | `us-east-1` |
+| IAM policy | `s3cab-ci-test-access` | — |
+| OIDC role | `s3cab-ci` | — |
+| GitHub Environment | `s3-integration-tests` | — |
 
-```sh
-node scripts/setup-test-bucket.mjs s3cab-ci-test
-```
-
-Equivalent raw CLI is documented in that script's header.
-
-## 2. Least-privilege IAM permission policy
-
-[`policy.json`](policy.json) grants exactly `Get/Put/Delete` on objects and
-`ListBucket` on the bucket — nothing else, scoped to the one bucket. (`Delete`
-because test teardown deletes; object actions target `…/*`, the bucket-level
-`ListBucket` targets the bare bucket ARN.)
-
-```sh
-aws iam create-policy \
-  --policy-name s3cab-ci-test-access \
-  --policy-document file://ci/aws/policy.json
-```
-
-Note the **policy ARN** it prints
-(`arn:aws:iam::<account>:policy/s3cab-ci-test-access`) — it's attached to the OIDC
-role in step 3.
+**Permissions:** creating the IAM policy/role needs an **AdministratorAccess** session
+— `PowerUserAccess` excludes IAM writes. The bucket and the billing alarm need only
+PowerUser.
