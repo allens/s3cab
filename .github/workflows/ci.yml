@@ -69,3 +69,40 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
       - run: npm test
+
+  # Real-AWS integration tests: the gated S3 round-trips (backup/restore, listing,
+  # verified download) that need an actual bucket. Deliberately narrow in WHERE it
+  # runs — see specs/testing.md "Where real S3 runs":
+  #   * same-repo PRs only (the `if` below: the source repo equals this repo). A fork
+  #     PR gets no secrets/OIDC by GitHub design, so it's excluded and stays green on
+  #     the mocked-seam tests instead; the real round-trip runs when a maintainer
+  #     reproduces the branch in-repo. The same check also skips push-to-main and any
+  #     non-PR event (no PR context ⇒ the comparison is false), so merged code gets no
+  #     second credentialed run — approval happens before merge, on the PR.
+  #   * behind the `s3-integration-tests` Environment, which requires reviewer
+  #     approval, so nothing credentialed runs until a maintainer clicks approve — an
+  #     untrusted PR can never cause spend.
+  # Auth is short-lived OIDC (no stored keys): the env-scoped AWS_ROLE_ARN secret names
+  # a role whose trust policy further restricts the assume to this exact environment.
+  # One OS only — the S3 code path doesn't branch on platform (unlike the matrix above).
+  s3-integration:
+    name: s3 integration
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: s3-integration-tests
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
+      - run: npm test
+        env:
+          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}

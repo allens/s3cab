@@ -39,6 +39,21 @@ That covers all of your future contributions. There is no form to fill in or sen
 4. Write tests for new behaviour — Node's built-in `node:test`, co-located as `*.test.mjs`
    (see [test/README.md](test/README.md)).
 
+## Changes to the S3 path
+
+Most of the suite runs offline with no credentials. The real-S3 round-trips
+(backup→restore, listing, verified download) are **gated** on `S3CAB_TEST_BUCKET` and
+are skipped (with a message) without it — and a fork PR can't run them in CI, because GitHub gives a
+fork-triggered run no credentials by design.
+
+So if your change touches the S3 path — [`src/lib/s3.mjs`](src/lib/s3.mjs),
+[`src/lib/remote.mjs`](src/lib/remote.mjs), or the `backup` / `restore` / `status`
+commands — please **run the gated suites against a bucket of your own and paste the
+result in your PR**. That's how we see they pass before merge (a maintainer otherwise
+reproduces the branch in-repo to run them). Any S3-compatible provider works (AWS, R2,
+B2, MinIO, …); the one-time, cross-platform setup is in
+[doc/integration-testing.md](doc/integration-testing.md).
+
 ## Questions
 
 Open an issue, or reach the maintainer at allen@shiels.dev.

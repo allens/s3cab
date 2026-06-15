@@ -198,8 +198,10 @@ Strategy is decided; this is the still-pending wiring.
 - **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
   key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
   per-PR approval job.
-- **Local setup help:** ship copy-paste AWS CLI commands (or a `scripts/` helper) so a user
-  can stand up their own test bucket + lifecycle rule + minimal IAM in one go.
+- **Local setup help:** ✅ — the portable [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs)
+  stands up the bucket + lifecycle, and [doc/integration-testing.md](../doc/integration-testing.md)
+  is the generic, cross-platform walkthrough (local run + the full GitHub Actions OIDC setup) so
+  anyone can replicate it for their own account.
 - **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.mjs` (today's
   e2e only covers the always-run, no-S3 paths).
 

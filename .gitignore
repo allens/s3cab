@@ -30,6 +30,11 @@ test/zblob.bin
 .env.test
 /.s3cab/env
 /.s3cab/env.*
+# Temp files from the ci/aws provisioning runbook: the trust policy is committed
+# with an ACCOUNT_ID placeholder, then substituted into a *.tmp.json at apply time
+# so the real account ID never lands in this public repo. Guard against a stray one
+# being staged if a run errors before its cleanup.
+*.tmp.json
 
 # Build artifacts: esbuild ESM bundle (dist/s3cab.js), the SEA native binaries
 # (dist/s3cab.exe and cross-built dist/s3cab-<platform>) — everything in dist/.
