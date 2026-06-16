@@ -43,10 +43,10 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       # Coverage report (advisory — NOT a gate). Emits the coverage table so the number is
-      # visible in the CI log, but it never fails the build: a percentage rewards
-      # assertion-free tests (it measures execution, not verification), so coverage quality
-      # is judged by review instead (CLAUDE.md working-convention #12 — the `/review` skill's
-      # Standards axis and Copilot code review via .github/copilot-instructions.md). Runs
+      # visible in the CI log, but it never fails the build due to coverage thresholds: a
+      # percentage rewards assertion-free tests (it measures execution, not verification), so
+      # coverage quality is judged by review instead (CLAUDE.md working-convention #12 — the
+      # `/review` skill's Standards axis and Copilot code review via .github/copilot-instructions.md). Runs
       # once here, OS-independent like lint, rather than across the matrix.
       - run: npm run test:coverage:report
 
