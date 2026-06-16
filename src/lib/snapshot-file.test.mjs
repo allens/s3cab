@@ -8,8 +8,10 @@ import { parseSnapshotStream } from "./snapshot-file.mjs";
 // lookup plus the `#SNAPSHOT`/`#DIR` headers that keep a manifest self-describing
 // (and that `restore --output` re-roots by). Build streams from strings so these
 // run without S3 or a temp file.
+// Wrap the text in an array so it streams as a single chunk; a bare string is
+// an iterable of characters, which Readable.from would emit one char at a time.
 const parse = (/** @type {string} */ text) =>
-  parseSnapshotStream(Readable.from(text));
+  parseSnapshotStream(Readable.from([text]));
 
 const hashA = "a".repeat(64);
 const hashB = "b".repeat(64);

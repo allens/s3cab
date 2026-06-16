@@ -227,7 +227,7 @@ export function reroot(dirs, output) {
   if (dirs.length === 0) {
     throw new Error(
       "This snapshot has no directory headers, so --output cannot re-root it. " +
-        "Restore to original locations instead, or name paths to restore.",
+        "Omit --output to restore to the original locations instead.",
     );
   }
 
