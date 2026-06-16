@@ -8,14 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { deleteObject } from "../lib/s3.mjs";
 import { remoteSnapshotsPrefix } from "../lib/remote.mjs";
 import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
-import { restore, selectEntries } from "./restore.mjs";
+import { reroot, restore, selectEntries } from "./restore.mjs";
 import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -111,6 +111,60 @@ describe("selectEntries", () => {
   );
 });
 
+// `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
+// manifest path lands under `<output>/<member-root-basename>/…`. Destinations are
+// built with the local separator under `resolve(output)`, so expected values use
+// the same `join`/`resolve` to stay portable across OSes.
+describe("reroot", () => {
+  it("re-roots each member dir's contents under <output>/<basename>", () => {
+    const map = reroot(["/home/me/Photos", "/home/me/Docs"], "out");
+    assert.equal(
+      map("/home/me/Photos/2024/ski.jpg"),
+      join(resolve("out"), "Photos", "2024", "ski.jpg"),
+    );
+    assert.equal(
+      map("/home/me/Docs/cv.pdf"),
+      join(resolve("out"), "Docs", "cv.pdf"),
+    );
+  });
+
+  it("is separator-agnostic, so a Windows manifest re-roots on any OS", () => {
+    const map = reroot(["C:\\Users\\me\\Photos"], "out");
+    assert.equal(
+      map("C:\\Users\\me\\Photos\\beach.jpg"),
+      join(resolve("out"), "Photos", "beach.jpg"),
+    );
+  });
+
+  it("picks the longest matching root, so a nested member dir wins", () => {
+    const map = reroot(["/data", "/data/photos"], "out");
+    assert.equal(
+      map("/data/photos/x.jpg"),
+      join(resolve("out"), "photos", "x.jpg"),
+    );
+    assert.equal(
+      map("/data/notes.txt"),
+      join(resolve("out"), "data", "notes.txt"),
+    );
+  });
+
+  it("rejects two roots that share a basename (they'd collide under one root)", () => {
+    assert.throws(
+      () => reroot(["/a/Photos", "/b/Photos"], "out"),
+      /both named/,
+    );
+  });
+
+  it("rejects a manifest with no member dirs", () => {
+    assert.throws(() => reroot([], "out"), /no directory headers/);
+  });
+
+  it("rejects a path that lies under no member root", () => {
+    const map = reroot(["/home/me/Photos"], "out");
+    assert.throws(() => map("/etc/passwd"), /not under any backed-up folder/);
+  });
+});
+
 // The backup → restore round trip against a real bucket (specs/backup.md slice
 // 4). Gated on S3CAB_TEST_BUCKET (+ ambient AWS credentials) like the other S3
 // suites: restore inherently needs the cloud (the object content lives only in
@@ -194,6 +248,22 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       const r3 = await restore(setName, [], { overwrite: true });
       assert.equal(r3.skipped.length, 0);
       assert.equal(sha256(firstPath), firstProps.hash);
+
+      // --output re-roots the same backup under a chosen folder, as
+      // <output>/<source-basename>/… — independent of the originals.
+      const outDir = join(dir.path, "restored");
+      const r4 = await restore(setName, [], { output: outDir });
+      assert.equal(r4.skipped.length, 0);
+      assert.equal(r4.restored.length, manifest.size);
+      const wantHashes = new Set([...manifest.values()].map((p) => p.hash));
+      for (const dest of r4.restored) {
+        assert.ok(dest.startsWith(resolve(outDir)), `${dest} under ${outDir}`);
+        assert.ok(
+          dest.includes("Photos"),
+          `${dest} keeps the source folder name`,
+        );
+        assert.ok(wantHashes.has(sha256(dest)), `content of ${dest}`);
+      }
     } finally {
       for (const hash of hashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);

@@ -1,7 +1,7 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { s3cabDir } from "./home.mjs";
+import { join } from "node:path";
+import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
 import { setEnvPath } from "./sets.mjs";
@@ -47,23 +47,15 @@ import { setEnvPath } from "./sets.mjs";
 
 const userEnvPath = () => join(s3cabDir(), "env");
 /**
- * The per-bucket env file `~/.s3cab/env.<bucket>`. The bucket name must be a
- * single path segment — it is interpolated into the filename — so reject one
- * carrying a path separator: otherwise a hostile set env's `S3CAB_BUCKET`
- * (e.g. `a/../../../etc/passwd`) could traverse out of `~/.s3cab` and make
- * `loadEnv` read an arbitrary file. `basename` uses the same platform path
- * semantics as the `join` below, so it catches exactly the separators that could
- * traverse here; a clean single-segment name is its own basename (dots are fine).
+ * The per-bucket env file `~/.s3cab/env.<bucket>`. The bucket name is
+ * interpolated into the filename, so it is guarded as a single path segment —
+ * otherwise a hostile set env's `S3CAB_BUCKET` (e.g. `a/../../../etc/passwd`)
+ * could traverse out of `~/.s3cab` and make `loadEnv` read an arbitrary file
+ * (see `assertPathSegment`).
  * @param {string} bucket
  */
-const bucketEnvPath = (bucket) => {
-  if (basename(bucket) !== bucket) {
-    throw new Error(
-      `Invalid bucket name (contains a path separator): ${bucket}`,
-    );
-  }
-  return join(s3cabDir(), `env.${bucket}`);
-};
+const bucketEnvPath = (bucket) =>
+  join(s3cabDir(), `env.${assertPathSegment(bucket, "bucket name")}`);
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
