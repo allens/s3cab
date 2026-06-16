@@ -24,15 +24,20 @@ export const s3cabDir = () =>
  * — e.g. a hostile set env's `S3CAB_BUCKET = "a/../../../etc/passwd"` could make
  * a loader read an arbitrary file outside `~/.s3cab`. `basename` uses the same
  * platform path semantics as the `join` at the call site, so it catches exactly
- * the separators that could traverse here; a clean single-segment name is its
- * own basename (dots are fine). Returns the name so it can wrap a `join` arg.
+ * the separators that could traverse here. Two ways a value escapes its intended
+ * directory, both rejected:
+ *   - a path separator (caught by `basename(name) !== name`);
+ *   - the relative segments `.` / `..` (which `join(dir, "..")` resolves *out* of
+ *     `dir` without containing a separator), or `""` (not a segment at all).
+ * Periods *within* a segment are fine (`my.bucket.v2`); only the bare `.`/`..`
+ * segments are rejected. Returns the name so it can wrap a `join` arg.
  * @param {string} name
  * @param {string} kind noun for the error message, e.g. "set name", "bucket name"
  * @returns {string} the validated name
  */
 export const assertPathSegment = (name, kind) => {
-  if (basename(name) !== name) {
-    throw new Error(`Invalid ${kind} (contains a path separator): ${name}`);
+  if (name === "" || name === "." || name === ".." || basename(name) !== name) {
+    throw new Error(`Invalid ${kind} (not a single path segment): ${name}`);
   }
   return name;
 };

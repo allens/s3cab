@@ -171,8 +171,8 @@ describe("objects cache", () => {
     );
   });
 
-  it("rejects a bucket name containing a path separator", () => {
-    assert.throws(() => objectsCachePath("a/b"), /path separator/);
+  it("rejects a bucket name that is not a single path segment", () => {
+    assert.throws(() => objectsCachePath("a/b"), /not a single path segment/);
   });
 });
 
