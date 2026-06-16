@@ -42,7 +42,7 @@ export async function status(setName) {
 
   const remoteName = await latestRemoteSnapshot(set.bucket, set.namespace);
   const remote = remoteName
-    ? await readRemoteSnapshot(set.bucket, set.namespace, remoteName)
+    ? (await readRemoteSnapshot(set.bucket, set.namespace, remoteName)).entries
     : new Map();
 
   const candidates = uploadCandidates(target, remote);

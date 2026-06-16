@@ -11,7 +11,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
-import { s3cabDir } from "./home.mjs";
+import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
 import { isNamespace } from "./sets.mjs";
 import {
@@ -20,7 +20,7 @@ import {
   snapshotNames,
 } from "./snapshot-file.mjs";
 
-/** @import { SnapshotLookup } from "./snapshot-file.mjs" */
+/** @import { SnapshotLookup, SnapshotManifest } from "./snapshot-file.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (specs/backup.md): a
 // set's manifests live under `snapshots/<namespace>/<name>.tsv.zst`, where the
@@ -110,18 +110,20 @@ export async function latestRemoteSnapshot(bucket, namespace) {
 }
 
 /**
- * Read a set's remote manifest by name into a lookup, straight from S3 — the
- * `.tsv.zst` object is streamed through zstd and parsed in flight, no temp file
- * (a remote manifest is byte-identical to its local form, specs/backup.md). The
- * `backup`/`status` diff fetches the latest already-backed-up snapshot this
- * way; `restore` will read its chosen one the same way.
+ * Read a set's remote manifest by name, straight from S3 — the `.tsv.zst` object
+ * is streamed through zstd and parsed in flight, no temp file (a remote manifest
+ * is byte-identical to its local form, specs/backup.md). The `backup`/`status`
+ * diff fetches the latest already-backed-up snapshot this way (taking `.entries`);
+ * `restore` reads its chosen one the same way and uses the `#DIR` headers for
+ * `--output` re-rooting — so this surfaces the whole `SnapshotManifest`, not just
+ * the lookup (a remote manifest is the one a recoverer finds alone).
  *
  * Callers must have loaded the set's env (`loadEnv({ set })`) first, so the S3
  * client picks up the right bucket region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @returns {Promise<SnapshotLookup>}
+ * @returns {Promise<SnapshotManifest>}
  */
 export async function readRemoteSnapshot(bucket, namespace, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
@@ -212,19 +214,13 @@ export function uploadCandidates(target, remote) {
  * `objects/`, in exactly the format `s3cab objects -f` writes (it *is* that
  * command's output put to work — composability, specs/backup.md). Sits beside
  * the per-bucket auth file `env.<bucket>` (auth.mjs). The bucket name is
- * interpolated into the filename, so reject one carrying a path separator — the
- * same guard `bucketEnvPath` uses.
+ * interpolated into the filename, so it is guarded as a single path segment —
+ * the same `assertPathSegment` guard `bucketEnvPath` uses.
  * @param {string} bucket
  * @returns {string}
  */
-export const objectsCachePath = (bucket) => {
-  if (basename(bucket) !== bucket) {
-    throw new Error(
-      `Invalid bucket name (contains a path separator): ${bucket}`,
-    );
-  }
-  return join(s3cabDir(), `objects.${bucket}`);
-};
+export const objectsCachePath = (bucket) =>
+  join(s3cabDir(), `objects.${assertPathSegment(bucket, "bucket name")}`);
 
 /**
  * Read the per-bucket objects cache into a set of hashes — the objects a prior
@@ -310,7 +306,7 @@ export async function uploadSnapshot({
 
   const remoteName = await latestRemoteSnapshot(bucket, namespace);
   const remote = remoteName
-    ? await readRemoteSnapshot(bucket, namespace, remoteName)
+    ? (await readRemoteSnapshot(bucket, namespace, remoteName)).entries
     : new Map();
 
   let candidates = uploadCandidates(target, remote);

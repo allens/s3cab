@@ -35,6 +35,12 @@ import { secondsSince } from "./format.mjs";
 /** @typedef {import("../commands/prop.mjs").Props} Props */
 /** @typedef {[string, Props | Error]} SnapshotEntry */
 /** @typedef {Map<string, Props>} SnapshotLookup */
+/**
+ * A parsed manifest: the file `entries` plus the `#SNAPSHOT`/`#DIR` headers that
+ * make it self-describing (specs/backup.md). `dirs` are the member directories
+ * captured at snapshot time; `identity` is the pinned `user@machine:set`.
+ * @typedef {{ entries: SnapshotLookup, dirs: string[], identity?: string }} SnapshotManifest
+ */
 
 /**
  * Execute a callback with a managed snapshot file write stream, writing into
@@ -167,27 +173,36 @@ export async function readSnapshotFile(path) {
       ? readStream.pipe(createZstdDecompress())
       : readStream;
 
-  const lookup = await parseSnapshotStream(input);
+  const { entries } = await parseSnapshotStream(input);
 
   console.warn(`Read snapshot file '${path}' in ${secondsSince(start)}`);
 
-  return lookup;
+  return entries;
 }
 
 /**
- * Parse a decompressed snapshot TSV stream into a lookup — the line-parsing
+ * Parse a decompressed snapshot TSV stream into a manifest — the line-parsing
  * core of `readSnapshotFile`, split out so a manifest can be read straight from
  * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
  * with no temp file. The caller hands in an already-**decompressed** TSV stream:
  * `readSnapshotFile` decompresses a `.zst` path itself; the remote reader pipes
- * the S3 body through zstd. Comment lines — including the `#SNAPSHOT`/`#DIR`
- * headers — are skipped.
+ * the S3 body through zstd.
+ *
+ * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
+ * rather than discarded, so a manifest stays self-describing on read — the
+ * member dirs are what `restore --output` re-roots by. Any other comment line is
+ * skipped. Local callers that only want the file lookup take `.entries`
+ * (`readSnapshotFile`); the remote reader surfaces the whole manifest.
  * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
- * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ * @returns {Promise<SnapshotManifest>} The file entries plus parsed headers
  */
 export async function parseSnapshotStream(input) {
   /** @type {SnapshotLookup} */
-  const lookup = new Map();
+  const entries = new Map();
+  /** @type {string[]} */
+  const dirs = [];
+  /** @type {string | undefined} */
+  let identity;
 
   const rl = createInterface({ input, crlfDelay: Infinity });
 
@@ -196,19 +211,24 @@ export async function parseSnapshotStream(input) {
     const [hash, size, mtime, path] = line.split("\t").map((s) => s.trim());
 
     if (hash?.startsWith("#")) {
+      // Header comments carry the path in the last column (see formatSnapshotLine
+      // calls in snapshot.mjs): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>
+      // datetime<TAB>identity`.
+      if (hash === "#DIR" && path) dirs.push(path);
+      else if (hash === "#SNAPSHOT" && path) identity = path;
       continue;
     }
 
     assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
 
-    lookup.set(path, {
+    entries.set(path, {
       size: Number(size),
       mtime,
       hash,
     });
   }
 
-  return lookup;
+  return { entries, dirs, identity };
 }
 
 /**
