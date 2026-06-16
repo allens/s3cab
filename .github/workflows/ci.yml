@@ -42,13 +42,13 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
-      # Coverage gate. OS-independent like lint, so it runs once here rather than
-      # across the matrix. The thresholds + excludes live in the `test:coverage:gate`
-      # npm script so the gate reproduces locally with one command and CI stays a thin
-      # caller. Thresholds are a floor, not a target — bump as coverage rises; they read
-      # low on the S3-touching modules because those integration tests are gated off
-      # without a bucket (see CLAUDE.md), hence a global gate, not per-file.
-      - run: npm run test:coverage:gate
+      # Coverage report (advisory — NOT a gate). Emits the coverage table so the number is
+      # visible in the CI log, but it never fails the build: a percentage rewards
+      # assertion-free tests (it measures execution, not verification), so coverage quality
+      # is judged by review instead (CLAUDE.md working-convention #12 — the `/review` skill's
+      # Standards axis and Copilot code review via .github/copilot-instructions.md). Runs
+      # once here, OS-independent like lint, rather than across the matrix.
+      - run: npm run test:coverage:report
 
   test:
     name: test (${{ matrix.os }})
@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         # All three OSes run because the code branches on platform (see the file
-        # header). ubuntu-latest stays even though the lint job's coverage gate also
+        # header). ubuntu-latest stays even though the lint job's coverage report also
         # runs the suite on Linux — a small double-run, but `test (ubuntu-latest)` is a
         # required status check, so dropping it leaves the branch unmergeable.
         # macos-14 is Apple Silicon; mirrors the release build targets.
