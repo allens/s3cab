@@ -87,7 +87,8 @@ export async function restore(setName, paths = [], options = {}) {
   // Where each manifest path is written. `--output` re-roots under the chosen
   // dir (and so accepts any path, cross-OS included); otherwise files go back to
   // their original absolute location.
-  let destFor;
+  /** @type {(path: string) => string} */
+  let destFor = (path) => path;
   if (options.output) {
     destFor = reroot(dirs, options.output);
   } else {
@@ -105,7 +106,6 @@ export async function restore(setName, paths = [], options = {}) {
           `to re-root under a folder you choose.`,
       );
     }
-    destFor = (/** @type {string} */ path) => path;
   }
 
   /** @type {string[]} */
