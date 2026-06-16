@@ -20,7 +20,7 @@ import {
   snapshotNames,
 } from "./snapshot-file.mjs";
 
-/** @import { SnapshotLookup } from "./snapshot-file.mjs" */
+/** @import { SnapshotLookup, SnapshotManifest } from "./snapshot-file.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (specs/backup.md): a
 // set's manifests live under `snapshots/<namespace>/<name>.tsv.zst`, where the
@@ -110,18 +110,20 @@ export async function latestRemoteSnapshot(bucket, namespace) {
 }
 
 /**
- * Read a set's remote manifest by name into a lookup, straight from S3 — the
- * `.tsv.zst` object is streamed through zstd and parsed in flight, no temp file
- * (a remote manifest is byte-identical to its local form, specs/backup.md). The
- * `backup`/`status` diff fetches the latest already-backed-up snapshot this
- * way; `restore` will read its chosen one the same way.
+ * Read a set's remote manifest by name, straight from S3 — the `.tsv.zst` object
+ * is streamed through zstd and parsed in flight, no temp file (a remote manifest
+ * is byte-identical to its local form, specs/backup.md). The `backup`/`status`
+ * diff fetches the latest already-backed-up snapshot this way (taking `.entries`);
+ * `restore` reads its chosen one the same way and uses the `#DIR` headers for
+ * `--output` re-rooting — so this surfaces the whole `SnapshotManifest`, not just
+ * the lookup (a remote manifest is the one a recoverer finds alone).
  *
  * Callers must have loaded the set's env (`loadEnv({ set })`) first, so the S3
  * client picks up the right bucket region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @returns {Promise<SnapshotLookup>}
+ * @returns {Promise<SnapshotManifest>}
  */
 export async function readRemoteSnapshot(bucket, namespace, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
@@ -303,9 +305,11 @@ export async function uploadSnapshot({
   const target = await readSnapshot(snapshotDir, name);
 
   const remoteName = await latestRemoteSnapshot(bucket, namespace);
-  const remote = remoteName
-    ? await readRemoteSnapshot(bucket, namespace, remoteName)
-    : new Map();
+  let remote = new Map();
+  if (remoteName) {
+    const manifest = await readRemoteSnapshot(bucket, namespace, remoteName);
+    remote = manifest.entries;
+  }
 
   let candidates = uploadCandidates(target, remote);
   if (!skipCache) {

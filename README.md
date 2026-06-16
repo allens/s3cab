@@ -64,9 +64,12 @@ you have only one set you can leave the name out — plain `s3cab snapshot` just
 
 `restore` puts files back to the locations they were backed up from, leaving any that still
 exist untouched (pass `--overwrite` to replace them, `--snapshot <name>` to restore an
-older one, and `paths…` to restore only part of a set). To recover onto a **fresh machine**,
-re-create the set pointed at the existing backup — `s3cab setup <set> --from
-<user@machine/set> --bucket <bucket>` — then `restore`.
+older one, and `paths…` to restore only part of a set). Pass `--output <dir>` to recover
+under a folder you choose instead — each backed-up folder lands as `<dir>/<folder-name>/…`,
+which is how you restore a backup whose original paths don't fit this machine (a different
+drive layout, or another OS). To recover onto a **fresh machine**, re-create the set pointed
+at the existing backup — `s3cab setup <set> --from <user@machine/set> --bucket <bucket>` —
+then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `objects`
 and `upload`, also work already — advanced building blocks covered under
@@ -81,9 +84,8 @@ Backing up and restoring already work (see [Status](#status)); this remaining co
 | ---------------------- | ---------------------------------------------- |
 | `s3cab verify [<set>]` | Check that a backup is complete and undamaged. |
 
-(`restore` will also gain `--output <dir>` to recover under a different root — handy across
-machines or OSes; `compare` will gain a `--remote` flag to work against the cloud copy.
-`list --remote` already works.)
+(`compare` will also gain a `--remote` flag to work against the cloud copy; `list --remote`
+and `restore --output` already work.)
 
 ### Cloud repositories
 
