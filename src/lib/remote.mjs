@@ -11,7 +11,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { isENOENT } from "./error.mjs";
-import { s3cabDir } from "./home.mjs";
+import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
 import { isNamespace } from "./sets.mjs";
 import {
@@ -212,19 +212,13 @@ export function uploadCandidates(target, remote) {
  * `objects/`, in exactly the format `s3cab objects -f` writes (it *is* that
  * command's output put to work — composability, specs/backup.md). Sits beside
  * the per-bucket auth file `env.<bucket>` (auth.mjs). The bucket name is
- * interpolated into the filename, so reject one carrying a path separator — the
- * same guard `bucketEnvPath` uses.
+ * interpolated into the filename, so it is guarded as a single path segment —
+ * the same `assertPathSegment` guard `bucketEnvPath` uses.
  * @param {string} bucket
  * @returns {string}
  */
-export const objectsCachePath = (bucket) => {
-  if (basename(bucket) !== bucket) {
-    throw new Error(
-      `Invalid bucket name (contains a path separator): ${bucket}`,
-    );
-  }
-  return join(s3cabDir(), `objects.${bucket}`);
-};
+export const objectsCachePath = (bucket) =>
+  join(s3cabDir(), `objects.${assertPathSegment(bucket, "bucket name")}`);
 
 /**
  * Read the per-bucket objects cache into a set of hashes — the objects a prior

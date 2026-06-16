@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 /**
  * The directory where s3cab keeps all its local state — sets, snapshots, env
@@ -17,3 +17,22 @@ import { join } from "node:path";
  */
 export const s3cabDir = () =>
   process.env.S3CAB_HOME ?? join(homedir(), ".s3cab");
+
+/**
+ * Guard a caller-supplied name before it is interpolated into a path under
+ * `s3cabDir()`: it must be a single path segment, else it is a traversal vector
+ * — e.g. a hostile set env's `S3CAB_BUCKET = "a/../../../etc/passwd"` could make
+ * a loader read an arbitrary file outside `~/.s3cab`. `basename` uses the same
+ * platform path semantics as the `join` at the call site, so it catches exactly
+ * the separators that could traverse here; a clean single-segment name is its
+ * own basename (dots are fine). Returns the name so it can wrap a `join` arg.
+ * @param {string} name
+ * @param {string} kind noun for the error message, e.g. "set name", "bucket name"
+ * @returns {string} the validated name
+ */
+export const assertPathSegment = (name, kind) => {
+  if (basename(name) !== name) {
+    throw new Error(`Invalid ${kind} (contains a path separator): ${name}`);
+  }
+  return name;
+};

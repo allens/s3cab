@@ -7,10 +7,10 @@ import {
 } from "node:fs";
 import { hash } from "node:crypto";
 import { hostname, userInfo } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
-import { s3cabDir } from "./home.mjs";
+import { assertPathSegment, s3cabDir } from "./home.mjs";
 
 // The backup-set store (specs/backup.md): one folder per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
@@ -31,18 +31,14 @@ import { s3cabDir } from "./home.mjs";
 const setsRoot = () => join(s3cabDir(), "sets");
 
 /**
- * A set name is interpolated into a path under `~/.s3cab/sets`, so reject one
- * carrying a path separator (same traversal guard as auth.mjs's per-bucket env
- * path). A *created* set's name is always canonical (see `validateSetName`),
- * but read paths run on caller-supplied names too.
+ * A set name is interpolated into a path under `~/.s3cab/sets`, so it is guarded
+ * as a single path segment (`assertPathSegment`, the same traversal guard
+ * auth.mjs's per-bucket env path uses). A *created* set's name is always
+ * canonical (see `validateSetName`), but read paths run on caller-supplied
+ * names too.
  * @param {string} name
  */
-const setDir = (name) => {
-  if (basename(name) !== name) {
-    throw new Error(`Invalid set name (contains a path separator): ${name}`);
-  }
-  return join(setsRoot(), name);
-};
+const setDir = (name) => join(setsRoot(), assertPathSegment(name, "set name"));
 
 /** @param {string} name */
 export const setEnvPath = (name) => join(setDir(name), "env");
