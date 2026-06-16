@@ -15,7 +15,9 @@ plus `backup`, `status`, and `list --remote`. The `objects`/`upload` plumbing an
 `objects/<sha256>` half of the remote layout were already live. Slice 4's restore path
 (PR #44) added `restore` (`src/commands/restore.mjs`, on `remote.mjs`'s verified
 `downloadObject` + `listRemoteNamespaces`) and `setup --from` **adoption** for fresh-machine
-recovery. Remaining target: `restore --output` re-rooting, `compare --remote`, and slice 5
+recovery. `restore --output` re-rooting is now built too (`parseSnapshotStream` surfaces the
+`#DIR`/`#SNAPSHOT` headers it used to drop; `reroot` in `restore.mjs` maps each member dir
+under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slice 5
 (`verify`/`delete`/`cleanup`).
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
@@ -447,10 +449,11 @@ per-root-basename mapping with clash detection, `paths…` filters, mtime restor
 verification on download (`downloadObject`), download-once/copy for repeated content, and
 mtime restoration. `setup --from` adoption pins a given remote namespace and binds the
 bucket, verifying the namespace has a backup (listing the bucket's namespaces on a typo via
-`listRemoteNamespaces`); `setup` is now uniformly async. **Deferred from this slice:**
-`--output` re-rooting (the only un-built restore option — surfacing the manifest's `#DIR`
-headers, which `parseSnapshotStream` currently drops, is the prerequisite), and
-`compare --remote` (still a `notImplemented()` stub).
+`listRemoteNamespaces`); `setup` is now uniformly async. `--output` re-rooting **is now
+built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used to drop;
+`readRemoteSnapshot` returns the whole `SnapshotManifest`, and `reroot` maps each member dir
+under `<output>/<basename>/…`, rejecting basename clashes up front). **Still deferred from
+this slice:** `compare --remote` (still a `notImplemented()` stub).
 
 ### Slice 5 — Admin pair
 

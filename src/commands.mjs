@@ -162,6 +162,12 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
         type: "boolean",
         description: "Replace existing files (default: skip them, untouched)",
       },
+      output: {
+        type: "string",
+        short: "o",
+        description:
+          "Restore under this folder (as <output>\\<folder-name>\\…) instead of the original locations",
+      },
     },
     exec: (options, [set, ...paths] = []) => restore(set, paths, options),
   },

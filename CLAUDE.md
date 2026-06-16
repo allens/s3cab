@@ -446,9 +446,12 @@ layer — listing, manifest read, the `uploadCandidates` diff, the per-bucket ob
 learns the layout). The **restore path is built** (slice 4, 2026-06, PR #44): `remote.mjs`
 gained the verified atomic `downloadObject` and `listRemoteNamespaces`, with
 [src/commands/restore.mjs](src/commands/restore.mjs) (restore to original paths,
-skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`) and `setup --from`
-adoption on top. Still target: `restore --output` re-rooting, `compare --remote`, and
-`verify` (slice 5).
+skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`, **plus `--output`
+re-rooting** via `reroot`) and `setup --from` adoption on top. `restore --output` is what
+made `parseSnapshotStream` start surfacing the `#DIR`/`#SNAPSHOT` headers it used to drop —
+`readRemoteSnapshot` now returns the whole `SnapshotManifest` (`{ entries, dirs, identity }`),
+while the local `readSnapshotFile` still extracts `.entries` so its callers are unchanged.
+Still target: `compare --remote` and `verify` (slice 5).
 
 ### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
 
@@ -649,7 +652,7 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **`verify` flow + `restore --output` not built yet** — the design *and* the five-slice
+- **`verify` flow not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
   set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last invariant,
   diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
@@ -673,11 +676,11 @@ Pre-release housekeeping and open decisions surfaced from the code:
   [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
   slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
   `remote.mjs`'s verified `downloadObject` + `listRemoteNamespaces`) and `setup --from`
-  adoption. Remaining scaffold: `verify` is still an inline registry stub and
-  `compare --remote` is wired but throws `notImplemented()`; `restore --output` re-rooting
-  is the one un-built restore option (needs the manifest's `#DIR` headers, which
-  `parseSnapshotStream` currently drops). Promote each stub into its own `src/commands/`
-  file as it gains a real body (rest of slices 4–5).
+  adoption; `restore --output` re-rooting followed (`reroot`, on `parseSnapshotStream` now
+  surfacing the `#DIR`/`#SNAPSHOT` headers it used to drop). Remaining scaffold: `verify` is
+  still an inline registry stub and `compare --remote` is wired but throws
+  `notImplemented()`. Promote each stub into its own `src/commands/` file as it gains a real
+  body (rest of slice 5).
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Open items:
