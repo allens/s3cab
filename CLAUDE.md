@@ -133,6 +133,20 @@ rather than assuming it is fixed forever.
     PR. Branch before the first step's commit (or move the commits onto a branch and reset
     `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
     slice's first four steps onto local `main` before the user asked for it to be a PR.)
+12. **Test coverage is judged by review, not a percentage gate.** Good, *asserting* tests
+    for new or changed behaviour are a per-PR obligation, checked by **reading the diff** —
+    the `/review` skill's Standards axis, and Copilot code review via
+    [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
+    threshold. CI still **emits** the coverage number (the `lint` job's
+    `test:coverage:report` step), but it is advisory debug output and never fails the build
+    due to coverage thresholds (test failures still fail). When you add or change behaviour,
+    add a test that makes a real assertion about the *result*, not one that merely executes
+    the line; if coverage visibly drops, either
+    exercised only by the bucket-gated S3 suite). (Recorded 2026-06-16: the numeric gate was
+    demoted from a hard CI gate to advisory output because a percentage measures execution,
+    not verification — it rewards assertion-free "coverage theatre" — whereas a reviewer
+    reading the diff catches the quality the number is blind to. The floor's one real job,
+    catching *silent* erosion, is subsumed by the review step now that every PR is reviewed.)
 
 ---
 
@@ -704,13 +718,21 @@ Pre-release housekeeping and open decisions surfaced from the code:
   - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest manifest uncompressed for transparency is a real feature.
-- **Type check + coverage gate run in CI** (the ci.yml Linux `lint` job, alongside
-  lint/format): `npm run typecheck` plus a `node --test --experimental-test-coverage` run
-  with **global** thresholds (lines 80 / branches 68 / functions 70; `*.test.mjs` and
-  `scripts/` excluded). Global, not per-file, because the S3-touching modules read low —
-  their integration tests are gated off without a bucket (see the S3-tests note above).
-  Thresholds were measured on Windows, so they are a **floor to bump as coverage rises**,
-  not a target. (Resolves the former "wire typecheck into CI" gap.)
+- **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
+  job, alongside lint/format): `npm run typecheck` plus a `node --test
+  --experimental-test-coverage` run (`test:coverage:report`) that **prints** the coverage
+  table as advisory debug output — it no longer enforces thresholds (demoted 2026-06-16, see
+  working-convention #12; a percentage rewards assertion-free tests, so review is the gate
+  instead). Coverage *quality* is now a review concern: the `/review` skill's Standards axis
+  and Copilot code review ([.github/copilot-instructions.md](.github/copilot-instructions.md))
+  check that changed behaviour ships an asserting test. (Resolves the former "wire typecheck
+  into CI" gap.) **Footnote on why demoting cost nothing:** the prior threshold gate was a
+  silent no-op — `node --test` only collects coverage when `--experimental-test-coverage`
+  precedes the glob positionals, but the `npm run test -- …` pattern appended it *after*, so
+  the gate (and the `test:coverage` lcov script) ran the suite, collected **zero** coverage,
+  and exited 0 against the thresholds. Both scripts were rebuilt standalone (flags first) in
+  the same change, so the advisory report now actually emits the number. Don't reintroduce
+  the `npm run test -- --experimental-test-coverage` shape — it measures nothing.
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
 - **Concurrency guard** for snapshots is only the temp-file check (its existence doubles
   as a crude in-progress lock); a proper lock file is a `TODO` in
