@@ -138,10 +138,10 @@ rather than assuming it is fixed forever.
     the `/review` skill's Standards axis, and Copilot code review via
     [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
     threshold. CI still **emits** the coverage number (the `lint` job's
-    `test:coverage:report` step), but it is advisory debug output and **never fails the
-    build**. When you add or change behaviour, add a test that makes a real assertion about
-    the *result*, not one that merely executes the line; if coverage visibly drops, either
-    cover the gap or say in the PR why the drop is legitimate (deleted tested code, or logic
+    `test:coverage:report` step), but it is advisory debug output and never fails the build
+    due to coverage thresholds (test failures still fail). When you add or change behaviour,
+    add a test that makes a real assertion about the *result*, not one that merely executes
+    the line; if coverage visibly drops, either
     exercised only by the bucket-gated S3 suite). (Recorded 2026-06-16: the numeric gate was
     demoted from a hard CI gate to advisory output because a percentage measures execution,
     not verification — it rewards assertion-free "coverage theatre" — whereas a reviewer
