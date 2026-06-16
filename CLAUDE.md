@@ -147,6 +147,18 @@ rather than assuming it is fixed forever.
     not verification — it rewards assertion-free "coverage theatre" — whereas a reviewer
     reading the diff catches the quality the number is blind to. The floor's one real job,
     catching *silent* erosion, is subsumed by the review step now that every PR is reviewed.)
+13. **Isolate substantive concurrent work in a git worktree — but only when it earns one.**
+    Multiple sessions share *one* working tree, so uncommitted edits from
+    one session are visible to the others; convention #2 (path-scoped `git add`) manages that by
+    hand, but a per-session worktree removes the hazard entirely. So **when other sessions are
+    likely active and the task is non-trivial / multi-step** (anything that already earns a
+    `feat/…` branch per #11), do it in a worktree. **For trivial single-file edits, stay in the
+    main tree** and rely on #2 — a worktree per one-liner is over-engineering (#8) and carries a
+    real tax here: `node_modules` is gitignored, so a fresh worktree starts empty and needs
+    `npm install` (the AWS SDK makes that non-trivial) before tests/lint/typecheck/esbuild run.
+    The harness supports this natively — `isolation: "worktree"` when spawning an agent, or
+    `EnterWorktree`/`ExitWorktree` in-session — so the mechanics are cheap. (Recorded 2026-06-16
+    after weighing an "always worktree before editing" rule and scoping it to substantive work.)
 
 ---
 
