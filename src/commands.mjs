@@ -8,6 +8,7 @@ import { sets } from "./commands/sets.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
+import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { notImplemented } from "./lib/error.mjs";
@@ -165,8 +166,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
       output: {
         type: "string",
         short: "o",
-        description:
-          "Restore under this folder (as <output>\\<folder-name>\\…) instead of the original locations",
+        description: `Restore under this folder (as <output>${sep}<folder-name>${sep}…) instead of the original locations`,
       },
     },
     exec: (options, [set, ...paths] = []) => restore(set, paths, options),

@@ -210,10 +210,12 @@ export function selectEntries(paths, filters) {
  *
  * Separator-agnostic, so a Windows manifest re-roots correctly on POSIX and vice
  * versa: roots and paths are split on both `/` and `\`, and matched by exact
- * segments — a path and its `#DIR` root were written by the same snapshot run, so
- * their casing already agrees and no case-folding is needed. The destination is
- * rebuilt with this platform's separator under `output`. The longest matching
- * root wins, so a nested member dir takes precedence over a parent.
+ * segments. Path-vs-root matching is case-sensitive (a path and its `#DIR` root
+ * were written by the same snapshot run, so their casing already agrees); only
+ * the basename-collision check below folds case, deliberately, to catch two roots
+ * that would land in the same `<output>` folder. The destination is rebuilt with
+ * this platform's separator under `output`. The longest matching root wins, so a
+ * nested member dir takes precedence over a parent.
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
