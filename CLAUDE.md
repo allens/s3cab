@@ -134,7 +134,7 @@ rather than assuming it is fixed forever.
     `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
     slice's first four steps onto local `main` before the user asked for it to be a PR.)
 12. **Isolate substantive concurrent work in a git worktree — but only when it earns one.**
-    Multiple sessions share *one* working tree under `d:\src\s3cab`, so uncommitted edits from
+    Multiple sessions share *one* working tree, so uncommitted edits from
     one session are visible to the others; convention #2 (path-scoped `git add`) manages that by
     hand, but a per-session worktree removes the hazard entirely. So **when other sessions are
     likely active and the task is non-trivial / multi-step** (anything that already earns a
