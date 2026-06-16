@@ -305,9 +305,11 @@ export async function uploadSnapshot({
   const target = await readSnapshot(snapshotDir, name);
 
   const remoteName = await latestRemoteSnapshot(bucket, namespace);
-  const remote = remoteName
-    ? (await readRemoteSnapshot(bucket, namespace, remoteName)).entries
-    : new Map();
+  let remote = new Map();
+  if (remoteName) {
+    const manifest = await readRemoteSnapshot(bucket, namespace, remoteName);
+    remote = manifest.entries;
+  }
 
   let candidates = uploadCandidates(target, remote);
   if (!skipCache) {

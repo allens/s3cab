@@ -584,12 +584,22 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
   *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against #6/#8).
 - **Don't bury `await` inside a larger statement** (a compound `if`/`while` condition, a
-  ternary, a call argument). Await into a named local on its own line first, then use it:
-  `const exists = await objectExists(uri); if (exists) …`, not
-  `if (… && (await objectExists(uri)))`. The suspension point stays visible and the value
-  gets a name. Neither Prettier nor ESLint enforces this — it's a house style. (When the
-  inline form was guarding a short-circuit, a nested `if` preserves the same conditional
-  evaluation without the inline await.)
+  ternary, a call argument, **or a property access on the result**). Await into a named
+  local on its own line first, then use it: `const exists = await objectExists(uri); if
+  (exists) …`, not `if (… && (await objectExists(uri)))`; and `const m = await
+  readRemoteSnapshot(…); … m.entries`, not `(await readRemoteSnapshot(…)).entries` (the
+  member-access slip that prompted this addition, 2026-06-16). The suspension point stays
+  visible and the value gets a name. (When the inline form was guarding a short-circuit, a
+  nested `if` preserves the same conditional evaluation without the inline await; a
+  conditional-await ternary likewise becomes an `if` writing into a `let`.)
+  - **No linter enforces this** (a `no-restricted-syntax` rule was weighed and rejected
+    2026-06-16: it can't tell the ugly cases from the occasionally-fine ternary-await, so it
+    would trade real false positives for a cosmetic gain — against #6/#8, same call as the
+    removed organizeImports action). So **self-check instead: grep the diff for the buried
+    shapes** before committing — `(await` (property/index access or a call argument) and a
+    `? `/`: `/`&& `/`|| ` sitting immediately before `await` (ternary / short-circuit). A
+    bare `const x = await …`, `return await …`, or a standalone `await …;` is fine; an
+    `await` wrapped in anything else is the smell.
 - **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
   the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
   scratch, but excluded files just get squiggles from VS Code's inferred project instead —

@@ -41,9 +41,15 @@ export async function status(setName) {
   const target = await readSnapshot(snapshotDir, localName);
 
   const remoteName = await latestRemoteSnapshot(set.bucket, set.namespace);
-  const remote = remoteName
-    ? (await readRemoteSnapshot(set.bucket, set.namespace, remoteName)).entries
-    : new Map();
+  let remote = new Map();
+  if (remoteName) {
+    const manifest = await readRemoteSnapshot(
+      set.bucket,
+      set.namespace,
+      remoteName,
+    );
+    remote = manifest.entries;
+  }
 
   const candidates = uploadCandidates(target, remote);
 
