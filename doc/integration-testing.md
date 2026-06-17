@@ -88,9 +88,10 @@ three variables in your shell instead and run `npm test`.
 ## Continuous integration (GitHub Actions)
 
 For CI, avoid long-lived keys entirely: GitHub Actions presents a signed **OIDC** token
-that AWS exchanges for a short-lived credential, issued only to an **approved** run. This
-is the setup s3cab itself uses; its security model (real S3 only on same-repo PRs, behind
-a required-reviewer approval gate; fork PRs skip) is in [specs/testing.md](../specs/testing.md).
+that AWS exchanges for a short-lived credential. This is the setup s3cab itself uses; its
+security model (real S3 runs automatically on **same-repo** PRs — which only collaborators
+can open — while fork PRs get no credentials and skip) is in
+[specs/testing.md](../specs/testing.md).
 
 > Creating the IAM policy and role needs an **administrator** session — `PowerUserAccess`
 > (and similar) cannot write IAM.
@@ -134,11 +135,13 @@ aws iam create-open-id-connect-provider --url https://token.actions.githubuserco
 (AWS no longer relies on the thumbprint to verify GitHub's IdP, but the API still requires
 the parameter; those are the published values.)
 
-### 3. Create the role with an environment-scoped trust policy
+### 3. Create the role with a pull-request-scoped trust policy
 
-Scoping the `sub` claim to a GitHub **Environment** makes the role **un-assumable except
-from a job running in that approval-gated environment** — the IAM trust itself enforces the
-gate. Save as `trust-policy.json` (substitute account ID + `your-org/your-repo`):
+Scoping the `sub` claim to `:pull_request` makes the role **assumable only from a workflow
+running on a pull request in this repo**. A same-repo PR can only be opened by a
+collaborator with push access, so an untrusted actor can't reach it — and a fork PR gets no
+OIDC token at all (GitHub's design), so it can't either. Save as `trust-policy.json`
+(substitute account ID + `your-org/your-repo`):
 
 ```json
 {
@@ -153,7 +156,7 @@ gate. Save as `trust-policy.json` (substitute account ID + `your-org/your-repo`)
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:your-org/your-repo:environment:s3-integration-tests"
+          "token.actions.githubusercontent.com:sub": "repo:your-org/your-repo:pull_request"
         }
       }
     }
@@ -171,26 +174,30 @@ aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOU
 > `(Get-Content … -Raw).Replace(…)`) into a temp file you delete, and store the resulting
 > **role ARN** as a GitHub secret (next step) rather than hard-coding it.
 
-### 4. Create the approval-gated Environment
+### 4. Add the repo secret and variable
 
-In the repo on GitHub: **Settings → Environments → New environment**, named
-`s3-integration-tests` (must match the trust policy's `sub`). Then:
+In the repo on GitHub: **Settings → Secrets and variables → Actions**:
 
-- **Required reviewers** → add trusted maintainers. Nothing credentialed runs until one
-  approves, so an untrusted PR can't cause spend.
 - **Secret** `AWS_ROLE_ARN` = the role ARN (keeps the account ID out of the workflow file).
 - **Variable** `S3CAB_TEST_BUCKET` = your bucket name.
+
+> **Want an explicit approval click too?** If you grant push access broadly and don't want
+> every collaborator's PR to spend automatically, add a GitHub **Environment** with required
+> reviewers: scope the trust policy's `sub` to `…:environment:<name>` instead of
+> `:pull_request`, put the secret/var on the Environment, and add `environment: <name>` to
+> the job below. s3cab itself doesn't — a same-repo PR already implies a trusted author, and
+> spend is capped by the IAM scope + 1-day lifecycle + cost backstop (below).
 
 ### 5. Add the workflow job
 
 ```yaml
 s3-integration:
-  # Same-repo PRs only — forks get no credentials and are covered by the
-  # offline mocked-seam tests instead. (Also skips push/non-PR events: with no
-  # PR context the comparison is false.)
+  # Same-repo PRs only — forks get no credentials and are covered by the offline
+  # mocked-seam tests instead. Only collaborators can open a same-repo PR, so the
+  # credentialed run never triggers for an untrusted actor. (No `environment:` line:
+  # it runs automatically — no approval click.)
   if: github.event.pull_request.head.repo.full_name == github.repository
   runs-on: ubuntu-latest
-  environment: s3-integration-tests # the approval gate
   permissions:
     id-token: write # mint the OIDC token
     contents: read
@@ -210,6 +217,14 @@ s3-integration:
 ```
 
 One OS only — the S3 code path doesn't branch on platform.
+
+### 6. (Optional) enforce it as a required check
+
+Because this job is **skipped** on fork PRs, marking it directly as a required status check
+would leave every fork PR forever-pending (a skipped required check never reports). Instead
+add a tiny always-running gate job that fails only if a job that actually ran failed (a
+skipped job is not a failure), and make **that** the required check. See `ci-gate` in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) for the pattern s3cab uses.
 
 ---
 

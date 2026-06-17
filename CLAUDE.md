@@ -667,14 +667,19 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   tests legitimately drop to the SDK/request layer is asserting `s3.mjs`'s **own** request
   shaping (the non-AWS checksum/SSE/storage-class gating) — that only manifests in the
   outgoing request. **No emulator** (MinIO/LocalStack rejected — see the spec). The real-AWS
-  suite runs on PRs **behind a required-reviewer approval Environment** so an untrusted PR
-  can't spend, plus a periodic **Cloudflare R2** canary for non-AWS compatibility. The AWS
-  bucket + OIDC CI are **built** (PR #50): `npm run test:s3` runs the gated suites locally
-  (a `node --test --env-file-if-exists=.env.test` one-liner — credentials come from your
-  `~/.aws` profile because the tests relocate only `S3CAB_HOME`, not `HOME`), the
-  [`ci/aws/`](ci/aws/) artifacts + the ubuntu-only `s3-integration` job carry CI, and
-  [doc/integration-testing.md](doc/integration-testing.md) is the setup guide; the **R2 canary
-  remains pending**. Worked example: the gated suites in
+  suite runs **automatically on same-repo PRs** (no approval click — the approval Environment
+  was removed 2026-06-17): only collaborators can open a same-repo PR and the OIDC trust is
+  scoped to this repo's `:pull_request` subject, so untrusted actors can't trigger it (fork
+  PRs get no credentials and skip); spend is capped by tight IAM + 1-day lifecycle + a billing
+  alarm. The enforcing required check is **`ci-gate`** (an always-running job that fails iff a
+  job that ran failed), *not* `s3-integration` directly — a skipped required check (forks)
+  would otherwise wedge the PR forever-pending. Plus a periodic **Cloudflare R2** canary for
+  non-AWS compatibility. The AWS bucket + OIDC CI are **built** (PR #50): `npm run test:s3`
+  runs the gated suites locally (a `node --test --env-file-if-exists=.env.test` one-liner —
+  credentials come from your `~/.aws` profile because the tests relocate only `S3CAB_HOME`,
+  not `HOME`), the [`ci/aws/`](ci/aws/) artifacts + the ubuntu-only `s3-integration` job carry
+  CI, and [doc/integration-testing.md](doc/integration-testing.md) is the setup guide; the
+  **R2 canary remains pending**. Worked example: the gated suites in
   [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs

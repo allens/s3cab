@@ -2,9 +2,11 @@
 
 ## Status
 
-**Settled (2026-06-14); AWS wiring built (PR #50, 2026-06-15).** The real bucket + OIDC CI
-are live and the gated suites run green on approved same-repo PRs (see Provisioning for the
-as-built layout; [doc/integration-testing.md](../doc/integration-testing.md) is the how-to).
+**Settled (2026-06-14); AWS wiring built (PR #50, 2026-06-15); auto-run 2026-06-17.** The
+real bucket + OIDC CI are live and the gated suites run green on same-repo PRs — automatically,
+with no approval click (the required-reviewer Environment was removed; see "Where real S3
+runs"). See Provisioning for the as-built layout;
+[doc/integration-testing.md](../doc/integration-testing.md) is the how-to.
 Still pending: the non-AWS R2 canary, and (deliberately) the coverage floors stay put — the
 gate runs credential-free in the `lint` job, so the gated suites skip *there* and don't move
 the measured numbers.
@@ -89,33 +91,46 @@ All tear down via `deleteObject` in a `finally`; content is unique per run so th
 
 ## Where real S3 runs (the security model)
 
-**Real AWS runs on same-repo (collaborator) PRs, before merge, behind a GitHub Environment
-with required-reviewer approval.** Nothing credentialed runs until a maintainer clicks
-approve, so an unverified malicious or accidental actor **cannot cause any spend** on the
-project's account — their PR sits pending until reviewed. This deliberately beats "post-merge
-only" for the PRs it covers: you want the real test *before* merge, and the approval gate
-buys the security without deferring the test.
+**Real AWS runs automatically on same-repo (collaborator) PRs, before merge — no approval
+click.** The safety rests on *who can trigger it*: a same-repo PR can only be opened by a
+collaborator with push access (a trusted actor), and the OIDC trust policy is scoped to this
+repo's `:pull_request` subject, so the role is assumable only from such a run. An untrusted
+actor has no way in — their only route is a fork PR, which GitHub gives no credentials at all.
 
-- **Fork PRs are safe by GitHub default — and approval does _not_ change that.** A
-  `pull_request` run from a fork gets a read-only token and **no secrets / no OIDC**, and
-  GitHub **never passes secrets to a fork-triggered run regardless of environment approval**
-  (approval gates the job; it does not grant a fork run credentials). So the gated real-S3
-  tests simply **skip** in fork PR CI. Never use `pull_request_target` to run untrusted code
-  with credentials (the footgun). A fork contributor still gets full *orchestration* coverage
-  from the mocked-seam tier in their PR CI; the **real** round-trip runs **post-merge on
-  `main`** (or when a maintainer reproduces the branch in-repo to run it pre-merge) — not in
-  fork PR CI. So "real S3 before merge" holds for *collaborator* PRs; fork PRs get it
-  post-merge.
-- **Collaborators are trusted as much as the owner** — no extra gating beyond the approval
-  mechanism (which they pass by being trusted).
-- **Defense-in-depth regardless** (cheap, self-healing):
+We **dropped the earlier required-reviewer approval Environment** (2026-06-17). With the
+trigger already restricted to trusted collaborators, the approval click was pure friction —
+and worse, it was a *human decision*: `s3-integration` was not a required check, so a
+credentialed change could be merged having never been approved or run. Auto-run plus the
+`ci-gate` required check (below) closes that hole; spend is now capped by defense-in-depth
+rather than by an approval gate.
+
+- **Fork PRs are safe by GitHub default.** A `pull_request` run from a fork gets a read-only
+  token and **no secrets / no OIDC** — GitHub never passes secrets to a fork-triggered run.
+  So the gated real-S3 tests simply **skip** in fork PR CI. Never use `pull_request_target`
+  to run untrusted code with credentials (the footgun). A fork contributor still gets full
+  *orchestration* coverage from the mocked-seam tier in their PR CI; to run the **real**
+  round-trip on a fork PR, a maintainer reproduces its commits as a same-repo branch
+  (`gh pr checkout <n>` → `git push origin HEAD:pr-<n>`), which then runs it pre-merge like
+  any collaborator PR. So "real S3 before merge" holds for collaborator PRs directly, and for
+  fork PRs once reproduced in-repo. (We do **not** run it on push-to-main: a same-repo PR
+  already tested that commit, so it would be a redundant second credentialed run.)
+- **`ci-gate` is the enforcing required check, not `s3-integration` directly.** The S3 job is
+  *skipped* on fork PRs, and a skipped required check is treated as forever-pending — which
+  would wedge fork PRs unmergeable. So an always-running `ci-gate` job (fails iff a job that
+  ran failed; a skipped job is not a failure) is the single required check. That makes "the
+  right jobs for this diff went green" the merge condition, with no human deciding.
+- **Collaborators are trusted as much as the owner** — opening a same-repo PR is itself the
+  trust boundary; there is no further gating.
+- **Defense-in-depth regardless** (cheap, self-healing — and now the *primary* spend control,
+  with approval gone):
   - **Tight IAM** — `Get/Put/Delete/List` on the one test bucket, nothing else. (`Delete`
     because teardown deletes; normal backup creds wouldn't need it — the tests do.)
   - **Bucket lifecycle auto-expiry** (delete objects after ~a day) — caps cost and
     self-heals when a crashed mid-run test skips its `finally` teardown.
   - **Billing alarm** — a backstop for an accidental runaway loop, not just malice.
   - **OIDC role** over long-lived keys (matches the repo's npm Trusted Publishing OIDC
-    ethos), scoped so a credentialed assume is only reachable through the approved job.
+    ethos), scoped via the `:pull_request` subject so a credentialed assume is only reachable
+    from a same-repo PR run.
 
 ### No emulator — and why
 
@@ -175,14 +190,14 @@ generally; just wrong for *this* workload).
 
 ## Provisioning (as-built)
 
-**Built in PR #50 (2026-06-15);** the rationale below is the as-built record. Live AWS
-resources: bucket **`s3cab-ci-test`** (`us-east-1`, 1-day expiry lifecycle), IAM policy
-**`s3cab-ci-test-access`** attached to OIDC role **`s3cab-ci`** (trust scoped to
-`repo:allens/s3cab:environment:s3-integration-tests`), and the approval-gated GitHub
-Environment `s3-integration-tests` (required reviewers + `AWS_ROLE_ARN` secret +
-`S3CAB_TEST_BUCKET` var). Source of truth: the [`ci/aws/`](../ci/aws/) artifacts +
-[doc/integration-testing.md](../doc/integration-testing.md). **Still pending:** the non-AWS
-R2 canary (below).
+**Built in PR #50 (2026-06-15); approval Environment removed for auto-run 2026-06-17.** The
+rationale below is the as-built record. Live AWS resources: bucket **`s3cab-ci-test`**
+(`us-east-1`, 1-day expiry lifecycle), IAM policy **`s3cab-ci-test-access`** attached to OIDC
+role **`s3cab-ci`** (trust scoped to `repo:allens/s3cab:pull_request`), with `AWS_ROLE_ARN`
+(secret) + `S3CAB_TEST_BUCKET` (var) held at **repo** scope (no longer on a GitHub
+Environment — that was deleted with the approval gate). Source of truth: the
+[`ci/aws/`](../ci/aws/) artifacts + [doc/integration-testing.md](../doc/integration-testing.md).
+**Still pending:** the non-AWS R2 canary (below).
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
   the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
@@ -200,14 +215,15 @@ R2 canary (below).
   `AWS_*` env vars work; a local run needs `AWS_*` env vars set.
 - **CI creds mechanism:** **OIDC role** via `aws-actions/configure-aws-credentials` (no
   long-lived secrets — matches the repo's existing OIDC posture). The credentialed S3 job
-  lives behind the approval Environment.
+  runs automatically on same-repo PRs; the trust policy's `:pull_request` scope (not an
+  approval Environment) is what keeps it reachable only from trusted-collaborator runs.
 - **Lifecycle:** ✅ a rule expires objects after 1 day (+ aborts incomplete multipart uploads
   after 1 day), to sweep orphans from any crashed mid-run test.
 - **Which OS runs S3 tests:** one (**ubuntu**) — the S3 code doesn't branch on platform; the
   3-OS matrix exists for the platform-branching code (globs, separator normalization).
 - **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
   key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
-  per-PR approval job.
+  per-PR job.
 - **Local setup help:** ✅ — [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs)
   stands up the bucket + lifecycle; `npm run test:s3` (a `node --test --env-file-if-exists`
   one-liner) runs the gated suites locally, with credentials read from the developer's
