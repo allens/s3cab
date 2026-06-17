@@ -1,9 +1,5 @@
 import { loadEnv } from "../lib/auth.mjs";
-import {
-  latestRemoteSnapshot,
-  readRemoteSnapshot,
-  uploadCandidates,
-} from "../lib/remote.mjs";
+import { readLatestRemoteSnapshot, uploadCandidates } from "../lib/remote.mjs";
 import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { listSnapshotNames } from "./list.mjs";
@@ -17,9 +13,13 @@ import { listSnapshotNames } from "./list.mjs";
  *
  * `status` does not take a snapshot (it is read-only), so it reports against the
  * latest *existing* local snapshot — run `snapshot` first to reflect newer
- * on-disk changes. `toUpload` is the candidate count versus the latest remote
- * manifest; the objects cache and the conditional PUT may transfer fewer in
- * practice (an optimization `backup` applies, not part of this estimate).
+ * on-disk changes. `toUpload` is deliberately this pre-cache diff — "what is new
+ * since your last backup", a property of the two snapshots that reads the same
+ * on any machine — not a prediction of the bytes the next `backup` will push:
+ * the objects cache that narrows `backup` further is local and machine-specific,
+ * and even it is inexact given the conditional-PUT safety net. So the cache and
+ * the conditional PUT may transfer fewer in practice (an optimization `backup`
+ * applies, not part of this estimate).
  *
  * @param {string} [setName] - Backup set to report on (default: the only set)
  * @returns {Promise<{ set: string, snapshot: string, backedUp: string | null, toUpload: number }>}
@@ -40,16 +40,10 @@ export async function status(setName) {
   }
   const target = await readSnapshot(snapshotDir, localName);
 
-  const remoteName = await latestRemoteSnapshot(set.bucket, set.namespace);
-  let remote = new Map();
-  if (remoteName) {
-    const manifest = await readRemoteSnapshot(
-      set.bucket,
-      set.namespace,
-      remoteName,
-    );
-    remote = manifest.entries;
-  }
+  const { name: remoteName, lookup: remote } = await readLatestRemoteSnapshot(
+    set.bucket,
+    set.namespace,
+  );
 
   const candidates = uploadCandidates(target, remote);
 
