@@ -66,9 +66,10 @@ jobs:
       fail-fast: false
       matrix:
         # All three OSes run because the code branches on platform (see the file
-        # header). ubuntu-latest stays even though the lint job's coverage report also
-        # runs the suite on Linux — a small double-run, but `test (ubuntu-latest)` is a
-        # required status check, so dropping it leaves the branch unmergeable.
+        # header). ubuntu-latest stays for a clean, unambiguous per-OS test signal even
+        # though the lint job's coverage report also runs the suite on Linux — the small
+        # double-run is worth a dedicated `test (ubuntu-latest)` result (the `ci gate`
+        # job aggregates all three OSes for branch protection anyway).
         # macos-14 is Apple Silicon; mirrors the release build targets.
         os: [ubuntu-latest, windows-latest, macos-14]
     steps:
@@ -127,7 +128,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      - name: Verify all required jobs passed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: |
           echo "::error::a required CI job failed or was cancelled"
           exit 1
