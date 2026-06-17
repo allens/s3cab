@@ -3,11 +3,8 @@ import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { loadEnv } from "../lib/auth.mjs";
-import {
-  downloadObject,
-  listRemoteSnapshots,
-  readRemoteSnapshot,
-} from "../lib/remote.mjs";
+import { getObject } from "../lib/objects.mjs";
+import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { resolveRemoteSet } from "../lib/sets.mjs";
 
 /** @import { Props } from "./prop.mjs" */
@@ -26,7 +23,7 @@ import { resolveRemoteSet } from "../lib/sets.mjs";
  * careless restore can't destroy newer work. Positional `paths…` filter what is
  * restored (see `selectEntries`); with none, the whole snapshot is restored.
  *
- * Each object is fetched and integrity-checked by `downloadObject` (its SHA-256
+ * Each object is fetched and integrity-checked by `getObject` (its SHA-256
  * must match the manifest hash), then given the manifest mtime — required, since
  * the snapshot diff is mtime-based. Content shared across several paths (moved
  * or duplicated files) is downloaded once and copied to the rest. The manifest-
@@ -138,7 +135,7 @@ export async function restore(setName, paths = [], options = {}) {
       if (have) {
         await copyFile(have, dest);
       } else {
-        await downloadObject(set.bucket, hash, dest);
+        await getObject(set.bucket, hash, dest);
         fetched.set(hash, dest);
       }
       const when = new Date(mtime);

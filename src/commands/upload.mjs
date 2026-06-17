@@ -1,30 +1,25 @@
 import { loadEnv } from "../lib/auth.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { putFile } from "../lib/s3.mjs";
+import { objectKey, putObject } from "../lib/objects.mjs";
 import { prop } from "./prop.mjs";
-
-// An s3cab repository is one bucket with a fixed, well-known layout: every
-// content-addressed object lives under `objects/<sha256>` at the bucket root
-// (see the S3 layout in CLAUDE.md / README.md). This is the write counterpart of
-// the `objects` lister, which reads that same prefix.
-const OBJECTS_PREFIX = "objects/";
 
 /**
  * Upload one file to a repository's content-addressed object store.
  *
- * A low-level plumbing command (cf. git porcelain vs plumbing, like its `objects`
+ * A low-level plumbing command (cf. git porcelain vs plumbing, like its `hashes`
  * sibling): it hashes the file and PUTs it at `objects/<sha256>`, the fixed layout
- * `objects` reads and `backup` will populate. The higher-level snapshot-driven
+ * `hashes` reads and `backup` populates. The higher-level snapshot-driven
  * `backup` is what ordinary users run; this uploads a single file by hand.
  *
  * Because the object key *is* the content hash, identical bytes always map to the
  * same key, so an object already in the store needn't be re-PUT — a
  * content-addressed store never has to overwrite an existing object with the same
- * content. So this skips the upload when the object already exists (via `putFile`'s
- * conditional PUT), unless `--force` overwrites it.
+ * content. So this skips the upload when the object already exists (the object
+ * store's conditional PUT), unless `--force` overwrites it.
  *
- * S3 access goes through the `src/lib/s3.mjs` SDK boundary, whose lazily-constructed
- * client means this command costs nothing (and needs no AWS creds) until run.
+ * The object store (`src/lib/objects.mjs`) sits over the `src/lib/s3.mjs` SDK
+ * boundary, whose lazily-constructed client means this command costs nothing
+ * (and needs no AWS creds) until run.
  *
  * TODO (important, not yet wired — carried over from the `_poc` `upload-file` stub):
  * a `--if-modified-from <snapshot>` option. Given a previous snapshot, skip the
@@ -53,11 +48,10 @@ export async function upload(bucket, file, options = {}) {
   // prop() does the file validation (rejects non-regular files) and the streaming
   // SHA-256 hash; reuse it rather than re-deriving either here (#6).
   const { hash, size } = await prop(file);
-  const key = OBJECTS_PREFIX + hash;
 
-  const uploaded = await putFile(file, `s3://${bucket}/${key}`, {
-    noClobber: !options.force,
+  const uploaded = await putObject(bucket, hash, file, {
+    force: options.force,
   });
 
-  return { hash, size, key, uploaded };
+  return { hash, size, key: objectKey(hash), uploaded };
 }

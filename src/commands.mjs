@@ -1,7 +1,7 @@
 import { backup } from "./commands/backup.mjs";
 import { compare } from "./commands/compare.mjs";
+import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
-import { objects } from "./commands/objects.mjs";
 import { prop } from "./commands/prop.mjs";
 import { restore } from "./commands/restore.mjs";
 import { sets } from "./commands/sets.mjs";
@@ -179,7 +179,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
-  objects: {
+  hashes: {
     group: "Advanced",
     summary: "List a repository's stored object hashes (one per line)",
     args: {
@@ -193,7 +193,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
           "Write the hashes to this file (one per line) instead of stdout",
       },
     },
-    exec: (options, [bucket] = []) => objects(bucket, options),
+    exec: (options, [bucket] = []) => hashes(bucket, options),
   },
   upload: {
     summary: "Upload a single file to a repository's object store",

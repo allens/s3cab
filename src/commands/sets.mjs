@@ -5,7 +5,7 @@ import { formatSets, listSets, readSet } from "../lib/sets.mjs";
  * folders — the discoverability counterpart of "the files are the API", and
  * what the resolve-a-set error messages point at.
  *
- * Like `objects`, this is a deliberate exception to the dispatcher's JSON
+ * Like `hashes`, this is a deliberate exception to the dispatcher's JSON
  * serialization: the formatted listing *is* the result, so it goes to stdout
  * directly (JSON.stringify would escape it into one quoted line). With no sets
  * yet, stdout stays empty and the setup hint goes to stderr.
