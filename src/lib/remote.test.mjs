@@ -9,10 +9,10 @@ import { readSnapshot, writeSnapshot } from "./snapshot-file.mjs";
 import {
   appendObjectsCache,
   downloadObject,
-  latestRemoteSnapshot,
   listRemoteNamespaces,
   listRemoteSnapshots,
   objectsCachePath,
+  readLatestRemoteSnapshot,
   readObjectsCache,
   remoteSnapshotsPrefix,
   uploadCandidates,
@@ -185,12 +185,14 @@ describe("remote snapshot listing (real bucket)", { skip }, () => {
       await listRemoteSnapshots(/** @type {string} */ (TEST_BUCKET), namespace),
       [],
     );
-    assert.equal(
-      await latestRemoteSnapshot(
+    // A set with no remote snapshot yet diffs against an empty lookup, so every
+    // target hash is a candidate (its first backup uploads everything).
+    assert.deepEqual(
+      await readLatestRemoteSnapshot(
         /** @type {string} */ (TEST_BUCKET),
         namespace,
       ),
-      undefined,
+      { name: undefined, lookup: new Map() },
     );
   });
 });
