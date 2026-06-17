@@ -10,11 +10,13 @@
 # release.yml keeps its own single-OS lint+test gate: a `v*` tag is the one commit
 # this workflow does NOT cover, so the tagged build re-checks before publishing.
 #
-# WHAT GATES A MERGE: make `ci-gate` (the final job) the one required status check
-# in branch protection. It passes only when every job that ran succeeded, so a merge
-# can never slip in untested code — and no human decides whether to run the suite.
-# (Don't mark `s3-integration` required directly: it's skipped on fork PRs, and a
-# required check that gets skipped is treated as forever-pending, wedging those PRs.)
+# WHAT GATES A MERGE: make the final job the one required status check in branch
+# protection — pick it by its display NAME, `ci gate` (shown as `ci / ci gate` in the
+# Checks UI), not the YAML key `ci-gate`. It passes only when every job that ran
+# succeeded, so a merge can never slip in untested code — and no human decides whether
+# to run the suite. (Don't mark `s3 integration` required directly: it's skipped on
+# fork PRs, and a required check that gets skipped is treated as forever-pending,
+# wedging those PRs.)
 
 name: ci
 
@@ -118,7 +120,7 @@ jobs:
 
   # The single required check. Always runs and fails if any job that ran failed (a
   # fork-skipped s3-integration is 'skipped', not 'failure', so it doesn't block).
-  # Mark THIS job as the required status check in branch protection.
+  # Mark this job — by its display name `ci gate` — as the required status check.
   ci-gate:
     name: ci gate
     needs: [lint, test, s3-integration]
