@@ -22,13 +22,22 @@ on:
 permissions:
   contents: read
 
+# Serialize releases for a given ref. Unlike ci.yml, do NOT cancel in-progress —
+# interrupting a half-finished publish (a created Release, or an npm publish mid-flight)
+# is worse than letting it complete; tags are rare enough that queueing is fine.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   # Pin to the engines floor so release artifacts are reproducible. setup-node and
   # --build-sea use the same node, so host == target version automatically.
   NODE_VERSION: "26.3.0"
 
 jobs:
-  test:
+  # Re-gate the tagged commit (the one commit ci.yml never sees). Mirrors ci.yml's
+  # lint job checks — lint + format + typecheck — plus the test suite, single-OS.
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -38,10 +47,11 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      - run: npm run typecheck
       - run: npm test
 
   build:
-    needs: test
+    needs: verify
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -134,7 +144,7 @@ jobs:
   # shebang, so on unix it's directly executable. Parallel channel to the npm package
   # and the native binaries.
   bundle:
-    needs: test
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

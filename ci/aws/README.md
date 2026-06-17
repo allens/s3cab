@@ -13,9 +13,10 @@ only records **what this project uses**.
   objects, `ListBucket` on the bucket, scoped to the one test bucket. (`Delete`
   because test teardown deletes.)
 - [`trust-policy.json`](trust-policy.json) — assume-role trust for the GitHub Actions
-  OIDC role, scoped to this repo's approval-gated Environment so the role is
-  un-assumable except through an approved run. Carries an **`ACCOUNT_ID` placeholder**
-  (substituted at apply time) so the real account ID never lands in this public repo.
+  OIDC role, scoped to this repo's `:pull_request` subject so the role is assumable only
+  from a workflow running on a same-repo PR (which only a collaborator can open; fork PRs
+  get no OIDC token at all). Carries an **`ACCOUNT_ID` placeholder** (substituted at apply
+  time) so the real account ID never lands in this public repo.
 
 ## This project's values
 
@@ -24,7 +25,6 @@ only records **what this project uses**.
 | Test bucket | `s3cab-ci-test` | `us-east-1` |
 | IAM policy | `s3cab-ci-test-access` | — |
 | OIDC role | `s3cab-ci` | — |
-| GitHub Environment | `s3-integration-tests` | — |
 
 **Permissions:** creating the IAM policy/role needs an **AdministratorAccess** session
 — `PowerUserAccess` excludes IAM writes. The bucket and the billing alarm need only
