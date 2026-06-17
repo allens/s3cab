@@ -97,16 +97,31 @@ export async function listRemoteNamespaces(bucket) {
 }
 
 /**
- * The latest remote snapshot name for a set, or undefined when it has none yet.
- * The manifest the `backup`/`status` diff starts from (specs/backup.md "How
- * `backup` computes the upload set", step 1).
+ * Read a set's latest remote manifest into a lookup for diffing — where the
+ * `backup`/`status` upload diff starts (specs/backup.md "How `backup` computes
+ * the upload set", step 1). Lists the set's remote snapshots, reads the newest,
+ * and returns its entries; a set with no remote snapshot yet (before its first
+ * backup) yields an **empty lookup**, so every target hash becomes a candidate.
+ *
+ * Returns just the lookup the diff needs, not the whole `SnapshotManifest`: the
+ * empty-when-none rule and the `.entries` extraction then live here once instead
+ * of being re-coded by each caller (`backup` and `status`, which must agree).
+ * `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
+ * directly.
+ *
+ * Callers must have loaded the set's env (`loadEnv({ set })`) first, so the S3
+ * client picks up the right bucket region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
- * @returns {Promise<string | undefined>}
+ * @returns {Promise<{ name: string | undefined, lookup: SnapshotLookup }>}
+ *   `name` = the latest remote snapshot's name (undefined if never backed up);
+ *   `lookup` = its entries (an empty Map for a first backup).
  */
-export async function latestRemoteSnapshot(bucket, namespace) {
-  const [latest] = await listRemoteSnapshots(bucket, namespace);
-  return latest;
+export async function readLatestRemoteSnapshot(bucket, namespace) {
+  const [name] = await listRemoteSnapshots(bucket, namespace);
+  if (!name) return { name: undefined, lookup: new Map() };
+  const manifest = await readRemoteSnapshot(bucket, namespace, name);
+  return { name, lookup: manifest.entries };
 }
 
 /**
@@ -304,12 +319,7 @@ export async function uploadSnapshot({
 }) {
   const target = await readSnapshot(snapshotDir, name);
 
-  const remoteName = await latestRemoteSnapshot(bucket, namespace);
-  let remote = new Map();
-  if (remoteName) {
-    const manifest = await readRemoteSnapshot(bucket, namespace, remoteName);
-    remote = manifest.entries;
-  }
+  const { lookup: remote } = await readLatestRemoteSnapshot(bucket, namespace);
 
   let candidates = uploadCandidates(target, remote);
   if (!skipCache) {
