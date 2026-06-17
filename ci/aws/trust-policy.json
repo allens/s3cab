@@ -10,7 +10,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:allens/s3cab:environment:s3-integration-tests"
+          "token.actions.githubusercontent.com:sub": "repo:allens/s3cab:pull_request"
         }
       }
     }
