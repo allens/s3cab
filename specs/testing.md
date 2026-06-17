@@ -28,9 +28,13 @@ _logic_ but **no new seams** — so the strategy won't be invalidated by them.
   **deterministic error injection** that real S3 won't produce on demand (mid-upload failure
   after objects land, truncated download, LIST mid-pagination). Mock at the `s3.mjs` seam —
   **our** boundary — so the test exercises our code, not AWS, and the wire-drift concern
-  doesn't apply. `node:test`'s `mock.module` / `mock.fn`, zero dependency. Run everywhere,
-  always — **including fork PRs** (no credentials, no container), so a fork contributor's
-  S3-path logic is still covered offline.
+  doesn't apply. `node:test`'s `mock.module` / `mock.fn`, zero dependency (`mock.module`
+  needs `--experimental-test-module-mocks`, now on the `test`/`test:coverage*` scripts;
+  first realized in `src/lib/objects.test.mjs` for the object store's cache + `getObject`
+  integrity check, mocking `createS3ReadStream`. One ordering rule it forces: import the
+  module-under-test *dynamically, after* the mock — a static import binds the real seam
+  first and the cached binding wins). Run everywhere, always — **including fork PRs** (no
+  credentials, no container), so a fork contributor's S3-path logic is still covered offline.
 - **Real-AWS integration / e2e** — the actual round-trips (backup→restore, listing, verified
   download, namespace discovery). The **truth layer**: only real S3 validates our
   _assumptions about S3_ (conditional-PUT / LIST / checksum semantics a mock would only
@@ -80,7 +84,9 @@ Each layer gets the mechanism that fakes the least.
 ### Gated suites that exist today
 
 - `src/lib/remote.test.mjs` — `remote snapshot listing`, `uploadSnapshot`,
-  `listRemoteNamespaces`, `downloadObject` (verified download).
+  `listRemoteNamespaces`. (`getObject`'s verified download is exercised offline by the
+  mocked-seam tests in `src/lib/objects.test.mjs`, and end-to-end by the restore round-trip
+  below.)
 - `src/commands/restore.test.mjs` — the **`backup → restore` round-trip** (set up → backup →
   wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`). The
   single most valuable integration test; **has never actually run** (no bucket wired yet) —

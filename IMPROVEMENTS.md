@@ -61,7 +61,7 @@ suspicions — check before believing.
   friendly output real.
 - **`tree`'s stdout is a JSON array**, but the README/CLAUDE.md pitch is
   `s3cab tree . > files.txt` capturing "just the file list" — a JSON array isn't
-  a file list. Line-per-path output (like `objects`) would match the promise.
+  a file list. Line-per-path output (like `hashes`) would match the promise.
 - Cosmetic: `withSnapshotFile` closes the fd twice (`await fd.close()` inside an
   `await using`); `putFile`'s skip path (`PreconditionFailed`) returns without
   terminating the stderr progress line.
@@ -80,7 +80,7 @@ suspicions — check before believing.
   perfect fit (#1/#2), gives free corruption detection on PUT, and gives
   `verify` a server-side primitive (HEAD checksum vs key) without downloading.
   Check S3-compatible-provider support (specs/s3-provider-compatibility.md).
-- **`objects` accumulates every hash in memory** then joins one giant string;
+- **`hashes` accumulates every hash in memory** then joins one giant string;
   stream lines out as pages arrive (a million-object bucket is plausible for a
   photo library).
 - **`emptyBucket` is uncalled, destructive, and deletes one object per request.**

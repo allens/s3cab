@@ -371,7 +371,7 @@ its own doc comment).
   routes large structures through `util.inspect`, which **truncates** (`… N more items`) —
   fatal for a backup tool whose whole job is "show me everything that changed". One uniform
   serializer also means no bespoke per-command printer to maintain (#6). The one deliberate
-  exception is `objects` (bare hash-per-line output — see its doc comment).
+  exception is `hashes` (bare hash-per-line output — see its doc comment).
 - **Stream discipline:** a command's _real output_ — results, `--version`, explicitly
   requested `--help` — goes to **stdout**; everything else — progress, warnings, usage
   shown as part of an _error_ — goes to **stderr**. So `s3cab tree . > files.txt` captures
@@ -393,7 +393,7 @@ its own doc comment).
 
 A command that needs a positional checks it itself (`requireArg()` →
 `ParseArgsError`). This is deliberate: the per-command functions are the **library
-surface**, so a direct caller of `objects(bucket)` must get the same guard a CLI user
+surface**, so a direct caller of `hashes(bucket)` must get the same guard a CLI user
 does — validation in the dispatcher would protect only the CLI path. A registry-driven
 scheme (the dispatcher inferring required-ness from the `args` keys) was considered and
 **rejected** for that reason, and because deriving required-ness by parsing
@@ -423,7 +423,12 @@ backup vocabulary over git/dev jargon:
   bidirectional *sync* connotation of `push`/`pull` — s3cab is one-directional archival.
 - The setup command is **`setup`, not `init`** (consumer vocabulary).
 - Calls weighed but *kept* as-is: `--remote` over `--cloud`, `verify` over `check`, and
-  the dev-flavoured plumbing/diagnostics `objects`/`upload`/`tree`/`prop` left alone.
+  the dev-flavoured plumbing/diagnostics `upload`/`tree`/`prop` left alone.
+- The object-store **lister is `hashes`, renamed from `objects`** (2026-06-17): the
+  `objects` name was wanted for the object-store module
+  ([src/lib/objects.mjs](src/lib/objects.mjs)), and `hashes` names what the command prints
+  (one sha256 per line) more honestly than the S3-flavoured `objects` — it's plumbing, so
+  the rename was cheap (pre-1.0, #8). Its write sibling `upload` reads fine and was kept.
 - `compare` takes **`--since` (older) / `--until` (newer) options, not positionals**: a
   leading defaultable `<dir>` positional would otherwise force `compare . <snap>`, and
   `--since` reads naturally, fixes the direction to old→new (like `diff`), and extends to
@@ -455,7 +460,7 @@ split. If `lib/` ever grows enough to cleave, extract a folder named for the sub
 The remote layout (`objects/<sha256>` + `snapshots/` at the **bucket root**, shown in the
 README) is fixed by convention, *not* an arbitrary prefix within a shared bucket — a fixed,
 well-known structure is what lets a tool (or a person) find everything by convention alone
-(#2). `objects` and `upload` already follow it; the snapshot-driven `backup` that populates
+(#2). `hashes` and `upload` already follow it; the snapshot-driven `backup` that populates
 `snapshots/` now does too (slice 3). The `snapshots/` half is designed (settled 2026-06)
 in [specs/backup.md](specs/backup.md) around **backup sets** — a named list of dirs as
 the unit of snapshot/backup/restore, configured at `~/.s3cab/sets/<name>/`, identity
@@ -466,11 +471,16 @@ runs **on sets** (slice 2, 2026-06): `snapshot`/`list`/`compare`/`tree` take `[<
 manifests live in `~/.s3cab/sets/<set>/snapshots/`, and the old per-dir `<dir>/.s3cab/`
 has retired entirely. The **cloud half is built** (slice 3, 2026-06, PR #39): the remote
 engine lives in [src/lib/remote.mjs](src/lib/remote.mjs) (the `snapshots/<namespace>/`
-layer — listing, manifest read, the `uploadCandidates` diff, the per-bucket objects cache
-`~/.s3cab/objects.<bucket>`, and the manifest-last `uploadSnapshot`), with `backup`,
-`status`, and `list --remote` on top; `s3.mjs` stays the generic SDK boundary (it never
-learns the layout). The **restore path is built** (slice 4, 2026-06, PR #44): `remote.mjs`
-gained the verified atomic `downloadObject` and `listRemoteNamespaces`, with
+layer — listing, manifest read, the `uploadCandidates` diff, and the manifest-last
+`uploadSnapshot`), with `backup`, `status`, and `list --remote` on top; `s3.mjs` stays the
+generic SDK boundary (it never learns the layout). The **object-store half (`objects/<sha256>`)
+is owned by [src/lib/objects.mjs](src/lib/objects.mjs)** — `putObject` / verified `getObject`
+/ `listObjectHashes` plus the per-bucket objects cache `~/.s3cab/objects.<bucket>`, the twin
+of remote.mjs's snapshots ownership (extracted 2026-06-17; the `objects/` literal had been
+scattered across `objects.mjs`/`upload.mjs`/`remote.mjs`, with the `objects` command renamed
+to `hashes` to free the name). The **restore path is built** (slice 4, 2026-06, PR #44): the
+verified atomic download (`objects.mjs`'s `getObject`) and `remote.mjs`'s
+`listRemoteNamespaces`, with
 [src/commands/restore.mjs](src/commands/restore.mjs) (restore to original paths,
 skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`, **plus `--output`
 re-rooting** via `reroot`) and `setup --from` adoption on top. `restore --output` is what
@@ -652,8 +662,10 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
 - **Test layout convention:** unit tests are **co-located** with their source as
   `*.test.mjs`; [test/](test/) holds cross-cutting tests (`e2e.test.mjs`), shared
   `fixtures/`, and shared `helpers/`. See [test/README.md](test/README.md). The runner is
-  pointed at an **explicit glob** — `node --test "src/**/*.test.mjs" "test/**/*.test.mjs"`
-  (the `test` script) — *not* default discovery, which would also run every `.mjs` under
+  pointed at an **explicit glob** — `node --test --experimental-test-module-mocks
+  "src/**/*.test.mjs" "test/**/*.test.mjs"` (the `test` script; the flag is for
+  `objects.test.mjs`'s `mock.module` — see the S3 strategy below) — *not* default
+  discovery, which would also run every `.mjs` under
   `test/`. That's what lets `test/helpers/` hold shared, importable helpers (e.g.
   [test/helpers/temp-home.mjs](test/helpers/temp-home.mjs)) without them executing as
   phantom empty tests. So a cross-cutting test helper goes in `test/helpers/`; scratch still
@@ -686,7 +698,13 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   credentials come from your `~/.aws` profile because the tests relocate only `S3CAB_HOME`,
   not `HOME`), the [`ci/aws/`](ci/aws/) artifacts + the ubuntu-only `s3-integration` job carry
   CI, and [doc/integration-testing.md](doc/integration-testing.md) is the setup guide; the
-  **R2 canary remains pending**. Worked example: the gated suites in
+  **R2 canary remains pending**. Worked examples: the **mocked-`s3.mjs`-seam** tests in
+  [src/lib/objects.test.mjs](src/lib/objects.test.mjs) — the object store's cache and
+  `getObject` integrity check (match / mismatch / temp-cleanup), run offline by mocking
+  `createS3ReadStream`; this is the repo's **first `mock.module`** use, which needs
+  `--experimental-test-module-mocks` (now on the `test`/`test:coverage*` scripts, and the
+  ordering rule it forced: the module under test is dynamically imported *after* the mock,
+  never statically, or the cached real binding wins). And the **gated real-AWS** suites in
   [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
@@ -723,7 +741,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
   cross-run remote-hash set). See
   [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
   slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
-  `remote.mjs`'s verified `downloadObject` + `listRemoteNamespaces`) and `setup --from`
+  the verified download — added then as `remote.mjs`'s `downloadObject`, since moved to
+  `objects.mjs` as `getObject` (2026-06-17) — plus `remote.mjs`'s `listRemoteNamespaces`)
+  and `setup --from`
   adoption; `restore --output` re-rooting followed (`reroot`, on `parseSnapshotStream` now
   surfacing the `#DIR`/`#SNAPSHOT` headers it used to drop). Remaining scaffold: `verify` is
   still an inline registry stub and `compare --remote` is wired but throws
