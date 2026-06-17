@@ -210,9 +210,10 @@ Environment — that was deleted with the approval gate). Source of truth: the
 - **What the bucket/role must allow:** IAM `Get/Put/List` **plus `Delete`** (teardown). On
   AWS, `putFile` sends SSE AES256 + intelligent-tiering; off a custom endpoint it drops those
   (`customEndpoint()` in `src/lib/s3.mjs`), so a plain bucket is fine.
-- **Credentials come from the _environment_, not `~/.aws`:** the gated tests call
-  `useTempHome` (redirects `HOME`/`USERPROFILE`), hiding any `~/.aws` profile. CI OIDC /
-  `AWS_*` env vars work; a local run needs `AWS_*` env vars set.
+- **Credentials resolve from your AWS config, not s3cab's own env:** the gated tests call
+  `useTempHome`, which relocates only `S3CAB_HOME` and leaves the OS `HOME` alone, so a
+  `~/.aws` profile / SSO session stays visible. CI authenticates via OIDC; a **local** run
+  uses your `~/.aws` profile — no raw `AWS_*` env vars needed (though setting them works too).
 - **CI creds mechanism:** **OIDC role** via `aws-actions/configure-aws-credentials` (no
   long-lived secrets — matches the repo's existing OIDC posture). The credentialed S3 job
   runs automatically on same-repo PRs; the trust policy's `:pull_request` scope (not an
