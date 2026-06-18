@@ -33,7 +33,7 @@
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info \"src/**/*.test.mjs\" \"test/**/*.test.mjs\"",
     "test:coverage:report": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-coverage-exclude=\"**/*.test.mjs\" --test-coverage-exclude=\"scripts/**\" \"src/**/*.test.mjs\" \"test/**/*.test.mjs\"",
-    "build": "esbuild src/s3cab.mjs --bundle --outdir=dist --platform=node --format=esm --external:aws-crt",
+    "build": "node build.mjs",
     "build:win": "npm run build && node --build-sea=sea/win-x64.json",
     "build:linux": "npm run build && node --build-sea=sea/linux-x64.json",
     "clean": "git clean -fdX",
