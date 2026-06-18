@@ -417,7 +417,11 @@ Pre-release housekeeping and open decisions surfaced from the code:
   *deleted*. The honest fix — an explicit `#ERROR` marker in the snapshot format, parsing
   errors back out on read, new classification rules, and an `errors` field on
   `CompareResult` — is a deliberate format/contract change for its own PR, launched from
-  the pinned tests.
+  the pinned tests. Since the grammar now lives in one module (PR #69), the *format* half
+  of that fix — an `errorLine` writer beside the other markers, and `parseSnapshotStream`
+  surfacing the error rows it currently skips — lands entirely in `snapshot-file.mjs`; the
+  new classification rules and the `errors` field on `CompareResult` remain the `compare.mjs`
+  half.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
