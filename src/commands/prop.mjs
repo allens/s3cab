@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import crypto, { createHash } from "node:crypto";
-import fs, { createReadStream, readFileSync } from "node:fs";
+import { createReadStream, lstatSync, readFileSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { requireArg } from "../lib/error.mjs";
 import { readSnapshotFile } from "../lib/snapshot-file.mjs";
@@ -95,19 +95,4 @@ export async function prop(path, options = {}) {
       .round("milliseconds")
       .total("seconds"),
   };
-}
-
-/** @type {{ path: string, stat: fs.Stats } | undefined} */
-let _lstatCache;
-
-/**
- * Cached lstatSync to avoid multiple fs.lstatSync calls for the same path.
- * @param {string} path - File path
- * @returns {fs.Stats} File stats
- */
-function lstatSync(path) {
-  if (!_lstatCache || _lstatCache.path !== path) {
-    _lstatCache = { path, stat: fs.lstatSync(path) };
-  }
-  return _lstatCache.stat;
 }

@@ -238,6 +238,19 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   test files across worker processes in parallel; collapsing to a single process loses
   that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
   debugging shared state — just not a speedup.
+- **Watch for per-file overhead in the walk/snapshot hot path — small costs mount up over
+  thousands of files.** A second `lstat`/`stat`/read on each file is invisible on one file
+  and dominant on a backup set of tens of thousands. When you find one, the fix is to
+  **thread the data you already have through the pipeline** — the `Dirent` from
+  `readdirSync(…, { withFileTypes: true })` already carries the file type, and `prop` already
+  takes one `stat` it reads `isFile`/`size`/`mtime` off — *not* a hidden module-level cache.
+  A cache keyed on "the last path" is invisible to the type checker, makes a pure function
+  order-dependent, and silently rots into dead code the day the redundant call it guarded
+  goes away. (Worked example: `prop.mjs`'s `_lstatCache` was added when *multiple* `prop`
+  calls hit each file; once the pipeline settled to one `prop` per file — single call site,
+  one `lstat` each — the cache could never hit, yet sat there looking load-bearing. Removed
+  2026-06-18 after a static-call-graph check confirmed it was dead. Keep the saving *in the
+  interface*, where it's visible and the compiler can see it rot.)
 
 ---
 
