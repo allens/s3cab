@@ -15,9 +15,11 @@ import { remoteSnapshotsPrefix } from "../lib/remote.mjs";
 import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
-import { reroot, restore, selectEntries } from "./restore.mjs";
+import { planRestore, reroot, restore, selectEntries } from "./restore.mjs";
 import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
+
+/** @import { SnapshotLookup } from "../lib/snapshot-file.mjs" */
 
 // `selectEntries` is the pure path-filter selector behind `restore [paths…]`.
 // Paths are written with forward slashes: on POSIX they are native, and on
@@ -162,6 +164,120 @@ describe("reroot", () => {
   it("rejects a path that lies under no member root", () => {
     const map = reroot(["/home/me/Photos"], "out");
     assert.throws(() => map("/etc/passwd"), /not under any backed-up folder/);
+  });
+});
+
+// `planRestore` is the pure decision step behind the restore loop: for each
+// target it decides skip / fetch / copy-from-an-earlier-fetch, with no disk or
+// network access — `exists` is injected so these run with a fake filesystem.
+describe("planRestore", () => {
+  const destFor = (/** @type {string} */ source) => source;
+  /** @type {SnapshotLookup} */
+  const manifest = new Map([
+    ["/a.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
+    ["/b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }], // same content as a.jpg
+    ["/c.jpg", { hash: "h2", mtime: "2026-01-02T00:00Z", size: 2 }],
+  ]);
+
+  it("fetches the first occurrence of a hash", () => {
+    const plan = planRestore(manifest, ["/a.jpg"], destFor, {
+      exists: () => false,
+    });
+    assert.deepEqual(plan, [
+      {
+        dest: "/a.jpg",
+        action: "fetch",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+      },
+    ]);
+  });
+
+  it("copies a later occurrence of the same hash from the first fetch's destination", () => {
+    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+      exists: () => false,
+    });
+    assert.deepEqual(plan, [
+      {
+        dest: "/a.jpg",
+        action: "fetch",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+      },
+      {
+        dest: "/b.jpg",
+        action: "copy",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+        from: "/a.jpg",
+      },
+    ]);
+  });
+
+  it("skips a target whose destination already exists", () => {
+    const plan = planRestore(manifest, ["/a.jpg"], destFor, {
+      exists: (dest) => dest === "/a.jpg",
+    });
+    assert.deepEqual(plan, [{ dest: "/a.jpg", action: "skip" }]);
+  });
+
+  it("overwrite bypasses the skip but doesn't disable dedupe", () => {
+    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+      exists: (dest) => dest === "/a.jpg",
+      overwrite: true,
+    });
+    assert.deepEqual(plan, [
+      {
+        dest: "/a.jpg",
+        action: "fetch",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+      },
+      {
+        dest: "/b.jpg",
+        action: "copy",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+        from: "/a.jpg",
+      },
+    ]);
+  });
+
+  it("a skipped entry never seeds the dedupe — a later same-hash target still fetches", () => {
+    // a.jpg is skipped (pre-existing, unverified content), so b.jpg — same
+    // hash — must not be told to copy from it.
+    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+      exists: (dest) => dest === "/a.jpg",
+    });
+    assert.deepEqual(plan, [
+      { dest: "/a.jpg", action: "skip" },
+      {
+        dest: "/b.jpg",
+        action: "fetch",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+      },
+    ]);
+  });
+
+  it("different hashes never dedupe against each other", () => {
+    const plan = planRestore(manifest, ["/a.jpg", "/c.jpg"], destFor, {
+      exists: () => false,
+    });
+    assert.deepEqual(plan, [
+      {
+        dest: "/a.jpg",
+        action: "fetch",
+        hash: "h1",
+        mtime: "2026-01-01T00:00Z",
+      },
+      {
+        dest: "/c.jpg",
+        action: "fetch",
+        hash: "h2",
+        mtime: "2026-01-02T00:00Z",
+      },
+    ]);
   });
 });
 
