@@ -5,8 +5,8 @@ import { createZstdDecompress } from "node:zlib";
 import { secondsSince } from "../lib/format.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import {
-  formatSnapshotLine,
   readSnapshot,
+  snapshotHeader,
   stringifySnapshot,
   withSnapshotFile,
 } from "../lib/snapshot-file.mjs";
@@ -57,19 +57,10 @@ export async function snapshot(setName, options = {}) {
     snapshotDir,
     newSnapshotName,
     async (writeStream) => {
-      writeStream.write(
-        formatSnapshotLine(
-          "#SNAPSHOT",
-          "",
-          Temporal.Now.plainDateTimeISO().toString({
-            smallestUnit: "minutes",
-          }),
-          identity,
-        ),
-      );
-      for (const dir of set.dirs) {
-        writeStream.write(formatSnapshotLine("#DIR", "", "", dir));
-      }
+      const datetime = Temporal.Now.plainDateTimeISO().toString({
+        smallestUnit: "minutes",
+      });
+      writeStream.write(snapshotHeader({ datetime, identity, dirs: set.dirs }));
 
       const files = walkSet(set, writeStream);
 

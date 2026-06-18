@@ -4,7 +4,7 @@ import { stderr } from "node:process";
 import { secondsSince } from "../lib/format.mjs";
 import { readLines } from "../lib/read-lines.mjs";
 import { resolveSet, setExcludePath } from "../lib/sets.mjs";
-import { formatSnapshotLine } from "../lib/snapshot-file.mjs";
+import { excludedLine } from "../lib/snapshot-file.mjs";
 
 /**
  * @import { Writable } from "node:stream"
@@ -121,19 +121,12 @@ function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
       const match = matchers.find(({ matcher }) => matcher.test(testString));
 
       if (match) {
-        snapshotWriteStream?.write(
-          formatSnapshotLine("#EXCLUDED", fileType, match.pattern, path),
-        );
+        snapshotWriteStream?.write(excludedLine(fileType, match.pattern, path));
         return null;
       }
     } else {
       snapshotWriteStream?.write(
-        formatSnapshotLine(
-          "#EXCLUDED",
-          fileType,
-          "Unsupported file type",
-          path,
-        ),
+        excludedLine(fileType, "Unsupported file type", path),
       );
     }
 

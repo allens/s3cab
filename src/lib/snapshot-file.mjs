@@ -6,7 +6,6 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { prop } from "../commands/prop.mjs";
 import { secondsSince } from "./format.mjs";
 
 // Snapshot file format:
@@ -24,13 +23,21 @@ import { secondsSince } from "./format.mjs";
 // hash: SHA-256 hash of the file content in lowercase hex encoding
 // mtime: modification time in ISO 8601 format
 // size: size of the file in bytes (right-aligned)
-// For comment lines the fields are:
-// #comment<TAB>context<TAB>dirent_type<TAB>path
-// A snapshot file opens with two header comment lines (written by `snapshot`):
+// For #EXCLUDED comment lines the fields are (col2/col3 as `excludedLine` writes them):
+// #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path
+// A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a snapshot file is self-describing even found alone (specs/backup.md). Comment
-// lines are skipped on read.
+// so a snapshot file is self-describing even found alone (specs/backup.md). The
+// walk also writes `#EXCLUDED` rows (via `excludedLine`). Comment lines other
+// than the `#SNAPSHOT`/`#DIR` headers are skipped on read.
+
+// The comment markers heading the grammar's non-file lines — shared by the
+// writers (`snapshotHeader`/`excludedLine`) and `parseSnapshotStream`, so the
+// literal strings live in exactly one place.
+const SNAPSHOT = "#SNAPSHOT";
+const DIR = "#DIR";
+const EXCLUDED = "#EXCLUDED";
 
 /** @typedef {import("../commands/prop.mjs").Props} Props */
 /** @typedef {[string, Props | Error]} SnapshotRow */
@@ -211,11 +218,11 @@ export async function parseSnapshotStream(input) {
     const [hash, size, mtime, path] = line.split("\t").map((s) => s.trim());
 
     if (hash?.startsWith("#")) {
-      // Header comments carry the path in the last column (see formatSnapshotLine
-      // calls in snapshot.mjs): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>
+      // Header comments carry the path in the last column (written by
+      // `snapshotHeader`): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>
       // datetime<TAB>identity`.
-      if (hash === "#DIR" && path) dirs.push(path);
-      else if (hash === "#SNAPSHOT" && path) identity = path;
+      if (hash === DIR && path) dirs.push(path);
+      else if (hash === SNAPSHOT && path) identity = path;
       continue;
     }
 
@@ -240,51 +247,59 @@ export async function parseSnapshotStream(input) {
 export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
     if (Error.isError(props)) {
-      yield formatSnapshotLine("#" + props.message, "", "", path);
+      yield formatLine("#" + props.message, "", "", path);
       continue;
     }
-    yield formatSnapshotLine(props.hash, props.size, props.mtime, path);
+    yield formatLine(props.hash, props.size, props.mtime, path);
   }
 }
 
 /**
- * Format a snapshot line.
- * @param {string} col1 - First column (hash)
+ * Format one TSV line at the fixed column widths — the private padder every
+ * writer below shares: col1 64-wide (hash or `#`-marker), col2 10-wide
+ * right-aligned (size), col3 24-wide (mtime/datetime), then the path. Internal
+ * to the grammar; callers reach it through the semantic writers and never spell
+ * a line by hand.
+ * @param {string} col1 - First column (hash or `#`-marker)
  * @param {string|number} col2 - Second column (size)
- * @param {string} col3 - Third column (mtime)
+ * @param {string} col3 - Third column (mtime/datetime)
  * @param {string} col4 - Fourth column (path)
  * @returns {string} Formatted snapshot line
  */
-export function formatSnapshotLine(col1, col2, col3, col4) {
+function formatLine(col1, col2, col3, col4) {
   col1 = col1.toString().padEnd(64);
   col2 = col2.toString().padStart(10);
   col3 = col3.padEnd(24);
   return `${col1}\t${col2}\t${col3}\t${col4}\n`;
 }
+
 /**
- * Write a snapshot of the given files into `snapshotDir`, in the same
- * `.tsv.zst` form real snapshots take (so a snapshot lister sees it when the
- * name is datestamped). File paths are stored absolute, resolved against
- * `base` (defaulting to `snapshotDir` — handy for tests that store snapshots
- * alongside the files they describe). Used by tests and `restore` fixtures.
- * @param {string} snapshotDir
- * @param {string} name
- * @param {Array<string|File>} files
- * @param {string} [base] - Root the file paths resolve against (default: `snapshotDir`)
- * @returns {Promise<string>} path to written snapshot file
+ * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
+ * snapshot's datetime and identity, then one `#DIR` line per member directory —
+ * the preamble that makes a snapshot self-describing even found alone
+ * (specs/backup.md). Returns the whole block for the caller to write; the
+ * `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
+ * `parseSnapshotStream` that reads them back.
+ * @param {object} header
+ * @param {string} header.datetime - Snapshot datetime (minute precision)
+ * @param {string} header.identity - The pinned `user@machine:set` identity
+ * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
+ * @returns {string}
  */
-export async function writeSnapshot(
-  snapshotDir,
-  name,
-  files,
-  base = snapshotDir,
-) {
-  const snapshot = new Map();
-  for (const file of files) {
-    const path = typeof file === "string" ? file : file.name;
-    snapshot.set(resolve(base, path), await prop(file));
-  }
-  return withSnapshotFile(snapshotDir, name, (stream) =>
-    pipeline(stringifySnapshot(snapshot), stream),
-  );
+export function snapshotHeader({ datetime, identity, dirs }) {
+  let out = formatLine(SNAPSHOT, "", datetime, identity);
+  for (const dir of dirs) out += formatLine(DIR, "", "", dir);
+  return out;
 }
+
+/**
+ * An `#EXCLUDED` row: a file or directory the walk skipped, recorded in the
+ * snapshot for transparency and skipped on read. `reason` is the matching
+ * exclude pattern, or why the entry was skipped (e.g. an unsupported file type).
+ * @param {string} fileType - The dirent type (File, Directory, …)
+ * @param {string} reason - The matching exclude pattern, or the skip reason
+ * @param {string} path - The excluded path
+ * @returns {string}
+ */
+export const excludedLine = (fileType, reason, path) =>
+  formatLine(EXCLUDED, fileType, reason, path);

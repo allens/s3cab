@@ -4,7 +4,8 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { deleteObject, listObjects } from "./s3.mjs";
-import { readSnapshot, writeSnapshot } from "./snapshot-file.mjs";
+import { readSnapshot } from "./snapshot-file.mjs";
+import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import {
   listRemoteNamespaces,
   listRemoteSnapshots,

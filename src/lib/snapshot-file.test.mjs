@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { parseSnapshotStream } from "./snapshot-file.mjs";
+import { parseSnapshotStream, snapshotHeader } from "./snapshot-file.mjs";
 
 // `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
 // turns a decompressed TSV stream into `{ entries, dirs, identity }` — the file
@@ -39,6 +39,26 @@ describe("parseSnapshotStream", () => {
       size: 34,
       mtime: "2026-06-02T08:30:00.000Z",
     });
+  });
+
+  it("round-trips the headers snapshotHeader writes", async () => {
+    // Pins both sides of the header grammar in one place: what snapshotHeader
+    // emits, parseSnapshotStream must read back unchanged.
+    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
+    const {
+      entries,
+      dirs: parsedDirs,
+      identity,
+    } = await parse(
+      snapshotHeader({
+        datetime: "2026-06-18T22:04",
+        identity: "allen@allen-pc:photos",
+        dirs,
+      }),
+    );
+    assert.equal(identity, "allen@allen-pc:photos");
+    assert.deepEqual(parsedDirs, dirs);
+    assert.equal(entries.size, 0);
   });
 
   it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
