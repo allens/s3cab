@@ -276,5 +276,6 @@ Macs too.
 ---
 
 _Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) to get started (it links the
-[CLA](CLA.md)), and [CLAUDE.md](CLAUDE.md) for architecture, design philosophy, and
-conventions._
+[CLA](CLA.md)); [CLAUDE.md](CLAUDE.md) for working conventions and architecture orientation,
+[docs/adr/](docs/adr/) for the design decisions, and [CONTEXT.md](CONTEXT.md) for the
+vocabulary._

@@ -68,9 +68,11 @@ Match the auth model to what the ecosystem offers:
   and ultimately **dropped** (2026-06): the AWS CLI owns interactive sign-in, and s3cab reads
   the resulting session through the standard chain.
 
-This answered the CLAUDE.md open question ("undecided whether s3cab keeps a bespoke SSO flow
-or leans on the standard chain"): the bespoke SSO flow was pure AWS-CLI-replacement
-convenience, independent of provider-agnostic support. Tier 1 won; Tier 2 was removed.
+This answered what was then an open question ("undecided whether s3cab keeps a bespoke SSO flow
+or leans on the standard chain"), now settled in
+[ADR-0015](../docs/adr/0015-standard-aws-credential-chain.md): the bespoke SSO flow was pure
+AWS-CLI-replacement convenience, independent of provider-agnostic support. Tier 1 won; Tier 2
+was removed.
 
 ## Finding 3 — Refinement checklist (apply *after* the AWS auth work lands)
 
@@ -81,7 +83,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    ([../src/lib/s3.mjs](../src/lib/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
    (honouring SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`) and passes it as
    `endpoint`; its presence is the single "not AWS" signal driving the gating below. We did
-   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var (CLAUDE.md #5/#6); a
+   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) / [ADR-0006](../docs/adr/0006-minimal-code.md)); a
    friendlier per-destination endpoint UX belongs to the `setup` command (a stub today).
 
 2. **Gate AWS-only upload options.** ✅ **Done.** `putFile` now omits

@@ -63,3 +63,4 @@ snapshot-log.tsv
 tree.txt
 snapshot.txt
 objects.txt
+.agents/skills/*

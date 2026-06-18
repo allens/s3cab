@@ -1,14 +1,35 @@
 # CLAUDE.md
 
-Architecture, design philosophy, and conventions for **s3cab**. This file is for
-contributors and for AI assistants working in the codebase — it documents the _why_
-behind decisions, not how to use the tool. User-facing documentation lives in
-[README.md](README.md).
+Working rules and orientation for **s3cab**, for contributors and AI assistants. This file
+documents how to *work* in the codebase. The knowledge it used to lump together now lives in
+purpose-built homes — see the map below.
 
-### Documentation discipline (applies to this file and the README)
+## Where knowledge lives
+
+| What | Where | Notes |
+| --- | --- | --- |
+| **Domain vocabulary** (the ubiquitous language) | [CONTEXT.md](CONTEXT.md) | Glossary only — canonical term + definition + `_Avoid_` synonyms. |
+| **Architecture / design decisions** (the *why*, "don't re-litigate") | [docs/adr/](docs/adr/) | One numbered ADR per decision; [docs/adr/README.md](docs/adr/README.md) indexes them. |
+| **Fuller designs & specs** | [specs/](specs/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. |
+| **User-facing docs** | [README.md](README.md), [doc/](doc/) | What it is, install/usage, user reference (`doc/exclude.md`, `doc/compare.md`). `doc/` ships in the npm tarball. |
+| **Pre-release brainstorm** | [IMPROVEMENTS.md](IMPROVEMENTS.md) | Raw, uncommitted ideas — not a plan of record. |
+| **How to work here** (AI/contributor rules) | this file | Working conventions, coding conventions, architecture orientation, known gaps. |
+
+The seven foundational design principles were once numbered `#1`–`#7` here; they are now
+[ADR-0001](docs/adr/0001-file-level-content-addressable-dedup.md) through
+[ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md). Old `#N` references in code comments and
+specs map straight across (`#1 → 0001`, … `#7 → 0007`); the full map is in
+[docs/adr/README.md](docs/adr/README.md).
+
+> **The skills convention this layout follows** (`.agents/skills/domain-modeling/`): glossary →
+> `CONTEXT.md`, decisions → `docs/adr/`. The `improve-codebase-architecture`, `codebase-design`,
+> and `grill-with-docs` skills read these; keep them current as the model and decisions evolve.
+
+### Documentation discipline (applies to every doc here)
 
 Two standing rules govern the docs. They matter because **transparency is a core project
-value** (see #2, no lock-in): docs that lie about behaviour undermine the whole premise.
+value** (see [ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md), no lock-in): docs that
+lie about behaviour undermine the whole premise.
 
 1. **Keep docs rigorously in sync with the code — never aspirational or stale.** Before
    writing a claim, verify it against the actual code. Always distinguish what is **built
@@ -16,19 +37,11 @@ value** (see #2, no lock-in): docs that lie about behaviour undermine the whole 
    target; the code in `src/` is what works now). Flag drift you
    notice — stale comments, `package.json` paths to non-existent files, etc.; the "Known
    gaps & cleanup items" section is the running list.
-2. **CLAUDE.md carries only what is _not_ trivially knowable from the code** — the
-   non-obvious _why_. Do **not** restate `package.json` scripts, or build/test/lint
-   commands, or anything a contributor could derive by reading the source. Developer
-   setup instructions, if wanted, belong in the README (or a dedicated dev doc), not here.
-
-The split itself: **README.md** and **[doc/](doc/)** are user-facing (what it is, why,
-status, commands, install/usage, user-level reference like `doc/exclude.md` — examples use
-Windows paths, the primary target; note `doc/` ships to users in the npm tarball).
-**CLAUDE.md** is for contributors/AI (the design philosophy below, architecture decisions,
-conventions, and the pre-release TODO list). User docs describe the *contract*, not the
-internals — e.g. `doc/exclude.md` says which separators you may write in a pattern, while
-the normalize-to-`/` matching machinery is documented where it lives, in
-`src/commands/tree.mjs`.
+2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable
+   from the code.** Don't restate `package.json` scripts or build/test/lint commands. The
+   split: vocabulary → CONTEXT.md; the non-obvious *why* of a decision → an ADR; fuller
+   design → specs/; the user *contract* → README/doc/; how to work in the repo → this file.
+   Developer setup, if wanted, belongs in the README, not here.
 
 **Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
 the website/repo docs (README, `doc/` — eventually a proper website) carry everything
@@ -37,12 +50,13 @@ format); the built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
 `src/help.mjs`) carry only what a user needs *mid-task in a terminal*. The placement test:
 *"would someone need this mid-task, without reaching for a browser?"* Exclude-pattern
 rules pass (you're editing `exclude.txt` in a shell); the repository format fails (reading
-it is a sit-down activity — and per #2 the format is self-evident from the stored files
-themselves; its docs just save the recoverer time, so online-only is fine). Each help
-topic ends with a link to its fuller online guide; the overlap this leaves (e.g. the glob
-token table appears in both `helpTopics.exclude` and `doc/exclude.md`) is accepted —
-small, and both copies change together with the matcher — rather than papered over with
-generation/sync machinery (#6).
+it is a sit-down activity — and per [ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)
+the format is self-evident from the stored files themselves; its docs just save the recoverer
+time, so online-only is fine). Each help topic ends with a link to its fuller online guide;
+the overlap this leaves (e.g. the glob token table appears in both `helpTopics.exclude` and
+`doc/exclude.md`) is accepted — small, and both copies change together with the matcher —
+rather than papered over with generation/sync machinery
+([ADR-0006](docs/adr/0006-minimal-code.md)).
 
 ### Working conventions (for AI assistants)
 
@@ -67,9 +81,11 @@ rather than assuming it is fixed forever.
    changes to `.claude/settings.json`, fold them in rather than setting them aside as
    unrelated — they need no separate sign-off. Validate via the `update-config` skill first,
    and keep it as its own `chore:` commit so it reads cleanly apart from the feature change.
-4. **After non-trivial work, update CLAUDE.md / README.md** so what you learned is shared at
-   the project level (this section exists because that wasn't being done for these very
-   rules). A cross-machine rule belongs in source, never only in local memory.
+4. **After non-trivial work, update the docs** so what you learned is shared at the project
+   level (this section exists because that wasn't being done for these very rules). Put it in
+   the right home (see the map above): a design decision → an ADR; vocabulary → CONTEXT.md; a
+   working/coding rule → this file. A cross-machine rule belongs in source, never only in
+   local memory.
 5. **Refactors and minor chores may ride along with a feature** — the user is relaxed about
    this; a one-feature commit/PR carrying a small refactor, a settings.json tweak (point 3),
    or a doc fix needn't be split into its own PR. Don't over-engineer separation. (Still
@@ -85,12 +101,12 @@ rather than assuming it is fixed forever.
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
 8. **Do not over-engineer.** A standing edict from the user (2026-06-12), the process-level
-   twin of design principle #6: build the small thing the current need justifies, and
-   generalize only when the second case actually appears — the same later-when-needed bar
-   as function extraction and module promotion. (Worked example: `isENOENT` in
-   `src/lib/error.mjs` was added once the check had four call sites, and shaped as the
-   specific predicate rather than a generic `isErrnoCode(error, code)` — no second error
-   code needed it.) **This forbids _speculative_ structure, not _justified_ refactoring**
+   twin of [ADR-0006](docs/adr/0006-minimal-code.md): build the small thing the current need
+   justifies, and generalize only when the second case actually appears — the same
+   later-when-needed bar as function extraction and module promotion. (Worked example:
+   `isENOENT` in `src/lib/error.mjs` was added once the check had four call sites, and shaped
+   as the specific predicate rather than a generic `isErrnoCode(error, code)` — no second
+   error code needed it.) **This forbids _speculative_ structure, not _justified_ refactoring**
    (clarified by the user 2026-06-14): when restructuring existing code genuinely improves it
    — clearer separation, or making a real behaviour testable — don't shy off it out of
    minimalism, even a sizable refactor. Right-sizing cuts both ways: as small as the need
@@ -133,20 +149,13 @@ rather than assuming it is fixed forever.
     PR. Branch before the first step's commit (or move the commits onto a branch and reset
     `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
     slice's first four steps onto local `main` before the user asked for it to be a PR.)
-12. **Test coverage is judged by review, not a percentage gate.** Good, *asserting* tests
-    for new or changed behaviour are a per-PR obligation, checked by **reading the diff** —
-    the `/review` skill's Standards axis, and Copilot code review via
+12. **Test coverage is judged by review, not a percentage gate**
+    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). Good, *asserting* tests for new
+    or changed behaviour are a per-PR obligation, checked by **reading the diff** — the
+    `/review` skill's Standards axis, and Copilot code review via
     [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
-    threshold. CI still **emits** the coverage number (the `lint` job's
-    `test:coverage:report` step), but it is advisory debug output and never fails the build
-    due to coverage thresholds (test failures still fail). When you add or change behaviour,
-    add a test that makes a real assertion about the *result*, not one that merely executes
-    the line; if coverage visibly drops, either
-    exercised only by the bucket-gated S3 suite). (Recorded 2026-06-16: the numeric gate was
-    demoted from a hard CI gate to advisory output because a percentage measures execution,
-    not verification — it rewards assertion-free "coverage theatre" — whereas a reviewer
-    reading the diff catches the quality the number is blind to. The floor's one real job,
-    catching *silent* erosion, is subsumed by the review step now that every PR is reviewed.)
+    threshold. When you add or change behaviour, add a test that makes a real assertion about
+    the *result*, not one that merely executes the line.
 13. **Isolate substantive concurrent work in a git worktree — but only when it earns one.**
     Multiple sessions share *one* working tree, so uncommitted edits from
     one session are visible to the others; convention #2 (path-scoped `git add`) manages that by
@@ -160,484 +169,14 @@ rather than assuming it is fixed forever.
     `EnterWorktree`/`ExitWorktree` in-session — so the mechanics are cheap. (Recorded 2026-06-16
     after weighing an "always worktree before editing" rule and scoping it to substantive work.)
 
----
+### Coding conventions
 
-## What this project is
+How to write code that looks like the rest of the codebase. (These are *style* rules; the
+*decisions* about tooling — LF endings, Prettier-code-only, dependency policy — are ADRs
+[0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
+[0005](docs/adr/0005-builtins-over-dependencies.md),
+[0018](docs/adr/0018-dependabot-not-renovate.md).)
 
-**s3cab** = **S3 C**ontent **A**ddressable **B**ackup. [README.md](README.md) covers what
-it is, why, what works today, and what's coming — not repeated here. Treat the README's
-S3/backup descriptions as the _target_; treat `src/` as _what works now_. Two notes the
-README and code don't carry:
-
-- **Scratch and throwaway experiments go in [scripts/](scripts/)** — never a parked sandbox
-  under `src/` (the old `src/_poc/` folder is retired) and never under `test/` (see the
-  test-layout convention below).
-- **A bespoke SSO `login` command was built and deliberately removed** (2026-06), along with
-  its `credential-process` companion and the `~/.s3cab/auth.json` session cache — see the
-  History note in [specs/auth.md](specs/auth.md) for the full rationale. **Don't rebuild
-  it:** interactive sign-in is the AWS CLI's job; s3cab consumes the session via the
-  standard credential chain. The planned alternative for long-lived keys (the real gap,
-  mainly non-AWS providers) is an optional **OS secure-storage** layer (DPAPI / Keychain /
-  libsecret — likely via OS CLIs, no native dep, per #5), slotting into `resolveCredentials`
-  as another source.
-
-### Licensing & contributions (decided 2026-06-13 — don't re-litigate casually)
-
-- **GPL-3.0-or-later, chosen on purpose to keep derivatives open.** The deciding question
-  was "is a *distributed* closed-source proprietary fork acceptable?" — answer: no. GPL's
-  copyleft requires anyone who distributes a modified s3cab to release their source, so a
-  shipped closed fork isn't permitted (it doesn't restrain purely private, undistributed
-  changes; stronger network copyleft like AGPL exists, but plain GPL fits a local CLI). That
-  aligns with the project's anti-black-box ethos (design #2/#6). Apache/MIT were weighed and
-  rejected *because* they permit closed-source forks. Note GPL **v3** specifically: it's
-  one-way compatible with the AWS SDK's Apache-2.0 (GPL-2.0 would not be). The LICENSE file
-  is the verbatim FSF text — leave it untouched.
-- **Contributions take a CLA, not a DCO — to preserve a future dual-licensing option.** The
-  user may ("maybe someday") want to offer s3cab under commercial terms alongside the GPL.
-  That only works if the project holds a broad enough licence to *all* contributions, which
-  a DCO (`Signed-off-by`) does **not** grant — only a CLA does. The CLA is
-  [CLA.md](CLA.md) (Project Harmony HA-CLA-I v1.0, "any-licence" outbound variant); the
-  onboarding flow and one-comment sign-off live in [CONTRIBUTING.md](CONTRIBUTING.md). Every
-  contribution still stays GPL for everyone regardless — the CLA only adds the relicensing
-  headroom. Enforcement is deliberately manual (a PR comment) until volume justifies a
-  CLA-assistant Action — same "wait for the second case" bar as code (#8).
-- **The cheap moment was while solo-authored.** Set up *before* the first external PR, while
-  the user still held 100% of the copyright; after merging an outside contribution under
-  plain GPL, relicensing headroom would have been lost. Recorded here so the rationale
-  survives across machines (convention #4), not just in local memory.
-
----
-
-## Design philosophy
-
-These principles are the heart of the project. When a decision is unclear, decide in
-favour of these — especially #2, which the others serve.
-
-### 1. Content-addressable, at the file level
-
-Dedup by the **SHA-256 of whole-file contents**. Identical content — anywhere, under
-any name — is stored once. Moving a folder of videos, or backing up duplicate files,
-costs no extra storage.
-
-Dedup is deliberately **file-level only**. No sub-file/block packing, no chunking, no
-delta encoding. Yes, that means a one-byte change to a large file produces a wholly new
-object, and it forgoes some space savings. That cost is **accepted on purpose**: block
-packing would make the stored format opaque and break easy recovery (see #2). The big
-wins (moved/duplicate files) come from file-level hashing anyway, and the largest files
-(video, photos) rarely change in place.
-
-**Why SHA-256:** ubiquitously available in every language/runtime/CLI (`sha256sum`,
-`openssl`, `certutil`, Node's `crypto`), fast enough that I/O — not hashing — is the
-bottleneck, and collision-resistant with an intact security margin. (Note: SHA-1 — what
-Git historically uses — is _not_ a good choice here; collision attacks against it are
-real, and in a content-addressable store a collision means silent data loss.)
-
-### 2. No lock-in (hard constraint)
-
-The single most important principle. **If s3cab disappeared tomorrow, a competent
-person should be able to recover their data by hand, or write a replacement tool in an
-afternoon.** Snapshot manifests and the object store use plain, self-evident formats.
-Recoverability is a first-class feature, designed in on purpose — not an afterthought.
-
-This is a **hard constraint, not a preference.** Reject any feature that meaningfully
-harms hand-recoverability, even if it saves space or time. (This is exactly why
-file-level-only dedup is chosen over block packing.)
-
-### 3. Embrace modern _open_ tech
-
-Target the newest OS, runtime, and language features deliberately — _provided they are
-standard and open_. Modern ≠ proprietary. The project happily requires recent tech
-(see `engines.node`), but only open, widely-implemented tech.
-
-Worked examples:
-
-- **zstd** — an open standard, native in Node and in Windows 11 (not Win10 out of the
-  box). Chosen for snapshot compression after testing several algorithms; best
-  speed/ratio balance.
-- **Node 26+** — for native built-ins that remove the need for dependencies (see #5).
-
-### 4. TSV snapshot manifests
-
-Snapshots are tab-separated values. This flows directly from #2. (The format spec lives
-at the top of [src/lib/snapshot-file.mjs](src/lib/snapshot-file.mjs); the README shows the
-user-visible layout.) The reasoning:
-
-- **Editor-readable.** Fixed-width leading columns scan cleanly even unaligned —
-  fixed-width fields first (`hash` → `size` → `mtime`), variable-length `path` **last**,
-  so the left edge stays aligned and the ragged part is pushed right.
-- **Opens cleanly in Excel** (treated as an "open enough" standard) → instant
-  sort/filter/pivot over a backup manifest. (Caveat: don't let Excel re-save and mangle
-  it.)
-- **TSV > CSV > JSON** for this job: tabs almost never occur in real paths, so we avoid
-  CSV's comma-quoting _and_ JSON's escaping — notably JSON would force escaping every
-  Windows backslash (`C:\\Users\\...`). Less escaping = more directly recoverable.
-- **Hashes are lowercase hex, not base64url.** Base64url was an abandoned space-saving
-  experiment (43 chars vs 64) — dropped because the gain is negligible once the manifest
-  is zstd-compressed, and hex is more recognizable and hand-recoverable, per #2.
-
-> **Edge case to handle before release:** a path containing a literal tab or newline
-> would break a manifest line. Needs a documented rule (reject / encode / comment).
-
-### 5. Built-ins over dependencies (high bar for libraries)
-
-Prefer Node/JS built-ins. The bar to add a third-party dependency is high, and applies
-to **runtime deps, CLI ergonomics, and dev tooling** alike:
-
-- Arg parsing → Node's `node:util` **`parseArgs`**, _not_ commander.
-- Terminal output → plain ANSI / `process.stderr`, _not_ chalk.
-- Tests → Node's built-in **`node:test`** runner, _not_ Jest (especially) or Vitest.
-  This is a deliberate choice; contributors should **not** introduce a test framework.
-
-**Permitted runtime dependencies are exactly two kinds:**
-
-1. **Genuinely too big to hand-craft** → the **AWS SDK** (SigV4, multipart, the credential
-   chain). This is _the_ sanctioned exception; reimplementing it by hand would be absurd.
-2. **Polyfills of actual standards**, accepted _temporarily_, removed the moment the
-   native version ships. Filling a standards gap is fine; reaching for a convenience lib
-   is not. There are currently **none**: `@js-temporal/polyfill` was the worked example,
-   and it was duly dropped once native `Temporal` landed in the target Node (≥26.3.0) —
-   `Temporal` is now used as a global. The AWS SDK is therefore the only runtime dep.
-
-**Dev dependencies get a more relaxed bar** — they never ship to users and don't affect
-recoverability. The notable one is **esbuild**, used only to bundle the ESM source into
-a single ESM file for native-executable packaging (see Build). Even here
-the same instinct applies: it exists to bridge a gap (SEA needs one standalone file),
-and Node's growing native capabilities may remove the need for it over time.
-
-### 6. Minimal, simple code
-
-Code should be as **small and low-surface-area** as possible — easy for a newcomer (or
-future maintainer) to pick up. This is in honest **tension** with #5: avoiding a library
-can mean writing bespoke code, which _adds_ code.
-
-**Resolution — minimize total complexity (bespoke code + dependency weight):**
-
-- Modern Node usually makes the bespoke alternative _tiny_ (parseArgs vs commander,
-  ANSI vs chalk) → write the small code, skip the dep. Both #5 and #6 win.
-- When an honest reimplementation would be **large or risky** (SigV4, multipart, the
-  credential chain), the library wins. The AWS SDK is the worked example of #5 yielding
-  to #6.
-
-**Keep the count of functions and modules down.** Fewer named units = less surface
-area to learn, the same instinct as preferring built-ins over deps. The bar for
-extracting a function or a shared module is *reuse*, not tidiness:
-
-- Extract a **function** when the code is actually reused. Don't split code out
-  purely to give a block a name or to shorten a function — inline, locally-obvious code
-  beats a one-call helper.
-- Promote code into a **shared module** only once it's used by **more than one of the
-  main command modules** (`src/commands/`). Until a second command needs it, let it live
-  where it's used. (This is exactly how the existing core modules in `src/lib/` earned
-  their place. The one deliberate exception: `s3.mjs` was promoted *ahead* of its second
-  caller, because keeping the heavyweight AWS SDK behind a single lazy boundary matters
-  more than the promotion bar — and its not-yet-called operations are tree-shaken out of
-  the SEA bundle until a command imports them.)
-
-Where #2 protects the **format**, #6 protects the **tool**: transparent format +
-transparent code = nothing about this project is a black box.
-
-### 7. Plain JavaScript, typed via JSDoc
-
-Source is plain JS; full type-checking comes from **JSDoc annotations +
-`jsconfig.json`**, enforced in the editor (and runnable as a whole-project check — see
-`package.json`). In the spirit of open & simple: no build/transpile step for source —
-the code you read is the code that runs.
-
-**Flagged for reconsideration:** the original draw of pure JS was avoiding a toolchain.
-Node now runs TypeScript natively and non-experimentally, so that argument is much
-weaker. JS for now, but this is an open question — parallel to the Temporal polyfill,
-which modern Node _did_ make obsolete (it has since been removed): a stance modern Node
-may likewise overtake.
-
----
-
-## Architecture decisions
-
-What follows is the *why* behind the structure; the *what* is best read from the code
-itself ([src/s3cab.mjs](src/s3cab.mjs) is an ~80-line entry point, the registry in
-[src/commands.mjs](src/commands.mjs) is the command list, and each command file carries
-its own doc comment).
-
-### Dispatch & CLI shell
-
-- **Adding a command = adding one entry to the registry.** Stubs for unbuilt commands are
-  kept *inline* in the registry (not given their own `src/commands/` files) until they gain
-  real bodies — per #6, a file is earned by logic, not reserved ahead of it. They carry
-  `planned: true`, which help renders as `(not yet available)`.
-- **Debug output is gated by the `S3CAB_DEBUG` env var, not a CLI flag** — it's a
-  cross-cutting concern, so it lives outside per-command option parsing and is merged into
-  the options bag passed to each `exec`.
-- **Results are serialized with `JSON.stringify`, never `console.log`:** `console.log`
-  routes large structures through `util.inspect`, which **truncates** (`… N more items`) —
-  fatal for a backup tool whose whole job is "show me everything that changed". One uniform
-  serializer also means no bespoke per-command printer to maintain (#6). The one deliberate
-  exception is `hashes` (bare hash-per-line output — see its doc comment).
-- **Stream discipline:** a command's _real output_ — results, `--version`, explicitly
-  requested `--help` — goes to **stdout**; everything else — progress, warnings, usage
-  shown as part of an _error_ — goes to **stderr**. So `s3cab tree . > files.txt` captures
-  just the file list and `s3cab --help | less` works. This is why `usage()` _returns_ text
-  rather than printing it: the caller chooses the stream, visibly, at the call site.
-- **There is deliberately no `package.json` `main` and no `src/index.mjs` barrel:** s3cab
-  is a CLI, not a library, and the entry point runs dispatch as a top-level side-effect
-  (unsafe to `import`). The per-command functions in `src/commands/` are already cleanly
-  exported, so a side-effect-free re-export barrel is trivial to add the day a real library
-  consumer appears — until then it would be speculative structure (#6). (If the dispatch
-  flow itself ever needs unit testing, guard the run block with `if (import.meta.main)`;
-  today [test/e2e.test.mjs](test/e2e.test.mjs) covers it as a subprocess.)
-- **`--version` is the single source of truth chain:** `package.json` `version` → imported
-  as a JSON module → inlined by esbuild into the SEA bundle, so the native binary reports
-  the same number without reading a file at runtime. The release guard keeps the git tag in
-  lockstep; docs avoid pinning the number (README uses a live npm badge) so nothing drifts.
-
-### Argument validation lives in the command functions, not the dispatcher
-
-A command that needs a positional checks it itself (`requireArg()` →
-`ParseArgsError`). This is deliberate: the per-command functions are the **library
-surface**, so a direct caller of `hashes(bucket)` must get the same guard a CLI user
-does — validation in the dispatcher would protect only the CLI path. A registry-driven
-scheme (the dispatcher inferring required-ness from the `args` keys) was considered and
-**rejected** for that reason, and because deriving required-ness by parsing
-`<name>`/`[<name>]` display strings is stringly-typed and couples help formatting to
-validation. The `args` keys are therefore **honest about optionality and nothing more** —
-`[brackets]` = optional, bare `<name>` = required — and `usage()` prints them verbatim,
-never parses them. The same reasoning puts **env-file loading in the command functions**
-(each calls `loadEnv` for its scope right after validating args): a direct library caller
-resolves env exactly as the CLI does, and `s3.mjs` stays a pure SDK boundary that only
-reads `process.env`.
-
-### Naming decisions (weighed on purpose — don't re-litigate casually)
-
-**Audience is ordinary, non-technical folks**, so user-facing names favour consumer
-backup vocabulary over git/dev jargon:
-
-- The read commands `list` and `compare` take a **`--remote`/`-r` flag** rather than
-  separate `*-remote` verbs or a `remote` noun-group — local and remote are the *same
-  operation pointed elsewhere*, and a flag avoids a two-level dispatcher (#6). **`status`
-  is the exception: it is remote-only, with no `--remote` flag** (decided in slice 3) —
-  "what a backup would upload" is *inherently* a local-snapshot-vs-remote-manifest
-  comparison, so there is no second mode for the flag to point at. (A local "what changed
-  since the last snapshot" view could be added later, but that is a separate feature, not
-  this command's `--remote` half.)
-- The transfer verbs are **`backup`/`restore`** (not `push`/`pull` or
-  `upload`/`download` at the porcelain level): the most domain-honest pair, avoiding the
-  bidirectional *sync* connotation of `push`/`pull` — s3cab is one-directional archival.
-- The setup command is **`setup`, not `init`** (consumer vocabulary).
-- Calls weighed but *kept* as-is: `--remote` over `--cloud`, `verify` over `check`, and
-  the dev-flavoured plumbing/diagnostics `upload`/`tree`/`prop` left alone.
-- The object-store **lister is `hashes`, renamed from `objects`** (2026-06-17): the
-  `objects` name was wanted for the object-store module
-  ([src/lib/objects.mjs](src/lib/objects.mjs)), and `hashes` names what the command prints
-  (one sha256 per line) more honestly than the S3-flavoured `objects` — it's plumbing, so
-  the rename was cheap (pre-1.0, #8). Its write sibling `upload` reads fine and was kept.
-- `compare` takes **`--since` (older) / `--until` (newer) options, not positionals**: a
-  leading defaultable `<dir>` positional would otherwise force `compare . <snap>`, and
-  `--since` reads naturally, fixes the direction to old→new (like `diff`), and extends to
-  dates later. Single-snapshot use is deliberately "since X → latest" (the useful baseline
-  case), not "X vs its predecessor".
-- The `snapshot` option is **`--rehash`, a plain positive flag — deliberately not a
-  `--no-lookup` negation**: a camelCase `noLookup` key made the natural `--no-lookup` an
-  unknown option (`allowNegative` only negates the literal key).
-- A bespoke SSO `login` command existed and was removed — the once-open question ("bespoke
-  SSO flow vs the standard AWS credential chain") is **settled** in favour of the standard
-  chain (see "What this project is" above).
-
-### Source layout
-
-App-level shell files at the `src/` root (`s3cab.mjs` entry, `commands.mjs` registry,
-`help.mjs` renderer — root, not `lib/`, because it's bespoke CLI-shell glue tied to the
-registry shape, not a reusable primitive); the rest splits into **sibling** folders
-[src/commands/](src/commands/) (one file per command) and [src/lib/](src/lib/) (shared
-modules). The siblings sit beside each other on purpose — the shared modules are
-_depended on by_ the commands, not a layer above — and it's a taste-driven arrangement,
-not a hard boundary (e.g. `lib/snapshot-file.mjs` importing `commands/prop.mjs` is fine).
-Grouping is by **subsystem/cohesion, not abstract layer**: no `lib/util/` junk-drawer
-split. If `lib/` ever grows enough to cleave, extract a folder named for the subsystem
-(likely `lib/s3/` as the S3 milestone lands) and leave the generic leaves (`format`,
-`read-lines`, `error`) flat at the root.
-
-### One s3cab repository == one bucket
-
-The remote layout (`objects/<sha256>` + `snapshots/` at the **bucket root**, shown in the
-README) is fixed by convention, *not* an arbitrary prefix within a shared bucket — a fixed,
-well-known structure is what lets a tool (or a person) find everything by convention alone
-(#2). `hashes` and `upload` already follow it; the snapshot-driven `backup` that populates
-`snapshots/` now does too (slice 3). The `snapshots/` half is designed (settled 2026-06)
-in [specs/backup.md](specs/backup.md) around **backup sets** — a named list of dirs as
-the unit of snapshot/backup/restore, configured at `~/.s3cab/sets/<name>/`, identity
-`user@machine:set` pinned at creation. One bucket holds **multiple sets** (dedup shared
-via `objects/`, manifests namespaced as `snapshots/<user>@<machine>/<set>/`), with the
-manifest-last invariant and the diff-vs-latest-remote upload algorithm. The local engine
-runs **on sets** (slice 2, 2026-06): `snapshot`/`list`/`compare`/`tree` take `[<set>]`,
-manifests live in `~/.s3cab/sets/<set>/snapshots/`, and the old per-dir `<dir>/.s3cab/`
-has retired entirely. The **cloud half is built** (slice 3, 2026-06, PR #39): the remote
-engine lives in [src/lib/remote.mjs](src/lib/remote.mjs) (the `snapshots/<namespace>/`
-layer — listing, manifest read, the `uploadCandidates` diff, and the manifest-last
-`uploadSnapshot`), with `backup`, `status`, and `list --remote` on top; `s3.mjs` stays the
-generic SDK boundary (it never learns the layout). The **object-store half (`objects/<sha256>`)
-is owned by [src/lib/objects.mjs](src/lib/objects.mjs)** — `putObject` / verified `getObject`
-/ `listObjectHashes` plus the per-bucket objects cache `~/.s3cab/objects.<bucket>`, the twin
-of remote.mjs's snapshots ownership (extracted 2026-06-17; the `objects/` literal had been
-scattered across `objects.mjs`/`upload.mjs`/`remote.mjs`, with the `objects` command renamed
-to `hashes` to free the name). The **restore path is built** (slice 4, 2026-06, PR #44): the
-verified atomic download (`objects.mjs`'s `getObject`) and `remote.mjs`'s
-`listRemoteNamespaces`, with
-[src/commands/restore.mjs](src/commands/restore.mjs) (restore to original paths,
-skip/`--overwrite`, `--snapshot`, `paths…` filters via `selectEntries`, **plus `--output`
-re-rooting** via `reroot`) and `setup --from` adoption on top. `restore --output` is what
-made `parseSnapshotStream` start surfacing the `#DIR`/`#SNAPSHOT` headers it used to drop —
-`readRemoteSnapshot` now returns the whole `SnapshotManifest` (`{ entries, dirs, identity }`),
-while the local `readSnapshotFile` still extracts `.entries` so its callers are unchanged.
-Still target: `compare --remote` and `verify` (slice 5).
-
-### Auth model (the short version — [specs/auth.md](specs/auth.md) is the spec)
-
-Credential resolution is `resolveCredentials` in [src/lib/auth.mjs](src/lib/auth.mjs):
-s3cab's layered env files → the standard AWS SDK chain → an actionable error. The
-layering, precedence, and security guards are documented in that file's comments; the
-spec records the model and the History of the removed Tier 2 SSO machinery. Two
-non-obvious points worth pinning here:
-
-- **Files beat the shell** ("Model A"): a value in an s3cab env file wins over the
-  inherited environment, enforced by s3cab's own merge (built-in `util.parseEnv`, no
-  dotenv dep) rather than any loader's fixed semantics.
-- The **set layer (`~/.s3cab/sets/<set>/env`, written by `setup`) replaced the
-  never-wired per-dir layer** (backup-sets slice 1, 2026-06 — specs/auth.md's History
-  note has the trail). It is wired into `loadEnv({ set })`, and the cloud commands now
-  **consume it**: `backup`, `status`, and `list --remote` each `loadEnv({ set })` after
-  resolving the set (slice 3) — the local set commands (slice 2) need no credentials, so
-  they don't. s3cab never writes `~/.aws/*`.
-
----
-
-## Build → native executable (the non-obvious parts)
-
-> The exact npm scripts live in [package.json](package.json) and aren't repeated here.
-> This section records only the _why_.
-
-The distribution goal is a **single native executable** — a user shouldn't need Node
-installed to run s3cab. Producing it is two steps:
-
-1. **Bundle**: [build.mjs](build.mjs) (the `build` script, `node build.mjs`) calls the
-   **esbuild** JS API to bundle the ESM source into one ESM file, `dist/s3cab.js`. It is a
-   ~10-line options object, **not** the long CLI flag string it grew from (nor the
-   145-line cross-build orchestrator that preceded *that*, deleted in the "Simplify native
-   builds" pass): esbuild has **no config file by design**, so the only home for documented
-   build options is a JS-API script — earned here once the load-bearing `banner` (below)
-   made the CLI both long and in need of an explanatory comment a flag can't carry. The
-   bundle is **bundle-only** — no `target`/`minify` — so the output is the same modern
-   syntax that runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
-   (so that file _also_ works as the npm `bin`); esbuild **preserves an entry point's
-   shebang**, keeping it on line 1 above the banner. `external: ["aws-crt"]` keeps the AWS
-   SDK's optional native addon out. esbuild exists purely because SEA needs a **single
-   standalone file** (a SEA main may only import built-ins) — _not_ to convert module format.
-
-   **The `banner` `createRequire` shim is load-bearing — don't drop it.** In ESM output
-   esbuild rewrites every `require()` to a `__require` shim that *throws* unless a real
-   `require` is in scope, and a CJS dep that survives in the bundle keeps genuine
-   `require()` calls (the AWS SDK's `@smithy/credential-provider-imds` does
-   `require("node:http")`, eagerly, via `auth.mjs`'s top-level import of
-   `@aws-sdk/credential-providers`). With no `require` in an ESM module the binary crashed
-   on **every** invocation — even `--help` — with `Dynamic require of "node:http" is not
-   supported`. The banner (`import { createRequire } from "node:module"; const require =
-   createRequire(process.execPath);`) puts a real `require` in scope so the shim delegates
-   to it. **Base is `process.execPath`, not the usual `import.meta.url`**, because in the
-   SEA binary `import.meta.url` isn't a resolvable file URL whereas `execPath` is always a
-   valid absolute path — and every dynamic-require target here is a Node built-in, which
-   resolves regardless of the base. (Surfaced 2026-06-18 when the SEA binary first ran; the
-   eager IMDS `require` means it was never going to launch from the bundle without this.
-   The CJS-bundle alternative — where `require` is native and no banner is needed — is
-   blocked by the entry's top-level `await`, which esbuild can't emit in `cjs` format.)
-2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
-   copy of the node binary in one step — no `postject`. The [sea/](sea/) configs are
-   **static, committed JSON** differing only in `output` extension. Each sets
-   `"mainFormat": "module"` (without it SEA defaults to CommonJS and rejects `import`;
-   caveat: incompatible with `"useSnapshot"`). They deliberately **omit `executable`**, so
-   SEA injects into the node _running_ the build — you always get a binary for the host
-   you build on. The binary is plainly **`s3cab`** on every platform; the per-platform tag
-   belongs on the _release archive_, not the executable.
-
-**Build model: each OS builds its own binary; no cross-compilation.** `--build-sea` _can_
-cross-inject, but a binary for another OS can't be smoke-tested where it's built, and mac
-binaries built off-Mac can't be codesigned (so won't launch). CI builds the full matrix
-natively, one runner per platform.
-
-**`npm run clean` delegates to `git clean -fdX`** rather than listing paths, so it stays
-in sync with `.gitignore` for free, needs no `rimraf`-style dep (#5), and works on
-Windows. `clean:dry` previews first — worth it because `-X` wipes _all_ ignored files,
-including `node_modules/`, `.claude/settings.local.json`, and dogfood snapshots. Full
-clean by design. Note `git clean -e <pattern>` can _not_ spare a file here: under `-X`,
-`-e` makes a file _more_ likely to be deleted, not less (verified). The only way to keep
-an ignored file across a clean is to stop ignoring it — not worth it.
-
-**Releases** ([.github/workflows/release.yml](.github/workflows/release.yml)): `setup-node`
-provisions the pinned node, so the "SEA base binary must match the running node version"
-rule holds by construction. The bare `s3cab[.exe]` is wrapped in a per-platform archive
-(`s3cab-<target>.tar.gz` / `.zip`) so the assets don't collide while the binary inside
-stays plainly `s3cab` (bonus: roughly thirds the ~100 MB download). A `v*` tag publishes a
-GitHub Release via the `gh` CLI (no marketplace actions beyond official `actions/*`), with
-a `SHA256SUMS` file — apt for a SHA-256-addressed tool — and `v0.x`/`-alpha` tags marked
-`--prerelease`. A **fifth asset** is the esbuild bundle itself (`dist/s3cab.js`): the
-any-platform, bring-your-own-Node channel — built once (platform-independent), uploaded
-un-archived. **glibc floor:** the Linux build job pins `ubuntu-22.04`, not `-latest` — a
-native binary links the _builder's_ glibc, so building on a newer image would refuse to
-start on older distros; this constrains only the build matrix, not test jobs.
-
-**CI vs release — two workflows, deliberately split.** [ci.yml](.github/workflows/ci.yml)
-is the everyday gate (every push/PR). Tests run a **three-OS matrix** because the code
-genuinely branches on platform (case-insensitive globs on `win32`, `\`→`/` normalization);
-lint runs once. The **`exe smoke` job builds the bundle + a host SEA binary and boots
-them** (`./dist/s3cab --version` / `prop`, plus `node dist/s3cab.js --version`) — Linux-only,
-because the test jobs run the *source*, where esbuild's `require()`-shim doesn't exist, so
-they can't see anything the bundle/SEA transform breaks. (This job exists because a fatal
-"binary won't boot" regression — the `createRequire`/SEA fix — slipped through for ~45
-commits: it could only ever surface in the built artifact, and the only thing that built the
-artifact was `release.yml`, which fires solely on a `v*` tag. The failure class isn't
-platform-specific, so one OS catches it; a matrix SEA build would also drag in the macOS
-ad-hoc codesign step, so per-OS *binary* coverage stays `release.yml`'s job.)
-`release.yml` triggers only on `v*` tags + manual dispatch, and keeps its
-own single-OS lint+test gate to re-check the one commit CI doesn't see — the tag.
-
-**Dependency updates — Dependabot, not Renovate:** native to GitHub, zero extra
-accounts/config (#5/#6 — Renovate would be over-engineering for this dependency surface).
-Weekly, **grouped on purpose**: the `@aws-sdk/*` packages version in lockstep and publish
-near-daily, so ungrouped PRs would flood the queue. The **security** half (CVE-driven
-alerts/PRs) is enabled in repo _settings_ — UI-only, can't live in the YAML. Auto-merge of
-green patch/minor PRs is deliberately **not** enabled yet (a trust call to revisit).
-
-**npm package — ships source, not the bundle.** npm installs a file tree and resolves
-imports, so the package ships the plain `src/` modules with `bin` pointing at the entry —
-no bundle, no build step on publish. (Readable source over an opaque blob is also the
-#2/#7 choice: the code you install is the code that runs.) Worth knowing:
-
-- The `files` allowlist uses **negation** (`"!src/**/*.test.mjs"`) to keep co-located
-  tests out of the tarball. Verify with `npm pack --dry-run` after touching it.
-- The **AWS SDK is a normal npm `dependency`** here; in the SEA channel the _same_ dep is
-  inlined into the bundle (`aws-crt` external → JS fallback). One dependency, two fates.
-- **Publishing uses npm Trusted Publishing (OIDC)** — no long-lived `NPM_TOKEN` secret;
-  provenance attestation comes free (fits #2). Needs the one-time trusted-publisher config
-  on npmjs.com and npm ≥ 11.5.1 (the job refreshes npm first, since Node's bundled npm may
-  predate OIDC support). A guard fails the job if the tag ≠ `package.json` version.
-  **dist-tags differ from the GitHub prerelease rule on purpose:** only a semver
-  prerelease (`v*-alpha.N`) goes to npm's `next`; a plain `v0.x` publishes to `latest`.
-
----
-
-## Formatting, line endings & tooling (the non-obvious why)
-
-- **Line endings are normalised to LF via [.gitattributes](.gitattributes)**
-  (`* text=auto eol=lf`). This is deliberate and load-bearing: the working tree is LF on
-  every platform, so Prettier's default `endOfLine` is satisfied with **no `.prettierrc`
-  needed**. Beware the Windows trap that motivated it — PowerShell's `>` / `Out-File`
-  (and some editors) emit **UTF-16 + CRLF**; `.nvmrc` had silently become UTF-16 this way,
-  which `nvm`/`fnm` can't parse. Author dotfiles as plain UTF-8/ASCII with LF.
-- **Prettier formats code only; Markdown is excluded** ([.prettierignore](.prettierignore)).
-  Its prose-emphasis restyle (`*x*` → `_x_`) and table-cell padding add churn and make the
-  frequently AI-edited docs fragile to edit, for no real gain (`proseWrap` doesn't reflow
-  prose). ESLint defers to Prettier (`eslint-config-prettier`) and **ignores generated
-  build artifacts** — otherwise it lints the bundled output. Both ignore lists must cover
-  the same set (`build`, `dist`, `coverage`); Prettier reads only `.prettierignore`, not
-  `.gitignore`, so a dir gitignored as output must also be listed there or `format:check`
-  will parse it once a build exists.
 - **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
   `SnapshotLookup`), then bare `{Foo}` in annotations — cleaner than repeating the inline
@@ -648,7 +187,8 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   it silently reordered/removed imports on save, but only for contributors who had the VS
   Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
   by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
-  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against #6/#8).
+  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against
+  [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8).
 - **Don't bury `await` inside a conditional or a member-access expression** — a compound
   `if`/`while` condition, a ternary, a short-circuit (`&&`/`||`), or a property/index access
   on the result. Await into a named local on its own line first, then use it: `const exists =
@@ -667,7 +207,8 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
     argument-position awaits as violations; they are not — decline them.)
   - **No linter enforces this** (a `no-restricted-syntax` rule was weighed and rejected
     2026-06-16: it can't tell the ugly cases from the occasionally-fine ternary-await, so it
-    would trade real false positives for a cosmetic gain — against #6/#8, same call as the
+    would trade real false positives for a cosmetic gain — against
+    [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8, same call as the
     removed organizeImports action). So **self-check instead: grep the diff for the buried
     shapes** before committing — `(await …).` / `(await …)[` (member/index access on the
     result) and a `? `/`: `/`&& `/`|| ` sitting immediately before `await` (ternary /
@@ -681,7 +222,36 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   to the builtin type declarations — transitive deps install npm shims of those Node
   builtins, which would otherwise shadow them at type-resolution time and drag their
   untyped CJS internals into the check (see the comment in jsconfig.json).
-- **Snapshots no longer land in the repo tree.** Since slice 2 they live in
+- **Test layout convention:** unit tests are **co-located** with their source as
+  `*.test.mjs`; [test/](test/) holds cross-cutting tests (`e2e.test.mjs`), shared
+  `fixtures/`, and shared `helpers/`. See [test/README.md](test/README.md). The runner is
+  pointed at an **explicit glob** — `node --test --experimental-test-module-mocks
+  "src/**/*.test.mjs" "test/**/*.test.mjs"` (the `test` script; the flag is for
+  `objects.test.mjs`'s `mock.module` — see
+  [ADR-0019](docs/adr/0019-s3-test-strategy.md)) — *not* default discovery, which would also
+  run every `.mjs` under `test/`. That's what lets `test/helpers/` hold shared, importable
+  helpers (e.g. [test/helpers/temp-home.mjs](test/helpers/temp-home.mjs)) without them
+  executing as phantom empty tests. So a cross-cutting test helper goes in `test/helpers/`;
+  scratch still goes in [scripts/](scripts/).
+- **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
+  (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
+  test files across worker processes in parallel; collapsing to a single process loses
+  that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
+  debugging shared state — just not a speedup.
+
+---
+
+## What this project is
+
+**s3cab** = **S3 C**ontent **A**ddressable **B**ackup. [README.md](README.md) covers what
+it is, why, what works today, and what's coming; [CONTEXT.md](CONTEXT.md) defines the
+vocabulary. Treat the README's S3/backup descriptions as the _target_; treat `src/` as
+_what works now_. A few layout notes the README and code don't carry:
+
+- **Scratch and throwaway experiments go in [scripts/](scripts/)** — never a parked sandbox
+  under `src/` (the old `src/_poc/` folder is retired) and never under `test/` (see the
+  test-layout convention above).
+- **Snapshots no longer land in the repo tree.** Since backup-sets slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/` (outside any working copy), so `.gitignore` no longer
   needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
   guards remain for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt) template.
@@ -689,58 +259,60 @@ no bundle, no build step on publish. (Readable source over an opaque blob is als
   as a ready-made exclude template — to snapshot this repo, `s3cab setup s3cab .` then copy
   those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
   wired automatically now that excludes are per-set under `~/.s3cab`.)
-- **Test layout convention:** unit tests are **co-located** with their source as
-  `*.test.mjs`; [test/](test/) holds cross-cutting tests (`e2e.test.mjs`), shared
-  `fixtures/`, and shared `helpers/`. See [test/README.md](test/README.md). The runner is
-  pointed at an **explicit glob** — `node --test --experimental-test-module-mocks
-  "src/**/*.test.mjs" "test/**/*.test.mjs"` (the `test` script; the flag is for
-  `objects.test.mjs`'s `mock.module` — see the S3 strategy below) — *not* default
-  discovery, which would also run every `.mjs` under
-  `test/`. That's what lets `test/helpers/` hold shared, importable helpers (e.g.
-  [test/helpers/temp-home.mjs](test/helpers/temp-home.mjs)) without them executing as
-  phantom empty tests. So a cross-cutting test helper goes in `test/helpers/`; scratch still
-  goes in [scripts/](scripts/).
-- **S3 test strategy is settled — the full reasoning lives in
-  [specs/testing.md](specs/testing.md); only the non-obvious posture is pinned here.** In
-  short: pure diff/cache logic (`uploadCandidates`, the objects cache) → ordinary **unit
-  tests**, no bucket; command orchestration + deterministic error injection → **mock the
-  `s3.mjs` seam** (our boundary — `node:test`'s `mock.module`/`mock.fn`, zero-dep; mocking
-  *our* seam exercises our code, not AWS, so the wire-drift concern doesn't apply), run
-  everywhere incl. fork PRs; real round-trips → **real AWS**, gated on `S3CAB_TEST_BUCKET`
-  (+ ambient creds) and `describe(..., { skip })`-ed **with a message** when unset, so
-  offline/fork runs stay green. **Mock at `s3.mjs`, _not_ the AWS SDK:** the SDK is a real
-  boundary (not the wire), but it's large, AWS-owned, and version-churny (the checksum-trailer
-  default shifted in v3.730), so faking its command/response shapes just relocates the drift
-  one layer up and needs a dep (`aws-sdk-client-mock`); `s3.mjs` is our small, stable,
-  zero-dep contract and the single SDK boundary the architecture already draws. The one place
-  tests legitimately drop to the SDK/request layer is asserting `s3.mjs`'s **own** request
-  shaping (the non-AWS checksum/SSE/storage-class gating) — that only manifests in the
-  outgoing request. **No emulator** (MinIO/LocalStack rejected — see the spec). The real-AWS
-  suite runs **automatically on same-repo PRs** (no approval click — the approval Environment
-  was removed 2026-06-17): only collaborators can open a same-repo PR and the OIDC trust is
-  scoped to this repo's `:pull_request` subject, so untrusted actors can't trigger it (fork
-  PRs get no credentials and skip); spend is capped by tight IAM + 1-day lifecycle + a billing
-  alarm. The enforcing required check is **`ci-gate`** (an always-running job that fails iff a
-  job that ran failed), *not* `s3-integration` directly — a skipped required check (forks)
-  would otherwise wedge the PR forever-pending. Plus a periodic **Cloudflare R2** canary for
-  non-AWS compatibility. The AWS bucket + OIDC CI are **built** (PR #50): `npm run test:s3`
-  runs the gated suites locally (a `node --test --env-file-if-exists=.env.test` one-liner —
-  credentials come from your `~/.aws` profile because the tests relocate only `S3CAB_HOME`,
-  not `HOME`), the [`ci/aws/`](ci/aws/) artifacts + the ubuntu-only `s3-integration` job carry
-  CI, and [doc/integration-testing.md](doc/integration-testing.md) is the setup guide; the
-  **R2 canary remains pending**. Worked examples: the **mocked-`s3.mjs`-seam** tests in
-  [src/lib/objects.test.mjs](src/lib/objects.test.mjs) — the object store's cache and
-  `getObject` integrity check (match / mismatch / temp-cleanup), run offline by mocking
-  `createS3ReadStream`; this is the repo's **first `mock.module`** use, which needs
-  `--experimental-test-module-mocks` (now on the `test`/`test:coverage*` scripts, and the
-  ordering rule it forced: the module under test is dynamically imported *after* the mock,
-  never statically, or the cached real binding wins). And the **gated real-AWS** suites in
-  [src/lib/remote.test.mjs](src/lib/remote.test.mjs).
-- **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
-  (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
-  test files across worker processes in parallel; collapsing to a single process loses
-  that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
-  debugging shared state — just not a speedup.
+
+The licensing model (GPL-3.0-or-later; CLA not DCO) is in
+[ADR-0008](docs/adr/0008-gpl-3-license.md) / [ADR-0009](docs/adr/0009-cla-not-dco.md). The
+removed bespoke SSO `login` command and the standard-credential-chain model are in
+[ADR-0015](docs/adr/0015-standard-aws-credential-chain.md) — **don't rebuild the login.**
+
+---
+
+## Architecture orientation
+
+The *decisions* behind the structure are in [docs/adr/](docs/adr/); this is just the map
+for finding your way around the code. The *what* is best read from the code itself:
+[src/s3cab.mjs](src/s3cab.mjs) is an ~80-line entry point, the registry in
+[src/commands.mjs](src/commands.mjs) is the command list, and each command file carries its
+own doc comment.
+
+- **Adding a command = adding one entry to the registry.** Stubs for unbuilt commands are
+  kept *inline* in the registry (not given their own `src/commands/` files) until they gain
+  real bodies — per [ADR-0006](docs/adr/0006-minimal-code.md), a file is earned by logic, not
+  reserved ahead of it. They carry `planned: true`, which help renders as `(not yet available)`.
+- **Source layout.** App-level shell files at the `src/` root (`s3cab.mjs` entry,
+  `commands.mjs` registry, `help.mjs` renderer — root, not `lib/`, because it's bespoke
+  CLI-shell glue tied to the registry shape, not a reusable primitive); the rest splits into
+  **sibling** folders [src/commands/](src/commands/) (one file per command) and
+  [src/lib/](src/lib/) (shared modules). The siblings sit beside each other on purpose — the
+  shared modules are _depended on by_ the commands, not a layer above — and it's taste-driven,
+  not a hard boundary (e.g. `lib/snapshot-file.mjs` importing `commands/prop.mjs` is fine).
+  Grouping is by **subsystem/cohesion, not abstract layer**: no `lib/util/` junk-drawer. If
+  `lib/` ever grows enough to cleave, extract a folder named for the subsystem and leave the
+  generic leaves (`format`, `read-lines`, `error`) flat at the root.
+- **The S3/remote engine.** The remote layout and its module ownership
+  (`objects/<sha256>` → [src/lib/objects.mjs](src/lib/objects.mjs);
+  `snapshots/<namespace>/` → [src/lib/remote.mjs](src/lib/remote.mjs); the generic SDK
+  boundary → `src/lib/s3.mjs`) follow from
+  [ADR-0013](docs/adr/0013-one-repository-one-bucket.md) and
+  [ADR-0014](docs/adr/0014-backup-sets.md). Auth resolution is `resolveCredentials` in
+  [src/lib/auth.mjs](src/lib/auth.mjs) — see [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)
+  and [specs/auth.md](specs/auth.md).
+- **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, not a library, and
+  the entry point runs dispatch as a top-level side-effect (unsafe to `import`). The
+  per-command functions in `src/commands/` are already cleanly exported, so a side-effect-free
+  barrel is trivial to add the day a real library consumer appears — until then it would be
+  speculative structure ([ADR-0006](docs/adr/0006-minimal-code.md)). (If the dispatch flow
+  itself ever needs unit testing, guard the run block with `if (import.meta.main)`; today
+  [test/e2e.test.mjs](test/e2e.test.mjs) covers it as a subprocess.)
+- **`--version` is a single source-of-truth chain:** `package.json` `version` → imported as a
+  JSON module → inlined by esbuild into the SEA bundle, so the native binary reports the same
+  number without reading a file at runtime. The release guard keeps the git tag in lockstep;
+  docs avoid pinning the number (README uses a live npm badge) so nothing drifts.
+
+For how the structure is reasoned about and named, see
+[ADR-0010](docs/adr/0010-cli-output-conventions.md) (output/stream discipline),
+[ADR-0011](docs/adr/0011-validation-in-command-functions.md) (validation in commands), and
+[ADR-0012](docs/adr/0012-consumer-vocabulary-naming.md) (naming).
 
 ---
 
@@ -783,7 +355,8 @@ Pre-release housekeeping and open decisions surfaced from the code:
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Since the `createRequire` regression, ci.yml's `exe
   smoke` job also boots the Linux binary + bundle on **every PR**, so artifact-only
-  breakage no longer waits for a tag (see "CI vs release" above). Open items:
+  breakage no longer waits for a tag (see [ADR-0016](docs/adr/0016-native-executable-build.md)).
+  Open items:
   - **macOS notarization — deliberately skipped (costs money).** Ad-hoc signing is enough
     to _run_; Gatekeeper-clean distribution would need a paid Apple Developer ID. The
     README documents the `xattr` workaround for browser downloads.
@@ -797,23 +370,21 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
   job, alongside lint/format): `npm run typecheck` plus a `node --test
   --experimental-test-coverage` run (`test:coverage:report`) that **prints** the coverage
-  table as advisory debug output — it no longer enforces thresholds (demoted 2026-06-16, see
-  working-convention #12; a percentage rewards assertion-free tests, so review is the gate
-  instead). Coverage *quality* is now a review concern: the `/review` skill's Standards axis
-  and Copilot code review ([.github/copilot-instructions.md](.github/copilot-instructions.md))
-  check that changed behaviour ships an asserting test. (Resolves the former "wire typecheck
-  into CI" gap.) **Footnote on why demoting cost nothing:** the prior threshold gate was a
-  silent no-op — `node --test` only collects coverage when `--experimental-test-coverage`
-  precedes the glob positionals, but the `npm run test -- …` pattern appended it *after*, so
-  the gate (and the `test:coverage` lcov script) ran the suite, collected **zero** coverage,
-  and exited 0 against the thresholds. Both scripts were rebuilt standalone (flags first) in
-  the same change, so the advisory report now actually emits the number. Don't reintroduce
-  the `npm run test -- --experimental-test-coverage` shape — it measures nothing.
-- **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (per #7).
+  table as advisory debug output — it no longer enforces thresholds (see
+  [ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). **Footnote on why demoting cost
+  nothing:** the prior threshold gate was a silent no-op — `node --test` only collects
+  coverage when `--experimental-test-coverage` precedes the glob positionals, but the
+  `npm run test -- …` pattern appended it *after*, so the gate (and the `test:coverage` lcov
+  script) ran the suite, collected **zero** coverage, and exited 0 against the thresholds.
+  Both scripts were rebuilt standalone (flags first). Don't reintroduce the
+  `npm run test -- --experimental-test-coverage` shape — it measures nothing.
+- **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (see
+  [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
 - **Concurrency guard** for snapshots is only the temp-file check (its existence doubles
   as a crude in-progress lock); a proper lock file is a `TODO` in
   [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
-- **Define behaviour** for paths containing tabs/newlines in the TSV (see #4 above).
+- **Define behaviour** for paths containing tabs/newlines in the TSV (see
+  [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)).
 - **Stable doc URLs before release.** Help topics, the help footer, and the `compare`
   command description print GitHub URLs (the placement doctrine's "link to the fuller
   online guide"); a shipped binary freezes the URLs it prints forever. Before release, stand up the planned proper website (or
