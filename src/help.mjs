@@ -28,7 +28,7 @@ s3cab resolves credentials in this order:
                               (written by 's3cab setup'; applies as the
                               set-based commands arrive with backup)
      ~/.s3cab/env.<bucket>    per-bucket - used by commands that take a bucket
-                              (e.g. upload, objects)
+                              (e.g. upload, hashes)
      ~/.s3cab/env             per-user defaults - the base layer under the others
    s3cab does NOT read a .env from the current directory.
 

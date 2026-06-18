@@ -10,11 +10,14 @@ the set env layer in auth; slice 2 moved the local engine onto sets —
 `~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
 the `snapshots/` remote half and the cloud porcelain: the remote repository engine
 (`src/lib/remote.mjs` — remote-manifest listing/read, the upload-set diff
-`uploadCandidates`, the per-bucket objects cache, the manifest-last `uploadSnapshot`),
-plus `backup`, `status`, and `list --remote`. The `objects`/`upload` plumbing and the
-`objects/<sha256>` half of the remote layout were already live. Slice 4's restore path
-(PR #44) added `restore` (`src/commands/restore.mjs`, on `remote.mjs`'s verified
-`downloadObject` + `listRemoteNamespaces`) and `setup --from` **adoption** for fresh-machine
+`uploadCandidates`, the manifest-last `uploadSnapshot`), plus `backup`, `status`, and
+`list --remote`. The `objects/<sha256>` half of the remote layout — `putObject` / verified
+`getObject` / `listObjectHashes` and the per-bucket objects cache — is owned by
+`src/lib/objects.mjs` (extracted 2026-06-17 from where it had been scattered across
+`remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
+`objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
+added `restore` (`src/commands/restore.mjs`, on the verified `getObject` + `remote.mjs`'s
+`listRemoteNamespaces`) and `setup --from` **adoption** for fresh-machine
 recovery. `restore --output` re-rooting is now built too (`parseSnapshotStream` surfaces the
 `#DIR`/`#SNAPSHOT` headers it used to drop; `reroot` in `restore.mjs` maps each member dir
 under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slice 5
@@ -101,7 +104,7 @@ Porcelain is **set-first**: `snapshot`, `list`, `compare`, `backup`, `restore`,
 when exactly one exists — so after setup, plain `s3cab backup` just works. When several
 sets exist and none is named, the error lists them. `tree [<set>]` becomes "exactly what
 a snapshot of this set would include", sharpening its diagnostic role. The file/bucket
-diagnostics (`prop`, `objects`, `upload`) are unchanged.
+diagnostics (`prop`, `hashes`, `upload`) are unchanged.
 
 ### `setup` — the front door
 
@@ -275,12 +278,12 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 2. Candidates = hashes in the target manifest **not** in the latest remote manifest.
    (First backup of a set: no remote manifest, everything is a candidate.)
 3. Drop candidates found in the **per-bucket objects cache**: a local hash-per-line
-   file in exactly the format `objects -f` writes (it *is* that command's output put to
+   file in exactly the format `hashes -f` writes (it *is* that command's output put to
    work — composability again). The point is request arithmetic: per-object existence
    checks (HEAD, or the conditional PUT itself) cost one request *each*, which at
    millions of objects mounts up badly, while LIST pages 1,000 keys per request — so
    the listing is fetched rarely, cached locally, and consulted for free. `backup`
-   appends every hash it uploads to the cache; refresh any time with `objects -f`.
+   appends every hash it uploads to the cache; refresh any time with `hashes -f`.
    `--skip-cache` skips this cache lookup entirely (when in doubt about sync) and falls
    through to the conditional PUT below. (The flag is named `--skip-cache`, not the
    `--force` this spec first used: it only skips the cache and never overwrites, unlike
@@ -310,7 +313,7 @@ A deliberate design property, worth preserving as commands are added: every high
 command is a thin coordination of lower-level pieces that are independently useful —
 `backup` = `snapshot` + the snapshot-uploader; `status` = the uploader's diff with the
 writes removed; `tree` = the snapshot's walk without the hashing. The composition
-*medium* is the flat **hash-per-line stream** the `objects` plumbing already emits: line
+*medium* is the flat **hash-per-line stream** the `hashes` plumbing already emits: line
 streams compose with each other and with ordinary Unix tools, which extends the
 no-lock-in principle (#2) from recovery to *administration* — see below.
 
@@ -318,7 +321,7 @@ no-lock-in principle (#2) from recovery to *administration* — see below.
 
 Both admin commands compose the same two bucket-wide enumerations:
 
-- **stored** — the hashes under `objects/` (exactly what the `objects` command lists);
+- **stored** — the hashes under `objects/` (exactly what the `hashes` command lists);
 - **referenced** — the union of hashes in **every manifest under `snapshots/`** (all
   sets, all users, all machines — objects are shared bucket-wide, so the *bucket*, not
   the set, is always the domain for both commands).
@@ -332,7 +335,7 @@ Then they are opposite set-differences:
 
 Because both inputs are hash-per-line streams, the whole computation is reproducible by
 hand with `sort` and `comm` — even s3cab's heaviest maintenance operation needs no
-s3cab. (Whether *referenced* gets its own plumbing command alongside `objects` is
+s3cab. (Whether *referenced* gets its own plumbing command alongside `hashes` is
 decided at implementation.)
 
 ### `cleanup` (object garbage collection)
@@ -446,7 +449,7 @@ per-root-basename mapping with clash detection, `paths…` filters, mtime restor
 
 **Built (PR #44):** `restore` to original locations — skip-existing default + `--overwrite`,
 `--snapshot <name>`, `paths…` prefix filters (`selectEntries`), per-object SHA-256
-verification on download (`downloadObject`), download-once/copy for repeated content, and
+verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
 mtime restoration. `setup --from` adoption pins a given remote namespace and binds the
 bucket, verifying the namespace has a backup (listing the bucket's namespaces on a typo via
 `listRemoteNamespaces`); `setup` is now uniformly async. `--output` re-rooting **is now

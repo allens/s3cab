@@ -111,7 +111,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   configured (the lazy-`client()` guarantee must survive the endpoint change).
 - Exercise the object path against a **non-AWS** target — easiest is a local **MinIO**
   container (static keys + endpoint), or real **Cloudflare R2 / Backblaze B2** credentials.
-  Confirm `objects` (list) and the upload path succeed **with the storage-class/SSE options
+  Confirm `hashes` (list) and the upload path succeed **with the storage-class/SSE options
   correctly omitted** — i.e. an upload that would fail today against R2/B2 now succeeds.
 - **Checksum gating now has automated coverage** (Finding 3 item 4). ✅
   [../src/lib/s3.test.mjs](../src/lib/s3.test.mjs) captures the *outgoing request* (via a

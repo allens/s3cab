@@ -71,7 +71,7 @@ drive layout, or another OS). To recover onto a **fresh machine**, re-create the
 at the existing backup — `s3cab setup <set> --from <user@machine/set> --bucket <bucket>` —
 then `restore`.
 
-Run any command with `--help` to see its options. (Two cloud plumbing commands, `objects`
+Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
 and `upload`, also work already — advanced building blocks covered under
 [Cloud repositories](#cloud-repositories).)
 
@@ -109,14 +109,14 @@ and restorable.
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
 look up its hash in a snapshot and download `objects/<that-hash>`.
 
-The `objects` command lists a repository's stored object hashes, **one per line**. It's an
+The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is to produce
 a lookup file (the per-bucket objects cache) so `backup` can skip re-uploading files already
 stored:
 
 ```console
-> s3cab objects my-backup-bucket               # one sha256 per line, to stdout
-> s3cab objects my-backup-bucket -f have.txt   # …or written to a file
+> s3cab hashes my-backup-bucket               # one sha256 per line, to stdout
+> s3cab hashes my-backup-bucket -f have.txt   # …or written to a file
 ```
 
 Its write counterpart, `upload`, puts a single file into the store at `objects/<sha256>`.
@@ -127,7 +127,7 @@ same key — unless you `--force` a re-upload:
 > s3cab upload my-backup-bucket C:\Users\me\Photos\beach.jpg
 ```
 
-(`<bucket>` is a plain S3 bucket name — one repository is one bucket. Like `objects`,
+(`<bucket>` is a plain S3 bucket name — one repository is one bucket. Like `hashes`,
 `upload` is plumbing: a lower-level building block beside the snapshot-driven `backup`.)
 
 ### Authentication
@@ -142,7 +142,7 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
      bucket; add per-set overrides here). It takes effect as the set-based commands arrive
      with `backup`;
    - **`~/.s3cab/env.<bucket>`** — per-bucket (how to authenticate to that bucket); used by
-     commands that take a bucket, like `upload`/`objects`;
+     commands that take a bucket, like `upload`/`hashes`;
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the others.
 
    (s3cab does **not** read a `.env` from the current directory.)

@@ -58,8 +58,8 @@ The per-bucket file cannot name its own bucket (that would be circular): the buc
 > `<dir>/.s3cab/env`. It was implemented and tested but never wired to a command, and
 > the backup-set model ([backup.md](backup.md), 2026-06) replaced it with the per-set
 > layer above before it ever shipped — same layering machinery, only the path changed.
-> Today's commands still don't pass a set scope (`objects`/`upload` use the explicit
-> bucket scope); the set layer activates as the set-first commands land.
+> The bucket-scoped plumbing commands (`hashes`/`upload`) pass no set scope, using the
+> explicit bucket scope; the set layer is consumed by the set-first commands.
 
 This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or a default bucket. Once loaded, those variables participate in the SDK's normal credential resolution.
 
