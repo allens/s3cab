@@ -68,8 +68,8 @@ tests, for four reasons:
    types into tests of `remote.mjs` / `backup` / `restore`, coupling them to what the boundary
    exists to hide.
 4. **Zero-dep.** Mocking `s3.mjs` needs only `node:test`'s `mock.module` / `mock.fn`. Mocking
-   the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against CLAUDE.md
-   design principle #5 (the high bar for dependencies).
+   the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against
+   [ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) (the high bar for dependencies).
 
 **Not dogma — the boundary follows what's under test:**
 
@@ -148,12 +148,14 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 
 - **MinIO — rejected.** The server is AGPL-licensed (open), but we're wary of building CI on a
   dependency whose open edition's long-term direction feels uncertain to us — the caution
-  behind CLAUDE.md design principle #2 (no lock-in). No criticism of the project intended; a
+  behind [ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md) (no lock-in). No criticism of the project intended; a
   contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
 - **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
-  container, far too much surface to bolt onto CI for one service (CLAUDE.md design principles
-  #5 / #6 / #8 — built-ins over deps, minimal code, don't over-engineer).
+  container, far too much surface to bolt onto CI for one service
+  ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) /
+  [ADR-0006](../docs/adr/0006-minimal-code.md) / CLAUDE.md convention #8 — built-ins over deps,
+  minimal code, don't over-engineer).
 - **Why no emulator at all:** the only genuine advantage an emulator has over real S3 is
   *no credentials* (so it could run on fork CI / for a contributor with no AWS account). Cost
   is negligible at test volume; the speed difference is seconds. Since fork-CI real-S3 is a
@@ -252,5 +254,5 @@ coverage (they're a floor to bump, not a target — CLAUDE.md "Known gaps").
 
 Design specs: [backup.md](backup.md), [auth.md](auth.md),
 [s3-provider-compatibility.md](s3-provider-compatibility.md). The short posture also lives in
-CLAUDE.md's "Formatting, line endings & tooling" section (the S3-test-strategy bullet), which
-pins the posture and points here for the full reasoning.
+[ADR-0019](../docs/adr/0019-s3-test-strategy.md), which pins it and points here for the full
+reasoning.

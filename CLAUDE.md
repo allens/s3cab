@@ -187,7 +187,8 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   it silently reordered/removed imports on save, but only for contributors who had the VS
   Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
   by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
-  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against #6/#8).
+  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against
+  [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8).
 - **Don't bury `await` inside a conditional or a member-access expression** — a compound
   `if`/`while` condition, a ternary, a short-circuit (`&&`/`||`), or a property/index access
   on the result. Await into a named local on its own line first, then use it: `const exists =
@@ -206,7 +207,8 @@ How to write code that looks like the rest of the codebase. (These are *style* r
     argument-position awaits as violations; they are not — decline them.)
   - **No linter enforces this** (a `no-restricted-syntax` rule was weighed and rejected
     2026-06-16: it can't tell the ugly cases from the occasionally-fine ternary-await, so it
-    would trade real false positives for a cosmetic gain — against #6/#8, same call as the
+    would trade real false positives for a cosmetic gain — against
+    [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8, same call as the
     removed organizeImports action). So **self-check instead: grep the diff for the buried
     shapes** before committing — `(await …).` / `(await …)[` (member/index access on the
     result) and a `? `/`: `/`&& `/`|| ` sitting immediately before `await` (ternary /
