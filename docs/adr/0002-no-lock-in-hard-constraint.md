@@ -1,7 +1,7 @@
 # No lock-in is a hard constraint
 
 If s3cab disappeared tomorrow, a competent person must be able to recover their data by
-hand — or write a replacement in an afternoon. Snapshot manifests and the object store use
+hand — or write a replacement in an afternoon. Snapshot files and the object store use
 plain, self-evident formats; recoverability is a designed-in, first-class feature.
 
 _(Foundational design principle #2 — the single most important one; the others serve it.)_
@@ -17,5 +17,5 @@ is a trap. Transparency of **format** (this ADR) and transparency of **code**
 This is a **hard constraint, not a preference.** Reject any feature that meaningfully harms
 hand-recoverability, even when it saves space or time. It is exactly why file-level-only
 dedup ([0001](0001-file-level-content-addressable-dedup.md)) is chosen over block packing,
-why manifests are plain TSV ([0004](0004-tsv-snapshot-manifests.md)), and why hashes are
+why snapshots are plain TSV ([0004](0004-tsv-snapshot-manifests.md)), and why hashes are
 human-readable hex. When a decision is unclear, decide in favour of this.

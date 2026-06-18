@@ -3,9 +3,9 @@ import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { parseSnapshotStream } from "./snapshot-file.mjs";
 
-// `parseSnapshotStream` is the pure line-parser behind every manifest read. It
+// `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
 // turns a decompressed TSV stream into `{ entries, dirs, identity }` — the file
-// lookup plus the `#SNAPSHOT`/`#DIR` headers that keep a manifest self-describing
+// lookup plus the `#SNAPSHOT`/`#DIR` headers that keep a snapshot self-describing
 // (and that `restore --output` re-roots by). Build streams from strings so these
 // run without S3 or a temp file.
 // Wrap the text in an array so it streams as a single chunk; a bare string is
@@ -41,7 +41,7 @@ describe("parseSnapshotStream", () => {
     });
   });
 
-  it("yields empty headers for a manifest without #SNAPSHOT/#DIR lines", async () => {
+  it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
     const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`;
     const { entries, dirs, identity } = await parse(text);
     assert.equal(entries.size, 1);

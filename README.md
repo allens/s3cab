@@ -29,7 +29,7 @@ is never locked in**:
   two places, and it costs **zero** extra storage. Deduplication is whole-file, which
   keeps the stored format simple and transparent.
 
-- **📄 Manifests you can actually read.** Every snapshot is a tab-separated file — open
+- **📄 Snapshot files you can actually read.** Every snapshot is a tab-separated file — open
   it in a text editor, or load it into Excel to sort, filter, and explore your backup.
   No special viewer required.
 
@@ -96,14 +96,14 @@ folder inside a shared one. Inside, the structure is fixed and well-known, so an
 ```
 s3://my-backup-bucket/
   objects/<sha256>                       # your files, each stored once under its content hash
-  snapshots/<user>@<machine>/<set>/…     # the manifests that say which objects make up each snapshot
+  snapshots/<user>@<machine>/<set>/…     # the snapshot files that say which objects make up each snapshot
 ```
 
 One bucket can hold backups from **several people and machines** — they all share
 `objects/` (so duplicate content is still stored once across everything in the bucket),
-while each backup set keeps its own manifests under a prefix like
-`snapshots/allen@allen-pc/photos/`. A manifest only ever appears in `snapshots/` after
-every file it references is safely in `objects/`, so any manifest you find is complete
+while each backup set keeps its own snapshot files under a prefix like
+`snapshots/allen@allen-pc/photos/`. A snapshot file only ever appears in `snapshots/` after
+every file it references is safely in `objects/`, so any snapshot file you find is complete
 and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
@@ -195,7 +195,7 @@ covered in [doc/compare.md](doc/compare.md).
 
 ## How it works
 
-Running `snapshot` walks every folder in the set and writes one immutable manifest into
+Running `snapshot` walks every folder in the set and writes one immutable snapshot file into
 the set's own folder under your home directory — never inside your backed-up files:
 
 ```
@@ -208,10 +208,10 @@ the set's own folder under your home directory — never inside your backed-up f
     2025-11-11T0830.tsv.zst
 ```
 
-Each manifest is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
+Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
 fixed-width leading columns so it stays readable, with the variable-length (and
 platform-native, absolute) path last. It opens with a header naming the set's identity
-(`user@machine:set`) and each member folder, so a manifest is self-describing even found
+(`user@machine:set`) and each member folder, so a snapshot file is self-describing even found
 on its own:
 
 ```

@@ -26,20 +26,20 @@ import { secondsSince } from "./format.mjs";
 // size: size of the file in bytes (right-aligned)
 // For comment lines the fields are:
 // #comment<TAB>context<TAB>dirent_type<TAB>path
-// A manifest opens with two header comment lines (written by `snapshot`):
+// A snapshot file opens with two header comment lines (written by `snapshot`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a manifest is self-describing even found alone (specs/backup.md). Comment
+// so a snapshot file is self-describing even found alone (specs/backup.md). Comment
 // lines are skipped on read.
 
 /** @typedef {import("../commands/prop.mjs").Props} Props */
-/** @typedef {[string, Props | Error]} SnapshotEntry */
-/** @typedef {Map<string, Props>} SnapshotLookup */
+/** @typedef {[string, Props | Error]} SnapshotRow */
+/** @typedef {Map<string, Props>} SnapshotEntries */
 /**
- * A parsed manifest: the file `entries` plus the `#SNAPSHOT`/`#DIR` headers that
+ * A parsed snapshot: the file `entries` plus the `#SNAPSHOT`/`#DIR` headers that
  * make it self-describing (specs/backup.md). `dirs` are the member directories
  * captured at snapshot time; `identity` is the pinned `user@machine:set`.
- * @typedef {{ entries: SnapshotLookup, dirs: string[], identity?: string }} SnapshotManifest
+ * @typedef {{ entries: SnapshotEntries, dirs: string[], identity?: string }} Snapshot
  */
 
 /**
@@ -50,7 +50,7 @@ import { secondsSince } from "./format.mjs";
  *
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
- * overwriting a manifest) unless `overwrite` is set — the debug escape hatch
+ * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
  * for re-running within a minute (specs/backup.md). The target is checked up
  * front, before any walking/hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
@@ -124,7 +124,7 @@ export async function withSnapshotFile(
  * Read a snapshot by name from a snapshot directory.
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string} name - Snapshot name
- * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ * @returns {Promise<SnapshotEntries>} Snapshot lookup
  * @throws When the named snapshot does not exist — never silently returns an
  *   empty lookup, which a caller could mistake for an empty snapshot.
  */
@@ -144,7 +144,7 @@ export async function readSnapshot(snapshotDir, name) {
 /**
  * The snapshot names among a set of snapshot file names, newest first. This
  * datestamped `.tsv.zst` filter is the one place the snapshot naming convention
- * is recognised; `list` (local files) and the remote lister (manifest keys with
+ * is recognised; `list` (local files) and the remote lister (snapshot keys with
  * their `snapshots/<namespace>/` prefix already stripped) both run through here,
  * so a local and a remote listing sort and filter identically.
  * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.zst`)
@@ -161,7 +161,7 @@ export function snapshotNames(names) {
 /**
  * Read a snapshot file.
  * @param {string} path - Path to snapshot file
- * @returns {Promise<SnapshotLookup>} Snapshot lookup
+ * @returns {Promise<SnapshotEntries>} Snapshot lookup
  */
 export async function readSnapshotFile(path) {
   const start = Temporal.Now.instant();
@@ -181,23 +181,23 @@ export async function readSnapshotFile(path) {
 }
 
 /**
- * Parse a decompressed snapshot TSV stream into a manifest — the line-parsing
- * core of `readSnapshotFile`, split out so a manifest can be read straight from
+ * Parse a decompressed snapshot TSV stream into a snapshot — the line-parsing
+ * core of `readSnapshotFile`, split out so a snapshot can be read straight from
  * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
  * with no temp file. The caller hands in an already-**decompressed** TSV stream:
  * `readSnapshotFile` decompresses a `.zst` path itself; the remote reader pipes
  * the S3 body through zstd.
  *
  * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
- * rather than discarded, so a manifest stays self-describing on read — the
+ * rather than discarded, so a snapshot stays self-describing on read — the
  * member dirs are what `restore --output` re-roots by. Any other comment line is
  * skipped. Local callers that only want the file lookup take `.entries`
- * (`readSnapshotFile`); the remote reader surfaces the whole manifest.
+ * (`readSnapshotFile`); the remote reader surfaces the whole snapshot.
  * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
- * @returns {Promise<SnapshotManifest>} The file entries plus parsed headers
+ * @returns {Promise<Snapshot>} The file entries plus parsed headers
  */
 export async function parseSnapshotStream(input) {
-  /** @type {SnapshotLookup} */
+  /** @type {SnapshotEntries} */
   const entries = new Map();
   /** @type {string[]} */
   const dirs = [];
@@ -233,7 +233,7 @@ export async function parseSnapshotStream(input) {
 
 /**
  * Convert snapshot data to TSV lines.
- * @param {Iterable<SnapshotEntry> | AsyncIterable<SnapshotEntry>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
+ * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */

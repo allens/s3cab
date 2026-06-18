@@ -45,7 +45,7 @@ lie about behaviour undermine the whole premise.
 
 **Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
 the website/repo docs (README, `doc/` — eventually a proper website) carry everything
-someone needs *before trying s3cab* plus the advanced depth (e.g. the repository/manifest
+someone needs *before trying s3cab* plus the advanced depth (e.g. the repository/snapshot-file
 format); the built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
 `src/help.mjs`) carry only what a user needs *mid-task in a terminal*. The placement test:
 *"would someone need this mid-task, without reaching for a browser?"* Exclude-pattern
@@ -179,7 +179,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 
 - **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
-  `SnapshotLookup`), then bare `{Foo}` in annotations — cleaner than repeating the inline
+  `SnapshotEntries`), then bare `{Foo}` in annotations — cleaner than repeating the inline
   form at each use, and the modern TS-supported style (TS 5.5+). An unused `@import` name is
   flagged by the type check, so they don't rot.
 - **Import order is author-managed; no tool enforces or rewrites it.** A
@@ -335,13 +335,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
 
 - **`verify` flow not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
-  set-first porcelain, `snapshots/<user>@<machine>/<set>/`, manifest-last invariant,
+  set-first porcelain, `snapshots/<user>@<machine>/<set>/`, snapshot-last invariant,
   diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
   path are built** (2026-06):
   slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
   the set env layer in auth; slice 2 moved the local engine onto sets —
   `snapshot`/`list`/`compare`/`tree` take `[<set>]` (sole-set default), walk every member
-  dir with the set's `exclude.txt`, write one manifest (with `#SNAPSHOT` identity + `#DIR`
+  dir with the set's `exclude.txt`, write one snapshot (with `#SNAPSHOT` identity + `#DIR`
   headers) into `~/.s3cab/sets/<set>/snapshots/`, and the per-dir `<dir>/.s3cab/` has
   retired; slice 3 (PR #39) built the cloud half — the remote engine
   ([src/lib/remote.mjs](src/lib/remote.mjs)) plus `backup`, `status`, and `list --remote`,
@@ -379,7 +379,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
     portable bundle. Adding it later is one `sea/` config + one `macos-13` matrix row.
   - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
-  whether keeping the latest manifest uncompressed for transparency is a real feature.
+  whether keeping the latest snapshot uncompressed for transparency is a real feature.
 - **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
   job, alongside lint/format): `npm run typecheck` plus a `node --test
   --experimental-test-coverage` run (`test:coverage:report`) that **prints** the coverage

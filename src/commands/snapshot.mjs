@@ -17,13 +17,13 @@ import { walkSet } from "./tree.mjs";
 
 /**
  * @import { Props } from "./prop.mjs"
- * @import { SnapshotLookup } from "../lib/snapshot-file.mjs"
+ * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
  * @import { CompareResult } from "./compare.mjs"
  */
 
 /**
  * Take a snapshot of a backup set: walk every member directory and write a
- * single manifest into the set's snapshot store, then report what changed
+ * single snapshot into the set's snapshot store, then report what changed
  * since the previous one (specs/backup.md).
  * @param {string} [setName] - Backup set to snapshot (default: the only set)
  * @param {object} [options]
@@ -40,7 +40,7 @@ export async function snapshot(setName, options = {}) {
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);
 
-  /** @type {SnapshotLookup | undefined} */
+  /** @type {SnapshotEntries | undefined} */
   let lookup;
   const latestSnapshotName = listSnapshotNames(snapshotDir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
@@ -48,7 +48,7 @@ export async function snapshot(setName, options = {}) {
     lookup = await readSnapshot(snapshotDir, latestSnapshotName);
   }
 
-  // The set's pinned identity (user@machine:set) heads the manifest, with one
+  // The set's pinned identity (user@machine:set) heads the snapshot, with one
   // #DIR line per member directory, so the file is self-describing even when
   // found alone in a bucket (specs/backup.md).
   const identity = set.namespace?.replace("/", ":") ?? set.name;

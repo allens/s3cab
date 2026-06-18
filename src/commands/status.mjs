@@ -7,7 +7,7 @@ import { listSnapshotNames } from "./list.mjs";
 /**
  * Show what is backed up and what a backup would upload (specs/backup.md): the
  * read-only half of the uploader's diff — the set's latest *local* snapshot
- * compared against its latest *remote* manifest, with no writes. It reuses
+ * compared against its latest *remote* snapshot, with no writes. It reuses
  * `uploadCandidates`, the very diff `backup` runs (steps 1–2 of "how backup
  * computes the upload set"), so `status` and `backup` never disagree.
  *

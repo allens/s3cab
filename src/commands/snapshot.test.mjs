@@ -125,7 +125,7 @@ describe("snapshot", () => {
 
     await snapshot("photos", { rehash: true, debug: true });
 
-    // --debug leaves an uncompressed copy beside the manifest; read its header.
+    // --debug leaves an uncompressed copy beside the snapshot; read its header.
     const decompressed = readFileSync(
       join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
       "utf8",

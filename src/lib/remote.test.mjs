@@ -19,7 +19,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
  * Build a snapshot lookup from a path→hash map — only the hash matters to
  * `uploadCandidates`, so size/mtime are filler.
  * @param {Record<string, string>} pathToHash
- * @returns {import("./snapshot-file.mjs").SnapshotLookup}
+ * @returns {import("./snapshot-file.mjs").SnapshotEntries}
  */
 const lookup = (pathToHash) =>
   new Map(
@@ -53,7 +53,7 @@ afterEach(() => {
 // when unset — so local/offline/fork runs stay green and real coverage runs
 // only where the bucket is wired. The pure name-sorting these listers reuse is
 // covered without a bucket by list.test.mjs (via `snapshotNames`); ordering
-// against real seeded manifests follows in step 4, once the uploader can seed
+// against real seeded snapshots follows in step 4, once the uploader can seed
 // them naturally (and tear them down).
 const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
 const skip = TEST_BUCKET
@@ -61,7 +61,7 @@ const skip = TEST_BUCKET
   : "set S3CAB_TEST_BUCKET (and AWS credentials) to run S3 integration tests";
 
 describe("remoteSnapshotsPrefix", () => {
-  it("places a set's manifests under snapshots/<namespace>/", () => {
+  it("places a set's snapshots under snapshots/<namespace>/", () => {
     assert.equal(
       remoteSnapshotsPrefix("user@host/photos"),
       "snapshots/user@host/photos/",
@@ -130,7 +130,7 @@ describe("remote snapshot listing (real bucket)", { skip }, () => {
 });
 
 describe("uploadSnapshot (real bucket)", { skip }, () => {
-  it("uploads objects then the manifest, and refuses to overwrite an existing one", async () => {
+  it("uploads objects then the snapshot, and refuses to overwrite an existing one", async () => {
     await using dir = await mkTmpDir();
     // useTempHome isolates the objects cache this writes; AWS credentials must
     // therefore come from the *environment* (CI/OIDC), since it redirects HOME
@@ -166,7 +166,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       assert.equal(result.candidates, hashes.length);
       assert.equal(result.uploaded, hashes.length);
 
-      // The manifest is present (uploaded last) and its objects exist.
+      // The snapshot is present (uploaded last) and its objects exist.
       assert.deepEqual(await listRemoteSnapshots(bucket, namespace), [name]);
       for (const hash of hashes) {
         const keys = [];
@@ -177,7 +177,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       }
 
       // Re-backing-up the same name uploads nothing (all objects now in the
-      // latest remote manifest) and errors on the immutable manifest.
+      // latest remote snapshot) and errors on the immutable snapshot.
       await assert.rejects(
         () => uploadSnapshot({ bucket, namespace, snapshotDir, name }),
         /already backed up/,
@@ -194,7 +194,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
 });
 
 describe("listRemoteNamespaces (real bucket)", { skip }, () => {
-  it("surfaces the user@machine/set prefix of a seeded manifest", async () => {
+  it("surfaces the user@machine/set prefix of a seeded snapshot", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);

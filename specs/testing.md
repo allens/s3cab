@@ -24,7 +24,7 @@ _logic_ but **no new seams** — so the strategy won't be invalidated by them.
   (e.g. `uploadCandidates`, the objects cache, `selectEntries`, `validateNamespace`, the
   snapshot TSV parser, `read-lines`, `error`). Run everywhere, always.
 - **Mocked-`s3.mjs`-seam tests** — exercise **command orchestration** ("given these objects
-  exist remotely, does `backup` upload the right diff and write the manifest last?") and
+  exist remotely, does `backup` upload the right diff and write the snapshot last?") and
   **deterministic error injection** that real S3 won't produce on demand (mid-upload failure
   after objects land, truncated download, LIST mid-pagination). Mock at the `s3.mjs` seam —
   **our** boundary — so the test exercises our code, not AWS, and the wire-drift concern
@@ -75,7 +75,7 @@ tests, for four reasons:
 
 | Under test | Mock / drive at | Why |
 | --- | --- | --- |
-| Orchestration above `s3.mjs` (upload diff, manifest-last, skip/overwrite) | the **`s3.mjs` seam** | small, stable, owned contract; tests our code |
+| Orchestration above `s3.mjs` (upload diff, snapshot-last, skip/overwrite) | the **`s3.mjs` seam** | small, stable, owned contract; tests our code |
 | `s3.mjs`'s **own request shaping** (non-AWS checksum/SSE/storage-class *omission*) | the **SDK / outgoing request** | the behaviour *only* exists in the request the client emits (the always-on header assertion) |
 | `s3.mjs`'s **response handling** (pagination, verified-download checksum) | **real S3** (integration tier) | real SDK → real responses; no hand-authored shapes to drift |
 

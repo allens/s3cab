@@ -6,11 +6,11 @@ Designed (2026-06-12), **implementation in progress**. Slices 1–3 and the rest
 slice 4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and
 the set env layer in auth; slice 2 moved the local engine onto sets —
 `snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every member dir with the set's
-`exclude.txt`, write one manifest (with `#SNAPSHOT` identity + `#DIR` headers) into
+`exclude.txt`, write one snapshot (with `#SNAPSHOT` identity + `#DIR` headers) into
 `~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
 the `snapshots/` remote half and the cloud porcelain: the remote repository engine
-(`src/lib/remote.mjs` — remote-manifest listing/read, the upload-set diff
-`uploadCandidates`, the manifest-last `uploadSnapshot`), plus `backup`, `status`, and
+(`src/lib/remote.mjs` — remote-snapshot listing/read, the upload-set diff
+`uploadCandidates`, the snapshot-last `uploadSnapshot`), plus `backup`, `status`, and
 `list --remote`. The `objects/<sha256>` half of the remote layout — `putObject` / verified
 `getObject` / `listObjectHashes` and the per-bucket objects cache — is owned by
 `src/lib/objects.mjs` (extracted 2026-06-17 from where it had been scattered across
@@ -28,8 +28,8 @@ under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slic
 > within hours by the **backup set** model below, because a set name solves the identity
 > problem outright: directories become the *contents* of a set rather than its identity,
 > so renaming a machine or moving a folder edits a config file instead of forking the
-> backup history. Decisions that survived unchanged: byte-identical manifests, the
-> manifest-last invariant, and the diff-vs-latest-remote upload set.
+> backup history. Decisions that survived unchanged: byte-identical snapshots, the
+> snapshot-last invariant, and the diff-vs-latest-remote upload set.
 
 ## Purpose
 
@@ -67,9 +67,9 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
   username sanitizes to "") falls back to a **short stable hash** of the raw value, so
   identities stay distinct in a shared bucket even when recognisability is unsalvageable
   (settled in PR #33 review).
-- The identity is informational for recovery, not load-bearing: manifests internally
+- The identity is informational for recovery, not load-bearing: snapshots internally
   record the identity *and* their member directories (see header), so a recoverer can
-  always learn what a namespace is by opening one manifest.
+  always learn what a namespace is by opening one snapshot.
 
 ### On disk: one folder per set
 
@@ -124,7 +124,7 @@ one-shot form; it is not part of v1.
 **Adoption (disaster recovery / replacement machine):**
 `setup <set> --bucket <bucket> --from <user@machine>/<set>` creates a local set whose
 pinned namespace is the existing **remote** one — *not* derived from this machine —
-seeding `dirs.txt` from the latest remote manifest's `#DIR` lines. After adoption,
+seeding `dirs.txt` from the latest remote snapshot's `#DIR` lines. After adoption,
 `restore`/`list`/`compare` just work, and `backup` continues the same history (exactly
 right for a rebuilt PC).
 
@@ -148,18 +148,18 @@ docs     (no bucket — local only)   (1 folder)
 then upload it. `--snapshot <name>` skips the snapshotting and uploads that existing
 snapshot instead. Internally `backup` coordinates `snapshot()` and a lower-level
 snapshot-uploader (given an existing snapshot + bucket: compute upload set, upload
-objects, upload manifest). The uploader function is the library surface regardless;
+objects, upload snapshot). The uploader function is the library surface regardless;
 whether it also gets its own registry entry (Advanced group) is decided at
 implementation.
 
 ### `restore` — put files back, never destructively by default
 
-`s3cab restore [<set>] [paths…]` restores to **original locations** (the manifest's
+`s3cab restore [<set>] [paths…]` restores to **original locations** (the snapshot's
 absolute paths) but **never touches an existing file** — existing files are reported as
 skipped; `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
 "I deleted a folder" case both just work, and a careless restore can't destroy newer
 work. `--snapshot <name>` picks the source snapshot (default: the latest remote);
-positional `paths…` filter what is restored. Restored files get their manifest **mtime**
+positional `paths…` filter what is restored. Restored files get their snapshot **mtime**
 (required — the snapshot diff depends on mtimes).
 
 `--output <dir>` re-roots instead: each member dir's contents restore relative to it
@@ -168,18 +168,18 @@ basename is detected up front and errors with guidance (rare, actionable).
 
 ### `delete` — remove one remote snapshot
 
-`s3cab delete <set> --snapshot <name>` removes a single remote manifest — the retention
-*primitive*. It deletes only the manifest; reclaiming the objects only it referenced is
+`s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
+*primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
 `cleanup`'s job (the command's output says so, and reminds the user to refresh any
 objects cache). Retention *policy* (keep the last 12 monthlies, …) comes later, on top
 of this primitive. (Local snapshots need no command: the files are the API — delete the
 file.)
 
-## Snapshot manifests
+## Snapshot files
 
-**One manifest per set per run** — all member directories in a single TSV (the existing
+**One snapshot per set per run** — all member directories in a single TSV (the existing
 line format is already multi-root-safe: paths are absolute). This buys cross-directory
-move/dedup detection in `compare` and makes the manifest-last invariant a **set-level**
+move/dedup detection in `compare` and makes the snapshot-last invariant a **set-level**
 atomicity guarantee. The header records the identity and the member dirs as captured at
 snapshot time, so the file is self-describing even when found alone in a bucket:
 
@@ -201,13 +201,13 @@ for a user to back up their documents, pictures, and video efficiently, where th
 that matters is that **the content is recoverable**. File content, size, and mtime are
 the contract; everything else is out of scope and documented to users as such.
 
-### Snapshot names: collisions error, manifests never overwrite
+### Snapshot names: collisions error, snapshots never overwrite
 
 Snapshot names stay minute-precision local timestamps. A second snapshot of the same set
 in the same minute is an **error**, not an overwrite — unlikely in real use, and an
-accidental double-run (a scheduler firing twice) must not destroy a manifest. The same
-rule holds remotely: `backup` uploads manifests with the no-clobber conditional PUT, so
-an existing remote name is an error. Manifests are immutable everywhere. One pragmatic
+accidental double-run (a scheduler firing twice) must not destroy a snapshot. The same
+rule holds remotely: `backup` uploads snapshots with the no-clobber conditional PUT, so
+an existing remote name is an error. Snapshots are immutable everywhere. One pragmatic
 exception: under `S3CAB_DEBUG` the *local* writer may overwrite — re-running within a
 minute while debugging is otherwise maddening.
 
@@ -237,7 +237,7 @@ s3://my-backup-bucket/
 (`@` is legal in S3 keys; it sits in the "may require special handling" class, which is
 accepted — it only surfaces as percent-encoding in URL contexts.)
 
-**Remote manifests are byte-identical local manifests** — the `.tsv.zst` uploaded as-is.
+**Remote snapshot files are byte-identical local snapshot files** — the `.tsv.zst` uploaded as-is.
 One format everywhere; the upload is trivially verifiable; the recovery story is
 identical to the local one (`zstd -d`, read the TSV).
 
@@ -249,16 +249,16 @@ dedup. The documented answer is server-side encryption (already sent on AWS), bu
 access policy, and provider trust — stated openly in user docs so it reads as a
 decision, not a gap.
 
-### Format invariant: objects first, manifest last
+### Format invariant: objects first, snapshot last
 
-**A manifest's presence under `snapshots/` guarantees every object it references is
+**A snapshot's presence under `snapshots/` guarantees every object it references is
 already present under `objects/`.** `backup` uploads all missing objects first and the
-manifest last, so the guarantee holds inductively from an empty bucket. Consequences:
+snapshot last, so the guarantee holds inductively from an empty bucket. Consequences:
 
-- Any manifest found in a bucket is trustworthy for `restore` and hand-recovery, and —
-  because a manifest spans its whole set — it certifies a **complete backup run of the
+- Any snapshot found in a bucket is trustworthy for `restore` and hand-recovery, and —
+  because a snapshot spans its whole set — it certifies a **complete backup run of the
   set**, not of one directory.
-- A crash mid-backup leaves only **orphan objects** (uploaded, referenced by no manifest
+- A crash mid-backup leaves only **orphan objects** (uploaded, referenced by no snapshot
   yet). Orphans are harmless: content-addressed, picked up by the retry (which skips
   re-uploading them), costing only their storage.
 - `verify` polices the invariant after the fact (below).
@@ -268,15 +268,15 @@ implementation detail.
 
 ## How `backup` computes the upload set
 
-`backup` operates on a snapshot manifest, so **all hashes are already known — `backup`
+`backup` operates on a snapshot file, so **all hashes are already known — `backup`
 never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 `--if-modified-from` TODO — is `snapshot`-time machinery via `prop`'s `lookup`, not
 `backup`'s concern.) The upload set scales with change size, not repo size:
 
-1. Fetch **this set's latest remote manifest** (one LIST of
+1. Fetch **this set's latest remote snapshot** (one LIST of
    `snapshots/<user>@<machine>/<set>/`, one GET of a small file).
-2. Candidates = hashes in the target manifest **not** in the latest remote manifest.
-   (First backup of a set: no remote manifest, everything is a candidate.)
+2. Candidates = hashes in the target snapshot **not** in the latest remote snapshot.
+   (First backup of a set: no remote snapshot, everything is a candidate.)
 3. Drop candidates found in the **per-bucket objects cache**: a local hash-per-line
    file in exactly the format `hashes -f` writes (it *is* that command's output put to
    work — composability again). The point is request arithmetic: per-object existence
@@ -290,8 +290,8 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
    `upload --force`.)
 4. Upload the remaining candidates with the conditional-PUT / no-clobber skip as the
    safety net — it silently no-ops objects that exist but were in neither the latest
-   manifest nor the cache (older snapshots, other sets/users/machines, a stale cache).
-5. Upload the manifest (the invariant's last step).
+   snapshot nor the cache (older snapshots, other sets/users/machines, a stale cache).
+5. Upload the snapshot (the invariant's last step).
 
 Cache staleness is **asymmetric**, and the design leans on that: an object *missing*
 from the cache but present remotely is harmless (one redundant conditional PUT, which
@@ -300,12 +300,12 @@ a needed upload and break the invariant — but objects are only ever deleted by
 `delete` + `cleanup`, which are manual, rare, and documented to refresh the cache
 (`verify` catches any slip).
 
-The diff trusts the invariant (latest remote manifest ⇒ its objects exist). Ground-truth
+The diff trusts the invariant (latest remote snapshot ⇒ its objects exist). Ground-truth
 checking is deliberately **not** `backup`'s job — it belongs to the admin pair below.
 **`status`** is steps 1–2 run read-only ("what would a backup upload"), sharing the
 machinery. It is **remote-only — there is no `--remote` flag** (decided at
 implementation): `status` always compares the set's latest *local* snapshot against its
-latest *remote* manifest, so the flag would have no second mode to point at.
+latest *remote* snapshot, so the flag would have no second mode to point at.
 
 ## Composability: porcelain composes plumbing
 
@@ -322,7 +322,7 @@ no-lock-in principle ([ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md)
 Both admin commands compose the same two bucket-wide enumerations:
 
 - **stored** — the hashes under `objects/` (exactly what the `hashes` command lists);
-- **referenced** — the union of hashes in **every manifest under `snapshots/`** (all
+- **referenced** — the union of hashes in **every snapshot under `snapshots/`** (all
   sets, all users, all machines — objects are shared bucket-wide, so the *bucket*, not
   the set, is always the domain for both commands).
 
@@ -330,8 +330,8 @@ Then they are opposite set-differences:
 
 | Command   | Computes            | A finding means                                          |
 | --------- | ------------------- | -------------------------------------------------------- |
-| `verify`  | referenced − stored | broken invariant: a manifest references a missing object |
-| `cleanup` | stored − referenced | orphaned objects: storage no manifest needs              |
+| `verify`  | referenced − stored | broken invariant: a snapshot references a missing object |
+| `cleanup` | stored − referenced | orphaned objects: storage no snapshot needs              |
 
 Because both inputs are hash-per-line streams, the whole computation is reproducible by
 hand with `sort` and `comm` — even s3cab's heaviest maintenance operation needs no
@@ -340,7 +340,7 @@ decided at implementation.)
 
 ### `cleanup` (object garbage collection)
 
-`cleanup` deletes orphaned objects. It is deliberately heavy (reads every manifest,
+`cleanup` deletes orphaned objects. It is deliberately heavy (reads every snapshot,
 lists all of `objects/`) and deliberately rare — the everyday commands never delete
 anything. Rules, several of which are **repository-format contract**, not implementation
 choice:
@@ -349,18 +349,18 @@ choice:
   explicit flag (e.g. `--delete`) is required to remove anything.
 - **Grace window (format contract):** cleanup must never delete an object whose
   `LastModified` is younger than a generous threshold (e.g. 7 days). Under
-  manifest-last, an in-flight backup's uploaded-but-not-yet-referenced objects are
+  snapshot-last, an in-flight backup's uploaded-but-not-yet-referenced objects are
   indistinguishable from orphans; the grace window is what makes concurrent backups
   safe without locks. Any tool that deletes from `objects/` must honour it.
 - **Known residual race (documented, accepted):** an *old* orphan (from a long-ago
   crashed backup) that a concurrently-running backup is relying on via the
-  conditional-PUT skip can be deleted between the skip and the manifest upload. The
+  conditional-PUT skip can be deleted between the skip and the snapshot upload. The
   grace window does not cover it (the object is old). Locking would be over-engineering
   for this audience; instead: **don't run cleanup while a backup is running**, and
   cleanup's output says so. Do not "optimize away" the grace window or this warning.
 - **Retention is the real driver.** The deletion *primitive* ships with this milestone
   (the `delete` command above); retention *policy* automation is deferred and will sit
-  on top of it. Until manifests get deleted, the only garbage is crash orphans —
+  on top of it. Until snapshots get deleted, the only garbage is crash orphans —
   negligible. The name `cleanup` is consumer vocabulary on purpose (not `gc`/`prune`).
 - **First command to need `DeleteObject`.** Everything else needs only Put/Get/List —
   keep it that way. Everyday backup credentials should not carry delete rights (limits
@@ -433,9 +433,9 @@ S3 test strategy (decided): S3-touching code is covered by **gated integration t
 against a real bucket** (`S3CAB_TEST_BUCKET`, skipped with a message when unset) rather
 than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit
 tests. (Standing up the test bucket + CI credentials is a separate task.) Built
-bottom-up: remote-manifest listing for a namespace → the manifest-diff function
+bottom-up: remote-snapshot listing for a namespace → the snapshot-diff function
 (`uploadCandidates`) → the per-bucket objects cache (read/append/`--skip-cache`) → the
-uploader loop (conditional PUTs, manifest-last) → `backup` porcelain (snapshot + upload)
+uploader loop (conditional PUTs, snapshot-last) → `backup` porcelain (snapshot + upload)
 → `status` (read-only diff, remote-only — no `--remote` flag) → `list --remote`. Plus
 fail-fast bucket-name validation in `setup` (a plain single-segment name, not an `s3://`
 URL or path — deferred from PR #33 review). The cache-skip flag is `--skip-cache`, not
@@ -454,13 +454,13 @@ mtime restoration. `setup --from` adoption pins a given remote namespace and bin
 bucket, verifying the namespace has a backup (listing the bucket's namespaces on a typo via
 `listRemoteNamespaces`); `setup` is now uniformly async. `--output` re-rooting **is now
 built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used to drop;
-`readRemoteSnapshot` returns the whole `SnapshotManifest`, and `reroot` maps each member dir
+`readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
 under `<output>/<basename>/…`, rejecting basename clashes up front). **Still deferred from
 this slice:** `compare --remote` (still a `notImplemented()` stub).
 
 ### Slice 5 — Admin pair
 
-`verify` (completeness + size cross-check), `delete` (manifest removal + cache-refresh
+`verify` (completeness + size cross-check), `delete` (snapshot removal + cache-refresh
 reminder), `cleanup` (dry-run default, `--delete`, grace window, the documented race
 warnings), and the versioning/ransomware + encryption-non-goal doc notes.
 

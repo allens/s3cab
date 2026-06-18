@@ -5,7 +5,7 @@
  * The hard rule this spike exists to honour: sqlite is a **cache only**. It is
  * rebuildable from the plain TSV snapshots + the object store, so #2 (no
  * lock-in) is untouched — delete the `.db` and nothing of value is lost. The
- * stored manifest/objects formats stay plain TSV / hash-named files. This
+ * stored snapshot/objects formats stay plain TSV / hash-named files. This
  * script proves that property (drop + rebuild) alongside the API and perf.
  *
  * What it measures, against the *current* approach (read the previous snapshot

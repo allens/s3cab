@@ -5,7 +5,7 @@ build
 dist
 coverage
 
-# Never let Prettier touch snapshot manifests or the on-disk store
+# Never let Prettier touch snapshot files or the on-disk store
 .s3cab
 *.tsv
 *.tsv.zst

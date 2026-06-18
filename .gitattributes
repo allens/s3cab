@@ -3,7 +3,7 @@
 # contributor's core.autocrlf setting.
 * text=auto eol=lf
 
-# Snapshot manifests are LF text; the zstd-compressed form is binary.
+# Snapshot files are LF text; the zstd-compressed form is binary.
 *.tsv text eol=lf
 *.tsv.zst binary
 *.zst binary

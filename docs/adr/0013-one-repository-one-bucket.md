@@ -12,7 +12,7 @@ follow it, and the snapshot-driven `backup` that populates `snapshots/` does too
 ## Consequences
 
 One bucket holds **multiple backup sets** ([0014](0014-backup-sets.md)): dedup is shared via a
-single `objects/` pool, while manifests are namespaced as
+single `objects/` pool, while snapshots are namespaced as
 `snapshots/<user>@<machine>/<set>/`. The object-store half is owned by
 [src/lib/objects.mjs](../../src/lib/objects.mjs); the `snapshots/<namespace>/` half by
 [src/lib/remote.mjs](../../src/lib/remote.mjs). `s3.mjs` stays the generic SDK boundary and

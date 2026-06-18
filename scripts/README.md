@@ -6,7 +6,7 @@ the automated test suite — run them by hand with `node` when needed.
 ## zstd-bench.mjs
 
 Benchmarks zstd compression levels (with and without long-distance matching) on
-a snapshot manifest, reporting compressed size plus compress/decompress time and
+a snapshot file, reporting compressed size plus compress/decompress time and
 printing recommendations. This is the experiment behind the zstd choice recorded
 in [../CLAUDE.md](../CLAUDE.md) (design principle #3 — "embrace modern open tech").
 

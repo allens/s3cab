@@ -563,7 +563,7 @@ describe("compare", () => {
   it("displays each path relative to its own member root (multi-root)", async () => {
     await using dir = await mkTmpDir();
 
-    // Two member roots; a manifest spanning both stores absolute paths. The
+    // Two member roots; a snapshot spanning both stores absolute paths. The
     // report shortens each against the root that contains it. (Absolute so the
     // stored keys aren't re-resolved against the temp dir.)
     const rootA = resolve(dir.path, "rootA");
