@@ -123,6 +123,36 @@ suspicions — check before believing.
   (already in Known gaps). The `compare` at the end of `snapshot` re-reads and
   re-decompresses the snapshot file it just wrote — fine today, noted for a perf pass.
 
+## Architecture deepening (2026-06-18 review)
+
+From a `/improve-codebase-architecture` pass (shallow→deep opportunities, in the
+`/codebase-design` vocabulary: module / interface / seam / depth / leverage / locality).
+Two of the five candidates shipped — the dead lstat cache (#67) and the snapshot-grammar
+consolidation (candidate A, #69, which also retired "manifest", #68). The remaining three,
+by strength:
+
+- **B (strong) — absorb "load env first" into the remote-set seam.** The precondition
+  "a caller must `loadEnv` before any S3 op" is documented in ~8 JSDoc blocks across
+  `remote.mjs`/`objects.mjs` and hand-re-coded at 7 command sites, yet the seam enforces it
+  nowhere — a forgotten `loadEnv` silently targets the wrong bucket's region/credentials.
+  Deepen: a `prepareRemoteSet(set)` / `prepareBucket(bucket)` in `auth.mjs` (which already
+  depends on `sets.mjs`, so no new cycle) that resolves the target *and* loads its env,
+  returning a ready set — one call per command, the precondition moved behind the seam.
+  Brushes the "env loading stays in each command" working convention; keeping the helper
+  *called by* the command preserves that, but reopen it deliberately.
+- **C (worth exploring) — narrow the S3 SDK boundary to the SDK.** `s3.mjs` (meant to be the
+  one SDK seam) also renders terminal progress bars (`cursorTo`/`clearLine`), ships an unused
+  `bucketPolicy`, and exposes test-only `deleteObject`/`emptyBucket` (see the `emptyBucket`
+  note above). Lift progress into a small stderr-progress module (`snapshot` and `restore`
+  hand-roll their own — three copies → one), move the test-only ops to a test helper, drop
+  `bucketPolicy` until `setup` needs it. The interface narrows to the seam it guards.
+- **D (worth exploring) — keep `compare`'s diff structured to the edge.** `compareSnapshots`
+  mixes name-resolution, reads, the deep pure `diff()`, *and* display formatting (the arrow
+  strings, `relativeToRoot`), returning display strings — so the structured `DiffResult` is
+  lost at the seam, and the planned `errors` category + `--remote` must thread through
+  presentation. Split: `compareSnapshots` returns the structured result; a `presentDiff()`
+  the command calls builds the arrow strings. `diff()` stays structured to the CLI edge.
+
 ## UX improvements
 
 - **Human-readable output by default; `--json` for machines.** The single
