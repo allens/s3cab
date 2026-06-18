@@ -69,7 +69,10 @@ try {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   }
 } catch (error) {
-  console.error("ERROR:", debug ? error : /** @type {Error} */ (error).message);
+  console.error(
+    "ERROR:",
+    debug ? error : Error.isError(error) ? error.message : String(error),
+  );
   console.error();
   if (isUsageError(error)) {
     console.error(usage(commands, commandName));
