@@ -517,15 +517,36 @@ non-obvious points worth pinning here:
 The distribution goal is a **single native executable** — a user shouldn't need Node
 installed to run s3cab. Producing it is two steps:
 
-1. **Bundle**: a one-line **esbuild** invocation (no wrapper script) bundles the ESM
-   source into one ESM file, `dist/s3cab.js`. esbuild is invoked **bundle-only** — no
-   `--target`/`--minify` — so the output is the same modern syntax that runs from source.
-   The `#!/usr/bin/env node` shebang lives in the entry source (so that file _also_ works
-   as the npm `bin`); esbuild **preserves an entry point's shebang**, so no banner is
-   needed (a second `#!` line would be a syntax error). `--external:aws-crt` keeps the AWS
+1. **Bundle**: [build.mjs](build.mjs) (the `build` script, `node build.mjs`) calls the
+   **esbuild** JS API to bundle the ESM source into one ESM file, `dist/s3cab.js`. It is a
+   ~10-line options object, **not** the long CLI flag string it grew from (nor the
+   145-line cross-build orchestrator that preceded *that*, deleted in the "Simplify native
+   builds" pass): esbuild has **no config file by design**, so the only home for documented
+   build options is a JS-API script — earned here once the load-bearing `banner` (below)
+   made the CLI both long and in need of an explanatory comment a flag can't carry. The
+   bundle is **bundle-only** — no `target`/`minify` — so the output is the same modern
+   syntax that runs from source. The `#!/usr/bin/env node` shebang lives in the entry source
+   (so that file _also_ works as the npm `bin`); esbuild **preserves an entry point's
+   shebang**, keeping it on line 1 above the banner. `external: ["aws-crt"]` keeps the AWS
    SDK's optional native addon out. esbuild exists purely because SEA needs a **single
-   standalone file** (a SEA main may only import built-ins) — _not_ to convert module
-   format.
+   standalone file** (a SEA main may only import built-ins) — _not_ to convert module format.
+
+   **The `banner` `createRequire` shim is load-bearing — don't drop it.** In ESM output
+   esbuild rewrites every `require()` to a `__require` shim that *throws* unless a real
+   `require` is in scope, and a CJS dep that survives in the bundle keeps genuine
+   `require()` calls (the AWS SDK's `@smithy/credential-provider-imds` does
+   `require("node:http")`, eagerly, via `auth.mjs`'s top-level import of
+   `@aws-sdk/credential-providers`). With no `require` in an ESM module the binary crashed
+   on **every** invocation — even `--help` — with `Dynamic require of "node:http" is not
+   supported`. The banner (`import { createRequire } from "node:module"; const require =
+   createRequire(process.execPath);`) puts a real `require` in scope so the shim delegates
+   to it. **Base is `process.execPath`, not the usual `import.meta.url`**, because in the
+   SEA binary `import.meta.url` isn't a resolvable file URL whereas `execPath` is always a
+   valid absolute path — and every dynamic-require target here is a Node built-in, which
+   resolves regardless of the base. (Surfaced 2026-06-18 when the SEA binary first ran; the
+   eager IMDS `require` means it was never going to launch from the bundle without this.
+   The CJS-bundle alternative — where `require` is native and no banner is needed — is
+   blocked by the entry's top-level `await`, which esbuild can't emit in `cjs` format.)
 2. **Package** (`node --build-sea=sea/<target>.json`, Node ≥ 26) embeds the bundle into a
    copy of the node binary in one step — no `postject`. The [sea/](sea/) configs are
    **static, committed JSON** differing only in `output` extension. Each sets
