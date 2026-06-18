@@ -8,6 +8,7 @@ import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { resolveRemoteSet } from "../lib/sets.mjs";
 
 /** @import { Props } from "./prop.mjs" */
+/** @import { SnapshotLookup } from "../lib/snapshot-file.mjs" */
 
 // The `restore` command (specs/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
@@ -105,16 +106,15 @@ export async function restore(setName, paths = [], options = {}) {
     }
   }
 
+  const plan = planRestore(manifest, targets, destFor, {
+    exists: existsSync,
+    overwrite: options.overwrite,
+  });
+
   /** @type {string[]} */
   const restored = [];
   /** @type {string[]} */
   const skipped = [];
-  // First verified local copy of each content hash, so identical content under
-  // several paths downloads once and is copied to the rest (design #1). Only
-  // files *we* downloaded are trusted as a copy source — never a skipped
-  // pre-existing file, whose content is unknown (the skip is content-blind).
-  /** @type {Map<string, string>} */
-  const fetched = new Map();
 
   // Track whether a progress line was drawn so the closing newline runs in a
   // `finally` — even if a download throws mid-loop the terminal cursor is left
@@ -122,29 +122,29 @@ export async function restore(setName, paths = [], options = {}) {
   // half-written progress line.
   let progressed = false;
   try {
-    for (const source of targets) {
-      const dest = destFor(source);
-      if (existsSync(dest) && !options.overwrite) {
-        skipped.push(dest);
-        continue;
-      }
-      const { hash, mtime } = /** @type {Props} */ (manifest.get(source));
-      mkdirSync(dirname(dest), { recursive: true });
-
-      const have = fetched.get(hash);
-      if (have) {
-        await copyFile(have, dest);
+    let done = 0;
+    for (const step of plan) {
+      if (step.action === "skip") {
+        skipped.push(step.dest);
       } else {
-        await getObject(set.bucket, hash, dest);
-        fetched.set(hash, dest);
+        mkdirSync(dirname(step.dest), { recursive: true });
+        if (step.action === "copy") {
+          await copyFile(/** @type {string} */ (step.from), step.dest);
+        } else {
+          await getObject(
+            set.bucket,
+            /** @type {string} */ (step.hash),
+            step.dest,
+          );
+        }
+        const when = new Date(/** @type {string} */ (step.mtime));
+        await utimes(step.dest, when, when);
+        restored.push(step.dest);
       }
-      const when = new Date(mtime);
-      await utimes(dest, when, when);
-      restored.push(dest);
 
-      const done = restored.length + skipped.length;
-      if (done % 50 === 0 || done === targets.length) {
-        stderr.write(`\rRestoring ${done}/${targets.length}...`);
+      done++;
+      if (done % 50 === 0 || done === plan.length) {
+        stderr.write(`\rRestoring ${done}/${plan.length}...`);
         progressed = true;
       }
     }
@@ -167,6 +167,65 @@ const normalize = (p) => {
   const slashed = p.split(sep).join(posix.sep);
   return process.platform === "win32" ? slashed.toLowerCase() : slashed;
 };
+
+/**
+ * @typedef {Object} RestoreStep
+ * @property {string} dest - Where this entry is written (or left alone, for `skip`)
+ * @property {"skip" | "fetch" | "copy"} action
+ * @property {string} [hash] - Content hash (`fetch`/`copy` only)
+ * @property {string} [mtime] - Manifest mtime, as stored (`fetch`/`copy` only)
+ * @property {string} [from] - Local path to copy from (`copy` only)
+ */
+
+/**
+ * Decide what to do with each restore target, without touching the disk or the
+ * network. Mirrors the manifest's content-addressing: the first target with a
+ * given hash is `fetch`ed, and every later target with the same hash is a
+ * `copy` from wherever the first one landed (design #1 — identical content
+ * downloads once). A target whose destination already exists is `skip`ped
+ * unless `overwrite` — and a skipped entry never seeds the dedupe, since a
+ * pre-existing file's content is unverified and so untrusted as a copy source.
+ *
+ * Pure and order-preserving, like `selectEntries`/`reroot`: `exists` is
+ * injected so this is unit-testable without touching the filesystem.
+ * @param {SnapshotLookup} manifest - Source path → `{ hash, mtime }`
+ * @param {string[]} targets - Manifest source paths to restore, in order
+ * @param {(source: string) => string} destFor - Maps a source path to its destination
+ * @param {object} options
+ * @param {(dest: string) => boolean} options.exists - Whether `dest` already exists
+ * @param {boolean} [options.overwrite] - Overwrite an existing destination instead of skipping it
+ * @returns {RestoreStep[]} One step per target, in input order
+ */
+export function planRestore(
+  manifest,
+  targets,
+  destFor,
+  { exists, overwrite = false },
+) {
+  /** @type {RestoreStep[]} */
+  const plan = [];
+  /** @type {Map<string, string>} */
+  const fetchedDestByHash = new Map();
+
+  for (const source of targets) {
+    const dest = destFor(source);
+    if (exists(dest) && !overwrite) {
+      plan.push({ dest, action: "skip" });
+      continue;
+    }
+
+    const { hash, mtime } = /** @type {Props} */ (manifest.get(source));
+    const from = fetchedDestByHash.get(hash);
+    if (from) {
+      plan.push({ dest, action: "copy", hash, mtime, from });
+    } else {
+      plan.push({ dest, action: "fetch", hash, mtime });
+      fetchedDestByHash.set(hash, dest);
+    }
+  }
+
+  return plan;
+}
 
 /**
  * Select which of a manifest's paths a restore should write, given the user's
