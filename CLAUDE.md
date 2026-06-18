@@ -585,7 +585,16 @@ start on older distros; this constrains only the build matrix, not test jobs.
 **CI vs release — two workflows, deliberately split.** [ci.yml](.github/workflows/ci.yml)
 is the everyday gate (every push/PR). Tests run a **three-OS matrix** because the code
 genuinely branches on platform (case-insensitive globs on `win32`, `\`→`/` normalization);
-lint runs once. `release.yml` triggers only on `v*` tags + manual dispatch, and keeps its
+lint runs once. The **`exe smoke` job builds the bundle + a host SEA binary and boots
+them** (`./dist/s3cab --version` / `prop`, plus `node dist/s3cab.js --version`) — Linux-only,
+because the test jobs run the *source*, where esbuild's `require()`-shim doesn't exist, so
+they can't see anything the bundle/SEA transform breaks. (This job exists because a fatal
+"binary won't boot" regression — the `createRequire`/SEA fix — slipped through for ~45
+commits: it could only ever surface in the built artifact, and the only thing that built the
+artifact was `release.yml`, which fires solely on a `v*` tag. The failure class isn't
+platform-specific, so one OS catches it; a matrix SEA build would also drag in the macOS
+ad-hoc codesign step, so per-OS *binary* coverage stays `release.yml`'s job.)
+`release.yml` triggers only on `v*` tags + manual dispatch, and keeps its
 own single-OS lint+test gate to re-check the one commit CI doesn't see — the tag.
 
 **Dependency updates — Dependabot, not Renovate:** native to GitHub, zero extra
@@ -772,7 +781,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
   body (rest of slice 5).
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
-  and GitHub Release all succeed). Open items:
+  and GitHub Release all succeed). Since the `createRequire` regression, ci.yml's `exe
+  smoke` job also boots the Linux binary + bundle on **every PR**, so artifact-only
+  breakage no longer waits for a tag (see "CI vs release" above). Open items:
   - **macOS notarization — deliberately skipped (costs money).** Ad-hoc signing is enough
     to _run_; Gatekeeper-clean distribution would need a paid Apple Developer ID. The
     README documents the `xattr` workaround for browser downloads.
