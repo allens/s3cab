@@ -80,6 +80,41 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # Build the real shipped artifact and kick the tyres. THIS is the gap that let a
+  # fatal "binary won't boot" regression through (the createRequire/SEA fix): the
+  # test jobs above run the SOURCE, where esbuild's require()-shim doesn't exist, so
+  # they're structurally blind to anything the bundle/SEA transform breaks (dynamic
+  # require, externals, shebang/banner, SEA embedding). Releases smoke-test the
+  # binary, but release.yml only fires on a v* tag — so between tags nothing exercised
+  # the artifact. Build the bundle + the host SEA binary here and actually run them.
+  #
+  # Linux-only on purpose: this failure class isn't platform-specific (it's the
+  # bundling transform, identical on every OS), and a matrix SEA build would also need
+  # the macOS ad-hoc codesign step (see release.yml) to launch. Per-OS *binary*
+  # coverage stays release.yml's job; this is the every-PR boot check.
+  exe:
+    name: exe smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - name: Build bundle + native SEA executable
+        run: |
+          npm run build
+          node --build-sea=sea/linux-x64.json
+      - name: Smoke test the built executable
+        run: |
+          ./dist/s3cab --version
+          ./dist/s3cab prop package.json
+      # The portable bundle is the other shipped channel and was the actual crash
+      # site; it's already built above, and `node dist/s3cab.js` is a distinct entry
+      # path (ESM-under-type:module, shebang), so boot it too.
+      - name: Smoke test the portable bundle
+        run: node dist/s3cab.js --version
+
   # Real-AWS integration tests: the gated S3 round-trips (backup/restore, listing,
   # verified download) that need an actual bucket. Runs AUTOMATICALLY on every
   # same-repo PR before merge — no manual approval, no "should I run it?" decision —
@@ -124,7 +159,7 @@ jobs:
   # Mark this job — by its display name `ci gate` — as the required status check.
   ci-gate:
     name: ci gate
-    needs: [lint, test, s3-integration]
+    needs: [lint, test, exe, s3-integration]
     if: always()
     runs-on: ubuntu-latest
     steps:
