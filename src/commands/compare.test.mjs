@@ -4,11 +4,8 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
-import {
-  stringifySnapshot,
-  withSnapshotFile,
-  writeSnapshot,
-} from "../lib/snapshot-file.mjs";
+import { stringifySnapshot, withSnapshotFile } from "../lib/snapshot-file.mjs";
+import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { compareSnapshots } from "./compare.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));

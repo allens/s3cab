@@ -298,7 +298,9 @@ own doc comment.
   **sibling** folders [src/commands/](src/commands/) (one file per command) and
   [src/lib/](src/lib/) (shared modules). The siblings sit beside each other on purpose — the
   shared modules are _depended on by_ the commands, not a layer above — and it's taste-driven,
-  not a hard boundary (e.g. `lib/snapshot-file.mjs` importing `commands/prop.mjs` is fine).
+  not a hard boundary: a `lib/` module importing a `commands/` one would be fine if a real
+  need arose, though today none does (the lone such import, `snapshot-file.mjs` → `commands/prop.mjs`,
+  was retired when its only user, the `writeSnapshot` test helper, moved to `test/helpers/`).
   Grouping is by **subsystem/cohesion, not abstract layer**: no `lib/util/` junk-drawer. If
   `lib/` ever grows enough to cleave, extract a folder named for the subsystem and leave the
   generic leaves (`format`, `read-lines`, `error`) flat at the root.

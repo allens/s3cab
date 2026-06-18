@@ -6,7 +6,6 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { prop } from "../commands/prop.mjs";
 import { secondsSince } from "./format.mjs";
 
 // Snapshot file format:
@@ -260,31 +259,4 @@ export function formatSnapshotLine(col1, col2, col3, col4) {
   col2 = col2.toString().padStart(10);
   col3 = col3.padEnd(24);
   return `${col1}\t${col2}\t${col3}\t${col4}\n`;
-}
-/**
- * Write a snapshot of the given files into `snapshotDir`, in the same
- * `.tsv.zst` form real snapshots take (so a snapshot lister sees it when the
- * name is datestamped). File paths are stored absolute, resolved against
- * `base` (defaulting to `snapshotDir` — handy for tests that store snapshots
- * alongside the files they describe). Used by tests and `restore` fixtures.
- * @param {string} snapshotDir
- * @param {string} name
- * @param {Array<string|File>} files
- * @param {string} [base] - Root the file paths resolve against (default: `snapshotDir`)
- * @returns {Promise<string>} path to written snapshot file
- */
-export async function writeSnapshot(
-  snapshotDir,
-  name,
-  files,
-  base = snapshotDir,
-) {
-  const snapshot = new Map();
-  for (const file of files) {
-    const path = typeof file === "string" ? file : file.name;
-    snapshot.set(resolve(base, path), await prop(file));
-  }
-  return withSnapshotFile(snapshotDir, name, (stream) =>
-    pipeline(stringifySnapshot(snapshot), stream),
-  );
 }
