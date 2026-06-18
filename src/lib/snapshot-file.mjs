@@ -23,8 +23,8 @@ import { secondsSince } from "./format.mjs";
 // hash: SHA-256 hash of the file content in lowercase hex encoding
 // mtime: modification time in ISO 8601 format
 // size: size of the file in bytes (right-aligned)
-// For comment lines the fields are:
-// #comment<TAB>context<TAB>dirent_type<TAB>path
+// For #EXCLUDED comment lines the fields are (col2/col3 as `excludedLine` writes them):
+// #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
 //   #DIR<TAB><TAB><TAB>path                     one per member directory

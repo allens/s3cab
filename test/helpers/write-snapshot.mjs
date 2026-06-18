@@ -33,8 +33,15 @@ export async function writeSnapshot(
 ) {
   const snapshot = new Map();
   for (const file of files) {
-    const path = typeof file === "string" ? file : file.name;
-    snapshot.set(resolve(base, path), await prop(file));
+    // A string path is resolved against `base` and hashed at that resolved path
+    // (so the key and the file prop() reads agree). A File carries its own bytes,
+    // so prop() hashes it directly and `base` only places its key.
+    if (typeof file === "string") {
+      const resolved = resolve(base, file);
+      snapshot.set(resolved, await prop(resolved));
+    } else {
+      snapshot.set(resolve(base, file.name), await prop(file));
+    }
   }
   return withSnapshotFile(snapshotDir, name, (stream) =>
     pipeline(stringifySnapshot(snapshot), stream),
