@@ -11,7 +11,7 @@ import { listObjectHashes } from "../lib/objects.mjs";
  * the hashes already in the store, used as a lookup so `backup` can skip
  * re-uploading objects that already exist remotely (it seeds the per-bucket
  * objects cache — `objects.mjs`). Output is therefore a flat hash-per-line
- * stream — written to `--file` if given, else to stdout — deliberately *not* the
+ * list — written to `--file` if given, else to stdout — deliberately *not* the
  * JSON the other commands return (a lookup file wants one bare hash per line), so
  * this command writes its own output and returns nothing.
  *

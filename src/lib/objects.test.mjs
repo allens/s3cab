@@ -25,15 +25,24 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // only because objects.mjs imports them (a mock module exports exactly these) —
 // no test in this file calls them.
 let streamedBytes = Buffer.alloc(0);
+/** @type {string[]} */
+let listedKeys = [];
 mock.module("./s3.mjs", {
   exports: {
     createS3ReadStream: () => Readable.from(streamedBytes),
-    listObjects: async function* () {},
+    listObjects: async function* () {
+      for (const Key of listedKeys) yield { Key };
+    },
     putFile: async () => true,
   },
 });
-const { getObject, knownObjects, objectsCachePath, recordObjects } =
-  await import("./objects.mjs");
+const {
+  getObject,
+  knownObjects,
+  listObjectHashes,
+  objectsCachePath,
+  recordObjects,
+} = await import("./objects.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -109,6 +118,17 @@ describe("objects cache", () => {
 
   it("rejects a bucket name that is not a single path segment", () => {
     assert.throws(() => objectsCachePath("a/b"), /not a single path segment/);
+  });
+});
+
+describe("listObjectHashes", () => {
+  it("strips the objects/ prefix and skips a zero-byte folder marker", async () => {
+    // `objects/` is the console-created folder-marker key; it must not surface
+    // as an empty hash (a blank line / blank cache entry).
+    listedKeys = ["objects/", "objects/aaa", "objects/bbb"];
+    const out = [];
+    for await (const hash of listObjectHashes("my-bucket")) out.push(hash);
+    assert.deepEqual(out, ["aaa", "bbb"]);
   });
 });
 

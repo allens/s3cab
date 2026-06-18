@@ -129,7 +129,12 @@ export async function getObject(bucket, hash, destPath) {
  */
 export async function* listObjectHashes(bucket) {
   for await (const { Key } of listObjects(`s3://${bucket}/${OBJECTS_PREFIX}`)) {
-    if (Key) yield Key.slice(OBJECTS_PREFIX.length);
+    // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
+    // would otherwise slice to an empty hash — a blank line from `hashes`, a
+    // blank cache entry — the same stray-key case remote.mjs's
+    // listRemoteNamespaces guards.
+    const hash = Key?.slice(OBJECTS_PREFIX.length);
+    if (hash) yield hash;
   }
 }
 
