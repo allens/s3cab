@@ -24,7 +24,7 @@ export const SHA256_EMPTY_FILE =
  * Show properties of a file.
  * @param {string | File} [path] - File path
  * @param {object} [options]
- * @param {import("../lib/snapshot-file.mjs").SnapshotLookup | string} [options.lookup] - Snapshot data or path to snapshot file to lookup properties from
+ * @param {import("../lib/snapshot-file.mjs").SnapshotEntries | string} [options.lookup] - Snapshot data or path to snapshot file to lookup properties from
  * @returns {Promise<Props>} File properties
  */
 export async function prop(path, options = {}) {

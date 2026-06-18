@@ -8,7 +8,7 @@ import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { resolveRemoteSet } from "../lib/sets.mjs";
 
 /** @import { Props } from "./prop.mjs" */
-/** @import { SnapshotLookup } from "../lib/snapshot-file.mjs" */
+/** @import { SnapshotEntries } from "../lib/snapshot-file.mjs" */
 
 // The `restore` command (specs/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
@@ -17,7 +17,7 @@ import { resolveRemoteSet } from "../lib/sets.mjs";
 
 /**
  * Restore a set's files from a remote backup (specs/backup.md). Reads the
- * chosen remote manifest (latest, or `--snapshot <name>`) and writes each file
+ * chosen remote snapshot (latest, or `--snapshot <name>`) and writes each file
  * back to the **original absolute path** it was captured from, **never touching
  * an existing file** (it is reported skipped) unless `--overwrite` is given — so
  * the empty-disk and the "I deleted a folder" cases both just work and a
@@ -25,9 +25,9 @@ import { resolveRemoteSet } from "../lib/sets.mjs";
  * restored (see `selectEntries`); with none, the whole snapshot is restored.
  *
  * Each object is fetched and integrity-checked by `getObject` (its SHA-256
- * must match the manifest hash), then given the manifest mtime — required, since
+ * must match the snapshot's hash), then given the snapshot's mtime — required, since
  * the snapshot diff is mtime-based. Content shared across several paths (moved
- * or duplicated files) is downloaded once and copied to the rest. The manifest-
+ * or duplicated files) is downloaded once and copied to the rest. The snapshot-
  * last upload invariant guarantees every referenced object exists, so there is
  * no pre-flight; a genuinely missing object surfaces as a failed download.
  *
@@ -70,19 +70,19 @@ export async function restore(setName, paths = [], options = {}) {
   // names is non-empty (guarded above), so the latest is defined.
   const name = options.snapshot ?? /** @type {string} */ (names[0]);
 
-  const { entries: manifest, dirs } = await readRemoteSnapshot(
+  const { entries, dirs } = await readRemoteSnapshot(
     set.bucket,
     set.namespace,
     name,
   );
-  const targets = selectEntries(manifest.keys(), paths);
+  const targets = selectEntries(entries.keys(), paths);
   if (paths.length && targets.length === 0) {
     throw new Error(
       `No files in snapshot '${name}' matched: ${paths.join(", ")}`,
     );
   }
 
-  // Where each manifest path is written. `--output` re-roots under the chosen
+  // Where each snapshot path is written. `--output` re-roots under the chosen
   // dir (and so accepts any path, cross-OS included); otherwise files go back to
   // their original absolute location.
   /** @type {(path: string) => string} */
@@ -91,7 +91,7 @@ export async function restore(setName, paths = [], options = {}) {
     destFor = reroot(dirs, options.output);
   } else {
     // Every target must be absolute on *this* platform before we touch the disk.
-    // A manifest captured on another OS (Windows paths on POSIX, say) or a
+    // A snapshot captured on another OS (Windows paths on POSIX, say) or a
     // hand-edited one would otherwise write files relative to the cwd with
     // surprising names like `C:\Users\…` — refuse up front rather than scatter
     // them, and point at `--output` for the cross-OS case.
@@ -106,7 +106,7 @@ export async function restore(setName, paths = [], options = {}) {
     }
   }
 
-  const plan = planRestore(manifest, targets, destFor, {
+  const plan = planRestore(entries, targets, destFor, {
     exists: existsSync,
     overwrite: options.overwrite,
   });
@@ -173,13 +173,13 @@ const normalize = (p) => {
  * @property {string} dest - Where this entry is written (or left alone, for `skip`)
  * @property {"skip" | "fetch" | "copy"} action
  * @property {string} [hash] - Content hash (`fetch`/`copy` only)
- * @property {string} [mtime] - Manifest mtime, as stored (`fetch`/`copy` only)
+ * @property {string} [mtime] - Snapshot mtime, as stored (`fetch`/`copy` only)
  * @property {string} [from] - Local path to copy from (`copy` only)
  */
 
 /**
  * Decide what to do with each restore target, without touching the disk or the
- * network. Mirrors the manifest's content-addressing: the first target with a
+ * network. Mirrors the snapshot's content-addressing: the first target with a
  * given hash is `fetch`ed, and every later target with the same hash is a
  * `copy` from wherever the first one landed (design #1 — identical content
  * downloads once). A target whose destination already exists is `skip`ped
@@ -188,8 +188,8 @@ const normalize = (p) => {
  *
  * Pure and order-preserving, like `selectEntries`/`reroot`: `exists` is
  * injected so this is unit-testable without touching the filesystem.
- * @param {SnapshotLookup} manifest - Source path → `{ hash, mtime }`
- * @param {string[]} targets - Manifest source paths to restore, in order
+ * @param {SnapshotEntries} entries - Source path → `{ hash, mtime }`
+ * @param {string[]} targets - Snapshot source paths to restore, in order
  * @param {(source: string) => string} destFor - Maps a source path to its destination
  * @param {object} options
  * @param {(dest: string) => boolean} options.exists - Whether `dest` already exists
@@ -197,7 +197,7 @@ const normalize = (p) => {
  * @returns {RestoreStep[]} One step per target, in input order
  */
 export function planRestore(
-  manifest,
+  entries,
   targets,
   destFor,
   { exists, overwrite = false },
@@ -214,7 +214,7 @@ export function planRestore(
       continue;
     }
 
-    const { hash, mtime } = /** @type {Props} */ (manifest.get(source));
+    const { hash, mtime } = /** @type {Props} */ (entries.get(source));
     const from = fetchedDestByHash.get(hash);
     if (from) {
       plan.push({ dest, action: "copy", hash, mtime, from });
@@ -228,16 +228,16 @@ export function planRestore(
 }
 
 /**
- * Select which of a manifest's paths a restore should write, given the user's
+ * Select which of a snapshot's paths a restore should write, given the user's
  * positional `paths…` filters. A filter matches a path that equals it or lies
  * under it (a `/`-boundary prefix), so `…/Photos` selects `…/Photos/beach.jpg`
  * but not `…/PhotosArchive/x.jpg`. Filters are matched against the absolute
- * paths as the manifest stored them (copy one from `list`/`tree`), and a
+ * paths as the snapshot stored them (copy one from `list`/`tree`), and a
  * trailing separator is ignored. With no filters every path is selected.
  *
  * Pure and order-preserving (returns the input subset in iteration order) so the
  * restore loop's reporting is deterministic and this is unit-testable without S3.
- * @param {Iterable<string>} paths - The manifest's file paths
+ * @param {Iterable<string>} paths - The snapshot's file paths
  * @param {string[]} filters - Positional path filters (empty = match all)
  * @returns {string[]} The subset of `paths` to restore, in input order
  */
@@ -259,12 +259,12 @@ export function selectEntries(paths, filters) {
 }
 
 /**
- * Build the path re-rooter for `restore --output <dir>`: each manifest file lands
+ * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
  * under `<output>/<member-root-basename>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
- * taken (specs/backup.md). The member roots are the manifest's `#DIR` headers.
+ * taken (specs/backup.md). The member roots are the snapshot's `#DIR` headers.
  *
- * Separator-agnostic, so a Windows manifest re-roots correctly on POSIX and vice
+ * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split on both `/` and `\`, and matched by exact
  * segments. Path-vs-root matching is case-sensitive (a path and its `#DIR` root
  * were written by the same snapshot run, so their casing already agrees); only
@@ -277,9 +277,9 @@ export function selectEntries(paths, filters) {
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
  * with a path filter, or to their original locations. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The manifest's member roots (its `#DIR` headers)
+ * @param {string[]} dirs - The snapshot's member roots (its `#DIR` headers)
  * @param {string} output - The `--output` directory
- * @returns {(path: string) => string} Maps a manifest path to its destination
+ * @returns {(path: string) => string} Maps a snapshot path to its destination
  */
 export function reroot(dirs, output) {
   if (dirs.length === 0) {
@@ -321,12 +321,12 @@ export function reroot(dirs, output) {
         `Path is not under any backed-up folder, so --output cannot place it: ${path}`,
       );
     }
-    // No `.`/`..` sandbox guard here on purpose: manifest paths are first-party
+    // No `.`/`..` sandbox guard here on purpose: snapshot paths are first-party
     // (written by `snapshot` walking the real filesystem, which never emits `.`
-    // or `..` segments), and a `..` could only arrive in a hand-crafted manifest
+    // or `..` segments), and a `..` could only arrive in a hand-crafted snapshot
     // — outside the trust model (your own bucket, your own backups, #2). Guarding
     // only `--output` would also be inconsistent: plain `restore` writes straight
-    // to the manifest's absolute paths, so it already trusts the manifest to
+    // to the snapshot's absolute paths, so it already trusts the snapshot to
     // direct writes anywhere. (Reviewers re-flag this as path traversal; it is a
     // deliberate non-guard, not an oversight — see PR #55.)
     return join(base, root.base, ...segments.slice(root.segments.length));

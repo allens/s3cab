@@ -15,7 +15,7 @@ don't re-litigate casually.
   read commands `list`/`compare` — local and remote are the *same operation pointed
   elsewhere*, and a flag avoids a two-level dispatcher ([0006](0006-minimal-code.md)).
   **`status` is the exception: remote-only, no `--remote` flag** — "what a backup would upload"
-  is *inherently* a local-snapshot-vs-remote-manifest comparison, so there is no second mode
+  is *inherently* a local-snapshot-vs-remote-snapshot comparison, so there is no second mode
   for the flag to point at.
 - **`hashes`**, renamed from `objects` (2026-06-17): the `objects` name was wanted for the
   object-store module ([src/lib/objects.mjs](../../src/lib/objects.mjs)), and `hashes` names

@@ -7,14 +7,14 @@ the porcelain operates on. Full design: [specs/backup.md](../../specs/backup.md)
 ## Why
 
 A person backs up *their stuff* (several directories), across machines, into one bucket. The
-set models that directly, and gives manifests a stable namespace
+set models that directly, and gives snapshots a stable namespace
 (`snapshots/<user>@<machine>/<set>/`, see [0013](0013-one-repository-one-bucket.md)) so many
 sets share one dedup pool without colliding.
 
 ## Consequences
 
 - The local engine runs on sets: `snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every
-  member dir with the set's `exclude.txt`, and write one manifest (with `#SNAPSHOT` identity +
+  member dir with the set's `exclude.txt`, and write one snapshot (with `#SNAPSHOT` identity +
   `#DIR` headers) into `~/.s3cab/sets/<set>/snapshots/`. The old per-dir `<dir>/.s3cab/` has
   **retired entirely**.
 - The set env layer (`~/.s3cab/sets/<set>/env`, written by `setup`) **replaced** the

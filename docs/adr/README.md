@@ -15,7 +15,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0001](0001-file-level-content-addressable-dedup.md) — File-level content-addressable dedup with SHA-256
 - [0002](0002-no-lock-in-hard-constraint.md) — No lock-in is a hard constraint
 - [0003](0003-modern-open-tech-only.md) — Target modern tech, but only open standards
-- [0004](0004-tsv-snapshot-manifests.md) — TSV snapshot manifests
+- [0004](0004-tsv-snapshot-manifests.md) — TSV snapshot files
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
 - [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(proposed/open)*

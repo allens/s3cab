@@ -50,7 +50,7 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * present never needs re-storing — so this is a conditional PUT (`noClobber`)
  * that silently no-ops when the object is already there, returning whether it
  * actually uploaded. The caller supplies the hash it computed (from `prop` or a
- * manifest); the store trusts it on write and verifies only on read
+ * snapshot); the store trusts it on write and verifies only on read
  * (`getObject`), mirroring how the store has always behaved. `force` overwrites
  * an existing object instead of skipping it.
  *

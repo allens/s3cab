@@ -54,17 +54,14 @@ snapshot came from.
 _Avoid_: owner, source, origin.
 
 **Snapshot**:
-A point-in-time record of every file in a backup set.
-_Avoid_: commit, version, generation.
-
-**Manifest**:
-The tab-separated (TSV) file that *is* a snapshot on disk — one row per file
+A point-in-time record of every file in a backup set. Recorded on disk as a
+tab-separated (TSV) **snapshot file** — one row per file
 (`hash` → `size` → `mtime` → `path`).
-_Avoid_: index, listing, catalog, metadata file.
+_Avoid_: commit, version, generation; manifest (loses the point-in-time meaning), index, listing, catalog, metadata file.
 
 **Namespace**:
 The `<user>@<machine>/<set>` path segment under `snapshots/` that isolates one set's
-manifests from every other set sharing the repository.
+snapshots from every other set sharing the repository.
 _Avoid_: prefix, folder, scope.
 
 ### Cloud & commands
@@ -75,7 +72,7 @@ flag rather than separate verbs.
 _Avoid_: cloud, server, target, destination.
 
 **Backup**:
-The porcelain verb for uploading a snapshot's new objects and its manifest to the remote.
+The porcelain verb for uploading a snapshot's new objects and its snapshot file to the remote.
 One-directional and archival.
 _Avoid_: push, upload (that is the plumbing verb), sync.
 

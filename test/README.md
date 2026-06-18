@@ -12,7 +12,7 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
     as a subprocess.
   - [fixtures/](fixtures/) — input trees used by the tests. (Snapshots now live
     under `~/.s3cab/sets/<set>/snapshots/`, never inside a fixture tree, so tests
-    that need a manifest point `S3CAB_HOME` at a scratch dir — see
+    that need a snapshot point `S3CAB_HOME` at a scratch dir — see
     [helpers/temp-home.mjs](helpers/temp-home.mjs).)
   - [helpers/](helpers/) — shared, importable test helpers (not run as tests).
 

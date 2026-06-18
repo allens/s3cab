@@ -47,7 +47,7 @@ suspicions — check before believing.
 - **`readSnapshotFile` trims every field**, so a path with leading/trailing
   whitespace doesn't round-trip. Only the padding columns need trimming; the
   path field should be taken verbatim. Related: a blank line in a hand-edited
-  manifest dies on a bare `assert` — hand-editing is the whole no-lock-in story,
+  snapshot file dies on a bare `assert` — hand-editing is the whole no-lock-in story,
   so parse errors deserve friendly messages with file/line context.
 - **`diff()` mutates its caller's `currentSnapshot` Map** (`.delete(path)` while
   classifying). Surprising for a library caller who reuses the map; clone or
@@ -90,9 +90,9 @@ suspicions — check before believing.
   and every later snapshot fails until the user hand-deletes it. Detect
   staleness (age/PID), offer `--force`, or clean up on error via try/finally —
   ties into the known lock-file TODO.
-- **Consider relative paths in manifests.** The base dir is already in the
+- **Consider relative paths in snapshot files.** The base dir is already in the
   `#SNAPSHOT` header; storing paths relative would make backup dirs relocatable
-  (today a renamed parent makes *every* file "moved"), shrink manifests, and
+  (today a renamed parent makes *every* file "moved"), shrink snapshot files, and
   make them portable across machines. Big format decision — weigh against #2/#4
   while the format is still young and uncommitted.
 - **Define the TSV tab/newline-in-path rule** (known gap). Simplest honest
@@ -109,7 +109,7 @@ suspicions — check before believing.
   tests. Options: inject the client (test seam), the SDK's mock client lib, or a
   CI MinIO/LocalStack job for true integration coverage. The double-prefix
   metadata suspicion above is exactly the class of bug these would catch.
-- **Decide restore fidelity now, while the format is young.** Manifests store
+- **Decide restore fidelity now, while the format is young.** Snapshots store
   hash/size/mtime only: no empty directories, no permissions/owner, no Windows
   attributes. `restore` will be limited by what `snapshot` recorded — even if
   the answer is "content + mtime only, documented", decide it deliberately.
@@ -121,7 +121,7 @@ suspicions — check before believing.
 - Minor: `formatByteValue` hardcodes locale `"en"` while `DurationFormat` uses
   the system default; pick one. Re-measure the 5 MB slurp/stream boundary
   (already in Known gaps). The `compare` at the end of `snapshot` re-reads and
-  re-decompresses the manifest it just wrote — fine today, noted for a perf pass.
+  re-decompresses the snapshot file it just wrote — fine today, noted for a perf pass.
 
 ## UX improvements
 
@@ -145,7 +145,7 @@ suspicions — check before believing.
 - **`--quiet`** to suppress stderr progress (for cron/scripts), and richer
   progress: bytes hashed + ETA, not just file-count percent.
 - **Richer `list`**: snapshot date *and* file count / total size (cheap to read
-  from the manifest), maybe `list --stat`. Today it's bare names.
+  from the snapshot), maybe `list --stat`. Today it's bare names.
 - **Flexible snapshot references**: accept unambiguous prefixes
   (`--since 2025-11-11`), `latest`, `latest~1` — anything to avoid typing
   `2025-11-11T0830` exactly (especially given the silent-typo bug above).
@@ -153,7 +153,7 @@ suspicions — check before believing.
   note, storable as a header comment line without breaking the TSV format.
 - **Exclude-pattern ergonomics**: negation (`!important.log`) to re-include
   under an excluded dir; a `tree --explain <path>` that says *which pattern*
-  excluded a file (the `#EXCLUDED` manifest lines almost do this — surface it);
+  excluded a file (the `#EXCLUDED` snapshot lines almost do this — surface it);
   an optional global `~/.s3cab/exclude.txt` for `Thumbs.db`/`desktop.ini`-class
   junk. Also document that `*` is "one or more" (so `*.log` doesn't match
   `.log`) — a real glob-convention divergence users will trip on.
@@ -200,9 +200,9 @@ suspicions — check before believing.
 - **Storage-class exposure.** `INTELLIGENT_TIERING` is hardcoded for AWS; users
   may want Glacier-class economics — but retrieval latency/cost then bleeds into
   `restore`/`verify` UX. Probably a `setup`-time choice.
-- **Cross-platform restore**: manifests store platform-native absolute paths;
+- **Cross-platform restore**: snapshots store platform-native absolute paths;
   restoring a Windows backup on Linux (disaster-recovery scenario — the whole
   point of the tool) needs a path-translation story. Strengthens the
   relative-paths idea above.
-- **TS migration** and **uncompressed-latest-manifest** — both already tracked
+- **TS migration** and **uncompressed-latest-snapshot** — both already tracked
   in CLAUDE.md Known gaps; listed here only for completeness.

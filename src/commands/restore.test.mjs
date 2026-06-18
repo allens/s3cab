@@ -19,7 +19,7 @@ import { planRestore, reroot, restore, selectEntries } from "./restore.mjs";
 import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-/** @import { SnapshotLookup } from "../lib/snapshot-file.mjs" */
+/** @import { SnapshotEntries } from "../lib/snapshot-file.mjs" */
 
 // `selectEntries` is the pure path-filter selector behind `restore [paths…]`.
 // Paths are written with forward slashes: on POSIX they are native, and on
@@ -114,7 +114,7 @@ describe("selectEntries", () => {
 });
 
 // `reroot` is the pure path re-rooter behind `restore --output <dir>`: each
-// manifest path lands under `<output>/<member-root-basename>/…`. Destinations are
+// path in the snapshot lands under `<output>/<member-root-basename>/…`. Destinations are
 // built with the local separator under `resolve(output)`, so expected values use
 // the same `join`/`resolve` to stay portable across OSes.
 describe("reroot", () => {
@@ -130,7 +130,7 @@ describe("reroot", () => {
     );
   });
 
-  it("is separator-agnostic, so a Windows manifest re-roots on any OS", () => {
+  it("is separator-agnostic, so a Windows snapshot re-roots on any OS", () => {
     const map = reroot(["C:\\Users\\me\\Photos"], "out");
     assert.equal(
       map("C:\\Users\\me\\Photos\\beach.jpg"),
@@ -157,7 +157,7 @@ describe("reroot", () => {
     );
   });
 
-  it("rejects a manifest with no member dirs", () => {
+  it("rejects a snapshot with no member dirs", () => {
     assert.throws(() => reroot([], "out"), /no directory headers/);
   });
 
@@ -172,15 +172,15 @@ describe("reroot", () => {
 // network access — `exists` is injected so these run with a fake filesystem.
 describe("planRestore", () => {
   const destFor = (/** @type {string} */ source) => source;
-  /** @type {SnapshotLookup} */
-  const manifest = new Map([
+  /** @type {SnapshotEntries} */
+  const entries = new Map([
     ["/a.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
     ["/b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }], // same content as a.jpg
     ["/c.jpg", { hash: "h2", mtime: "2026-01-02T00:00Z", size: 2 }],
   ]);
 
   it("fetches the first occurrence of a hash", () => {
-    const plan = planRestore(manifest, ["/a.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg"], destFor, {
       exists: () => false,
     });
     assert.deepEqual(plan, [
@@ -194,7 +194,7 @@ describe("planRestore", () => {
   });
 
   it("copies a later occurrence of the same hash from the first fetch's destination", () => {
-    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
       exists: () => false,
     });
     assert.deepEqual(plan, [
@@ -215,14 +215,14 @@ describe("planRestore", () => {
   });
 
   it("skips a target whose destination already exists", () => {
-    const plan = planRestore(manifest, ["/a.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg"], destFor, {
       exists: (dest) => dest === "/a.jpg",
     });
     assert.deepEqual(plan, [{ dest: "/a.jpg", action: "skip" }]);
   });
 
   it("overwrite bypasses the skip but doesn't disable dedupe", () => {
-    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
       exists: (dest) => dest === "/a.jpg",
       overwrite: true,
     });
@@ -246,7 +246,7 @@ describe("planRestore", () => {
   it("a skipped entry never seeds the dedupe — a later same-hash target still fetches", () => {
     // a.jpg is skipped (pre-existing, unverified content), so b.jpg — same
     // hash — must not be told to copy from it.
-    const plan = planRestore(manifest, ["/a.jpg", "/b.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
       exists: (dest) => dest === "/a.jpg",
     });
     assert.deepEqual(plan, [
@@ -261,7 +261,7 @@ describe("planRestore", () => {
   });
 
   it("different hashes never dedupe against each other", () => {
-    const plan = planRestore(manifest, ["/a.jpg", "/c.jpg"], destFor, {
+    const plan = planRestore(entries, ["/a.jpg", "/c.jpg"], destFor, {
       exists: () => false,
     });
     assert.deepEqual(plan, [
@@ -329,11 +329,11 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
     await setup(setName, [srcDir], { bucket });
     const { snapshot } = await backup(setName);
 
-    // The manifest is the source of truth for what restore should reproduce
+    // The snapshot is the source of truth for what restore should reproduce
     // (its keys are the original absolute paths; realpath may differ from the
-    // join above, so assert against the manifest, not the literal paths).
-    const manifest = await readSnapshot(setSnapshotsDir(setName), snapshot);
-    const hashes = [...new Set([...manifest.values()].map((p) => p.hash))];
+    // join above, so assert against the snapshot, not the literal paths).
+    const entries = await readSnapshot(setSnapshotsDir(setName), snapshot);
+    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     try {
       // Wipe the originals, then restore to their original locations.
@@ -341,8 +341,8 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       const r1 = await restore(setName);
       assert.equal(r1.snapshot, snapshot);
       assert.equal(r1.skipped.length, 0);
-      assert.equal(r1.restored.length, manifest.size);
-      for (const [path, props] of manifest) {
+      assert.equal(r1.restored.length, entries.size);
+      for (const [path, props] of entries) {
         assert.equal(sha256(path), props.hash, `content of ${path}`);
         assert.equal(
           statSync(path).mtime.getTime(),
@@ -354,11 +354,11 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       // A second restore touches nothing — every file now exists.
       const r2 = await restore(setName);
       assert.equal(r2.restored.length, 0);
-      assert.equal(r2.skipped.length, manifest.size);
+      assert.equal(r2.skipped.length, entries.size);
 
       // --overwrite replaces a locally changed file with the backed-up content.
-      const first = [...manifest][0];
-      assert.ok(first, "manifest has at least one entry");
+      const first = [...entries][0];
+      assert.ok(first, "snapshot has at least one entry");
       const [firstPath, firstProps] = first;
       writeFileSync(firstPath, "locally changed since the backup");
       const r3 = await restore(setName, [], { overwrite: true });
@@ -370,8 +370,8 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       const outDir = join(dir.path, "restored");
       const r4 = await restore(setName, [], { output: outDir });
       assert.equal(r4.skipped.length, 0);
-      assert.equal(r4.restored.length, manifest.size);
-      const wantHashes = new Set([...manifest.values()].map((p) => p.hash));
+      assert.equal(r4.restored.length, entries.size);
+      const wantHashes = new Set([...entries.values()].map((p) => p.hash));
       for (const dest of r4.restored) {
         assert.ok(dest.startsWith(resolve(outDir)), `${dest} under ${outDir}`);
         assert.ok(

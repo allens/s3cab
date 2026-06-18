@@ -80,7 +80,7 @@ export async function setup(name, folders = [], options = {}) {
  * Adopt an existing remote backup into a new local set (`setup --from`): pin the
  * given remote namespace and bind the bucket, so `restore` can recover a backup
  * made on another machine (specs/backup.md). `dirs.txt` is left empty — restore
- * reads file paths from the manifest, and re-snapshotting from here (which needs
+ * reads file paths from the snapshot, and re-snapshotting from here (which needs
  * member dirs) is a separate concern — so adoption takes no folders.
  * @param {string} name - The (new) local set name
  * @param {string[]} folders - Positional folders (must be empty for adoption)
