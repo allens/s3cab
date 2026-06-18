@@ -174,6 +174,12 @@ Canonical five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`
 
 Single-context layout — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Installing skills
+
+Skills are pinned in `skills-lock.json`; the installed tree (`.agents/skills/`) is gitignored.
+After clone, if that directory is missing, run `npx skills experimental_install` before using
+the engineering skills (aliases: `npx skills i`, `npx skills install`).
+
 ---
 
 ## What this project is
