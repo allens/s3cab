@@ -52,6 +52,9 @@ Thumbs.db
 # Claude Code local (personal) settings
 .claude/settings.local.json
 
+# Agent skills installed from skills-lock.json (restore: npx skills experimental_install)
+.agents/skills/
+
 # Transient snapshot temp/lock file and the --debug decompressed copy. Snapshots
 # themselves now live in ~/.s3cab/sets/<set>/snapshots/ (outside any working
 # copy), so no in-repo snapshot-output rule is needed any more.

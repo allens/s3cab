@@ -160,6 +160,20 @@ rather than assuming it is fixed forever.
     `EnterWorktree`/`ExitWorktree` in-session — so the mechanics are cheap. (Recorded 2026-06-16
     after weighing an "always worktree before editing" rule and scoping it to substantive work.)
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in `allens/s3cab` via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ---
 
 ## What this project is
