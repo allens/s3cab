@@ -5,24 +5,10 @@ committed to or implemented**. Items overlap with CLAUDE.md's "Known gaps" where
 noted; the rest is new. Grouped, not prioritized. Some "likely bugs" are unverified
 suspicions — check before believing.
 
-> **Note (2026-06-12, later the same day):** several items below were settled by the
-> backup-set design in [specs/backup.md](specs/backup.md) — same-minute snapshot
-> collisions (error, never overwrite), symlink/non-regular-file policy (regular files
-> only), client-side encryption (declared non-goal), garbage collection (`cleanup`
-> designed: dry-run default, grace window), the multi-machine/multi-dir bucket
-> namespace (`snapshots/<user>@<machine>/<set>/`), and restore fidelity (content +
-> mtime, skip-existing). Read those entries as historical input to that design.
-
 ---
 
 ## Likely bugs / correctness suspicions (verify first)
 
-- **Double `x-amz-meta-` prefix on upload metadata.** `putFile` in
-  [src/lib/s3.mjs](src/lib/s3.mjs) passes `Metadata` keys already named
-  `x-amz-meta-hostname` etc., but the SDK prefixes `Metadata` keys with
-  `x-amz-meta-` itself — stored objects likely carry
-  `x-amz-meta-x-amz-meta-hostname`. (Also interacts with `objectExists`, which
-  keys off "has custom metadata".)
 - **A typo'd `--since`/`--until` silently compares against an empty snapshot.**
   `readSnapshot` returns an empty `Map` for an unknown name, so
   `compare --until 2025-typo` reports *everything deleted*, and a typo'd
@@ -30,17 +16,6 @@ suspicions — check before believing.
   Worse: an unknown `--until` makes the `since` default `indexOf(until)+1 → at(0)`,
   i.e. the latest snapshot. Should be a hard "snapshot not found, did you mean…"
   error.
-- **Two snapshots in the same minute silently overwrite.** `getTimestamp()` is
-  minute-precision and `withSnapshotFile`'s final `rename` replaces an existing
-  file — the earlier snapshot is lost without warning, and the post-snapshot
-  compare runs against the snapshot itself ("no changes"). Seconds precision,
-  a collision suffix, or a pre-rename existence check would all fix it.
-- **Symlink handling differs depending on whether `exclude.txt` exists.** With an
-  exclude file, the walk callback filters non-file/non-dir dirents to `#EXCLUDED`
-  comment lines; without one, `walkFiles` yields a symlink as a file and `prop()`
-  throws "Not a regular file", recorded as an error comment. Two different
-  behaviours for the same tree. A backup tool needs an explicit symlink policy
-  anyway (skip / record target / follow), plus a Windows junction + loop stance.
 - **`S3ReadStream` doesn't propagate body-stream errors.** `Body.pipe(this)` —
   `pipe` doesn't forward `error` events, so a mid-download failure may hang or
   end the stream silently. (No caller yet, but `restore` will be built on it.)
@@ -104,20 +79,12 @@ suspicions — check before believing.
   offset — DST fold can produce ambiguous/colliding names, and snapshots taken
   on machines in different zones don't order. UTC (or offset-suffixed) +
   seconds precision is worth deciding before the format freezes.
-- **Wire `typecheck` into CI** (already in Known gaps — cheap, do early).
-- **Unit-test the S3 boundary.** `s3.mjs`, `upload.mjs`, `objects.mjs` have no
-  tests. Options: inject the client (test seam), the SDK's mock client lib, or a
-  CI MinIO/LocalStack job for true integration coverage. The double-prefix
-  metadata suspicion above is exactly the class of bug these would catch.
 - **Decide restore fidelity now, while the format is young.** Snapshots store
   hash/size/mtime only: no empty directories, no permissions/owner, no Windows
   attributes. `restore` will be limited by what `snapshot` recorded — even if
   the answer is "content + mtime only, documented", decide it deliberately.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names
   (`CON`, `NUL`…) — a photo/video archive will eventually hit one.
-- **Replace `prop`'s module-level single-slot `_lstatCache`** with an explicit
-  stat parameter or per-call structure — hidden mutable global state for a
-  micro-optimization.
 - Minor: `formatByteValue` hardcodes locale `"en"` while `DurationFormat` uses
   the system default; pick one. Re-measure the 5 MB slurp/stream boundary
   (already in Known gaps). The `compare` at the end of `snapshot` re-reads and
@@ -144,8 +111,8 @@ remaining two, by strength:
 - **D (worth exploring) — keep `compare`'s diff structured to the edge.** `compareSnapshots`
   mixes name-resolution, reads, the deep pure `diff()`, *and* display formatting (the arrow
   strings, `relativeToRoot`), returning display strings — so the structured `DiffResult` is
-  lost at the seam, and the planned `errors` category + `--remote` must thread through
-  presentation. Split: `compareSnapshots` returns the structured result; a `presentDiff()`
+  lost at the seam, and `--remote` must thread through presentation. Split:
+  `compareSnapshots` returns the structured result; a `presentDiff()`
   the command calls builds the arrow strings. `diff()` stays structured to the CLI edge.
 
 ## UX improvements
@@ -204,22 +171,6 @@ remaining two, by strength:
   path to every object — useful provenance, but it's PII sitting in object
   metadata, and the local path reveals structure the content-addressed layout
   otherwise hides. Make it opt-in/opt-out and document it.
-- **Client-side encryption.** Deliberate non-goal so far, and in real tension
-  with #2 (an encrypted store is by definition not hand-recoverable without the
-  tool/key). Even if the answer stays "no — use SSE/provider encryption",
-  write the threat model down. (Convergent encryption is the CAS-compatible
-  middle ground, with known confirmation-attack tradeoffs.)
-- **Garbage collection of unreferenced objects** — the genuinely hard problem of
-  CAS backup. Snapshot pruning (`prune --keep-last N` etc.) is easy; deciding
-  when an object is unreferenced by *any* snapshot, safely, with concurrent
-  writers, is not. Needs a design doc before `backup` ships, even if GC itself
-  ships much later.
-- **Multi-machine / multi-directory use of one bucket.** The `snapshots/` remote
-  layout is still undefined; snapshot names are bare timestamps with the source
-  dir only inside the header. Two machines (or two dirs) backing up to one
-  bucket need a namespace decision (and the hostname metadata hints this is
-  anticipated). One-repo-one-bucket settles the *object* side; the snapshot side
-  is open.
 - **Network resilience knobs** for `backup`: retry policy, bandwidth limiting,
   resumability of a multi-thousand-file upload run.
 - **Storage-class exposure.** `INTELLIGENT_TIERING` is hardcoded for AWS; users
