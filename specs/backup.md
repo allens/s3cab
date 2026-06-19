@@ -94,7 +94,7 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
   becomes set → bucket → user → shell. (auth.md is updated when this is implemented.)
 - **`<dir>/.s3cab/` retires entirely** — snapshots and excludes no longer live inside
   backed-up directories. (Pre-release; no migration machinery, just doc updates.)
-- `exclude.txt` keeps today's pattern semantics (see doc/exclude.md), applied relative
+- `exclude.txt` keeps today's pattern semantics (see guide/exclude.md), applied relative
   to **each** member directory.
 
 ## CLI surface
@@ -391,7 +391,7 @@ time) — recorded as an open item.
   good error messages is v1.
 - **auth.md update** — the dir env layer becomes the set layer when implemented.
 - **Doc updates at implementation** — README "How it works" (local layout moves to
-  `~/.s3cab/sets/`), doc/exclude.md (per-set file), help topics; plus the
+  `~/.s3cab/sets/`), guide/exclude.md (per-set file), help topics; plus the
   versioning/ransomware recommendation and the encryption non-goal statement.
 
 ## Implementation plan
@@ -424,7 +424,7 @@ commands → shared-machinery wiring.
 `snapshot`/`tree`/`list`/`compare` take `[<set>]`: multi-root walk; per-set
 `exclude.txt`; `#DIR` header lines; snapshots into the set folder; the same-minute
 error (+ `S3CAB_DEBUG` overwrite). `<dir>/.s3cab/` retires — the biggest user-visible
-change, so README "How it works", doc/exclude.md, help topics, the repo's own dogfood
+change, so README "How it works", guide/exclude.md, help topics, the repo's own dogfood
 config, and test fixtures all move in this PR.
 
 ### Slice 3 — `backup` + `status` (the milestone) — **built (2026-06-13, PR #39)**

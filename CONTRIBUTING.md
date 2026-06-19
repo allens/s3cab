@@ -52,7 +52,7 @@ commands — please **run the gated suites against a bucket of your own and past
 result in your PR**. That's how we see they pass before merge (a maintainer otherwise
 reproduces the branch in-repo to run them). Any S3-compatible provider works (AWS, R2,
 B2, MinIO, …); the one-time, cross-platform setup is in
-[doc/integration-testing.md](doc/integration-testing.md).
+[docs/integration-testing.md](docs/integration-testing.md).
 
 ## Questions
 

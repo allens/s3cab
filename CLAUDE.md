@@ -11,7 +11,8 @@ purpose-built homes — see the map below.
 | **Domain vocabulary** (the ubiquitous language) | [CONTEXT.md](CONTEXT.md) | Glossary only — canonical term + definition + `_Avoid_` synonyms. |
 | **Architecture / design decisions** (the *why*, "don't re-litigate") | [docs/adr/](docs/adr/) | One numbered ADR per decision; [docs/adr/README.md](docs/adr/README.md) indexes them. |
 | **Fuller designs & specs** | [specs/](specs/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. |
-| **User-facing docs** | [README.md](README.md), [doc/](doc/) | What it is, install/usage, user reference (`doc/exclude.md`, `doc/compare.md`). `doc/` ships in the npm tarball. |
+| **Other contributor how-tos** | [docs/](docs/) | Beside `docs/adr/` — e.g. [docs/integration-testing.md](docs/integration-testing.md) (setting up the gated S3 suite). Doesn't ship. |
+| **User-facing docs** | [README.md](README.md), [guide/](guide/) | What it is, install/usage, user reference (`guide/exclude.md`, `guide/compare.md`). `guide/` ships in the npm tarball. |
 | **Pre-release brainstorm** | [IMPROVEMENTS.md](IMPROVEMENTS.md) | Raw, uncommitted ideas — not a plan of record. |
 | **How to work here** (AI/contributor rules) | this file | Working conventions, coding conventions, architecture orientation, known gaps. |
 
@@ -40,11 +41,11 @@ lie about behaviour undermine the whole premise.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable
    from the code.** Don't restate `package.json` scripts or build/test/lint commands. The
    split: vocabulary → CONTEXT.md; the non-obvious *why* of a decision → an ADR; fuller
-   design → specs/; the user *contract* → README/doc/; how to work in the repo → this file.
+   design → specs/; the user *contract* → README/guide/; how to work in the repo → this file.
    Developer setup, if wanted, belongs in the README, not here.
 
 **Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
-the website/repo docs (README, `doc/` — eventually a proper website) carry everything
+the website/repo docs (README, `guide/` — eventually a proper website) carry everything
 someone needs *before trying s3cab* plus the advanced depth (e.g. the repository/snapshot-file
 format); the built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
 `src/help.mjs`) carry only what a user needs *mid-task in a terminal*. The placement test:
@@ -54,7 +55,7 @@ it is a sit-down activity — and per [ADR-0002](docs/adr/0002-no-lock-in-hard-c
 the format is self-evident from the stored files themselves; its docs just save the recoverer
 time, so online-only is fine). Each help topic ends with a link to its fuller online guide;
 the overlap this leaves (e.g. the glob token table appears in both `helpTopics.exclude` and
-`doc/exclude.md`) is accepted — small, and both copies change together with the matcher —
+`guide/exclude.md`) is accepted — small, and both copies change together with the matcher —
 rather than papered over with generation/sync machinery
 ([ADR-0006](docs/adr/0006-minimal-code.md)).
 

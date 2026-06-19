@@ -71,7 +71,7 @@ export const commands = {
     description: `The report compares file content (SHA-256 hashes), never timestamps.
 'old.txt → new.txt' is a rename, '→→' a move to another folder, and
 'new.txt == old.txt' a copy of content that already existed.
-Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
+Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     args: {
       "[<set>]":
         "The backup set whose snapshots to compare (default: the only set)",
@@ -174,7 +174,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/doc/compare.md`,
   verify: {
     summary: "Check that a backup is complete and undamaged",
     planned: true,
-    args: { "<dir>": "The directory whose backup to check" },
+    args: { "[<set>]": "The backup set to check (default: the only set)" },
     exec: () => notImplemented("verify"),
   },
 

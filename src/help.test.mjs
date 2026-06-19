@@ -101,16 +101,16 @@ describe("usage", () => {
 });
 
 describe("helpTopics", () => {
-  it("exclude topic carries the matching contract from doc/exclude.md", () => {
+  it("exclude topic carries the matching contract from guide/exclude.md", () => {
     // Mirrors the matcher in src/commands/tree.mjs — if the glob rules change
-    // there, this topic and doc/exclude.md must change with them.
+    // there, this topic and guide/exclude.md must change with them.
     const exclude = helpTopics.exclude ?? "";
 
     assert.match(exclude, /sets\/<set>\/exclude\.txt/);
     assert.match(exclude, /\*\*\/\s+zero or more/);
     assert.match(exclude, /one or more characters/);
     assert.match(exclude, /case-insensitive on Windows/);
-    assert.match(exclude, /doc\/exclude\.md/); // links the full online guide
+    assert.match(exclude, /guide\/exclude\.md/); // links the full online guide
   });
 
   it("auth topic documents the two-step resolution and no s3cab sign-in flow", () => {

@@ -8,7 +8,7 @@
 // command/auth code) so the entry point that imports it doesn't transitively
 // pull the AWS SDK in for every invocation. The auth text mirrors the
 // resolution order implemented in `src/lib/auth.mjs` (specs/auth.md); the
-// exclude text mirrors the matcher in `src/commands/tree.mjs` (doc/exclude.md).
+// exclude text mirrors the matcher in `src/commands/tree.mjs` (guide/exclude.md).
 //
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
 // its place here only if a user needs it mid-task in a terminal; each topic
@@ -76,7 +76,7 @@ Examples:
   Tests/**/*.js      .js files anywhere under Tests
   **/log.txt         a file named log.txt in any folder
 
-Full guide: https://github.com/allens/s3cab/blob/main/doc/exclude.md`,
+Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md`,
 };
 
 /**

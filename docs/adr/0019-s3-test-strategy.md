@@ -30,4 +30,4 @@ this repo's `:pull_request` subject; fork PRs get no credentials and skip. The e
 required check is **`ci-gate`** (fails iff a job that ran failed), not `s3-integration` directly,
 so a skipped check on forks can't wedge the PR. Plus a periodic **Cloudflare R2** canary
 (pending) for non-AWS compatibility. Setup guide:
-[doc/integration-testing.md](../../doc/integration-testing.md).
+[docs/integration-testing.md](../integration-testing.md).

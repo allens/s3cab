@@ -49,7 +49,7 @@ export function walkSet(set, writeStream) {
  * directory's contents are accumulated into one list — the same line format
  * works across roots because snapshot paths are absolute.
  * @param {string[]} dirs - Directories to walk
- * @param {string[]} patterns - Exclude glob patterns (doc/exclude.md)
+ * @param {string[]} patterns - Exclude glob patterns (guide/exclude.md)
  * @param {Writable} [writeStream] - Receives `#EXCLUDED` lines
  * @returns {Array<string>} Array of absolute file paths
  */
