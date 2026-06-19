@@ -174,7 +174,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   verify: {
     summary: "Check that a backup is complete and undamaged",
     planned: true,
-    args: { "<dir>": "The directory whose backup to check" },
+    args: { "[<set>]": "The backup set to check (default: the only set)" },
     exec: () => notImplemented("verify"),
   },
 

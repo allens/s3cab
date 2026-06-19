@@ -240,7 +240,8 @@ Pick whichever suits you — all three run the same tool:
 
   ```console
   > npm install -g s3cab
-  > s3cab snapshot C:\Users\me\Photos
+  > s3cab setup photos C:\Users\me\Photos
+  > s3cab snapshot
   ```
 
 - **Prebuilt binary** — download the archive for your platform from the
@@ -251,7 +252,8 @@ Pick whichever suits you — all three run the same tool:
   directly:
 
   ```console
-  > node src/s3cab.mjs snapshot C:\Users\me\Photos
+  > node src/s3cab.mjs setup photos C:\Users\me\Photos
+  > node src/s3cab.mjs snapshot
   ```
 
 ### macOS note
