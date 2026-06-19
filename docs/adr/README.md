@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
-Each file records one decision: *that* it was made and *why* (format:
-[.agents/skills/domain-modeling/ADR-FORMAT.md](../../.agents/skills/domain-modeling/ADR-FORMAT.md)).
+Each file records one decision: *that* it was made and *why* (format: the `ADR-FORMAT.md` of the
+`domain-modeling` skill from [mattpocock/skills](https://github.com/mattpocock/skills)).
 Domain vocabulary lives in [CONTEXT.md](../../CONTEXT.md); fuller designs in
 [specs/](../../specs/); AI-assistant working rules in [CLAUDE.md](../../CLAUDE.md).
 
