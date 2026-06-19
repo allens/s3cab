@@ -135,7 +135,12 @@ rather than assuming it is fixed forever.
    uncommitted for review (b), then commit that step when the user agrees to move on (c),
    rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
    slice was built end-to-end before the first commit, which then couldn't be split into
-   per-step commits without interactive hunk-staging.)
+   per-step commits without interactive hunk-staging.) **A batch go-ahead ("execute", "go
+   ahead", "do it") on a multi-slice plan authorizes _starting_ — it does not waive the
+   per-slice pause.** After each slice, present its diff and stop for review before the next;
+   only run straight through when the user says so explicitly ("don't pause", "do them all
+   without stopping"). (Recorded 2026-06-19 after I read "execute and wire lint rule" as
+   licence to land all six slices without pausing.)
 10. **"Review the PR comments" means critically review them _with the user_ and give
     suggestions — not make changes.** When the user asks you to look at review comments on a
     PR, **assess each one and state your opinion** (valid / not / nuance) with a suggested
@@ -188,13 +193,12 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   primitive that hasn't moved yet, so extract it to `lib/`. Porcelain still *composes* a
   plumbing command through that one export (`backup` calls `snapshot()`; `upload` and
   `snapshot` call `prop()`); what the rule bans is reaching past the command for a co-resident
-  helper (the old `snapshot → tree.walkSet`, `* → list.listSnapshotNames`). Shared constants
-  move to `lib/` too; cross-module types travel by `@typedef`/`@import` — not `export` — so
-  they don't count. It's trivially lint-checkable (one `export` per `commands/` file); whether
-  to wire that lint is open (it would be a structural check, a lighter thing than the
-  signature-enforcement [0022](docs/adr/0022-prepare-remote-set-front-door.md)/0023 declined).
-  The command files that still carry extra exports are listed under "Known gaps" until
-  extracted.
+  helper (the old `snapshot → tree.walkSet`, `* → list.listSnapshotNames`). A symbol used only
+  inside its own command file just stops being `export`ed (it doesn't move to `lib/` without a
+  second caller — #8); cross-module types travel by `@typedef`/`@import` — not `export` — so
+  they don't count. Enforced by the `local/one-export-per-command` ESLint rule in
+  [eslint.config.js](eslint.config.js) — a structural check, lighter than the
+  signature-enforcement [0022](docs/adr/0022-prepare-remote-set-front-door.md)/0023 declined.
 - **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
   `SnapshotEntries`), then bare `{Foo}` in annotations — cleaner than repeating the inline
@@ -381,23 +385,6 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **One-export-per-command migration pending** (the Coding-conventions rule above,
-  [ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md)). These `src/commands/` files
-  still carry exports beyond their command function; each extra export is a `lib/` primitive
-  that hasn't moved yet:
-  - `tree.mjs` → `walkSet`, `walkDirs` (the set-walk engine; pulled by `snapshot` and
-    `tree.test`) → `lib/walk.mjs`, with the glob matcher its own `lib/` module
-  - `list.mjs` → `listSnapshotNames` (pulled by `backup`, `compare`, `snapshot`, `status`) →
-    `lib/`, beside `snapshot-file.mjs`'s `snapshotNames`
-  - `compare.mjs` → `compareSnapshots`, `diff` (pulled by `snapshot`, `compare.test`) →
-    `lib/`
-  - `restore.mjs` → `planRestore`, `selectEntries`, `reroot` (pulled by `restore.test`) →
-    `lib/`
-  - `snapshot.mjs` → `createPropsGenerator` (test-only) → `lib/` or make private
-  - `prop.mjs` → `SHA256_EMPTY_FILE` (a domain constant) → `lib/`
-  The legitimate porcelain→plumbing edges stay: `backup → snapshot()`, `upload`/`snapshot →
-  prop()` compose the command through its one export. A pre-1.0 refactor (convention #8 gives
-  free rein); land it on a `feat/…` branch, one module at a time.
 - **`verify` flow not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
   set-first porcelain, `snapshots/<user>@<machine>/<set>/`, snapshot-last invariant,

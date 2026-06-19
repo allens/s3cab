@@ -42,8 +42,12 @@ a plumbing interface — it is a `lib/` primitive that hasn't moved yet.
   CLI shape (argv in, presented output, exit code) or a primitive shape (takes resolved
   values, returns data, no I/O ceremony)? Primitive shape → `lib/`. CLI shape that porcelain
   legitimately composes → plumbing command, depended on through its interface.
-- **No new enforcement.** Like [0022](0022-prepare-remote-set-front-door.md), the layering is
-  a convention the seam doesn't compile-check; it is a direction rule a reviewer applies, not
-  a token threaded through signatures (against [0006](0006-minimal-code.md)).
+- **Structural enforcement, not directional.** The one-export corollary — a `commands/` file
+  exports exactly one symbol, its command function — *is* enforced, by the
+  `local/one-export-per-command` ESLint rule (a cheap structural check; see CLAUDE.md coding
+  conventions). The broader layer *directions* (porcelain → plumbing → `lib`, never up or
+  sideways) stay a reviewer-applied convention, not a token threaded through signatures
+  (against [0006](0006-minimal-code.md)), as [0022](0022-prepare-remote-set-front-door.md)
+  chose.
 - Refines, doesn't reopen, [0011](0011-validation-in-command-functions.md) (validation lives
   in command functions) and the `lib/ → commands/` prohibition (still in force).
