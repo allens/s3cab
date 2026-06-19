@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
+import { compareSnapshots } from "../lib/compare.mjs";
 import { secondsSince } from "../lib/format.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import {
@@ -12,13 +13,12 @@ import {
   withSnapshotFile,
 } from "../lib/snapshot-file.mjs";
 import { walkSet } from "../lib/walk.mjs";
-import { compareSnapshots } from "./compare.mjs";
 import { prop } from "./prop.mjs";
 
 /**
  * @import { Props } from "./prop.mjs"
  * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
- * @import { CompareResult } from "./compare.mjs"
+ * @import { CompareResult } from "../lib/compare.mjs"
  */
 
 /**
