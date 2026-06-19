@@ -4,7 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-// Tests for the layered env loading in auth.mjs (see specs/auth.md). loadEnv
+// Tests for the layered env loading in env.mjs (see specs/auth.md). loadEnv
 // reads s3cabDir() and mutates process.env, and applies each file at most once
 // per run — so each test (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh*
 // copy of the module so the once-per-run guard starts empty, and (c) has
@@ -16,7 +16,7 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 // `appliedEnvFiles` guard is reset between tests.
 let moduleCounter = 0;
 const freshLoadEnv = async () => {
-  const mod = await import(`./auth.mjs?case=${moduleCounter++}`);
+  const mod = await import(`./env.mjs?case=${moduleCounter++}`);
   return mod.loadEnv;
 };
 
@@ -58,7 +58,7 @@ async function setup(root) {
   const home = join(root, "home");
   // Point s3cab's home at the temp dir via S3CAB_HOME (not the OS HOME), so the
   // loader reads these env files and nothing leaks from the real ~/.s3cab. Set
-  // before importing auth.mjs, which derives its paths from s3cabDir().
+  // before importing env.mjs, which derives its paths from s3cabDir().
   process.env.S3CAB_HOME = join(home, ".s3cab");
   const loadEnv = await freshLoadEnv();
   return {

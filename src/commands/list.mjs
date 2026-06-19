@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
 import { resolveRemoteSet, resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { snapshotNames } from "../lib/snapshot-file.mjs";

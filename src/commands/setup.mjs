@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { listRemoteNamespaces, listRemoteSnapshots } from "../lib/remote.mjs";
 import {

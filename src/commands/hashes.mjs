@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { listObjectHashes } from "../lib/objects.mjs";
 

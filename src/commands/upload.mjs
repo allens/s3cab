@@ -1,4 +1,4 @@
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { prop } from "./prop.mjs";

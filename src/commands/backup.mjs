@@ -1,4 +1,4 @@
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { uploadSnapshot } from "../lib/remote.mjs";
 import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames } from "./list.mjs";

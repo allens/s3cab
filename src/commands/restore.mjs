@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
-import { loadEnv } from "../lib/auth.mjs";
+import { loadEnv } from "../lib/env.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { resolveRemoteSet } from "../lib/sets.mjs";
