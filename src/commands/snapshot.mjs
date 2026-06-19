@@ -12,8 +12,8 @@ import {
 } from "../lib/snapshot-file.mjs";
 import { compareSnapshots } from "./compare.mjs";
 import { listSnapshotNames } from "./list.mjs";
+import { walkSet } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
-import { walkSet } from "./tree.mjs";
 
 /**
  * @import { Props } from "./prop.mjs"
