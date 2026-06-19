@@ -52,7 +52,7 @@ const setDirsPath = (name) => join(setDir(name), "dirs.txt");
 export const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
 /**
  * The set's optional exclude file, `~/.s3cab/sets/<name>/exclude.txt`. Its glob
- * patterns (doc/exclude.md) apply relative to *each* member directory.
+ * patterns (guide/exclude.md) apply relative to *each* member directory.
  * @param {string} name
  */
 export const setExcludePath = (name) => join(setDir(name), "exclude.txt");

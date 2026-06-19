@@ -191,7 +191,7 @@ function getPathsByHash(snapshotLookup) {
  * Diff two snapshots. Neither input is modified.
  *
  * Classification rules (each pinned by a test in compare.test.mjs; the
- * user-facing guide is doc/compare.md):
+ * user-facing guide is guide/compare.md):
  * - Same path in both snapshots → `modified` when the hash differs; silently
  *   unchanged when it matches. The hash is the only signal — size/mtime are
  *   ignored, so a touch never reports as a change.

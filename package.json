@@ -17,7 +17,7 @@
   },
   "files": [
     "src",
-    "doc",
+    "guide",
     "!src/**/*.test.mjs"
   ],
   "repository": "allens/s3cab.git",

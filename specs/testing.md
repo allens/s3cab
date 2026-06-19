@@ -6,7 +6,7 @@
 real bucket + OIDC CI are live and the gated suites run green on same-repo PRs — automatically,
 with no approval click (the required-reviewer Environment was removed; see "Where real S3
 runs"). See Provisioning for the as-built layout;
-[doc/integration-testing.md](../doc/integration-testing.md) is the how-to.
+[docs/integration-testing.md](../docs/integration-testing.md) is the how-to.
 Still pending: the non-AWS R2 canary, and (deliberately) the coverage floors stay put — the
 gate runs credential-free in the `lint` job, so the gated suites skip *there* and don't move
 the measured numbers.
@@ -204,7 +204,7 @@ rationale below is the as-built record. Live AWS resources: bucket **`s3cab-ci-t
 role **`s3cab-ci`** (trust scoped to `repo:allens/s3cab:pull_request`), with `AWS_ROLE_ARN`
 (secret) + `S3CAB_TEST_BUCKET` (var) held at **repo** scope (no longer on a GitHub
 Environment — that was deleted with the approval gate). Source of truth: the
-[`ci/aws/`](../ci/aws/) artifacts + [doc/integration-testing.md](../doc/integration-testing.md).
+[`ci/aws/`](../ci/aws/) artifacts + [docs/integration-testing.md](../docs/integration-testing.md).
 **Still pending:** the non-AWS R2 canary (below).
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
@@ -237,7 +237,7 @@ Environment — that was deleted with the approval gate). Source of truth: the
   stands up the bucket + lifecycle; `npm run test:s3` (a `node --test --env-file-if-exists`
   one-liner) runs the gated suites locally, with credentials read from the developer's
   `~/.aws` profile — the tests relocate only `S3CAB_HOME`, not `HOME`, so the SDK resolves
-  them normally; and [doc/integration-testing.md](../doc/integration-testing.md) is the
+  them normally; and [docs/integration-testing.md](../docs/integration-testing.md) is the
   generic, cross-platform walkthrough (local dev + the full GitHub Actions OIDC setup) so
   anyone can replicate it for their own account.
 - **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`

@@ -3,7 +3,7 @@
 The JSON artifacts in this directory provision the real-AWS resources behind the
 gated S3 integration suite (see [../../specs/testing.md](../../specs/testing.md) for
 the strategy). They are applied with the AWS CLI following the full, cross-platform
-walkthrough in **[../../doc/integration-testing.md](../../doc/integration-testing.md)**
+walkthrough in **[../../docs/integration-testing.md](../../docs/integration-testing.md)**
 — that guide is generic (anyone can follow it for their own fork/account); this file
 only records **what this project uses**.
 

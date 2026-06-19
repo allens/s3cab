@@ -191,7 +191,7 @@ Generating new snapshot: 2025-11-12T0915
 ```
 
 How to read the report — the four categories and the `→→` / `==` notations — is
-covered in [doc/compare.md](doc/compare.md).
+covered in [guide/compare.md](guide/compare.md).
 
 ## How it works
 
@@ -227,7 +227,7 @@ story — no s3cab required.
 
 Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
 set's folders; run `s3cab help exclude` for a quick reference, or see
-[doc/exclude.md](doc/exclude.md) for the full guide.
+[guide/exclude.md](guide/exclude.md) for the full guide.
 
 > s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
 > goal for later. Snapshot paths are absolute and use the native OS path style.
