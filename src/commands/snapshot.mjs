@@ -106,11 +106,12 @@ function withProgress(label, total) {
 }
 
 /**
- * Create an async generator that yields file properties.
+ * Create an async generator that yields file properties. Module-private — the
+ * snapshot pipeline (above) is its only caller.
  * @param {Map<string, Props>} [lookup] - Snapshot lookup map or path to snapshot file
  * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, Props|Error]>}
  */
-export function createPropsGenerator(lookup) {
+function createPropsGenerator(lookup) {
   return async function* (paths) {
     for await (const path of paths) {
       try {
