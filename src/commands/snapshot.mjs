@@ -16,8 +16,7 @@ import { walkSet } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
 
 /**
- * @import { Props } from "./prop.mjs"
- * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
+ * @import { Props, SnapshotEntries } from "../lib/snapshot-file.mjs"
  * @import { CompareResult } from "../lib/compare.mjs"
  */
 

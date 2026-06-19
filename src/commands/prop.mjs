@@ -5,14 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { requireArg } from "../lib/error.mjs";
 import { readSnapshotFile } from "../lib/snapshot-file.mjs";
 
-/**
- * @typedef {Object} Props
- * @property {number} size
- * @property {string} mtime
- * @property {string} hash
- * @property {number} [hashDuration] - Seconds spent hashing (absent when the
- *   hash came from a snapshot lookup).
- */
+/** @import { Props } from "../lib/snapshot-file.mjs" */
 
 /**
  * SHA-256 hash of an empty file.

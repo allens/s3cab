@@ -44,7 +44,17 @@ const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
 const ERROR = "#ERROR";
 
-/** @typedef {import("../commands/prop.mjs").Props} Props */
+/**
+ * The properties a snapshot records for one file — its content `hash`, `size`,
+ * and `mtime`. Produced by the `prop` command; this is the canonical home so
+ * lib doesn't reach up into a command for the type.
+ * @typedef {Object} Props
+ * @property {number} size
+ * @property {string} mtime
+ * @property {string} hash
+ * @property {number} [hashDuration] - Seconds spent hashing (absent when the
+ *   hash came from a snapshot lookup, and not stored in the snapshot file).
+ */
 /** @typedef {[string, Props | Error]} SnapshotRow */
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */

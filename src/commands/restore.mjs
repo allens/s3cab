@@ -6,8 +6,7 @@ import { prepareRemoteSet } from "../lib/env.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 
-/** @import { Props } from "./prop.mjs" */
-/** @import { SnapshotEntries } from "../lib/snapshot-file.mjs" */
+/** @import { Props, SnapshotEntries } from "../lib/snapshot-file.mjs" */
 
 // The `restore` command (specs/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
