@@ -181,6 +181,20 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 [0005](docs/adr/0005-builtins-over-dependencies.md),
 [0018](docs/adr/0018-dependabot-not-renovate.md).)
 
+- **Each file in `src/commands/` exports exactly one symbol — its command function.** The
+  mechanical form of [ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md)'s
+  porcelain/plumbing/`lib` layering: if anything else — a sibling command *or* a test — needs
+  to import something from a command file that isn't the command, that thing is a `lib/`
+  primitive that hasn't moved yet, so extract it to `lib/`. Porcelain still *composes* a
+  plumbing command through that one export (`backup` calls `snapshot()`; `upload` and
+  `snapshot` call `prop()`); what the rule bans is reaching past the command for a co-resident
+  helper (the old `snapshot → tree.walkSet`, `* → list.listSnapshotNames`). Shared constants
+  move to `lib/` too; cross-module types travel by `@typedef`/`@import` — not `export` — so
+  they don't count. It's trivially lint-checkable (one `export` per `commands/` file); whether
+  to wire that lint is open (it would be a structural check, a lighter thing than the
+  signature-enforcement [0022](docs/adr/0022-prepare-remote-set-front-door.md)/0023 declined).
+  The command files that still carry extra exports are listed under "Known gaps" until
+  extracted.
 - **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
   `SnapshotEntries`), then bare `{Foo}` in annotations — cleaner than repeating the inline
@@ -367,6 +381,23 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
+- **One-export-per-command migration pending** (the Coding-conventions rule above,
+  [ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md)). These `src/commands/` files
+  still carry exports beyond their command function; each extra export is a `lib/` primitive
+  that hasn't moved yet:
+  - `tree.mjs` → `walkSet`, `walkDirs` (the set-walk engine; pulled by `snapshot` and
+    `tree.test`) → `lib/walk.mjs`, with the glob matcher its own `lib/` module
+  - `list.mjs` → `listSnapshotNames` (pulled by `backup`, `compare`, `snapshot`, `status`) →
+    `lib/`, beside `snapshot-file.mjs`'s `snapshotNames`
+  - `compare.mjs` → `compareSnapshots`, `diff` (pulled by `snapshot`, `compare.test`) →
+    `lib/`
+  - `restore.mjs` → `planRestore`, `selectEntries`, `reroot` (pulled by `restore.test`) →
+    `lib/`
+  - `snapshot.mjs` → `createPropsGenerator` (test-only) → `lib/` or make private
+  - `prop.mjs` → `SHA256_EMPTY_FILE` (a domain constant) → `lib/`
+  The legitimate porcelain→plumbing edges stay: `backup → snapshot()`, `upload`/`snapshot →
+  prop()` compose the command through its one export. A pre-1.0 refactor (convention #8 gives
+  free rein); land it on a `feat/…` branch, one module at a time.
 - **`verify` flow not built yet** — the design *and* the five-slice
   implementation plan are settled in [specs/backup.md](specs/backup.md) (backup sets,
   set-first porcelain, `snapshots/<user>@<machine>/<set>/`, snapshot-last invariant,
