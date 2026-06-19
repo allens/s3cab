@@ -258,6 +258,31 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 
 ---
 
+## Agent skills
+
+Per-repo configuration for the engineering skills (from
+[mattpocock/skills](https://github.com/mattpocock/skills), installed **globally** — see the
+skills blockquote under "Where knowledge lives", not vendored here). Scaffolded once via the
+`setup-matt-pocock-skills` skill; keep the global install current with
+`npx skills@latest update --global`.
+
+### Issue tracker
+
+GitHub Issues via the `gh` CLI (repo `allens/s3cab`); external PRs are **not** a triage
+surface. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical roles, identity-mapped — all already exist as repo labels, so `/triage`
+only applies them. See [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context: root [CONTEXT.md](CONTEXT.md) glossary + [docs/adr/](docs/adr/) decision log.
+See [docs/agents/domain.md](docs/agents/domain.md).
+
+---
+
 ## What this project is
 
 **s3cab** = **S3 C**ontent **A**ddressable **B**ackup. [README.md](README.md) covers what
