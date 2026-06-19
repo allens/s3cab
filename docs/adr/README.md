@@ -33,6 +33,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout
 - [0014](0014-backup-sets.md) — Backup sets are the unit of snapshot/backup/restore
 - [0015](0015-standard-aws-credential-chain.md) — Standard AWS credential chain; bespoke SSO login removed
+- [0022](0022-prepare-remote-set-front-door.md) — Env-loading for the set family goes through one front door
 
 ### Build, release & tooling
 

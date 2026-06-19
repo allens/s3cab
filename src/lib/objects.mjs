@@ -143,7 +143,7 @@ export async function* listObjectHashes(bucket) {
  * hash-per-line list of objects already known to exist under the bucket's
  * `objects/`, in exactly the format `s3cab hashes -f` writes (it *is* that
  * command's output put to work — composability, specs/backup.md). Sits beside
- * the per-bucket auth file `env.<bucket>` (auth.mjs). The bucket name is
+ * the per-bucket auth file `env.<bucket>` (env.mjs). The bucket name is
  * interpolated into the filename, so it is guarded as a single path segment —
  * the same `assertPathSegment` guard `bucketEnvPath` uses.
  * @param {string} bucket

@@ -309,9 +309,12 @@ own doc comment.
   `snapshots/<namespace>/` → [src/lib/remote.mjs](src/lib/remote.mjs); the generic SDK
   boundary → `src/lib/s3.mjs`) follow from
   [ADR-0013](docs/adr/0013-one-repository-one-bucket.md) and
-  [ADR-0014](docs/adr/0014-backup-sets.md). Auth resolution is `resolveCredentials` in
-  [src/lib/auth.mjs](src/lib/auth.mjs) — see [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)
-  and [specs/auth.md](specs/auth.md).
+  [ADR-0014](docs/adr/0014-backup-sets.md). Auth splits in two: *credential resolution* is
+  `resolveCredentials` in [src/lib/auth.mjs](src/lib/auth.mjs) (see
+  [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)), and *env-file layering* is
+  `loadEnv`/`prepareRemoteSet` in [src/lib/env.mjs](src/lib/env.mjs) (the set family's one
+  front door, [ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md)) — both specified in
+  [specs/auth.md](specs/auth.md).
 - **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, not a library, and
   the entry point runs dispatch as a top-level side-effect (unsafe to `import`). The
   per-command functions in `src/commands/` are already cleanly exported, so a side-effect-free
