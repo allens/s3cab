@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { parseSnapshotStream, snapshotHeader } from "./snapshot-file.mjs";
+import {
+  errorLine,
+  parseSnapshotStream,
+  snapshotHeader,
+} from "./snapshot-file.mjs";
 
 // `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
-// turns a decompressed TSV stream into `{ entries, dirs, identity }` — the file
-// lookup plus the `#SNAPSHOT`/`#DIR` headers that keep a snapshot self-describing
-// (and that `restore --output` re-roots by). Build streams from strings so these
-// run without S3 or a temp file.
+// turns a decompressed TSV stream into `{ entries, errors, dirs, identity }` —
+// the file lookup, the paths that failed hashing, plus the `#SNAPSHOT`/`#DIR`
+// headers that keep a snapshot self-describing (and that `restore --output`
+// re-roots by). Build streams from strings so these run without S3 or a temp
+// file.
 // Wrap the text in an array so it streams as a single chunk; a bare string is
 // an iterable of characters, which Readable.from would emit one char at a time.
 const parse = (/** @type {string} */ text) =>
@@ -69,14 +74,35 @@ describe("parseSnapshotStream", () => {
     assert.equal(identity, undefined);
   });
 
-  it("skips ordinary comment lines (e.g. a hashing error) without treating them as headers", async () => {
+  it("skips unknown comment lines without treating them as headers", async () => {
     const text = [
       "#DIR\t\t\t/home/me/Docs",
-      "#permission denied\t\t\t/home/me/Docs/locked.bin",
+      "#some hand-written note\t\t\t/home/me/Docs/whatever",
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
     ].join("\n");
-    const { entries, dirs } = await parse(text);
+    const { entries, dirs, errors } = await parse(text);
     assert.deepEqual(dirs, ["/home/me/Docs"]);
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
+    assert.equal(errors.size, 0);
+  });
+
+  it("surfaces #ERROR rows into errors (with reason), not entries", async () => {
+    // Pins the writer/reader pair: what errorLine emits, parseSnapshotStream
+    // reads back into `errors` — kept out of `entries` so compare reports the
+    // path rather than mistaking it for deleted.
+    const text = [
+      "#DIR\t\t\t/home/me/Docs",
+      errorLine(
+        "EACCES: permission denied",
+        "/home/me/Docs/locked.bin",
+      ).trimEnd(),
+      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
+    ].join("\n");
+    const { entries, errors } = await parse(text);
+    assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
+    assert.deepEqual(
+      [...errors],
+      [["/home/me/Docs/locked.bin", "EACCES: permission denied"]],
+    );
   });
 });

@@ -25,28 +25,36 @@ import { secondsSince } from "./format.mjs";
 // size: size of the file in bytes (right-aligned)
 // For #EXCLUDED comment lines the fields are (col2/col3 as `excludedLine` writes them):
 // #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path
+// For #ERROR comment lines — a file the walk couldn't hash — the fields are
+// (col3 as `errorLine` writes it):
+// #ERROR<TAB><TAB>reason<TAB>path
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
 // so a snapshot file is self-describing even found alone (specs/backup.md). The
-// walk also writes `#EXCLUDED` rows (via `excludedLine`). Comment lines other
-// than the `#SNAPSHOT`/`#DIR` headers are skipped on read.
+// walk also writes `#EXCLUDED` rows (via `excludedLine`) and `#ERROR` rows (via
+// `errorLine`). On read `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR` (into
+// the headers) and `#ERROR` (into `errors`); any other comment line is skipped.
 
 // The comment markers heading the grammar's non-file lines — shared by the
-// writers (`snapshotHeader`/`excludedLine`) and `parseSnapshotStream`, so the
-// literal strings live in exactly one place.
+// writers (`snapshotHeader`/`excludedLine`/`errorLine`) and
+// `parseSnapshotStream`, so the literal strings live in exactly one place.
 const SNAPSHOT = "#SNAPSHOT";
 const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
+const ERROR = "#ERROR";
 
 /** @typedef {import("../commands/prop.mjs").Props} Props */
 /** @typedef {[string, Props | Error]} SnapshotRow */
 /** @typedef {Map<string, Props>} SnapshotEntries */
+/** @typedef {Map<string, string>} SnapshotErrors */
 /**
- * A parsed snapshot: the file `entries` plus the `#SNAPSHOT`/`#DIR` headers that
- * make it self-describing (specs/backup.md). `dirs` are the member directories
- * captured at snapshot time; `identity` is the pinned `user@machine:set`.
- * @typedef {{ entries: SnapshotEntries, dirs: string[], identity?: string }} Snapshot
+ * A parsed snapshot: the file `entries`, the paths that failed hashing
+ * (`errors`, mapped to the recorded reason), plus the `#SNAPSHOT`/`#DIR` headers
+ * that make it self-describing (specs/backup.md). `dirs` are the member
+ * directories captured at snapshot time; `identity` is the pinned
+ * `user@machine:set`.
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, dirs: string[], identity?: string }} Snapshot
  */
 
 /**
@@ -131,9 +139,9 @@ export async function withSnapshotFile(
  * Read a snapshot by name from a snapshot directory.
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string} name - Snapshot name
- * @returns {Promise<SnapshotEntries>} Snapshot lookup
+ * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
  * @throws When the named snapshot does not exist — never silently returns an
- *   empty lookup, which a caller could mistake for an empty snapshot.
+ *   empty snapshot, which a caller could mistake for an empty one.
  */
 export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");
@@ -168,7 +176,7 @@ export function snapshotNames(names) {
 /**
  * Read a snapshot file.
  * @param {string} path - Path to snapshot file
- * @returns {Promise<SnapshotEntries>} Snapshot lookup
+ * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
  */
 export async function readSnapshotFile(path) {
   const start = Temporal.Now.instant();
@@ -180,11 +188,11 @@ export async function readSnapshotFile(path) {
       ? readStream.pipe(createZstdDecompress())
       : readStream;
 
-  const { entries } = await parseSnapshotStream(input);
+  const snapshot = await parseSnapshotStream(input);
 
   console.warn(`Read snapshot file '${path}' in ${secondsSince(start)}`);
 
-  return entries;
+  return snapshot;
 }
 
 /**
@@ -197,15 +205,19 @@ export async function readSnapshotFile(path) {
  *
  * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
  * rather than discarded, so a snapshot stays self-describing on read — the
- * member dirs are what `restore --output` re-roots by. Any other comment line is
- * skipped. Local callers that only want the file lookup take `.entries`
+ * member dirs are what `restore --output` re-roots by. `#ERROR` rows (files the
+ * walk couldn't hash) are surfaced into `errors` so `compare` can report them
+ * rather than mistaking the path for deleted. Any other comment line is skipped.
+ * Local callers that only want the file lookup take `.entries`
  * (`readSnapshotFile`); the remote reader surfaces the whole snapshot.
  * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
- * @returns {Promise<Snapshot>} The file entries plus parsed headers
+ * @returns {Promise<Snapshot>} The file entries, hashing errors, and parsed headers
  */
 export async function parseSnapshotStream(input) {
   /** @type {SnapshotEntries} */
   const entries = new Map();
+  /** @type {SnapshotErrors} */
+  const errors = new Map();
   /** @type {string[]} */
   const dirs = [];
   /** @type {string | undefined} */
@@ -218,11 +230,13 @@ export async function parseSnapshotStream(input) {
     const [hash, size, mtime, path] = line.split("\t").map((s) => s.trim());
 
     if (hash?.startsWith("#")) {
-      // Header comments carry the path in the last column (written by
-      // `snapshotHeader`): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>
-      // datetime<TAB>identity`.
+      // Marker comments carry their payload in the trailing columns (see the
+      // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>datetime
+      // <TAB>identity`, `#ERROR<TAB><TAB>reason<TAB>path` (reason in col3, the
+      // `mtime` slot). Any other comment line is skipped.
       if (hash === DIR && path) dirs.push(path);
       else if (hash === SNAPSHOT && path) identity = path;
+      else if (hash === ERROR && path) errors.set(path, mtime ?? "");
       continue;
     }
 
@@ -235,7 +249,7 @@ export async function parseSnapshotStream(input) {
     });
   }
 
-  return { entries, dirs, identity };
+  return { entries, errors, dirs, identity };
 }
 
 /**
@@ -247,7 +261,7 @@ export async function parseSnapshotStream(input) {
 export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
     if (Error.isError(props)) {
-      yield formatLine("#" + props.message, "", "", path);
+      yield errorLine(props.message, path);
       continue;
     }
     yield formatLine(props.hash, props.size, props.mtime, path);
@@ -303,3 +317,15 @@ export function snapshotHeader({ datetime, identity, dirs }) {
  */
 export const excludedLine = (fileType, reason, path) =>
   formatLine(EXCLUDED, fileType, reason, path);
+
+/**
+ * An `#ERROR` row: a file the walk couldn't hash (e.g. permission denied),
+ * recorded in the snapshot for transparency. `reason` is the error message,
+ * written in col3. Unlike other comments these are surfaced on read (into
+ * `Snapshot.errors`) so `compare` reports the path rather than mistaking it for
+ * deleted.
+ * @param {string} reason - The error message (why the file couldn't be hashed)
+ * @param {string} path - The unreadable path
+ * @returns {string}
+ */
+export const errorLine = (reason, path) => formatLine(ERROR, "", reason, path);

@@ -197,7 +197,7 @@ export async function uploadSnapshot({
   name,
   skipCache = false,
 }) {
-  const target = await readSnapshot(snapshotDir, name);
+  const { entries: target } = await readSnapshot(snapshotDir, name);
 
   const { lookup: remote } = await readLatestRemoteSnapshot(bucket, namespace);
 

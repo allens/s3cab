@@ -332,7 +332,7 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
     // The snapshot is the source of truth for what restore should reproduce
     // (its keys are the original absolute paths; realpath may differ from the
     // join above, so assert against the snapshot, not the literal paths).
-    const entries = await readSnapshot(setSnapshotsDir(setName), snapshot);
+    const { entries } = await readSnapshot(setSnapshotsDir(setName), snapshot);
     const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     try {

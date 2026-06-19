@@ -45,7 +45,8 @@ export async function snapshot(setName, options = {}) {
   const latestSnapshotName = listSnapshotNames(snapshotDir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
     console.warn("Reading previous snapshot", `'${latestSnapshotName}'`);
-    lookup = await readSnapshot(snapshotDir, latestSnapshotName);
+    const { entries } = await readSnapshot(snapshotDir, latestSnapshotName);
+    lookup = entries;
   }
 
   // The set's pinned identity (user@machine:set) heads the snapshot, with one

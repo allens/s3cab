@@ -12,6 +12,8 @@ import { listSnapshotNames } from "./list.mjs";
  * @property {string[]} moved
  * @property {string[]} modified
  * @property {string[]} deleted
+ * @property {string[]} errors - Files the newer snapshot couldn't hash, each as
+ *   `path (reason)` where reason is the recorded error message
  */
 
 /**
@@ -107,12 +109,13 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   }
 
   /** @type {SnapshotEntries} */
-  let sinceSnapshot;
+  let sinceEntries;
   if (since === undefined) {
     // Nothing older than `until`: an empty baseline; everything is "added".
-    sinceSnapshot = new Map();
+    sinceEntries = new Map();
   } else {
-    sinceSnapshot = await readSnapshot(snapshotDir, since);
+    const sinceSnapshot = await readSnapshot(snapshotDir, since);
+    sinceEntries = sinceSnapshot.entries;
   }
   console.warn(
     "Comparing",
@@ -122,9 +125,15 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   );
 
   const { added, moved, modified, deleted } = diff(
-    sinceSnapshot,
-    untilSnapshot,
+    sinceEntries,
+    untilSnapshot.entries,
   );
+
+  // A file the `until` snapshot couldn't hash parses into `errors`, not
+  // `entries`, so `diff` never sees it. Report those paths under their own
+  // category, and pull any out of `deleted`: a path present in the older
+  // snapshot that errored in the newer one is not a deletion, just unreadable.
+  for (const path of untilSnapshot.errors.keys()) deleted.delete(path);
 
   return {
     added: Array.from(added.entries()).map(([path, previousPaths]) => {
@@ -143,6 +152,10 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     }),
     modified: Array.from(modified, (path) => relativeToRoot(dirs, path)),
     deleted: Array.from(deleted, (path) => relativeToRoot(dirs, path)),
+    errors: Array.from(
+      untilSnapshot.errors,
+      ([path, reason]) => `${relativeToRoot(dirs, path)} (${reason})`,
+    ),
   };
 }
 
@@ -194,9 +207,10 @@ function getPathsByHash(snapshotLookup) {
  * - `added` entries carry the previous-snapshot paths that held the same
  *   content; when all of those were claimed as move sources, the moved-to
  *   locations are reported instead.
- * - Files that failed hashing are stored as #comment lines, invisible here:
- *   an unreadable file reports as `deleted` (an explicit errors category is
- *   a planned follow-up — see CLAUDE.md "Known gaps").
+ * - Files that failed hashing are not entries — they parse into the snapshot's
+ *   `errors` map, not `currentSnapshot` — so `diff` never sees them.
+ *   `compareSnapshots` reports them under its own `errors` category and keeps
+ *   them out of `deleted`.
  * @param {SnapshotEntries} previousSnapshot - Previous snapshot lookup
  * @param {SnapshotEntries} currentSnapshot - Current snapshot
  * @returns {DiffResult} Diff results
