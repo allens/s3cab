@@ -1,6 +1,6 @@
-import { loadEnv } from "../lib/auth.mjs";
+import { prepareRemoteSet } from "../lib/env.mjs";
 import { uploadSnapshot } from "../lib/remote.mjs";
-import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames } from "./list.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -23,12 +23,9 @@ import { snapshot } from "./snapshot.mjs";
  *   transferred (the rest already in the store).
  */
 export async function backup(setName, options = {}) {
-  const set = resolveRemoteSet(setName);
-
-  // Resolve env for this set (its bucket's auth layer) before any S3 access —
-  // the command function is the library surface (CLAUDE.md), so a direct caller
-  // loads env exactly as the CLI does.
-  loadEnv({ set: set.name });
+  // Resolve the set and load its env (its bucket's auth layer) before any S3
+  // access — the one front door for the set's remote (env.mjs, ADR-0022).
+  const set = prepareRemoteSet(setName);
 
   const snapshotDir = setSnapshotsDir(set.name);
 

@@ -16,7 +16,7 @@ import { assertPathSegment, s3cabDir } from "./home.mjs";
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
 // `env` (the pinned remote namespace, the bound bucket, and any per-set auth
-// overrides — a layer in auth.mjs's env layering). The files are the API:
+// overrides — a layer in env.mjs's env layering). The files are the API:
 // editing a set is opening these files in an editor, deleting the folder
 // deletes the set, so this module never caches and re-reads from disk on
 // every call.
@@ -33,7 +33,7 @@ const setsRoot = () => join(s3cabDir(), "sets");
 /**
  * A set name is interpolated into a path under `~/.s3cab/sets`, so it is guarded
  * as a single path segment (`assertPathSegment`, the same traversal guard
- * auth.mjs's per-bucket env path uses). A *created* set's name is always
+ * env.mjs's per-bucket env path uses). A *created* set's name is always
  * canonical (see `validateSetName`), but read paths run on caller-supplied
  * names too.
  * @param {string} name
@@ -259,11 +259,14 @@ export function resolveSet(name) {
 /**
  * Resolve a set that is ready for cloud operations: the named set (sole-set
  * default, via `resolveSet`), guarded to have a bucket bound and a pinned
- * namespace. The shared front door for `backup`/`status` (and later
- * `restore`/`verify`) — a bucket-less set is a local-only snapshot engine and
- * stops here with the exact command to bind one. Env loading stays in each
- * command (per CLAUDE.md), so this does no `loadEnv` and keeps no auth
- * dependency (which would also cycle, auth.mjs → sets.mjs).
+ * namespace. A bucket-less set is a local-only snapshot engine and stops here
+ * with the exact command to bind one.
+ *
+ * The env-free *inner step* of the set-family front door: it does no `loadEnv`,
+ * so it keeps no env/auth dependency (which would also cycle — env.mjs imports
+ * sets.mjs). `prepareRemoteSet` (env.mjs) wraps it with the env load, and the
+ * cloud commands call *that*, not this, for their remote work (ADR-0011,
+ * ADR-0022). Still exported directly for its own tests.
  * @param {string} [setName]
  * @returns {BackupSet & { bucket: string, namespace: string }}
  */

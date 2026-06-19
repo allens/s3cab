@@ -2,7 +2,9 @@
 
 A command that needs a positional checks it itself (`requireArg()` → `ParseArgsError`), and
 loads its env scope itself (`loadEnv` right after validating args) — neither is done by the
-dispatcher.
+dispatcher. (The set-family cloud commands load env via the shared `prepareRemoteSet` front
+door rather than an inline `loadEnv`, but still at the command layer — see
+[0022](0022-prepare-remote-set-front-door.md).)
 
 ## Why
 

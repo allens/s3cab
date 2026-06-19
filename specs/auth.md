@@ -41,7 +41,7 @@ This design must:
 
 ### Step 0: Load s3cab's env files if present
 
-Before constructing AWS SDK clients, s3cab loads its own **layered env files** into `process.env` (implemented as `loadEnv` in `src/lib/auth.mjs`). It deliberately does **not** read a `.env` from the current working directory, and never reads or writes `~/.aws/*`.
+Before constructing AWS SDK clients, s3cab loads its own **layered env files** into `process.env` (implemented as `loadEnv` in `src/lib/env.mjs`; the set-family commands reach it through `prepareRemoteSet`, see [ADR-0022](../docs/adr/0022-prepare-remote-set-front-door.md)). It deliberately does **not** read a `.env` from the current working directory, and never reads or writes `~/.aws/*`.
 
 The layers, **highest precedence first** (a file value always wins over the shell environment — "Model A", files authoritative):
 
