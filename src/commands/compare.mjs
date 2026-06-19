@@ -1,8 +1,7 @@
 import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { notImplemented } from "../lib/error.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
-import { readSnapshot } from "../lib/snapshot-file.mjs";
-import { listSnapshotNames } from "./list.mjs";
+import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
 /** @import { SnapshotEntries } from "../lib/snapshot-file.mjs" */
 

@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { createReadStream, existsSync, mkdirSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { open, rename } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -171,6 +171,43 @@ export function snapshotNames(names) {
     .map((name) => basename(name, ".tsv.zst"))
     .sort()
     .reverse();
+}
+
+/**
+ * @overload
+ * @param {string} snapshotDir
+ * @param {{ latest: true }} options
+ * @returns {string | undefined}
+ */
+
+/**
+ * @overload
+ * @param {string} snapshotDir
+ * @param {{ latest?: false }} [options]
+ * @returns {string[]}
+ */
+
+/**
+ * List the snapshot names in a snapshot directory, newest first — the storage
+ * core behind the `list` command, and reused by `snapshot`/`compare`/`status`,
+ * which already hold a resolved snapshot directory. Reads the directory, then
+ * filters and sorts the names through `snapshotNames`.
+ * @param {string} snapshotDir - Directory holding the snapshot files
+ * @param {object} [options]
+ * @param {boolean} [options.latest] - Return only the latest snapshot name
+ * @returns {string[] | string | undefined} Snapshot names, or the latest name
+ */
+export function listSnapshotNames(snapshotDir, options = {}) {
+  if (!existsSync(snapshotDir)) {
+    return options.latest ? undefined : [];
+  }
+
+  const fileNames = readdirSync(snapshotDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isFile())
+    .map((dirent) => dirent.name);
+
+  const names = snapshotNames(fileNames);
+  return options.latest ? names.at(0) : names;
 }
 
 /**

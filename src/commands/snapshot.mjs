@@ -5,14 +5,14 @@ import { createZstdDecompress } from "node:zlib";
 import { secondsSince } from "../lib/format.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import {
+  listSnapshotNames,
   readSnapshot,
   snapshotHeader,
   stringifySnapshot,
   withSnapshotFile,
 } from "../lib/snapshot-file.mjs";
-import { compareSnapshots } from "./compare.mjs";
-import { listSnapshotNames } from "./list.mjs";
 import { walkSet } from "../lib/walk.mjs";
+import { compareSnapshots } from "./compare.mjs";
 import { prop } from "./prop.mjs";
 
 /**
