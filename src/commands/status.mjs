@@ -1,8 +1,7 @@
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { readLatestRemoteSnapshot, uploadCandidates } from "../lib/remote.mjs";
 import { setSnapshotsDir } from "../lib/sets.mjs";
-import { readSnapshot } from "../lib/snapshot-file.mjs";
-import { listSnapshotNames } from "./list.mjs";
+import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
 /**
  * Show what is backed up and what a backup would upload (specs/backup.md): the

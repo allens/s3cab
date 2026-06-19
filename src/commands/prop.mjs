@@ -5,19 +5,12 @@ import { pipeline } from "node:stream/promises";
 import { requireArg } from "../lib/error.mjs";
 import { readSnapshotFile } from "../lib/snapshot-file.mjs";
 
-/**
- * @typedef {Object} Props
- * @property {number} size
- * @property {string} mtime
- * @property {string} hash
- * @property {number} [hashDuration] - Seconds spent hashing (absent when the
- *   hash came from a snapshot lookup).
- */
+/** @import { Props } from "../lib/snapshot-file.mjs" */
 
 /**
- * SHA-256 hash of an empty file.
+ * SHA-256 hash of an empty file. Module-private — only `prop` (below) needs it.
  */
-export const SHA256_EMPTY_FILE =
+const SHA256_EMPTY_FILE =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /**

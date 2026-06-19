@@ -2,23 +2,22 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
+import { compareSnapshots } from "../lib/compare.mjs";
 import { secondsSince } from "../lib/format.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import {
+  listSnapshotNames,
   readSnapshot,
   snapshotHeader,
   stringifySnapshot,
   withSnapshotFile,
 } from "../lib/snapshot-file.mjs";
-import { compareSnapshots } from "./compare.mjs";
-import { listSnapshotNames } from "./list.mjs";
+import { walkSet } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
-import { walkSet } from "./tree.mjs";
 
 /**
- * @import { Props } from "./prop.mjs"
- * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
- * @import { CompareResult } from "./compare.mjs"
+ * @import { Props, SnapshotEntries } from "../lib/snapshot-file.mjs"
+ * @import { CompareResult } from "../lib/compare.mjs"
  */
 
 /**
@@ -107,11 +106,12 @@ function withProgress(label, total) {
 }
 
 /**
- * Create an async generator that yields file properties.
+ * Create an async generator that yields file properties. Module-private — the
+ * snapshot pipeline (above) is its only caller.
  * @param {Map<string, Props>} [lookup] - Snapshot lookup map or path to snapshot file
  * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, Props|Error]>}
  */
-export function createPropsGenerator(lookup) {
+function createPropsGenerator(lookup) {
   return async function* (paths) {
     for await (const path of paths) {
       try {

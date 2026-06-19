@@ -1,7 +1,7 @@
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { uploadSnapshot } from "../lib/remote.mjs";
 import { setSnapshotsDir } from "../lib/sets.mjs";
-import { listSnapshotNames } from "./list.mjs";
+import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 
 /**

@@ -3,14 +3,13 @@ import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
-import { walkDirs } from "./tree.mjs";
+import { walkDirs } from "./walk.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
-// These exercise the walk core `walkDirs(dirs, patterns, …)` directly, with
-// the exclude patterns passed in (in a set they come from the set's
-// exclude.txt, read by walkSet). Multi-root walking and set resolution are
-// covered by their own cases below and in e2e.
+// These exercise the walk core `walkDirs(dirs, patterns, …)` directly: multi-root
+// accumulation, the always-skip `.s3cab`, overlap detection, and directory
+// recursion. The glob → RegExp semantics are unit-tested in exclude.test.mjs.
 
 /**
  * Write a file under `base`, creating parent directories. `relPath` always
@@ -122,61 +121,6 @@ describe("walkDirs", () => {
     assert.deepStrictEqual(found, ["a/keep.txt", "b/keep.txt"]);
   });
 
-  it(
-    "accepts Windows backslash separators in patterns",
-    { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
-    async () => {
-      await using dir = await mkTmpDir();
-
-      const found = walkWithExcludes(
-        dir.path,
-        ["sub\\*.tmp"],
-        ["keep.txt", "sub/drop.tmp", "sub/keep.txt"],
-      );
-
-      assert.deepStrictEqual(found, ["keep.txt", "sub/keep.txt"]);
-    },
-  );
-
-  it("anchors patterns to the root", async () => {
-    await using dir = await mkTmpDir();
-
-    // Without a `**/` prefix, a pattern matches at the root only.
-    const found = walkWithExcludes(
-      dir.path,
-      ["*.tmp"],
-      ["root.tmp", "sub/nested.tmp"],
-    );
-
-    assert.deepStrictEqual(found, ["sub/nested.tmp"]);
-  });
-
-  it("**/ matches zero or more whole segments", async () => {
-    await using dir = await mkTmpDir();
-
-    const found = walkWithExcludes(
-      dir.path,
-      ["**/log.txt"],
-      ["log.txt", "a/log.txt", "a/b/log.txt", "catalog.txt"],
-    );
-
-    // Matches at any depth including the root, but only as a whole segment —
-    // `catalog.txt` must not be swept up.
-    assert.deepStrictEqual(found, ["catalog.txt"]);
-  });
-
-  it("? matches exactly one character", async () => {
-    await using dir = await mkTmpDir();
-
-    const found = walkWithExcludes(
-      dir.path,
-      ["file?.txt"],
-      ["file1.txt", "file.txt", "file10.txt"],
-    );
-
-    assert.deepStrictEqual(found, ["file.txt", "file10.txt"]);
-  });
-
   it("a trailing slash excludes a directory and everything inside it", async () => {
     await using dir = await mkTmpDir();
 
@@ -186,22 +130,8 @@ describe("walkDirs", () => {
       ["build/out.js", "build/sub/deep.js", "builder/keep.js"],
     );
 
-    // `builder/` is a different segment and must survive.
+    // `builder/` is a different segment and must survive; the walk must not
+    // recurse into the excluded `build/`.
     assert.deepStrictEqual(found, ["builder/keep.js"]);
-  });
-
-  it("matches case-insensitively on Windows, case-sensitively elsewhere", async () => {
-    await using dir = await mkTmpDir();
-
-    const found = walkWithExcludes(
-      dir.path,
-      ["**/UPPER.txt"],
-      ["upper.txt", "keep.txt"],
-    );
-
-    assert.deepStrictEqual(
-      found,
-      process.platform === "win32" ? ["keep.txt"] : ["keep.txt", "upper.txt"],
-    );
   });
 });

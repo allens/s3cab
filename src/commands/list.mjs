@@ -1,8 +1,7 @@
-import { existsSync, readdirSync } from "node:fs";
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
 import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
-import { snapshotNames } from "../lib/snapshot-file.mjs";
+import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /**
  * List a backup set's snapshots (specs/backup.md) — the local snapshots by
@@ -25,41 +24,5 @@ export async function list(setName, options = {}) {
 
   const snapshotDir = setSnapshotsDir(resolveSet(setName).name);
   const names = listSnapshotNames(snapshotDir, {});
-  return options.latest ? names.at(0) : names;
-}
-
-/**
- * @overload
- * @param {string} snapshotDir
- * @param {{ latest: true }} options
- * @returns {string | undefined}
- */
-
-/**
- * @overload
- * @param {string} snapshotDir
- * @param {{ latest?: false }} [options]
- * @returns {string[]}
- */
-
-/**
- * List the snapshot names in a snapshot directory, newest first. The storage
- * core behind `list` (and reused by `snapshot`/`compare`, which already hold a
- * resolved snapshot directory).
- * @param {string} snapshotDir - Directory holding the snapshot files
- * @param {object} [options]
- * @param {boolean} [options.latest] - Return only the latest snapshot name
- * @returns {string[] | string | undefined} Snapshot names, or the latest name
- */
-export function listSnapshotNames(snapshotDir, options = {}) {
-  if (!existsSync(snapshotDir)) {
-    return options.latest ? undefined : [];
-  }
-
-  const fileNames = readdirSync(snapshotDir, { withFileTypes: true })
-    .filter((dirent) => dirent.isFile())
-    .map((dirent) => dirent.name);
-
-  const names = snapshotNames(fileNames);
   return options.latest ? names.at(0) : names;
 }
