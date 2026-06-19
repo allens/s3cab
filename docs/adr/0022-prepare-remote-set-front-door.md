@@ -32,8 +32,10 @@ edict).
 - **Scope is the set family only.** The bucket family (`upload`, `hashes`, `setup`) already
   has its bucket in hand as a CLI arg and calls `loadEnv({ bucket })` in one line; a
   `prepareBucket()` wrapper would be a pass-through, so those keep the inline call. The
-  bucket-reached JSDoc preconditions (`listRemoteNamespaces`, the `objects.mjs` ops) keep
-  their `loadEnv` wording; the four set-reached ones point at `prepareRemoteSet`.
+  snapshot-op JSDoc preconditions name the real requirement — the *target bucket's env
+  loaded* — and note `prepareRemoteSet` as the set-family path (`listRemoteSnapshots` is in
+  fact reached both ways: `setup` directly, the set family via the front door).
+  `listRemoteNamespaces` and the `objects.mjs` ops keep the plain `loadEnv` wording.
 - **Home.** `prepareRemoteSet` lives in `env.mjs`, which already owns `loadEnv` and depends
   on `sets.mjs` (for `resolveRemoteSet`) — no new cycle. `resolveRemoteSet` stays in
   `sets.mjs` as the env-free inner step (validates the set has a bucket + namespace), reached

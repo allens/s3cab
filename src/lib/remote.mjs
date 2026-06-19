@@ -37,7 +37,8 @@ export const remoteSnapshotsPrefix = (namespace) =>
  * sort and filter identically. Returns `[]` for a set with no remote snapshots
  * yet (e.g. before its first backup).
  *
- * Requires the set prepared first (`prepareRemoteSet`, env.mjs).
+ * Requires the target bucket's env loaded first (set-family commands do this
+ * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @returns {Promise<string[]>} Snapshot names, newest first
@@ -97,7 +98,8 @@ export async function listRemoteNamespaces(bucket) {
  * `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
  * directly.
  *
- * Requires the set prepared first (`prepareRemoteSet`, env.mjs).
+ * Requires the target bucket's env loaded first (set-family commands do this
+ * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @returns {Promise<{ name: string | undefined, lookup: SnapshotEntries }>}
@@ -120,7 +122,8 @@ export async function readLatestRemoteSnapshot(bucket, namespace) {
  * `--output` re-rooting — so this surfaces the whole `Snapshot`, not just
  * the lookup (a remote snapshot file is the one a recoverer finds alone).
  *
- * Requires the set prepared first (`prepareRemoteSet`, env.mjs).
+ * Requires the target bucket's env loaded first (set-family commands do this
+ * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} namespace - The set's pinned `user@machine/set` identity
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
@@ -175,7 +178,8 @@ export function uploadCandidates(target, remote) {
  * remotely is an **error**, never an overwrite (snapshots are immutable,
  * specs/backup.md).
  *
- * Requires the set prepared first (`prepareRemoteSet`, env.mjs).
+ * Requires the target bucket's env loaded first (set-family commands do this
+ * via `prepareRemoteSet`, env.mjs).
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.namespace - The set's pinned `user@machine/set` identity
