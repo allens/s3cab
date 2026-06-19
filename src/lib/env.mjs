@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { isENOENT } from "./error.mjs";
-import { setEnvPath } from "./sets.mjs";
+import { resolveRemoteSet, setEnvPath } from "./sets.mjs";
+
+/** @import { BackupSet } from "./sets.mjs" */
 
 // s3cab's layered environment-file loading. This is the single source of truth
 // for *what configuration applies* to an operation — which bucket, region,
@@ -122,4 +124,26 @@ export function loadEnv({ set, bucket } = {}) {
   if (setPath) applyEnvLayer(setPath, setLayer);
 
   return { bucket: resolvedBucket };
+}
+
+/**
+ * Resolve a cloud-ready backup set *and* load its env — the single front door
+ * for the commands that touch a set's remote (`backup`, `status`, `restore`,
+ * `list --remote`). `resolveRemoteSet` (sets.mjs) picks the set (sole-set
+ * default) and guarantees it has a bucket bound and a pinned namespace; this
+ * then loads that set's env layer, so the AWS client picks up the right
+ * region/credentials/endpoint.
+ *
+ * The "load env before any S3 op" precondition lives here, once, instead of
+ * being hand-coded at each command (see docs/adr/0022). It is consolidated, not
+ * type-enforced: the helper is *called by* each command (so the command stays
+ * the library surface), and loading env is a `process.env` side effect — the
+ * returned set is a plain `BackupSet`, not a token proving env was loaded.
+ * @param {string} [setName] - Backup set (default: the only set)
+ * @returns {BackupSet & { bucket: string, namespace: string }}
+ */
+export function prepareRemoteSet(setName) {
+  const set = resolveRemoteSet(setName);
+  loadEnv({ set: set.name });
+  return set;
 }

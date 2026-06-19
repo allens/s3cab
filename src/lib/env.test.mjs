@@ -15,10 +15,7 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 // A query string makes each import a distinct module key, so the module's
 // `appliedEnvFiles` guard is reset between tests.
 let moduleCounter = 0;
-const freshLoadEnv = async () => {
-  const mod = await import(`./env.mjs?case=${moduleCounter++}`);
-  return mod.loadEnv;
-};
+const freshEnv = async () => import(`./env.mjs?case=${moduleCounter++}`);
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -50,8 +47,8 @@ function writeEnv(path, contents) {
 }
 
 /**
- * Wire up a temp home, point S3CAB_HOME at it, and return a fresh `loadEnv`
- * plus helpers to populate each layer's file.
+ * Wire up a temp home, point S3CAB_HOME at it, and return a fresh
+ * `loadEnv`/`prepareRemoteSet` plus helpers to populate each layer's file.
  * @param {string} root - The disposable temp directory.
  */
 async function setup(root) {
@@ -60,9 +57,10 @@ async function setup(root) {
   // loader reads these env files and nothing leaks from the real ~/.s3cab. Set
   // before importing env.mjs, which derives its paths from s3cabDir().
   process.env.S3CAB_HOME = join(home, ".s3cab");
-  const loadEnv = await freshLoadEnv();
+  const env = await freshEnv();
   return {
-    loadEnv,
+    loadEnv: env.loadEnv,
+    prepareRemoteSet: env.prepareRemoteSet,
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
     /** @param {string} name @param {string} contents */
@@ -257,5 +255,39 @@ describe("loadEnv", () => {
     const t = await setup(dir.path);
 
     assert.throws(() => t.loadEnv({ set: "../../evil" }), /Invalid set name/);
+  });
+});
+
+describe("prepareRemoteSet", () => {
+  it("resolves the cloud-ready set and loads its env layers", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.set(
+      "photos",
+      "S3CAB_BUCKET=photobucket\nS3CAB_NAMESPACE=al@pc/photos\nAWS_REGION=us-set\n",
+    );
+    t.bucket("photobucket", "AWS_PROFILE=photoprof\n");
+
+    const set = t.prepareRemoteSet("photos");
+
+    // resolveRemoteSet's guarantees, surfaced through the front door:
+    assert.equal(set.name, "photos");
+    assert.equal(set.bucket, "photobucket");
+    assert.equal(set.namespace, "al@pc/photos");
+    // …and the env side effect — the set layer and its bucket's layer applied,
+    // which is the precondition the front door exists to make unskippable.
+    assert.equal(process.env.AWS_REGION, "us-set");
+    assert.equal(process.env.AWS_PROFILE, "photoprof");
+  });
+
+  it("stops a bucket-less set before loading its env", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    // A pinned namespace but no S3CAB_BUCKET → local-only; resolveRemoteSet
+    // rejects it, and it must do so *before* the env layer is applied.
+    t.set("local", "S3CAB_NAMESPACE=al@pc/local\nAWS_REGION=us-set\n");
+
+    assert.throws(() => t.prepareRemoteSet("local"), /no bucket bound/);
+    assert.equal(process.env.AWS_REGION, undefined);
   });
 });

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
-import { loadEnv } from "../lib/env.mjs";
+import { prepareRemoteSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
-import { resolveRemoteSet, resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { snapshotNames } from "../lib/snapshot-file.mjs";
 
 /**
@@ -18,8 +18,7 @@ import { snapshotNames } from "../lib/snapshot-file.mjs";
  */
 export async function list(setName, options = {}) {
   if (options.remote) {
-    const set = resolveRemoteSet(setName);
-    loadEnv({ set: set.name });
+    const set = prepareRemoteSet(setName);
     const names = await listRemoteSnapshots(set.bucket, set.namespace);
     return options.latest ? names.at(0) : names;
   }
