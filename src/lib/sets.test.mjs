@@ -223,11 +223,28 @@ describe("set store", () => {
     assert.throws(() => readSet("nope"), /Unknown backup set: nope/);
   });
 
-  it("rejects a set name containing a path separator", async () => {
+  // Resolution is a membership test against the real set folders, so an
+  // arbitrary string (`.`, `../evil`) is just a miss like any other — reported
+  // as "Unknown backup set", never as a low-level path/traversal error, and the
+  // bad name is never joined into a path. With no sets at all, it points at
+  // `setup` instead.
+  it("reports an unknown set (not a guard error) for an arbitrary string", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"] });
+
+    assert.throws(() => readSet("../evil"), {
+      message:
+        /Unknown backup set: \.\.\/evil[\s\S]*Available sets:[\s\S]*photos/,
+    });
+    assert.throws(() => readSet("."), /Unknown backup set: \./);
+  });
+
+  it("points a `.` lookup at setup when no sets exist", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => readSet("../evil"), /Invalid set name/);
+    assert.throws(() => readSet("."), /No backup sets configured/);
   });
 
   it("listSets returns sorted names, and [] before any setup", async () => {

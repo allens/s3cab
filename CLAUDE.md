@@ -177,6 +177,17 @@ rather than assuming it is fixed forever.
     The harness supports this natively — `isolation: "worktree"` when spawning an agent, or
     `EnterWorktree`/`ExitWorktree` in-session — so the mechanics are cheap. (Recorded 2026-06-16
     after weighing an "always worktree before editing" rule and scoping it to substantive work.)
+14. **When the user asks a question, answer it — do not start editing code off the back of it.**
+    A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
+    wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
+    **stop and offer** to make the change — don't implement it unasked. Crucially, the user
+    *agreeing with you* (or you concluding they're right) is **not** authorization to act:
+    "you're right that X is better" ≠ "change it now." Wait for an explicit go-ahead, the same
+    discuss-first discipline as #10 (review comments) and #9 (one-by-one). This is a strict
+    instruction, not a judgement call — jumping to edits on a question needlessly burns tokens
+    and pre-empts the user's decision. (Recorded 2026-06-19 after I answered two consecutive
+    questions by immediately rewriting code instead of replying, the second time *while already
+    being corrected* for having done it the first.)
 
 ### Coding conventions
 

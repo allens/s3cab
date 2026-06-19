@@ -211,8 +211,8 @@ export function listSets() {
  * @returns {BackupSet}
  */
 export function readSet(name) {
-  if (!existsSync(setDir(name))) {
-    const names = listSets();
+  const names = listSets();
+  if (!names.includes(name)) {
     throw new Error(
       `Unknown backup set: ${name}\n\n` +
         (names.length
