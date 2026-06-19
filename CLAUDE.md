@@ -408,20 +408,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   [src/s3cab.mjs](src/s3cab.mjs) is a parked reminder (kept on purpose — convention 6). It
   was disabled for a reason since forgotten; work out whether the CLI needs one, then wire
   it up or remove it.
-- **`compare` errors category** (follow-up to the 2026-06 hardening pass, PR #31 — the
-  careful `compare`/`diff` pass itself is done: snapshot-name resolution errors loudly
-  instead of fabricating empty diffs, and the classification rules are documented in
-  `diff()`'s doc comment + [doc/compare.md](doc/compare.md), each pinned by a test; the
-  parked `objectPaths.delete` question was resolved — no lookup cleanup needed). The
-  remaining caveat: files that fail hashing are stored as `#`-comment lines and report as
-  *deleted*. The honest fix — an explicit `#ERROR` marker in the snapshot format, parsing
-  errors back out on read, new classification rules, and an `errors` field on
-  `CompareResult` — is a deliberate format/contract change for its own PR, launched from
-  the pinned tests. Since the grammar now lives in one module (PR #69), the *format* half
-  of that fix — an `errorLine` writer beside the other markers, and `parseSnapshotStream`
-  surfacing the error rows it currently skips — lands entirely in `snapshot-file.mjs`; the
-  new classification rules and the `errors` field on `CompareResult` remain the `compare.mjs`
-  half.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but

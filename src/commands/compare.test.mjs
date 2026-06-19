@@ -38,6 +38,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -67,6 +68,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: [],
+      errors: [],
     });
 
     // Explicit until: the default baseline is *its* predecessor, not the
@@ -79,6 +81,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -103,6 +106,7 @@ describe("compare", () => {
       moved: [],
       modified: ["file1.txt"],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -129,6 +133,7 @@ describe("compare", () => {
       moved: [],
       modified: ["file.A", "file.B"],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -151,6 +156,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: ["file2.txt"],
+      errors: [],
     });
   });
 
@@ -179,6 +185,7 @@ describe("compare", () => {
       moved: [],
       modified: ["app.log"],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -203,6 +210,7 @@ describe("compare", () => {
       modified: [],
       moved: ["oldname.txt → newname.txt"],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -226,6 +234,7 @@ describe("compare", () => {
       added: [],
       modified: [],
       deleted: [],
+      errors: [],
       moved: [`olddir${sep}file1.txt →→ newdir${sep}file1.txt`],
     });
   });
@@ -254,6 +263,7 @@ describe("compare", () => {
       added: [],
       modified: [],
       deleted: [],
+      errors: [],
       moved: [`olddir${sep}file1.txt →→ newdir${sep}file1.txt`],
     });
   });
@@ -281,6 +291,7 @@ describe("compare", () => {
       added: ["file.Y == file.A"],
       modified: [],
       deleted: [],
+      errors: [],
       moved: ["file.B → file.X"],
     });
   });
@@ -311,6 +322,7 @@ describe("compare", () => {
       added: ["file.Y == file.A,file.B", "file.Z == file.A,file.B"],
       modified: [],
       deleted: [],
+      errors: [],
       moved: ["file.C → file.X"],
     });
   });
@@ -344,6 +356,7 @@ describe("compare", () => {
       ],
       modified: [],
       deleted: [],
+      errors: [],
       moved: [],
     });
   });
@@ -366,6 +379,7 @@ describe("compare", () => {
       added: ["file.C == file.B"],
       modified: [],
       deleted: [],
+      errors: [],
       moved: ["file.A → file.B"],
     });
   });
@@ -391,6 +405,7 @@ describe("compare", () => {
       added: [],
       modified: [],
       deleted: [],
+      errors: [],
       moved: [
         `olddir${sep}x.txt →→ newdir${sep}x.txt`,
         `olddir${sep}y.txt →→ newdir${sep}y.txt`,
@@ -417,6 +432,7 @@ describe("compare", () => {
       added: [],
       modified: [],
       deleted: [],
+      errors: [],
       moved: [
         `dir1${sep}old.txt → dir1${sep}new.txt`,
         `dir2${sep}old.txt → dir2${sep}new.txt`,
@@ -424,7 +440,7 @@ describe("compare", () => {
     });
   });
 
-  it("treats a file that failed hashing as deleted", async () => {
+  it("reports a file that failed hashing under errors, not deleted", async () => {
     await using dir = await mkTmpDir();
 
     await writeSnapshot(dir.path, PREVIOUS, [
@@ -432,11 +448,10 @@ describe("compare", () => {
     ]);
 
     // A file that errors during snapshot (e.g. permission denied) is written
-    // as a #comment line — exactly what the snapshot pipeline produces for
-    // an unreadable file — and the snapshot reader skips comments. So the
-    // path is invisible to compare and reports as deleted even though the
-    // file is still on disk. Documented caveat; revisit when backup/restore
-    // lands.
+    // as an #ERROR row — exactly what the snapshot pipeline produces for an
+    // unreadable file. The path existed in the previous snapshot, so before
+    // the errors category it was mis-reported as deleted; it must now surface
+    // under `errors` and stay out of `deleted` (the file is still on disk).
     await withSnapshotFile(dir.path, CURRENT, (stream) =>
       pipeline(
         stringifySnapshot(
@@ -457,7 +472,37 @@ describe("compare", () => {
       added: [],
       moved: [],
       modified: [],
-      deleted: ["file1.txt"],
+      deleted: [],
+      errors: ["file1.txt (EACCES: permission denied)"],
+    });
+  });
+
+  it("reports a brand-new file that failed hashing under errors, not as nothing", async () => {
+    await using dir = await mkTmpDir();
+
+    // The errored file is new (absent from the previous snapshot). Before the
+    // errors category it was in neither entries map, so it vanished from the
+    // report entirely; it must now surface under `errors`.
+    await writeSnapshot(dir.path, PREVIOUS, []);
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [resolve(dir.path, "new.bin"), new Error("EISDIR: is a directory")],
+          ]),
+        ),
+        stream,
+      ),
+    );
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(result, {
+      added: [],
+      moved: [],
+      modified: [],
+      deleted: [],
+      errors: ["new.bin (EISDIR: is a directory)"],
     });
   });
 
@@ -514,6 +559,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: [],
+      errors: [],
     });
   });
 
@@ -538,6 +584,7 @@ describe("compare", () => {
       moved: [],
       modified: [],
       deleted: [],
+      errors: [],
     });
   });
 

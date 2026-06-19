@@ -30,24 +30,26 @@ taking a snapshot, showing what changed since the previous one.)
   ],
   "deleted": [
     "old notes.txt"
-  ]
+  ],
+  "errors": []
 }
 ```
 
 Paths are relative to the compared directory. (In JSON, a Windows `\` path
 separator is written doubled, as `\\`.)
 
-## The four categories
+## The five categories
 
 Files are compared by their **content** (SHA-256 hash), never by timestamps —
 touching a file without changing it does not show up.
 
-| Category   | Meaning                                              |
-| ---------- | ---------------------------------------------------- |
-| `added`    | a path that wasn't in the older snapshot             |
-| `moved`    | content that left one path and reappeared at another |
-| `modified` | the same path with different content                 |
-| `deleted`  | a path that is gone from the newer snapshot          |
+| Category   | Meaning                                                  |
+| ---------- | -------------------------------------------------------- |
+| `added`    | a path that wasn't in the older snapshot                 |
+| `moved`    | content that left one path and reappeared at another     |
+| `modified` | the same path with different content                     |
+| `deleted`  | a path that is gone from the newer snapshot              |
+| `errors`   | a path the newer snapshot couldn't read (e.g. no access) |
 
 ### `==` notes on added files
 
@@ -74,10 +76,23 @@ never guesses that a move happened — a path is only reported as moved when it
 is actually gone from the newer snapshot. (Git's rename detection draws the
 same line.)
 
-## Caveat: files that couldn't be read
+## Files that couldn't be read
 
 A file the snapshot couldn't hash (for example, permission denied) is recorded
-in the snapshot file as a `#` comment carrying the error message, and compare
-currently reports it as **deleted** even though it is still on disk. The
-recorded error is visible in the snapshot file itself and in the snapshot
-run's terminal output. A separate `errors` category in the report is planned.
+in the snapshot file as an `#ERROR` row carrying the error message, and reported
+under the `errors` category. It is **not** mistaken for `deleted` — the file is
+still on disk, just unreadable — nor dropped from the report. Each entry is the
+path followed by the reason in parentheses, `path (reason)`; the same reason is
+also kept in the snapshot file itself and printed in the snapshot run's output.
+
+```json
+{
+  "added": [],
+  "moved": [],
+  "modified": [],
+  "deleted": [],
+  "errors": [
+    "secret\\vault.kdbx (EACCES: permission denied)"
+  ]
+}
+```

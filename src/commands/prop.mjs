@@ -57,7 +57,8 @@ export async function prop(path, options = {}) {
 
   if (typeof lookup === "string") {
     console.warn("Reading snapshot file:", lookup);
-    lookup = await readSnapshotFile(lookup);
+    const { entries } = await readSnapshotFile(lookup);
+    lookup = entries;
   }
 
   const fromLookup = lookup && lookup.get(path);

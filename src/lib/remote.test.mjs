@@ -154,7 +154,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
     mkdirSync(snapshotDir, { recursive: true });
     await writeSnapshot(snapshotDir, name, [fileA, fileB]);
 
-    const target = await readSnapshot(snapshotDir, name);
+    const { entries: target } = await readSnapshot(snapshotDir, name);
     const hashes = [...new Set([...target.values()].map((p) => p.hash))];
 
     try {
@@ -209,13 +209,8 @@ describe("listRemoteNamespaces (real bucket)", { skip }, () => {
     const snapshotDir = join(dir.path, "snapshots");
     mkdirSync(snapshotDir, { recursive: true });
     await writeSnapshot(snapshotDir, name, [file]);
-    const hashes = [
-      ...new Set(
-        [...(await readSnapshot(snapshotDir, name)).values()].map(
-          (p) => p.hash,
-        ),
-      ),
-    ];
+    const { entries } = await readSnapshot(snapshotDir, name);
+    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     try {
       await uploadSnapshot({ bucket, namespace, snapshotDir, name });

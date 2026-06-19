@@ -38,7 +38,7 @@ export async function status(setName) {
         `Take one with: s3cab snapshot ${set.name}`,
     );
   }
-  const target = await readSnapshot(snapshotDir, localName);
+  const { entries: target } = await readSnapshot(snapshotDir, localName);
 
   const { name: remoteName, lookup: remote } = await readLatestRemoteSnapshot(
     set.bucket,
