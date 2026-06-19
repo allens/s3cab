@@ -22,9 +22,12 @@ The seven foundational design principles were once numbered `#1`–`#7` here; th
 specs map straight across (`#1 → 0001`, … `#7 → 0007`); the full map is in
 [docs/adr/README.md](docs/adr/README.md).
 
-> **The skills convention this layout follows** (`.agents/skills/domain-modeling/`): glossary →
+> **The skills convention this layout follows** (the `domain-modeling` skill): glossary →
 > `CONTEXT.md`, decisions → `docs/adr/`. The `improve-codebase-architecture`, `codebase-design`,
 > and `grill-with-docs` skills read these; keep them current as the model and decisions evolve.
+> These skills come from [mattpocock/skills](https://github.com/mattpocock/skills) and are **not
+> vendored into this repo** — install them into your personal **global** `~/.claude/skills/` (follow
+> that repo's install instructions), not the project tree, so every checkout doesn't carry a copy.
 
 ### Documentation discipline (applies to every doc here)
 
