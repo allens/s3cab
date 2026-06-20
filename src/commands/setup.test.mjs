@@ -7,7 +7,7 @@ import { setup } from "./setup.mjs";
 import { useTempHome as tempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the setup command's create/update semantics and error UX
-// (specs/backup.md). The set store under test keeps no module state, so each
+// (docs/specs/backup.md). The set store under test keeps no module state, so each
 // test just points S3CAB_HOME at a temp dir (via the shared useTempHome).
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));

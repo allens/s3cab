@@ -31,7 +31,7 @@ import { secondsSince } from "./format.mjs";
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a snapshot file is self-describing even found alone (specs/backup.md). The
+// so a snapshot file is self-describing even found alone (docs/specs/backup.md). The
 // walk also writes `#EXCLUDED` rows (via `excludedLine`) and `#ERROR` rows (via
 // `errorLine`). On read `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR` (into
 // the headers) and `#ERROR` (into `errors`); any other comment line is skipped.
@@ -61,7 +61,7 @@ const ERROR = "#ERROR";
 /**
  * A parsed snapshot: the file `entries`, the paths that failed hashing
  * (`errors`, mapped to the recorded reason), plus the `#SNAPSHOT`/`#DIR` headers
- * that make it self-describing (specs/backup.md). `dirs` are the member
+ * that make it self-describing (docs/specs/backup.md). `dirs` are the member
  * directories captured at snapshot time; `identity` is the pinned
  * `user@machine:set`.
  * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, dirs: string[], identity?: string }} Snapshot
@@ -76,7 +76,7 @@ const ERROR = "#ERROR";
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
  * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
- * for re-running within a minute (specs/backup.md). The target is checked up
+ * for re-running within a minute (docs/specs/backup.md). The target is checked up
  * front, before any walking/hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
@@ -338,7 +338,7 @@ function formatLine(col1, col2, col3, col4) {
  * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
  * snapshot's datetime and identity, then one `#DIR` line per member directory —
  * the preamble that makes a snapshot self-describing even found alone
- * (specs/backup.md). Returns the whole block for the caller to write; the
+ * (docs/specs/backup.md). Returns the whole block for the caller to write; the
  * `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
  * `parseSnapshotStream` that reads them back.
  * @param {object} header

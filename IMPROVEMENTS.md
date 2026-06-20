@@ -54,7 +54,7 @@ suspicions — check before believing.
   key *is* the SHA-256 — having S3 verify the body against it end-to-end is a
   perfect fit (#1/#2), gives free corruption detection on PUT, and gives
   `verify` a server-side primitive (HEAD checksum vs key) without downloading.
-  Check S3-compatible-provider support (specs/s3-provider-compatibility.md).
+  Check S3-compatible-provider support (docs/specs/s3-provider-compatibility.md).
 - **`hashes` accumulates every hash in memory** then joins one giant string;
   stream lines out as pages arrive (a million-object bucket is plausible for a
   photo library).

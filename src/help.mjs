@@ -7,7 +7,7 @@
 // to one command. Kept as plain strings (this module deliberately imports no
 // command/auth code) so the entry point that imports it doesn't transitively
 // pull the AWS SDK in for every invocation. The auth text mirrors the
-// resolution order implemented in `src/lib/auth.mjs` (specs/auth.md); the
+// resolution order implemented in `src/lib/auth.mjs` (docs/specs/auth.md); the
 // exclude text mirrors the matcher in `src/commands/tree.mjs` (guide/exclude.md).
 //
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns

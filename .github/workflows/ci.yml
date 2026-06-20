@@ -131,7 +131,7 @@ jobs:
   # (ci/aws/trust-policy.json) must allow this repo's `pull_request` subject instead,
   # and AWS_ROLE_ARN / S3CAB_TEST_BUCKET must be repo-level secret/var (no longer
   # Environment-scoped). Spend stays capped by the tight IAM policy + 1-day bucket
-  # lifecycle + billing alarm (specs/testing.md).
+  # lifecycle + billing alarm (docs/specs/testing.md).
   # One OS only — the S3 code path doesn't branch on platform (unlike the matrix above).
   s3-integration:
     name: s3 integration

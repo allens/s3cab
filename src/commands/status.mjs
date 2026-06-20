@@ -4,7 +4,7 @@ import { setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
 /**
- * Show what is backed up and what a backup would upload (specs/backup.md): the
+ * Show what is backed up and what a backup would upload (docs/specs/backup.md): the
  * read-only half of the uploader's diff — the set's latest *local* snapshot
  * compared against its latest *remote* snapshot, with no writes. It reuses
  * `uploadCandidates`, the very diff `backup` runs (steps 1–2 of "how backup

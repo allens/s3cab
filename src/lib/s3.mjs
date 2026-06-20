@@ -68,7 +68,7 @@ export function clientConfig() {
           // SHA-256s every file, so the wire checksum adds nothing here. Switching to
           // the required-only mode still sends a checksum for the few operations that
           // mandate one. On AWS the default stands (free integrity).
-          // (specs/s3-provider-compatibility.md)
+          // (docs/specs/s3-provider-compatibility.md)
           requestChecksumCalculation: "WHEN_REQUIRED",
           responseChecksumValidation: "WHEN_REQUIRED",
         }
@@ -85,7 +85,7 @@ export function clientConfig() {
  * call this, so those commands never trigger it.
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
- * actionable error — see specs/auth.md).
+ * actionable error — see docs/specs/auth.md).
  * Callers are responsible for loading any relevant s3cab env files (e.g.
  * commands call `loadEnv({ bucket })`), so `process.env` is configured before
  * this client is constructed.
@@ -294,7 +294,7 @@ async function objectExists(uri) {
  * An IAM policy granting list + per-object access to a bucket. **AWS-only** —
  * the `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS. Unused today
  * (only `setup`, a stub, would call it); provider-aware bucket creation/policy is
- * deferred to when `setup` is actually built (see specs/s3-provider-compatibility.md).
+ * deferred to when `setup` is actually built (see docs/specs/s3-provider-compatibility.md).
  * @param {string} bucketName
  */
 export const bucketPolicy = (bucketName) => ({

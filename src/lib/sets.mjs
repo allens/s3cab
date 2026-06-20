@@ -12,7 +12,7 @@ import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 
-// The backup-set store (specs/backup.md): one folder per set under
+// The backup-set store (docs/specs/backup.md): one folder per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
 // `env` (the pinned remote namespace, the bound bucket, and any per-set auth
@@ -46,7 +46,7 @@ export const setEnvPath = (name) => join(setDir(name), "env");
 const setDirsPath = (name) => join(setDir(name), "dirs.txt");
 /**
  * The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` — where this set's
- * snapshots live now that `<dir>/.s3cab/` has retired (specs/backup.md slice 2).
+ * snapshots live now that `<dir>/.s3cab/` has retired (docs/specs/backup.md slice 2).
  * @param {string} name
  */
 export const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
@@ -315,7 +315,7 @@ export function formatSets(sets) {
  * The namespace is pinned at creation and never changed thereafter. Normally it
  * is derived fresh from this machine's identity; adoption (`setup --from`)
  * passes an existing remote `namespace` to pin instead, so a fresh machine can
- * point a new local set at another machine's backup (specs/backup.md). A given
+ * point a new local set at another machine's backup (docs/specs/backup.md). A given
  * namespace only takes effect when creating — an existing set's is immutable.
  * @param {string} name - A valid set name (see `validateSetName`)
  * @param {object} [pieces]

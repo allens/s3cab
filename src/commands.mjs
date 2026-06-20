@@ -100,7 +100,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     exec: (_options, [set] = []) => status(set),
   },
 
-  // ── Backup sets (specs/backup.md) — restore/verify still to come ─
+  // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
   setup: {
     group: "Backup sets",
     summary: "Create or update a backup set",

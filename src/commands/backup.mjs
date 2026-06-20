@@ -5,7 +5,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 
 /**
- * Back up a set to the cloud (specs/backup.md): take a fresh snapshot of the
+ * Back up a set to the cloud (docs/specs/backup.md): take a fresh snapshot of the
  * set, then upload it — or, with `--snapshot`, upload an existing snapshot
  * instead of taking a new one. A thin coordination of `snapshot()` and the
  * snapshot-uploader (`uploadSnapshot`); `backup` itself never hashes (the

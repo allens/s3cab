@@ -13,7 +13,7 @@ import {
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * Create or update a backup set (specs/backup.md): `~/.s3cab/sets/<set>/` with
+ * Create or update a backup set (docs/specs/backup.md): `~/.s3cab/sets/<set>/` with
  * its member folders in `dirs.txt`, the identity namespace pinned into its
  * `env` at creation, and the bucket bound when given. Re-running updates
  * whatever pieces are passed — folders are therefore only *required* when
@@ -79,7 +79,7 @@ export async function setup(name, folders = [], options = {}) {
 /**
  * Adopt an existing remote backup into a new local set (`setup --from`): pin the
  * given remote namespace and bind the bucket, so `restore` can recover a backup
- * made on another machine (specs/backup.md). `dirs.txt` is left empty — restore
+ * made on another machine (docs/specs/backup.md). `dirs.txt` is left empty — restore
  * reads file paths from the snapshot, and re-snapshotting from here (which needs
  * member dirs) is a separate concern — so adoption takes no folders.
  * @param {string} name - The (new) local set name

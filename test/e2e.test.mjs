@@ -164,7 +164,7 @@ describe("cli (e2e)", () => {
   });
 
   it("the removed login command is gone from the CLI surface", () => {
-    // Deliberately deleted (see specs/auth.md History) — must not come back.
+    // Deliberately deleted (see docs/specs/auth.md History) — must not come back.
     const { status } = run("login");
 
     assert.strictEqual(status, 127);

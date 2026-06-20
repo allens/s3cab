@@ -3,7 +3,7 @@
 The ubiquitous language of **s3cab** (**S3 C**ontent **A**ddressable **B**ackup): a
 content-addressable backup tool that stores whole files by their hash and tracks them in
 plain-text snapshots. This is a glossary, nothing else — design decisions live in
-[docs/adr/](docs/adr/), designs in [specs/](specs/), and user-facing prose in
+[docs/adr/](docs/adr/), designs in [docs/specs/](docs/specs/), and user-facing prose in
 [README.md](README.md).
 
 ## Language

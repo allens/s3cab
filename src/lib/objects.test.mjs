@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// This whole file mocks the s3.mjs seam, per specs/testing.md ("mock at s3.mjs,
+// This whole file mocks the s3.mjs seam, per docs/specs/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the object store's pure file/cache logic and — crucially —
 // `getObject`'s integrity check run here with zero AWS, on every push. The
 // real-bucket happy path is covered separately by restore.test.mjs's gated

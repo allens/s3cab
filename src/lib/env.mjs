@@ -11,7 +11,7 @@ import { resolveRemoteSet, setEnvPath } from "./sets.mjs";
 // for *what configuration applies* to an operation — which bucket, region,
 // endpoint, profile, or default bucket — distinct from *how credentials are
 // obtained* (the standard AWS chain in src/lib/auth.mjs). The model is
-// specified in specs/auth.md.
+// specified in docs/specs/auth.md.
 //
 // s3cab reads its own env files into process.env before any AWS client is
 // built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
