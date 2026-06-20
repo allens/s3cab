@@ -1,7 +1,7 @@
 {
   "name": "s3cab",
   "version": "0.1.0-alpha.1",
-  "description": "Open eternal S3 content addressable backup",
+  "description": "Open, eternal S3 content-addressable backup — pre-release (WIP), not yet for production",
   "keywords": [
     "backup",
     "s3"
