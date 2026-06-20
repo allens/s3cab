@@ -43,15 +43,23 @@ _Avoid_: repo (the git sense), archive, vault.
 
 ### Snapshots & sets
 
+> _Redesign settled, implementation pending ([ADR-0024](docs/adr/0024-set-name-is-the-whole-identity.md)):
+> the set **name** is now the whole identity — there is no `user@machine` component. The code
+> still uses the old form until the change lands; the definitions below are the language going
+> forward._
+
 **Backup set** (**set**):
-A named list of directories that is the unit of snapshot, backup, and restore. Configured
-under `~/.s3cab/sets/<name>/` and pinned to an identity at creation.
+A named list of directories that is the unit of snapshot, backup, and restore. Its **name** (a
+`[a-z0-9-]+` label, e.g. `work-laptop`) is its whole identity — at once the local handle, the
+local folder under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
+(first-come).
 _Avoid_: profile, job, project, config.
 
 **Identity**:
-The `user@machine:set` triple pinned when a set is created; it names who and where a
-snapshot came from.
-_Avoid_: owner, source, origin.
+What names a backup set: its **name**, and nothing more — there is no separate machine or user
+component. (An advisory "created-on machine" is recorded for collision warnings only, never as
+part of the identity.)
+_Avoid_: owner, source, origin; `user@machine:set` (the retired form).
 
 **Snapshot**:
 A point-in-time record of every file in a backup set. Recorded on disk as a
@@ -60,8 +68,8 @@ tab-separated (TSV) **snapshot file** — one row per file
 _Avoid_: commit, version, generation; manifest (loses the point-in-time meaning), index, listing, catalog, metadata file.
 
 **Namespace**:
-The `<user>@<machine>/<set>` path segment under `snapshots/` that isolates one set's
-snapshots from every other set sharing the repository.
+The set name as the `snapshots/<set>/` path segment that isolates one set's snapshots from every
+other set sharing the repository. Equal to the set name; no `user@machine` prefix.
 _Avoid_: prefix, folder, scope.
 
 ### Cloud & commands
@@ -80,6 +88,12 @@ _Avoid_: push, upload (that is the plumbing verb), sync.
 The porcelain verb for downloading files from a remote snapshot back to disk.
 _Avoid_: pull, download (the plumbing verb), recover.
 
+**Inherit**:
+Taking over an existing remote set on a new machine when the old one is being retired,
+replaced, or recovered after loss — machine **succession** (`s3cab setup <set> --inherit`). Not
+a way to run two live machines off one set.
+_Avoid_: adopt, clone, migrate, take-over.
+
 **Setup**:
-The command that creates and configures a backup set.
+The command that creates and configures a backup set; a bucket is required.
 _Avoid_: init, config, register.

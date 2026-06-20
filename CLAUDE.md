@@ -45,12 +45,17 @@ Two standing rules govern the docs. They matter because **transparency is a core
 value** (see [ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md), no lock-in): docs that
 lie about behaviour undermine the whole premise.
 
-1. **Keep docs rigorously in sync with the code — never aspirational or stale.** Before
-   writing a claim, verify it against the actual code. Always distinguish what is **built
-   today** from what is **planned/target** (the README's S3/backup descriptions are the
-   target; the code in `src/` is what works now). Flag drift you
-   notice — stale comments, `package.json` paths to non-existent files, etc.; the "Known
-   gaps & cleanup items" section is the running list.
+1. **Never let docs _mislead_ about what works — but they may describe agreed-but-unbuilt
+   direction when it is clearly marked target-vs-built.** The hard requirement is honesty,
+   not present-tense-only: before writing a claim, verify it against the actual code, and
+   always **distinguish what is built today from what is planned/target** (the README's
+   S3/backup descriptions are the target; the code in `src/` is what works now). With that
+   line drawn, design docs are *allowed* to lead the code — a settled-but-unimplemented
+   redesign can land in an ADR (`Status: proposed`), CONTEXT.md, or a spec banner, as long as
+   a reader can't mistake it for live behaviour. (Earlier this rule said "never aspirational
+   or stale"; that was too strict for a pre-1.0 project that redesigns in the open — softened
+   2026-06-20.) Flag drift you notice — stale comments, `package.json` paths to non-existent
+   files, etc.; the "Known gaps & cleanup items" section is the running list.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable
    from the code.** Don't restate `package.json` scripts or build/test/lint commands. The
    split: vocabulary → CONTEXT.md; the non-obvious *why* of a decision → an ADR; fuller

@@ -30,11 +30,14 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0010](0010-cli-output-conventions.md) — CLI output: JSON.stringify, stream discipline, env-gated debug
 - [0011](0011-validation-in-command-functions.md) — Argument validation lives in the command functions
 - [0012](0012-consumer-vocabulary-naming.md) — Consumer-vocabulary command and flag naming
-- [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout
-- [0014](0014-backup-sets.md) — Backup sets are the unit of snapshot/backup/restore
+- [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout *(namespace shape partly superseded by 0024)*
+- [0014](0014-backup-sets.md) — Backup sets are the unit of snapshot/backup/restore *(identity model partly superseded by 0024)*
 - [0015](0015-standard-aws-credential-chain.md) — Standard AWS credential chain; bespoke SSO login removed
 - [0022](0022-prepare-remote-set-front-door.md) — Env-loading for the set family goes through one front door
 - [0023](0023-porcelain-plumbing-lib-layers.md) — Commands are porcelain or plumbing, over a shared lib
+- [0024](0024-set-name-is-the-whole-identity.md) — A backup set's name is its whole identity *(proposed — pending implementation)*
+- [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell) *(proposed — pending implementation)*
+- [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets *(proposed — pending implementation)*
 
 ### Build, release & tooling
 

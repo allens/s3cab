@@ -1,5 +1,11 @@
 # One s3cab repository == one bucket, fixed layout
 
+> **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (proposed, pending
+> implementation): the snapshot namespace flattens from `snapshots/<user>@<machine>/<set>/` to
+> `snapshots/<set>/`, and a `sets/<set>/` config area is added. The "one bucket == one
+> repository, fixed layout" principle itself is unchanged; only the namespace shape below
+> changes. Until 0024 lands, the layout described here is what the code does.
+
 The remote layout — `objects/<sha256>` + `snapshots/` at the **bucket root** — is fixed by
 convention, *not* an arbitrary prefix within a shared bucket.
 

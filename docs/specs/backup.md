@@ -31,6 +31,19 @@ under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slic
 > backup history. Decisions that survived unchanged: byte-identical snapshots, the
 > snapshot-last invariant, and the diff-vs-latest-remote upload set.
 
+> **⚠️ Redesign settled (2026-06-20), not yet implemented.** A reshape of the **identity
+> model, local/remote layout, env layering, and `setup`** is agreed and recorded in
+> [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md) (the set **name** becomes the whole
+> identity — no `user@machine`), [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) (drop the
+> per-bucket env layer), and [ADR-0026](../adr/0026-bucket-required-at-setup.md) (bucket required
+> at setup; no local-only sets), with the full design in
+> [proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
+> **Everything below still describes what the code does *today* (the `user@machine` model).** The
+> redesign supersedes the identity, on-disk-layout, remote-layout, env-layering, and
+> `setup`/adoption sections; the format invariants (byte-identical snapshots, objects-first /
+> snapshot-last, the upload-set diff, `verify`/`cleanup`) are unaffected. This spec is rewritten
+> to the new model when the change lands.
+
 ## Purpose
 
 Define s3cab's unit of backup (the **backup set**), its on-disk configuration, the
