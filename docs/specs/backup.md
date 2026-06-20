@@ -38,11 +38,14 @@ under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slic
 > per-bucket env layer), and [ADR-0026](../adr/0026-bucket-required-at-setup.md) (bucket required
 > at setup; no local-only sets), with the full design in
 > [proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
-> **Everything below still describes what the code does *today* (the `user@machine` model).** The
-> redesign supersedes the identity, on-disk-layout, remote-layout, env-layering, and
-> `setup`/adoption sections; the format invariants (byte-identical snapshots, objects-first /
-> snapshot-last, the upload-set diff, `verify`/`cleanup`) are unaffected. This spec is rewritten
-> to the new model when the change lands.
+> **Everything below still describes what the code does *today* (the `user@machine` model)**,
+> **except env layering — ADR-0025 has landed.** The per-bucket `env.<bucket>` layer is gone;
+> env layering is now **set > user > shell** in code, and the layout/auth notes here already
+> reflect that. The redesign still supersedes the identity, on-disk-layout, remote-layout, and
+> `setup`/adoption sections (ADR-0024/0026, not yet implemented); the format invariants
+> (byte-identical snapshots, objects-first / snapshot-last, the upload-set diff,
+> `verify`/`cleanup`) are unaffected. This spec is rewritten to the new model when the rest
+> of the change lands.
 
 ## Purpose
 
@@ -88,8 +91,7 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
 
 ```
 ~/.s3cab/
-  env                    # per-user defaults            (existing auth layer)
-  env.<bucket>           # per-bucket auth              (existing auth layer)
+  env                    # per-user defaults + auth      (existing auth layer)
   sets/
     photos/
       dirs.txt           # member directories, one absolute path per line

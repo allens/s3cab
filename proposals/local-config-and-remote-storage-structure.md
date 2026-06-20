@@ -50,7 +50,9 @@ Decisions of record:
 
 Collapses from four layers to three: **set > user > shell**. The per-bucket `env.<bucket>`
 layer is removed (ADR-0025). Auth lives in the user env (single-bucket common case) or the set
-env (overrides).
+env (overrides). **✅ Done (2026-06-21)** — ADR-0025's slice landed; this is the one part of the
+redesign already implemented (`bucketEnvPath` + the per-bucket `loadEnv` branch removed,
+`loadEnv` no longer resolves/returns a bucket).
 
 ## Remote layout (`s3://<bucket>/`)
 
@@ -96,8 +98,9 @@ s3://<bucket>/
 
 - **Remove:** `validateNamespace` / `isNamespace` (the `user@machine/set` shape),
   `namespacePart` (sha256 fallback), `S3CAB_NAMESPACE` pinning + the `namespace` field,
-  `bucketEnvPath` + the per-bucket precedence branch, and the `resolveRemoteSet` two-tier
-  resolver (folds into `resolveSet`; `BackupSet.bucket` becomes non-optional).
+  ~~`bucketEnvPath` + the per-bucket precedence branch~~ (✅ done, ADR-0025), and the
+  `resolveRemoteSet` two-tier resolver (folds into `resolveSet`; `BackupSet.bucket` becomes
+  non-optional).
 - **Keep:** `validateSetName` (now the keystone), `validateBucketName` (input sanity),
   `assertPathSegment` (still earns its keep via the `objects.<bucket>` cache path).
 - **Demote:** `sanitizeNamePart` to cosmetic use for the `$username` default suggestion.

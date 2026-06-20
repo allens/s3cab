@@ -107,7 +107,7 @@ describe("objects cache", () => {
     assert.deepEqual(knownObjects("my-bucket"), new Set());
   });
 
-  it("places the cache beside the per-bucket env file", async () => {
+  it("places the cache at ~/.s3cab/objects.<bucket>", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
     assert.equal(
