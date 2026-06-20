@@ -6,7 +6,7 @@ import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 
 /**
  * Show what changed between two of a backup set's snapshots, from an older
- * (`since`) to a newer (`until`) one (specs/backup.md).
+ * (`since`) to a newer (`until`) one (docs/specs/backup.md).
  * @param {string} [setName] - Backup set whose snapshots to compare (default: the only set)
  * @param {object} [options]
  * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)

@@ -6,11 +6,11 @@ import { clientConfig, putObjectParams } from "./s3.mjs";
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
 // encryption, and NO storage-class header (several S3-compatible providers reject
-// them — specs/s3-provider-compatibility.md Finding 3). The gating lives in two
+// them — docs/specs/s3-provider-compatibility.md Finding 3). The gating lives in two
 // places — clientConfig() (checksum mode) and putObjectParams() (SSE/storage-class)
 // — and only manifests in the *outgoing request*, so we capture the request the SDK
 // would put on the wire rather than asserting an upload "succeeds" (a trailer-tolerant
-// provider would pass that vacuously — see specs/testing.md, the request-shaping row).
+// provider would pass that vacuously — see docs/specs/testing.md, the request-shaping row).
 
 /**
  * Send `command` through a client built from `config` plus a capturing

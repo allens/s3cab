@@ -14,7 +14,7 @@ import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
 
 // The content-addressed object store: the `objects/<sha256>` half of an s3cab
-// repository's fixed layout (design #1, specs/backup.md). Every file's content
+// repository's fixed layout (design #1, docs/specs/backup.md). Every file's content
 // is stored once under the SHA-256 of its bytes, so identical content — under
 // any name, anywhere — costs one object. This module owns that layout and every
 // operation over it: the put/get/list of objects in the bucket, plus the local
@@ -142,7 +142,7 @@ export async function* listObjectHashes(bucket) {
  * The per-bucket objects cache file, `~/.s3cab/objects.<bucket>` — a local
  * hash-per-line list of objects already known to exist under the bucket's
  * `objects/`, in exactly the format `s3cab hashes -f` writes (it *is* that
- * command's output put to work — composability, specs/backup.md). Sits beside
+ * command's output put to work — composability, docs/specs/backup.md). Sits beside
  * the per-bucket auth file `env.<bucket>` (env.mjs). The bucket name is
  * interpolated into the filename, so it is guarded as a single path segment —
  * the same `assertPathSegment` guard `bucketEnvPath` uses.
@@ -155,7 +155,7 @@ export const objectsCachePath = (bucket) =>
 /**
  * Read the per-bucket objects cache into a set of hashes — the objects a prior
  * backup recorded as already present under `objects/`, so the next backup can
- * skip them without a per-object existence check (specs/backup.md, "How
+ * skip them without a per-object existence check (docs/specs/backup.md, "How
  * `backup` computes the upload set", step 3). A missing or empty cache yields an
  * empty set: every candidate then falls through to the conditional-PUT safety
  * net, which is safe by design — a hash *missing* from the cache costs at most
@@ -183,7 +183,7 @@ export function knownObjects(bucket) {
 /**
  * Record hashes in the per-bucket objects cache, creating it (and `~/.s3cab`)
  * if absent — every object `backup` uploads is recorded here so a later backup
- * skips it (specs/backup.md step 3). Append-only and newline-terminated,
+ * skips it (docs/specs/backup.md step 3). Append-only and newline-terminated,
  * matching the `hashes -f` format; duplicates are harmless (`knownObjects`
  * dedups via a Set), so this never has to read-modify-write.
  * @param {string} bucket

@@ -1,6 +1,6 @@
 # S3 test strategy: mock at s3.mjs, real-AWS gated, no emulator
 
-Three tiers, settled deliberately. Full reasoning: [specs/testing.md](../../specs/testing.md).
+Three tiers, settled deliberately. Full reasoning: [docs/specs/testing.md](../specs/testing.md).
 
 1. **Pure diff/cache logic** (`uploadCandidates`, the objects cache) → ordinary **unit tests**,
    no bucket.

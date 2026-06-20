@@ -2,7 +2,7 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 
 // AWS credential resolution. This is the single source of truth for *how* s3cab
 // obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`) hands
-// `resolveCredentials` to its client. The model is specified in specs/auth.md.
+// `resolveCredentials` to its client. The model is specified in docs/specs/auth.md.
 // Resolution order:
 //
 //   0. the command first loads s3cab's layered env files (src/lib/env.mjs,

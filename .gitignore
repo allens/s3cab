@@ -21,7 +21,7 @@ test/.tmp*
 test/blob.bin
 test/zblob.bin
 
-# Secrets / local env. s3cab no longer reads a cwd .env (see specs/auth.md), but
+# Secrets / local env. s3cab no longer reads a cwd .env (see docs/specs/auth.md), but
 # keep it ignored as it's a near-universal secret file. A stray env under the
 # repo's /.s3cab/ (which only ships the exclude.txt template now that config is
 # per-set under ~/.s3cab) is guarded too so AWS creds can't be committed by

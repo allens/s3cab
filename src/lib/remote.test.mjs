@@ -48,7 +48,7 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-// S3 test strategy (specs/backup.md slice 3, decided 2026-06-13): the
+// S3 test strategy (docs/specs/backup.md slice 3, decided 2026-06-13): the
 // S3-touching code is exercised against a real test bucket, gated on
 // `S3CAB_TEST_BUCKET` (+ ambient AWS credentials) and skipped with a message
 // when unset — so local/offline/fork runs stay green and real coverage runs

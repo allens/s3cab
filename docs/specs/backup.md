@@ -414,7 +414,7 @@ commands → shared-machinery wiring.
 3. **`sets`** — new registry entry + command; its output formatter is shared with the
    several-sets error body.
 4. **Set env layer** — `loadEnv({ set })` replaces the never-wired dir layer in
-   `auth.mjs`; update its tests, this repo's auth docs (specs/auth.md layer table +
+   `auth.mjs`; update its tests, this repo's auth docs (docs/specs/auth.md layer table +
    History note, [ADR-0015](../docs/adr/0015-standard-aws-credential-chain.md)).
 5. **e2e + docs** — setup→sets round-trip in `test/e2e.test.mjs`; README status update
    (`setup`/`sets` become working local commands).

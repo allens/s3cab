@@ -11,7 +11,7 @@ import {
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
 
-// The remote half of an s3cab repository's fixed layout (specs/backup.md): a
+// The remote half of an s3cab repository's fixed layout (docs/specs/backup.md): a
 // set's snapshots live under `snapshots/<namespace>/<name>.tsv.zst`, where the
 // namespace is the set's pinned `user@machine/set` identity. The other half is
 // the content-addressed `objects/<sha256>` store, owned by objects.mjs. This
@@ -87,7 +87,7 @@ export async function listRemoteNamespaces(bucket) {
 
 /**
  * Read a set's latest remote snapshot into a lookup for diffing — where the
- * `backup`/`status` upload diff starts (specs/backup.md "How `backup` computes
+ * `backup`/`status` upload diff starts (docs/specs/backup.md "How `backup` computes
  * the upload set", step 1). Lists the set's remote snapshots, reads the newest,
  * and returns its entries; a set with no remote snapshot yet (before its first
  * backup) yields an **empty lookup**, so every target hash becomes a candidate.
@@ -116,7 +116,7 @@ export async function readLatestRemoteSnapshot(bucket, namespace) {
 /**
  * Read a set's remote snapshot by name, straight from S3 — the `.tsv.zst` object
  * is streamed through zstd and parsed in flight, no temp file (a remote snapshot file
- * is byte-identical to its local form, specs/backup.md). The `backup`/`status`
+ * is byte-identical to its local form, docs/specs/backup.md). The `backup`/`status`
  * diff fetches the latest already-backed-up snapshot this way (taking `.entries`);
  * `restore` reads its chosen one the same way and uses the `#DIR` headers for
  * `--output` re-rooting — so this surfaces the whole `Snapshot`, not just
@@ -138,7 +138,7 @@ export async function readRemoteSnapshot(bucket, namespace, name) {
 /**
  * The object hashes a backup would need to upload: those whose content
  * (SHA-256) is in the target snapshot but not in the latest already-backed-up
- * one. The pure set-difference the upload set starts from (specs/backup.md,
+ * one. The pure set-difference the upload set starts from (docs/specs/backup.md,
  * "How `backup` computes the upload set", step 2) — keyed on content, so a file
  * that merely moved or was renamed since the last backup is *not* re-uploaded
  * (design #1), and a hash under several paths counts once. For a set's first
@@ -166,7 +166,7 @@ export function uploadCandidates(target, remote) {
  * Upload a local snapshot to the bucket: every object it references that isn't
  * already stored, then the snapshot **last** — the objects-first/snapshot-last
  * invariant that makes a snapshot's mere presence proof its objects exist
- * (specs/backup.md). The lower-level uploader `backup` composes after taking a
+ * (docs/specs/backup.md). The lower-level uploader `backup` composes after taking a
  * snapshot; it never hashes (the snapshot already carries every hash) and never
  * walks the filesystem.
  *
@@ -176,7 +176,7 @@ export function uploadCandidates(target, remote) {
  * snapshot both missed — it silently no-ops objects already present. The
  * snapshot is uploaded no-clobber too, but here a name that already exists
  * remotely is an **error**, never an overwrite (snapshots are immutable,
- * specs/backup.md).
+ * docs/specs/backup.md).
  *
  * Requires the target bucket's env loaded first (set-family commands do this
  * via `prepareRemoteSet`, env.mjs).
@@ -242,7 +242,7 @@ export async function uploadSnapshot({
   if (!wrote) {
     throw new Error(
       `Snapshot '${name}' is already backed up (s3://${bucket}/${snapshotKey}). ` +
-        `Snapshots are immutable and never overwritten (specs/backup.md).`,
+        `Snapshots are immutable and never overwritten (docs/specs/backup.md).`,
     );
   }
 

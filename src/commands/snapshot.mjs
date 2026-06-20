@@ -23,7 +23,7 @@ import { prop } from "./prop.mjs";
 /**
  * Take a snapshot of a backup set: walk every member directory and write a
  * single snapshot into the set's snapshot store, then report what changed
- * since the previous one (specs/backup.md).
+ * since the previous one (docs/specs/backup.md).
  * @param {string} [setName] - Backup set to snapshot (default: the only set)
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
@@ -50,7 +50,7 @@ export async function snapshot(setName, options = {}) {
 
   // The set's pinned identity (user@machine:set) heads the snapshot, with one
   // #DIR line per member directory, so the file is self-describing even when
-  // found alone in a bucket (specs/backup.md).
+  // found alone in a bucket (docs/specs/backup.md).
   const identity = set.namespace?.replace("/", ":") ?? set.name;
 
   const snapshotPath = await withSnapshotFile(

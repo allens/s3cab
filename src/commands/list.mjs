@@ -4,7 +4,7 @@ import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /**
- * List a backup set's snapshots (specs/backup.md) — the local snapshots by
+ * List a backup set's snapshots (docs/specs/backup.md) — the local snapshots by
  * default, or the set's cloud backups under `snapshots/<namespace>/` with
  * `--remote`; either way `--latest` narrows to just the newest name. Async only
  * because the `--remote` path lists S3 (the local path is synchronous work
