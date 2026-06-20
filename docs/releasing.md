@@ -70,14 +70,23 @@ the **version string**, not the GitHub flag — a `-alpha.N` keeps it off `lates
 
 1. **Decide the version** per the rules above (e.g. `0.1.0-alpha.1` for a preview, `0.1.0` for a
    public cut).
-2. **Bump `package.json`** to that version and commit it.
-3. **Tag the commit** with the matching `v` tag and push the tag:
+2. **Bump `package.json` (+ `package-lock.json`) via a PR.** `main` is protected — no direct
+   pushes — so the bump rides a small `chore/release-<ver>` branch through the required `ci gate`
+   check and merges like any other change:
    ```sh
-   git tag v0.1.0-alpha.1
-   git push origin v0.1.0-alpha.1
+   git checkout -b chore/release-0.1.0-alpha.1
+   npm version 0.1.0-alpha.1 --no-git-tag-version   # edits package.json + lock, no commit/tag
+   git commit -am "chore: release 0.1.0-alpha.1" && git push -u origin HEAD
+   gh pr create --fill && gh pr merge --squash       # once ci gate is green
    ```
-   (`npm version 0.1.0-alpha.1` does the bump-commit-and-tag in one step and produces the `v`
-   tag — but it commits, so only use it once you intend to.)
+3. **Tag the merged commit** on `main` with the matching `v` tag and push the tag (tags aren't
+   branch-protected):
+   ```sh
+   git checkout main && git pull
+   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+   ```
+   The tag's commit must be the one where `package.json` already equals the version — i.e. *after*
+   the bump PR merges — or the release job's tag-vs-package guard fails.
 4. The tag push triggers release.yml: it re-verifies, builds + signs + archives all four
    binaries, creates the GitHub Release (prerelease-flagged per the table), and publishes to
    npm with provenance under the right dist-tag.
