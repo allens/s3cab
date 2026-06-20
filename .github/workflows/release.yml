@@ -113,11 +113,14 @@ jobs:
         if: runner.os == 'macOS'
         run: codesign --force --sign - "dist/${{ matrix.bin }}"
 
-      # Smoke-test the freshly built binary on its native runner.
+      # Smoke-test the freshly built binary on its native runner. Keep these in step
+      # with ci.yml's `exe smoke` job, and use commands that need no configured set:
+      # `--version` proves the binary boots + the inlined version, `prop` does real
+      # file I/O. (`list` errors without a set since backup-sets — see #78.)
       - name: Smoke test
         shell: bash
         run: |
-          ./dist/${{ matrix.bin }} list
+          ./dist/${{ matrix.bin }} --version
           ./dist/${{ matrix.bin }} prop package.json
 
       # Wrap the bare `s3cab[.exe]` in a per-platform archive for release: tar.gz
@@ -155,7 +158,7 @@ jobs:
       - run: npm run build
 
       - name: Smoke test
-        run: node dist/s3cab.js list
+        run: node dist/s3cab.js --version
 
       - uses: actions/upload-artifact@v7
         with:
