@@ -13,7 +13,7 @@ purpose-built homes — see the map below.
 | **Fuller designs & specs** | [docs/specs/](docs/specs/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. |
 | **Other contributor how-tos** | [docs/](docs/) | Beside `docs/adr/` — e.g. [docs/integration-testing.md](docs/integration-testing.md) (setting up the gated S3 suite). Doesn't ship. |
 | **User-facing docs** | [README.md](README.md), [guide/](guide/) | What it is, install/usage, user reference (`guide/exclude.md`, `guide/compare.md`). `guide/` ships in the npm tarball. |
-| **Pre-release brainstorm** | [IMPROVEMENTS.md](IMPROVEMENTS.md) | Raw, uncommitted ideas — not a plan of record. |
+| **Ideas we might do** (rough → detailed; deleted when done/abandoned) | [proposals/](proposals/) | A bucket of provisional ideas — important stuff down to pipe dreams, *not* of record. Grouped into theme-based "epic" files (`output-ux.md`, `performance.md`, …), with [misc.md](proposals/misc.md) for the unsorted and [bugs.md](proposals/bugs.md) the interim defect tracker (→ GitHub Issues, gone by release). See [proposals/README.md](proposals/README.md). |
 | **How to work here** (AI/contributor rules) | this file | Working conventions, coding conventions, architecture orientation, known gaps. |
 
 The top-level split is by **audience**: everything contributor-facing and internal lives
@@ -22,8 +22,9 @@ subsystem *designs* (the fuller *what/how*, which evolves), and the loose `docs/
 *how-tos* (task recipes) — while user-facing prose is README + `guide/`. A spec and an ADR
 differ in *kind* (a design vs. a single pinned decision), which is why they are sibling
 folders; both are contributor docs, which is why both sit under `docs/` rather than one
-floating at the root. ([CONTEXT.md](CONTEXT.md) vocabulary and
-[IMPROVEMENTS.md](IMPROVEMENTS.md) brainstorm stay at the root as single-purpose files.)
+floating at the root. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
+single-purpose file; the [proposals/](proposals/) ideas bucket sits outside `docs/` on
+purpose — it is provisional and *not* of record, the opposite of what `docs/` holds.)
 
 The seven foundational design principles were once numbered `#1`–`#7` here; they are now
 [ADR-0001](docs/adr/0001-file-level-content-addressable-dedup.md) through
