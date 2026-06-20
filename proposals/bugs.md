@@ -7,18 +7,11 @@
 
 Some of these are unverified suspicions — **check before believing.**
 
-- **A typo'd `--since`/`--until` silently compares against an empty snapshot.** `readSnapshot`
-  returns an empty `Map` for an unknown name, so `compare --until 2025-typo` reports
-  *everything deleted*, and a typo'd `--since` reports everything added — no error, confidently
-  wrong output. Worse: an unknown `--until` makes the `since` default `indexOf(until)+1 →
-  at(0)`, i.e. the latest snapshot. Should be a hard "snapshot not found, did you mean…" error.
 - **`readSnapshotFile` trims every field**, so a path with leading/trailing whitespace doesn't
   round-trip. Only the padding columns need trimming; the path field should be taken verbatim.
   Related: a blank line in a hand-edited snapshot file dies on a bare `assert` — hand-editing
   is the whole no-lock-in story, so parse errors deserve friendly messages with file/line
   context.
-- **`diff()` mutates its caller's `currentSnapshot` Map** (`.delete(path)` while classifying).
-  Surprising for a library caller who reuses the map; clone or track separately.
 - **`withSnapshotFile` closes the fd twice** (`await fd.close()` inside an `await using`);
   `putFile`'s skip path (`PreconditionFailed`) returns without terminating the stderr progress
   line.

@@ -17,11 +17,11 @@ a flag, and a structured diff that survives to the CLI edge.
   `→`/`→→`/`==` microsyntax. Presentation belongs in the CLI layer; the JSON output is
   currently neither human-friendly nor machine-friendly.
 - **Keep `compare`'s diff structured to the edge** (architecture-deepening candidate D).
-  `compareSnapshots` mixes name-resolution, reads, the deep pure `diff()`, *and* display
-  formatting (the arrow strings, `relativeToRoot`), returning display strings — so the
-  structured `DiffResult` is lost at the seam, and `--remote` must thread through
-  presentation. Split: `compareSnapshots` returns the structured result; a `presentDiff()`
-  the command calls builds the arrow strings. `diff()` stays structured to the CLI edge.
+  `diff()` already returns a structured `DiffResult`, but `compareSnapshots` then flattens it
+  to display strings (the arrow strings, `relativeToRoot`) before returning — so the structure
+  is lost at *that* seam, and `--remote` must thread through presentation. Remaining work: have
+  `compareSnapshots` return the structured result and move the arrow-string building into a
+  `presentDiff()` the command calls, keeping the structure to the CLI edge.
 - **Document or replace the arrow microsyntax** — `→` vs `→→` vs `==` in results is explained
   nowhere user-facing; in human output, words ("renamed", "moved", "duplicate of") may serve
   the audience better. Related: README promises "renamed" detection but `CompareResult` has no
@@ -48,9 +48,6 @@ a flag, and a structured diff that survives to the CLI edge.
   than a bare error.
 - **Exit-code doctrine**: document the codes (0/1/127 today); decide whether `compare` should
   signal "differences found" diff-style (probably not, for a consumer tool — but decide).
-- **Fix the README quick-start drift** — it shows `Added: / Moved:` friendly text, but
-  `snapshot`/`compare` print a JSON object. Doc-discipline drift — fix the README, or (better)
-  make the friendly output real per the first item.
-- **`tree`'s stdout is a JSON array**, but the README/CLAUDE.md pitch is
-  `s3cab tree . > files.txt` capturing "just the file list" — a JSON array isn't a file list.
-  Line-per-path output (like `hashes`) would match the promise.
+- **`tree`'s stdout is a JSON array** (the dispatcher JSON-serializes every command result) —
+  fine for machines, but a line-per-path mode (like `hashes`) would suit
+  `s3cab tree > files.txt`. Falls out of the human-output work above.
