@@ -54,7 +54,7 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * (`getObject`), mirroring how the store has always behaved. `force` overwrites
  * an existing object instead of skipping it.
  *
- * Callers must have loaded the bucket's env (`loadEnv({ bucket | set })`) first,
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first,
  * so the S3 client picks up the right region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The file's SHA-256, its key under `objects/`
@@ -81,7 +81,7 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
  * restored mtime is the restore loop's job (it places objects, this fetches
  * their bytes). The `restore` command composes this.
  *
- * Callers must have loaded the bucket's env (`loadEnv({ bucket | set })`) first,
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first,
  * so the S3 client picks up the right region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The object's SHA-256, its key under `objects/`
@@ -122,7 +122,7 @@ export async function getObject(bucket, hash, destPath) {
  * `objects/`, with the prefix stripped. The store's listing, behind which the
  * `hashes` plumbing command and the per-bucket cache seed both sit.
  *
- * Callers must have loaded the bucket's env (`loadEnv({ bucket | set })`) first.
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
  * @param {string} bucket - The repository's S3 bucket
  * @yields {string} An object hash
  * @returns {AsyncGenerator<string>}
@@ -142,10 +142,11 @@ export async function* listObjectHashes(bucket) {
  * The per-bucket objects cache file, `~/.s3cab/objects.<bucket>` — a local
  * hash-per-line list of objects already known to exist under the bucket's
  * `objects/`, in exactly the format `s3cab hashes -f` writes (it *is* that
- * command's output put to work — composability, docs/specs/backup.md). Sits beside
- * the per-bucket auth file `env.<bucket>` (env.mjs). The bucket name is
- * interpolated into the filename, so it is guarded as a single path segment —
- * the same `assertPathSegment` guard `bucketEnvPath` uses.
+ * command's output put to work — composability, docs/specs/backup.md). The bucket
+ * name is interpolated into the filename, so it is guarded as a single path
+ * segment (`assertPathSegment`) — keeping a hostile bucket name from traversing
+ * out of `~/.s3cab`. (This is the cache file, not an auth file; the per-bucket
+ * `env.<bucket>` auth layer was dropped in ADR-0025.)
  * @param {string} bucket
  * @returns {string}
  */

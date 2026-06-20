@@ -59,7 +59,7 @@ export async function listRemoteSnapshots(bucket, namespace) {
  * pinned identity; also what an adoption's "namespace not found" error offers as
  * the available choices. Sorted, deduplicated.
  *
- * Callers must have loaded the bucket's env (`loadEnv({ bucket })`) first.
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
  * @param {string} bucket - The repository's S3 bucket
  * @returns {Promise<string[]>} Distinct namespaces, sorted
  */

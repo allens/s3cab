@@ -33,7 +33,7 @@ const setsRoot = () => join(s3cabDir(), "sets");
 /**
  * A set name is interpolated into a path under `~/.s3cab/sets`, so it is guarded
  * as a single path segment (`assertPathSegment`, the same traversal guard
- * env.mjs's per-bucket env path uses). A *created* set's name is always
+ * objects.mjs's `objects.<bucket>` cache path uses). A *created* set's name is always
  * canonical (see `validateSetName`), but read paths run on caller-supplied
  * names too.
  * @param {string} name

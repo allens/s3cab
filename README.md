@@ -139,11 +139,10 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    default bucket — including some S3-compatible providers). Highest precedence first, a file
    always beating the shell:
    - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
-     bucket; add per-set overrides here). It takes effect as the set-based commands arrive
+     bucket; add per-set auth overrides here). It takes effect as the set-based commands arrive
      with `backup`;
-   - **`~/.s3cab/env.<bucket>`** — per-bucket (how to authenticate to that bucket); used by
-     commands that take a bucket, like `upload`/`hashes`;
-   - **`~/.s3cab/env`** — your per-user defaults; the base layer under the others.
+   - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
+     lives for the common single-bucket case.
 
    (s3cab does **not** read a `.env` from the current directory.)
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO

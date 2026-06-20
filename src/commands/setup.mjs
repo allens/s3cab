@@ -113,10 +113,10 @@ async function adopt(name, folders, creating, options) {
   }
   const bucket = options.bucket;
 
-  // First (and only) S3 touch in setup: load the bucket's auth layer, then
+  // First (and only) S3 touch in setup: load the per-user auth layer, then
   // confirm the namespace really has a backup before writing anything locally —
   // a typo'd identity fails loudly, listing what the bucket actually holds.
-  loadEnv({ bucket });
+  loadEnv();
   const snapshots = await listRemoteSnapshots(bucket, namespace);
   if (snapshots.length === 0) {
     const available = await listRemoteNamespaces(bucket);

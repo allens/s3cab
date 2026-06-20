@@ -30,10 +30,11 @@ edict).
 ## Consequences
 
 - **Scope is the set family only.** The bucket family (`upload`, `hashes`, `setup`) already
-  has its bucket in hand as a CLI arg and calls `loadEnv({ bucket })` in one line; a
+  has its bucket in hand as a CLI arg and calls `loadEnv()` in one line (a bare `loadEnv()`
+  since [ADR-0025](0025-drop-per-bucket-env-layer.md) dropped the per-bucket layer); a
   `prepareBucket()` wrapper would be a pass-through, so those keep the inline call. The
-  snapshot-op JSDoc preconditions name the real requirement — the *target bucket's env
-  loaded* — and note `prepareRemoteSet` as the set-family path (`listRemoteSnapshots` is in
+  snapshot-op JSDoc preconditions name the real requirement — the *env loaded* before any S3
+  op — and note `prepareRemoteSet` as the set-family path (`listRemoteSnapshots` is in
   fact reached both ways: `setup` directly, the set family via the front door).
   `listRemoteNamespaces` and the `objects.mjs` ops keep the plain `loadEnv` wording.
 - **Home.** `prepareRemoteSet` lives in `env.mjs`, which already owns `loadEnv` and depends

@@ -27,8 +27,8 @@ import { listObjectHashes } from "../lib/objects.mjs";
 export async function hashes(bucket, options = {}) {
   requireArg(bucket, "<bucket>");
   // Resolve env here (the command function is the library surface): the per-user
-  // layer + this bucket's `~/.s3cab/env.<bucket>`, before any S3 access.
-  loadEnv({ bucket });
+  // auth layer, before any S3 access.
+  loadEnv();
 
   const all = [];
   for await (const hash of listObjectHashes(bucket)) all.push(hash);

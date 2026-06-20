@@ -64,9 +64,6 @@ async function setup(root) {
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
     /** @param {string} name @param {string} contents */
-    bucket: (name, contents) =>
-      writeEnv(join(home, ".s3cab", `env.${name}`), contents),
-    /** @param {string} name @param {string} contents */
     set: (name, contents) =>
       writeEnv(join(home, ".s3cab", "sets", name, "env"), contents),
   };
@@ -78,10 +75,9 @@ describe("loadEnv", () => {
     const t = await setup(dir.path);
     t.user("AWS_PROFILE=userprof\n");
 
-    const { bucket } = t.loadEnv();
+    t.loadEnv();
 
     assert.equal(process.env.AWS_PROFILE, "userprof");
-    assert.equal(bucket, undefined);
   });
 
   it("lets a file value win over the shell (files are authoritative)", async () => {
@@ -95,88 +91,24 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_REGION, "us-file");
   });
 
-  it("loads the per-bucket env file for an explicit bucket name", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.bucket("mybucket", "AWS_PROFILE=bucketprof\n");
-
-    const { bucket } = t.loadEnv({ bucket: "mybucket" });
-
-    assert.equal(bucket, "mybucket");
-    assert.equal(process.env.AWS_PROFILE, "bucketprof");
-  });
-
-  it("applies the per-bucket layer over the per-user layer", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_REGION=us-user\n");
-    t.bucket("b", "AWS_REGION=us-bucket\n");
-
-    t.loadEnv({ bucket: "b" });
-
-    assert.equal(process.env.AWS_REGION, "us-bucket");
-  });
-
-  it("resolves the bucket from the set env and applies set > bucket > user", async () => {
+  it("applies the set layer over the user layer (and user fills the gaps)", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
     t.user("AWS_REGION=us-user\nAWS_PROFILE=userprof\n");
-    t.bucket("setbucket", "AWS_REGION=us-bucket\nAWS_PROFILE=bucketprof\n");
-    t.set("photos", "S3CAB_BUCKET=setbucket\nAWS_REGION=us-set\n");
+    t.set("photos", "AWS_REGION=us-set\n");
 
-    const { bucket } = t.loadEnv({ set: "photos" });
+    t.loadEnv({ set: "photos" });
 
-    assert.equal(bucket, "setbucket");
-    assert.equal(process.env.S3CAB_BUCKET, "setbucket");
-    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over bucket + user
-    assert.equal(process.env.AWS_PROFILE, "bucketprof"); // bucket fills what set omits
-  });
-
-  it("prefers an explicit bucket arg over the set env's S3CAB_BUCKET", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.set("photos", "S3CAB_BUCKET=setbucket\n");
-    t.bucket("explicitbucket", "AWS_PROFILE=fromexplicit\n");
-    t.bucket("setbucket", "AWS_PROFILE=fromset\n");
-
-    const { bucket } = t.loadEnv({ set: "photos", bucket: "explicitbucket" });
-
-    assert.equal(bucket, "explicitbucket");
-    assert.equal(process.env.AWS_PROFILE, "fromexplicit");
-  });
-
-  it("falls back to the user-level S3CAB_BUCKET when the set env has none", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("S3CAB_BUCKET=userbucket\n");
-    t.bucket("userbucket", "AWS_PROFILE=fromuserbucket\n");
-    t.set("photos", "AWS_REGION=us-set\n"); // no S3CAB_BUCKET of its own
-
-    const { bucket } = t.loadEnv({ set: "photos" });
-
-    assert.equal(bucket, "userbucket");
-    assert.equal(process.env.AWS_PROFILE, "fromuserbucket");
-  });
-
-  it("does not infer or load a per-bucket file from a no-scope call", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    process.env.S3CAB_BUCKET = "shellbucket"; // a bare default, not authoritative
-    t.bucket("shellbucket", "AWS_SECRET_ACCESS_KEY=should-not-load\n");
-
-    const { bucket } = t.loadEnv();
-
-    assert.equal(bucket, undefined);
-    assert.equal(process.env.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over user
+    assert.equal(process.env.AWS_PROFILE, "userprof"); // user fills what set omits
   });
 
   it("is a no-op when no env files exist", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    const { bucket } = t.loadEnv({ set: "photos", bucket: "absent" });
+    t.loadEnv({ set: "photos" });
 
-    assert.equal(bucket, "absent"); // an explicit name is still returned
     assert.equal(process.env.AWS_PROFILE, undefined);
   });
 
@@ -184,27 +116,27 @@ describe("loadEnv", () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
     t.user("AWS_REGION=us-user\n");
-    t.bucket("b", "AWS_REGION=us-bucket\n");
+    t.set("photos", "AWS_REGION=us-set\n");
 
-    t.loadEnv({ bucket: "b" }); // user then bucket → us-bucket
-    assert.equal(process.env.AWS_REGION, "us-bucket");
+    t.loadEnv({ set: "photos" }); // user then set → us-set
+    assert.equal(process.env.AWS_REGION, "us-set");
 
     t.loadEnv(); // a later no-scope call — must not re-apply the user layer
-    assert.equal(process.env.AWS_REGION, "us-bucket");
+    assert.equal(process.env.AWS_REGION, "us-set");
   });
 
   it("loads an env file created after an earlier no-op load", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    // First load: the per-bucket file doesn't exist yet → nothing applied, and
+    // First load: the set env file doesn't exist yet → nothing applied, and
     // the guard must NOT record a missing file as "applied".
-    t.loadEnv({ bucket: "later" });
+    t.loadEnv({ set: "photos" });
     assert.equal(process.env.AWS_PROFILE, undefined);
 
     // Create it, then load again in the same process — it must now take effect.
-    t.bucket("later", "AWS_PROFILE=created-later\n");
-    t.loadEnv({ bucket: "later" });
+    t.set("photos", "AWS_PROFILE=created-later\n");
+    t.loadEnv({ set: "photos" });
     assert.equal(process.env.AWS_PROFILE, "created-later");
   });
 
@@ -219,37 +151,6 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_REGION, "us-east-1");
   });
 
-  it("allows dots in a bucket name (e.g. my.bucket)", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.bucket("my.bucket", "AWS_PROFILE=dotted\n");
-
-    const { bucket } = t.loadEnv({ bucket: "my.bucket" });
-
-    assert.equal(bucket, "my.bucket");
-    assert.equal(process.env.AWS_PROFILE, "dotted");
-  });
-
-  it("rejects an explicit bucket name containing a path separator", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-
-    assert.throws(
-      () => t.loadEnv({ bucket: "a/../../../../etc/passwd" }),
-      /Invalid bucket name/,
-    );
-  });
-
-  it("rejects a traversing bucket supplied by a set env's S3CAB_BUCKET", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    // A hand-edited set env must not be able to point the per-bucket env path
-    // outside ~/.s3cab.
-    t.set("photos", "S3CAB_BUCKET=a/../../../../etc/passwd\n");
-
-    assert.throws(() => t.loadEnv({ set: "photos" }), /Invalid bucket name/);
-  });
-
   it("rejects a set name containing a path separator", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
@@ -262,11 +163,11 @@ describe("prepareRemoteSet", () => {
   it("resolves the cloud-ready set and loads its env layers", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
+    t.user("AWS_PROFILE=photoprof\n");
     t.set(
       "photos",
       "S3CAB_BUCKET=photobucket\nS3CAB_NAMESPACE=al@pc/photos\nAWS_REGION=us-set\n",
     );
-    t.bucket("photobucket", "AWS_PROFILE=photoprof\n");
 
     const set = t.prepareRemoteSet("photos");
 
@@ -274,10 +175,10 @@ describe("prepareRemoteSet", () => {
     assert.equal(set.name, "photos");
     assert.equal(set.bucket, "photobucket");
     assert.equal(set.namespace, "al@pc/photos");
-    // …and the env side effect — the set layer and its bucket's layer applied,
+    // …and the env side effect — the set layer applied over the user layer,
     // which is the precondition the front door exists to make unskippable.
-    assert.equal(process.env.AWS_REGION, "us-set");
-    assert.equal(process.env.AWS_PROFILE, "photoprof");
+    assert.equal(process.env.AWS_REGION, "us-set"); // set layer
+    assert.equal(process.env.AWS_PROFILE, "photoprof"); // user layer
   });
 
   it("stops a bucket-less set before loading its env", async () => {

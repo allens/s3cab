@@ -87,8 +87,8 @@ export function clientConfig() {
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * actionable error — see docs/specs/auth.md).
  * Callers are responsible for loading any relevant s3cab env files (e.g.
- * commands call `loadEnv({ bucket })`), so `process.env` is configured before
- * this client is constructed.
+ * commands call `loadEnv()` or `loadEnv({ set })`), so `process.env` is
+ * configured before this client is constructed.
  * @returns {S3Client}
  */
 function client() {

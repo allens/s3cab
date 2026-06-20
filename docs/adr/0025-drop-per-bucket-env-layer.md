@@ -1,6 +1,7 @@
 # Drop the per-bucket env layer
 
-**Status:** proposed (2026-06-20) — pending implementation. Full design in
+**Status:** accepted (2026-06-21) — implemented. The sibling ADR-0024/0026 of the same
+redesign are still proposed; full design in
 [proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
 
 s3cab's env-file layering drops from four layers to three: the per-bucket

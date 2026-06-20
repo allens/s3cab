@@ -36,7 +36,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0022](0022-prepare-remote-set-front-door.md) — Env-loading for the set family goes through one front door
 - [0023](0023-porcelain-plumbing-lib-layers.md) — Commands are porcelain or plumbing, over a shared lib
 - [0024](0024-set-name-is-the-whole-identity.md) — A backup set's name is its whole identity *(proposed — pending implementation)*
-- [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell) *(proposed — pending implementation)*
+- [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
 - [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets *(proposed — pending implementation)*
 
 ### Build, release & tooling
