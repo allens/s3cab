@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { join, normalize, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { setup } from "./setup.mjs";
+import { writeSet } from "../lib/sets.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -61,7 +61,7 @@ describe("snapshot", () => {
     useTempHome(workDir());
     mkdirSync(workDir("data"));
     writeFileSync(workDir("data", "x.txt"), "x");
-    setup("photos", [workDir("data")]);
+    writeSet("photos", { dirs: [realpathSync.native(workDir("data"))] });
     rmSync(workDir("data"), { recursive: true, force: true });
 
     await assert.rejects(snapshot("photos", { rehash: true }));
@@ -77,7 +77,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     useTempHome(workDir());
-    setup("photos", [workDir()]);
+    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
 
     await snapshot("photos", { rehash: true });
 
@@ -121,7 +121,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     const home = useTempHome(workDir());
-    setup("photos", [workDir()]);
+    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
 
     await snapshot("photos", { rehash: true, debug: true });
 
@@ -135,10 +135,7 @@ describe("snapshot", () => {
       .filter((line) => line.startsWith("#"));
     assert.ok(snapshotLine && dirLine, "expected #SNAPSHOT and #DIR headers");
 
-    assert.match(
-      snapshotLine,
-      /^#SNAPSHOT\s+2025-02-01T09:00\s+[a-z0-9-]+@[a-z0-9-]+:photos\s*$/,
-    );
+    assert.match(snapshotLine, /^#SNAPSHOT\s+2025-02-01T09:00\s+photos\s*$/);
     assert.match(dirLine, /^#DIR\s/);
     assert.ok(dirLine.includes(realpathSync.native(workDir())));
   });
@@ -150,7 +147,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     useTempHome(workDir());
-    setup("photos", [workDir()]);
+    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
 
     await snapshot("photos", { rehash: true });
 

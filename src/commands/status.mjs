@@ -40,7 +40,7 @@ export async function status(setName) {
 
   const { name: remoteName, lookup: remote } = await readLatestRemoteSnapshot(
     set.bucket,
-    set.namespace,
+    set.name,
   );
 
   const candidates = uploadCandidates(target, remote);

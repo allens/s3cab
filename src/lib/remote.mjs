@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { createZstdDecompress } from "node:zlib";
 import { knownObjects, putObject, recordObjects } from "./objects.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
-import { isNamespace } from "./sets.mjs";
 import {
   parseSnapshotStream,
   readSnapshot,
@@ -12,26 +11,26 @@ import {
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (docs/specs/backup.md): a
-// set's snapshots live under `snapshots/<namespace>/<name>.tsv.zst`, where the
-// namespace is the set's pinned `user@machine/set` identity. The other half is
-// the content-addressed `objects/<sha256>` store, owned by objects.mjs. This
-// module owns the `snapshots/` layout and the backup engine that composes both
-// halves; s3.mjs stays the generic SDK boundary (so it never learns the layout,
-// the same way objects.mjs owns OBJECTS_PREFIX for its half).
+// set's snapshots live under `snapshots/<set>/<name>.tsv.zst`, keyed by the set's
+// name — its whole identity (ADR-0024). The other half is the content-addressed
+// `objects/<sha256>` store, owned by objects.mjs. This module owns the
+// `snapshots/` layout and the backup engine that composes both halves; s3.mjs
+// stays the generic SDK boundary (so it never learns the layout, the same way
+// objects.mjs owns OBJECTS_PREFIX for its half). The set name is canonical
+// `[a-z0-9-]+` (validateSetName), so it is a safe key segment with no escaping.
 
 const SNAPSHOTS_PREFIX = "snapshots/";
 
 /**
- * The S3 key prefix holding one set's remote snapshots: `snapshots/<namespace>/`.
- * @param {string} namespace - The set's pinned `user@machine/set` identity
+ * The S3 key prefix holding one set's remote snapshots: `snapshots/<set>/`.
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {string}
  */
-export const remoteSnapshotsPrefix = (namespace) =>
-  `${SNAPSHOTS_PREFIX}${namespace}/`;
+export const remoteSnapshotsPrefix = (set) => `${SNAPSHOTS_PREFIX}${set}/`;
 
 /**
  * List a set's remote snapshot names (newest first) — the snapshots stored
- * under `snapshots/<namespace>/` in the bucket. The remote twin of
+ * under `snapshots/<set>/` in the bucket. The remote twin of
  * `listSnapshotNames`: it strips each snapshot key down to its bare file name
  * and runs the lot through `snapshotNames`, so a remote and a local listing
  * sort and filter identically. Returns `[]` for a set with no remote snapshots
@@ -40,49 +39,16 @@ export const remoteSnapshotsPrefix = (namespace) =>
  * Requires the target bucket's env loaded first (set-family commands do this
  * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} namespace - The set's pinned `user@machine/set` identity
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {Promise<string[]>} Snapshot names, newest first
  */
-export async function listRemoteSnapshots(bucket, namespace) {
-  const prefix = remoteSnapshotsPrefix(namespace);
+export async function listRemoteSnapshots(bucket, set) {
+  const prefix = remoteSnapshotsPrefix(set);
   const names = [];
   for await (const { Key } of listObjects(`s3://${bucket}/${prefix}`)) {
     if (Key) names.push(Key.slice(prefix.length));
   }
   return snapshotNames(names);
-}
-
-/**
- * List the distinct backup-set namespaces present in a bucket — the
- * `user@machine/set` prefixes under `snapshots/`. The discovery aid behind
- * `setup --from` on a fresh machine, where the user won't recall the exact
- * pinned identity; also what an adoption's "namespace not found" error offers as
- * the available choices. Sorted, deduplicated.
- *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
- * @param {string} bucket - The repository's S3 bucket
- * @returns {Promise<string[]>} Distinct namespaces, sorted
- */
-export async function listRemoteNamespaces(bucket) {
-  /** @type {Set<string>} */
-  const namespaces = new Set();
-  for await (const { Key } of listObjects(
-    `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
-  )) {
-    // Only real snapshot objects, so a stray non-snapshot key (a console-made
-    // `snapshots/foo/` folder marker, say) can't surface as a bogus adoption
-    // target. Key = snapshots/<user>@<machine>/<set>/<name>.tsv.zst — the
-    // namespace is everything between the prefix and the final segment, and it
-    // must match the canonical `user@machine/set` shape (a key at some other
-    // depth would otherwise yield an invalid target `validateNamespace` rejects).
-    if (!Key?.endsWith(".tsv.zst")) continue;
-    const rest = Key.slice(SNAPSHOTS_PREFIX.length);
-    const cut = rest.lastIndexOf("/");
-    if (cut === -1) continue;
-    const namespace = rest.slice(0, cut);
-    if (isNamespace(namespace)) namespaces.add(namespace);
-  }
-  return [...namespaces].sort();
 }
 
 /**
@@ -101,15 +67,15 @@ export async function listRemoteNamespaces(bucket) {
  * Requires the target bucket's env loaded first (set-family commands do this
  * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} namespace - The set's pinned `user@machine/set` identity
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {Promise<{ name: string | undefined, lookup: SnapshotEntries }>}
  *   `name` = the latest remote snapshot's name (undefined if never backed up);
  *   `lookup` = its entries (an empty Map for a first backup).
  */
-export async function readLatestRemoteSnapshot(bucket, namespace) {
-  const [name] = await listRemoteSnapshots(bucket, namespace);
+export async function readLatestRemoteSnapshot(bucket, set) {
+  const [name] = await listRemoteSnapshots(bucket, set);
   if (!name) return { name: undefined, lookup: new Map() };
-  const snapshot = await readRemoteSnapshot(bucket, namespace, name);
+  const snapshot = await readRemoteSnapshot(bucket, set, name);
   return { name, lookup: snapshot.entries };
 }
 
@@ -125,12 +91,12 @@ export async function readLatestRemoteSnapshot(bucket, namespace) {
  * Requires the target bucket's env loaded first (set-family commands do this
  * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} namespace - The set's pinned `user@machine/set` identity
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
  * @returns {Promise<Snapshot>}
  */
-export async function readRemoteSnapshot(bucket, namespace, name) {
-  const uri = `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
+export async function readRemoteSnapshot(bucket, set, name) {
+  const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
   const input = createS3ReadStream(uri).pipe(createZstdDecompress());
   return parseSnapshotStream(input);
 }
@@ -182,7 +148,7 @@ export function uploadCandidates(target, remote) {
  * via `prepareRemoteSet`, env.mjs).
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
- * @param {string} args.namespace - The set's pinned `user@machine/set` identity
+ * @param {string} args.set - The set's name (its whole identity, ADR-0024)
  * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @param {boolean} [args.skipCache] - Skip the objects-cache lookup (still conditional-PUTs every candidate)
@@ -192,14 +158,14 @@ export function uploadCandidates(target, remote) {
  */
 export async function uploadSnapshot({
   bucket,
-  namespace,
+  set,
   snapshotDir,
   name,
   skipCache = false,
 }) {
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
-  const { lookup: remote } = await readLatestRemoteSnapshot(bucket, namespace);
+  const { lookup: remote } = await readLatestRemoteSnapshot(bucket, set);
 
   let candidates = uploadCandidates(target, remote);
   if (!skipCache) {
@@ -234,7 +200,7 @@ export async function uploadSnapshot({
   recordObjects(bucket, present);
 
   // The snapshot, last. No-clobber, and a duplicate remote name is an error.
-  const snapshotKey = `${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`;
+  const snapshotKey = `${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
   const snapshotPath = join(snapshotDir, `${name}.tsv.zst`);
   const wrote = await putFile(snapshotPath, `s3://${bucket}/${snapshotKey}`, {
     noClobber: true,

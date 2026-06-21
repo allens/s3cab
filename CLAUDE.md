@@ -413,7 +413,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
 
 - **`verify` flow not built yet** — the design *and* the five-slice
   implementation plan are settled in [docs/specs/backup.md](docs/specs/backup.md) (backup sets,
-  set-first porcelain, `snapshots/<user>@<machine>/<set>/`, snapshot-last invariant,
+  set-first porcelain, `snapshots/<set>/`, snapshot-last invariant,
   diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
   path are built** (2026-06):
   slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
@@ -435,13 +435,24 @@ Pre-release housekeeping and open decisions surfaced from the code:
   [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
   slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
   the verified download — added then as `remote.mjs`'s `downloadObject`, since moved to
-  `objects.mjs` as `getObject` (2026-06-17) — plus `remote.mjs`'s `listRemoteNamespaces`)
-  and `setup --from`
-  adoption; `restore --output` re-rooting followed (`reroot`, on `parseSnapshotStream` now
-  surfacing the `#DIR`/`#SNAPSHOT` headers it used to drop). Remaining scaffold: `verify` is
+  `objects.mjs` as `getObject` (2026-06-17)); `restore --output` re-rooting followed
+  (`reroot`, on `parseSnapshotStream` now surfacing the `#DIR`/`#SNAPSHOT` headers it used to
+  drop). Remaining scaffold: `verify` is
   still an inline registry stub and `compare --remote` is wired but throws
   `notImplemented()`. Promote each stub into its own `src/commands/` file as it gains a real
   body (rest of slice 5).
+- **The 2026-06-20 local-config/remote-structure redesign has landed** (ADR-0024/0025, and
+  ADR-0026's setup-requirement half): the set **name** is the whole identity (no
+  `user@machine`), the remote snapshot namespace flattened to `snapshots/<set>/`, and `setup`
+  now requires `--bucket` and touches S3 — it claims the name "first person wins" via the
+  remote `sets/<set>/` marker ([src/lib/set-marker.mjs](src/lib/set-marker.mjs): `info` +
+  pushed `dirs.txt`/`exclude.txt`), with `--inherit` for machine succession (this replaced the
+  old `setup --from` adoption + `remote.mjs`'s `listRemoteNamespaces`, both removed). **One
+  redesign slice remains:** ADR-0026's resolver cleanup — fold `resolveRemoteSet` into
+  `resolveSet`, make `BackupSet.bucket` non-optional, drop `formatSets`' "(no bucket — local
+  only)" branch — after which
+  [proposals/local-config-and-remote-storage-structure.md](proposals/local-config-and-remote-storage-structure.md)
+  is deleted and `docs/specs/backup.md`'s detail sections get their full prose rewrite.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Since the `createRequire` regression, ci.yml's `exe

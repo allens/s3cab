@@ -58,6 +58,23 @@ function runWithHome(home, ...args) {
   });
 }
 
+/**
+ * Create a local backup set directly on disk, without running `setup`. `setup`
+ * now requires a bucket and touches S3 (the collision claim, ADR-0024/0026), so
+ * the offline-engine e2e cases (tree/snapshot/list/sets) seed the set's files —
+ * the set store *is* those files — instead of going online.
+ * @param {string} home
+ * @param {string} name
+ * @param {string[]} dirs
+ * @param {string} [bucket]
+ */
+function seedSet(home, name, dirs, bucket) {
+  const setDir = join(home, ".s3cab", "sets", name);
+  mkdirSync(setDir, { recursive: true });
+  writeFileSync(join(setDir, "dirs.txt"), dirs.join("\n") + "\n");
+  if (bucket) writeFileSync(join(setDir, "env"), `S3CAB_BUCKET=${bucket}\n`);
+}
+
 describe("cli (e2e)", () => {
   it("tree lists a set's files", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
@@ -68,7 +85,7 @@ describe("cli (e2e)", () => {
     writeFileSync(join(data, "alpha.txt"), "a");
     writeFileSync(join(data, "beta.txt"), "b");
 
-    runWithHome(home, "setup", "files", data);
+    seedSet(home, "files", [data]);
     const { status, stdout } = runWithHome(home, "tree", "files");
 
     assert.strictEqual(status, 0);
@@ -84,8 +101,7 @@ describe("cli (e2e)", () => {
     mkdirSync(data);
     writeFileSync(join(data, "alpha.txt"), "a");
 
-    const created = runWithHome(home, "setup", "files", data);
-    assert.strictEqual(created.status, 0, created.stderr);
+    seedSet(home, "files", [data]);
 
     // First snapshot of the sole set (no name needed): everything is added.
     const snap = runWithHome(home, "snapshot");
@@ -99,47 +115,35 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
-  it("backup on a bucket-less set stops with the bind-bucket command", async () => {
-    // The cloud round-trip (backup → list --remote → status) needs a real
-    // bucket and is covered by the gated lib tests (S3CAB_TEST_BUCKET). Here,
-    // without S3: a set with no bucket can't be backed up, and `backup` points
-    // at the exact command to bind one.
+  it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
+    // Creating a set now requires a bucket and touches S3 (the collision claim,
+    // ADR-0024/0026); the full create → backup → list cloud round-trip is
+    // covered by the gated lib tests (S3CAB_TEST_BUCKET). Offline, `setup`
+    // without --bucket must fail fast with the usage error, before any S3 touch.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     const data = join(dir.path, "data");
     mkdirSync(home);
     mkdirSync(data);
 
-    const created = runWithHome(home, "setup", "files", data);
-    assert.strictEqual(created.status, 0, created.stderr);
-
-    const { status, stderr } = runWithHome(home, "backup");
+    const { status, stderr } = runWithHome(home, "setup", "files", data);
     assert.strictEqual(status, 1);
-    assert.match(stderr, /no bucket bound/);
-    assert.match(stderr, /s3cab setup files --bucket/);
+    assert.match(stderr, /Missing required argument: --bucket/);
   });
 
-  it("setup → sets round-trip: create a backup set, then list it", async () => {
+  it("sets lists a configured backup set with its bucket", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     const photos = join(dir.path, "photos");
     mkdirSync(home);
     mkdirSync(photos);
 
-    const created = runWithHome(home, "setup", "photos", photos);
-
-    assert.strictEqual(created.status, 0, created.stderr);
-    const set = JSON.parse(created.stdout);
-    assert.strictEqual(set.name, "photos");
-    assert.match(String(set.namespace), /^[a-z0-9-]+@[a-z0-9-]+\/photos$/);
+    seedSet(home, "photos", [photos], "my-bucket");
 
     const listed = runWithHome(home, "sets");
 
     assert.strictEqual(listed.status, 0, listed.stderr);
-    assert.match(
-      listed.stdout,
-      /photos\s+\(no bucket — local only\)\s+\(1 folder\)/,
-    );
+    assert.match(listed.stdout, /photos\s+→ s3:\/\/my-bucket\s+\(1 folder\)/);
   });
 
   it("setup rejects an invalid set name with the rule and a suggestion", async () => {

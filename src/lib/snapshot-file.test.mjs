@@ -28,7 +28,7 @@ const hashB = "b".repeat(64);
 describe("parseSnapshotStream", () => {
   it("parses entries and the #SNAPSHOT/#DIR headers", async () => {
     const text = [
-      "#SNAPSHOT\t\t2026-06-12T09:15\tallen@allen-pc:photos",
+      "#SNAPSHOT\t\t2026-06-12T09:15\tphotos",
       "#DIR\t\t\tC:\\Users\\me\\Photos",
       "#DIR\t\t\tD:\\Pics",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\tC:\\Users\\me\\Photos\\beach.jpg`,
@@ -37,7 +37,7 @@ describe("parseSnapshotStream", () => {
 
     const { entries, dirs, identity } = await parse(text);
 
-    assert.equal(identity, "allen@allen-pc:photos");
+    assert.equal(identity, "photos");
     assert.deepEqual(dirs, ["C:\\Users\\me\\Photos", "D:\\Pics"]);
     assert.deepEqual(
       [...entries.keys()],
@@ -61,11 +61,11 @@ describe("parseSnapshotStream", () => {
     } = await parse(
       snapshotHeader({
         datetime: "2026-06-18T22:04",
-        identity: "allen@allen-pc:photos",
+        identity: "photos",
         dirs,
       }),
     );
-    assert.equal(identity, "allen@allen-pc:photos");
+    assert.equal(identity, "photos");
     assert.deepEqual(parsedDirs, dirs);
     assert.equal(entries.size, 0);
   });

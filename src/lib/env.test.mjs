@@ -164,17 +164,13 @@ describe("prepareRemoteSet", () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
     t.user("AWS_PROFILE=photoprof\n");
-    t.set(
-      "photos",
-      "S3CAB_BUCKET=photobucket\nS3CAB_NAMESPACE=al@pc/photos\nAWS_REGION=us-set\n",
-    );
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
 
     const set = t.prepareRemoteSet("photos");
 
     // resolveRemoteSet's guarantees, surfaced through the front door:
     assert.equal(set.name, "photos");
     assert.equal(set.bucket, "photobucket");
-    assert.equal(set.namespace, "al@pc/photos");
     // …and the env side effect — the set layer applied over the user layer,
     // which is the precondition the front door exists to make unskippable.
     assert.equal(process.env.AWS_REGION, "us-set"); // set layer
@@ -184,9 +180,9 @@ describe("prepareRemoteSet", () => {
   it("stops a bucket-less set before loading its env", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    // A pinned namespace but no S3CAB_BUCKET → local-only; resolveRemoteSet
-    // rejects it, and it must do so *before* the env layer is applied.
-    t.set("local", "S3CAB_NAMESPACE=al@pc/local\nAWS_REGION=us-set\n");
+    // No S3CAB_BUCKET → local-only; resolveRemoteSet rejects it, and it must do
+    // so *before* the env layer is applied.
+    t.set("local", "AWS_REGION=us-set\n");
 
     assert.throws(() => t.prepareRemoteSet("local"), /no bucket bound/);
     assert.equal(process.env.AWS_REGION, undefined);

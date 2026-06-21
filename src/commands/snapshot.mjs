@@ -48,11 +48,9 @@ export async function snapshot(setName, options = {}) {
     lookup = entries;
   }
 
-  // The set's pinned identity (user@machine:set) heads the snapshot, with one
-  // #DIR line per member directory, so the file is self-describing even when
+  // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
+  // one #DIR line per member directory, so the file is self-describing even when
   // found alone in a bucket (docs/specs/backup.md).
-  const identity = set.namespace?.replace("/", ":") ?? set.name;
-
   const snapshotPath = await withSnapshotFile(
     snapshotDir,
     newSnapshotName,
@@ -60,7 +58,9 @@ export async function snapshot(setName, options = {}) {
       const datetime = Temporal.Now.plainDateTimeISO().toString({
         smallestUnit: "minutes",
       });
-      writeStream.write(snapshotHeader({ datetime, identity, dirs: set.dirs }));
+      writeStream.write(
+        snapshotHeader({ datetime, identity: set.name, dirs: set.dirs }),
+      );
 
       const files = walkSet(set, writeStream);
 

@@ -51,7 +51,7 @@ export async function restore(setName, paths = [], options = {}) {
   // One listing picks the source and validates `--snapshot` against what's
   // really there (newest first), so a bad name errors loudly with the choices
   // rather than failing later on a 404 mid-fetch.
-  const names = await listRemoteSnapshots(set.bucket, set.namespace);
+  const names = await listRemoteSnapshots(set.bucket, set.name);
   if (names.length === 0) {
     throw new Error(
       `No backups for set '${set.name}'. Back one up with: s3cab backup ${set.name}`,
@@ -68,7 +68,7 @@ export async function restore(setName, paths = [], options = {}) {
 
   const { entries, dirs } = await readRemoteSnapshot(
     set.bucket,
-    set.namespace,
+    set.name,
     name,
   );
   const targets = selectEntries(entries.keys(), paths);

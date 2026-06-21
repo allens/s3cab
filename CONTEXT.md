@@ -43,11 +43,6 @@ _Avoid_: repo (the git sense), archive, vault.
 
 ### Snapshots & sets
 
-> _Redesign settled, implementation pending ([ADR-0024](docs/adr/0024-set-name-is-the-whole-identity.md)):
-> the set **name** is now the whole identity — there is no `user@machine` component. The code
-> still uses the old form until the change lands; the definitions below are the language going
-> forward._
-
 **Backup set** (**set**):
 A named list of directories that is the unit of snapshot, backup, and restore. Its **name** (a
 `[a-z0-9-]+` label, e.g. `work-laptop`) is its whole identity — at once the local handle, the

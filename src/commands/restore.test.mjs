@@ -12,7 +12,8 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { remoteSnapshotsPrefix } from "../lib/remote.mjs";
 import { deleteObject } from "../lib/s3.mjs";
-import { resolveRemoteSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { remoteSetPrefix } from "../lib/set-marker.mjs";
+import { setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
 import { restore } from "./restore.mjs";
@@ -126,10 +127,15 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       for (const hash of hashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
-      const { namespace } = resolveRemoteSet(setName);
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${snapshot}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
       );
+      // setup() also claimed the set's remote marker — clean it up too.
+      for (const file of ["info", "dirs.txt", "exclude.txt"]) {
+        await deleteObject(
+          `s3://${bucket}/${remoteSetPrefix(setName)}${file}`,
+        ).catch(() => {});
+      }
     }
   });
 });

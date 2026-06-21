@@ -1,10 +1,17 @@
 # Local config & remote storage structure — settled redesign
 
 A reshape of how s3cab stores config and data, locally and remotely, and of the set identity
-model. **Design settled** in a grilling session (2026-06-20); **implementation pending.** The
-*why* of each major decision is recorded as an ADR — this file is the detailed design and
-implementation home until the change lands, at which point the ADRs flip from `proposed` to
-accepted and `CONTEXT.md` + `docs/specs/backup.md` are updated to match the code.
+model. **Design settled** in a grilling session (2026-06-20); **mostly implemented** (2026-06-21).
+The *why* of each major decision is recorded as an ADR — this file is the detailed design and
+implementation home until the change *fully* lands, at which point `CONTEXT.md` +
+`docs/specs/backup.md` are rewritten to match and this file is deleted.
+
+> **Status (2026-06-21):** **ADR-0025 done** (per-bucket env dropped); **ADR-0024 done** (set
+> name = whole identity, flattened `snapshots/<set>/`, `setup` collision check + `--inherit`,
+> the `sets/<set>/` marker with `dirs.txt`/`exclude.txt`/`info`); **ADR-0026's setup-requirement
+> done** (`--bucket` required at `setup`). **One slice remains** — ADR-0026's code cleanup:
+> fold `resolveRemoteSet` into `resolveSet`, make `BackupSet.bucket` non-optional, and delete
+> `formatSets`' "(no bucket — local only)" branch. **Delete this file when that lands.**
 
 Decisions of record:
 [ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md) (set name = whole identity),
@@ -96,24 +103,29 @@ s3://<bucket>/
 
 ## Code cleanup this unlocks
 
-- **Remove:** `validateNamespace` / `isNamespace` (the `user@machine/set` shape),
-  `namespacePart` (sha256 fallback), `S3CAB_NAMESPACE` pinning + the `namespace` field,
-  ~~`bucketEnvPath` + the per-bucket precedence branch~~ (✅ done, ADR-0025), and the
-  `resolveRemoteSet` two-tier resolver (folds into `resolveSet`; `BackupSet.bucket` becomes
-  non-optional).
-- **Keep:** `validateSetName` (now the keystone), `validateBucketName` (input sanity),
-  `assertPathSegment` (still earns its keep via the `objects.<bucket>` cache path).
-- **Demote:** `sanitizeNamePart` to cosmetic use for the `$username` default suggestion.
-- Small leftovers (e.g. whether `assertPathSegment` still guards the set-name→folder path once
-  `validateSetName` + `listSets()` membership cover it) to be settled at implementation — not
-  worth pinning now.
+- **Removed (✅ ADR-0024):** ~~`validateNamespace` / `isNamespace`~~, ~~`namespacePart`~~,
+  ~~`S3CAB_NAMESPACE` pinning + the `namespace` field~~, ~~`bucketEnvPath` + the per-bucket
+  precedence branch~~ (✅ ADR-0025).
+- **Still to remove (last slice, ADR-0026 cleanup):** the `resolveRemoteSet` two-tier resolver
+  (fold into `resolveSet`; `BackupSet.bucket` becomes non-optional) — kept this slice because a
+  bucket-less set can still exist until the resolver fold makes the type honest.
+- **Kept:** `validateSetName` (the keystone), `validateBucketName` (input sanity),
+  `assertPathSegment`.
+- **Demoted (✅):** `sanitizeNamePart` to `validateSetName`'s suggestion + the `$username`
+  default.
+- **Leftover settled:** `assertPathSegment` **stays** on the set-name→folder path — it is
+  load-bearing for `loadEnv({ set })` / `setEnvPath`, which build the path *without* a
+  `listSets()` membership check (there's a test pinning it); `validateSetName` + `listSets()`
+  do not fully cover it.
 
 ## At implementation time
 
-- Flip ADR-0024/0025/0026 from `proposed` to accepted; drop the "pending implementation" notes
-  on [0013](../docs/adr/0013-one-repository-one-bucket.md) /
-  [0014](../docs/adr/0014-backup-sets.md).
-- Update `CONTEXT.md`: collapse **Identity** + **Namespace** into the set **name**, add an
-  **Inherit** verb, note bucket-required on **Setup**.
-- Update `docs/specs/backup.md`: layout, identity, env layering, and the setup/inherit flow.
-- Delete this proposal file (per the proposals-are-deleted-when-done rule).
+- ~~Flip ADR-0024/0025 to accepted~~ ✅; ADR-0026 is **partly accepted** (setup-requirement done,
+  resolver fold pending). ~~Drop the "pending" notes on [0013] / [0014]~~ ✅ (now marked
+  "historical").
+- ~~Update `CONTEXT.md`~~ ✅ (Identity/Namespace collapsed into the set name, Inherit verb,
+  bucket-required Setup).
+- Update `docs/specs/backup.md`: ✅ banner + Status reflect the landed state; the **detail
+  sections** (identity, on-disk, setup/inherit, `#SNAPSHOT`, remote layout) get their **full
+  prose rewrite when the last slice lands** (with this file's deletion).
+- **Delete this proposal file** once ADR-0026's resolver-fold slice lands.

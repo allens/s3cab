@@ -29,7 +29,7 @@ import { secondsSince } from "./format.mjs";
 // (col3 as `errorLine` writes it):
 // #ERROR<TAB><TAB>reason<TAB>path
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
-//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = user@machine:set
+//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = the set name (ADR-0024)
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
 // so a snapshot file is self-describing even found alone (docs/specs/backup.md). The
 // walk also writes `#EXCLUDED` rows (via `excludedLine`) and `#ERROR` rows (via
@@ -62,8 +62,7 @@ const ERROR = "#ERROR";
  * A parsed snapshot: the file `entries`, the paths that failed hashing
  * (`errors`, mapped to the recorded reason), plus the `#SNAPSHOT`/`#DIR` headers
  * that make it self-describing (docs/specs/backup.md). `dirs` are the member
- * directories captured at snapshot time; `identity` is the pinned
- * `user@machine:set`.
+ * directories captured at snapshot time; `identity` is the set name (ADR-0024).
  * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, dirs: string[], identity?: string }} Snapshot
  */
 
@@ -170,7 +169,7 @@ export async function readSnapshot(snapshotDir, name) {
  * The snapshot names among a set of snapshot file names, newest first. This
  * datestamped `.tsv.zst` filter is the one place the snapshot naming convention
  * is recognised; `list` (local files) and the remote lister (snapshot keys with
- * their `snapshots/<namespace>/` prefix already stripped) both run through here,
+ * their `snapshots/<set>/` prefix already stripped) both run through here,
  * so a local and a remote listing sort and filter identically.
  * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.zst`)
  * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
@@ -343,7 +342,7 @@ function formatLine(col1, col2, col3, col4) {
  * `parseSnapshotStream` that reads them back.
  * @param {object} header
  * @param {string} header.datetime - Snapshot datetime (minute precision)
- * @param {string} header.identity - The pinned `user@machine:set` identity
+ * @param {string} header.identity - The set name (its whole identity, ADR-0024)
  * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
  * @returns {string}
  */

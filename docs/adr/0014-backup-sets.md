@@ -1,14 +1,15 @@
 # Backup sets are the unit of snapshot, backup, and restore
 
-> **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (proposed, pending
-> implementation): the `user@machine:set` identity / `user@machine/set` namespace pinned at
-> creation is dropped — the set **name** becomes the whole identity. The "a backup set is the
-> unit of snapshot/backup/restore" decision itself stands; only the identity model below
-> changes. Until 0024 lands, the identity described here is what the code does.
+> **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (accepted): the
+> `user@machine:set` identity / `user@machine/set` namespace pinned at creation was dropped —
+> the set **name** is now the whole identity. The "a backup set is the unit of
+> snapshot/backup/restore" decision itself stands; only the identity model below changed. The
+> `user@machine:set` form here is the *historical* identity.
 
-A **backup set** is a named list of directories, configured at `~/.s3cab/sets/<name>/` with
-an identity `user@machine:set` pinned at creation. It — not a single directory — is the unit
-the porcelain operates on. Full design: [docs/specs/backup.md](../specs/backup.md).
+A **backup set** is a named list of directories, configured at `~/.s3cab/sets/<name>/`. Its
+**name** is its whole identity ([0024](0024-set-name-is-the-whole-identity.md)) — originally an
+identity `user@machine:set` pinned at creation. It — not a single directory — is the unit the
+porcelain operates on. Full design: [docs/specs/backup.md](../specs/backup.md).
 
 ## Why
 

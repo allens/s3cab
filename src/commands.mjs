@@ -103,7 +103,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
   setup: {
     group: "Backup sets",
-    summary: "Create or update a backup set",
+    summary: "Create, update, or inherit a backup set",
     args: {
       "<set>": "The set's name (lowercase letters, digits, and hyphens)",
       "[<folder>...]":
@@ -113,12 +113,13 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       bucket: {
         type: "string",
         short: "b",
-        description: "The S3 bucket to back this set up to",
-      },
-      from: {
-        type: "string",
         description:
-          "Adopt an existing backup: pin this user@machine/set namespace (for restoring on a fresh machine)",
+          "The S3 bucket to back this set up to (required when creating)",
+      },
+      inherit: {
+        type: "boolean",
+        description:
+          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
       },
     },
     exec: (options, [name, ...folders] = []) => setup(name, folders, options),

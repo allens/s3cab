@@ -5,7 +5,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /**
  * List a backup set's snapshots (docs/specs/backup.md) — the local snapshots by
- * default, or the set's cloud backups under `snapshots/<namespace>/` with
+ * default, or the set's cloud backups under `snapshots/<set>/` with
  * `--remote`; either way `--latest` narrows to just the newest name. Async only
  * because the `--remote` path lists S3 (the local path is synchronous work
  * wrapped in the returned promise).
@@ -18,7 +18,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 export async function list(setName, options = {}) {
   if (options.remote) {
     const set = prepareRemoteSet(setName);
-    const names = await listRemoteSnapshots(set.bucket, set.namespace);
+    const names = await listRemoteSnapshots(set.bucket, set.name);
     return options.latest ? names.at(0) : names;
   }
 
