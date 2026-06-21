@@ -166,26 +166,16 @@ async function create(name, folders, options) {
  * @returns {Promise<BackupSet>}
  */
 async function update(name, folders, options) {
+  // `readSet` guarantees a bucket (ADR-0026), so `existing.bucket` is always
+  // bound — a corrupt, bucket-less folder is rejected there, not here.
   const existing = readSet(name);
-  // A real bucket *change* needs both an existing and a different given bucket;
-  // guarding on `existing.bucket` keeps a bucket-less (pre-redesign) set from
-  // hitting a misleading "bound to bucket 'undefined'" — it falls through to the
-  // "no bucket bound, re-create it" message below instead.
-  if (existing.bucket && options.bucket && options.bucket !== existing.bucket) {
+  if (options.bucket && options.bucket !== existing.bucket) {
     throw new Error(
       `Set '${name}' is bound to bucket '${existing.bucket}'. Re-binding to a ` +
         `different bucket (migration) isn't supported yet.`,
     );
   }
   const bucket = existing.bucket;
-  if (!bucket) {
-    // Only reachable for a pre-redesign, bucket-less set; every set created under
-    // the current model has a bucket (ADR-0026).
-    throw new Error(
-      `Set '${name}' has no bucket bound. Re-create it:\n` +
-        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
-    );
-  }
 
   const dirs = folders.length ? resolveFolders(folders) : existing.dirs;
   const set = folders.length ? writeSet(name, { dirs }) : existing;

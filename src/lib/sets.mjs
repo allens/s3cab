@@ -174,11 +174,19 @@ export function listSets() {
  * @typedef {Object} BackupSet
  * @property {string} name - The local handle, local folder name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
- * @property {string} [bucket] - The bound S3 bucket (`S3CAB_BUCKET` in the set's env)
+ * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at `setup` (ADR-0026), so this is never absent — `readSet` enforces it.
  */
 
 /**
  * Read one set's configuration from its folder.
+ *
+ * Every set is bound to a bucket at `setup` (ADR-0026), so this is the single
+ * point that enforces the invariant: a set folder whose `env` is missing
+ * `S3CAB_BUCKET` is *corrupt* (hand-edited, or a pre-redesign local-only folder),
+ * not a supported "local-only" set, and is rejected here. Guaranteeing the bucket
+ * at the one place a `BackupSet` is built from disk is what lets `bucket` be a
+ * plain `string` for every consumer — and is why the old two-tier
+ * `resolveRemoteSet` resolver could fold back into `resolveSet`.
  * @param {string} name
  * @returns {BackupSet}
  */
@@ -198,11 +206,15 @@ export function readSet(name) {
     .filter(Boolean);
   const envText = readTextFile(setEnvPath(name));
   const env = envText === undefined ? {} : parseEnv(envText);
-  return {
-    name,
-    dirs,
-    bucket: env.S3CAB_BUCKET,
-  };
+  const bucket = env.S3CAB_BUCKET;
+  if (!bucket) {
+    throw new Error(
+      `Backup set '${name}' has no bucket bound ` +
+        `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
+        `Add it back, or delete the set folder and run setup again.`,
+    );
+  }
+  return { name, dirs, bucket };
 }
 
 const NO_SETS_MESSAGE =
@@ -213,6 +225,13 @@ const NO_SETS_MESSAGE =
  * set-first CLI surface — the only set when exactly one exists, so plain
  * `s3cab backup` just works after setup. Anything else errors, listing the
  * sets to choose from.
+ *
+ * Every set is bound to a bucket at setup (ADR-0026), enforced by `readSet`, so
+ * a resolved set is already cloud-ready — there is no second "has a bucket?"
+ * resolver tier. The cloud commands reach the set through `prepareRemoteSet`
+ * (env.mjs), which wraps this with the env load they also need (ADR-0022); the
+ * offline commands (`snapshot`/`compare`/`tree`) call `resolveSet` directly and
+ * simply ignore the bucket.
  * @param {string} [name]
  * @returns {BackupSet}
  */
@@ -228,33 +247,6 @@ export function resolveSet(name) {
 }
 
 /**
- * Resolve a set that is ready for cloud operations: the named set (sole-set
- * default, via `resolveSet`), guarded to have a bucket bound. A bucket-less set
- * is a local-only snapshot engine and stops here with the exact command to bind
- * one. (Once ADR-0026 makes a bucket mandatory at setup, every set is guaranteed
- * one and this guard — with `BackupSet.bucket` non-optional — folds back into
- * `resolveSet`.)
- *
- * The env-free *inner step* of the set-family front door: it does no `loadEnv`,
- * so it keeps no env/auth dependency (which would also cycle — env.mjs imports
- * sets.mjs). `prepareRemoteSet` (env.mjs) wraps it with the env load, and the
- * cloud commands call *that*, not this, for their remote work (ADR-0011,
- * ADR-0022). Still exported directly for its own tests.
- * @param {string} [setName]
- * @returns {BackupSet & { bucket: string }}
- */
-export function resolveRemoteSet(setName) {
-  const set = resolveSet(setName);
-  if (!set.bucket) {
-    throw new Error(
-      `Backup set '${set.name}' has no bucket bound — it is local-only.\n` +
-        `Bind one with:  s3cab setup ${set.name} --bucket <bucket>`,
-    );
-  }
-  return { ...set, bucket: set.bucket };
-}
-
-/**
  * Format sets as the human-readable listing the `sets` command prints — also
  * the body of resolveSet's several-sets error, so the error shows exactly what
  * the command would.
@@ -264,9 +256,8 @@ export function formatSets(sets) {
   const nameColumn = Math.max(...sets.map(({ name }) => name.length)) + 3;
   const lines = [];
   for (const { name, dirs, bucket } of sets) {
-    const target = bucket ? `→ s3://${bucket}` : "(no bucket — local only)";
     const count = `(${dirs.length} folder${dirs.length === 1 ? "" : "s"})`;
-    lines.push(name.padEnd(nameColumn) + `${target}   ${count}`);
+    lines.push(name.padEnd(nameColumn) + `→ s3://${bucket}   ${count}`);
     for (const dir of dirs) {
       lines.push(" ".repeat(nameColumn) + dir);
     }

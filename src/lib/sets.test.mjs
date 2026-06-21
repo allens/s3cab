@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -7,7 +7,6 @@ import {
   formatSets,
   listSets,
   readSet,
-  resolveRemoteSet,
   resolveSet,
   sanitizeNamePart,
   setEnvPath,
@@ -97,11 +96,14 @@ describe("set store", () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
 
-    const set = writeSet("photos", { dirs: ["C:\\Photos", "D:\\Pics"] });
+    const set = writeSet("photos", {
+      dirs: ["C:\\Photos", "D:\\Pics"],
+      bucket: "my-bucket",
+    });
 
     assert.equal(set.name, "photos");
     assert.deepEqual(set.dirs, ["C:\\Photos", "D:\\Pics"]);
-    assert.equal(set.bucket, undefined);
+    assert.equal(set.bucket, "my-bucket");
 
     const dirsTxt = readFileSync(
       join(home, ".s3cab", "sets", "photos", "dirs.txt"),
@@ -110,10 +112,10 @@ describe("set store", () => {
     assert.equal(dirsTxt, "C:\\Photos\nD:\\Pics\n");
   });
 
-  it("writeSet binds a bucket and re-running updates only what is passed", async () => {
+  it("writeSet re-running updates only what is passed", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "first-bucket" });
 
     const updated = writeSet("photos", { bucket: "my-bucket" });
 
@@ -124,8 +126,8 @@ describe("set store", () => {
   it("env updates preserve hand-written lines (the files are the API)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    // Bind a bucket so the env file exists (a bucket-less set writes none), then
-    // hand-edit it and re-bind — the hand-written lines must survive the update.
+    // Create the set (its env file holds the bound bucket), then hand-edit it and
+    // re-bind — the hand-written lines must survive the update.
     writeSet("photos", { dirs: ["C:\\Photos"], bucket: "old-bucket" });
 
     const envPath = setEnvPath("photos");
@@ -175,7 +177,7 @@ describe("set store", () => {
   it("reports an unknown set (not a guard error) for an arbitrary string", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
 
     assert.throws(() => readSet("../evil"), {
       message:
@@ -197,8 +199,8 @@ describe("set store", () => {
 
     assert.deepEqual(listSets(), []);
 
-    writeSet("photos", { dirs: ["C:\\Photos"] });
-    writeSet("docs", { dirs: ["C:\\Docs"] });
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
+    writeSet("docs", { dirs: ["C:\\Docs"], bucket: "b" });
 
     assert.deepEqual(listSets(), ["docs", "photos"]);
   });
@@ -208,7 +210,7 @@ describe("resolveSet", () => {
   it("defaults to the only set when exactly one exists", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
 
     assert.equal(resolveSet().name, "photos");
     assert.equal(resolveSet("photos").name, "photos");
@@ -225,31 +227,27 @@ describe("resolveSet", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
-    writeSet("docs", { dirs: ["C:\\Docs"] });
+    writeSet("docs", { dirs: ["C:\\Docs"], bucket: "b" });
 
     assert.throws(() => resolveSet(), /name one:[\s\S]*docs[\s\S]*photos/);
   });
 });
 
-describe("resolveRemoteSet", () => {
-  it("returns the set when a bucket is bound", async () => {
+describe("readSet bucket guarantee", () => {
+  it("rejects a corrupt set whose env is missing S3CAB_BUCKET", async () => {
     await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
-
-    const set = resolveRemoteSet("photos");
-    assert.equal(set.bucket, "b");
-    assert.equal(set.name, "photos");
-  });
-
-  it("stops with the bind-bucket command for a bucket-less set", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
+    const home = useTempHome(dir.path);
+    // A hand-made / pre-redesign folder: dirs.txt but no bound bucket. Not a
+    // supported "local-only" set (ADR-0026), so readSet refuses it — the single
+    // point that guarantees every BackupSet has a bucket. (writeSet can't make
+    // one, since it returns readSet, so the folder is seeded by hand here.)
+    const setDir = join(home, ".s3cab", "sets", "photos");
+    mkdirSync(setDir, { recursive: true });
+    writeFileSync(join(setDir, "dirs.txt"), "C:\\Photos\n");
 
     assert.throws(
-      () => resolveRemoteSet("photos"),
-      /no bucket bound[\s\S]*s3cab setup photos --bucket/,
+      () => readSet("photos"),
+      /no bucket bound[\s\S]*S3CAB_BUCKET/,
     );
   });
 });
@@ -262,7 +260,11 @@ describe("formatSets", () => {
         bucket: "my-backup-bucket",
         dirs: ["C:\\Users\\me\\Photos", "D:\\Pics"],
       },
-      { name: "docs", dirs: ["C:\\Users\\me\\Documents"] },
+      {
+        name: "docs",
+        bucket: "docs-bucket",
+        dirs: ["C:\\Users\\me\\Documents"],
+      },
     ]);
 
     assert.equal(
@@ -271,7 +273,7 @@ describe("formatSets", () => {
         "photos   → s3://my-backup-bucket   (2 folders)",
         "         C:\\Users\\me\\Photos",
         "         D:\\Pics",
-        "docs     (no bucket — local only)   (1 folder)",
+        "docs     → s3://docs-bucket   (1 folder)",
         "         C:\\Users\\me\\Documents",
       ].join("\n"),
     );
