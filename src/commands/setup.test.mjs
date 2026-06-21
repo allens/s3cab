@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { hostname } from "node:os";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { deleteObject } from "../lib/s3.mjs";
+import {
+  readRemoteInfo,
+  readSetConfig,
+  remoteSetPrefix,
+} from "../lib/set-marker.mjs";
+import { readSet } from "../lib/sets.mjs";
 import { setup } from "./setup.mjs";
-import { useTempHome as tempHome } from "../../test/helpers/temp-home.mjs";
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the setup command's create/update semantics and error UX
-// (docs/specs/backup.md). The set store under test keeps no module state, so each
-// test just points S3CAB_HOME at a temp dir (via the shared useTempHome).
+// Tests for the setup command (docs/specs/backup.md). The offline block covers the
+// pre-S3 validation/UX (which fires before any network touch); the create /
+// collision / inherit behaviour touches the bucket, so it lives in the gated
+// real-bucket block below (mirroring remote.test.mjs / restore.test.mjs). The set
+// store keeps no module state, so each test points S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -28,39 +38,17 @@ afterEach(() => {
  * Wire up a temp home (via the shared helper) plus a member folder to enrol.
  * @param {string} root - The disposable temp directory.
  */
-function useTempHome(root) {
-  const home = tempHome(root);
+function withMemberFolder(root) {
+  const home = useTempHome(root);
   const photos = join(root, "photos");
   mkdirSync(photos, { recursive: true });
   return { home, photos };
 }
 
-describe("setup", () => {
-  it("creates a set: absolute member folders, no bucket", async () => {
-    await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
-
-    const set = await setup("photos", [photos]);
-
-    assert.equal(set.name, "photos");
-    assert.deepEqual(set.dirs, [realpathSync.native(photos)]);
-    assert.equal(set.bucket, undefined);
-  });
-
-  it("re-running with --bucket alone binds the bucket and keeps the folders", async () => {
-    await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
-    await setup("photos", [photos]);
-
-    const updated = await setup("photos", [], { bucket: "my-bucket" });
-
-    assert.equal(updated.bucket, "my-bucket");
-    assert.deepEqual(updated.dirs, [realpathSync.native(photos)]);
-  });
-
+describe("setup (offline validation)", () => {
   it("requires the set name", async () => {
     await using dir = await mkTmpDir();
-    useTempHome(dir.path);
+    withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup(undefined),
@@ -70,7 +58,7 @@ describe("setup", () => {
 
   it("requires at least one folder when creating", async () => {
     await using dir = await mkTmpDir();
-    useTempHome(dir.path);
+    withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup("photos", []),
@@ -78,19 +66,29 @@ describe("setup", () => {
     );
   });
 
-  it("rejects an invalid set name, teaching the rule and a kebab form", async () => {
+  it("requires --bucket when creating (a set is bound to a bucket at creation)", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
+    const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => setup("My Photos", [photos]),
+      () => setup("photos", [photos]),
+      /Missing required argument: --bucket/,
+    );
+  });
+
+  it("rejects an invalid set name, teaching the rule and a kebab form", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberFolder(dir.path);
+
+    await assert.rejects(
+      () => setup("My Photos", [photos], { bucket: "b" }),
       /Invalid set name: My Photos[\s\S]*lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
     );
   });
 
   it("rejects an s3:// URL passed as the bucket, before touching folders", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
+    const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
@@ -100,7 +98,7 @@ describe("setup", () => {
 
   it("rejects an explicit empty --bucket rather than silently ignoring it", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
+    const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { bucket: "" }),
@@ -108,12 +106,14 @@ describe("setup", () => {
     );
   });
 
-  it("rejects a missing folder and a non-folder member", async () => {
+  it("rejects a missing folder and a non-folder member (before --bucket)", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
+    const { photos } = withMemberFolder(dir.path);
     const file = join(dir.path, "plain.txt");
     writeFileSync(file, "x");
 
+    // Folder resolution runs before the --bucket check, so a bad folder reports
+    // itself regardless of whether a bucket was given.
     await assert.rejects(
       () => setup("photos", [join(dir.path, "nope")]),
       /Folder not found: /,
@@ -122,5 +122,146 @@ describe("setup", () => {
       () => setup("photos", [photos, file]),
       /Not a folder: /,
     );
+  });
+
+  it("inherit takes no folders and needs a bucket", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberFolder(dir.path);
+
+    await assert.rejects(
+      () => setup("photos", [photos], { inherit: true, bucket: "b" }),
+      /takes no folders/,
+    );
+    await assert.rejects(
+      () => setup("photos", [], { inherit: true }),
+      /Inheriting needs the bucket/,
+    );
+  });
+});
+
+// Create / collision / inherit touch the bucket, so they're gated on
+// S3CAB_TEST_BUCKET (+ ambient AWS credentials) like the other S3 suites, and
+// skipped with a message otherwise. Each uses a unique set name so the shared
+// bucket stays isolated, and deletes its `sets/<name>/` marker on teardown.
+const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
+const skip = TEST_BUCKET
+  ? false
+  : "set S3CAB_TEST_BUCKET (and AWS credentials) to run S3 integration tests";
+
+/**
+ * Delete a set's remote marker files (best-effort) — teardown for the gated
+ * tests so the shared bucket doesn't accumulate `sets/<name>/` markers.
+ * @param {string} bucket
+ * @param {string} name
+ */
+async function cleanupSet(bucket, name) {
+  for (const file of ["info", "dirs.txt", "exclude.txt"]) {
+    await deleteObject(`s3://${bucket}/${remoteSetPrefix(name)}${file}`).catch(
+      () => {},
+    );
+  }
+}
+
+describe("setup (real bucket)", { skip }, () => {
+  it("create claims the name and publishes its config", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const name = `st-create-${Date.now()}`;
+    const content = resolve(dir.path, "content");
+    mkdirSync(content, { recursive: true });
+
+    try {
+      const set = await setup(name, [content], { bucket });
+      assert.equal(set.name, name);
+      assert.equal(set.bucket, bucket);
+      assert.deepEqual(set.dirs, [realpathSync.native(content)]);
+
+      // The remote marker is claimed (owner = this machine) and the config is
+      // published.
+      const info = await readRemoteInfo(bucket, name);
+      assert.equal(info?.owner, hostname());
+      assert.match(String(info?.created), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+      const config = await readSetConfig(bucket, name);
+      assert.deepEqual(config.dirs, [realpathSync.native(content)]);
+    } finally {
+      await cleanupSet(bucket, name);
+    }
+  });
+
+  it("refuses a name already claimed (by another machine), pointing at --inherit", async () => {
+    await using dir = await mkTmpDir();
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const name = `st-collide-${Date.now()}`;
+    const content = resolve(dir.path, "content");
+    mkdirSync(content, { recursive: true });
+
+    try {
+      // Machine A claims the name.
+      useTempHome(join(dir.path, "a"));
+      await setup(name, [content], { bucket });
+
+      // Machine B (a fresh local home, same bucket) is refused.
+      useTempHome(join(dir.path, "b"));
+      await assert.rejects(
+        () => setup(name, [content], { bucket }),
+        /already set up[\s\S]*--inherit/,
+      );
+    } finally {
+      await cleanupSet(bucket, name);
+    }
+  });
+
+  it("inherit recreates the set locally from the remote, preserving CREATED", async () => {
+    await using dir = await mkTmpDir();
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const name = `st-inherit-${Date.now()}`;
+    const content = resolve(dir.path, "content");
+    mkdirSync(content, { recursive: true });
+
+    try {
+      // Machine A creates it.
+      useTempHome(join(dir.path, "a"));
+      await setup(name, [content], { bucket });
+      const before = await readRemoteInfo(bucket, name);
+
+      // Machine B inherits — no folders, recreated from the remote config.
+      useTempHome(join(dir.path, "b"));
+      const inherited = await setup(name, [], { bucket, inherit: true });
+      assert.equal(inherited.bucket, bucket);
+      assert.deepEqual(inherited.dirs, [realpathSync.native(content)]);
+      // The local set really exists on machine B.
+      assert.deepEqual(readSet(name).dirs, [realpathSync.native(content)]);
+
+      // CREATED is preserved across the inherit (only OWNER is re-stamped).
+      const after = await readRemoteInfo(bucket, name);
+      assert.equal(after?.created, before?.created);
+    } finally {
+      await cleanupSet(bucket, name);
+    }
+  });
+
+  it("update re-publishes changed folders to the remote", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const name = `st-update-${Date.now()}`;
+    const c1 = resolve(dir.path, "one");
+    const c2 = resolve(dir.path, "two");
+    mkdirSync(c1, { recursive: true });
+    mkdirSync(c2, { recursive: true });
+
+    try {
+      await setup(name, [c1], { bucket });
+      await setup(name, [c1, c2], { bucket }); // update: add a folder
+
+      const config = await readSetConfig(bucket, name);
+      assert.deepEqual(config.dirs, [
+        realpathSync.native(c1),
+        realpathSync.native(c2),
+      ]);
+    } finally {
+      await cleanupSet(bucket, name);
+    }
   });
 });

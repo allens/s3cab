@@ -1,56 +1,76 @@
 import { realpathSync, statSync } from "node:fs";
+import { hostname } from "node:os";
+import { loadEnv } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import {
+  claimRemoteSet,
+  listRemoteSets,
+  pushSetConfig,
+  readRemoteInfo,
+  readSetConfig,
+  writeRemoteInfo,
+} from "../lib/set-marker.mjs";
+import {
   listSets,
+  readSet,
+  readSetExclude,
   validateBucketName,
   validateSetName,
   writeSet,
+  writeSetExclude,
 } from "../lib/sets.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * Create or update a backup set (docs/specs/backup.md): `~/.s3cab/sets/<set>/` with
- * its member folders in `dirs.txt` and the bucket bound when given. A set's name
- * is its whole identity (ADR-0024), so there is nothing to pin — creating and
- * updating run the same path; folders are *required* only when creating (e.g.
- * `setup photos --bucket b` later just binds the bucket).
+ * Create, update, or inherit a backup set (docs/specs/backup.md). A set's name is
+ * its whole identity (ADR-0024) — local handle, local folder, and remote
+ * namespace — so there is nothing to pin; the three modes are:
  *
- * A bucket-less set is a fully working local snapshot engine on purpose — the
- * try-it-first path; `backup` on such a set will point here to bind one. (This
- * survives only until ADR-0026 makes `--bucket` mandatory at setup.)
+ * - **Create** (`setup <name> <folder>... --bucket <b>`): claim the name in the
+ *   bucket ("first person wins") by atomically writing the remote `info` marker,
+ *   then write the local set and publish its config (`dirs.txt`/`exclude.txt`) to
+ *   `sets/<name>/`. A name already claimed by another machine is refused with the
+ *   owner and an `--inherit` suggestion. `--bucket` is required (ADR-0026).
+ * - **Inherit** (`setup <name> --inherit --bucket <b>`): the succession path for a
+ *   replacement/recovery machine — pull an existing remote set's config, recreate
+ *   it locally, and re-stamp ownership to this machine. Takes no folders.
+ * - **Update** (`setup <name> [<folder>...]` on a set you already have): refresh
+ *   the member folders and re-publish the config; the bucket is fixed at creation.
  *
- * `setup` is **async** even though the create/update path below is synchronous:
- * the succession flow (`--inherit`, ADR-0024) and the setup-time collision check
- * (ADR-0024/0026) both touch S3 once implemented, so the command returns a
- * promise now to keep its signature stable across those slices. (The old
- * `--from` adoption that made it genuinely async was removed with the namespace
- * model; `--inherit` replaces it.)
+ * So `setup` always touches S3 (the claim/publish/inherit), which is why it is
+ * async; `snapshot`/`compare`/`tree` stay offline once a set exists.
  *
  * @param {string} [name] - The set's name
  * @param {string[]} [folders] - The member folders (required when creating)
  * @param {object} [options]
- * @param {string} [options.bucket] - The S3 bucket to back the set up to
+ * @param {string} [options.bucket] - The S3 bucket to back the set up to (required on create)
+ * @param {boolean} [options.inherit] - Inherit an existing remote set onto this machine
  * @returns {Promise<BackupSet>} The set as stored
  */
 export async function setup(name, folders = [], options = {}) {
   requireArg(name, "<set>");
   validateSetName(name);
   // Validate when --bucket is *given at all* (even ""), so an explicit empty
-  // value fails fast rather than silently leaving the set bucket-less.
+  // value fails fast rather than being treated as "not given".
   if (options.bucket !== undefined) validateBucketName(options.bucket);
 
   const creating = !listSets().includes(name);
 
-  if (creating && folders.length === 0) {
-    throw new ParseArgsError(
-      "Missing required argument: <folder> (a new set needs at least one folder)",
-    );
-  }
+  if (options.inherit) return inherit(name, folders, creating, options);
+  if (creating) return create(name, folders, options);
+  return update(name, folders, options);
+}
 
-  // Pin member folders as canonical absolute paths (dirs.txt stores absolute
-  // paths), verifying each exists and is a folder while we're at it.
-  const dirs = folders.map((folder) => {
+/**
+ * Resolve member folders to canonical absolute paths (what `dirs.txt` stores),
+ * verifying each exists and is a directory. Pure-local and cheap, so `setup` runs
+ * it *before* any S3 touch — a bad folder fails fast without claiming a name.
+ * @param {string[]} folders
+ * @returns {string[]}
+ */
+function resolveFolders(folders) {
+  return folders.map((folder) => {
     let real;
     try {
       real = realpathSync.native(folder);
@@ -65,6 +85,161 @@ export async function setup(name, folders = [], options = {}) {
     }
     return real;
   });
+}
 
-  return writeSet(name, { dirs, bucket: options.bucket });
+/** A minute-precision ISO 8601 stamp for the `info` marker's `CREATED` field. */
+const nowStamp = () =>
+  Temporal.Now.plainDateTimeISO().toString({ smallestUnit: "minutes" });
+
+/**
+ * The collision error a losing claim raises: name the owner and point at
+ * `--inherit` as the way to take over.
+ * @param {string} name
+ * @param {string} bucket
+ * @param {import("../lib/set-marker.mjs").SetInfo} [info]
+ */
+const collisionError = (name, bucket, info) =>
+  new Error(
+    `Backup set '${name}' is already set up in bucket '${bucket}'` +
+      (info ? ` (owner: ${info.owner}, created ${info.created})` : "") +
+      `.\nTo take it over on this machine:\n` +
+      `  s3cab setup ${name} --inherit --bucket ${bucket}`,
+  );
+
+/**
+ * Create a new set: claim the name in the bucket, then write it locally and
+ * publish its config. Folders and `--bucket` are both required here.
+ * @param {string} name
+ * @param {string[]} folders
+ * @param {{ bucket?: string }} options
+ * @returns {Promise<BackupSet>}
+ */
+async function create(name, folders, options) {
+  if (folders.length === 0) {
+    throw new ParseArgsError(
+      "Missing required argument: <folder> (a new set needs at least one folder)",
+    );
+  }
+  // Resolve folders (local, cheap) before the --bucket check so a bad folder
+  // reports "Folder not found" regardless of whether a bucket was given.
+  const dirs = resolveFolders(folders);
+  if (!options.bucket) {
+    // A missing required argument (like requireArg / the missing-folder check),
+    // so ParseArgsError — the CLI prints usage.
+    throw new ParseArgsError(
+      "Missing required argument: --bucket (a backup set is bound to a bucket at creation)",
+    );
+  }
+  const bucket = options.bucket;
+
+  // Claim the name before writing anything locally ("first person wins"). The
+  // set env doesn't exist yet, so loadEnv() (user layer) supplies the S3 client's
+  // credentials/region.
+  loadEnv();
+  const won = await claimRemoteSet(bucket, name, {
+    owner: hostname(),
+    created: nowStamp(),
+  });
+  if (!won) {
+    const info = await readRemoteInfo(bucket, name);
+    throw collisionError(name, bucket, info);
+  }
+
+  const set = writeSet(name, { dirs, bucket });
+  await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
+  return set;
+}
+
+/**
+ * Update a set you already own: refresh its folders (if any are given) and
+ * re-publish its config to the remote marker. The bucket is fixed at creation —
+ * a different `--bucket` is rejected (bucket migration isn't supported yet).
+ * @param {string} name
+ * @param {string[]} folders
+ * @param {{ bucket?: string }} options
+ * @returns {Promise<BackupSet>}
+ */
+async function update(name, folders, options) {
+  const existing = readSet(name);
+  if (options.bucket && options.bucket !== existing.bucket) {
+    throw new Error(
+      `Set '${name}' is bound to bucket '${existing.bucket}'. Re-binding to a ` +
+        `different bucket (migration) isn't supported yet.`,
+    );
+  }
+  const bucket = existing.bucket;
+  if (!bucket) {
+    // Only reachable for a pre-redesign, bucket-less set; every set created under
+    // the current model has a bucket (ADR-0026).
+    throw new Error(
+      `Set '${name}' has no bucket bound. Re-create it:\n` +
+        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
+    );
+  }
+
+  const dirs = folders.length ? resolveFolders(folders) : existing.dirs;
+  const set = folders.length ? writeSet(name, { dirs }) : existing;
+
+  loadEnv({ set: name });
+  await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
+  return set;
+}
+
+/**
+ * Inherit an existing remote set onto this machine (`setup --inherit`): the
+ * succession path for retiring/replacing a machine or recovering on a fresh one.
+ * Pulls the remote set's published config, recreates it locally, and re-stamps
+ * `OWNER` to this machine while preserving the original `CREATED`. Takes no
+ * folders — they come from the remote. Inherit never disables the prior machine
+ * (re-stamping `OWNER` is the only remote change), so two live machines on one
+ * set stays possible (the tolerated power-user case).
+ * @param {string} name
+ * @param {string[]} folders
+ * @param {boolean} creating - Whether the set is new locally
+ * @param {{ bucket?: string }} options
+ * @returns {Promise<BackupSet>}
+ */
+async function inherit(name, folders, creating, options) {
+  if (folders.length) {
+    throw new ParseArgsError(
+      "setup --inherit takes no folders (it adopts an existing remote set)",
+    );
+  }
+  if (!options.bucket) {
+    throw new ParseArgsError(
+      `Inheriting needs the bucket holding the set:\n` +
+        `  s3cab setup ${name} --inherit --bucket <bucket>`,
+    );
+  }
+  const bucket = options.bucket;
+  if (!creating) {
+    throw new Error(
+      `Set '${name}' already exists locally. Delete it first to re-inherit it ` +
+        `from the bucket.`,
+    );
+  }
+
+  // First S3 touch: user env for credentials (the set env doesn't exist yet).
+  loadEnv();
+  const info = await readRemoteInfo(bucket, name);
+  if (!info) {
+    const available = await listRemoteSets(bucket);
+    throw new Error(
+      `No backup set '${name}' in bucket '${bucket}' to inherit.\n` +
+        (available.length
+          ? `Sets in this bucket:\n  ${available.join("\n  ")}`
+          : `This bucket holds no backup sets yet.`),
+    );
+  }
+
+  const { dirs, exclude } = await readSetConfig(bucket, name);
+  const set = writeSet(name, { dirs, bucket });
+  if (exclude !== undefined) writeSetExclude(name, exclude);
+
+  // Re-stamp ownership to this machine; preserve the original CREATED.
+  await writeRemoteInfo(bucket, name, {
+    owner: hostname(),
+    created: info.created,
+  });
+  return set;
 }

@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   paginateListObjectsV2,
+  PutObjectCommand,
   S3Client,
   ServerSideEncryption,
   StorageClass,
@@ -174,8 +175,24 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
 };
 
 /**
- * Build the PutObject params for `putFile`: the off-AWS gating (omit the
- * AWS-only `ServerSideEncryption` / `StorageClass` when a custom endpoint is set)
+ * The AWS-only PutObject params (`ServerSideEncryption` + `StorageClass`),
+ * omitted off-AWS. These are AWS-isms that S3-compatible providers (R2/B2/Spaces)
+ * reject, so they're sent only when targeting AWS (no custom endpoint). Shared by
+ * every uploader — `putFile` (via `putObjectParams`) and `putData` — so the
+ * gating rule lives in one place. `customEndpoint()` is read here, so the
+ * caller's s3cab env must already be loaded.
+ * @returns {Partial<import("@aws-sdk/client-s3").PutObjectCommandInput>}
+ */
+const awsOnlyPutParams = () =>
+  customEndpoint()
+    ? {}
+    : {
+        ServerSideEncryption: ServerSideEncryption.AES256,
+        StorageClass: StorageClass.INTELLIGENT_TIERING,
+      };
+
+/**
+ * Build the PutObject params for `putFile`: the off-AWS gating (`awsOnlyPutParams`)
  * plus the portable `x-amz-meta-*` metadata. Pure (no I/O) so the gating is
  * assertable without performing an upload — the caller supplies the `Body`
  * stream (src/lib/s3.test.mjs). `customEndpoint()` is read here, so the caller's
@@ -190,15 +207,8 @@ export function putObjectParams(path, uri, { size, mtime, noClobber }) {
   return {
     Bucket,
     Key,
-    // StorageClass + ServerSideEncryption are AWS-isms that S3-compatible
-    // providers (R2/B2/Spaces) reject; send them only when targeting AWS.
     // The x-amz-meta-* metadata below is portable, so it always goes.
-    ...(customEndpoint()
-      ? {}
-      : {
-          ServerSideEncryption: ServerSideEncryption.AES256,
-          StorageClass: StorageClass.INTELLIGENT_TIERING,
-        }),
+    ...awsOnlyPutParams(),
     Metadata: {
       // Bare keys: S3/the SDK prefixes each with `x-amz-meta-` on the wire (these
       // become x-amz-meta-hostname, …). Pre-prefixing here double-prefixes them.
@@ -285,6 +295,76 @@ async function objectExists(uri) {
   } catch (error) {
     if (Error.isError(error) && error.name === "NotFound") {
       return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Upload a small in-memory string as an S3 object — for the generated marker /
+ * config files (a set's `info`, and the pushed `dirs.txt`/`exclude.txt`) that
+ * have no local file to stream. The string twin of `putFile`: it returns whether
+ * the object was written, and `noClobber` makes the PUT conditional
+ * (`IfNoneMatch: "*"`) so a losing racer gets `false` instead of overwriting —
+ * the atomic "first person wins" claim ADR-0024's collision check relies on.
+ * Off-AWS gating matches `putFile` (`awsOnlyPutParams`).
+ *
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @param {string} content - The object body.
+ * @param {object} [options]
+ * @param {boolean} [options.noClobber] - Conditional PUT: don't overwrite an existing object.
+ * @returns {Promise<boolean>} True if written; false if `noClobber` and it already existed.
+ */
+export async function putData(uri, content, { noClobber = false } = {}) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  try {
+    await client().send(
+      new PutObjectCommand({
+        Bucket,
+        Key,
+        Body: content,
+        ...awsOnlyPutParams(),
+        ...(noClobber ? { IfNoneMatch: "*" } : {}),
+      }),
+    );
+  } catch (error) {
+    if (
+      noClobber &&
+      Error.isError(error) &&
+      error.name === "PreconditionFailed"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+  return true;
+}
+
+/**
+ * Read a small S3 object's body as text, or `undefined` if it doesn't exist —
+ * the string twin of `createS3ReadStream` for the marker / config files (`info`,
+ * pushed `dirs.txt`/`exclude.txt`) the collision check and `--inherit` read back.
+ * A missing object yields `undefined` (not a throw), so callers branch on
+ * presence — e.g. "is this set already claimed?".
+ *
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @returns {Promise<string | undefined>}
+ */
+export async function getData(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  try {
+    const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));
+    return await Body?.transformToString();
+  } catch (error) {
+    // NoSuchKey is S3's "missing"; some providers / a HEAD-style 404 surface as
+    // NotFound — treat both as absent.
+    if (
+      Error.isError(error) &&
+      (error.name === "NoSuchKey" || error.name === "NotFound")
+    ) {
+      return undefined;
     }
     throw error;
   }

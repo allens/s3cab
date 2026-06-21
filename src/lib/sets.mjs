@@ -61,6 +61,28 @@ function readTextFile(path) {
 }
 
 /**
+ * Read a set's local `exclude.txt` verbatim, or `undefined` if it has none —
+ * what `setup` pushes to the remote marker and `--inherit` writes back. Verbatim
+ * (not parsed) because the exclude file is the user's to read and edit, and is
+ * stored on the remote byte-for-byte (set-marker.mjs).
+ * @param {string} name
+ * @returns {string | undefined}
+ */
+export const readSetExclude = (name) => readTextFile(setExcludePath(name));
+
+/**
+ * Write a set's local `exclude.txt` from text — used by `--inherit` to recreate
+ * the exclude file pulled from the remote marker. Creates the set folder if
+ * absent (so it can run before `writeSet` if ever needed).
+ * @param {string} name
+ * @param {string} text
+ */
+export function writeSetExclude(name, text) {
+  mkdirSync(setDir(name), { recursive: true });
+  writeFileSync(setExcludePath(name), text);
+}
+
+/**
  * Coerce a string to the canonical set-name charset: lowercase `a-z`, `0-9`, `-`
  * — nothing else, so nothing downstream ever needs escaping. Lowercase; every
  * other run of characters becomes one `-`; leading/trailing `-` trimmed. Used in
