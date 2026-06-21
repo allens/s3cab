@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -7,6 +7,7 @@ import { deleteObject, listObjects } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import {
+  downloadRemoteSnapshots,
   listRemoteSnapshots,
   readLatestRemoteSnapshot,
   remoteSnapshotsPrefix,
@@ -118,6 +119,64 @@ describe("remote snapshot listing (real bucket)", { skip }, () => {
       await readLatestRemoteSnapshot(/** @type {string} */ (TEST_BUCKET), set),
       { name: undefined, lookup: new Map() },
     );
+  });
+});
+
+describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
+  it("returns 0 for a set with no remote snapshots", async () => {
+    await using dir = await mkTmpDir();
+    const set = `empty-dl-${Date.now()}`;
+    const pulled = await downloadRemoteSnapshots(
+      /** @type {string} */ (TEST_BUCKET),
+      set,
+      join(dir.path, "snapshots"),
+    );
+    assert.equal(pulled, 0);
+  });
+
+  it("pulls each manifest down byte-identically (the adoption sync, ADR-0027)", async () => {
+    await using dir = await mkTmpDir();
+    // useTempHome isolates the objects cache uploadSnapshot writes; AWS
+    // credentials must therefore come from the environment (see uploadSnapshot test).
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const set = `dl-${Date.now()}`;
+    const name = "2025-02-20T0900";
+
+    const contentDir = resolve(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const fileA = join(contentDir, "a.txt");
+    writeFileSync(fileA, `gamma ${set}`);
+
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    await writeSnapshot(snapshotDir, name, [fileA]);
+    const { entries: original } = await readSnapshot(snapshotDir, name);
+    const hashes = [...new Set([...original.values()].map((p) => p.hash))];
+
+    const destDir = join(dir.path, "pulled");
+    try {
+      await uploadSnapshot({ bucket, set, snapshotDir, name });
+
+      const pulled = await downloadRemoteSnapshots(bucket, set, destDir);
+      assert.equal(pulled, 1);
+
+      // Verbatim copy: byte-identical to the local snapshot that was uploaded.
+      assert.deepEqual(
+        readFileSync(join(destDir, `${name}.tsv.zst`)),
+        readFileSync(join(snapshotDir, `${name}.tsv.zst`)),
+      );
+      // And it parses back to the same entries, so a local compare/list can use it.
+      const { entries: roundTripped } = await readSnapshot(destDir, name);
+      assert.deepEqual(roundTripped, original);
+    } finally {
+      for (const hash of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+      );
+    }
   });
 });
 

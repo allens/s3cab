@@ -20,7 +20,10 @@ added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and ma
 succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --output`
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
-Remaining target: `compare --remote`, and slice 5 (`verify`/`delete`/`cleanup`).
+Remaining target: slice 5 (`verify`/`delete`/`cleanup`). (`compare --remote` was *dropped*,
+not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
+stays local-only, and `setup --inherit` instead syncs the set's manifests down so local
+`compare` works on a fresh machine.)
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
 identity, flattened `snapshots/<set>/`, `setup` collision check + `--inherit`, the
@@ -487,8 +490,12 @@ built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used t
 under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
-retired with it). **Still deferred from this slice:** `compare --remote` (still a
-`notImplemented()` stub).
+retired with it). **`compare --remote` is dropped, not deferred** (PR #89,
+[ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
+local-only, and `setup --inherit` instead pulls the set's remote manifests down (verbatim
+`.tsv.zst` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
+full history. (The `--remote` flag + `notImplemented()` stub were removed and the inherit-time
+manifest sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair
 

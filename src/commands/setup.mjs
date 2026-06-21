@@ -2,6 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { loadEnv } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
+import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   claimRemoteSet,
   listRemoteSets,
@@ -14,6 +15,7 @@ import {
   listSets,
   readSet,
   readSetExclude,
+  setSnapshotsDir,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -235,6 +237,21 @@ async function inherit(name, folders, creating, options) {
   const { dirs, exclude } = await readSetConfig(bucket, name);
   const set = writeSet(name, { dirs, bucket });
   if (exclude !== undefined) writeSetExclude(name, exclude);
+
+  // Pull the set's snapshot manifests down so the new machine lands with full
+  // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
+  console.warn(`Inheriting '${name}' from bucket '${bucket}'…`);
+  const pulled = await downloadRemoteSnapshots(
+    bucket,
+    name,
+    setSnapshotsDir(name),
+  );
+  console.warn(
+    pulled > 0
+      ? `Pulled ${pulled} snapshot${pulled === 1 ? "" : "s"} from the cloud — ` +
+          `local history is ready (try: s3cab list ${name}).`
+      : `No snapshots in the cloud for '${name}' yet — nothing to pull.`,
+  );
 
   // A normal set always has member dirs (create requires ≥1 folder), so an empty
   // `dirs` here means a partial/legacy remote marker. Not fatal — restore reads
