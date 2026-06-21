@@ -38,6 +38,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0024](0024-set-name-is-the-whole-identity.md) — A backup set's name is its whole identity *(proposed — pending implementation)*
 - [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
 - [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets *(proposed — pending implementation)*
+- [0027](0027-compare-local-only-adoption-syncs-manifests.md) — `compare` is local-only; adoption syncs the manifests *(proposed — pending implementation)*
 
 ### Build, release & tooling
 
