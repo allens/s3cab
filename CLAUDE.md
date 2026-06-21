@@ -464,13 +464,12 @@ Pre-release housekeeping and open decisions surfaced from the code:
   `objects.mjs` as `getObject` (2026-06-17)); `restore --output` re-rooting followed
   (`reroot`, on `parseSnapshotStream` now surfacing the `#DIR`/`#SNAPSHOT` headers it used to
   drop). Remaining scaffold: `verify` is still an inline registry stub — promote it into its
-  own `src/commands/` file as it gains a real body (rest of slice 5). **`compare --remote` is
-  being dropped, not built** ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)):
-  `compare` stays local-only, and `setup --inherit` will instead pull the set's remote
-  manifests down (verbatim `.tsv.zst` copies, no objects) so a fresh machine's local `compare`
-  works on full history. Open code change: remove the `--remote` flag + `notImplemented()` stub
-  from [src/commands/compare.mjs](src/commands/compare.mjs), and add the inherit-time manifest
-  sync to [src/commands/setup.mjs](src/commands/setup.mjs).
+  own `src/commands/` file as it gains a real body (rest of slice 5). **`compare --remote` was
+  dropped, not built** (PR #89, [ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)):
+  `compare` is local-only (the `--remote` flag + `notImplemented()` stub are gone), and
+  `setup --inherit` instead pulls the set's remote manifests down (verbatim `.tsv.zst` copies,
+  no objects, via `downloadRemoteSnapshots` in [src/lib/remote.mjs](src/lib/remote.mjs)) so a
+  fresh machine's local `compare`/`list`/`restore` work on full history.
 - **The 2026-06-20 local-config/remote-structure redesign has fully landed** (ADR-0024/0025/0026):
   the set **name** is the whole identity (no `user@machine`), the remote snapshot namespace
   flattened to `snapshots/<set>/`, and `setup` now requires `--bucket` and touches S3 — it

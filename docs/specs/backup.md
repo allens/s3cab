@@ -490,12 +490,12 @@ built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used t
 under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
-retired with it). **`compare --remote` is dropped, not deferred**
-([ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
+retired with it). **`compare --remote` is dropped, not deferred** (PR #89,
+[ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
 local-only, and `setup --inherit` instead pulls the set's remote manifests down (verbatim
 `.tsv.zst` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
-full history. (Removing the `--remote` flag + `notImplemented()` stub and adding the
-inherit-time manifest sync are the open code change.)
+full history. (The `--remote` flag + `notImplemented()` stub were removed and the inherit-time
+manifest sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair
 

@@ -1,6 +1,6 @@
 # `compare` is local-only; adoption syncs the manifests
 
-**Status:** proposed (2026-06-21) — pending implementation. Replaces the deferred
+**Status:** accepted (2026-06-21) — implemented (PR #89). Replaces the deferred
 `compare --remote` (a `notImplemented()` stub since slice 4); full design in
 [docs/specs/backup.md](../specs/backup.md).
 
