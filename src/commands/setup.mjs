@@ -167,7 +167,11 @@ async function create(name, folders, options) {
  */
 async function update(name, folders, options) {
   const existing = readSet(name);
-  if (options.bucket && options.bucket !== existing.bucket) {
+  // A real bucket *change* needs both an existing and a different given bucket;
+  // guarding on `existing.bucket` keeps a bucket-less (pre-redesign) set from
+  // hitting a misleading "bound to bucket 'undefined'" — it falls through to the
+  // "no bucket bound, re-create it" message below instead.
+  if (existing.bucket && options.bucket && options.bucket !== existing.bucket) {
     throw new Error(
       `Set '${name}' is bound to bucket '${existing.bucket}'. Re-binding to a ` +
         `different bucket (migration) isn't supported yet.`,
