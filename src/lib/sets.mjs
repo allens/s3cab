@@ -85,10 +85,9 @@ export function writeSetExclude(name, text) {
 /**
  * Coerce a string to the canonical set-name charset: lowercase `a-z`, `0-9`, `-`
  * — nothing else, so nothing downstream ever needs escaping. Lowercase; every
- * other run of characters becomes one `-`; leading/trailing `-` trimmed. Used in
- * two cosmetic spots: `validateSetName`'s "Try: …" suggestion, and the
- * `$username` default `setup` offers for the first set's name (ADR-0024) — never
- * to silently rewrite a value the user must live with.
+ * other run of characters becomes one `-`; leading/trailing `-` trimmed. Used to
+ * build `validateSetName`'s "Try: …" suggestion — a hint shown alongside the
+ * rejection, never to silently rewrite a value the user must live with.
  * @param {string} part
  */
 export const sanitizeNamePart = (part) =>

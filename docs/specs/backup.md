@@ -16,17 +16,19 @@ the `snapshots/` remote half and the cloud porcelain: the remote repository engi
 `src/lib/objects.mjs` (extracted 2026-06-17 from where it had been scattered across
 `remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
 `objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
-added `restore` (`src/commands/restore.mjs`, on the verified `getObject` + `remote.mjs`'s
-`listRemoteNamespaces`) and `setup --from` **adoption** for fresh-machine
-recovery. `restore --output` re-rooting is now built too (`parseSnapshotStream` surfaces the
-`#DIR`/`#SNAPSHOT` headers it used to drop; `reroot` in `restore.mjs` maps each member dir
-under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slice 5
-(`verify`/`delete`/`cleanup`).
+added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and machine
+succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --output`
+re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
+used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
+Remaining target: `compare --remote`, and slice 5 (`verify`/`delete`/`cleanup`).
 
-On top of those original slices, the **2026-06-20 redesign has now landed** (set name = whole
+On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
 identity, flattened `snapshots/<set>/`, `setup` collision check + `--inherit`, the
-`sets/<set>/` marker, bucket-required setup) — see the banner below; only ADR-0026's
-resolver-fold cleanup remains.
+`sets/<set>/` marker, bucket-required setup, and the single-tier set resolver) —
+[ADR-0024](../adr/0024-set-name-is-the-whole-identity.md),
+[ADR-0025](../adr/0025-drop-per-bucket-env-layer.md), and
+[ADR-0026](../adr/0026-bucket-required-at-setup.md). The detail sections below describe that
+landed model.
 
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
@@ -34,25 +36,10 @@ resolver-fold cleanup remains.
 > problem outright: directories become the *contents* of a set rather than its identity,
 > so renaming a machine or moving a folder edits a config file instead of forking the
 > backup history. Decisions that survived unchanged: byte-identical snapshots, the
-> snapshot-last invariant, and the diff-vs-latest-remote upload set.
-
-> **⚠️ Redesign mostly landed (2026-06-21) — sections below are mid-rewrite.** The reshape of
-> the **identity model, local/remote layout, env layering, and `setup`** is now implemented:
-> [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md) (the set **name** is the whole
-> identity — no `user@machine`; remote flattened to `snapshots/<set>/`; `setup` collision check
-> + `--inherit` + the `sets/<set>/` marker), [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md)
-> (per-bucket env layer dropped; layering is **set > user > shell**), and
-> [ADR-0026](../adr/0026-bucket-required-at-setup.md)'s **setup-requirement half** (`--bucket`
-> required at `setup`, which always touches S3). **Still pending:** ADR-0026's code cleanup —
-> folding `resolveRemoteSet` into `resolveSet`, `BackupSet.bucket` non-optional,
-> `formatSets`' local-only branch — is its own (last) slice.
->
-> **Read the detail sections below against the ADRs, not literally:** the **identity**, **on
-> disk**, **`setup`/adoption**, **`#SNAPSHOT` header**, and **remote layout** sections still
-> describe the *historical* `user@machine` model and are rewritten to the new model when the
-> last slice lands (per the proposal's deletion rule). The format invariants (byte-identical
-> snapshots, objects-first / snapshot-last, the upload-set diff, `verify`/`cleanup`) are
-> unaffected and accurate as written, save that the snapshot namespace is now `snapshots/<set>/`.
+> snapshot-last invariant, and the diff-vs-latest-remote upload set. A second reshape
+> (2026-06-20) then made the set **name** the whole identity — dropping the `user@machine`
+> component the sections below once carried — flattened the remote to `snapshots/<set>/`, and
+> required a bucket at `setup`.
 
 ## Purpose
 
@@ -71,27 +58,26 @@ A **backup set** is a named list of directories that snapshot, back up, and rest
 one unit — the consumer mental model ("my photos" = two folders on two drives). It is
 the operand of every porcelain command.
 
-A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photos`):
+A set's **name** is its entire identity (e.g. `photos`) — one user-chosen `[a-z0-9-]+`
+label that is at once the local handle, the local folder name under `~/.s3cab/sets/`, and
+the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` component
+([ADR-0024](../adr/0024-set-name-is-the-whole-identity.md)).
 
-- The **whole identity is captured once, at set creation** — `user@machine` sanitized
-  from the OS username and hostname, plus the set name — stored in the set's `env`
-  (e.g. as the remote namespace value `allen@allen-pc/photos`) and never recomputed.
-  Renaming the machine therefore cannot fork the backup history, and neither can
-  renaming the set: the folder name under `~/.s3cab/sets/` is a purely **local handle**,
-  while the pinned namespace is what appears in the bucket. The `user@machine` part
-  exists to keep multiple users/machines distinct inside a shared bucket.
-- **Charset (decided):** the canonical form for every namespace part is lowercase
-  `a-z`, `0-9`, and `-` — nothing else, so nothing downstream ever needs escaping. Set
-  names are **validated**: `setup` rejects a non-conforming name with the rule and a
-  suggested kebab-case form (user-chosen, so teach the rule). The captured user/machine
-  parts are **sanitized** automatically (lowercase; anything else → `-`; collapse runs;
-  trim) — the user never typed them, so silent normalization is fine (Windows usernames
-  may contain spaces/unicode). A part the charset can't express at all (an all-non-Latin
-  username sanitizes to "") falls back to a **short stable hash** of the raw value, so
-  identities stay distinct in a shared bucket even when recognisability is unsalvageable
-  (settled in PR #33 review).
+- The anchor is **"a user and their data,"** not a machine. Machine isn't how a person
+  thinks about their backup, and baking it into the identity would fork the history on a
+  host rename or replacement. Renaming a machine or moving a member folder edits `dirs.txt`
+  — it never touches identity.
+- **Bucket-wide uniqueness is "first person wins,"** enforced by a setup-time collision
+  check against the remote `sets/<name>/` marker (see "Remote repository layout"). The
+  marker carries an advisory "created-on `<machine>`" field, surfaced only in the collision
+  error to help a human choose rename-vs-`--inherit` — advisory, never part of the identity.
+- **Charset (decided):** a name is lowercase `a-z`, `0-9`, and `-` — nothing else, so
+  nothing downstream ever needs escaping. `validateSetName` is the keystone guard: it
+  rejects a non-conforming name with the rule and a suggested kebab-case form (the name is
+  user-chosen, so teach the rule rather than silently normalize), which keeps the single
+  name clean as handle, path segment, and remote key with zero escaping anywhere.
 - The identity is informational for recovery, not load-bearing: snapshots internally
-  record the identity *and* their member directories (see header), so a recoverer can
+  record the set name *and* their member directories (see header), so a recoverer can
   always learn what a namespace is by opening one snapshot.
 
 ### On disk: one folder per set
@@ -102,7 +88,7 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
   sets/
     photos/
       dirs.txt           # member directories, one absolute path per line
-      env                # S3CAB_BUCKET=… + the pinned identity + overrides
+      env                # S3CAB_BUCKET=… + any per-set auth overrides
       exclude.txt        # optional; patterns applied relative to each member dir
       snapshots/
         2026-06-12T0915.tsv.zst
@@ -111,11 +97,13 @@ A set's full identity is **`user@machine:set-name`** (e.g. `allen@allen-pc:photo
 - **The files are the API.** Editing a set = opening `dirs.txt`/`env`/`exclude.txt` in
   any editor; deleting the folder deletes the set. No structured config format, no
   management subcommands to keep honest with the files.
-- The set's `env` is a new **set layer** in the auth/env layering, replacing the
-  never-wired per-dir layer (`<dir>/.s3cab/env`) from [auth.md](auth.md): precedence
-  becomes set → bucket → user → shell. (auth.md is updated when this is implemented.)
+- The set's `env` is the **set layer** in the env layering (env.mjs): precedence is
+  **set → user → shell** ([ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) dropped the
+  former per-bucket layer). It pins `S3CAB_BUCKET` (the bound bucket — every set has one,
+  [ADR-0026](../adr/0026-bucket-required-at-setup.md)) plus any per-set auth override; the
+  name is the identity, so there is nothing else to pin.
 - **`<dir>/.s3cab/` retires entirely** — snapshots and excludes no longer live inside
-  backed-up directories. (Pre-release; no migration machinery, just doc updates.)
+  backed-up directories.
 - `exclude.txt` keeps today's pattern semantics (see guide/exclude.md), applied relative
   to **each** member directory.
 
@@ -131,24 +119,31 @@ diagnostics (`prop`, `hashes`, `upload`) are unchanged.
 ### `setup` — the front door
 
 ```
-s3cab setup <set> <dir>... [--bucket <bucket>]
+s3cab setup <set> <dir>... --bucket <bucket>
+s3cab setup <set> --inherit --bucket <bucket>
 ```
 
-Creates `~/.s3cab/sets/<set>/`, writes `dirs.txt`, pins `user@machine` into the set's
-`env`, and binds the bucket if given. Re-running updates whatever pieces are passed.
+**`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
+bound to its bucket at creation, and `setup` always touches S3 to run the collision check —
+there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree` still
+work after a one-time online setup; only `setup` itself needs connectivity.) The three modes:
 
-**The bucket is optional on purpose:** a bucket-less set is a fully working *local*
-snapshot engine (`snapshot`/`list`/`compare`/`tree`), preserving the try-it-first path.
-`backup` on such a set stops with the exact command to run
-(`s3cab setup photos --bucket <bucket>`). An interactive wizard may later wrap this
-one-shot form; it is not part of v1.
+- **Create** (`setup <name> <dir>... --bucket <b>`): collision-check the remote
+  `sets/<name>/` marker; if it already exists, error naming the owning machine and
+  suggesting `--inherit`; otherwise claim the marker (a conditional PUT — first writer wins),
+  write the local set, and publish its `dirs.txt`/`exclude.txt` to the marker.
+- **Inherit / succession** (`setup <name> --inherit --bucket <b>`): the path for a
+  replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
+  `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
+  no folders (they come from the remote). For machine retirement/replacement or DR only.
+- **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
+  folders and re-publish the config; the bucket is fixed at creation (re-binding to a
+  different bucket — migration — isn't supported yet).
 
-**Adoption (disaster recovery / replacement machine):**
-`setup <set> --bucket <bucket> --from <user@machine>/<set>` creates a local set whose
-pinned namespace is the existing **remote** one — *not* derived from this machine —
-seeding `dirs.txt` from the latest remote snapshot's `#DIR` lines. After adoption,
-`restore`/`list`/`compare` just work, and `backup` continues the same history (exactly
-right for a rebuilt PC).
+Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
+OneDrive-synced folder, where both hold the same content so the interleaving is benign):
+`--inherit` never disables the prior machine — re-stamping the owner is its only remote
+change. An interactive wizard may later wrap this one-shot form; it is not part of v1.
 
 ### `sets` — the lister
 
@@ -160,7 +155,7 @@ counterpart of "files are the API", and what error messages point at:
 photos   → s3://my-backup-bucket   (2 folders)
            C:\Users\me\Photos
            D:\Pics
-docs     (no bucket — local only)   (1 folder)
+docs     → s3://my-backup-bucket   (1 folder)
            C:\Users\me\Documents
 ```
 
@@ -202,11 +197,11 @@ file.)
 **One snapshot per set per run** — all member directories in a single TSV (the existing
 line format is already multi-root-safe: paths are absolute). This buys cross-directory
 move/dedup detection in `compare` and makes the snapshot-last invariant a **set-level**
-atomicity guarantee. The header records the identity and the member dirs as captured at
+atomicity guarantee. The header records the set name and the member dirs as captured at
 snapshot time, so the file is self-describing even when found alone in a bucket:
 
 ```
-#SNAPSHOT   2026-06-12T09:15   allen@allen-pc:photos
+#SNAPSHOT   2026-06-12T09:15   photos
 #DIR        C:\Users\me\Photos
 #DIR        D:\Pics
 3b8e…c0a1   4915200   2026-06-01T12:00:00.000Z   C:\Users\me\Photos\beach.jpg
@@ -237,27 +232,40 @@ minute while debugging is otherwise maddening.
 
 One repository is one bucket, holding **multiple sets** (from any number of users and
 machines). `objects/` is shared — content-addressing dedups across everything in the
-bucket. The identity's `:` becomes a path level, so browsing groups by who-and-where,
-then by set:
+bucket. Each set name is a path level under `snapshots/` (its snapshots) and `sets/` (its
+config + ownership marker), so browsing groups by set:
 
 ```
 s3://my-backup-bucket/
-  objects/<sha256>                              # every file, stored once, by content hash
-  snapshots/<user>@<machine>/<set>/<name>.tsv.zst
+  objects/<sha256>                  # every file, stored once, by content hash
+  snapshots/<set>/<name>.tsv.zst    # this set's snapshots
+  sets/<set>/                       # this set's config + claim marker
+    info                            # OWNER (machine) + CREATED — the "first person wins" marker
+    dirs.txt                        # pushed for disaster recovery
+    exclude.txt
 ```
 
 ```
   snapshots/
-    allen@allen-pc/
-      photos/
-        2026-06-12T0915.tsv.zst
-      docs/…
-    kim@kim-laptop/
-      photos/…
+    photos/
+      2026-06-12T0915.tsv.zst
+    docs/…
+  sets/
+    photos/{info, dirs.txt, exclude.txt}
+    docs/…
 ```
 
-(`@` is legal in S3 keys; it sits in the "may require special handling" class, which is
-accepted — it only surfaces as percent-encoding in URL contexts.)
+Snapshots are **folder-per-set** (`snapshots/<set>/…`), not a flat
+`snapshots/<set>-<timestamp>` — a `-`-bearing key can't be split back into (set, timestamp)
+and would prefix-collide with another set (`work-laptop` vs `work-laptop-backup`). The set
+name is a single `[a-z0-9-]+` segment, so it needs no escaping anywhere in these keys.
+
+The `sets/<set>/` marker is written at `setup`: `info` (the atomic claim token + advisory
+owner/created fields) doubles as the collision-registration marker — a set with no snapshots
+yet would otherwise be invisible — and `dirs.txt`/`exclude.txt` are pushed for the
+**full-DR** story (point a fresh machine at the bucket, `--inherit`, and the set config comes
+back; only credentials need re-entering). The set's `env` is **never** pushed (it holds
+credentials); the bucket name is not stored (redundant once in the bucket).
 
 **Remote snapshot files are byte-identical local snapshot files** — the `.tsv.zst` uploaded as-is.
 One format everywhere; the upload is trivially verifiable; the recovery story is
@@ -296,7 +304,7 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 `backup`'s concern.) The upload set scales with change size, not repo size:
 
 1. Fetch **this set's latest remote snapshot** (one LIST of
-   `snapshots/<user>@<machine>/<set>/`, one GET of a small file).
+   `snapshots/<set>/`, one GET of a small file).
 2. Candidates = hashes in the target snapshot **not** in the latest remote snapshot.
    (First backup of a set: no remote snapshot, everything is a candidate.)
 3. Drop candidates found in the **per-bucket objects cache**: a local hash-per-line
@@ -426,11 +434,12 @@ commands → shared-machinery wiring.
 ### Slice 1 — Set primitives (local-only, no S3)
 
 1. **`src/lib/sets.mjs`.** Pure parts first: `validateSetName` (reject + suggest a
-   kebab form), `sanitizeNamePart` (user/machine). Then the store: paths under
+   kebab form), `sanitizeNamePart` (the name-suggestion helper). Then the store: paths under
    `~/.s3cab/sets/` via `homedir()` (testable with the auth tests' temp-home pattern:
    point `USERPROFILE`/`HOME` at a temp dir before import), read/write `dirs.txt` + the
-   set `env`, namespace capture-and-pin, `resolveSet(name?)` (sole-set default; error
-   listing sets). Co-located `sets.test.mjs`.
+   set `env` (which binds the bucket), `resolveSet(name?)` (sole-set default; error
+   listing sets). Co-located `sets.test.mjs`. (The 2026-06-20 redesign later made the set
+   name the whole identity, so the original `user@machine` capture-and-pin is gone.)
 2. **`setup`** — promote the registry stub to `src/commands/setup.mjs`: create/update
    semantics, `--bucket`, the validation error UX (tests encode the agreed transcripts).
 3. **`sets`** — new registry entry + command; its output formatter is shared with the
@@ -467,18 +476,19 @@ the `--force` first written above (clearer, and it never overwrites like `upload
 
 Restore semantics as specified (skip-existing default, `--overwrite`, `--output`
 per-root-basename mapping with clash detection, `paths…` filters, mtime restoration);
-`setup --from` adoption; `compare --remote`.
+fresh-machine adoption; `compare --remote`.
 
 **Built (PR #44):** `restore` to original locations — skip-existing default + `--overwrite`,
 `--snapshot <name>`, `paths…` prefix filters (`selectEntries`), per-object SHA-256
 verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
-mtime restoration. `setup --from` adoption pins a given remote namespace and binds the
-bucket, verifying the namespace has a backup (listing the bucket's namespaces on a typo via
-`listRemoteNamespaces`); `setup` is now uniformly async. `--output` re-rooting **is now
+mtime restoration; `setup` is now uniformly async. `--output` re-rooting **is now
 built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used to drop;
 `readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
-under `<output>/<basename>/…`, rejecting basename clashes up front). **Still deferred from
-this slice:** `compare --remote` (still a `notImplemented()` stub).
+under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
+first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
+replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
+retired with it). **Still deferred from this slice:** `compare --remote` (still a
+`notImplemented()` stub).
 
 ### Slice 5 — Admin pair
 

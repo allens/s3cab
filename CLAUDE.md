@@ -441,18 +441,16 @@ Pre-release housekeeping and open decisions surfaced from the code:
   still an inline registry stub and `compare --remote` is wired but throws
   `notImplemented()`. Promote each stub into its own `src/commands/` file as it gains a real
   body (rest of slice 5).
-- **The 2026-06-20 local-config/remote-structure redesign has landed** (ADR-0024/0025, and
-  ADR-0026's setup-requirement half): the set **name** is the whole identity (no
-  `user@machine`), the remote snapshot namespace flattened to `snapshots/<set>/`, and `setup`
-  now requires `--bucket` and touches S3 — it claims the name "first person wins" via the
-  remote `sets/<set>/` marker ([src/lib/set-marker.mjs](src/lib/set-marker.mjs): `info` +
-  pushed `dirs.txt`/`exclude.txt`), with `--inherit` for machine succession (this replaced the
-  old `setup --from` adoption + `remote.mjs`'s `listRemoteNamespaces`, both removed). **One
-  redesign slice remains:** ADR-0026's resolver cleanup — fold `resolveRemoteSet` into
-  `resolveSet`, make `BackupSet.bucket` non-optional, drop `formatSets`' "(no bucket — local
-  only)" branch — after which
-  [proposals/local-config-and-remote-storage-structure.md](proposals/local-config-and-remote-storage-structure.md)
-  is deleted and `docs/specs/backup.md`'s detail sections get their full prose rewrite.
+- **The 2026-06-20 local-config/remote-structure redesign has fully landed** (ADR-0024/0025/0026):
+  the set **name** is the whole identity (no `user@machine`), the remote snapshot namespace
+  flattened to `snapshots/<set>/`, and `setup` now requires `--bucket` and touches S3 — it
+  claims the name "first person wins" via the remote `sets/<set>/` marker
+  ([src/lib/set-marker.mjs](src/lib/set-marker.mjs): `info` + pushed `dirs.txt`/`exclude.txt`),
+  with `--inherit` for machine succession (this replaced the old `setup --from` adoption +
+  `remote.mjs`'s `listRemoteNamespaces`, both removed). ADR-0026's resolver cleanup landed last:
+  `resolveRemoteSet` folded into `resolveSet`, `BackupSet.bucket` is non-optional (enforced once
+  in `readSet`), and `formatSets`' "(no bucket — local only)" branch is gone — the redesign
+  proposal file was deleted and `docs/specs/backup.md` rewritten to the new model at that point.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Since the `createRequire` regression, ci.yml's `exe

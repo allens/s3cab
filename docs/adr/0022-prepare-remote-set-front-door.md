@@ -3,7 +3,7 @@
 The set-family cloud commands (`backup`, `status`, `restore`, `list --remote`) resolve their
 set and load its env through a single `prepareRemoteSet(set)` in
 [src/lib/env.mjs](../../src/lib/env.mjs), called at the top of the command — not by
-hand-coding the `resolveRemoteSet` + `loadEnv` pair at each site, and not by enforcing the
+hand-coding the `resolveSet` + `loadEnv` pair at each site, and not by enforcing the
 precondition in the remote operations' signatures.
 
 This **refines** [0011](0011-validation-in-command-functions.md): env-loading still lives at
@@ -38,10 +38,11 @@ edict).
   fact reached both ways: `setup` directly, the set family via the front door).
   `listRemoteNamespaces` and the `objects.mjs` ops keep the plain `loadEnv` wording.
 - **Home.** `prepareRemoteSet` lives in `env.mjs`, which already owns `loadEnv` and depends
-  on `sets.mjs` (for `resolveRemoteSet`) — no new cycle. `resolveRemoteSet` stays in
-  `sets.mjs` as the env-free inner step (validates the set has a bucket + namespace), reached
-  only through `prepareRemoteSet` for cloud use and still exported for its own tests. This
-  pass also split env-layering out of `auth.mjs` into `env.mjs`, leaving `auth.mjs`
-  credentials-only.
+  on `sets.mjs` (for `resolveSet`) — no new cycle. `resolveSet` is the env-free inner step,
+  reached only through `prepareRemoteSet` for cloud use; since every set is bound to a bucket
+  at setup ([ADR-0026](0026-bucket-required-at-setup.md), enforced in `readSet`), the resolved
+  set is already cloud-ready and there is no separate bucket-guarding tier — the original
+  `resolveRemoteSet` folded back into `resolveSet`. This pass also split env-layering out of
+  `auth.mjs` into `env.mjs`, leaving `auth.mjs` credentials-only.
 - A new `remote.mjs`/`objects.mjs` caller must still remember the precondition — now "go
   through `prepareRemoteSet`" — since it is not compiler-enforced.
