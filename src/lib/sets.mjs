@@ -209,7 +209,7 @@ export function readSet(name) {
   if (!bucket) {
     throw new Error(
       `Backup set '${name}' has no bucket bound ` +
-        `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
+        `(missing or empty S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
         `Add it back, or delete the set folder and run setup again.`,
     );
   }
