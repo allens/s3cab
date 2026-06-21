@@ -206,17 +206,29 @@ rather than assuming it is fixed forever.
 15. **Request a Copilot code review on every PR you open.** It is a standing per-PR step (the
     complement to the `/review` skill and the coverage-by-review rule #12, driven by
     [.github/copilot-instructions.md](.github/copilot-instructions.md)) and it is **not**
-    automatic — the reviewer must be requested explicitly, right after `gh pr create`:
-    ```
-    gh api repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"
-    ```
-    The one non-obvious gotcha (cost a few wrong turns 2026-06-21): the requestable login is the
-    bot **`Copilot`** (the `copilot-pull-request-reviewer` *app*, user id 175728472) — **not**
-    `copilot-pull-request-reviewer`, which is only the *author* login on the resulting review and
-    is rejected as "not a collaborator". `gh pr edit --add-reviewer` silently no-ops for this bot
-    and it isn't in `suggestedActors`, so the raw `requested_reviewers` REST endpoint above is the
-    working path. When the review lands, bring its comments back to the user to discuss
-    (convention #10) — don't auto-action them.
+    automatic — the reviewer must be requested explicitly, right after `gh pr create`. The
+    requestable reviewer is the bot **`Copilot`** (REST login `Copilot`, app
+    `copilot-pull-request-reviewer[bot]`, db id `175728472`, node `BOT_kgDOCnlnWA`; in a GraphQL
+    `reviewRequests` it surfaces as Bot login `copilot-pull-request-reviewer`). The intended
+    call is `gh api repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"`.
+    Three hard-won gotchas (the second/third cost a long detour 2026-06-21):
+    - **`gh pr edit --add-reviewer` silently no-ops** for this bot, and it isn't in
+      `suggestedActors` — so the raw `requested_reviewers` REST endpoint is the path, not `gh pr edit`.
+    - **Never trust the `201` — confirm the request actually landed.** The REST POST can return
+      `201 Created` and add *nothing*: `-f "reviewers[]=Copilot"` sends the *literal* key
+      `reviewers[]` (not a `reviewers` array), and even a proper JSON body
+      (`{"reviewers":["Copilot"]}`) failed to land on a Windows/gh-2.x setup — a **bogus**
+      reviewer name returned `201` there too. Always verify via `gh api graphql` →
+      `pullRequest.reviewRequests` (or the issue timeline's `review_requested` event), not the
+      HTTP status.
+    - **GraphQL `requestReviews` cannot do it at all** — its `userIds` rejects the Copilot Bot
+      (`Could not resolve to User node with the global id …`) and there is no `botIds` field.
+    - **Reliable fallback: the PR web UI** (Reviewers → Copilot). When the REST call doesn't
+      land (confirmed via `reviewRequests`), request it from the UI — it always works while
+      Copilot code review is enabled for the repo, and the request then shows in both REST
+      (`requested_reviewers.users[].login == "Copilot"`) and GraphQL.
+    When the review lands, bring its comments back to the user to discuss (convention #10) —
+    don't auto-action them.
 
 ### Coding conventions
 
