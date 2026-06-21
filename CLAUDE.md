@@ -181,7 +181,7 @@ rather than assuming it is fixed forever.
     [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
     threshold. When you add or change behaviour, add a test that makes a real assertion about
     the *result*, not one that merely executes the line.
-13. **Every session that will _write_ works in its own git worktree — default on, no size
+13. **Every session that will _write_ works in its own git worktree — default-on, no size
     threshold.** Multiple sessions share *one* main working tree, so one session's uncommitted
     edits are visible to (and confuse) the others; a per-session worktree removes that hazard
     entirely. So **branch a worktree before the first edit of any change you intend to commit,
@@ -203,7 +203,7 @@ rather than assuming it is fixed forever.
       the harness does it natively — `isolation: "worktree"` when spawning an agent, or
       `EnterWorktree`/`ExitWorktree` in-session. **Review the work on the GitHub PR; don't open
       the worktree folder in the IDE** — an open file there gives Windows a lock that blocks
-      `git worktree remove` at cleanup (hit 2026-06-21). After merge: `git worktree remove` +
+      `git worktree remove` at cleanup (hit 2026-06-21). After merge: `git worktree remove <path>` +
       delete the local branch; if the directory is locked, close it in the IDE and retry the
       remove (the git side is already clean once `git worktree list` no longer shows it).
 14. **When the user asks a question, answer it — do not start editing code off the back of it.**
