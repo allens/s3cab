@@ -1,6 +1,11 @@
 # A bucket is required at setup; no local-only sets
 
-**Status:** proposed (2026-06-20) — pending implementation. Full design in
+**Status:** partly accepted (2026-06-21). The **setup-requirement half is implemented** —
+`setup` requires `--bucket` and always touches S3 (it pulled forward with the
+[0024](0024-set-name-is-the-whole-identity.md) collision check, which can't run without a
+bucket). **Still pending:** the code cleanup this unlocks — folding `resolveRemoteSet` into
+`resolveSet`, making `BackupSet.bucket` non-optional, and deleting `formatSets`' "(no
+bucket — local only)" branch — is its own slice (the last of the redesign). Full design in
 [proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
 
 `s3cab setup` requires `--bucket`: a set is bound to its bucket at creation, and setup always

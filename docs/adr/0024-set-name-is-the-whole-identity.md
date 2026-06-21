@@ -1,9 +1,12 @@
 # A backup set's name is its whole identity
 
-**Status:** proposed (2026-06-20) — supersedes the `user@machine` parts of
-[0013](0013-one-repository-one-bucket.md) and [0014](0014-backup-sets.md); pending
-implementation. Full design in
-[proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
+**Status:** accepted (2026-06-21) — supersedes the `user@machine` parts of
+[0013](0013-one-repository-one-bucket.md) and [0014](0014-backup-sets.md). Implemented: the
+set **name** is the whole identity, the remote layout flattened to `snapshots/<set>/`, the
+`setup` collision check + `--inherit` succession + the `sets/<set>/` marker (`dirs.txt` /
+`exclude.txt` / `info`) all landed. The full design lived in
+[proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md)
+(kept until the coupled [0026](0026-bucket-required-at-setup.md) resolver-fold slice lands).
 
 A backup set's **name** (a user-chosen `[a-z0-9-]+` label, e.g. `work-laptop`) is its *entire*
 identity: it is at once the local handle, the local folder name, and the remote namespace.

@@ -23,6 +23,11 @@ recovery. `restore --output` re-rooting is now built too (`parseSnapshotStream` 
 under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slice 5
 (`verify`/`delete`/`cleanup`).
 
+On top of those original slices, the **2026-06-20 redesign has now landed** (set name = whole
+identity, flattened `snapshots/<set>/`, `setup` collision check + `--inherit`, the
+`sets/<set>/` marker, bucket-required setup) — see the banner below; only ADR-0026's
+resolver-fold cleanup remains.
+
 > **History:** the first cut of this spec (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
 > within hours by the **backup set** model below, because a set name solves the identity
@@ -31,21 +36,23 @@ under `<output>/<basename>/…`). Remaining target: `compare --remote`, and slic
 > backup history. Decisions that survived unchanged: byte-identical snapshots, the
 > snapshot-last invariant, and the diff-vs-latest-remote upload set.
 
-> **⚠️ Redesign settled (2026-06-20), not yet implemented.** A reshape of the **identity
-> model, local/remote layout, env layering, and `setup`** is agreed and recorded in
-> [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md) (the set **name** becomes the whole
-> identity — no `user@machine`), [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) (drop the
-> per-bucket env layer), and [ADR-0026](../adr/0026-bucket-required-at-setup.md) (bucket required
-> at setup; no local-only sets), with the full design in
-> [proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
-> **Everything below still describes what the code does *today* (the `user@machine` model)**,
-> **except env layering — ADR-0025 has landed.** The per-bucket `env.<bucket>` layer is gone;
-> env layering is now **set > user > shell** in code, and the layout/auth notes here already
-> reflect that. The redesign still supersedes the identity, on-disk-layout, remote-layout, and
-> `setup`/adoption sections (ADR-0024/0026, not yet implemented); the format invariants
-> (byte-identical snapshots, objects-first / snapshot-last, the upload-set diff,
-> `verify`/`cleanup`) are unaffected. This spec is rewritten to the new model when the rest
-> of the change lands.
+> **⚠️ Redesign mostly landed (2026-06-21) — sections below are mid-rewrite.** The reshape of
+> the **identity model, local/remote layout, env layering, and `setup`** is now implemented:
+> [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md) (the set **name** is the whole
+> identity — no `user@machine`; remote flattened to `snapshots/<set>/`; `setup` collision check
+> + `--inherit` + the `sets/<set>/` marker), [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md)
+> (per-bucket env layer dropped; layering is **set > user > shell**), and
+> [ADR-0026](../adr/0026-bucket-required-at-setup.md)'s **setup-requirement half** (`--bucket`
+> required at `setup`, which always touches S3). **Still pending:** ADR-0026's code cleanup —
+> folding `resolveRemoteSet` into `resolveSet`, `BackupSet.bucket` non-optional,
+> `formatSets`' local-only branch — is its own (last) slice.
+>
+> **Read the detail sections below against the ADRs, not literally:** the **identity**, **on
+> disk**, **`setup`/adoption**, **`#SNAPSHOT` header**, and **remote layout** sections still
+> describe the *historical* `user@machine` model and are rewritten to the new model when the
+> last slice lands (per the proposal's deletion rule). The format invariants (byte-identical
+> snapshots, objects-first / snapshot-last, the upload-set diff, `verify`/`cleanup`) are
+> unaffected and accurate as written, save that the snapshot namespace is now `snapshots/<set>/`.
 
 ## Purpose
 
