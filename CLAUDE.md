@@ -203,6 +203,20 @@ rather than assuming it is fixed forever.
     and pre-empts the user's decision. (Recorded 2026-06-19 after I answered two consecutive
     questions by immediately rewriting code instead of replying, the second time *while already
     being corrected* for having done it the first.)
+15. **Request a Copilot code review on every PR you open.** It is a standing per-PR step (the
+    complement to the `/review` skill and the coverage-by-review rule #12, driven by
+    [.github/copilot-instructions.md](.github/copilot-instructions.md)) and it is **not**
+    automatic — the reviewer must be requested explicitly, right after `gh pr create`:
+    ```
+    gh api repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"
+    ```
+    The one non-obvious gotcha (cost a few wrong turns 2026-06-21): the requestable login is the
+    bot **`Copilot`** (the `copilot-pull-request-reviewer` *app*, user id 175728472) — **not**
+    `copilot-pull-request-reviewer`, which is only the *author* login on the resulting review and
+    is rejected as "not a collaborator". `gh pr edit --add-reviewer` silently no-ops for this bot
+    and it isn't in `suggestedActors`, so the raw `requested_reviewers` REST endpoint above is the
+    working path. When the review lands, bring its comments back to the user to discuss
+    (convention #10) — don't auto-action them.
 
 ### Coding conventions
 
