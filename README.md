@@ -84,8 +84,9 @@ Backing up and restoring already work (see [Status](#status)); this remaining co
 | ---------------------- | ---------------------------------------------- |
 | `s3cab verify [<set>]` | Check that a backup is complete and undamaged. |
 
-(`compare` will also gain a `--remote` flag to work against the cloud copy; `list --remote`
-and `restore --output` already work.)
+(`list --remote` and `restore --output` already work. `compare` is local-only by design —
+adopting a set on a new machine pulls its snapshot history down, so a plain local `compare`
+covers the cloud copy too.)
 
 ### Cloud repositories
 
