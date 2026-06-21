@@ -92,7 +92,8 @@ rather than assuming it is fixed forever.
    not standing — don't carry it forward to later changes.
 2. **Multiple sessions may run on this repo at once.** Stage only the files _you_ changed
    (`git add <path>`, never `git add -A`/`.`), so you don't sweep up another session's
-   in-flight work.
+   in-flight work. (With #13 — a worktree per writing session, default-on — this is the
+   belt-and-suspenders fallback for the rare main-tree edit, no longer the primary guard.)
 3. **[.claude/settings.json](.claude/settings.json) is a shared, committed project file**
    (the team-wide permission allow/deny lists), not personal — `settings.local.json` is the
    gitignored personal override. This does **not** authorise an unprompted commit (rule 1
@@ -180,18 +181,31 @@ rather than assuming it is fixed forever.
     [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
     threshold. When you add or change behaviour, add a test that makes a real assertion about
     the *result*, not one that merely executes the line.
-13. **Isolate substantive concurrent work in a git worktree — but only when it earns one.**
-    Multiple sessions share *one* working tree, so uncommitted edits from
-    one session are visible to the others; convention #2 (path-scoped `git add`) manages that by
-    hand, but a per-session worktree removes the hazard entirely. So **when other sessions are
-    likely active and the task is non-trivial / multi-step** (anything that already earns a
-    `feat/…` branch per #11), do it in a worktree. **For trivial single-file edits, stay in the
-    main tree** and rely on #2 — a worktree per one-liner is over-engineering (#8) and carries a
-    real tax here: `node_modules` is gitignored, so a fresh worktree starts empty and needs
-    `npm install` (the AWS SDK makes that non-trivial) before tests/lint/typecheck/esbuild run.
-    The harness supports this natively — `isolation: "worktree"` when spawning an agent, or
-    `EnterWorktree`/`ExitWorktree` in-session — so the mechanics are cheap. (Recorded 2026-06-16
-    after weighing an "always worktree before editing" rule and scoping it to substantive work.)
+13. **Every session that will _write_ works in its own git worktree — default-on, no size
+    threshold.** Multiple sessions share *one* main working tree, so one session's uncommitted
+    edits are visible to (and confuse) the others; a per-session worktree removes that hazard
+    entirely. So **branch a worktree before the first edit of any change you intend to commit,
+    however small.** The old "trivial single-file edits stay in the main tree" carve-out is
+    **dropped** — it was the very hole that let one session's "trivial" edit dirty the tree
+    another session was working in. The only thing that stays in the main tree is **pure
+    read-only / Q&A work** — there is nothing to isolate when you are not writing. (Reversed
+    2026-06-21 after repeated cross-session collisions; supersedes the 2026-06-16 "only when it
+    earns one" scoping, which this replaces outright.)
+    - **The tax is acceptable, and we deliberately do _not_ share `node_modules`.** A fresh
+      worktree is gitignored-empty, so code work runs `npm install` first — but from the warm
+      npm cache that is tens of seconds, and **doc-only changes skip it entirely.** A
+      junctioned/shared `node_modules` was weighed and **rejected** (2026-06-21): it
+      re-introduces a shared mutable resource across sessions (the very thing the worktree
+      removes) and, worse, a fallback `rm -rf <worktree>` can recurse *through* the junction and
+      delete the **main** checkout's `node_modules`. Each worktree keeps its own — the seconds
+      saved aren't worth the footgun (#8). If a task changes dependencies, it does its own install.
+    - **Mechanics & cleanup.** Sibling path per the global rule (`../<repo>.worktrees/<branch>`);
+      the harness does it natively — `isolation: "worktree"` when spawning an agent, or
+      `EnterWorktree`/`ExitWorktree` in-session. **Review the work on the GitHub PR; don't open
+      the worktree folder in the IDE** — an open file there gives Windows a lock that blocks
+      `git worktree remove` at cleanup (hit 2026-06-21). After merge: `git worktree remove <path>` +
+      delete the local branch; if the directory is locked, close it in the IDE and retry the
+      remove (the git side is already clean once `git worktree list` no longer shows it).
 14. **When the user asks a question, answer it — do not start editing code off the back of it.**
     A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
     wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
