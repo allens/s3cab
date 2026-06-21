@@ -28,8 +28,7 @@ import { resolveSet, setEnvPath } from "./sets.mjs";
 // Files are authoritative over the shell: a value you put in a file always wins.
 // Parsed with the built-in `util.parseEnv` — no dotenv dep (#5) — so the per-key
 // precedence above is enforced by *us*, independent of any one loader's fixed
-// override semantics. (The per-bucket `env.<bucket>` layer was dropped in
-// ADR-0025: auth is no longer treated as a property of the bucket.)
+// override semantics.
 
 const userEnvPath = () => join(s3cabDir(), "env");
 

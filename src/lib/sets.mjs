@@ -36,7 +36,7 @@ export const setEnvPath = (name) => join(setDir(name), "env");
 const setDirsPath = (name) => join(setDir(name), "dirs.txt");
 /**
  * The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` — where this set's
- * snapshots live now that `<dir>/.s3cab/` has retired (docs/specs/backup.md slice 2).
+ * snapshots live (docs/specs/backup.md).
  * @param {string} name
  */
 export const setSnapshotsDir = (name) => join(setDir(name), "snapshots");

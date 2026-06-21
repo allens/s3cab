@@ -144,8 +144,7 @@ export async function* listObjectHashes(bucket) {
  * command's output put to work — composability, docs/specs/backup.md). The bucket
  * name is interpolated into the filename, so it is guarded as a single path
  * segment (`assertPathSegment`) — keeping a hostile bucket name from traversing
- * out of `~/.s3cab`. (This is the cache file, not an auth file; the per-bucket
- * `env.<bucket>` auth layer was dropped in ADR-0025.)
+ * out of `~/.s3cab`. (This is the cache file, not an auth file.)
  * @param {string} bucket
  * @returns {string}
  */

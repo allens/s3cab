@@ -68,9 +68,8 @@ const ERROR = "#ERROR";
 
 /**
  * Execute a callback with a managed snapshot file write stream, writing into
- * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/` — this module no
- * longer knows about `.s3cab`; the caller resolves the path from the set).
- * The FileHandle is automatically disposed when the callback completes.
+ * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/`, resolved by the
+ * caller). The FileHandle is automatically disposed when the callback completes.
  *
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
