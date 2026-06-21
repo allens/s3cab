@@ -11,10 +11,10 @@ import { snapshot } from "./snapshot.mjs";
  * snapshot-uploader (`uploadSnapshot`); `backup` itself never hashes (the
  * snapshot already carries every hash) and never walks the filesystem.
  *
- * The set must have a bucket bound — a bucket-less set is a local-only snapshot
- * engine, so `backup` stops with the exact command to bind one. `--skip-cache`
- * bypasses the per-bucket objects cache (re-checking the cloud via the
- * conditional PUT instead) for when its sync is in doubt.
+ * Every set is bound to a bucket at setup (ADR-0026), so `backup` just reads it
+ * off the resolved set. `--skip-cache` bypasses the per-bucket objects cache
+ * (re-checking the cloud via the conditional PUT instead) for when its sync is
+ * in doubt.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
  * @param {{ snapshot?: string, "skip-cache"?: boolean, debug?: boolean }} [options]

@@ -61,7 +61,10 @@ describe("snapshot", () => {
     useTempHome(workDir());
     mkdirSync(workDir("data"));
     writeFileSync(workDir("data", "x.txt"), "x");
-    writeSet("photos", { dirs: [realpathSync.native(workDir("data"))] });
+    writeSet("photos", {
+      dirs: [realpathSync.native(workDir("data"))],
+      bucket: "b",
+    });
     rmSync(workDir("data"), { recursive: true, force: true });
 
     await assert.rejects(snapshot("photos", { rehash: true }));
@@ -77,7 +80,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     useTempHome(workDir());
-    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
     await snapshot("photos", { rehash: true });
 
@@ -121,7 +124,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     const home = useTempHome(workDir());
-    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
     await snapshot("photos", { rehash: true, debug: true });
 
@@ -147,7 +150,7 @@ describe("snapshot", () => {
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     useTempHome(workDir());
-    writeSet("photos", { dirs: [realpathSync.native(workDir())] });
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
     await snapshot("photos", { rehash: true });
 

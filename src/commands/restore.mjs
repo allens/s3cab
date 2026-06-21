@@ -34,7 +34,7 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * different drive layout, or another OS entirely — and is the only mode that
  * accepts non-absolute-on-this-platform paths.
  *
- * The set must have a bucket bound and an existing remote backup. Because the
+ * The set must have an existing remote backup. Because the
  * set is always the first positional, filtering by `paths…` requires naming the
  * set explicitly (`s3cab restore photos C:\…\beach.jpg`); the sole-set default
  * applies only when no positionals are given.

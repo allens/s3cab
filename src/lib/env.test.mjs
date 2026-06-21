@@ -168,7 +168,7 @@ describe("prepareRemoteSet", () => {
 
     const set = t.prepareRemoteSet("photos");
 
-    // resolveRemoteSet's guarantees, surfaced through the front door:
+    // The resolved set, surfaced through the front door:
     assert.equal(set.name, "photos");
     assert.equal(set.bucket, "photobucket");
     // …and the env side effect — the set layer applied over the user layer,
@@ -177,11 +177,11 @@ describe("prepareRemoteSet", () => {
     assert.equal(process.env.AWS_PROFILE, "photoprof"); // user layer
   });
 
-  it("stops a bucket-less set before loading its env", async () => {
+  it("stops a corrupt bucket-less set before loading its env", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    // No S3CAB_BUCKET → local-only; resolveRemoteSet rejects it, and it must do
-    // so *before* the env layer is applied.
+    // No S3CAB_BUCKET → a corrupt set (ADR-0026 removed local-only); resolveSet
+    // rejects it via readSet, and it must do so *before* the env layer is applied.
     t.set("local", "AWS_REGION=us-set\n");
 
     assert.throws(() => t.prepareRemoteSet("local"), /no bucket bound/);

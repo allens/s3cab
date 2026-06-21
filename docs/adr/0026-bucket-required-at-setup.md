@@ -1,12 +1,13 @@
 # A bucket is required at setup; no local-only sets
 
-**Status:** partly accepted (2026-06-21). The **setup-requirement half is implemented** —
-`setup` requires `--bucket` and always touches S3 (it pulled forward with the
+**Status:** accepted (2026-06-21) — implemented. Part of the 2026-06-20 redesign with
+[0024](0024-set-name-is-the-whole-identity.md) and [0025](0025-drop-per-bucket-env-layer.md);
+full design in [docs/specs/backup.md](../specs/backup.md). `setup` requires `--bucket` and
+always touches S3 (it pulled forward with the
 [0024](0024-set-name-is-the-whole-identity.md) collision check, which can't run without a
-bucket). **Still pending:** the code cleanup this unlocks — folding `resolveRemoteSet` into
-`resolveSet`, making `BackupSet.bucket` non-optional, and deleting `formatSets`' "(no
-bucket — local only)" branch — is its own slice (the last of the redesign). Full design in
-[proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
+bucket); the code cleanup it unlocks then landed — `resolveRemoteSet` folded into `resolveSet`,
+`BackupSet.bucket` is non-optional (`readSet` enforces it), and `formatSets`' "(no bucket —
+local only)" branch is gone.
 
 `s3cab setup` requires `--bucket`: a set is bound to its bucket at creation, and setup always
 touches S3 (to run the collision check, [0024](0024-set-name-is-the-whole-identity.md)). The
@@ -35,8 +36,8 @@ setup-with-bucket / bind-later / first-backup with "already registered?" conditi
   one-time online `setup`, `snapshot`/`compare`/`tree` still run with no network; only the
   ~5 seconds of setup needs connectivity, which is reasonable for a tool whose reason to exist
   is S3 backup.
-- `formatSets`' "(no bucket — local only)" branch, `backup`'s "no bucket bound" guard, and the
-  local-only e2e cases all delete.
+- `formatSets`' "(no bucket — local only)" branch, the `resolveRemoteSet` guard, and the
+  local-only e2e cases are all removed; the bucket invariant is now enforced once, in `readSet`.
 - Weighed against [0002](0002-no-lock-in-hard-constraint.md) (no lock-in): no-lock-in is about
   the *stored format* being self-evident and recoverable without s3cab, not about running
   s3cab itself offline — so requiring a bucket at setup does not dent it.

@@ -1,8 +1,9 @@
 # Drop the per-bucket env layer
 
-**Status:** accepted (2026-06-21) — implemented. The sibling ADR-0024/0026 of the same
-redesign are still proposed; full design in
-[proposals/local-config-and-remote-storage-structure.md](../../proposals/local-config-and-remote-storage-structure.md).
+**Status:** accepted (2026-06-21) — implemented. Part of the 2026-06-20 redesign with the
+sibling [ADR-0024](0024-set-name-is-the-whole-identity.md) /
+[ADR-0026](0026-bucket-required-at-setup.md); full design in
+[docs/specs/backup.md](../specs/backup.md).
 
 s3cab's env-file layering drops from four layers to three: the per-bucket
 `~/.s3cab/env.<bucket>` file is removed, leaving **set > user > shell**. Auth

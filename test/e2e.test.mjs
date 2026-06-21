@@ -63,16 +63,21 @@ function runWithHome(home, ...args) {
  * now requires a bucket and touches S3 (the collision claim, ADR-0024/0026), so
  * the offline-engine e2e cases (tree/snapshot/list/sets) seed the set's files —
  * the set store *is* those files — instead of going online.
+ *
+ * Every set is bound to a bucket (ADR-0026), enforced by `readSet`, so the env
+ * always pins one even for the offline cases that never use it — a placeholder
+ * by default, or the given bucket where the case asserts on it (the `sets`
+ * listing).
  * @param {string} home
  * @param {string} name
  * @param {string[]} dirs
  * @param {string} [bucket]
  */
-function seedSet(home, name, dirs, bucket) {
+function seedSet(home, name, dirs, bucket = "seed-bucket") {
   const setDir = join(home, ".s3cab", "sets", name);
   mkdirSync(setDir, { recursive: true });
   writeFileSync(join(setDir, "dirs.txt"), dirs.join("\n") + "\n");
-  if (bucket) writeFileSync(join(setDir, "env"), `S3CAB_BUCKET=${bucket}\n`);
+  writeFileSync(join(setDir, "env"), `S3CAB_BUCKET=${bucket}\n`);
 }
 
 describe("cli (e2e)", () => {
