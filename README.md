@@ -9,8 +9,14 @@
 any S3-compatible object storage), storing data by the **hash of its contents** so that
 identical files are never stored twice, in a format that will never lock you in.
 
-> ⚠️ **Pre-release, under active development.** Today s3cab takes and compares **local**
-> snapshots of your files. Backing up to the cloud is the next milestone — see
+**What it's for, day to day:** getting back files you deleted by accident, or pulling back
+an earlier version of something — long after a sync service like OneDrive or Dropbox has
+stopped keeping its short-lived version history. That everyday "I need that file back" is the
+job s3cab is built around. Restoring an _entire_ dataset after a disaster works too, but it's
+the rare backstop — the day-to-day use is recovering one file, or one old version.
+
+> ⚠️ **Pre-release, under active development.** Snapshotting, comparing, backing up to S3,
+> and restoring all work today; `verify` is the one command still to come — see
 > [Status](#status). Expect things to change.
 
 ## Why s3cab?
@@ -55,21 +61,25 @@ them back**. You create a set once, then the commands act on it:
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
-| `s3cab restore [<set>] [paths…]` | Restore a set's files from its cloud backup — skips existing files, `--overwrite` to replace. |
+| `s3cab restore [<set>] [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
 A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`). When
 you have only one set you can leave the name out — plain `s3cab snapshot` just works.
 
-`restore` puts files back to the locations they were backed up from, leaving any that still
-exist untouched (pass `--overwrite` to replace them, `--snapshot <name>` to restore an
-older one, and `paths…` to restore only part of a set). Pass `--output <dir>` to recover
-under a folder you choose instead — each backed-up folder lands as `<dir>/<folder-name>/…`,
-which is how you restore a backup whose original paths don't fit this machine (a different
-drive layout, or another OS). To recover onto a **fresh machine**, re-create the set pointed
-at the existing backup — `s3cab setup <set> --from <user@machine/set> --bucket <bucket>` —
-then `restore`.
+The everyday use is **getting specific files back**: pass `paths…` to restore just part of a
+set, and `--snapshot <name>` to pull an _older_ version instead of the latest. By default
+`restore` leaves files that still exist untouched — your accidental deletions come back while
+everything else stays put — so pass `--overwrite` when you actually want to replace what's
+there.
+
+With no `paths…` it restores the **whole set** — the disaster-recovery backstop. Files go
+back to the locations they were backed up from; pass `--output <dir>` to recover under a
+folder you choose instead (each backed-up folder lands as `<dir>/<folder-name>/…`), which is
+how you restore a backup whose original paths don't fit this machine — a different drive
+layout, or another OS. To recover onto a **fresh machine**, re-create the set pointed at the
+existing backup — `s3cab setup <set> --inherit --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
 and `upload`, also work already — advanced building blocks covered under
@@ -90,22 +100,22 @@ covers the cloud copy too.)
 
 ### Cloud repositories
 
-A cloud backup lives in **its own S3 bucket** — _one repository is one bucket_, not a
+A cloud **repository** lives in its own S3 bucket — _one repository is one bucket_, not a
 folder inside a shared one. Inside, the structure is fixed and well-known, so anything
 (s3cab, another tool, or you by hand) can find everything by convention:
 
 ```
 s3://my-backup-bucket/
   objects/<sha256>                       # your files, each stored once under its content hash
-  snapshots/<user>@<machine>/<set>/…     # the snapshot files that say which objects make up each snapshot
+  snapshots/<set>/…                      # the snapshot files that say which objects make up each snapshot
 ```
 
-One bucket can hold backups from **several people and machines** — they all share
-`objects/` (so duplicate content is still stored once across everything in the bucket),
-while each backup set keeps its own snapshot files under a prefix like
-`snapshots/allen@allen-pc/photos/`. A snapshot file only ever appears in `snapshots/` after
-every file it references is safely in `objects/`, so any snapshot file you find is complete
-and restorable.
+One bucket can hold **many backup sets** — your own, and other people's or machines' — all
+sharing `objects/`, so duplicate content is stored once across everything in the bucket. Each
+set keeps its own snapshot files under its own prefix, `snapshots/<set>/` (a set name is
+unique within a bucket: claimed first-come, and taken over on a new machine with
+`setup --inherit`). A snapshot file only ever appears in `snapshots/` after every file it
+references is safely in `objects/`, so any snapshot file you find is complete and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
 look up its hash in a snapshot and download `objects/<that-hash>`.
@@ -210,12 +220,11 @@ the set's own folder under your home directory — never inside your backed-up f
 
 Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
 fixed-width leading columns so it stays readable, with the variable-length (and
-platform-native, absolute) path last. It opens with a header naming the set's identity
-(`user@machine:set`) and each member folder, so a snapshot file is self-describing even found
-on its own:
+platform-native, absolute) path last. It opens with a header naming the set and each member
+folder, so a snapshot file is self-describing even found on its own:
 
 ```
-#SNAPSHOT                                                            2025-11-11T08:30          allen@allen-pc:photos
+#SNAPSHOT                                                            2025-11-11T08:30          photos
 #DIR                                                                                           C:\Users\me\Photos
 3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
