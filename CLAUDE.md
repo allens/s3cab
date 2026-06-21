@@ -223,24 +223,33 @@ rather than assuming it is fixed forever.
     automatic — the reviewer must be requested explicitly, right after `gh pr create`. The
     requestable reviewer is the bot **`Copilot`** (REST login `Copilot`, app
     `copilot-pull-request-reviewer[bot]`, db id `175728472`, node `BOT_kgDOCnlnWA`; in a GraphQL
-    `reviewRequests` it surfaces as Bot login `copilot-pull-request-reviewer`). The intended
-    call is `gh api repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"`.
-    Three hard-won gotchas (the second/third cost a long detour 2026-06-21):
-    - **`gh pr edit --add-reviewer` silently no-ops** for this bot, and it isn't in
-      `suggestedActors` — so the raw `requested_reviewers` REST endpoint is the path, not `gh pr edit`.
-    - **Never trust the `201` — confirm the request actually landed.** The REST POST can return
-      `201 Created` and add *nothing*: `-f "reviewers[]=Copilot"` sends the *literal* key
-      `reviewers[]` (not a `reviewers` array), and even a proper JSON body
-      (`{"reviewers":["Copilot"]}`) failed to land on a Windows/gh-2.x setup — a **bogus**
-      reviewer name returned `201` there too. Always verify via `gh api graphql` →
-      `pullRequest.reviewRequests` (or the issue timeline's `review_requested` event), not the
-      HTTP status.
-    - **GraphQL `requestReviews` cannot do it at all** — its `userIds` rejects the Copilot Bot
-      (`Could not resolve to User node with the global id …`) and there is no `botIds` field.
-    - **Reliable fallback: the PR web UI** (Reviewers → Copilot). When the REST call doesn't
-      land (confirmed via `reviewRequests`), request it from the UI — it always works while
-      Copilot code review is enabled for the repo, and the request then shows in both REST
-      (`requested_reviewers.users[].login == "Copilot"`) and GraphQL.
+    `reviewRequests` it surfaces as Bot login `copilot-pull-request-reviewer`). **The working
+    programmatic path is the GraphQL `requestReviews` mutation with `botIds`** (confirmed
+    2026-06-21 — it supersedes the unreliable REST call, and unlike the web-UI fallback an agent
+    can actually run it):
+    ```
+    PR_NODE=$(gh pr view <n> --json id -q .id)
+    gh api graphql -f query='mutation($pr:ID!,$ids:[ID!]!){ requestReviews(input:{pullRequestId:$pr,botIds:$ids,union:true}){ pullRequest{ reviewRequests(first:10){ nodes{ requestedReviewer{ __typename ... on Bot{ login } } } } } } }' -f pr="$PR_NODE" -f ids="BOT_kgDOCnlnWA"
+    ```
+    On success the mutation echoes `copilot-pull-request-reviewer` in its `reviewRequests` —
+    that echo is the confirmation. Hard-won gotchas:
+    - **It's `botIds`, not `userIds`.** The Copilot reviewer is a `Bot` node (`BOT_` prefix), so
+      `userIds` rejects it (`Could not resolve to User node with the global id …`) — the dead end
+      that earlier made GraphQL look impossible here. (Re-fetch the node with `gh api
+      user/175728472 --jq .node_id` if `BOT_kgDOCnlnWA` ever changes.)
+    - **The REST endpoint silently no-ops — don't rely on it.** `gh api
+      repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"` (the previously
+      documented path) can return `200/201` and add *nothing*: `-f "reviewers[]=…"` sends the
+      *literal* key `reviewers[]` (not a `reviewers` array), and even a proper
+      `{"reviewers":["Copilot"]}` body — and a **bogus** reviewer name — returned success on a
+      Windows/gh-2.x setup without attaching anyone.
+    - **`gh pr edit --add-reviewer` also silently no-ops** for this bot, and it isn't in
+      `suggestedActors`.
+    - **`gh pr view --json reviewRequests` does not surface this bot** — it can print `[]` even
+      when the request landed. Trust the mutation's echo (or query `pullRequest.reviewRequests`
+      via `gh api graphql`), never the HTTP status or `gh pr view`.
+    - **Web-UI fallback** (Reviewers → Copilot) always works while Copilot review is enabled —
+      for when you're driving by hand.
     When the review lands, bring its comments back to the user to discuss (convention #10) —
     don't auto-action them.
 
