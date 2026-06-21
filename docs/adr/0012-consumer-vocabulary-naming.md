@@ -11,12 +11,15 @@ don't re-litigate casually.
   the porcelain level): the most domain-honest pair, avoiding the bidirectional *sync*
   connotation — s3cab is one-directional archival.
 - **`setup`, not `init`** for the set-creation command.
-- **`--remote`/`-r` flag**, not separate `*-remote` verbs or a `remote` noun-group, for the
-  read commands `list`/`compare` — local and remote are the *same operation pointed
-  elsewhere*, and a flag avoids a two-level dispatcher ([0006](0006-minimal-code.md)).
-  **`status` is the exception: remote-only, no `--remote` flag** — "what a backup would upload"
-  is *inherently* a local-snapshot-vs-remote-snapshot comparison, so there is no second mode
-  for the flag to point at.
+- **`--remote`/`-r` flag**, not separate `*-remote` verbs or a `remote` noun-group, when a
+  read command genuinely has both a local and a cloud mode — `list` (the surviving case):
+  local and remote are the *same operation pointed elsewhere*, and a flag avoids a two-level
+  dispatcher ([0006](0006-minimal-code.md)). Two read commands are *not* flagged, for opposite
+  reasons: **`status` is remote-only** — "what a backup would upload" is *inherently* a
+  local-vs-remote comparison, so there is no second mode for the flag to point at; and
+  **`compare` is local-only** ([0027](0027-compare-local-only-adoption-syncs-manifests.md)) —
+  remote snapshots are always a subset of local ones, so a `--remote` diff could only
+  reproduce a local one. The flag earns its place only where both modes give distinct answers.
 - **`hashes`**, renamed from `objects` (2026-06-17): the `objects` name was wanted for the
   object-store module ([src/lib/objects.mjs](../../src/lib/objects.mjs)), and `hashes` names
   what the command prints (one sha256 per line) more honestly. Its write sibling `upload` reads

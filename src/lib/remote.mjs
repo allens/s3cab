@@ -1,4 +1,7 @@
+import { createWriteStream } from "node:fs";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { knownObjects, putObject, recordObjects } from "./objects.mjs";
 import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
@@ -99,6 +102,52 @@ export async function readRemoteSnapshot(bucket, set, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
   const input = createS3ReadStream(uri).pipe(createZstdDecompress());
   return parseSnapshotStream(input);
+}
+
+/**
+ * Pull a set's remote snapshot manifests down into `snapshotDir` — the
+ * adoption-time metadata sync
+ * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
+ * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
+ * file (atomic temp + rename, like `getObject`), touching **no** `objects/`. A
+ * remote manifest is byte-identical to its local form
+ * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
+ * correct and avoids needless decompress-then-recompress.
+ *
+ * This is what lets `compare`/`list`/`restore` stay local-only: `setup --inherit`
+ * calls it so a fresh machine lands with full local history, instead of growing a
+ * remote-reading variant of every browse command (ADR-0027). It streams
+ * (bounded memory) and writes each file atomically, so a mid-pull failure leaves
+ * no partial manifest behind — only fewer of them, in a fresh set the user can
+ * delete and re-inherit.
+ *
+ * Requires the target bucket's env loaded first (set-family commands do this via
+ * `prepareRemoteSet`/`loadEnv`, env.mjs).
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
+ * @param {string} snapshotDir - The set's local snapshots dir to write into
+ * @returns {Promise<number>} How many manifests were pulled
+ */
+export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
+  const names = await listRemoteSnapshots(bucket, set);
+  if (names.length === 0) return 0;
+
+  await mkdir(snapshotDir, { recursive: true });
+  const prefix = remoteSnapshotsPrefix(set);
+  for (const name of names) {
+    const uri = `s3://${bucket}/${prefix}${name}.tsv.zst`;
+    const destPath = join(snapshotDir, `${name}.tsv.zst`);
+    const tmpPath = join(snapshotDir, `.${name}.tsv.zst.s3cab-tmp`);
+    try {
+      await pipeline(createS3ReadStream(uri), createWriteStream(tmpPath));
+      await rename(tmpPath, destPath);
+    } catch (error) {
+      // Never leave a partial temp file behind (best-effort).
+      await unlink(tmpPath).catch(() => {});
+      throw error;
+    }
+  }
+  return names.length;
 }
 
 /**
