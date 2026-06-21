@@ -276,12 +276,10 @@ export async function putFile(path, uri, options = {}) {
 
 /**
  * Whether an object should count as existing for `putFile`'s multipart
- * `--no-clobber` preflight. This deliberately mirrors the old `getMetadata()`
- * behaviour: a successful HEAD only counts when the object has custom metadata.
- *
- * This keeps the preflight aligned with the historical semantics: an object that
- * exists but has no custom metadata is treated as absent here and left to the
- * upload's conditional PUT (`IfNoneMatch: "*"`) to reject if needed.
+ * `--no-clobber` preflight. A successful HEAD only counts when the object has
+ * custom metadata: an object that exists but has none is treated as absent here
+ * and left to the upload's conditional PUT (`IfNoneMatch: "*"`) to reject if
+ * needed — the conditional PUT is the real guard, this is only a fast preflight.
  * @param {string} uri - The S3 URI.
  * @returns {Promise<boolean>}
  */

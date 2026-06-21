@@ -203,7 +203,7 @@ export function diff(previousSnapshot, currentSnapshot) {
   /** @type {PathSet} */ // modified paths - files that have changed
   const modified = new Set();
 
-  /** @type {PathSet} */ // deleted paths - files that are not in the current snapshot
+  /** @type {PathSet} */
   const deleted = new Set();
 
   const previousPathsByHash = getPathsByHash(previousSnapshot);
@@ -215,20 +215,14 @@ export function diff(previousSnapshot, currentSnapshot) {
     const currentProps = currentOnly.get(path);
     if (currentProps) {
       currentOnly.delete(path);
-      // If the path from the previous snapshot exists in the current snapshot and the hash is different, it is modified
-      if (currentProps.hash !== hash) {
-        modified.add(path);
-      } else {
-        // nominally unchanged but we assume this and don't do anything with it
-      }
+      if (currentProps.hash !== hash) modified.add(path);
     } else {
-      // If the path from the previous snapshot does NOT exist in the current snapshot, it is deleted or possibly moved
       deleted.add(path);
     }
   });
 
-  // Now currentOnly holds only new paths
-  // We just need to work out if they are really new, moved, renamed
+  // Phase two: what's left in currentOnly is the added paths — classify each as
+  // genuinely new, a move/rename, or a copy.
   for (const [addedPath, { hash }] of currentOnly) {
     const previousPathSetForHash = previousPathsByHash.get(hash);
 

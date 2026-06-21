@@ -47,14 +47,12 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-// S3 test strategy (docs/specs/backup.md slice 3, decided 2026-06-13): the
-// S3-touching code is exercised against a real test bucket, gated on
-// `S3CAB_TEST_BUCKET` (+ ambient AWS credentials) and skipped with a message
-// when unset — so local/offline/fork runs stay green and real coverage runs
-// only where the bucket is wired. The pure name-sorting these listers reuse is
-// covered without a bucket by list.test.mjs (via `snapshotNames`); ordering
-// against real seeded snapshots follows in step 4, once the uploader can seed
-// them naturally (and tear them down).
+// S3 test strategy (docs/specs/testing.md): the S3-touching code is exercised
+// against a real test bucket, gated on `S3CAB_TEST_BUCKET` (+ ambient AWS
+// credentials) and skipped with a message when unset — so local/offline/fork
+// runs stay green and real coverage runs only where the bucket is wired. The
+// pure name-sorting these listers reuse is covered without a bucket by
+// list.test.mjs (via `snapshotNames`).
 const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
 const skip = TEST_BUCKET
   ? false
