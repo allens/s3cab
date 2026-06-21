@@ -99,7 +99,7 @@ and `restore --output` already work.)
 
 ### Cloud repositories
 
-A cloud backup lives in **its own S3 bucket** — _one repository is one bucket_, not a
+A cloud **repository** lives in its own S3 bucket — _one repository is one bucket_, not a
 folder inside a shared one. Inside, the structure is fixed and well-known, so anything
 (s3cab, another tool, or you by hand) can find everything by convention:
 
@@ -112,9 +112,9 @@ s3://my-backup-bucket/
 One bucket can hold **many backup sets** — your own, and other people's or machines' — all
 sharing `objects/`, so duplicate content is stored once across everything in the bucket. Each
 set keeps its own snapshot files under its own prefix, `snapshots/<set>/` (a set name is
-unique within a bucket: claimed first-come, and taken over on a new machine with `setup
---inherit`). A snapshot file only ever appears in `snapshots/` after every file it references
-is safely in `objects/`, so any snapshot file you find is complete and restorable.
+unique within a bucket: claimed first-come, and taken over on a new machine with
+`setup --inherit`). A snapshot file only ever appears in `snapshots/` after every file it
+references is safely in `objects/`, so any snapshot file you find is complete and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
 look up its hash in a snapshot and download `objects/<that-hash>`.
