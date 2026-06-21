@@ -7,7 +7,6 @@ import { deleteObject, listObjects } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import {
-  listRemoteNamespaces,
   listRemoteSnapshots,
   readLatestRemoteSnapshot,
   remoteSnapshotsPrefix,
@@ -62,11 +61,8 @@ const skip = TEST_BUCKET
   : "set S3CAB_TEST_BUCKET (and AWS credentials) to run S3 integration tests";
 
 describe("remoteSnapshotsPrefix", () => {
-  it("places a set's snapshots under snapshots/<namespace>/", () => {
-    assert.equal(
-      remoteSnapshotsPrefix("user@host/photos"),
-      "snapshots/user@host/photos/",
-    );
+  it("places a set's snapshots under snapshots/<set>/", () => {
+    assert.equal(remoteSnapshotsPrefix("photos"), "snapshots/photos/");
   });
 });
 
@@ -110,21 +106,18 @@ describe("uploadCandidates", () => {
 });
 
 describe("remote snapshot listing (real bucket)", { skip }, () => {
-  it("returns no snapshots for a namespace that has none yet", async () => {
-    // A unique namespace no backup has ever written to, so the listing is
+  it("returns no snapshots for a set that has none yet", async () => {
+    // A unique set name no backup has ever written to, so the listing is
     // empty without seeding or cleanup.
-    const namespace = `test@s3cab/empty-${Date.now()}`;
+    const set = `empty-${Date.now()}`;
     assert.deepEqual(
-      await listRemoteSnapshots(/** @type {string} */ (TEST_BUCKET), namespace),
+      await listRemoteSnapshots(/** @type {string} */ (TEST_BUCKET), set),
       [],
     );
     // A set with no remote snapshot yet diffs against an empty lookup, so every
     // target hash is a candidate (its first backup uploads everything).
     assert.deepEqual(
-      await readLatestRemoteSnapshot(
-        /** @type {string} */ (TEST_BUCKET),
-        namespace,
-      ),
+      await readLatestRemoteSnapshot(/** @type {string} */ (TEST_BUCKET), set),
       { name: undefined, lookup: new Map() },
     );
   });
@@ -138,7 +131,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
     // away from any ~/.aws config.
     useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
-    const namespace = `test@s3cab/upload-${Date.now()}`;
+    const set = `upload-${Date.now()}`;
     const name = "2025-01-15T1030";
 
     const contentDir = resolve(dir.path, "content");
@@ -147,8 +140,8 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
     const fileB = join(contentDir, "b.txt");
     // Unique content → unique hashes, so the shared objects/ store stays
     // isolated from other runs and teardown deletes exactly what we made.
-    writeFileSync(fileA, `alpha ${namespace}`);
-    writeFileSync(fileB, `beta ${namespace}`);
+    writeFileSync(fileA, `alpha ${set}`);
+    writeFileSync(fileB, `beta ${set}`);
 
     const snapshotDir = join(dir.path, "snapshots");
     mkdirSync(snapshotDir, { recursive: true });
@@ -160,7 +153,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
     try {
       const result = await uploadSnapshot({
         bucket,
-        namespace,
+        set,
         snapshotDir,
         name,
       });
@@ -168,7 +161,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       assert.equal(result.uploaded, hashes.length);
 
       // The snapshot is present (uploaded last) and its objects exist.
-      assert.deepEqual(await listRemoteSnapshots(bucket, namespace), [name]);
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), [name]);
       for (const hash of hashes) {
         const keys = [];
         for await (const o of listObjects(`s3://${bucket}/objects/${hash}`)) {
@@ -180,7 +173,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       // Re-backing-up the same name uploads nothing (all objects now in the
       // latest remote snapshot) and errors on the immutable snapshot.
       await assert.rejects(
-        () => uploadSnapshot({ bucket, namespace, snapshotDir, name }),
+        () => uploadSnapshot({ bucket, set, snapshotDir, name }),
         /already backed up/,
       );
     } finally {
@@ -188,43 +181,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
-      );
-    }
-  });
-});
-
-describe("listRemoteNamespaces (real bucket)", { skip }, () => {
-  it("surfaces the user@machine/set prefix of a seeded snapshot", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    const bucket = /** @type {string} */ (TEST_BUCKET);
-    const namespace = `test@s3cab/ns-${Date.now()}`;
-    const name = "2025-02-20T0900";
-
-    const contentDir = resolve(dir.path, "content");
-    mkdirSync(contentDir, { recursive: true });
-    const file = join(contentDir, "a.txt");
-    writeFileSync(file, `ns-disco ${namespace}`);
-    const snapshotDir = join(dir.path, "snapshots");
-    mkdirSync(snapshotDir, { recursive: true });
-    await writeSnapshot(snapshotDir, name, [file]);
-    const { entries } = await readSnapshot(snapshotDir, name);
-    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
-
-    try {
-      await uploadSnapshot({ bucket, namespace, snapshotDir, name });
-      const found = await listRemoteNamespaces(bucket);
-      assert.ok(
-        found.includes(namespace),
-        `expected ${namespace} among ${found.join(", ")}`,
-      );
-    } finally {
-      for (const hash of hashes) {
-        await deleteObject(`s3://${bucket}/objects/${hash}`);
-      }
-      await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(namespace)}${name}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
       );
     }
   });

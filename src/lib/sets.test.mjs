@@ -6,14 +6,12 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   formatSets,
   listSets,
-  namespacePart,
   readSet,
   resolveRemoteSet,
   resolveSet,
   sanitizeNamePart,
   setEnvPath,
   validateBucketName,
-  validateNamespace,
   validateSetName,
   writeSet,
 } from "./sets.mjs";
@@ -48,20 +46,6 @@ describe("sanitizeNamePart", () => {
   it("trims leading/trailing hyphens (and what unicode maps to)", () => {
     assert.equal(sanitizeNamePart("-photos-"), "photos");
     assert.equal(sanitizeNamePart("über_user"), "ber-user");
-  });
-});
-
-describe("namespacePart", () => {
-  it("is the sanitized form when the charset can express the name", () => {
-    assert.equal(namespacePart("Jane Doe"), "jane-doe");
-  });
-
-  it("falls back to a short stable hash when sanitization empties the name", () => {
-    const part = namespacePart("田中");
-
-    assert.match(part, /^[0-9a-f]{6}$/);
-    assert.equal(namespacePart("田中"), part); // stable across calls
-    assert.notEqual(namespacePart("佐藤"), part); // distinct identities stay distinct
   });
 });
 
@@ -108,28 +92,8 @@ describe("validateBucketName", () => {
   });
 });
 
-describe("validateNamespace", () => {
-  it("accepts a canonical user@machine/set namespace", () => {
-    validateNamespace("allen@allen-pc/photos");
-    validateNamespace("u-1@host-2/set-3");
-  });
-
-  it("rejects the wrong shape or charset, teaching the form", () => {
-    for (const bad of [
-      "allen@allen-pc", // no set
-      "allen/photos", // no @machine
-      "allen@allen-pc/photos/extra", // too deep
-      "Allen@allen-pc/photos", // uppercase
-      "allen @pc/photos", // space
-      "",
-    ]) {
-      assert.throws(() => validateNamespace(bad), /Invalid namespace/);
-    }
-  });
-});
-
 describe("set store", () => {
-  it("writeSet creates the folder, dirs.txt, and pins the namespace", async () => {
+  it("writeSet creates the folder and dirs.txt", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
 
@@ -138,7 +102,6 @@ describe("set store", () => {
     assert.equal(set.name, "photos");
     assert.deepEqual(set.dirs, ["C:\\Photos", "D:\\Pics"]);
     assert.equal(set.bucket, undefined);
-    assert.match(String(set.namespace), /^[a-z0-9-]+@[a-z0-9-]+\/photos$/);
 
     const dirsTxt = readFileSync(
       join(home, ".s3cab", "sets", "photos", "dirs.txt"),
@@ -158,31 +121,12 @@ describe("set store", () => {
     assert.deepEqual(updated.dirs, ["C:\\Photos"]); // dirs untouched
   });
 
-  it("writeSet never recomputes the pinned namespace", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
-
-    // The user@machine pin must survive updates verbatim — hand-edit it to
-    // something this machine could not produce, then update the set.
-    const envPath = setEnvPath("photos");
-    writeFileSync(
-      envPath,
-      readFileSync(envPath, "utf8").replace(
-        /^S3CAB_NAMESPACE=.*$/m,
-        "S3CAB_NAMESPACE=other@elsewhere/photos",
-      ),
-    );
-
-    const updated = writeSet("photos", { bucket: "b" });
-
-    assert.equal(updated.namespace, "other@elsewhere/photos");
-  });
-
   it("env updates preserve hand-written lines (the files are the API)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"] });
+    // Bind a bucket so the env file exists (a bucket-less set writes none), then
+    // hand-edit it and re-bind — the hand-written lines must survive the update.
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "old-bucket" });
 
     const envPath = setEnvPath("photos");
     writeFileSync(
@@ -288,14 +232,14 @@ describe("resolveSet", () => {
 });
 
 describe("resolveRemoteSet", () => {
-  it("returns the set when a bucket and namespace are present", async () => {
+  it("returns the set when a bucket is bound", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
 
     const set = resolveRemoteSet("photos");
     assert.equal(set.bucket, "b");
-    assert.match(set.namespace, /\/photos$/); // user@machine/photos
+    assert.equal(set.name, "photos");
   });
 
   it("stops with the bind-bucket command for a bucket-less set", async () => {

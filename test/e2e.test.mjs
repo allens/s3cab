@@ -131,7 +131,6 @@ describe("cli (e2e)", () => {
     assert.strictEqual(created.status, 0, created.stderr);
     const set = JSON.parse(created.stdout);
     assert.strictEqual(set.name, "photos");
-    assert.match(String(set.namespace), /^[a-z0-9-]+@[a-z0-9-]+\/photos$/);
 
     const listed = runWithHome(home, "sets");
 

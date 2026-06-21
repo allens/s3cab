@@ -36,7 +36,7 @@ function useTempHome(root) {
 }
 
 describe("setup", () => {
-  it("creates a set: absolute member folders, pinned namespace, no bucket", async () => {
+  it("creates a set: absolute member folders, no bucket", async () => {
     await using dir = await mkTmpDir();
     const { photos } = useTempHome(dir.path);
 
@@ -45,7 +45,6 @@ describe("setup", () => {
     assert.equal(set.name, "photos");
     assert.deepEqual(set.dirs, [realpathSync.native(photos)]);
     assert.equal(set.bucket, undefined);
-    assert.match(String(set.namespace), /^[a-z0-9-]+@[a-z0-9-]+\/photos$/);
   });
 
   it("re-running with --bucket alone binds the bucket and keeps the folders", async () => {
@@ -122,52 +121,6 @@ describe("setup", () => {
     await assert.rejects(
       () => setup("photos", [photos, file]),
       /Not a folder: /,
-    );
-  });
-});
-
-// Adoption's offline error paths — everything that fails before the S3
-// verification (which is gated, covered by the round-trip e2e). The from-path
-// is async, so these reject rather than throw.
-describe("setup --from (adoption)", () => {
-  it("rejects a malformed namespace, teaching the shape", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    await assert.rejects(
-      () => setup("recovery", [], { from: "Not A Namespace", bucket: "b" }),
-      /Invalid namespace[\s\S]*user@machine\/set/,
-    );
-  });
-
-  it("rejects folders passed alongside --from", async () => {
-    await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
-    await assert.rejects(
-      () =>
-        setup("recovery", [photos], {
-          from: "allen@allen-pc/photos",
-          bucket: "b",
-        }),
-      /takes no folders/,
-    );
-  });
-
-  it("refuses to adopt into an existing set (namespace is pinned at creation)", async () => {
-    await using dir = await mkTmpDir();
-    const { photos } = useTempHome(dir.path);
-    await setup("photos", [photos]);
-    await assert.rejects(
-      () => setup("photos", [], { from: "allen@allen-pc/photos", bucket: "b" }),
-      /already exists/,
-    );
-  });
-
-  it("requires a bucket to adopt from", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    await assert.rejects(
-      () => setup("recovery", [], { from: "allen@allen-pc/photos" }),
-      /needs the bucket/,
     );
   });
 });

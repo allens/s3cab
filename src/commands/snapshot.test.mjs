@@ -135,10 +135,7 @@ describe("snapshot", () => {
       .filter((line) => line.startsWith("#"));
     assert.ok(snapshotLine && dirLine, "expected #SNAPSHOT and #DIR headers");
 
-    assert.match(
-      snapshotLine,
-      /^#SNAPSHOT\s+2025-02-01T09:00\s+[a-z0-9-]+@[a-z0-9-]+:photos\s*$/,
-    );
+    assert.match(snapshotLine, /^#SNAPSHOT\s+2025-02-01T09:00\s+photos\s*$/);
     assert.match(dirLine, /^#DIR\s/);
     assert.ok(dirLine.includes(realpathSync.native(workDir())));
   });

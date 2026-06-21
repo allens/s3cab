@@ -43,7 +43,7 @@ export async function backup(setName, options = {}) {
 
   const { candidates, uploaded } = await uploadSnapshot({
     bucket: set.bucket,
-    namespace: set.namespace,
+    set: set.name,
     snapshotDir,
     name,
     skipCache: options["skip-cache"],

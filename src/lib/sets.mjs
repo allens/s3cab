@@ -1,12 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
-import { hash } from "node:crypto";
-import { hostname, userInfo } from "node:os";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
@@ -15,17 +7,15 @@ import { assertPathSegment, s3cabDir } from "./home.mjs";
 // The backup-set store (docs/specs/backup.md): one folder per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
-// `env` (the pinned remote namespace, the bound bucket, and any per-set auth
-// overrides — a layer in env.mjs's env layering). The files are the API:
-// editing a set is opening these files in an editor, deleting the folder
-// deletes the set, so this module never caches and re-reads from disk on
-// every call.
+// `env` (the bound bucket and any per-set auth overrides — a layer in env.mjs's
+// env layering). The files are the API: editing a set is opening these files in
+// an editor, deleting the folder deletes the set, so this module never caches
+// and re-reads from disk on every call.
 //
-// A set's full identity is `user@machine:set-name`, captured ONCE at creation
-// (sanitized from the OS username/hostname) and pinned into the set's `env` as
-// the remote namespace `user@machine/set-name` — never recomputed, so renaming
-// the machine (or the set folder, a purely local handle) cannot fork the
-// backup history.
+// A set's **name** is its whole identity (ADR-0024): the local handle, the local
+// folder name, and the remote namespace, all one `[a-z0-9-]+` string. There is
+// no `user@machine` component — `validateSetName` keeps the single name clean as
+// handle, path segment, and remote key with zero escaping anywhere downstream.
 
 /** `~/.s3cab/sets` — one folder per backup set. */
 const setsRoot = () => join(s3cabDir(), "sets");
@@ -71,12 +61,12 @@ function readTextFile(path) {
 }
 
 /**
- * Sanitize a captured identity part (OS username / hostname) to the canonical
- * namespace charset: lowercase `a-z`, `0-9`, `-` — nothing else, so nothing
- * downstream ever needs escaping. Lowercase; every other run of characters
- * becomes one `-`; leading/trailing `-` trimmed. Silent normalization is fine
- * here — the user never typed these (Windows usernames may carry spaces or
- * unicode).
+ * Coerce a string to the canonical set-name charset: lowercase `a-z`, `0-9`, `-`
+ * — nothing else, so nothing downstream ever needs escaping. Lowercase; every
+ * other run of characters becomes one `-`; leading/trailing `-` trimmed. Used in
+ * two cosmetic spots: `validateSetName`'s "Try: …" suggestion, and the
+ * `$username` default `setup` offers for the first set's name (ADR-0024) — never
+ * to silently rewrite a value the user must live with.
  * @param {string} part
  */
 export const sanitizeNamePart = (part) =>
@@ -84,18 +74,6 @@ export const sanitizeNamePart = (part) =>
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, "-")
     .replaceAll(/^-+|-+$/g, "");
-
-/**
- * A captured identity part for the namespace: the sanitized form, or — when
- * the charset can't express the name at all (e.g. an all-non-Latin username,
- * which sanitizes to "") — a short stable hash of the raw value. The hash
- * keeps identities *distinct* in a shared bucket even when recognisability
- * is unsalvageable; a constant fallback would collide every such user.
- * (Settled in PR #33 review.)
- * @param {string} part
- */
-export const namespacePart = (part) =>
-  sanitizeNamePart(part) || hash("sha256", part, "hex").slice(0, 6);
 
 /**
  * Validate a user-chosen set name against the canonical charset — a name is
@@ -154,33 +132,6 @@ export function validateBucketName(bucket) {
   }
 }
 
-/**
- * Validate a namespace supplied for adoption (`setup --from`): the pinned
- * remote identity `user@machine/set`, each part the canonical `[a-z0-9-]+`
- * charset — so it is a safe `snapshots/<namespace>/` key prefix and matches
- * exactly what `writeSet` pins when creating normally. User-supplied, so a
- * malformed value is rejected with the shape rather than silently normalized.
- * @param {string} namespace
- */
-export function validateNamespace(namespace) {
-  if (!isNamespace(namespace)) {
-    throw new Error(
-      `Invalid namespace: ${namespace}\n` +
-        `Adopt with a remote namespace of the form user@machine/set ` +
-        `(lowercase letters, digits, and hyphens, e.g. allen@allen-pc/photos).`,
-    );
-  }
-}
-
-/**
- * Whether a string is a canonical `user@machine/set` namespace — the single
- * source of truth for the shape, shared by `validateNamespace` (which throws)
- * and `remote.mjs`'s namespace discovery (which filters keys to real targets).
- * @param {string} s
- * @returns {boolean}
- */
-export const isNamespace = (s) => /^[a-z0-9-]+@[a-z0-9-]+\/[a-z0-9-]+$/.test(s);
-
 /** The names of all backup sets (the folders under `~/.s3cab/sets`), sorted. */
 export function listSets() {
   /** @type {import("node:fs").Dirent[]} */
@@ -199,10 +150,9 @@ export function listSets() {
 
 /**
  * @typedef {Object} BackupSet
- * @property {string} name - The local handle (the folder name under `~/.s3cab/sets`)
+ * @property {string} name - The local handle, local folder name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
  * @property {string} [bucket] - The bound S3 bucket (`S3CAB_BUCKET` in the set's env)
- * @property {string} [namespace] - The pinned remote namespace, `user@machine/set-name`
  */
 
 /**
@@ -230,7 +180,6 @@ export function readSet(name) {
     name,
     dirs,
     bucket: env.S3CAB_BUCKET,
-    namespace: env.S3CAB_NAMESPACE,
   };
 }
 
@@ -258,9 +207,11 @@ export function resolveSet(name) {
 
 /**
  * Resolve a set that is ready for cloud operations: the named set (sole-set
- * default, via `resolveSet`), guarded to have a bucket bound and a pinned
- * namespace. A bucket-less set is a local-only snapshot engine and stops here
- * with the exact command to bind one.
+ * default, via `resolveSet`), guarded to have a bucket bound. A bucket-less set
+ * is a local-only snapshot engine and stops here with the exact command to bind
+ * one. (Once ADR-0026 makes a bucket mandatory at setup, every set is guaranteed
+ * one and this guard — with `BackupSet.bucket` non-optional — folds back into
+ * `resolveSet`.)
  *
  * The env-free *inner step* of the set-family front door: it does no `loadEnv`,
  * so it keeps no env/auth dependency (which would also cycle — env.mjs imports
@@ -268,7 +219,7 @@ export function resolveSet(name) {
  * cloud commands call *that*, not this, for their remote work (ADR-0011,
  * ADR-0022). Still exported directly for its own tests.
  * @param {string} [setName]
- * @returns {BackupSet & { bucket: string, namespace: string }}
+ * @returns {BackupSet & { bucket: string }}
  */
 export function resolveRemoteSet(setName) {
   const set = resolveSet(setName);
@@ -278,13 +229,7 @@ export function resolveRemoteSet(setName) {
         `Bind one with:  s3cab setup ${set.name} --bucket <bucket>`,
     );
   }
-  if (!set.namespace) {
-    throw new Error(
-      `Backup set '${set.name}' has no pinned namespace ` +
-        `(S3CAB_NAMESPACE missing from its env).`,
-    );
-  }
-  return { ...set, bucket: set.bucket, namespace: set.namespace };
+  return { ...set, bucket: set.bucket };
 }
 
 /**
@@ -308,39 +253,24 @@ export function formatSets(sets) {
 }
 
 /**
- * Create or update a set: write `dirs.txt` when dirs are given, bind the
- * bucket when given, and pin the namespace once at creation. Member dirs are
- * stored as passed — resolving/validating them is the `setup` command's job.
- *
- * The namespace is pinned at creation and never changed thereafter. Normally it
- * is derived fresh from this machine's identity; adoption (`setup --from`)
- * passes an existing remote `namespace` to pin instead, so a fresh machine can
- * point a new local set at another machine's backup (docs/specs/backup.md). A given
- * namespace only takes effect when creating — an existing set's is immutable.
+ * Create or update a set: write `dirs.txt` when dirs are given, and bind the
+ * bucket when given. Member dirs are stored as passed — resolving/validating
+ * them is the `setup` command's job. The set's identity is just its `name`
+ * (ADR-0024), so there is nothing to pin: creating and updating run the same path.
  * @param {string} name - A valid set name (see `validateSetName`)
  * @param {object} [pieces]
  * @param {string[]} [pieces.dirs] - Member directories (absolute paths)
  * @param {string} [pieces.bucket] - The S3 bucket to bind
- * @param {string} [pieces.namespace] - Pin this remote namespace (adoption); validated by the caller
  * @returns {BackupSet} The set as stored after the write
  */
-export function writeSet(name, { dirs, bucket, namespace } = {}) {
-  const creating = !existsSync(setDir(name));
+export function writeSet(name, { dirs, bucket } = {}) {
   mkdirSync(setDir(name), { recursive: true });
 
   if (dirs?.length) {
     writeFileSync(setDirsPath(name), dirs.join("\n") + "\n");
   }
 
-  /** @type {Record<string, string>} */
-  const updates = {};
-  if (creating) {
-    const user = namespacePart(userInfo().username);
-    const machine = namespacePart(hostname());
-    updates.S3CAB_NAMESPACE = namespace ?? `${user}@${machine}/${name}`;
-  }
-  if (bucket) updates.S3CAB_BUCKET = bucket;
-  if (Object.keys(updates).length) updateEnvFile(setEnvPath(name), updates);
+  if (bucket) updateEnvFile(setEnvPath(name), { S3CAB_BUCKET: bucket });
 
   return readSet(name);
 }

@@ -115,11 +115,6 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
         short: "b",
         description: "The S3 bucket to back this set up to",
       },
-      from: {
-        type: "string",
-        description:
-          "Adopt an existing backup: pin this user@machine/set namespace (for restoring on a fresh machine)",
-      },
     },
     exec: (options, [name, ...folders] = []) => setup(name, folders, options),
   },
