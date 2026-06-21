@@ -98,13 +98,19 @@ const nowStamp = () =>
  * @param {string} bucket
  * @param {import("../lib/set-marker.mjs").SetInfo} [info]
  */
-const collisionError = (name, bucket, info) =>
-  new Error(
-    `Backup set '${name}' is already set up in bucket '${bucket}'` +
-      (info ? ` (owner: ${info.owner}, created ${info.created})` : "") +
-      `.\nTo take it over on this machine:\n` +
+const collisionError = (name, bucket, info) => {
+  // Only the fields actually present — a corrupted/partial marker (empty OWNER
+  // or CREATED) must not print "(owner: , created )".
+  const parts = [];
+  if (info?.owner) parts.push(`owner: ${info.owner}`);
+  if (info?.created) parts.push(`created ${info.created}`);
+  const detail = parts.length ? ` (${parts.join(", ")})` : "";
+  return new Error(
+    `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n` +
+      `To take it over on this machine:\n` +
       `  s3cab setup ${name} --inherit --bucket ${bucket}`,
   );
+};
 
 /**
  * Create a new set: claim the name in the bucket, then write it locally and
@@ -235,6 +241,18 @@ async function inherit(name, folders, creating, options) {
   const { dirs, exclude } = await readSetConfig(bucket, name);
   const set = writeSet(name, { dirs, bucket });
   if (exclude !== undefined) writeSetExclude(name, exclude);
+
+  // A normal set always has member dirs (create requires ≥1 folder), so an empty
+  // `dirs` here means a partial/legacy remote marker. Not fatal — restore reads
+  // paths from the snapshot, not dirs.txt, so the set can still recover files —
+  // but warn, since it can't snapshot/backup until folders are added.
+  if (dirs.length === 0) {
+    console.warn(
+      `Inherited '${name}' with no member directories from the remote config. ` +
+        `It can restore, but can't snapshot or back up until you add folders:\n` +
+        `  s3cab setup ${name} <folder>...`,
+    );
+  }
 
   // Re-stamp ownership to this machine; preserve the original CREATED.
   await writeRemoteInfo(bucket, name, {

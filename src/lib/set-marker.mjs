@@ -1,5 +1,5 @@
 import { parseEnv } from "node:util";
-import { getData, listObjects, putData } from "./s3.mjs";
+import { deleteObject, getData, listObjects, putData } from "./s3.mjs";
 
 // The remote `sets/<set>/` area of an s3cab repository: a backup set's published
 // config and ownership marker (ADR-0024). The third remote concern, beside
@@ -104,9 +104,12 @@ export async function writeRemoteInfo(bucket, set, info) {
 }
 
 /**
- * Push a set's config to its remote marker for the full-DR story: `dirs.txt`
- * always, `exclude.txt` only when the set has one (`exclude` undefined ⇒ none).
- * Plain overwrites — the caller owns the set (it won the claim or inherited it).
+ * Push a set's config to its remote marker for the full-DR story, **mirroring
+ * the local set**: `dirs.txt` always, and `exclude.txt` only when the set has
+ * one — when it doesn't (`exclude` undefined), any stale remote `exclude.txt` is
+ * **deleted**, so removing `exclude.txt` locally and re-running `setup` can't
+ * leave one behind for `--inherit` to resurrect. Plain overwrites — the caller
+ * owns the set (it won the claim or inherited it).
  *
  * Callers must have loaded their env first.
  * @param {string} bucket
@@ -118,7 +121,10 @@ export async function writeRemoteInfo(bucket, set, info) {
  */
 export async function pushSetConfig(bucket, set, { dirs, exclude }) {
   await putData(fileUri(bucket, set, "dirs.txt"), dirs.join("\n") + "\n");
-  if (exclude !== undefined) {
+  if (exclude === undefined) {
+    // No local exclude → remove any stale remote one (DeleteObject is idempotent).
+    await deleteObject(fileUri(bucket, set, "exclude.txt"));
+  } else {
     await putData(fileUri(bucket, set, "exclude.txt"), exclude);
   }
 }
@@ -127,7 +133,9 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
  * Read a set's published config back from its remote marker — what `--inherit`
  * recreates the local set from. `dirs` is parsed like the local `dirs.txt` (one
  * absolute path per non-blank line); `exclude` is the verbatim file text, or
- * `undefined` if the set has none remotely.
+ * `undefined` if the set has none remotely — an empty `exclude.txt` (which
+ * `pushSetConfig` never writes, but a hand-made one could) normalizes to
+ * `undefined` too, so "no excludes" has one representation.
  *
  * Callers must have loaded their env first.
  * @param {string} bucket
@@ -140,7 +148,8 @@ export async function readSetConfig(bucket, set) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const exclude = await getData(fileUri(bucket, set, "exclude.txt"));
+  const excludeText = await getData(fileUri(bucket, set, "exclude.txt"));
+  const exclude = excludeText || undefined;
   return { dirs, exclude };
 }
 

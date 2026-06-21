@@ -102,6 +102,14 @@ describe("set marker (real bucket)", { skip }, () => {
         exclude: "*.tmp\nnode_modules/\n",
       });
 
+      // Re-pushing the same set with no exclude DELETES the stale remote one
+      // (mirror local), so --inherit can't resurrect a removed exclude.txt.
+      await pushSetConfig(bucket, withExclude, { dirs: ["C:\\Photos"] });
+      assert.deepEqual(await readSetConfig(bucket, withExclude), {
+        dirs: ["C:\\Photos"],
+        exclude: undefined,
+      });
+
       // No exclude pushed → exclude reads back as undefined.
       await pushSetConfig(bucket, noExclude, { dirs: ["C:\\Photos"] });
       assert.deepEqual(await readSetConfig(bucket, noExclude), {
