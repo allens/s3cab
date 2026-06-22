@@ -48,7 +48,7 @@ function writeEnv(path, contents) {
 
 /**
  * Wire up a temp home, point S3CAB_HOME at it, and return a fresh
- * `loadEnv`/`prepareRemoteSet` plus helpers to populate each layer's file.
+ * `loadEnv`/`loadSet` plus helpers to populate each layer's file.
  * @param {string} root - The disposable temp directory.
  */
 async function setup(root) {
@@ -58,15 +58,13 @@ async function setup(root) {
   // before importing env.mjs, which derives its paths from s3cabDir().
   process.env.S3CAB_HOME = join(home, ".s3cab");
   const env = await freshEnv();
-  // The set's env-file path. In production a resolved `BackupSet` carries this
-  // as `set.envPath` (sets.mjs owns the layout); these unit tests fabricate it
-  // so `loadEnv` can be exercised in isolation — including for a set env that
-  // doesn't exist yet — without standing up a bucket-bound, resolvable set.
+  // The set's env-file path — writing it (with an `S3CAB_BUCKET`) is what makes
+  // a set resolvable, so `loadSet` can pick it up. sets.mjs owns this layout.
   /** @param {string} name */
   const setEnvPath = (name) => join(home, ".s3cab", "sets", name, "env");
   return {
     loadEnv: env.loadEnv,
-    prepareRemoteSet: env.prepareRemoteSet,
+    loadSet: env.loadSet,
     setEnvPath,
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
@@ -97,52 +95,27 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_REGION, "us-file");
   });
 
-  it("applies the set layer over the user layer (and user fills the gaps)", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_REGION=us-user\nAWS_PROFILE=userprof\n");
-    t.set("photos", "AWS_REGION=us-set\n");
-
-    t.loadEnv({ envPath: t.setEnvPath("photos") });
-
-    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over user
-    assert.equal(process.env.AWS_PROFILE, "userprof"); // user fills what set omits
-  });
-
-  it("is a no-op when no env files exist", async () => {
+  it("is a no-op when no user env file exists", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    t.loadEnv({ envPath: t.setEnvPath("photos") });
+    t.loadEnv();
 
     assert.equal(process.env.AWS_PROFILE, undefined);
   });
 
-  it("does not let a later no-scope call clobber a higher layer already applied", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_REGION=us-user\n");
-    t.set("photos", "AWS_REGION=us-set\n");
-
-    t.loadEnv({ envPath: t.setEnvPath("photos") }); // user then set → us-set
-    assert.equal(process.env.AWS_REGION, "us-set");
-
-    t.loadEnv(); // a later no-scope call — must not re-apply the user layer
-    assert.equal(process.env.AWS_REGION, "us-set");
-  });
-
-  it("loads an env file created after an earlier no-op load", async () => {
+  it("loads a user env file created after an earlier no-op load", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    // First load: the set env file doesn't exist yet → nothing applied, and
+    // First load: the user env file doesn't exist yet → nothing applied, and
     // the guard must NOT record a missing file as "applied".
-    t.loadEnv({ envPath: t.setEnvPath("photos") });
+    t.loadEnv();
     assert.equal(process.env.AWS_PROFILE, undefined);
 
     // Create it, then load again in the same process — it must now take effect.
-    t.set("photos", "AWS_PROFILE=created-later\n");
-    t.loadEnv({ envPath: t.setEnvPath("photos") });
+    t.user("AWS_PROFILE=created-later\n");
+    t.loadEnv();
     assert.equal(process.env.AWS_PROFILE, "created-later");
   });
 
@@ -157,27 +130,55 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_REGION, "us-east-1");
   });
 
-  // `loadEnv` no longer takes a raw set name (it reads `envPath` off an
-  // already-resolved set), so the path-separator guard lives upstream in
-  // `resolveSet`/`readSet` (assertPathSegment) and is covered by sets.test.mjs.
+  // `loadEnv` no longer takes a set at all — the set layer is `loadSet`'s job,
+  // and the path-separator guard lives upstream in `resolveSet`/`readSet`
+  // (assertPathSegment), covered by sets.test.mjs.
 });
 
-describe("prepareRemoteSet", () => {
-  it("resolves the cloud-ready set and loads its env layers", async () => {
+describe("loadSet", () => {
+  // `loadSet` adds the set layer *on top of* an already-loaded user layer (the
+  // entry point loads the user layer first), so these arrange both and call
+  // `loadEnv()` before `loadSet()` to mirror that order.
+
+  it("resolves the cloud-ready set and surfaces it", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
     t.user("AWS_PROFILE=photoprof\n");
     t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
 
-    const set = t.prepareRemoteSet("photos");
+    t.loadEnv();
+    const set = t.loadSet("photos");
 
-    // The resolved set, surfaced through the front door:
+    // The resolved set, surfaced through the door:
     assert.equal(set.name, "photos");
     assert.equal(set.bucket, "photobucket");
-    // …and the env side effect — the set layer applied over the user layer,
-    // which is the precondition the front door exists to make unskippable.
-    assert.equal(process.env.AWS_REGION, "us-set"); // set layer
-    assert.equal(process.env.AWS_PROFILE, "photoprof"); // user layer
+  });
+
+  it("applies the set layer over the user layer (and user fills the gaps)", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.user("AWS_REGION=us-user\nAWS_PROFILE=userprof\n");
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
+
+    t.loadEnv(); // user layer first (as the entry point does)
+    t.loadSet("photos"); // then the set layer on top
+
+    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over user
+    assert.equal(process.env.AWS_PROFILE, "userprof"); // user fills what set omits
+  });
+
+  it("does not let a later loadEnv() clobber the set layer already applied", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.user("AWS_REGION=us-user\n");
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
+
+    t.loadEnv();
+    t.loadSet("photos"); // user then set → us-set
+    assert.equal(process.env.AWS_REGION, "us-set");
+
+    t.loadEnv(); // a later user load — must not re-apply the user layer over set
+    assert.equal(process.env.AWS_REGION, "us-set");
   });
 
   it("stops a corrupt bucket-less set before loading its env", async () => {
@@ -187,7 +188,7 @@ describe("prepareRemoteSet", () => {
     // rejects it via readSet, and it must do so *before* the env layer is applied.
     t.set("local", "AWS_REGION=us-set\n");
 
-    assert.throws(() => t.prepareRemoteSet("local"), /no bucket bound/);
+    assert.throws(() => t.loadSet("local"), /no bucket bound/);
     assert.equal(process.env.AWS_REGION, undefined);
   });
 });

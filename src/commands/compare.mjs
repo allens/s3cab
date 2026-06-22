@@ -1,5 +1,5 @@
 import { compareSnapshots } from "../lib/compare.mjs";
-import { resolveSet } from "../lib/sets.mjs";
+import { loadSet } from "../lib/env.mjs";
 
 /** @import { CompareResult } from "../lib/compare.mjs" */
 
@@ -20,6 +20,6 @@ import { resolveSet } from "../lib/sets.mjs";
  * @returns {Promise<CompareResult>} Diff results
  */
 export async function compare(setName, options = {}) {
-  const set = resolveSet(setName);
+  const set = loadSet(setName);
   return compareSnapshots(set.snapshotsDir, set.dirs, options);
 }

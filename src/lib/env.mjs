@@ -29,6 +29,18 @@ import { resolveSet } from "./sets.mjs";
 // Parsed with the built-in `util.parseEnv` — no dotenv dep (#5) — so the per-key
 // precedence above is enforced by *us*, independent of any one loader's fixed
 // override semantics.
+//
+// Two doors apply these layers (ADR-0022):
+//   loadEnv()       applies the *user* layer. The CLI entry point (s3cab.mjs)
+//                   calls it once before dispatching any command, and a library
+//                   consumer calls it once before using the API — so the user
+//                   layer is always already in process.env. Commands don't call it.
+//   loadSet(name)   resolves a set *and* applies its *set* layer on top. Every
+//                   command that takes a set argument routes through it.
+// Because the user layer is loaded up front, `loadSet` only adds the set layer —
+// precedence (set > user) still holds because user went on first. The old
+// "load env before any S3 op" precondition is thereby satisfied by construction,
+// not enforced per command.
 
 const userEnvPath = () => join(s3cabDir(), "env");
 
@@ -52,8 +64,8 @@ const appliedEnvFiles = new Set();
 
 /**
  * Merge one parsed env layer into process.env, once. Skipping an already-applied
- * file is what keeps precedence correct across multiple `loadEnv` calls: a later
- * call must not re-apply a lower layer over a higher one set by an earlier call.
+ * file keeps precedence correct across the user/set loads: a later call must not
+ * re-apply a lower layer over a higher one set by an earlier call.
  *
  * A missing/empty file (`{}`) is *not* recorded as applied — there was nothing to
  * apply, so a file created later in the same process (e.g. by a future `setup`)
@@ -69,51 +81,41 @@ function applyEnvLayer(path, values) {
 }
 
 /**
- * Load s3cab's layered env files into process.env (see the layer table above).
- * Must run before any AWS client is built so the resolved AWS_* / endpoint /
- * region values are in place. Idempotent per file.
+ * Apply the per-**user** env layer (`~/.s3cab/env`) to process.env. This is the
+ * single up-front load: the CLI entry point (src/s3cab.mjs) calls it once before
+ * dispatching any command, and a library consumer calls it once before using the
+ * API. **Commands do not call it** — the entry point has already run it by the
+ * time any command body executes.
  *
- * Called with no set it applies only the per-user layer; pass a resolved set to
- * also apply its higher-precedence `~/.s3cab/sets/<set>/env`. The set carries
- * its own `envPath` (sets.mjs owns the layout), so this module no longer builds
- * any set path — it just layers the user file (its own) and, when given, the
- * set file at the location the set reports.
+ * Loading env files only reads small files into process.env; it does *not* build
+ * an AWS client (that stays lazy in s3.mjs), so calling this up front does not
+ * force credentials on the local commands. Idempotent per file.
  *
- * Typed to the one field it reads (`envPath`) rather than the whole `BackupSet`,
- * so it asks for exactly what it uses — a full set satisfies it structurally
- * (every caller passes one), and a unit test can exercise the layering with a
- * bare `{ envPath }` without standing up a bucket-bound set.
- *
- * @param {{ envPath: string }} [set] - A resolved backup set (only its `envPath` is read).
+ * Set env is applied separately, by {@link loadSet}, so this takes no set.
  */
-export function loadEnv(set) {
-  // Apply the user layer first so the set layer (higher precedence) overwrites it.
+export function loadEnv() {
   const userPath = userEnvPath();
   applyEnvLayer(userPath, parseEnvFile(userPath));
-
-  if (set) {
-    applyEnvLayer(set.envPath, parseEnvFile(set.envPath));
-  }
 }
 
 /**
- * Resolve a backup set *and* load its env — the single front door for the
- * commands that touch a set's remote (`backup`, `status`, `restore`,
- * `list --remote`). `resolveSet` (sets.mjs) picks the set (sole-set default),
- * and — since every set is bound to a bucket at setup (ADR-0026) — the resolved
- * set is already cloud-ready; this then loads that set's env layer, so the AWS
- * client picks up the right region/credentials/endpoint.
+ * Resolve a backup set *and* apply its env layer — the door every set-accepting
+ * command routes through. `resolveSet` (sets.mjs) picks the set (sole-set
+ * default), then this applies that set's `~/.s3cab/sets/<set>/env` on top.
  *
- * The "load env before any S3 op" precondition lives here, once, instead of
- * being hand-coded at each command (see docs/adr/0022). It is consolidated, not
- * type-enforced: the helper is *called by* each command (so the command stays
- * the library surface), and loading env is a `process.env` side effect — the
- * returned set is a plain `BackupSet`, not a token proving env was loaded.
+ * Only the *set* layer is applied here: the user layer is already in process.env
+ * (loaded at the entry point, or by a consumer's one-call contract), so precedence
+ * (set > user) holds because user went on first. Re-applying the user layer would
+ * just be the redundant guard this design removes.
+ *
+ * Reading the set env file is not an AWS client build, so routing the local
+ * commands (`snapshot`/`compare`/`tree`/`list`) through this keeps them cred-free
+ * — they still never construct a client (see docs/adr/0022).
  * @param {string} [setName] - Backup set (default: the only set)
  * @returns {BackupSet}
  */
-export function prepareRemoteSet(setName) {
+export function loadSet(setName) {
   const set = resolveSet(setName);
-  loadEnv(set);
+  applyEnvLayer(set.envPath, parseEnvFile(set.envPath));
   return set;
 }

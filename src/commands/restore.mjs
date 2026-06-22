@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
-import { prepareRemoteSet } from "../lib/env.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
@@ -46,7 +46,7 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  *   `restored` = paths written; `skipped` = existing paths left untouched (rerun with --overwrite to replace).
  */
 export async function restore(setName, paths = [], options = {}) {
-  const set = prepareRemoteSet(setName);
+  const set = loadSet(setName);
 
   // One listing picks the source and validates `--snapshot` against what's
   // really there (newest first), so a bad name errors loudly with the choices

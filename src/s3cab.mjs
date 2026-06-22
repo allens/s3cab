@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
 import { helpTopics, usage } from "./help.mjs";
+import { loadEnv } from "./lib/env.mjs";
 import { isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 
@@ -59,6 +60,12 @@ try {
   if (debug) {
     console.warn({ execPath, jsPath, commandName, positionals, options });
   }
+
+  // Apply the user env layer once, up front, so it is always already in
+  // process.env before any command runs (ADR-0022). Set-accepting commands add
+  // their set layer on top via `loadSet`. Inside the try so a malformed env file
+  // surfaces through the error handler below.
+  loadEnv();
 
   const result = await command.exec({ ...options, debug }, positionals);
 

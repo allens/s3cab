@@ -1,5 +1,4 @@
 import { writeFile } from "node:fs/promises";
-import { loadEnv } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { listObjectHashes } from "../lib/objects.mjs";
 
@@ -26,9 +25,6 @@ import { listObjectHashes } from "../lib/objects.mjs";
  */
 export async function hashes(bucket, options = {}) {
   requireArg(bucket, "<bucket>");
-  // Resolve env here (the command function is the library surface): the per-user
-  // auth layer, before any S3 access.
-  loadEnv();
 
   const all = [];
   for await (const hash of listObjectHashes(bucket)) all.push(hash);
