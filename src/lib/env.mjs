@@ -40,7 +40,10 @@ import { resolveSet } from "./sets.mjs";
 // Because the user layer is loaded up front, `loadSet` only adds the set layer —
 // precedence (set > user) still holds because user went on first. The old
 // "load env before any S3 op" precondition is thereby satisfied by construction,
-// not enforced per command.
+// not enforced per command. `loadEnv` also drops an ambient `__S3CAB_ENV_LOADED`
+// breadcrumb on process.env that `s3.mjs`'s `client()` asserts — a development
+// tripwire catching a lib consumer who forgot to call `loadEnv`, not load-bearing
+// for correct use (ADR-0022).
 
 const userEnvPath = () => join(s3cabDir(), "env");
 
@@ -96,6 +99,11 @@ function applyEnvLayer(path, values) {
 export function loadEnv() {
   const userPath = userEnvPath();
   applyEnvLayer(userPath, parseEnvFile(userPath));
+  // Drop the development tripwire `s3.mjs`'s `client()` asserts (ADR-0022) —
+  // unconditionally, so an absent/empty user file (nothing applied) still counts:
+  // "loadEnv ran", not "a file existed", is the precondition. `__`-prefixed: an
+  // internal debug flag, not a real config var.
+  process.env.__S3CAB_ENV_LOADED = "1";
 }
 
 /**

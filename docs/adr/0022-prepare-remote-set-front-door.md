@@ -62,6 +62,34 @@ The asymmetry favours dissolving the precondition over enforcing it: the entry-p
 the `loadSet` door make the precondition true structurally, with **less** code than either
 enforcement scheme — and nothing left for a scan to flag.
 
+### A development tripwire, not type-enforcement
+
+We did *not* type-enforce (the brand/RAII above), but we did keep a cheap development tripwire.
+`loadEnv()` drops an ambient `process.env.__S3CAB_ENV_LOADED` breadcrumb, and `s3.mjs`'s `client()`
+`assert`s it (`node:assert`, the existing in-repo idiom for can't-happen invariants). It sits in
+**one** place — `client()` — because every S3 op routes through it to reach the SDK, so a single
+`assert` covers them all. (The env-reading helpers `clientConfig`/`customEndpoint` can't host it:
+the client is memoized, so they run only on first construction, while `client()` runs on every op;
+the assert is before the memoized `??=`, so cached-client ops are checked too.)
+
+It is *debug scaffolding*, not real domain logic, and is shaped accordingly. In correct use it
+never fires — the entry point always loads env, and a lib consumer who has plumbed `loadEnv` in
+correctly never trips it. It earns its keep only as a tripwire for **incorrect wiring** (a consumer
+who skipped `loadEnv`, or a test that forgot to arrange env), turning that into a clear error
+instead of a client built against an unconfigured environment (a cryptic AWS credentials failure).
+Because it is an ambient debug flag and not real state, it is deliberately *not* dressed up: the
+breadcrumb is a bare `process.env` write/read at the two sites (no shared constant, no
+`assertEnvLoaded` wrapper to encapsulate a name that doesn't need hiding — that would be the very
+over-abstraction [0006](0006-minimal-code.md) warns against). A typo divergence between the two
+literals isn't silent: it would make *every* S3 op throw, caught at once by the first run.
+**Because the assert now catches a skipped load, the per-op JSDoc no longer restates the
+precondition** — it lives in one place (`client()` + this ADR), not re-derived at every S3 op.
+
+Note this only concerns values consumed from `process.env` at the SDK boundary (the `AWS_*` /
+endpoint vars). `S3CAB_BUCKET` is read straight from the set env *file* into `BackupSet.bucket`
+(never from `process.env`), and `S3CAB_DEBUG`/`S3CAB_HOME` are shell-bootstrap vars read before
+`loadEnv` — none of them concern the tripwire.
+
 ## Consequences
 
 - **`loadEnv()` takes no arguments.** It applies only the user layer. The entry point and a
@@ -77,8 +105,11 @@ enforcement scheme — and nothing left for a scan to flag.
 - **This refines, and does not touch, [0011](0011-validation-in-command-functions.md).** That
   ADR governs *hard parameter validation*, which stays in the command functions; env-loading is
   a `process.env` side effect, this ADR's concern, so 0011 is untouched.
-- **Home.** `loadEnv`/`loadSet` live in `env.mjs`, which already owns the env layering and
-  depends on `sets.mjs` (for `resolveSet`) — no new cycle. The snapshot/object-op JSDoc
-  preconditions now state the structural invariant ("user env is loaded at the entry point
-  before any command runs; set commands also load their set env via `loadSet`") rather than a
-  per-call "load env first" instruction.
+- **Home.** `loadEnv`/`loadSet` live in `env.mjs`, which already owns the env layering and depends
+  on `sets.mjs` (for `resolveSet`). The tripwire needs no new module edge: `loadEnv` writes the
+  `__S3CAB_ENV_LOADED` breadcrumb and `s3.mjs`'s `client()` reads it straight off `process.env`
+  (`node:assert`) — an ambient flag, not an imported symbol.
+- **The per-op JSDoc no longer restates the precondition.** The S3-touching ops in `objects.mjs`,
+  `remote.mjs`, `set-marker.mjs`, and `s3.mjs` used to each carry a "callers must have loaded
+  env" line; with the single `assert` in `client()` catching a skipped load, those restatements
+  are gone — the invariant lives in one place (here + `client()`), not re-derived at every op.

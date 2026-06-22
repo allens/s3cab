@@ -24,7 +24,11 @@ beforeEach(() => {
   // Start each test from a clean shell so an inherited AWS_PROFILE / region on
   // the dev's machine can't skew an assertion; afterEach puts them back.
   for (const key of Object.keys(process.env)) {
-    if (key.startsWith("AWS_") || key.startsWith("S3CAB_")) {
+    if (
+      key.startsWith("AWS_") ||
+      key.startsWith("S3CAB_") ||
+      key.startsWith("__S3CAB")
+    ) {
       delete process.env[key];
     }
   }

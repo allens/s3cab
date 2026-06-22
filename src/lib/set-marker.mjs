@@ -57,9 +57,6 @@ const formatInfo = ({ owner, created }) =>
  * machine to write `info` wins (`true`); a second gets `false` without
  * overwriting, which the caller turns into the collision error. Push the set's
  * config (`pushSetConfig`) only after winning.
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @param {string} set
  * @param {SetInfo} info
@@ -75,9 +72,6 @@ export function claimRemoteSet(bucket, set, info) {
  * Read a set's remote `info` marker, or `undefined` if the set isn't claimed in
  * this bucket — the presence test behind the collision error (who owns it) and
  * `--inherit` (which preserves `CREATED`).
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @param {string} set
  * @returns {Promise<SetInfo | undefined>}
@@ -94,9 +88,6 @@ export async function readRemoteInfo(bucket, set) {
  * `OWNER` to the inheriting machine (the caller preserves `CREATED`). A plain
  * (non-conditional) PUT: the marker already exists and we are deliberately
  * taking ownership.
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @param {string} set
  * @param {SetInfo} info
@@ -113,9 +104,6 @@ export async function writeRemoteInfo(bucket, set, info) {
  * **deleted**, so removing `exclude.txt` locally and re-running `setup` can't
  * leave one behind for `--inherit` to resurrect. Plain overwrites — the caller
  * owns the set (it won the claim or inherited it).
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @param {string} set
  * @param {object} config
@@ -140,9 +128,6 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
  * `undefined` if the set has none remotely — an empty `exclude.txt` (which
  * `pushSetConfig` never writes, but a hand-made one could) normalizes to
  * `undefined` too, so "no excludes" has one representation.
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @param {string} set
  * @returns {Promise<{ dirs: string[], exclude: string | undefined }>}
@@ -164,9 +149,6 @@ export async function readSetConfig(bucket, set) {
  * error, where a fresh machine won't recall exact names. Only canonical
  * `[a-z0-9-]+` segments count, so a stray console-made key can't surface as a
  * bogus target (the parity of remote.mjs's old namespace filter). Sorted, deduped.
- *
- * The env is loaded before this runs — the user env at the entry point, plus the
- * set's env via `loadSet` where applicable (ADR-0022).
  * @param {string} bucket
  * @returns {Promise<string[]>} Distinct set names, sorted
  */
