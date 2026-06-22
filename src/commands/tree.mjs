@@ -1,4 +1,4 @@
-import { resolveSet } from "../lib/sets.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { walkSet } from "../lib/walk.mjs";
 
 /**
@@ -14,5 +14,5 @@ import { walkSet } from "../lib/walk.mjs";
  * @returns {Array<string>} Array of absolute file paths
  */
 export function tree(setName, writeStream) {
-  return walkSet(resolveSet(setName), writeStream);
+  return walkSet(loadSet(setName), writeStream);
 }

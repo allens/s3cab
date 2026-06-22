@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
-import { loadEnv } from "../lib/env.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
@@ -13,7 +13,6 @@ import {
 } from "../lib/set-marker.mjs";
 import {
   listSets,
-  readSet,
   readSetExclude,
   validateBucketName,
   validateSetName,
@@ -140,9 +139,8 @@ async function create(name, folders, options) {
   const bucket = options.bucket;
 
   // Claim the name before writing anything locally ("first person wins"). The
-  // set env doesn't exist yet, so loadEnv() (user layer) supplies the S3 client's
-  // credentials/region.
-  loadEnv();
+  // set env doesn't exist yet; the user env loaded at the entry point supplies
+  // the S3 client's credentials/region.
   const won = await claimRemoteSet(bucket, name, {
     owner: hostname(),
     created: nowStamp(),
@@ -167,9 +165,12 @@ async function create(name, folders, options) {
  * @returns {Promise<BackupSet>}
  */
 async function update(name, folders, options) {
-  // `readSet` guarantees a bucket (ADR-0026), so `existing.bucket` is always
-  // bound — a corrupt, bucket-less folder is rejected there, not here.
-  const existing = readSet(name);
+  // `loadSet` resolves the set and applies its env layer (ADR-0022); it
+  // guarantees a bucket (ADR-0026), so `existing.bucket` is always bound — a
+  // corrupt, bucket-less folder is rejected there, not here. Resolving by an
+  // explicit name reads exactly that set, and the bucket-match check below is
+  // pure-local, so the order is fine.
+  const existing = loadSet(name);
   if (options.bucket && options.bucket !== existing.bucket) {
     throw new Error(
       `Set '${name}' is bound to bucket '${existing.bucket}'. Re-binding to a ` +
@@ -181,7 +182,6 @@ async function update(name, folders, options) {
   const dirs = folders.length ? resolveFolders(folders) : existing.dirs;
   const set = folders.length ? writeSet(name, { dirs }) : existing;
 
-  loadEnv(set);
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
   return set;
 }
@@ -220,8 +220,8 @@ async function inherit(name, folders, creating, options) {
     );
   }
 
-  // First S3 touch: user env for credentials (the set env doesn't exist yet).
-  loadEnv();
+  // First S3 touch: the set env doesn't exist yet, so the user env loaded at the
+  // entry point supplies the credentials.
   const info = await readRemoteInfo(bucket, name);
   if (!info) {
     const available = await listRemoteSets(bucket);

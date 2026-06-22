@@ -9,11 +9,12 @@ import {
   StorageClass,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { resolveCredentials } from "./auth.mjs";
+import assert from "node:assert";
 import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
+import { resolveCredentials } from "./auth.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
@@ -31,8 +32,8 @@ let _client;
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
  * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read after the caller has loaded
- * the s3cab env files (e.g. commands call `loadEnv`), so file values are in scope.
+ * endpoint UX belongs to the `setup` command. Read from `process.env` at call
+ * time, after env is loaded (enforced centrally in `client()` — ADR-0022).
  * @returns {string | undefined}
  */
 const customEndpoint = () =>
@@ -42,8 +43,8 @@ const customEndpoint = () =>
  * The S3 client configuration. Split out from `client()` so the endpoint-driven
  * gating below (region, checksum mode, region-redirect) can be asserted directly
  * in tests without a live client — no bucket, no network (src/lib/s3.test.mjs).
- * Reads `process.env` / `customEndpoint()` at call time, so callers must have
- * loaded any relevant s3cab env files first.
+ * Reads `process.env` / `customEndpoint()` at call time (env is loaded up front —
+ * ADR-0022).
  * @returns {import("@aws-sdk/client-s3").S3ClientConfig}
  */
 export function clientConfig() {
@@ -87,12 +88,21 @@ export function clientConfig() {
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * actionable error — see docs/specs/auth.md).
- * Callers are responsible for loading any relevant s3cab env files (e.g.
- * commands call `loadEnv()` or `loadEnv(set)`), so `process.env` is
- * configured before this client is constructed.
+ *
+ * It also carries the one development tripwire for the "env loaded before any S3
+ * op" invariant (ADR-0022): every S3 op routes through here, so a single `assert`
+ * on the `__S3CAB_ENV_LOADED` breadcrumb `loadEnv` drops covers them all. It only
+ * ever fires on incorrect wiring — a lib consumer who skipped `loadEnv` — turning
+ * that into a clear error instead of a client built against an unconfigured
+ * environment. Asserted before the memoized `??=`, so cached-client ops are too.
  * @returns {S3Client}
  */
 function client() {
+  assert(
+    process.env.__S3CAB_ENV_LOADED,
+    "S3 operation reached before env was loaded — loadEnv() runs at the CLI " +
+      "entry point; a direct caller (test/library) must call it first.",
+  );
   return (_client ??= new S3Client(clientConfig()));
 }
 
@@ -306,8 +316,6 @@ async function objectExists(uri) {
  * (`IfNoneMatch: "*"`) so a losing racer gets `false` instead of overwriting —
  * the atomic "first person wins" claim ADR-0024's collision check relies on.
  * Off-AWS gating matches `putFile` (`awsOnlyPutParams`).
- *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @param {string} content - The object body.
  * @param {object} [options]
@@ -345,8 +353,6 @@ export async function putData(uri, content, { noClobber = false } = {}) {
  * pushed `dirs.txt`/`exclude.txt`) the collision check and `--inherit` read back.
  * A missing object yields `undefined` (not a throw), so callers branch on
  * presence — e.g. "is this set already claimed?".
- *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @returns {Promise<string | undefined>}
  */

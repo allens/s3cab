@@ -1,4 +1,3 @@
-import { loadEnv } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { prop } from "./prop.mjs";
@@ -39,9 +38,6 @@ import { prop } from "./prop.mjs";
 export async function upload(bucket, file, options = {}) {
   requireArg(bucket, "<bucket>");
   requireArg(file, "<file>");
-  // Resolve env here (the command function is the library surface): the per-user
-  // auth layer, before any S3 access.
-  loadEnv();
 
   // prop() does the file validation (rejects non-regular files) and the streaming
   // SHA-256 hash; reuse it rather than re-deriving either here (#6).

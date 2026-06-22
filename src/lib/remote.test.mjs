@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { loadEnv } from "./env.mjs";
 import { deleteObject, listObjects } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -58,6 +59,12 @@ const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
 const skip = TEST_BUCKET
   ? false
   : "set S3CAB_TEST_BUCKET (and AWS credentials) to run S3 integration tests";
+
+// These gated suites call the S3 ops directly (no CLI entry point), so they must
+// trip the env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials
+// supply the real creds; this just sets the flag. At module scope so it runs
+// before the file-level beforeEach snapshots process.env (afterEach then keeps it).
+if (TEST_BUCKET) loadEnv();
 
 describe("remoteSnapshotsPrefix", () => {
   it("places a set's snapshots under snapshots/<set>/", () => {

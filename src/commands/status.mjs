@@ -1,4 +1,4 @@
-import { prepareRemoteSet } from "../lib/env.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { readLatestRemoteSnapshot, uploadCandidates } from "../lib/remote.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
@@ -25,7 +25,7 @@ import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
  *   remote snapshot (null if never backed up); `toUpload` = objects a backup would upload.
  */
 export async function status(setName) {
-  const set = prepareRemoteSet(setName);
+  const set = loadSet(setName);
 
   const snapshotDir = set.snapshotsDir;
   const localName = listSnapshotNames(snapshotDir, { latest: true });

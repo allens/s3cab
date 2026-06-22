@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { compareSnapshots } from "../lib/compare.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { secondsSince } from "../lib/format.mjs";
-import { resolveSet } from "../lib/sets.mjs";
 import {
   listSnapshotNames,
   readSnapshot,
@@ -33,7 +33,7 @@ import { prop } from "./prop.mjs";
 export async function snapshot(setName, options = {}) {
   // TODO - some kind of lock file to stop concurrent snapshots
 
-  const set = resolveSet(setName);
+  const set = loadSet(setName);
   const snapshotDir = set.snapshotsDir;
 
   const newSnapshotName = getTimestamp();

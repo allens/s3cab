@@ -1,4 +1,4 @@
-import { prepareRemoteSet } from "../lib/env.mjs";
+import { loadSet } from "../lib/env.mjs";
 import { uploadSnapshot } from "../lib/remote.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
@@ -22,9 +22,9 @@ import { snapshot } from "./snapshot.mjs";
  *   transferred (the rest already in the store).
  */
 export async function backup(setName, options = {}) {
-  // Resolve the set and load its env (its bucket's auth layer) before any S3
-  // access — the one front door for the set's remote (env.mjs, ADR-0022).
-  const set = prepareRemoteSet(setName);
+  // Resolve the set and apply its env layer (its bucket's auth) on top of the
+  // user env already loaded at the entry point (env.mjs, ADR-0022).
+  const set = loadSet(setName);
 
   const snapshotDir = set.snapshotsDir;
 

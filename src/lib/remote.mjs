@@ -38,9 +38,6 @@ export const remoteSnapshotsPrefix = (set) => `${SNAPSHOTS_PREFIX}${set}/`;
  * and runs the lot through `snapshotNames`, so a remote and a local listing
  * sort and filter identically. Returns `[]` for a set with no remote snapshots
  * yet (e.g. before its first backup).
- *
- * Requires the target bucket's env loaded first (set-family commands do this
- * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {Promise<string[]>} Snapshot names, newest first
@@ -66,9 +63,6 @@ export async function listRemoteSnapshots(bucket, set) {
  * of being re-coded by each caller (`backup` and `status`, which must agree).
  * `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
  * directly.
- *
- * Requires the target bucket's env loaded first (set-family commands do this
- * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {Promise<{ name: string | undefined, lookup: SnapshotEntries }>}
@@ -90,9 +84,6 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  * `restore` reads its chosen one the same way and uses the `#DIR` headers for
  * `--output` re-rooting — so this surfaces the whole `Snapshot`, not just
  * the lookup (a remote snapshot file is the one a recoverer finds alone).
- *
- * Requires the target bucket's env loaded first (set-family commands do this
- * via `prepareRemoteSet`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
@@ -120,9 +111,6 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * (bounded memory) and writes each file atomically, so a mid-pull failure leaves
  * no partial manifest behind — only fewer of them, in a fresh set the user can
  * delete and re-inherit.
- *
- * Requires the target bucket's env loaded first (set-family commands do this via
- * `prepareRemoteSet`/`loadEnv`, env.mjs).
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} snapshotDir - The set's local snapshots dir to write into
@@ -192,9 +180,6 @@ export function uploadCandidates(target, remote) {
  * snapshot is uploaded no-clobber too, but here a name that already exists
  * remotely is an **error**, never an overwrite (snapshots are immutable,
  * docs/specs/backup.md).
- *
- * Requires the target bucket's env loaded first (set-family commands do this
- * via `prepareRemoteSet`, env.mjs).
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)

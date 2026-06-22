@@ -434,8 +434,9 @@ own doc comment.
   [ADR-0014](docs/adr/0014-backup-sets.md). Auth splits in two: *credential resolution* is
   `resolveCredentials` in [src/lib/auth.mjs](src/lib/auth.mjs) (see
   [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)), and *env-file layering* is
-  `loadEnv`/`prepareRemoteSet` in [src/lib/env.mjs](src/lib/env.mjs) (the set family's one
-  front door, [ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md)) — both specified in
+  `loadEnv`/`loadSet` in [src/lib/env.mjs](src/lib/env.mjs) — the **user** layer loaded once at
+  the entry point, the **set** layer added by the `loadSet` door each set command routes through
+  ([ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md)) — both specified in
   [docs/specs/auth.md](docs/specs/auth.md).
 - **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, not a library, and
   the entry point runs dispatch as a top-level side-effect (unsafe to `import`). The

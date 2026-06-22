@@ -256,10 +256,9 @@ const NO_SETS_MESSAGE =
  *
  * Every set is bound to a bucket at setup (ADR-0026), enforced by `readSet`, so
  * a resolved set is already cloud-ready — there is no second "has a bucket?"
- * resolver tier. The cloud commands reach the set through `prepareRemoteSet`
- * (env.mjs), which wraps this with the env load they also need (ADR-0022); the
- * offline commands (`snapshot`/`compare`/`tree`) call `resolveSet` directly and
- * simply ignore the bucket.
+ * resolver tier. This is the env-free inner resolver: commands reach a set
+ * through `loadSet` (env.mjs), which wraps this and applies the set's env layer
+ * on top of the user env already loaded at the entry point (ADR-0022).
  * @param {string} [name]
  * @returns {BackupSet}
  */
