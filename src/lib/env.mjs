@@ -66,18 +66,20 @@ function parseEnvFile(path) {
 const appliedEnvFiles = new Set();
 
 /**
- * Merge one parsed env layer into process.env, once. Skipping an already-applied
- * file keeps precedence correct across the user/set loads: a later call must not
- * re-apply a lower layer over a higher one set by an earlier call.
+ * Read one env file and merge its layer into process.env, once. Skipping an
+ * already-applied file keeps precedence correct across the user/set loads (a
+ * later call must not re-apply a lower layer over a higher one) — and, since the
+ * guard is checked *before* the read, also avoids re-parsing the file on a repeat
+ * call (e.g. `backup` → `loadSet`, then its `snapshot` → `loadSet` again).
  *
  * A missing/empty file (`{}`) is *not* recorded as applied — there was nothing to
  * apply, so a file created later in the same process (e.g. by a future `setup`)
  * still loads on a subsequent call instead of being skipped forever.
  * @param {string} path
- * @param {NodeJS.Dict<string>} values
  */
-function applyEnvLayer(path, values) {
+function applyEnvLayer(path) {
   if (appliedEnvFiles.has(path)) return;
+  const values = parseEnvFile(path);
   if (Object.keys(values).length === 0) return;
   appliedEnvFiles.add(path);
   Object.assign(process.env, values);
@@ -97,8 +99,7 @@ function applyEnvLayer(path, values) {
  * Set env is applied separately, by {@link loadSet}, so this takes no set.
  */
 export function loadEnv() {
-  const userPath = userEnvPath();
-  applyEnvLayer(userPath, parseEnvFile(userPath));
+  applyEnvLayer(userEnvPath());
   // Drop the development tripwire `s3.mjs`'s `client()` asserts (ADR-0022) —
   // unconditionally, so an absent/empty user file (nothing applied) still counts:
   // "loadEnv ran", not "a file existed", is the precondition. `__`-prefixed: an
@@ -124,6 +125,6 @@ export function loadEnv() {
  */
 export function loadSet(setName) {
   const set = resolveSet(setName);
-  applyEnvLayer(set.envPath, parseEnvFile(set.envPath));
+  applyEnvLayer(set.envPath);
   return set;
 }

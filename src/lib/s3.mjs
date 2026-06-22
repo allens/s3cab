@@ -43,8 +43,8 @@ const customEndpoint = () =>
  * The S3 client configuration. Split out from `client()` so the endpoint-driven
  * gating below (region, checksum mode, region-redirect) can be asserted directly
  * in tests without a live client — no bucket, no network (src/lib/s3.test.mjs).
- * Reads `process.env` / `customEndpoint()` at call time, so callers must have
- * loaded any relevant s3cab env files first.
+ * Reads `process.env` / `customEndpoint()` at call time (env is loaded up front —
+ * ADR-0022).
  * @returns {import("@aws-sdk/client-s3").S3ClientConfig}
  */
 export function clientConfig() {
