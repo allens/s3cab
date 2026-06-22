@@ -1,17 +1,21 @@
-# Argument validation and env-loading live in the command functions, not the dispatcher
+# Argument validation lives in the command functions, not the dispatcher
 
-A command that needs a positional checks it itself (`requireArg()` → `ParseArgsError`), and
-loads its env scope itself (`loadEnv` right after validating args) — neither is done by the
-dispatcher. (The set-family cloud commands load env via the shared `prepareRemoteSet` front
-door rather than an inline `loadEnv`, but still at the command layer — see
-[0022](0022-prepare-remote-set-front-door.md).)
+A command that needs a positional checks it itself (`requireArg()` → `ParseArgsError`) — not
+the dispatcher.
+
+(Env-loading was *later* split out of this ADR's scope by
+[0022](0022-prepare-remote-set-front-door.md): the **user** layer is applied once at the entry
+point before dispatch, and a set-accepting command loads its **set** layer itself via `loadSet`.
+So the per-set env load is still at the command layer, but the up-front user load is the one env
+step the dispatcher owns — this ADR governs *parameter validation*, which stays in the commands.)
 
 ## Why
 
-The per-command functions are the **library surface**. A direct caller of `hashes(bucket)`
-must get the same guard — and resolve env the same way — a CLI user does; doing either in the
-dispatcher would protect only the CLI path. This also keeps `s3.mjs` a pure SDK boundary that
-only reads `process.env`.
+The per-command functions are the **library surface**. A direct caller of `hashes(bucket)` must
+get the same argument guard a CLI user does; validating in the dispatcher would protect only the
+CLI path. (Env is handled per 0022 — the user layer is loaded once before any command runs, so a
+direct caller makes that one call too.) `s3.mjs` stays a pure SDK boundary that only reads
+`process.env`.
 
 ## Considered options
 

@@ -31,8 +31,9 @@ let _client;
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
  * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read after the caller has loaded
- * the s3cab env files (e.g. commands call `loadEnv`), so file values are in scope.
+ * endpoint UX belongs to the `setup` command. Read after the s3cab env files are
+ * loaded (user env at the entry point, set env via `loadSet` — ADR-0022), so file
+ * values are in scope.
  * @returns {string | undefined}
  */
 const customEndpoint = () =>
@@ -87,9 +88,9 @@ export function clientConfig() {
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * actionable error — see docs/specs/auth.md).
- * Callers are responsible for loading any relevant s3cab env files (e.g.
- * commands call `loadEnv()` or `loadEnv(set)`), so `process.env` is
- * configured before this client is constructed.
+ * The relevant s3cab env files are loaded before this client is constructed: the
+ * user env at the entry point, and a set's env via `loadSet` (ADR-0022), so
+ * `process.env` is already configured by the time any S3 op builds the client.
  * @returns {S3Client}
  */
 function client() {
@@ -307,7 +308,8 @@ async function objectExists(uri) {
  * the atomic "first person wins" claim ADR-0024's collision check relies on.
  * Off-AWS gating matches `putFile` (`awsOnlyPutParams`).
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
+ * The user env is loaded at the entry point before any command runs, and a set
+ * command loads its set env via `loadSet` (ADR-0022), so the env is in scope.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @param {string} content - The object body.
  * @param {object} [options]
@@ -346,7 +348,8 @@ export async function putData(uri, content, { noClobber = false } = {}) {
  * A missing object yields `undefined` (not a throw), so callers branch on
  * presence — e.g. "is this set already claimed?".
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
+ * The user env is loaded at the entry point before any command runs, and a set
+ * command loads its set env via `loadSet` (ADR-0022), so the env is in scope.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @returns {Promise<string | undefined>}
  */
