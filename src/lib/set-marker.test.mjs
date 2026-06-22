@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { loadEnv } from "./env.mjs";
 import { deleteObject } from "./s3.mjs";
 import {
   claimRemoteSet,
@@ -21,6 +22,11 @@ const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
 const skip = TEST_BUCKET
   ? false
   : "set S3CAB_TEST_BUCKET (and AWS credentials) to run S3 integration tests";
+
+// The gated suite calls the S3 ops directly (no CLI entry point), so trip the
+// env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials supply
+// the real creds; this just sets the flag (once, at module scope).
+if (TEST_BUCKET) loadEnv();
 
 /**
  * @param {string} bucket
