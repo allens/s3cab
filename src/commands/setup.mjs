@@ -15,7 +15,6 @@ import {
   listSets,
   readSet,
   readSetExclude,
-  setSnapshotsDir,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -182,7 +181,7 @@ async function update(name, folders, options) {
   const dirs = folders.length ? resolveFolders(folders) : existing.dirs;
   const set = folders.length ? writeSet(name, { dirs }) : existing;
 
-  loadEnv({ set: name });
+  loadEnv(set);
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
   return set;
 }
@@ -241,11 +240,7 @@ async function inherit(name, folders, creating, options) {
   // Pull the set's snapshot manifests down so the new machine lands with full
   // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
   console.warn(`Inheriting '${name}' from bucket '${bucket}'…`);
-  const pulled = await downloadRemoteSnapshots(
-    bucket,
-    name,
-    setSnapshotsDir(name),
-  );
+  const pulled = await downloadRemoteSnapshots(bucket, name, set.snapshotsDir);
   console.warn(
     pulled > 0
       ? `Pulled ${pulled} snapshot${pulled === 1 ? "" : "s"} from the cloud — ` +

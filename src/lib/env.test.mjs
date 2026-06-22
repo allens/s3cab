@@ -58,14 +58,20 @@ async function setup(root) {
   // before importing env.mjs, which derives its paths from s3cabDir().
   process.env.S3CAB_HOME = join(home, ".s3cab");
   const env = await freshEnv();
+  // The set's env-file path. In production a resolved `BackupSet` carries this
+  // as `set.envPath` (sets.mjs owns the layout); these unit tests fabricate it
+  // so `loadEnv` can be exercised in isolation — including for a set env that
+  // doesn't exist yet — without standing up a bucket-bound, resolvable set.
+  /** @param {string} name */
+  const setEnvPath = (name) => join(home, ".s3cab", "sets", name, "env");
   return {
     loadEnv: env.loadEnv,
     prepareRemoteSet: env.prepareRemoteSet,
+    setEnvPath,
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
     /** @param {string} name @param {string} contents */
-    set: (name, contents) =>
-      writeEnv(join(home, ".s3cab", "sets", name, "env"), contents),
+    set: (name, contents) => writeEnv(setEnvPath(name), contents),
   };
 }
 
@@ -97,7 +103,7 @@ describe("loadEnv", () => {
     t.user("AWS_REGION=us-user\nAWS_PROFILE=userprof\n");
     t.set("photos", "AWS_REGION=us-set\n");
 
-    t.loadEnv({ set: "photos" });
+    t.loadEnv({ envPath: t.setEnvPath("photos") });
 
     assert.equal(process.env.AWS_REGION, "us-set"); // set wins over user
     assert.equal(process.env.AWS_PROFILE, "userprof"); // user fills what set omits
@@ -107,7 +113,7 @@ describe("loadEnv", () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    t.loadEnv({ set: "photos" });
+    t.loadEnv({ envPath: t.setEnvPath("photos") });
 
     assert.equal(process.env.AWS_PROFILE, undefined);
   });
@@ -118,7 +124,7 @@ describe("loadEnv", () => {
     t.user("AWS_REGION=us-user\n");
     t.set("photos", "AWS_REGION=us-set\n");
 
-    t.loadEnv({ set: "photos" }); // user then set → us-set
+    t.loadEnv({ envPath: t.setEnvPath("photos") }); // user then set → us-set
     assert.equal(process.env.AWS_REGION, "us-set");
 
     t.loadEnv(); // a later no-scope call — must not re-apply the user layer
@@ -131,12 +137,12 @@ describe("loadEnv", () => {
 
     // First load: the set env file doesn't exist yet → nothing applied, and
     // the guard must NOT record a missing file as "applied".
-    t.loadEnv({ set: "photos" });
+    t.loadEnv({ envPath: t.setEnvPath("photos") });
     assert.equal(process.env.AWS_PROFILE, undefined);
 
     // Create it, then load again in the same process — it must now take effect.
     t.set("photos", "AWS_PROFILE=created-later\n");
-    t.loadEnv({ set: "photos" });
+    t.loadEnv({ envPath: t.setEnvPath("photos") });
     assert.equal(process.env.AWS_PROFILE, "created-later");
   });
 
@@ -151,12 +157,9 @@ describe("loadEnv", () => {
     assert.equal(process.env.AWS_REGION, "us-east-1");
   });
 
-  it("rejects a set name containing a path separator", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-
-    assert.throws(() => t.loadEnv({ set: "../../evil" }), /Invalid set name/);
-  });
+  // `loadEnv` no longer takes a raw set name (it reads `envPath` off an
+  // already-resolved set), so the path-separator guard lives upstream in
+  // `resolveSet`/`readSet` (assertPathSegment) and is covered by sets.test.mjs.
 });
 
 describe("prepareRemoteSet", () => {

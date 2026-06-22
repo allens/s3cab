@@ -4,7 +4,6 @@ import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { secondsSince } from "./format.mjs";
 import { readLines } from "./read-lines.mjs";
-import { setExcludePath } from "./sets.mjs";
 import { excludedLine } from "./snapshot-file.mjs";
 
 /**
@@ -23,7 +22,7 @@ import { excludedLine } from "./snapshot-file.mjs";
  * @returns {Array<string>} Array of absolute file paths
  */
 export function walkSet(set, writeStream) {
-  const excludePath = setExcludePath(set.name);
+  const excludePath = set.excludePath;
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
   if (patterns.length) {
     console.warn("Using exclude file", `'${excludePath}'`);

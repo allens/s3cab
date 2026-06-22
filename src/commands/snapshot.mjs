@@ -4,7 +4,7 @@ import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { compareSnapshots } from "../lib/compare.mjs";
 import { secondsSince } from "../lib/format.mjs";
-import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { resolveSet } from "../lib/sets.mjs";
 import {
   listSnapshotNames,
   readSnapshot,
@@ -34,7 +34,7 @@ export async function snapshot(setName, options = {}) {
   // TODO - some kind of lock file to stop concurrent snapshots
 
   const set = resolveSet(setName);
-  const snapshotDir = setSnapshotsDir(set.name);
+  const snapshotDir = set.snapshotsDir;
 
   const newSnapshotName = getTimestamp();
   console.warn("Generating new snapshot:", newSnapshotName);

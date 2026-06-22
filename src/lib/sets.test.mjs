@@ -9,7 +9,6 @@ import {
   readSet,
   resolveSet,
   sanitizeNamePart,
-  setEnvPath,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -128,9 +127,10 @@ describe("set store", () => {
     useTempHome(dir.path);
     // Create the set (its env file holds the bound bucket), then hand-edit it and
     // re-bind — the hand-written lines must survive the update.
-    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "old-bucket" });
-
-    const envPath = setEnvPath("photos");
+    const { envPath } = writeSet("photos", {
+      dirs: ["C:\\Photos"],
+      bucket: "old-bucket",
+    });
     writeFileSync(
       envPath,
       readFileSync(envPath, "utf8") + "# my note\nAWS_REGION=eu-west-1\n",
@@ -147,11 +147,13 @@ describe("set store", () => {
   it("env updates rewrite every duplicate of a key (parseEnv is last-wins)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "old" });
+    const { envPath } = writeSet("photos", {
+      dirs: ["C:\\Photos"],
+      bucket: "old",
+    });
 
     // A hand-made duplicate: parseEnv resolves to the LAST line, so an update
     // touching only the first occurrence would leave the old value live.
-    const envPath = setEnvPath("photos");
     writeFileSync(
       envPath,
       readFileSync(envPath, "utf8") + "S3CAB_BUCKET=old-duplicate\n",

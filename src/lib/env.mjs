@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { s3cabDir } from "./home.mjs";
 import { isENOENT } from "./error.mjs";
-import { resolveSet, setEnvPath } from "./sets.mjs";
+import { resolveSet } from "./sets.mjs";
 
 /** @import { BackupSet } from "./sets.mjs" */
 
@@ -73,22 +73,26 @@ function applyEnvLayer(path, values) {
  * Must run before any AWS client is built so the resolved AWS_* / endpoint /
  * region values are in place. Idempotent per file.
  *
- * Called with no scope it applies only the per-user layer; pass a backup set to
- * also apply its higher-precedence `~/.s3cab/sets/<set>/env`.
+ * Called with no set it applies only the per-user layer; pass a resolved set to
+ * also apply its higher-precedence `~/.s3cab/sets/<set>/env`. The set carries
+ * its own `envPath` (sets.mjs owns the layout), so this module no longer builds
+ * any set path — it just layers the user file (its own) and, when given, the
+ * set file at the location the set reports.
  *
- * @param {object} [scope]
- * @param {string} [scope.set] - A backup set name, enabling its `~/.s3cab/sets/<set>/env`.
+ * Typed to the one field it reads (`envPath`) rather than the whole `BackupSet`,
+ * so it asks for exactly what it uses — a full set satisfies it structurally
+ * (every caller passes one), and a unit test can exercise the layering with a
+ * bare `{ envPath }` without standing up a bucket-bound set.
+ *
+ * @param {{ envPath: string }} [set] - A resolved backup set (only its `envPath` is read).
  */
-export function loadEnv({ set } = {}) {
+export function loadEnv(set) {
   // Apply the user layer first so the set layer (higher precedence) overwrites it.
   const userPath = userEnvPath();
   applyEnvLayer(userPath, parseEnvFile(userPath));
 
   if (set) {
-    // setEnvPath guards against a name carrying a path separator, so a hostile
-    // set name can't point this read outside ~/.s3cab/sets.
-    const setPath = setEnvPath(set);
-    applyEnvLayer(setPath, parseEnvFile(setPath));
+    applyEnvLayer(set.envPath, parseEnvFile(set.envPath));
   }
 }
 
@@ -110,6 +114,6 @@ export function loadEnv({ set } = {}) {
  */
 export function prepareRemoteSet(setName) {
   const set = resolveSet(setName);
-  loadEnv({ set: set.name });
+  loadEnv(set);
   return set;
 }

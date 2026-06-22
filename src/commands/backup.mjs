@@ -1,6 +1,5 @@
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { uploadSnapshot } from "../lib/remote.mjs";
-import { setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -27,7 +26,7 @@ export async function backup(setName, options = {}) {
   // access — the one front door for the set's remote (env.mjs, ADR-0022).
   const set = prepareRemoteSet(setName);
 
-  const snapshotDir = setSnapshotsDir(set.name);
+  const snapshotDir = set.snapshotsDir;
 
   let name = options.snapshot;
   if (!name) {

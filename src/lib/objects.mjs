@@ -54,7 +54,7 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * (`getObject`), mirroring how the store has always behaved. `force` overwrites
  * an existing object instead of skipping it.
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first,
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first,
  * so the S3 client picks up the right region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The file's SHA-256, its key under `objects/`
@@ -81,7 +81,7 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
  * restored mtime is the restore loop's job (it places objects, this fetches
  * their bytes). The `restore` command composes this.
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first,
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first,
  * so the S3 client picks up the right region/credentials/endpoint.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The object's SHA-256, its key under `objects/`
@@ -122,7 +122,7 @@ export async function getObject(bucket, hash, destPath) {
  * `objects/`, with the prefix stripped. The store's listing, behind which the
  * `hashes` plumbing command and the per-bucket cache seed both sit.
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
  * @param {string} bucket - The repository's S3 bucket
  * @yields {string} An object hash
  * @returns {AsyncGenerator<string>}
