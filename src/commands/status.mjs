@@ -1,6 +1,5 @@
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { readLatestRemoteSnapshot, uploadCandidates } from "../lib/remote.mjs";
-import { setSnapshotsDir } from "../lib/sets.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 
 /**
@@ -28,7 +27,7 @@ import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 export async function status(setName) {
   const set = prepareRemoteSet(setName);
 
-  const snapshotDir = setSnapshotsDir(set.name);
+  const snapshotDir = set.snapshotsDir;
   const localName = listSnapshotNames(snapshotDir, { latest: true });
   if (!localName) {
     throw new Error(

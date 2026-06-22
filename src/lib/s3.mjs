@@ -88,7 +88,7 @@ export function clientConfig() {
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * actionable error — see docs/specs/auth.md).
  * Callers are responsible for loading any relevant s3cab env files (e.g.
- * commands call `loadEnv()` or `loadEnv({ set })`), so `process.env` is
+ * commands call `loadEnv()` or `loadEnv(set)`), so `process.env` is
  * configured before this client is constructed.
  * @returns {S3Client}
  */
@@ -307,7 +307,7 @@ async function objectExists(uri) {
  * the atomic "first person wins" claim ADR-0024's collision check relies on.
  * Off-AWS gating matches `putFile` (`awsOnlyPutParams`).
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @param {string} content - The object body.
  * @param {object} [options]
@@ -346,7 +346,7 @@ export async function putData(uri, content, { noClobber = false } = {}) {
  * A missing object yields `undefined` (not a throw), so callers branch on
  * presence — e.g. "is this set already claimed?".
  *
- * Callers must have loaded their env (`loadEnv()` or `loadEnv({ set })`) first.
+ * Callers must have loaded their env (`loadEnv()` or `loadEnv(set)`) first.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @returns {Promise<string | undefined>}
  */

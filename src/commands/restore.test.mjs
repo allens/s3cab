@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { remoteSnapshotsPrefix } from "../lib/remote.mjs";
 import { deleteObject } from "../lib/s3.mjs";
 import { remoteSetPrefix } from "../lib/set-marker.mjs";
-import { setSnapshotsDir } from "../lib/sets.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
 import { restore } from "./restore.mjs";
@@ -69,13 +68,13 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
     writeFileSync(beach, `beach ${setName}`);
     writeFileSync(ski, `ski ${setName}`);
 
-    await setup(setName, [srcDir], { bucket });
+    const set = await setup(setName, [srcDir], { bucket });
     const { snapshot } = await backup(setName);
 
     // The snapshot is the source of truth for what restore should reproduce
     // (its keys are the original absolute paths; realpath may differ from the
     // join above, so assert against the snapshot, not the literal paths).
-    const { entries } = await readSnapshot(setSnapshotsDir(setName), snapshot);
+    const { entries } = await readSnapshot(set.snapshotsDir, snapshot);
     const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     try {

@@ -1,6 +1,6 @@
 import { prepareRemoteSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
-import { resolveSet, setSnapshotsDir } from "../lib/sets.mjs";
+import { resolveSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /**
@@ -22,7 +22,7 @@ export async function list(setName, options = {}) {
     return options.latest ? names.at(0) : names;
   }
 
-  const snapshotDir = setSnapshotsDir(resolveSet(setName).name);
+  const snapshotDir = resolveSet(setName).snapshotsDir;
   const names = listSnapshotNames(snapshotDir, {});
   return options.latest ? names.at(0) : names;
 }

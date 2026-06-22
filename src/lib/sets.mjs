@@ -30,8 +30,12 @@ const setsRoot = () => join(s3cabDir(), "sets");
  */
 const setDir = (name) => join(setsRoot(), assertPathSegment(name, "set name"));
 
+// The set's on-disk layout — the single place these paths are spelled out.
+// Not exported: every consumer reads them off a resolved `BackupSet` (the
+// `snapshotsDir`/`excludePath`/`envPath` fields `readSet` derives), so the
+// layout never leaks across an import seam.
 /** @param {string} name */
-export const setEnvPath = (name) => join(setDir(name), "env");
+const setEnvPath = (name) => join(setDir(name), "env");
 /** @param {string} name */
 const setDirsPath = (name) => join(setDir(name), "dirs.txt");
 /**
@@ -39,13 +43,13 @@ const setDirsPath = (name) => join(setDir(name), "dirs.txt");
  * snapshots live (docs/specs/backup.md).
  * @param {string} name
  */
-export const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
+const setSnapshotsDir = (name) => join(setDir(name), "snapshots");
 /**
  * The set's optional exclude file, `~/.s3cab/sets/<name>/exclude.txt`. Its glob
  * patterns (guide/exclude.md) apply relative to *each* member directory.
  * @param {string} name
  */
-export const setExcludePath = (name) => join(setDir(name), "exclude.txt");
+const setExcludePath = (name) => join(setDir(name), "exclude.txt");
 
 /**
  * Read a file's text, or undefined if it doesn't exist.
@@ -170,10 +174,28 @@ export function listSets() {
 }
 
 /**
+ * A subset of a set's fields — what a listing needs (`formatSets`), and the
+ * structural shape a full `BackupSet` also satisfies. Typed narrowly so callers
+ * that only summarize a set don't depend on its derived paths.
+ * @typedef {Object} SetSummary
+ * @property {string} name
+ * @property {string[]} dirs
+ * @property {string} bucket
+ */
+
+/**
+ * A resolved backup set: its stored config (`name`/`dirs`/`bucket`) plus the
+ * on-disk locations derived from its name. The path fields are the set module's
+ * one window onto the layout — consumers read them instead of rebuilding paths,
+ * so `~/.s3cab/sets/<name>/…` lives in exactly one place (see `setSnapshotsDir`
+ * and friends above).
  * @typedef {Object} BackupSet
  * @property {string} name - The local handle, local folder name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
  * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at `setup` (ADR-0026), so this is never absent — `readSet` enforces it.
+ * @property {string} snapshotsDir - The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` (derived from `name`)
+ * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
+ * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
  */
 
 /**
@@ -213,7 +235,14 @@ export function readSet(name) {
         `Add it back, or delete the set folder and run setup again.`,
     );
   }
-  return { name, dirs, bucket };
+  return {
+    name,
+    dirs,
+    bucket,
+    snapshotsDir: setSnapshotsDir(name),
+    excludePath: setExcludePath(name),
+    envPath: setEnvPath(name),
+  };
 }
 
 const NO_SETS_MESSAGE =
@@ -249,7 +278,7 @@ export function resolveSet(name) {
  * Format sets as the human-readable listing the `sets` command prints — also
  * the body of resolveSet's several-sets error, so the error shows exactly what
  * the command would.
- * @param {BackupSet[]} sets
+ * @param {SetSummary[]} sets
  */
 export function formatSets(sets) {
   const nameColumn = Math.max(...sets.map(({ name }) => name.length)) + 3;
