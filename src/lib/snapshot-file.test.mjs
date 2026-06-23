@@ -11,6 +11,8 @@ import {
   writeSnapshot,
 } from "./snapshot-file.mjs";
 
+/** @import { Props } from "./snapshot-file.mjs" */
+
 // `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
 // turns a decompressed TSV stream into `{ entries, errors, dirs, identity }` —
 // the file lookup, the paths that failed hashing, plus the `#SNAPSHOT`/`#DIR`
@@ -164,7 +166,7 @@ describe("listSnapshotNames", () => {
 // through readSnapshot are all asserted at the writer's interface — the write
 // path that previously had no single seam to test through.
 describe("writeSnapshot", () => {
-  /** @type {(p: string) => Promise<import("./snapshot-file.mjs").Props>} */
+  /** @type {(p: string) => Promise<Props>} */
   const props = async () => ({
     size: 3,
     mtime: "2026-06-23T10:00:00.000Z",

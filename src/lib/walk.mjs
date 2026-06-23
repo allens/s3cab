@@ -122,6 +122,10 @@ function createWalkCallbackFn(baseDir, patterns, excluded) {
         return null;
       }
     } else {
+      // Unsupported type: recorded as excluded, but it still falls through to
+      // `return path` below — so it also enters `files` and later becomes an
+      // #ERROR row. That double-recording is a pre-existing bug, preserved here
+      // on purpose to keep this refactor structural (see proposals/bugs.md).
       excluded.push({ fileType, reason: "Unsupported file type", path });
     }
 
