@@ -6,6 +6,7 @@ import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { secondsSince } from "../lib/format.mjs";
 import {
+  excludedLine,
   listSnapshotNames,
   readSnapshot,
   snapshotHeader,
@@ -62,7 +63,10 @@ export async function snapshot(setName, options = {}) {
         snapshotHeader({ datetime, identity: set.name, dirs: set.dirs }),
       );
 
-      const files = walkSet(set, writeStream);
+      const { files, excluded } = walkSet(set);
+      for (const { fileType, reason, path } of excluded) {
+        writeStream.write(excludedLine(fileType, reason, path));
+      }
 
       await pipeline(
         files,
