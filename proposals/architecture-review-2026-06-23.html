@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — s3cab</title>
+    <!-- NOTE: This report loads Tailwind + Mermaid from public CDNs (requires network; only open trusted copies). -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .deepbox { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .mermaid { display: flex; justify-content: center; }
+      .lbl { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+      <!-- ───────────────────────── Header ───────────────────────── -->
+      <header class="border-b border-slate-300 pb-8">
+        <h1 class="font-serif text-4xl text-slate-900">Architecture review — <span class="text-indigo-700">s3cab</span></h1>
+        <p class="text-slate-500 mt-1 text-sm">Deepening opportunities · 2026-06-23 · ~7.8k LOC, 11 commands over a shared <code class="text-xs">lib/</code></p>
+        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600">
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 border-2 border-slate-700"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#475569" stroke-width="2" class="seam"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#dc2626" stroke-width="2"/></svg> leakage</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 deepbox"></span> deep module</span>
+        </div>
+        <p class="mt-5 text-sm text-slate-700 leading-relaxed max-w-3xl">
+          The remote engine (<code class="text-xs">s3.mjs</code>/<code class="text-xs">objects.mjs</code>/<code class="text-xs">remote.mjs</code>) and the
+          config layer (<code class="text-xs">sets.mjs</code>/<code class="text-xs">env.mjs</code>/<code class="text-xs">home.mjs</code>) are already deep and
+          cleanly seamed — nothing to do there. The friction is concentrated in the <strong>local snapshot pipeline</strong>: where files become a TSV
+          snapshot file, and where that file is read back and diffed.
+        </p>
+      </header>
+
+      <section id="candidates" class="space-y-14">
+
+        <!-- ═══════════════ Candidate 1 ═══════════════ -->
+        <article id="c1" class="scroll-mt-6">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">1 · Collapse the snapshot-writing pipeline into one deep module</h2>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Strong</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500 mt-2">src/lib/walk.mjs · src/commands/snapshot.mjs · src/lib/snapshot-file.mjs</p>
+
+          <!-- before / after -->
+          <div class="grid md:grid-cols-2 gap-4 mt-5">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="lbl text-slate-400 mb-2">Before — one concept, three modules</div>
+              <pre class="mermaid">
+flowchart TB
+  subgraph CMD["commands/snapshot.mjs"]
+    H["write snapshotHeader()"]
+    PG["createPropsGenerator()<br/>(defines SnapshotRow)"]
+    SS["stringifySnapshot()"]
+  end
+  subgraph WALK["lib/walk.mjs"]
+    W["walkSet / walkFiles"]
+  end
+  subgraph SF["lib/snapshot-file.mjs"]
+    G["grammar: formatLine,<br/>excludedLine, errorLine,<br/>snapshotHeader, SnapshotRow"]
+  end
+  W -. "writeStream threaded in" .-> CMD
+  W == "imports excludedLine,<br/>writes #EXCLUDED rows" ==> G
+  H --> G
+  PG --> SS
+  SS --> G
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  class W,G leak
+              </pre>
+              <p class="text-xs text-slate-500 mt-1">The walk imports the snapshot grammar and writes rows mid-walk; the command owns the pipeline glue; the format lives in a third file.</p>
+            </div>
+
+            <div class="rounded-lg border-2 border-slate-800 deepbox p-4 text-slate-100">
+              <div class="lbl text-slate-400 mb-2">After — one deep module owns the write</div>
+              <div class="border-2 border-emerald-400/70 rounded-md p-3 mt-1">
+                <div class="lbl text-emerald-300">interface</div>
+                <code class="text-sm text-emerald-200">writeSnapshot(dir, name, {dirs, identity, files, lookup}) → path</code>
+              </div>
+              <div class="mt-3 space-y-1.5 opacity-60">
+                <div class="lbl text-slate-400">hidden inside</div>
+                <div class="text-xs font-mono text-slate-300">header · props→TSV pipeline · #ERROR rows</div>
+                <div class="text-xs font-mono text-slate-300">#EXCLUDED rows · formatLine · zstd · temp-rename</div>
+                <div class="text-xs font-mono text-slate-300">SnapshotRow produced &amp; consumed here</div>
+              </div>
+              <div class="mt-3 text-xs text-slate-400 border-t border-slate-700 pt-2">
+                walk yields exclusion <em>records</em> (data) → the writer formats them. The grammar never leaves this module.
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 mt-5 text-sm">
+            <div>
+              <span class="lbl text-slate-400">Problem</span>
+              <p class="text-slate-700">Writing a snapshot is smeared across three modules — <code class="text-xs">walk.mjs</code> imports <code class="text-xs">excludedLine</code> and writes grammar rows into a write stream threaded down through it, the command glues header + props pipeline + <code class="text-xs">stringifySnapshot</code>, and the format itself lives in a third file.</p>
+            </div>
+            <div>
+              <span class="lbl text-slate-400">Solution</span>
+              <p class="text-slate-700">One <code class="text-xs">writeSnapshot</code> module absorbs the header, the props→TSV pipeline, error/excluded rows, and compression; walk returns exclusions as data instead of formatted lines.</p>
+            </div>
+          </div>
+          <ul class="mt-4 grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> locality: grammar stops leaking into the walk</li>
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> <code class="text-xs">SnapshotRow</code> produced &amp; consumed in one place</li>
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> interface is the test surface: write path tested through one seam</li>
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> leverage: one call writes a snapshot (now 5 lib pieces)</li>
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> walk loses its snapshot-format dependency entirely</li>
+            <li class="flex gap-2"><span class="text-emerald-600">▸</span> deletion test: complexity concentrates, doesn't move</li>
+          </ul>
+          <div class="mt-4 text-xs bg-amber-50 border border-amber-200 rounded p-3 text-amber-900">
+            Pre-1.0 (package major <code>0</code>) — convention&nbsp;#8 sanctions bold, <em>justified</em> refactors. This is justified (real leaky seam + an untested write path), not speculative structure. Stays within <code>lib/</code>, so ADR-0023 layering is untouched.
+          </div>
+        </article>
+
+        <!-- ═══════════════ Candidate 2 ═══════════════ -->
+        <article id="c2" class="scroll-mt-6 border-t border-slate-200 pt-12">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">2 · Test <code class="text-xl">diff</code> at its own interface, not through the I/O shell</h2>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500 mt-2">src/lib/compare.mjs · src/lib/compare.test.mjs</p>
+
+          <div class="grid md:grid-cols-2 gap-4 mt-5">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="lbl text-slate-400 mb-3">Before — tests reach the deep core through I/O</div>
+              <div class="relative">
+                <div class="border border-slate-300 rounded p-2 text-center text-xs bg-stone-100">22 tests in compare.test.mjs</div>
+                <div class="flex justify-center my-1"><span class="text-slate-400 text-lg">↓ build real .tsv.zst files</span></div>
+                <div class="border border-slate-300 rounded p-2 bg-white">
+                  <div class="text-xs font-mono text-center text-slate-600">compareSnapshots()</div>
+                  <div class="text-[0.65rem] text-center text-slate-400">listSnapshotNames · readSnapshot · relativeToRoot · errors</div>
+                  <div class="mt-2 border-2 border-dashed border-red-400 rounded p-2">
+                    <div class="text-xs font-mono text-center text-red-600">diff() — 85 lines</div>
+                    <div class="text-[0.65rem] text-center text-red-500">greedy move-pairing · copy annotation</div>
+                  </div>
+                </div>
+                <p class="text-xs text-slate-500 mt-2"><code class="text-xs">diff</code> is <em>exported</em>, yet every test crosses the wider <code class="text-xs">compareSnapshots</code> seam. The deepest logic has the most expensive test access.</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="lbl text-slate-400 mb-3">After — the pure core is the test surface</div>
+              <div class="relative">
+                <div class="border border-slate-300 rounded p-2 bg-white">
+                  <div class="text-xs font-mono text-center text-slate-500">compareSnapshots() — thin tests</div>
+                  <div class="text-[0.65rem] text-center text-slate-400">resolution + display only</div>
+                </div>
+                <div class="flex justify-center my-3"><span class="text-slate-300">— internal seam —</span></div>
+                <div class="border-2 border-emerald-500 rounded p-3 bg-emerald-50">
+                  <div class="text-xs font-mono text-center text-emerald-800">diff(prevMap, currMap) → classification</div>
+                  <div class="text-[0.65rem] text-center text-emerald-600 mt-1">two Maps in, four sets out · no I/O</div>
+                  <div class="text-[0.65rem] text-center text-emerald-700 mt-2">rotations · swaps · copies · greedy pairing<br/>all tested in-memory, exhaustively</div>
+                </div>
+                <p class="text-xs text-slate-500 mt-2">Category-1 dependency: pure, in-process, no adapter needed.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 mt-5 text-sm">
+            <div>
+              <span class="lbl text-slate-400">Problem</span>
+              <p class="text-slate-700">The deep, bug-prone core — greedy move-pairing and copy annotation — is a pure function, but every one of its tests builds real compressed snapshot files and reaches it through <code class="text-xs">compareSnapshots</code>. Edge cases are expensive to set up and bugs hide behind the I/O.</p>
+            </div>
+            <div>
+              <span class="lbl text-slate-400">Solution</span>
+              <p class="text-slate-700">Drive <code class="text-xs">diff</code> directly with two in-memory Maps; keep a thin layer of <code class="text-xs">compareSnapshots</code> tests for resolution defaults and relative-path display only.</p>
+            </div>
+          </div>
+          <ul class="mt-4 grid sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm text-slate-700">
+            <li class="flex gap-2"><span class="text-amber-600">▸</span> interface is the test surface</li>
+            <li class="flex gap-2"><span class="text-amber-600">▸</span> pairing edge cases cheap to enumerate in-memory</li>
+            <li class="flex gap-2"><span class="text-amber-600">▸</span> tests survive I/O and format refactors</li>
+            <li class="flex gap-2"><span class="text-amber-600">▸</span> no new structure — only where the tests point</li>
+          </ul>
+          <div class="mt-4 text-xs bg-stone-100 border border-slate-200 rounded p-3 text-slate-600">
+            Lighter than candidate 1: <code>diff</code> already exists at the right seam (it's <code>export</code>ed and pure). The deepening is in the <em>test discipline</em>, not the code — add direct <code>diff</code> tests, thin out the I/O-heavy ones. Pairs with convention&nbsp;#12 (coverage by review).
+          </div>
+        </article>
+
+        <!-- ═══════════════ Candidate 3 ═══════════════ -->
+        <article id="c3" class="scroll-mt-6 border-t border-slate-200 pt-12">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">3 · Narrow the snapshot read surface</h2>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-slate-300 text-slate-700 line-through decoration-2">Worth exploring</span>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-rose-100 text-rose-800">Rejected on verification</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500 mt-2">src/lib/snapshot-file.mjs</p>
+
+          <div class="mt-5 text-sm bg-rose-50 border-l-4 border-rose-400 rounded-r p-4 text-rose-900">
+            <strong>Checked the call graph — this does not hold.</strong> The read/list exports
+            aren't shallow resolvers; each has a distinct real caller, so they're three genuine
+            seams, not one wide-shallow surface. Kept here so a future review doesn't re-suggest it.
+          </div>
+
+          <!-- the actual call graph -->
+          <div class="rounded-lg border border-slate-200 bg-white p-4 mt-4">
+            <pre class="mermaid">
+flowchart LR
+  prop["prop.mjs<br/>(--lookup &lt;path&gt;)"] --> RSF["readSnapshotFile(path)"]
+  status & snapshot & compare & remoteUp["remote.mjs"] --> RS["readSnapshot(dir,name)"]
+  RS --> RSF
+  RSF --> PSS["parseSnapshotStream(stream)"]
+  remoteRead["remote.mjs<br/>(reads S3 body, no temp file)"] --> PSS
+  listC["status · list · snapshot · backup · compare"] --> LSN["listSnapshotNames(dir)"]
+  LSN --> SN["snapshotNames(names)"]
+  remoteList["remote.mjs<br/>(filters S3 keys)"] --> SN
+  classDef real stroke:#059669,stroke-width:2px;
+  class PSS,SN,RSF real
+            </pre>
+            <p class="text-xs text-slate-500 mt-1">Green nodes each have a second, independent caller (the remote engine, or <code class="text-xs">prop</code>) — two adapters, a real seam. The one shallow link, <code class="text-xs">readSnapshot → readSnapshotFile</code>, can't collapse because both are called independently.</p>
+          </div>
+
+          <div class="mt-4 text-sm text-slate-700">
+            <span class="lbl text-slate-400">Verdict</span>
+            <p>Candidate 1 already consolidates the <em>writer</em> half of <code class="text-xs">snapshot-file.mjs</code>; the <em>reader</em> half is genuinely deep. No action.</p>
+          </div>
+        </article>
+
+        <!-- ═══════════════ Candidate 4 ═══════════════ -->
+        <article id="c4" class="scroll-mt-6 border-t border-slate-200 pt-12">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">4 · Unify the "resolved backup set" (set + applied env)</h2>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Speculative</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500 mt-2">src/lib/sets.mjs · src/lib/env.mjs · src/commands/*</p>
+
+          <div class="grid md:grid-cols-2 gap-4 mt-5">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="lbl text-slate-400 mb-2">Before — "a resolved set" is two things, two files</div>
+              <pre class="mermaid">
+flowchart TB
+  CMD["any set command"] --> LS["loadSet() · env.mjs"]
+  LS --> RS["resolveSet() · sets.mjs"]
+  RS --> BS["returns BackupSet"]
+  LS -. "side effect:<br/>mutate process.env" .-> ENV[("process.env")]
+  CMD2["resolveSet() called<br/>directly = no env layer"] -.->|"easy mistake"| RS
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  class LS,ENV leak
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="lbl text-slate-400 mb-2">After — one call yields a fully-resolved set</div>
+              <div class="border-2 border-slate-300 rounded p-3 mt-2">
+                <code class="text-sm text-slate-700">resolveSet(name) → {set, env}</code>
+                <p class="text-xs text-slate-500 mt-2">set membership and its env layer resolve together; no "did I call the other door?" question.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 mt-5 text-sm">
+            <div>
+              <span class="lbl text-slate-400">Problem</span>
+              <p class="text-slate-700">To understand a resolved set you bounce between <code class="text-xs">sets.mjs</code> (builds <code class="text-xs">BackupSet</code>) and <code class="text-xs">env.mjs</code> (<code class="text-xs">loadSet</code> wraps it, mutating <code class="text-xs">process.env</code> as a side effect). Calling <code class="text-xs">resolveSet</code> directly silently skips the env layer.</p>
+            </div>
+            <div>
+              <span class="lbl text-slate-400">Solution</span>
+              <p class="text-slate-700">One resolution call returns the set <em>and</em> its resolved configuration together, instead of a value plus a global side effect.</p>
+            </div>
+          </div>
+          <div class="mt-4 text-sm bg-amber-50 border-l-4 border-amber-400 rounded-r p-4 text-amber-900">
+            <strong>⚠ Contradicts ADR-0022.</strong> Env is loaded at the entry point and the set layer goes through the <code class="text-xs">loadSet</code> door <em>on purpose</em> — the two-door split is a pinned decision. Surfaced because the friction (the <code class="text-xs">resolveSet</code>-vs-<code class="text-xs">loadSet</code> trap, env-as-side-effect) is real — but it is <strong>not</strong> recommended over the ADR without a deliberate reopening. Likely outcome: leave it, or record why in the ADR.
+          </div>
+        </article>
+
+      </section>
+
+      <!-- ───────────────────────── Top recommendation ───────────────────────── -->
+      <section id="top-recommendation" class="border-t-2 border-slate-800 pt-8">
+        <div class="lbl text-indigo-600 mb-2">Top recommendation</div>
+        <div class="deepbox rounded-xl p-6 text-slate-100">
+          <h3 class="font-serif text-2xl text-white">Candidate 1 — collapse the snapshot-writing pipeline.
+            <a href="#c1" class="text-indigo-300 text-base font-sans ml-2 underline">→ jump to card</a>
+          </h3>
+          <p class="mt-3 text-slate-300 text-sm leading-relaxed max-w-3xl">
+            It's the only candidate that fixes a genuine <strong>leaked seam</strong> — the walk importing the snapshot grammar and writing rows mid-walk — rather than just trimming surface. It concentrates the format in one place and gives the currently-untested write path a single interface to test through. Candidate&nbsp;2 is a cheap, high-value follow-up that needs no structural change. Candidate&nbsp;3 was investigated and dropped (the read surface is three real seams, not shallow). Candidate&nbsp;4 should stay parked behind ADR-0022 unless you want to reopen it.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
