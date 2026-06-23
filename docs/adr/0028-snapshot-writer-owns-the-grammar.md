@@ -1,6 +1,6 @@
 # The snapshot writer owns the grammar; the walk yields exclusions as data
 
-`writeSnapshot(snapshotDir, name, { identity, dirs, datetime, files, excluded, getProps })`
+`writeSnapshot(snapshotDir, name, { identity, dirs, datetime, files, excluded, getProps, overwrite })`
 in [`src/lib/snapshot-file.mjs`](../../src/lib/snapshot-file.mjs) is the single deep seam for
 "files → snapshot file". It owns the whole write: the `#SNAPSHOT`/`#DIR` header, the
 `#EXCLUDED` rows, the props→TSV pipeline (and its `[path, Props | Error]` row type), the
