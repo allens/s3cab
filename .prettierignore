@@ -17,3 +17,8 @@ coverage
 
 # Env-file template (no parser; it's dotenv config, not code).
 .env.test.example
+
+# Generated review reports dropped into proposals/ (e.g. the architecture-review
+# HTML from the improve-codebase-architecture skill). One-off artifacts, not
+# maintained code — same "Prettier code only" rationale as the *.md rule above.
+proposals/*.html
