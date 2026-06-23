@@ -6,18 +6,15 @@ import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { secondsSince } from "../lib/format.mjs";
 import {
-  excludedLine,
   listSnapshotNames,
   readSnapshot,
-  snapshotHeader,
-  stringifySnapshot,
-  withSnapshotFile,
+  writeSnapshot,
 } from "../lib/snapshot-file.mjs";
 import { walkSet } from "../lib/walk.mjs";
 import { prop } from "./prop.mjs";
 
 /**
- * @import { Props, SnapshotEntries } from "../lib/snapshot-file.mjs"
+ * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
  * @import { CompareResult } from "../lib/compare.mjs"
  */
 
@@ -49,35 +46,25 @@ export async function snapshot(setName, options = {}) {
     lookup = entries;
   }
 
+  const { files, excluded } = walkSet(set);
+
   // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
   // one #DIR line per member directory, so the file is self-describing even when
-  // found alone in a bucket (docs/specs/backup.md).
-  const snapshotPath = await withSnapshotFile(
-    snapshotDir,
-    newSnapshotName,
-    async (writeStream) => {
-      const datetime = Temporal.Now.plainDateTimeISO().toString({
-        smallestUnit: "minutes",
-      });
-      writeStream.write(
-        snapshotHeader({ datetime, identity: set.name, dirs: set.dirs }),
-      );
-
-      const { files, excluded } = walkSet(set);
-      for (const { fileType, reason, path } of excluded) {
-        writeStream.write(excludedLine(fileType, reason, path));
-      }
-
-      await pipeline(
-        files,
-        withProgress("Generating snapshot file...", files.length),
-        createPropsGenerator(lookup),
-        stringifySnapshot,
-        writeStream,
-      );
-    },
-    { overwrite: Boolean(options.debug) },
-  );
+  // found alone in a bucket (docs/specs/backup.md). Hashing is handed in:
+  // `prop` lives here under `commands/`, so the lib writer can't import it
+  // (ADR-0023) — the command binds the previous-snapshot lookup into `getProps`.
+  const datetime = Temporal.Now.plainDateTimeISO().toString({
+    smallestUnit: "minutes",
+  });
+  const snapshotPath = await writeSnapshot(snapshotDir, newSnapshotName, {
+    identity: set.name,
+    dirs: set.dirs,
+    datetime,
+    files: withProgress("Generating snapshot file...", files.length)(files),
+    excluded,
+    getProps: (path) => prop(path, { lookup }),
+    overwrite: Boolean(options.debug),
+  });
 
   if (options.debug) {
     await pipeline(
@@ -99,30 +86,12 @@ export async function snapshot(setName, options = {}) {
  * @param {number} total
  */
 function withProgress(label, total) {
-  /** @param {AsyncIterable<string>} paths */
+  /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     using progress = createProgress(label, total);
     for await (const path of paths) {
       progress.next();
       yield path;
-    }
-  };
-}
-
-/**
- * Create an async generator that yields file properties. Module-private — the
- * snapshot pipeline (above) is its only caller.
- * @param {Map<string, Props>} [lookup] - Snapshot lookup map or path to snapshot file
- * @returns {(files: AsyncIterable<string>) => AsyncGenerator<[string, Props|Error]>}
- */
-function createPropsGenerator(lookup) {
-  return async function* (paths) {
-    for await (const path of paths) {
-      try {
-        yield [path, await prop(path, { lookup })];
-      } catch (err) {
-        yield [path, Error.isError(err) ? err : new Error(String(err))];
-      }
     }
   };
 }
