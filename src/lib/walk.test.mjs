@@ -7,9 +7,10 @@ import { walkDirs } from "./walk.mjs";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
-// These exercise the walk core `walkDirs(dirs, patterns, …)` directly: multi-root
-// accumulation, the always-skip `.s3cab`, overlap detection, and directory
-// recursion. The glob → RegExp semantics are unit-tested in exclude.test.mjs.
+// These exercise the walk core `walkDirs(dirs, patterns)` directly: multi-root
+// accumulation into `{ files, excluded }`, the always-skip `.s3cab`, overlap
+// detection, directory recursion, and the exclusion records the walk hands back
+// as data. The glob → RegExp semantics are unit-tested in exclude.test.mjs.
 
 /**
  * Write a file under `base`, creating parent directories. `relPath` always
@@ -25,20 +26,26 @@ function write(base, relPath, contents = "x") {
 }
 
 /**
+ * Make absolute paths relative to `root`, `/`-separated and sorted.
+ * @param {string} root
+ * @param {string[]} paths
+ */
+const relPaths = (root, paths) =>
+  paths.map((path) => relative(root, path).split(sep).join(posix.sep)).sort();
+
+/**
  * Create the given files under `base`, walk it with the given patterns, and
  * return what survived — relative to the root, `/`-separated, sorted.
  * @param {string} base
  * @param {string[]} patterns - Exclude patterns.
- * @param {string[]} relPaths - Files to create (always `/`-separated).
+ * @param {string[]} paths - Files to create (always `/`-separated).
  */
-function walkWithExcludes(base, patterns, relPaths) {
-  for (const relPath of relPaths) {
-    write(base, relPath);
+function walkWithExcludes(base, patterns, paths) {
+  for (const path of paths) {
+    write(base, path);
   }
   const root = realpathSync.native(base);
-  return walkDirs([base], patterns)
-    .map((path) => relative(root, path).split(sep).join(posix.sep))
-    .sort();
+  return relPaths(root, walkDirs([base], patterns).files);
 }
 
 describe("walkDirs", () => {
@@ -63,9 +70,10 @@ describe("walkDirs", () => {
     write(base, ".s3cab/should-not-appear.txt");
 
     const root = realpathSync.native(base);
-    const found = walkDirs([base], ["**/*.tmp", "**/.DS_Store", "**/Thumbs.db"])
-      .map((path) => relative(root, path).split(sep).join(posix.sep))
-      .sort();
+    const found = relPaths(
+      root,
+      walkDirs([base], ["**/*.tmp", "**/.DS_Store", "**/Thumbs.db"]).files,
+    );
 
     assert.deepStrictEqual(found, ["keep.txt", "sub/keep.txt"]);
   });
@@ -78,13 +86,10 @@ describe("walkDirs", () => {
     write(a, "sub/2.txt");
     write(b, "3.txt");
 
-    const found = walkDirs([a, b], [])
-      .map((path) =>
-        relative(realpathSync.native(dir.path), path)
-          .split(sep)
-          .join(posix.sep),
-      )
-      .sort();
+    const found = relPaths(
+      realpathSync.native(dir.path),
+      walkDirs([a, b], []).files,
+    );
 
     assert.deepStrictEqual(found, ["a/1.txt", "a/sub/2.txt", "b/3.txt"]);
   });
@@ -110,13 +115,10 @@ describe("walkDirs", () => {
     write(b, "keep.txt");
 
     // `*.tmp` is anchored at each root, so both roots' drop.tmp go.
-    const found = walkDirs([a, b], ["*.tmp"])
-      .map((path) =>
-        relative(realpathSync.native(dir.path), path)
-          .split(sep)
-          .join(posix.sep),
-      )
-      .sort();
+    const found = relPaths(
+      realpathSync.native(dir.path),
+      walkDirs([a, b], ["*.tmp"]).files,
+    );
 
     assert.deepStrictEqual(found, ["a/keep.txt", "b/keep.txt"]);
   });
@@ -133,5 +135,45 @@ describe("walkDirs", () => {
     // `builder/` is a different segment and must survive; the walk must not
     // recurse into the excluded `build/`.
     assert.deepStrictEqual(found, ["builder/keep.js"]);
+  });
+
+  it("hands back exclusion records (the matched pattern and dirent type) as data", async () => {
+    await using dir = await mkTmpDir();
+    const base = dir.path;
+    write(base, "keep.txt");
+    write(base, "scratch.tmp");
+    // An excluded directory yields ONE record (the walk doesn't recurse into
+    // it), not one per file inside — so its contents never reach `excluded`.
+    write(base, "build/out.js");
+    write(base, "build/sub/deep.js");
+
+    const root = realpathSync.native(base);
+    const { files, excluded } = walkDirs([base], ["**/*.tmp", "build/"]);
+
+    assert.deepStrictEqual(relPaths(root, files), ["keep.txt"]);
+
+    const records = excluded
+      .map(({ fileType, reason, path }) => ({
+        fileType,
+        reason,
+        path: relative(root, path).split(sep).join(posix.sep),
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    assert.deepStrictEqual(records, [
+      { fileType: "Directory", reason: "build/", path: "build" },
+      { fileType: "File", reason: "**/*.tmp", path: "scratch.tmp" },
+    ]);
+  });
+
+  it("returns no exclusion records when no patterns are given", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "a.txt");
+    write(dir.path, "b.tmp");
+
+    // With an empty pattern list the walk does no matching at all, so nothing
+    // is recorded as excluded (everything is kept).
+    const { files, excluded } = walkDirs([dir.path], []);
+    assert.equal(files.length, 2);
+    assert.deepStrictEqual(excluded, []);
   });
 });
