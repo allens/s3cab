@@ -39,6 +39,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
 - [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets
 - [0027](0027-compare-local-only-adoption-syncs-manifests.md) — `compare` is local-only; adoption syncs the manifests
+- [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
 
 ### Build, release & tooling
 
