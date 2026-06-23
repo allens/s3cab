@@ -4,30 +4,37 @@ import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { secondsSince } from "./format.mjs";
 import { readLines } from "./read-lines.mjs";
-import { excludedLine } from "./snapshot-file.mjs";
 
 /**
  * @import { Dirent } from "node:fs"
  * @import { BackupSet } from "./sets.mjs"
  */
 
-/** @typedef {{ write: (line: string) => unknown }} LineWriter */
+/**
+ * One entry the walk skipped, carried back as data (not a formatted line) so
+ * the walk stays ignorant of the snapshot grammar — `writeSnapshot` turns these
+ * into `#EXCLUDED` rows. `fileType` is the dirent type (`File`/`Directory`/…);
+ * `reason` is the matching exclude pattern, or why the entry was skipped (e.g.
+ * an unsupported file type). Both are known from the `Dirent` — no extra `stat`.
+ * @typedef {{ fileType: string, reason: string, path: string }} ExclusionRecord
+ */
+
+/** @typedef {{ files: string[], excluded: ExclusionRecord[] }} WalkResult */
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
  * `exclude.txt` patterns applied relative to each (docs/specs/backup.md). The shared
  * core behind both the `tree` and `snapshot` commands.
  * @param {BackupSet} set - Resolved backup set
- * @param {LineWriter} [writeStream]
- * @returns {Array<string>} Array of absolute file paths
+ * @returns {WalkResult} The kept file paths and the records of what was skipped
  */
-export function walkSet(set, writeStream) {
+export function walkSet(set) {
   const excludePath = set.excludePath;
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
   if (patterns.length) {
     console.warn("Using exclude file", `'${excludePath}'`);
   }
-  return walkDirs(set.dirs, patterns, writeStream);
+  return walkDirs(set.dirs, patterns);
 }
 
 /**
@@ -37,20 +44,21 @@ export function walkSet(set, writeStream) {
  * works across roots because snapshot paths are absolute.
  * @param {string[]} dirs - Directories to walk
  * @param {string[]} patterns - Exclude glob patterns (guide/exclude.md)
- * @param {LineWriter} [writeStream] - Receives `#EXCLUDED` lines
- * @returns {Array<string>} Array of absolute file paths
+ * @returns {WalkResult} The kept file paths and the records of what was skipped
  */
-export function walkDirs(dirs, patterns, writeStream) {
+export function walkDirs(dirs, patterns) {
   const start = Temporal.Now.instant();
 
   /** @type {string[]} */
   const files = [];
+  /** @type {ExclusionRecord[]} */
+  const excluded = [];
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
     console.warn("Finding files in", `'${dir}'`);
 
     const walkCallbackFn = patterns.length
-      ? createWalkCallbackFn(dir, patterns, writeStream)
+      ? createWalkCallbackFn(dir, patterns, excluded)
       : undefined;
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
@@ -78,17 +86,19 @@ export function walkDirs(dirs, patterns, writeStream) {
     seen.add(path);
   }
 
-  return files;
+  return { files, excluded };
 }
 
 /**
- * Create a predicate function to exclude files based on patterns.
+ * Create a predicate function to exclude files based on patterns. Skipped
+ * entries are pushed onto `excluded` as data; the walk no longer knows the
+ * snapshot grammar (`writeSnapshot` formats them into `#EXCLUDED` rows).
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
- * @param {LineWriter} [snapshotWriteStream]
+ * @param {ExclusionRecord[]} excluded - Receives a record per skipped entry
  * @returns {(dirent: Dirent) => string | null} walk callback function
  */
-function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
+function createWalkCallbackFn(baseDir, patterns, excluded) {
   const matchers = patterns.map((pattern) => ({
     pattern,
     matcher: compileExclude(join(baseDir, pattern)),
@@ -108,13 +118,15 @@ function createWalkCallbackFn(baseDir, patterns, snapshotWriteStream) {
       const match = matchers.find(({ matcher }) => matcher.test(testString));
 
       if (match) {
-        snapshotWriteStream?.write(excludedLine(fileType, match.pattern, path));
+        excluded.push({ fileType, reason: match.pattern, path });
         return null;
       }
     } else {
-      snapshotWriteStream?.write(
-        excludedLine(fileType, "Unsupported file type", path),
-      );
+      // Unsupported type: recorded as excluded, but it still falls through to
+      // `return path` below — so it also enters `files` and later becomes an
+      // #ERROR row. That double-recording is a pre-existing bug, preserved here
+      // on purpose to keep this refactor structural (see proposals/bugs.md).
+      excluded.push({ fileType, reason: "Unsupported file type", path });
     }
 
     return path;

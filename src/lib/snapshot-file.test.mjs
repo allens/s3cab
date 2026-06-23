@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import {
-  errorLine,
   listSnapshotNames,
   parseSnapshotStream,
-  snapshotHeader,
+  readSnapshot,
+  writeSnapshot,
 } from "./snapshot-file.mjs";
+
+/** @import { Props } from "./snapshot-file.mjs" */
 
 // `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
 // turns a decompressed TSV stream into `{ entries, errors, dirs, identity }` —
@@ -50,26 +52,6 @@ describe("parseSnapshotStream", () => {
     });
   });
 
-  it("round-trips the headers snapshotHeader writes", async () => {
-    // Pins both sides of the header grammar in one place: what snapshotHeader
-    // emits, parseSnapshotStream must read back unchanged.
-    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
-    const {
-      entries,
-      dirs: parsedDirs,
-      identity,
-    } = await parse(
-      snapshotHeader({
-        datetime: "2026-06-18T22:04",
-        identity: "photos",
-        dirs,
-      }),
-    );
-    assert.equal(identity, "photos");
-    assert.deepEqual(parsedDirs, dirs);
-    assert.equal(entries.size, 0);
-  });
-
   it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
     const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`;
     const { entries, dirs, identity } = await parse(text);
@@ -91,15 +73,12 @@ describe("parseSnapshotStream", () => {
   });
 
   it("surfaces #ERROR rows into errors (with reason), not entries", async () => {
-    // Pins the writer/reader pair: what errorLine emits, parseSnapshotStream
-    // reads back into `errors` — kept out of `entries` so compare reports the
-    // path rather than mistaking it for deleted.
+    // An #ERROR row carries its reason in col3 and is read back into `errors`,
+    // kept out of `entries` so compare reports the path rather than mistaking
+    // it for deleted. (writeSnapshot's round-trip test covers the writer side.)
     const text = [
       "#DIR\t\t\t/home/me/Docs",
-      errorLine(
-        "EACCES: permission denied",
-        "/home/me/Docs/locked.bin",
-      ).trimEnd(),
+      "#ERROR\t\tEACCES: permission denied\t/home/me/Docs/locked.bin",
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
     ].join("\n");
     const { entries, errors } = await parse(text);
@@ -177,5 +156,105 @@ describe("listSnapshotNames", () => {
   it("latest returns undefined when no snapshots exist", async () => {
     await using dir = await mkTmpDir();
     assert.equal(listSnapshotNames(dir.path, { latest: true }), undefined);
+  });
+});
+
+// writeSnapshot is the single production seam for "files → snapshot file". It is
+// driven here with an injected getProps (so no disk hashing and no `prop` — the
+// writer's own logic is what's under test): the #SNAPSHOT/#DIR header, the
+// #EXCLUDED rows, the #ERROR-on-hashing-failure path, and the round-trip back
+// through readSnapshot are all asserted at the writer's interface — the write
+// path that previously had no single seam to test through.
+describe("writeSnapshot", () => {
+  /** @type {(p: string) => Promise<Props>} */
+  const props = async () => ({
+    size: 3,
+    mtime: "2026-06-23T10:00:00.000Z",
+    hash: hashA,
+  });
+
+  it("writes header + entries + #EXCLUDED + #ERROR and round-trips via readSnapshot", async () => {
+    await using dir = await mkTmpDir();
+    const a = resolve(dir.path, "a.txt");
+    const b = resolve(dir.path, "b.txt");
+    const bad = resolve(dir.path, "bad.bin");
+    const skipped = resolve(dir.path, "scratch.tmp");
+
+    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+      identity: "photos",
+      dirs: [dir.path],
+      datetime: "2026-06-23T10:00",
+      files: [a, b, bad],
+      excluded: [{ fileType: "File", reason: "*.tmp", path: skipped }],
+      getProps: async (p) => {
+        // A file the walk can't hash becomes an #ERROR row, not an entry.
+        if (p === bad) throw new Error("EACCES: permission denied");
+        return props(p);
+      },
+    });
+
+    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+
+    const { entries, errors, dirs, identity } = await readSnapshot(
+      dir.path,
+      "2026-06-23T1000",
+    );
+
+    // The #SNAPSHOT/#DIR header round-trips.
+    assert.equal(identity, "photos");
+    assert.deepEqual(dirs, [dir.path]);
+
+    // Hashed files are entries; the #EXCLUDED row is skipped on read; the
+    // unhashable file is surfaced under errors (not an entry, not "deleted").
+    assert.deepEqual([...entries.keys()].sort(), [a, b].sort());
+    assert.equal(entries.get(a)?.hash, hashA);
+    assert.ok(!entries.has(bad), "errored file must not be an entry");
+    assert.ok(!entries.has(skipped), "#EXCLUDED row must not be an entry");
+    assert.deepEqual([...errors], [[bad, "EACCES: permission denied"]]);
+  });
+
+  it("writes one #DIR line per member directory (header round-trips)", async () => {
+    await using dir = await mkTmpDir();
+    // Mixed separators across roots, no file entries: pins the writer/reader
+    // pair for the #SNAPSHOT identity and the per-directory #DIR lines.
+    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
+
+    await writeSnapshot(dir.path, "2026-06-23T1000", {
+      identity: "photos",
+      dirs,
+      datetime: "2026-06-23T10:00",
+      files: [],
+      excluded: [],
+      getProps: props,
+    });
+
+    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
+    assert.equal(snap.identity, "photos");
+    assert.deepEqual(snap.dirs, dirs);
+    assert.equal(snap.entries.size, 0);
+  });
+
+  it("refuses an existing same-name snapshot unless overwrite is set", async () => {
+    await using dir = await mkTmpDir();
+    /** @type {Parameters<typeof writeSnapshot>[2]} */
+    const args = {
+      identity: "photos",
+      dirs: [dir.path],
+      datetime: "2026-06-23T10:00",
+      files: [],
+      excluded: [],
+      getProps: props,
+    };
+
+    await writeSnapshot(dir.path, "2026-06-23T1000", args);
+    await assert.rejects(
+      writeSnapshot(dir.path, "2026-06-23T1000", args),
+      /same minute/,
+    );
+    // The debug escape hatch: overwrite replaces it without erroring.
+    await writeSnapshot(dir.path, "2026-06-23T1000", {
+      ...args,
+      overwrite: true,
+    });
   });
 });
