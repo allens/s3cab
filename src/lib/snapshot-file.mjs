@@ -192,7 +192,12 @@ export async function writeSnapshot(
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
       }
-      await pipeline(files, propsRows(getProps), stringifySnapshot, writeStream);
+      await pipeline(
+        files,
+        propsRows(getProps),
+        stringifySnapshot,
+        writeStream,
+      );
     },
     { overwrite },
   );
