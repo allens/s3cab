@@ -5,11 +5,9 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import {
-  errorLine,
   listSnapshotNames,
   parseSnapshotStream,
   readSnapshot,
-  snapshotHeader,
   writeSnapshot,
 } from "./snapshot-file.mjs";
 
@@ -52,26 +50,6 @@ describe("parseSnapshotStream", () => {
     });
   });
 
-  it("round-trips the headers snapshotHeader writes", async () => {
-    // Pins both sides of the header grammar in one place: what snapshotHeader
-    // emits, parseSnapshotStream must read back unchanged.
-    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
-    const {
-      entries,
-      dirs: parsedDirs,
-      identity,
-    } = await parse(
-      snapshotHeader({
-        datetime: "2026-06-18T22:04",
-        identity: "photos",
-        dirs,
-      }),
-    );
-    assert.equal(identity, "photos");
-    assert.deepEqual(parsedDirs, dirs);
-    assert.equal(entries.size, 0);
-  });
-
   it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
     const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`;
     const { entries, dirs, identity } = await parse(text);
@@ -93,15 +71,12 @@ describe("parseSnapshotStream", () => {
   });
 
   it("surfaces #ERROR rows into errors (with reason), not entries", async () => {
-    // Pins the writer/reader pair: what errorLine emits, parseSnapshotStream
-    // reads back into `errors` — kept out of `entries` so compare reports the
-    // path rather than mistaking it for deleted.
+    // An #ERROR row carries its reason in col3 and is read back into `errors`,
+    // kept out of `entries` so compare reports the path rather than mistaking
+    // it for deleted. (writeSnapshot's round-trip test covers the writer side.)
     const text = [
       "#DIR\t\t\t/home/me/Docs",
-      errorLine(
-        "EACCES: permission denied",
-        "/home/me/Docs/locked.bin",
-      ).trimEnd(),
+      "#ERROR\t\tEACCES: permission denied\t/home/me/Docs/locked.bin",
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
     ].join("\n");
     const { entries, errors } = await parse(text);
@@ -234,6 +209,27 @@ describe("writeSnapshot", () => {
     assert.ok(!entries.has(bad), "errored file must not be an entry");
     assert.ok(!entries.has(skipped), "#EXCLUDED row must not be an entry");
     assert.deepEqual([...errors], [[bad, "EACCES: permission denied"]]);
+  });
+
+  it("writes one #DIR line per member directory (header round-trips)", async () => {
+    await using dir = await mkTmpDir();
+    // Mixed separators across roots, no file entries: pins the writer/reader
+    // pair for the #SNAPSHOT identity and the per-directory #DIR lines.
+    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
+
+    await writeSnapshot(dir.path, "2026-06-23T1000", {
+      identity: "photos",
+      dirs,
+      datetime: "2026-06-23T10:00",
+      files: [],
+      excluded: [],
+      getProps: props,
+    });
+
+    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
+    assert.equal(snap.identity, "photos");
+    assert.deepEqual(snap.dirs, dirs);
+    assert.equal(snap.entries.size, 0);
   });
 
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {

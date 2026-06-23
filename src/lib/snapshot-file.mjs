@@ -33,13 +33,16 @@ import { secondsSince } from "./format.mjs";
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = the set name (ADR-0024)
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a snapshot file is self-describing even found alone (docs/specs/backup.md). The
-// walk also writes `#EXCLUDED` rows (via `excludedLine`) and `#ERROR` rows (via
-// `errorLine`). On read `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR` (into
-// the headers) and `#ERROR` (into `errors`); any other comment line is skipped.
+// so a snapshot file is self-describing even found alone (docs/specs/backup.md).
+// `writeSnapshot` is the sole writer of all of this: the header, the `#EXCLUDED`
+// rows (formatting the walk's exclusion records via `excludedLine`), and the
+// `#ERROR` rows (via `errorLine`, for files that fail to hash). The walk yields
+// exclusions as data and no longer knows the grammar. On read
+// `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR` (into the headers) and
+// `#ERROR` (into `errors`); any other comment line is skipped.
 
 // The comment markers heading the grammar's non-file lines — shared by the
-// writers (`snapshotHeader`/`excludedLine`/`errorLine`) and
+// (module-private) writers (`snapshotHeader`/`excludedLine`/`errorLine`) and
 // `parseSnapshotStream`, so the literal strings live in exactly one place.
 const SNAPSHOT = "#SNAPSHOT";
 const DIR = "#DIR";
@@ -410,8 +413,8 @@ function formatLine(col1, col2, col3, col4) {
  * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
  * snapshot's datetime and identity, then one `#DIR` line per member directory —
  * the preamble that makes a snapshot self-describing even found alone
- * (docs/specs/backup.md). Returns the whole block for the caller to write; the
- * `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
+ * (docs/specs/backup.md). Module-private: `writeSnapshot` is its only caller;
+ * the `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
  * `parseSnapshotStream` that reads them back.
  * @param {object} header
  * @param {string} header.datetime - Snapshot datetime (minute precision)
@@ -419,7 +422,7 @@ function formatLine(col1, col2, col3, col4) {
  * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
  * @returns {string}
  */
-export function snapshotHeader({ datetime, identity, dirs }) {
+function snapshotHeader({ datetime, identity, dirs }) {
   let out = formatLine(SNAPSHOT, "", datetime, identity);
   for (const dir of dirs) out += formatLine(DIR, "", "", dir);
   return out;
@@ -429,12 +432,13 @@ export function snapshotHeader({ datetime, identity, dirs }) {
  * An `#EXCLUDED` row: a file or directory the walk skipped, recorded in the
  * snapshot for transparency and skipped on read. `reason` is the matching
  * exclude pattern, or why the entry was skipped (e.g. an unsupported file type).
+ * Module-private: `writeSnapshot` formats the walk's exclusion records with it.
  * @param {string} fileType - The dirent type (File, Directory, …)
  * @param {string} reason - The matching exclude pattern, or the skip reason
  * @param {string} path - The excluded path
  * @returns {string}
  */
-export const excludedLine = (fileType, reason, path) =>
+const excludedLine = (fileType, reason, path) =>
   formatLine(EXCLUDED, fileType, reason, path);
 
 /**
@@ -442,9 +446,9 @@ export const excludedLine = (fileType, reason, path) =>
  * recorded in the snapshot for transparency. `reason` is the error message,
  * written in col3. Unlike other comments these are surfaced on read (into
  * `Snapshot.errors`) so `compare` reports the path rather than mistaking it for
- * deleted.
+ * deleted. Module-private: `stringifySnapshot` emits it for an errored row.
  * @param {string} reason - The error message (why the file couldn't be hashed)
  * @param {string} path - The unreadable path
  * @returns {string}
  */
-export const errorLine = (reason, path) => formatLine(ERROR, "", reason, path);
+const errorLine = (reason, path) => formatLine(ERROR, "", reason, path);
