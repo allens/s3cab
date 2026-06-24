@@ -6,10 +6,6 @@ of files). Watch for per-file overhead — small costs mount up.
 - **Parallel hashing.** `createPropsGenerator` hashes one file at a time; SHA-256 is I/O-bound
   but a small concurrency pool (even 4–8 in-flight `prop()`s, no worker threads needed) should
   speed cold snapshots substantially on SSDs.
-- **Stream the walk instead of slurping.** `tree()` builds the full path array (and a Set
-  duplicate-check copy) before hashing starts. A streaming walk → hash pipeline lowers memory
-  on huge trees and starts useful work immediately. (Progress would need a "found so far"
-  denominator or a two-phase count.)
 - **Use S3's native SHA-256 checksums on upload** (`ChecksumSHA256`). The object key *is* the
   SHA-256 — having S3 verify the body against it end-to-end is a perfect fit (#1/#2), gives
   free corruption detection on PUT, and gives `verify` a server-side primitive (HEAD checksum
