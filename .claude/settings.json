@@ -46,7 +46,8 @@
       "Skill(update-config:*)",
       "WebFetch(domain:docs.claude.com)",
       "Read(/tmp/**)",
-      "Bash(npm ci *)"
+      "Bash(npm ci *)",
+      "Bash(bash .claude/hooks/request-copilot-review.sh*)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
@@ -61,5 +62,20 @@
       "Bash(rm -rf *)"
     ],
     "additionalDirectories": ["\\tmp"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/request-copilot-review.sh",
+            "if": "Bash(gh pr create*)",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }
