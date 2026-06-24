@@ -108,8 +108,10 @@ rather than assuming it is fixed forever.
    local memory.
 5. **Refactors and minor chores may ride along with a feature** — the user is relaxed about
    this; a one-feature commit/PR carrying a small refactor, a settings.json tweak (point 3),
-   or a doc fix needn't be split into its own PR. Don't over-engineer separation. (Still
-   prefer a _separate commit_ per logical change within the PR, as the `chore:` commits do.)
+   a `proposals/` addition (any provisional idea the work surfaces — fold it into the PR you're
+   on rather than spinning a separate one), or a doc fix needn't be split into its own PR. Don't
+   over-engineer separation. (Still prefer a _separate commit_ per logical change within the PR,
+   as the `chore:` commits do.)
 6. **Don't delete commented-out code or TODO notes as "dead code" without asking.** They may
    be the user's parked reminders of an unresolved question, not cruft — e.g. the
    commented-out SIGINT handler in `src/s3cab.mjs` is kept on purpose. Flag them as
@@ -199,13 +201,26 @@ rather than assuming it is fixed forever.
       removes) and, worse, a fallback `rm -rf <worktree>` can recurse *through* the junction and
       delete the **main** checkout's `node_modules`. Each worktree keeps its own — the seconds
       saved aren't worth the footgun (#8). If a task changes dependencies, it does its own install.
-    - **Mechanics & cleanup.** Sibling path per the global rule (`../<repo>.worktrees/<branch>`);
-      the harness does it natively — `isolation: "worktree"` when spawning an agent, or
-      `EnterWorktree`/`ExitWorktree` in-session. **Review the work on the GitHub PR; don't open
-      the worktree folder in the IDE** — an open file there gives Windows a lock that blocks
-      `git worktree remove` at cleanup (hit 2026-06-21). After merge: `git worktree remove <path>` +
-      delete the local branch; if the directory is locked, close it in the IDE and retry the
-      remove (the git side is already clean once `git worktree list` no longer shows it).
+    - **Mechanics & cleanup.** Worktrees live where the harness puts them —
+      **`.claude/worktrees/<name>`**, nested inside the repo (the real Claude Code convention:
+      `EnterWorktree`/`ExitWorktree` in-session, or `isolation: "worktree"` when spawning an
+      agent). The earlier "sibling path" rule was **dropped 2026-06-24**: the harness ignores it
+      and creates worktrees under `.claude/worktrees/` regardless, so we follow the current rather
+      than fight it. The one real downside of a nested tree — the main checkout's tools wandering
+      in — is neutralised by **excluding `.claude/worktrees/`** in `.gitignore`, the `.vscode`
+      `search.exclude`/`files.watcherExclude`, and eslint `ignores` (all added with this rule).
+    - **Accept the harness's branch name** — `EnterWorktree(name: "feat/x")` creates the branch
+      `worktree-feat+x` (it prefixes `worktree-` and swaps `/`→`+`). Don't rename it for a tidier
+      PR branch: renaming orphans it from `ExitWorktree(remove)`'s auto-cleanup, so the branch
+      lingers and needs a manual `git branch -D`. The PR *title* is clean regardless, and the
+      branch is deleted on merge — the name is ephemeral cosmetics, not worth the friction.
+    - **Teardown is `ExitWorktree(remove)`** — it deletes the worktree directory *and* its branch,
+      so there's no manual `git worktree remove` / `git branch -D` (provided you didn't rename,
+      above). Advancing local `main` afterwards is **optional**: a new worktree branches fresh from
+      `origin/main` (`worktree.baseRef` default), so a stale local main blocks nothing — a bare
+      `git fetch` when you want refreshed refs is enough. **Review the work on the GitHub PR; don't
+      open the worktree folder in the IDE** — an open file there gives Windows a lock that can block
+      removal (hit 2026-06-21); if it's locked, close it and retry.
 14. **When the user asks a question, answer it — do not start editing code off the back of it.**
     A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
     wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
