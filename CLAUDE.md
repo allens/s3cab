@@ -221,6 +221,13 @@ rather than assuming it is fixed forever.
       `git fetch` when you want refreshed refs is enough. **Review the work on the GitHub PR; don't
       open the worktree folder in the IDE** — an open file there gives Windows a lock that can block
       removal (hit 2026-06-21); if it's locked, close it and retry.
+    - **Run bare commands — don't prepend `cd` to the worktree.** `EnterWorktree` sets the session's
+      working directory to the worktree and the Bash tool persists cwd between calls, so `git push …`
+      / `npm test …` already run there. Prepending `cd <path> && …` is redundant *and* defeats the
+      permission allowlist — a compound that leads with `cd` matches no `Bash(git …)` rule, so each
+      one needlessly re-prompts (the Bash tool warns of this). Use `git -C <path> …` to act on a
+      different checkout, never a `cd` compound. (Recorded 2026-06-24 after exactly this
+      self-inflicted prompt.)
 14. **When the user asks a question, answer it — do not start editing code off the back of it.**
     A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
     wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
