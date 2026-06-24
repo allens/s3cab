@@ -63,7 +63,7 @@ const oneExportPerCommand = {
 
 export default defineConfig([
   // Generated build artifacts — not linted (esbuild bundle, coverage, etc.).
-  { ignores: ["build/", "coverage/", "dist/"] },
+  { ignores: ["build/", "coverage/", "dist/", ".claude/worktrees/"] },
   {
     files: ["**/*.{js,mjs,cjs}"],
     plugins: { js },
