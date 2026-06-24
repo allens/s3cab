@@ -106,7 +106,8 @@ export async function withSnapshotFile(
   const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
   if (existsSync(tmpPath)) {
     throw new Error(
-      `Snapshot already in progress. You need to delete '.snapshot.tsv.zst' in '${snapshotDir}' before creating a new snapshot.`,
+      `A snapshot is already in progress for this set (temp file ${tmpPath}).\n` +
+        `If a previous run was interrupted, remove that file and snapshot again.`,
     );
   }
 

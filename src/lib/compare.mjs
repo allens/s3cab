@@ -68,7 +68,9 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   // Newer side (`until`) defaults to the latest snapshot.
   const until = normalizeName(options.until) ?? snapshotNames.at(0);
   if (!until) {
-    throw new Error(`No snapshots found in '${snapshotDir}'`);
+    throw new Error(
+      `No snapshots to compare yet. Take one first with: s3cab snapshot`,
+    );
   }
   const untilSnapshot = await readSnapshot(snapshotDir, until);
 

@@ -230,9 +230,11 @@ export function readSet(name) {
   const bucket = env.S3CAB_BUCKET;
   if (!bucket) {
     throw new Error(
-      `Backup set '${name}' has no bucket bound ` +
-        `(missing or empty S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
-        `Add it back, or delete the set folder and run setup again.`,
+      `Backup set '${name}' has no bucket to back up to ` +
+        `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
+        `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
+        `folder and create it again:\n` +
+        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
     );
   }
   return {
