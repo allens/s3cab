@@ -217,22 +217,24 @@ rather than assuming it is fixed forever.
     and pre-empts the user's decision. (Recorded 2026-06-19 after I answered two consecutive
     questions by immediately rewriting code instead of replying, the second time *while already
     being corrected* for having done it the first.)
-15. **Request a Copilot code review on every PR you open.** It is a standing per-PR step (the
+15. **A Copilot code review is requested automatically on every PR you open.** A `PostToolUse`
+    hook on `gh pr create` ([.claude/settings.json](.claude/settings.json)) runs
+    [.claude/hooks/request-copilot-review.sh](.claude/hooks/request-copilot-review.sh), so the
+    request rides inside the single "commit, create pr" step — no manual follow-up. It is the
     complement to the `/review` skill and the coverage-by-review rule #12, driven by
-    [.github/copilot-instructions.md](.github/copilot-instructions.md)) and it is **not**
-    automatic — the reviewer must be requested explicitly, right after `gh pr create`. The
-    requestable reviewer is the bot **`Copilot`** (REST login `Copilot`, app
-    `copilot-pull-request-reviewer[bot]`, db id `175728472`, node `BOT_kgDOCnlnWA`; in a GraphQL
-    `reviewRequests` it surfaces as Bot login `copilot-pull-request-reviewer`). **The working
-    programmatic path is the GraphQL `requestReviews` mutation with `botIds`** (confirmed
-    2026-06-21 — it supersedes the unreliable REST call, and unlike the web-UI fallback an agent
-    can actually run it):
-    ```
-    PR_NODE=$(gh pr view <n> --json id -q .id)
-    gh api graphql -f query='mutation($pr:ID!,$ids:[ID!]!){ requestReviews(input:{pullRequestId:$pr,botIds:$ids,union:true}){ pullRequest{ reviewRequests(first:10){ nodes{ requestedReviewer{ __typename ... on Bot{ login } } } } } } }' -f pr="$PR_NODE" -f ids="BOT_kgDOCnlnWA"
-    ```
-    On success the mutation echoes `copilot-pull-request-reviewer` in its `reviewRequests` —
-    that echo is the confirmation. Hard-won gotchas:
+    [.github/copilot-instructions.md](.github/copilot-instructions.md). The script is best-effort:
+    no PR for the branch, or Copilot review not enabled on the repo, → it logs and exits 0, never
+    failing the PR flow it rides on. Run it by hand with `bash
+    .claude/hooks/request-copilot-review.sh` if a request is ever missed.
+
+    The mechanics below are retained for debugging the script. The requestable reviewer is the bot
+    **`Copilot`** (REST login `Copilot`, app `copilot-pull-request-reviewer[bot]`, db id
+    `175728472`, node `BOT_kgDOCnlnWA`; in a GraphQL `reviewRequests` it surfaces as Bot login
+    `copilot-pull-request-reviewer`). **The working programmatic path — what the script runs — is
+    the GraphQL `requestReviews` mutation with `botIds`** (confirmed 2026-06-21; it supersedes the
+    unreliable REST call, and unlike the web-UI fallback an agent can actually run it). On success
+    the mutation echoes `copilot-pull-request-reviewer` in its `reviewRequests` — that echo is the
+    confirmation. Hard-won gotchas:
     - **It's `botIds`, not `userIds`.** The Copilot reviewer is a `Bot` node (`BOT_` prefix), so
       `userIds` rejects it (`Could not resolve to User node with the global id …`) — the dead end
       that earlier made GraphQL look impossible here. (Re-fetch the node with `gh api
