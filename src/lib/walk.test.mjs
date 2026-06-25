@@ -177,7 +177,10 @@ describe("walkDirs", () => {
     assert.deepStrictEqual(excluded, []);
   });
 
-  it("records unsupported file types in skipped (not excluded), never in files", async () => {
+  it(
+    "records unsupported file types in skipped (not excluded), never in files",
+    { skip: process.platform === "win32" ? "symlink creation requires Developer Mode on Windows" : false },
+    async () => {
     await using dir = await mkTmpDir();
     const base = dir.path;
     write(base, "regular.txt");
@@ -203,5 +206,6 @@ describe("walkDirs", () => {
     assert.deepStrictEqual(noPatterns.excluded, []);
     assert.equal(noPatterns.skipped.length, 1);
     assert.equal(noPatterns.skipped[0].reason, "Unsupported file type");
-  });
+  },
+  );
 });

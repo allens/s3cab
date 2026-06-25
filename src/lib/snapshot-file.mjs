@@ -147,7 +147,7 @@ export async function withSnapshotFile(
       await callbackFn(snapshotWriter);
     } catch (error) {
       snapshotWriter.destroy();
-      await pipelinePromise.catch(() => { });
+      await pipelinePromise.catch(() => {});
       throw error;
     }
     await pipelinePromise;
