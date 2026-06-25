@@ -96,7 +96,10 @@ describe("parseSnapshotStream", () => {
     const path = " /home/me/ a file with spaces .txt ";
     const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}`;
     const { entries } = await parse(text);
-    assert.ok(entries.has(path), "path with surrounding spaces must be kept verbatim");
+    assert.ok(
+      entries.has(path),
+      "path with surrounding spaces must be kept verbatim",
+    );
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
   });
 
@@ -270,8 +273,18 @@ describe("writeSnapshot", () => {
       datetime: "2026-06-23T10:00",
       files: [regular],
       excluded: [],
-      skipped: [{ fileType: "SymbolicLink", reason: "Unsupported file type", path: link }],
-      getProps: async () => ({ size: 3, mtime: "2026-06-23T10:00:00.000Z", hash: hashA }),
+      skipped: [
+        {
+          fileType: "SymbolicLink",
+          reason: "Unsupported file type",
+          path: link,
+        },
+      ],
+      getProps: async () => ({
+        size: 3,
+        mtime: "2026-06-23T10:00:00.000Z",
+        hash: hashA,
+      }),
     });
 
     assert.match(path, /2026-06-23T1000\.tsv\.zst$/);

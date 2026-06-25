@@ -59,7 +59,12 @@ export function walkDirs(dirs, patterns) {
     dir = realpathSync.native(dir);
     console.warn("Finding files in", `'${dir}'`);
 
-    const walkCallbackFn = createWalkCallbackFn(dir, patterns, excluded, skipped);
+    const walkCallbackFn = createWalkCallbackFn(
+      dir,
+      patterns,
+      excluded,
+      skipped,
+    );
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
       if (files.length % 500 === 0) {

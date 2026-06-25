@@ -179,33 +179,40 @@ describe("walkDirs", () => {
 
   it(
     "records unsupported file types in skipped (not excluded), never in files",
-    { skip: process.platform === "win32" ? "symlink creation requires Developer Mode on Windows" : false },
+    {
+      skip:
+        process.platform === "win32"
+          ? "symlink creation requires Developer Mode on Windows"
+          : false,
+    },
     async () => {
-    await using dir = await mkTmpDir();
-    const base = dir.path;
-    write(base, "regular.txt");
-    // Symlinks are an unsupported type: they can't be content-addressed without
-    // deciding whether to follow them (and may create cycles). They belong in
-    // `skipped` (by-design, not backupable), not `excluded` (user-pattern match)
-    // and not `files` — regardless of whether patterns exist.
-    symlinkSync(join(base, "regular.txt"), join(base, "link.txt"));
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      write(base, "regular.txt");
+      // Symlinks are an unsupported type: they can't be content-addressed without
+      // deciding whether to follow them (and may create cycles). They belong in
+      // `skipped` (by-design, not backupable), not `excluded` (user-pattern match)
+      // and not `files` — regardless of whether patterns exist.
+      symlinkSync(join(base, "regular.txt"), join(base, "link.txt"));
 
-    const root = realpathSync.native(base);
+      const root = realpathSync.native(base);
 
-    // With patterns: symlink lands in skipped, not excluded
-    const withPatterns = walkDirs([base], ["*.tmp"]);
-    assert.deepStrictEqual(relPaths(root, withPatterns.files), ["regular.txt"]);
-    assert.deepStrictEqual(withPatterns.excluded, []);
-    assert.equal(withPatterns.skipped.length, 1);
-    assert.equal(withPatterns.skipped[0].reason, "Unsupported file type");
-    assert.equal(withPatterns.skipped[0].fileType, "SymbolicLink");
+      // With patterns: symlink lands in skipped, not excluded
+      const withPatterns = walkDirs([base], ["*.tmp"]);
+      assert.deepStrictEqual(relPaths(root, withPatterns.files), [
+        "regular.txt",
+      ]);
+      assert.deepStrictEqual(withPatterns.excluded, []);
+      assert.equal(withPatterns.skipped.length, 1);
+      assert.equal(withPatterns.skipped[0].reason, "Unsupported file type");
+      assert.equal(withPatterns.skipped[0].fileType, "SymbolicLink");
 
-    // Without patterns: same — still goes to skipped, not silently passed through
-    const noPatterns = walkDirs([base], []);
-    assert.deepStrictEqual(relPaths(root, noPatterns.files), ["regular.txt"]);
-    assert.deepStrictEqual(noPatterns.excluded, []);
-    assert.equal(noPatterns.skipped.length, 1);
-    assert.equal(noPatterns.skipped[0].reason, "Unsupported file type");
-  },
+      // Without patterns: same — still goes to skipped, not silently passed through
+      const noPatterns = walkDirs([base], []);
+      assert.deepStrictEqual(relPaths(root, noPatterns.files), ["regular.txt"]);
+      assert.deepStrictEqual(noPatterns.excluded, []);
+      assert.equal(noPatterns.skipped.length, 1);
+      assert.equal(noPatterns.skipped[0].reason, "Unsupported file type");
+    },
   );
 });

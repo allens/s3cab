@@ -106,15 +106,15 @@ export async function withSnapshotFile(
   if (!overwrite && existsSync(snapshotPath)) {
     throw new Error(
       `Snapshot '${name}' already exists in '${snapshotDir}'. A second ` +
-      `snapshot in the same minute is refused so an accidental re-run can't ` +
-      `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
+        `snapshot in the same minute is refused so an accidental re-run can't ` +
+        `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
     );
   }
   const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
   if (existsSync(tmpPath)) {
     throw new Error(
       `A snapshot is already in progress for this set (temp file ${tmpPath}).\n` +
-      `If a previous run was interrupted, remove that file and snapshot again.`,
+        `If a previous run was interrupted, remove that file and snapshot again.`,
     );
   }
 
@@ -195,7 +195,16 @@ export async function withSnapshotFile(
 export async function writeSnapshot(
   snapshotDir,
   name,
-  { identity, dirs, datetime, files, excluded, skipped = [], getProps, overwrite = false },
+  {
+    identity,
+    dirs,
+    datetime,
+    files,
+    excluded,
+    skipped = [],
+    getProps,
+    overwrite = false,
+  },
 ) {
   return withSnapshotFile(
     snapshotDir,
