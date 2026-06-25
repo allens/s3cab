@@ -47,7 +47,8 @@
       "WebFetch(domain:docs.claude.com)",
       "Read(/tmp/**)",
       "Bash(npm ci *)",
-      "Bash(bash .claude/hooks/request-copilot-review.sh*)"
+      "Bash(bash .claude/hooks/request-copilot-review.sh*)",
+      "Bash(node ./src/s3cab.mjs *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
