@@ -67,7 +67,7 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("requires --bucket when creating (a set is bound to a bucket at creation)", async () => {
+  it("requires --bucket when creating (a set always backs up to a bucket)", async () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberFolder(dir.path);
 

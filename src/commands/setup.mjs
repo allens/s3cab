@@ -133,7 +133,7 @@ async function create(name, folders, options) {
     // A missing required argument (like requireArg / the missing-folder check),
     // so ParseArgsError — the CLI prints usage.
     throw new ParseArgsError(
-      "Missing required argument: --bucket (a backup set is bound to a bucket at creation)",
+      "Missing required argument: --bucket (a backup set always backs up to a bucket, chosen when you create it)",
     );
   }
   const bucket = options.bucket;
@@ -173,8 +173,8 @@ async function update(name, folders, options) {
   const existing = loadSet(name);
   if (options.bucket && options.bucket !== existing.bucket) {
     throw new Error(
-      `Set '${name}' is bound to bucket '${existing.bucket}'. Re-binding to a ` +
-        `different bucket (migration) isn't supported yet.`,
+      `Set '${name}' already backs up to bucket '${existing.bucket}'. Switching it ` +
+        `to a different bucket (migration) isn't supported yet.`,
     );
   }
   const bucket = existing.bucket;

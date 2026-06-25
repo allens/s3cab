@@ -630,4 +630,13 @@ describe("compare", () => {
     ]);
     assert.deepStrictEqual(result.moved, []);
   });
+
+  it("errors naming the set, with a copy-pasteable fix, when there are no snapshots", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      () => compareSnapshots(dir.path, [dir.path], { setName: "photos" }),
+      /No snapshots to compare yet for set 'photos'[\s\S]*s3cab snapshot photos/,
+    );
+  });
 });
