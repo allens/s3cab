@@ -13,6 +13,7 @@ import {
   validateSetName,
   writeSet,
 } from "./sets.mjs";
+import { ValidationError } from "./error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the backup-set store (docs/specs/backup.md). The store derives every
@@ -54,9 +55,15 @@ describe("validateSetName", () => {
   });
 
   it("rejects a non-conforming name with the rule and a suggestion", () => {
+    // A ValidationError (so the CLI exits 2 without dumping usage) carrying the
+    // rule + suggestion — both checked in one evaluation.
     assert.throws(
       () => validateSetName("My Photos"),
-      /lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
+      (e) =>
+        e instanceof ValidationError &&
+        /lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/.test(
+          e.message,
+        ),
     );
   });
 
@@ -85,7 +92,12 @@ describe("validateBucketName", () => {
   });
 
   it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
-    assert.throws(() => validateBucketName(""), /No bucket name given/);
+    // Empty name is a ValidationError (exit 2); both type and message in one check.
+    assert.throws(
+      () => validateBucketName(""),
+      (e) =>
+        e instanceof ValidationError && /No bucket name given/.test(e.message),
+    );
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
   });
 });

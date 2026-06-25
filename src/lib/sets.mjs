@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
-import { isENOENT } from "./error.mjs";
+import { isENOENT, ValidationError } from "./error.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 
 // The backup-set store (docs/specs/backup.md): one folder per set under
@@ -110,7 +110,7 @@ export const sanitizeNamePart = (part) =>
 export function validateSetName(name) {
   const suggestion = sanitizeNamePart(name);
   if (suggestion === name && name.length > 0) return;
-  throw new Error(
+  throw new ValidationError(
     `Invalid set name: ${name}\n` +
       `Set names use lowercase letters, digits, and hyphens only (a-z, 0-9, -).` +
       (suggestion ? `\nTry: ${suggestion}` : ""),
@@ -131,26 +131,26 @@ export function validateSetName(name) {
  */
 export function validateBucketName(bucket) {
   if (bucket === "") {
-    throw new Error(
+    throw new ValidationError(
       `No bucket name given. ` +
         `Pass a plain S3 bucket name, e.g. --bucket my-backup-bucket.`,
     );
   }
   if (/:\/\//.test(bucket)) {
-    throw new Error(
+    throw new ValidationError(
       `Invalid bucket name: ${bucket}\n` +
         `Give a plain bucket name, not a URL ` +
         `(e.g. 'my-backup-bucket', not 's3://my-backup-bucket').`,
     );
   }
   if (bucket.includes("/") || bucket.includes("\\")) {
-    throw new Error(
+    throw new ValidationError(
       `Invalid bucket name: ${bucket}\n` +
         `Give a plain bucket name — a single segment, not a path or prefix.`,
     );
   }
   if (bucket.trim() !== bucket) {
-    throw new Error(
+    throw new ValidationError(
       `Invalid bucket name: ${bucket}\n` +
         `Give a plain bucket name with no surrounding whitespace.`,
     );

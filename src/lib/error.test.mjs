@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ParseArgsError,
+  ValidationError,
+  isInputError,
   isUsageError,
   notImplemented,
   requireArg,
@@ -38,11 +40,14 @@ describe("isUsageError", () => {
     assert.ok(isUsageError(new ParseArgsError("test")));
   });
 
-  it("returns true for ERR_PARSE_ARGS_UNKNOWN_OPTION errors", () => {
-    const err = Object.assign(new Error("unknown option"), {
-      code: "ERR_PARSE_ARGS_UNKNOWN_OPTION",
-    });
-    assert.ok(isUsageError(err));
+  it("returns true for any ERR_PARSE_ARGS* failure, not just unknown option", () => {
+    for (const code of [
+      "ERR_PARSE_ARGS_UNKNOWN_OPTION",
+      "ERR_PARSE_ARGS_INVALID_OPTION_VALUE", // e.g. `--bucket` given no value
+      "ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL",
+    ]) {
+      assert.ok(isUsageError(Object.assign(new Error(code), { code })), code);
+    }
   });
 
   it("returns false for a generic Error", () => {
@@ -52,6 +57,33 @@ describe("isUsageError", () => {
   it("returns false for non-error values", () => {
     assert.equal(isUsageError(null), false);
     assert.equal(isUsageError("string"), false);
+  });
+
+  it("does not treat a ValidationError as a usage (print-usage) error", () => {
+    // A bad value exits 2 but carries its own fix, so usage is NOT printed.
+    assert.equal(isUsageError(new ValidationError("bad value")), false);
+  });
+});
+
+describe("isInputError", () => {
+  it("is true for every usage error (the structural subset)", () => {
+    assert.ok(isInputError(new ParseArgsError("test")));
+    assert.ok(
+      isInputError(
+        Object.assign(new Error("x"), {
+          code: "ERR_PARSE_ARGS_UNKNOWN_OPTION",
+        }),
+      ),
+    );
+  });
+
+  it("is true for a value ValidationError (exit 2, no usage dump)", () => {
+    assert.ok(isInputError(new ValidationError("bad value")));
+  });
+
+  it("is false for a runtime error and non-errors", () => {
+    assert.equal(isInputError(new Error("network down")), false);
+    assert.equal(isInputError(null), false);
   });
 });
 

@@ -390,6 +390,17 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   (a malformed `s3://` URI, a broken assumption) are *out of scope* — keep those terse and
   factual; they signal bugs, not user guidance. Checked in review, not by a linter
   ([ADR-0006](docs/adr/0006-minimal-code.md)).
+- **Shape our own errors by the taxonomy in [src/lib/error.mjs](src/lib/error.mjs)'s header**
+  (this is *shape*; ADR-0030 above is *wording*). Two orthogonal questions decide it: (1) is
+  the error caught by *type* to branch behaviour? → an Error *subclass* (`ParseArgsError`,
+  which `isUsageError` `instanceof`-checks), else a plain `Error`; (2) for plain errors, is the
+  message heavy/actionable/reused? → a named factory (`noCredentialsError` /
+  `expiredCredentialsError` in `auth.mjs`, `collisionError` in `setup.mjs`), else an inline
+  `throw new Error`. Foreign SDK/Node errors we can't subclass are matched by `code`/`name`
+  instead. A subclass nobody catches by type is unused identity, against convention #8 — don't
+  reach for one until a catch site actually reads it. (Recorded 2026-06-26 after an
+  `ExpiredCredentialsError` class was added that nothing caught by type, then downgraded to the
+  `expiredCredentialsError` factory to match its siblings.)
 
 ---
 
