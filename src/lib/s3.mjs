@@ -290,6 +290,7 @@ export async function putFile(path, uri, options = {}) {
       Error.isError(error) &&
       error.name === "PreconditionFailed"
     ) {
+      process.stderr.write("\n");
       return false;
     } else {
       throw error;

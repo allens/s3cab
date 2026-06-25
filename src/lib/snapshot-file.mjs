@@ -118,7 +118,7 @@ export async function withSnapshotFile(
     );
   }
 
-  await using fd = await open(tmpPath, "w");
+  const fd = await open(tmpPath, "w");
   const chunkSize = 128 * 1024; // 128 KB
 
   const snapshotWriter = new PassThrough({ highWaterMark: chunkSize * 4 });
@@ -135,22 +135,25 @@ export async function withSnapshotFile(
     fd.createWriteStream(),
   );
 
-  // Execute the callback with the write stream. If it throws (e.g. a member
-  // directory vanished mid-walk), tear the writer down and let the already-
-  // running pipeline settle before rethrowing — otherwise it surfaces later as
-  // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
+  // The finally ensures the fd is closed on every path — including a mid-pipeline
+  // failure after callbackFn succeeds — so the rename below (which needs the
+  // handle released on Windows) always sees a closed fd.
   try {
-    await callbackFn(snapshotWriter);
-  } catch (error) {
-    snapshotWriter.destroy();
-    await pipelinePromise.catch(() => { });
-    throw error;
+    // Execute the callback with the write stream. If it throws (e.g. a member
+    // directory vanished mid-walk), tear the writer down and let the already-
+    // running pipeline settle before rethrowing — otherwise it surfaces later as
+    // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
+    try {
+      await callbackFn(snapshotWriter);
+    } catch (error) {
+      snapshotWriter.destroy();
+      await pipelinePromise.catch(() => { });
+      throw error;
+    }
+    await pipelinePromise;
+  } finally {
+    await fd.close();
   }
-
-  // Wait for the pipeline to complete
-  await pipelinePromise;
-
-  await fd.close();
 
   await rename(tmpPath, snapshotPath);
   return snapshotPath;
