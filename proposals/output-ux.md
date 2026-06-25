@@ -39,20 +39,27 @@ a flag, and a structured diff that survives to the CLI edge.
   hashed + ETA, not just file-count percent.
 - **Display formatting** — the byte/time humanizers the size and progress output above lean on
   (the bytes-hashed progress, the `4.2 GB` first-snapshot line, `list --stat` total size). Built
-  from the JS standard library (`Intl`), no `pretty-bytes`-style dependency. Groundwork: these
-  helpers are *ready for* those lines, which **aren't built yet** — today the only live caller is
-  the `S3CAB_DEBUG` heap/runtime readout in [s3cab.mjs](../src/s3cab.mjs).
-  - **Bytes** (settled) — replace `formatByteValue` in [format.mjs](../src/lib/format.mjs),
-    which is *buggy*: `notation: "compact"` collides the English short-scale "B"(illion) suffix
-    with the byte unit (`1500000000 → "1.5BB"`) and emits `"KB"` instead of SI `"kB"`. Pick the
-    unit by magnitude (base 1000) and render with
-    `Intl.NumberFormat({ style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`
-    — where `unit` takes a canonical identifier (`byte`, `kilobyte`, `megabyte`, …, `petabyte`),
-    which `unitDisplay: "narrow"` renders as the symbol (`B`, `kB`, `MB`, …, `PB`) — *not* the
-    symbol itself (`unit: "kB"` is invalid). Decimal SI (matches Finder / pretty-bytes; `Intl`
-    has no binary unit anyway). Accepted
-    edge: `999999 → "1000kB"` (no roll-up to MB) — rare, not worth the extra logic.
-  - **Times** (settled) — three buckets, two display formatters:
+  from the JS standard library (`Intl`), no `pretty-bytes`-style dependency.
+  - **Bytes** (✅ done) — `formatByteValue` in [format.mjs](../src/lib/format.mjs) was *buggy*:
+    `notation: "compact"` collided the English short-scale "B"(illion) suffix with the byte unit
+    (`1500000000 → "1.5BB"`) and emitted `"KB"` instead of SI `"kB"`. Now it picks the unit by
+    magnitude (base 1000) and renders with
+    `Intl.NumberFormat({ style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`,
+    where `unit` takes a canonical identifier (`byte`, `kilobyte`, …, `petabyte`) that `narrow`
+    renders as the symbol (`B`, `kB`, …, `PB`) — *not* the symbol itself (`unit: "kB"` is
+    invalid). Decimal SI (matches Finder / pretty-bytes; `Intl` has no binary unit anyway).
+    Accepted edge: `999999 → "1,000kB"` (no roll-up to MB) — rare, not worth the extra logic.
+    Live caller: the S3 upload-progress line ([s3.mjs](../src/lib/s3.mjs), `httpUploadProgressHandler`),
+    plus the `S3CAB_DEBUG` heap readout.
+    - **How the byte progress was lost** (don't repeat it): the upload-progress *plumbing* never
+      went away — `@aws-sdk/lib-storage`'s `Upload` + its `httpUploadProgress` event (a plain
+      `PutObjectCommand` emits no progress), rendered in place via `node:readline`
+      `clearLine`/`cursorTo` with an ASCII bar. What broke was just the *formatting*: commit
+      `79c93e4` (2025-12-08) dropped the `pretty-bytes` dep, introduced the buggy `compact`
+      formatter for the memory-debug line *only*, and downgraded the upload line from
+      `prettyBytes(loaded) of prettyBytes(total)` to raw integers (`uploaded 5242880 of …`) —
+      never re-pointing it at the replacement. This change reconnects it.
+  - **Times** (settled, not yet implemented) — three buckets, two display formatters:
     - *Per-step* (one hash, one upload — operations with human-perceptible latency): a **new**
       `formatSeconds` → `"2.4s"`, seconds with 1 decimal (≈0.1s resolution = the perception
       threshold). For the future hash/upload progress lines.
