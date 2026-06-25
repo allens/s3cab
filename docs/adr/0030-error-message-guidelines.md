@@ -1,6 +1,6 @@
 # Error messages follow the Nielsen Norman Group guidelines
 
-Every error and failure message s3cab shows a user is written to a fixed standard: the
+Every error or failure message s3cab shows to a user is written to a fixed standard: the
 **Nielsen Norman Group's "Error-Message Guidelines"** (the UX field's canonical checklist),
 adapted for a CLI by the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev),
 whose rule is *"catch errors and rewrite them for humans"*). This applies to the message text
@@ -31,7 +31,8 @@ A good message meets all five NN/g criteria:
    "has no bucket to back up to" beats "is missing its bucket": the first says what the user
    can't do, the second names a struct property.
 5. **Constructive** — say how to fix it, concretely. When the fix is a command, give the exact
-   one, copy-pasteable, with the real set/bucket names filled in.
+   one, copy-pasteable, with the values you know filled in (e.g. the set name) and clear
+   placeholders like `<bucket>` only where the value genuinely isn't available.
 
 ### House shape
 
