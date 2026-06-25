@@ -204,15 +204,19 @@ describe("walkDirs", () => {
       ]);
       assert.deepStrictEqual(withPatterns.excluded, []);
       assert.equal(withPatterns.skipped.length, 1);
-      assert.equal(withPatterns.skipped[0].reason, "Unsupported file type");
-      assert.equal(withPatterns.skipped[0].fileType, "SymbolicLink");
+      const [wp0] = withPatterns.skipped;
+      assert.ok(wp0);
+      assert.equal(wp0.reason, "Unsupported file type");
+      assert.equal(wp0.fileType, "SymbolicLink");
 
       // Without patterns: same — still goes to skipped, not silently passed through
       const noPatterns = walkDirs([base], []);
       assert.deepStrictEqual(relPaths(root, noPatterns.files), ["regular.txt"]);
       assert.deepStrictEqual(noPatterns.excluded, []);
       assert.equal(noPatterns.skipped.length, 1);
-      assert.equal(noPatterns.skipped[0].reason, "Unsupported file type");
+      const [np0] = noPatterns.skipped;
+      assert.ok(np0);
+      assert.equal(np0.reason, "Unsupported file type");
     },
   );
 });
