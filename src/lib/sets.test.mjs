@@ -13,6 +13,7 @@ import {
   validateSetName,
   writeSet,
 } from "./sets.mjs";
+import { ValidationError } from "./error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the backup-set store (docs/specs/backup.md). The store derives every
@@ -58,6 +59,8 @@ describe("validateSetName", () => {
       () => validateSetName("My Photos"),
       /lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
     );
+    // A ValidationError, so the CLI exits 2 (bad input) without dumping usage.
+    assert.throws(() => validateSetName("My Photos"), ValidationError);
   });
 
   it("rejects a name that is not its own canonical form", () => {
@@ -87,6 +90,7 @@ describe("validateBucketName", () => {
   it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
     assert.throws(() => validateBucketName(""), /No bucket name given/);
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
+    assert.throws(() => validateBucketName(""), ValidationError);
   });
 });
 
