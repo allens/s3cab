@@ -26,7 +26,9 @@ import { secondsSince } from "./format.mjs";
 // mtime: modification time in ISO 8601 format
 // size: size of the file in bytes (right-aligned)
 // For #EXCLUDED comment lines the fields are (col2/col3 as `excludedLine` writes them):
-// #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path
+// #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path   reason = the matching exclude pattern
+// For #SKIPPED comment lines — entries the walk omitted by design (unsupported type):
+// #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path    reason = why (e.g. "Unsupported file type")
 // For #ERROR comment lines — a file the walk couldn't hash — the fields are
 // (col3 as `errorLine` writes it):
 // #ERROR<TAB><TAB>reason<TAB>path
@@ -35,18 +37,20 @@ import { secondsSince } from "./format.mjs";
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
 // so a snapshot file is self-describing even found alone (docs/specs/backup.md).
 // `writeSnapshot` is the sole writer of all of this: the header, the `#EXCLUDED`
-// rows (formatting the walk's exclusion records via `excludedLine`), and the
-// `#ERROR` rows (via `errorLine`, for files that fail to hash). The walk yields
-// exclusions as data and no longer knows the grammar. On read
-// `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR` (into the headers) and
-// `#ERROR` (into `errors`); any other comment line is skipped.
+// rows (pattern-matched entries via `excludedLine`), the `#SKIPPED` rows
+// (by-design-unsupported entries via `skippedLine`), and the `#ERROR` rows (via
+// `errorLine`, for files that fail to hash). The walk yields these as separate
+// data buckets and no longer knows the grammar. On read `parseSnapshotStream`
+// surfaces `#SNAPSHOT`/`#DIR` (into the headers), `#ERROR` (into `errors`), and
+// `#SKIPPED` (into `skipped`); `#EXCLUDED` and any other comment line are ignored.
 
 // The comment markers heading the grammar's non-file lines — shared by the
-// (module-private) writers (`snapshotHeader`/`excludedLine`/`errorLine`) and
-// `parseSnapshotStream`, so the literal strings live in exactly one place.
+// (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)
+// and `parseSnapshotStream`, so the literal strings live in exactly one place.
 const SNAPSHOT = "#SNAPSHOT";
 const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
+const SKIPPED = "#SKIPPED";
 const ERROR = "#ERROR";
 
 /**
@@ -63,12 +67,15 @@ const ERROR = "#ERROR";
 /** @typedef {[string, Props | Error]} SnapshotRow */
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */
+/** @typedef {Map<string, string>} SnapshotSkipped */
 /**
- * A parsed snapshot: the file `entries`, the paths that failed hashing
- * (`errors`, mapped to the recorded reason), plus the `#SNAPSHOT`/`#DIR` headers
- * that make it self-describing (docs/specs/backup.md). `dirs` are the member
- * directories captured at snapshot time; `identity` is the set name (ADR-0024).
- * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, dirs: string[], identity?: string }} Snapshot
+ * A parsed snapshot: the file `entries`, paths that failed hashing (`errors`,
+ * mapped to the recorded reason), paths skipped by design (`skipped`, mapped to
+ * the skip reason — e.g. unsupported file type), plus the `#SNAPSHOT`/`#DIR`
+ * headers that make it self-describing (docs/specs/backup.md). `dirs` are the
+ * member directories captured at snapshot time; `identity` is the set name
+ * (ADR-0024).
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string }} Snapshot
  */
 
 /**
@@ -151,11 +158,12 @@ export async function withSnapshotFile(
 
 /**
  * Write a complete snapshot file and return its path: the `#SNAPSHOT`/`#DIR`
- * header, an `#EXCLUDED` row per entry the walk skipped, then a file-entry row
- * per kept file — each hashed via the injected `getProps`, with an `#ERROR` row
- * for any that fails — all zstd-compressed and atomically renamed into place
- * (`withSnapshotFile`). This is the single production seam for "files → snapshot
- * file"; the grammar (`snapshotHeader`/`excludedLine`/`errorLine`/`formatLine`,
+ * header, `#EXCLUDED` rows for pattern-matched entries, `#SKIPPED` rows for
+ * by-design-unsupported entries, then a file-entry row per kept file — each
+ * hashed via the injected `getProps`, with an `#ERROR` row for any that fails —
+ * all zstd-compressed and atomically renamed into place (`withSnapshotFile`).
+ * This is the single production seam for "files → snapshot file"; the grammar
+ * (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`/`formatLine`,
  * `SnapshotRow`) never leaves this module.
  *
  * Hashing is *injected*, not imported: `prop` lives under `commands/` and `lib`
@@ -163,11 +171,11 @@ export async function withSnapshotFile(
  * previous-snapshot lookup already bound in. `files` is accepted as any (async)
  * iterable, so the command can hand in a progress-wrapped stream.
  *
- * Write order is header → excluded → entries: the skipped-and-why diagnostics
- * sit near the top, where someone opening the file to ask "why wasn't X backed
- * up?" finds them without scrolling past the entries. `#ERROR` rows stay inline
- * with the entries, in file order. Parsing is marker-driven so order doesn't
- * affect correctness (`parseSnapshotStream`).
+ * Write order is header → excluded → skipped → entries: the "not backed up"
+ * diagnostics sit near the top, where someone opening the file to ask "why
+ * wasn't X backed up?" finds them without scrolling past the entries. `#ERROR`
+ * rows stay inline with the entries, in file order. Parsing is marker-driven so
+ * order doesn't affect correctness (`parseSnapshotStream`).
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
  * @param {string} name - Snapshot name (minute-precision timestamp, no extension)
  * @param {object} args
@@ -175,7 +183,8 @@ export async function withSnapshotFile(
  * @param {string[]} args.dirs - Member directories (one `#DIR` line each)
  * @param {string} args.datetime - Snapshot datetime (minute precision) for the `#SNAPSHOT` line
  * @param {Iterable<string> | AsyncIterable<string>} args.files - Kept file paths to hash and record
- * @param {ExclusionRecord[]} args.excluded - What the walk skipped (→ `#EXCLUDED` rows)
+ * @param {ExclusionRecord[]} args.excluded - Pattern-matched entries (→ `#EXCLUDED` rows)
+ * @param {ExclusionRecord[]} [args.skipped] - By-design unsupported entries (→ `#SKIPPED` rows)
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
@@ -183,7 +192,7 @@ export async function withSnapshotFile(
 export async function writeSnapshot(
   snapshotDir,
   name,
-  { identity, dirs, datetime, files, excluded, getProps, overwrite = false },
+  { identity, dirs, datetime, files, excluded, skipped = [], getProps, overwrite = false },
 ) {
   return withSnapshotFile(
     snapshotDir,
@@ -192,6 +201,9 @@ export async function writeSnapshot(
       writeStream.write(snapshotHeader({ datetime, identity, dirs }));
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
+      }
+      for (const { fileType, reason, path } of skipped) {
+        writeStream.write(skippedLine(fileType, reason, path));
       }
       await pipeline(
         files,
@@ -313,17 +325,21 @@ export async function readSnapshotFile(path) {
  * rather than discarded, so a snapshot stays self-describing on read — the
  * member dirs are what `restore --output` re-roots by. `#ERROR` rows (files the
  * walk couldn't hash) are surfaced into `errors` so `compare` can report them
- * rather than mistaking the path for deleted. Any other comment line is skipped.
- * Local callers that only want the file lookup take `.entries`
- * (`readSnapshotFile`); the remote reader surfaces the whole snapshot.
+ * rather than mistaking the path for deleted. `#SKIPPED` rows (entries the walk
+ * omitted by design) are surfaced into `skipped`. `#EXCLUDED` and any other
+ * comment line are ignored on read. Local callers that only want the file lookup
+ * take `.entries` (`readSnapshotFile`); the remote reader surfaces the whole
+ * snapshot.
  * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
- * @returns {Promise<Snapshot>} The file entries, hashing errors, and parsed headers
+ * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
  */
 export async function parseSnapshotStream(input) {
   /** @type {SnapshotEntries} */
   const entries = new Map();
   /** @type {SnapshotErrors} */
   const errors = new Map();
+  /** @type {SnapshotSkipped} */
+  const skipped = new Map();
   /** @type {string[]} */
   const dirs = [];
   /** @type {string | undefined} */
@@ -338,11 +354,13 @@ export async function parseSnapshotStream(input) {
     if (hash?.startsWith("#")) {
       // Marker comments carry their payload in the trailing columns (see the
       // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>datetime
-      // <TAB>identity`, `#ERROR<TAB><TAB>reason<TAB>path` (reason in col3, the
-      // `mtime` slot). Any other comment line is skipped.
+      // <TAB>identity`, `#ERROR<TAB><TAB>reason<TAB>path` and
+      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path` (reason in col3, the `mtime`
+      // slot). `#EXCLUDED` and any other comment line are ignored on read.
       if (hash === DIR && path) dirs.push(path);
       else if (hash === SNAPSHOT && path) identity = path;
       else if (hash === ERROR && path) errors.set(path, mtime ?? "");
+      else if (hash === SKIPPED && path) skipped.set(path, mtime ?? "");
       continue;
     }
 
@@ -355,7 +373,7 @@ export async function parseSnapshotStream(input) {
     });
   }
 
-  return { entries, errors, dirs, identity };
+  return { entries, errors, skipped, dirs, identity };
 }
 
 /**
@@ -435,17 +453,30 @@ function snapshotHeader({ datetime, identity, dirs }) {
 }
 
 /**
- * An `#EXCLUDED` row: a file or directory the walk skipped, recorded in the
- * snapshot for transparency and skipped on read. `reason` is the matching
- * exclude pattern, or why the entry was skipped (e.g. an unsupported file type).
- * Module-private: `writeSnapshot` formats the walk's exclusion records with it.
+ * An `#EXCLUDED` row: a file or directory the walk dropped because it matched a
+ * user-specified exclude pattern. Recorded for transparency; ignored on read.
+ * Module-private: `writeSnapshot` formats the walk's `excluded` records with it.
  * @param {string} fileType - The dirent type (File, Directory, …)
- * @param {string} reason - The matching exclude pattern, or the skip reason
+ * @param {string} reason - The matching exclude pattern
  * @param {string} path - The excluded path
  * @returns {string}
  */
 const excludedLine = (fileType, reason, path) =>
   formatLine(EXCLUDED, fileType, reason, path);
+
+/**
+ * A `#SKIPPED` row: a file the walk omitted by design because its type is not
+ * content-addressable (symlink, socket, FIFO, …). Distinct from `#EXCLUDED`
+ * (user-chosen via pattern) and `#ERROR` (tried to process, failed). Surfaced
+ * on read into `Snapshot.skipped` so callers can report what was ignored.
+ * Module-private: `writeSnapshot` formats the walk's `skipped` records with it.
+ * @param {string} fileType - The dirent type (SymbolicLink, FIFO, …)
+ * @param {string} reason - Why it was skipped (e.g. "Unsupported file type")
+ * @param {string} path - The skipped path
+ * @returns {string}
+ */
+const skippedLine = (fileType, reason, path) =>
+  formatLine(SKIPPED, fileType, reason, path);
 
 /**
  * An `#ERROR` row: a file the walk couldn't hash (e.g. permission denied),

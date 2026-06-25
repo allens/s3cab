@@ -46,7 +46,7 @@ export async function snapshot(setName, options = {}) {
     lookup = entries;
   }
 
-  const { files, excluded } = walkSet(set);
+  const { files, excluded, skipped } = walkSet(set);
 
   // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
   // one #DIR line per member directory, so the file is self-describing even when
@@ -62,6 +62,7 @@ export async function snapshot(setName, options = {}) {
     datetime,
     files: withProgress("Generating snapshot file...", files.length)(files),
     excluded,
+    skipped,
     getProps: (path) => prop(path, { lookup }),
     overwrite: Boolean(options.debug),
   });
