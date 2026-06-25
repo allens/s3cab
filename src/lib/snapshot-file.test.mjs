@@ -88,6 +88,34 @@ describe("parseSnapshotStream", () => {
       [["/home/me/Docs/locked.bin", "EACCES: permission denied"]],
     );
   });
+
+  it("preserves paths with leading/trailing whitespace verbatim", async () => {
+    // Only the hash/size/mtime columns are trimmed; the path column must be
+    // taken verbatim so a file whose name contains leading/trailing spaces
+    // round-trips correctly (hand-editing is the no-lock-in story).
+    const path = " /home/me/ a file with spaces .txt ";
+    const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}`;
+    const { entries } = await parse(text);
+    assert.ok(
+      entries.has(path),
+      "path with surrounding spaces must be kept verbatim",
+    );
+    assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
+  });
+
+  it("skips blank lines without throwing", async () => {
+    // A hand-edited snapshot file may have blank lines (e.g. trailing newline).
+    // The parser must skip them gracefully rather than asserting.
+    const text = [
+      "",
+      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      "",
+      `${hashB}\t7\t2026-06-02T08:00:00.000Z\t/home/me/b.txt`,
+      "",
+    ].join("\n");
+    const { entries } = await parse(text);
+    assert.equal(entries.size, 2);
+  });
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -232,6 +260,42 @@ describe("writeSnapshot", () => {
     assert.equal(snap.identity, "photos");
     assert.deepEqual(snap.dirs, dirs);
     assert.equal(snap.entries.size, 0);
+  });
+
+  it("writes #SKIPPED rows for by-design unsupported entries and round-trips them", async () => {
+    await using dir = await mkTmpDir();
+    const regular = resolve(dir.path, "regular.txt");
+    const link = resolve(dir.path, "link.txt");
+
+    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+      identity: "photos",
+      dirs: [dir.path],
+      datetime: "2026-06-23T10:00",
+      files: [regular],
+      excluded: [],
+      skipped: [
+        {
+          fileType: "SymbolicLink",
+          reason: "Unsupported file type",
+          path: link,
+        },
+      ],
+      getProps: async () => ({
+        size: 3,
+        mtime: "2026-06-23T10:00:00.000Z",
+        hash: hashA,
+      }),
+    });
+
+    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+
+    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
+
+    // The skipped entry must not appear as an entry or an error.
+    assert.ok(!snap.entries.has(link), "#SKIPPED row must not be an entry");
+    assert.ok(!snap.errors.has(link), "#SKIPPED row must not be an error");
+    // It must be surfaced in skipped, mapped to its reason.
+    assert.deepEqual([...snap.skipped], [[link, "Unsupported file type"]]);
   });
 
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {

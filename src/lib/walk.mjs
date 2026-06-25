@@ -19,7 +19,7 @@ import { readLines } from "./read-lines.mjs";
  * @typedef {{ fileType: string, reason: string, path: string }} ExclusionRecord
  */
 
-/** @typedef {{ files: string[], excluded: ExclusionRecord[] }} WalkResult */
+/** @typedef {{ files: string[], excluded: ExclusionRecord[], skipped: ExclusionRecord[] }} WalkResult */
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
@@ -53,13 +53,18 @@ export function walkDirs(dirs, patterns) {
   const files = [];
   /** @type {ExclusionRecord[]} */
   const excluded = [];
+  /** @type {ExclusionRecord[]} */
+  const skipped = [];
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
     console.warn("Finding files in", `'${dir}'`);
 
-    const walkCallbackFn = patterns.length
-      ? createWalkCallbackFn(dir, patterns, excluded)
-      : undefined;
+    const walkCallbackFn = createWalkCallbackFn(
+      dir,
+      patterns,
+      excluded,
+      skipped,
+    );
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
       if (files.length % 500 === 0) {
@@ -86,7 +91,7 @@ export function walkDirs(dirs, patterns) {
     seen.add(path);
   }
 
-  return { files, excluded };
+  return { files, excluded, skipped };
 }
 
 /**
@@ -95,10 +100,11 @@ export function walkDirs(dirs, patterns) {
  * snapshot grammar (`writeSnapshot` formats them into `#EXCLUDED` rows).
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
- * @param {ExclusionRecord[]} excluded - Receives a record per skipped entry
+ * @param {ExclusionRecord[]} excluded - Receives a record per pattern-matched entry
+ * @param {ExclusionRecord[]} skipped - Receives a record per by-design unsupported entry
  * @returns {(dirent: Dirent) => string | null} walk callback function
  */
-function createWalkCallbackFn(baseDir, patterns, excluded) {
+function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
   const matchers = patterns.map((pattern) => ({
     pattern,
     matcher: compileExclude(join(baseDir, pattern)),
@@ -122,11 +128,8 @@ function createWalkCallbackFn(baseDir, patterns, excluded) {
         return null;
       }
     } else {
-      // Unsupported type: recorded as excluded, but it still falls through to
-      // `return path` below — so it also enters `files` and later becomes an
-      // #ERROR row. That double-recording is a pre-existing bug, preserved here
-      // on purpose to keep this refactor structural (see proposals/bugs.md).
-      excluded.push({ fileType, reason: "Unsupported file type", path });
+      skipped.push({ fileType, reason: "Unsupported file type", path });
+      return null;
     }
 
     return path;
@@ -160,15 +163,15 @@ function getFileType(dirent) {
 /**
  * Recursively walk through a directory and yield file paths.
  * @param {string} dir - Directory to walk through
- * @param  {(dirent: Dirent) => string | null} [callbackFn] - Callback function to process files
+ * @param {(dirent: Dirent) => string | null} callbackFn - Callback function to process files
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
 function* walkFiles(dir, callbackFn) {
   for (const dirent of readdirSync(dir, { withFileTypes: true })) {
-    const { parentPath, name } = dirent;
+    const { name } = dirent;
 
-    const path = callbackFn ? callbackFn(dirent) : join(parentPath, name);
+    const path = callbackFn(dirent);
 
     if (!path) {
       continue;
