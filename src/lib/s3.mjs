@@ -15,6 +15,7 @@ import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
 import { resolveCredentials } from "./auth.mjs";
+import { formatByteValue } from "./format.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
@@ -175,7 +176,7 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
   const progressBar =
     "*".repeat(progress) + ".".repeat(PROGRESS_BAR_RANGE - progress);
 
-  const progressMessage = `${progressBar} s3://${Bucket}/${Key}: uploaded ${loaded} of ${total} `;
+  const progressMessage = `${progressBar} s3://${Bucket}/${Key}: uploaded ${formatByteValue(loaded)} of ${formatByteValue(total)} `;
 
   // Progress is not the command's result, so it goes to stderr (stream discipline).
   clearLine(process.stderr, -1);

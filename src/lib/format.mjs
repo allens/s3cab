@@ -1,13 +1,44 @@
-const byteValueNumberFormatter = Intl.NumberFormat("en", {
-  notation: "compact",
-  style: "unit",
-  unit: "byte",
-  unitDisplay: "narrow",
-});
+import assert from "node:assert";
 
-/** @param {number} bytes */
-export const formatByteValue = (bytes) =>
-  byteValueNumberFormatter.format(bytes);
+// Decimal SI (base 1000). One cached Intl formatter per unit: this runs on the
+// hot S3 upload-progress path, so we don't construct a formatter per call.
+const byteUnits = [
+  "byte",
+  "kilobyte",
+  "megabyte",
+  "gigabyte",
+  "terabyte",
+  "petabyte",
+];
+const byteFormatters = byteUnits.map(
+  (unit) =>
+    new Intl.NumberFormat("en", {
+      style: "unit",
+      unit,
+      unitDisplay: "narrow",
+      maximumFractionDigits: 1,
+    }),
+);
+
+/**
+ * Human-readable byte size, decimal SI: `1500` → `"1.5kB"`, `1_500_000_000` →
+ * `"1.5GB"`. Picks the unit by magnitude rather than `Intl`'s
+ * `notation: "compact"`, whose English short-scale "B"(illion) suffix collides
+ * with the byte unit (it rendered 10⁹ as `"1.5BB"`, and emitted `"KB"` not SI
+ * `"kB"`).
+ * @param {number} bytes
+ */
+export const formatByteValue = (bytes) => {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < byteFormatters.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  const formatter = byteFormatters[unit];
+  assert(formatter); // `unit` is bounded by the loop; this just narrows the type
+  return formatter.format(value);
+};
 
 // @ts-ignore - Intl.DurationFormat exists in Node 24+
 const durationFormat = new Intl.DurationFormat(undefined, {
