@@ -37,6 +37,28 @@ a flag, and a structured diff that survives to the CLI edge.
   "unknown topic" and list the valid ones.
 - **`--quiet`** to suppress stderr progress (for cron/scripts), and richer progress: bytes
   hashed + ETA, not just file-count percent.
+- **Display formatting** — the byte/time humanizers the size and progress output above lean on
+  (the bytes-hashed progress, the `4.2 GB` first-snapshot line, `list --stat` total size). Built
+  from the JS standard library (`Intl`), no `pretty-bytes`-style dependency. Groundwork: these
+  helpers are *ready for* those lines, which **aren't built yet** — today the only live caller is
+  the `S3CAB_DEBUG` heap/runtime readout in [s3cab.mjs](../src/s3cab.mjs).
+  - **Bytes** (settled) — replace `formatByteValue` in [format.mjs](../src/lib/format.mjs),
+    which is *buggy*: `notation: "compact"` collides the English short-scale "B"(illion) suffix
+    with the byte unit (`1500000000 → "1.5BB"`) and emits `"KB"` instead of SI `"kB"`. Pick the
+    unit by magnitude (base 1000: `byte→kB→MB→GB→TB→PB`) and render with
+    `Intl.NumberFormat({ style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`
+    — decimal SI (matches Finder / pretty-bytes; `Intl` has no binary unit anyway). Accepted
+    edge: `999999 → "1000kB"` (no roll-up to MB) — rare, not worth the extra logic.
+  - **Times** (settled) — three buckets, two display formatters:
+    - *Per-step* (one hash, one upload — operations with human-perceptible latency): a **new**
+      `formatSeconds` → `"2.4s"`, seconds with 1 decimal (≈0.1s resolution = the perception
+      threshold). For the future hash/upload progress lines.
+    - *Overall / aggregate* (tree duration, whole run): **keep** `secondsSince` as-is — the
+      composite `"1 hr, 2 mins, 5 secs"` reads better than raw seconds at scale, and
+      integer-second precision is enough.
+    - *Times of record* (e.g. `prop`'s `hashDuration`): already full ms precision — data, not
+      display, so unchanged. mtime is likewise serialized as ISO / applied via `utimes`, never
+      humanized → out of scope.
 - **Richer `list`**: snapshot date *and* file count / total size (cheap to read from the
   snapshot), maybe `list --stat`. Today it's bare names.
 - **Flexible snapshot references**: accept unambiguous prefixes (`--since 2025-11-11`),
