@@ -176,7 +176,11 @@ const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
   const progressBar =
     "*".repeat(progress) + ".".repeat(PROGRESS_BAR_RANGE - progress);
 
-  const progressMessage = `${progressBar} s3://${Bucket}/${Key}: uploaded ${formatByteValue(loaded)} of ${formatByteValue(total)} `;
+  // `total` can be absent in an httpUploadProgress event; don't render "of 0B".
+  const sizes = total
+    ? `${formatByteValue(loaded)} of ${formatByteValue(total)}`
+    : formatByteValue(loaded);
+  const progressMessage = `${progressBar} s3://${Bucket}/${Key}: uploaded ${sizes} `;
 
   // Progress is not the command's result, so it goes to stderr (stream discipline).
   clearLine(process.stderr, -1);

@@ -44,7 +44,7 @@ a flag, and a structured diff that survives to the CLI edge.
     `notation: "compact"` collided the English short-scale "B"(illion) suffix with the byte unit
     (`1500000000 → "1.5BB"`) and emitted `"KB"` instead of SI `"kB"`. Now it picks the unit by
     magnitude (base 1000) and renders with
-    `Intl.NumberFormat({ style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`,
+    `Intl.NumberFormat("en", { style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`,
     where `unit` takes a canonical identifier (`byte`, `kilobyte`, …, `petabyte`) that `narrow`
     renders as the symbol (`B`, `kB`, …, `PB`) — *not* the symbol itself (`unit: "kB"` is
     invalid). Decimal SI (matches Finder / pretty-bytes; `Intl` has no binary unit anyway).
