@@ -247,10 +247,7 @@ describe("readSet bucket guarantee", () => {
     mkdirSync(setDir, { recursive: true });
     writeFileSync(join(setDir, "dirs.txt"), "C:\\Photos\n");
 
-    assert.throws(
-      () => readSet("photos"),
-      /no bucket bound[\s\S]*S3CAB_BUCKET/,
-    );
+    assert.throws(() => readSet("photos"), /no bucket[\s\S]*S3CAB_BUCKET/);
   });
 });
 

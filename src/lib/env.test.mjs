@@ -192,7 +192,7 @@ describe("loadSet", () => {
     // rejects it via readSet, and it must do so *before* the env layer is applied.
     t.set("local", "AWS_REGION=us-set\n");
 
-    assert.throws(() => t.loadSet("local"), /no bucket bound/);
+    assert.throws(() => t.loadSet("local"), /no S3CAB_BUCKET/);
     assert.equal(process.env.AWS_REGION, undefined);
   });
 });

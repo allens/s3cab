@@ -60,6 +60,7 @@ function relativeToRoot(dirs, path) {
  * @param {object} [options]
  * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
  * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
+ * @param {string} [options.setName] - The set's name, for the "no snapshots yet" guidance
  * @returns {Promise<CompareResult>} Diff results
  */
 export async function compareSnapshots(snapshotDir, dirs, options = {}) {
@@ -68,7 +69,10 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   // Newer side (`until`) defaults to the latest snapshot.
   const until = normalizeName(options.until) ?? snapshotNames.at(0);
   if (!until) {
-    throw new Error(`No snapshots found in '${snapshotDir}'`);
+    throw new Error(
+      `No snapshots to compare yet for set '${options.setName}'.\n` +
+        `Take one first with:\n  s3cab snapshot ${options.setName}`,
+    );
   }
   const untilSnapshot = await readSnapshot(snapshotDir, until);
 

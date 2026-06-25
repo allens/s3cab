@@ -372,6 +372,15 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   one `lstat` each — the cache could never hit, yet sat there looking load-bearing. Removed
   2026-06-18 after a static-call-graph check confirmed it was dead. Keep the saving *in the
   interface*, where it's visible and the compiler can see it rot.)
+- **User-facing error/warning text follows the Nielsen Norman Group error-message guidelines**
+  ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
+  the user's *goal* (no codes/jargon up front — env-var names, paths and keys go in a
+  parenthetical or follow-up line), polite (describe, don't blame), and *constructive* (give
+  the exact fix, copy-pasteable command on its own indented line — mirror `collisionError` in
+  [src/commands/setup.mjs](src/commands/setup.mjs)). Internal invariants and programmer errors
+  (a malformed `s3://` URI, a broken assumption) are *out of scope* — keep those terse and
+  factual; they signal bugs, not user guidance. Checked in review, not by a linter
+  ([ADR-0006](docs/adr/0006-minimal-code.md)).
 
 ---
 

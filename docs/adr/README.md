@@ -41,6 +41,7 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0027](0027-compare-local-only-adoption-syncs-manifests.md) — `compare` is local-only; adoption syncs the manifests
 - [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
 - [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
+- [0030](0030-error-message-guidelines.md) — Error messages follow the Nielsen Norman Group guidelines
 
 ### Build, release & tooling
 

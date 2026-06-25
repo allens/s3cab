@@ -78,6 +78,7 @@ export async function snapshot(setName, options = {}) {
   return await compareSnapshots(snapshotDir, set.dirs, {
     since: latestSnapshotName,
     until: newSnapshotName,
+    setName: set.name,
   });
 }
 
