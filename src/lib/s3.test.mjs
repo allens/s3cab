@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { clientConfig, putObjectParams } from "./s3.mjs";
+import { clientConfig, formatUploadProgress, putObjectParams } from "./s3.mjs";
 
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
@@ -145,6 +145,42 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
       !headers.some((h) => h.startsWith("x-amz-meta-x-amz-meta-")),
       `metadata header is double-prefixed: ${headers.join(", ")}`,
     );
+  });
+});
+
+describe("formatUploadProgress", () => {
+  it("humanizes the byte counts rather than printing raw integers", () => {
+    const { message } = formatUploadProgress({
+      Bucket: "b",
+      Key: "k",
+      loaded: 1000,
+      total: 10000,
+    });
+    assert.match(message, /uploaded 1kB of 10kB /);
+    // Guards against the regression to raw integers ("uploaded 1000 of 10000").
+    assert.doesNotMatch(message, /\b1000\b/);
+    assert.doesNotMatch(message, /\b10000\b/);
+  });
+
+  it("omits the 'of <total>' segment when total is unknown", () => {
+    const { message, fill } = formatUploadProgress({
+      Bucket: "b",
+      Key: "k",
+      loaded: 1500,
+    });
+    assert.match(message, /uploaded 1\.5kB /);
+    assert.doesNotMatch(message, / of /); // no misleading "of 0B"
+    assert.equal(fill, 0); // no bar fill without a known total
+  });
+
+  it("fills the bar proportionally when total is known", () => {
+    const { fill } = formatUploadProgress({
+      Bucket: "b",
+      Key: "k",
+      loaded: 5,
+      total: 10,
+    });
+    assert.equal(fill, 10); // half of the 20-char bar
   });
 });
 

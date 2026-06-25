@@ -15,6 +15,7 @@ import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
 import { resolveCredentials } from "./auth.mjs";
+import { formatByteValue } from "./format.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
@@ -166,22 +167,38 @@ export const createS3ReadStream = (uri) => new S3ReadStream(uri);
 const PROGRESS_BAR_RANGE = 20;
 const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 
+/**
+ * Build the upload-progress line (pure): an ASCII bar plus the humanized byte
+ * counts. `total` can be absent in an httpUploadProgress event, so it omits the
+ * "of <total>" segment rather than rendering a misleading "of 0B". Returns the
+ * rendered `message` and the bar `fill` (lit chars), which the handler reuses to
+ * position the cursor.
+ * @param {import("@aws-sdk/lib-storage").Progress} progress
+ * @returns {{ message: string, fill: number }}
+ */
+export const formatUploadProgress = ({
+  Bucket,
+  Key,
+  loaded = 0,
+  total = 0,
+}) => {
+  const fill = total ? Math.round((loaded / total) * PROGRESS_BAR_RANGE) : 0;
+  const bar = "*".repeat(fill) + ".".repeat(PROGRESS_BAR_RANGE - fill);
+  const sizes = total
+    ? `${formatByteValue(loaded)} of ${formatByteValue(total)}`
+    : formatByteValue(loaded);
+  return { message: `${bar} s3://${Bucket}/${Key}: uploaded ${sizes} `, fill };
+};
+
 /** @param {import("@aws-sdk/lib-storage").Progress} progress */
-const httpUploadProgressHandler = ({ Bucket, Key, loaded = 0, total = 0 }) => {
-  const progress = total
-    ? Math.round((loaded / total) * PROGRESS_BAR_RANGE)
-    : 0;
-
-  const progressBar =
-    "*".repeat(progress) + ".".repeat(PROGRESS_BAR_RANGE - progress);
-
-  const progressMessage = `${progressBar} s3://${Bucket}/${Key}: uploaded ${loaded} of ${total} `;
+const httpUploadProgressHandler = (progress) => {
+  const { message, fill } = formatUploadProgress(progress);
 
   // Progress is not the command's result, so it goes to stderr (stream discipline).
   clearLine(process.stderr, -1);
   cursorTo(process.stderr, 0);
-  process.stderr.write(progressMessage);
-  cursorTo(process.stderr, progress);
+  process.stderr.write(message);
+  cursorTo(process.stderr, fill);
 };
 
 /**
