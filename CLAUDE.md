@@ -227,7 +227,15 @@ rather than assuming it is fixed forever.
       permission allowlist — a compound that leads with `cd` matches no `Bash(git …)` rule, so each
       one needlessly re-prompts (the Bash tool warns of this). Use `git -C <path> …` to act on a
       different checkout, never a `cd` compound. (Recorded 2026-06-24 after exactly this
-      self-inflicted prompt.)
+      self-inflicted prompt.) **And only when it _is_ a different checkout:** when cwd is already
+      the target repo (the main tree, or after `EnterWorktree`), run **bare `git …`**. `git -C
+      <the-cwd-path>` is the same trap as the `cd` compound — it defeats the path-free **allow**
+      rules (`Bash(git commit *)` etc. never match a `git -C …` command) *and* the path-free
+      **deny** rules (`Bash(git reset --hard *)` won't match `git -C … reset --hard`), so it
+      re-prompts on every call **and silently bypasses the destructive-command guards.** The same
+      lesson generalizes: prefer the bare invocation the allowlist patterns are written against.
+      (Extended 2026-06-25 after a whole session of `git -C d:/src/s3cab …` re-prompted because
+      not one of the broad `git` rules matched.)
 14. **When the user asks a question, answer it — do not start editing code off the back of it.**
     A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
     wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
