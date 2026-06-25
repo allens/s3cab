@@ -113,10 +113,11 @@ rather than assuming it is fixed forever.
    over-engineer separation. (Still prefer a _separate commit_ per logical change within the PR,
    as the `chore:` commits do.)
 6. **Don't delete commented-out code or TODO notes as "dead code" without asking.** They may
-   be the user's parked reminders of an unresolved question, not cruft — e.g. the
-   commented-out SIGINT handler in `src/s3cab.mjs` is kept on purpose. Flag them as
-   candidates instead. (The `objectPaths.delete` note in `compare.mjs` was such a parker
-   until it was analysed and resolved, on the user's say-so, in the 2026-06 compare pass.)
+   be the user's parked reminders of an unresolved question, not cruft. Flag them as
+   candidates instead — then analyse and resolve on the user's say-so, recording the rationale
+   so the decision isn't re-litigated. (Two worked examples: the `objectPaths.delete` note in
+   `compare.mjs`, resolved in the 2026-06 compare pass; and the commented-out SIGINT handler in
+   `src/s3cab.mjs`, analysed and removed 2026-06-26 once its rationale was understood.)
 7. **Always use the Bash tool, not PowerShell.** Bash is available even on Windows and the
    project's permission allowlist is Bash-based. The system prompt identifies PowerShell as
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
@@ -583,10 +584,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   command description print GitHub URLs (the placement doctrine's "link to the fuller
   online guide"); a shipped binary freezes the URLs it prints forever. Before release, stand up the planned proper website (or
   commit to permanent GitHub paths) and point the help text at stable addresses.
-- **SIGINT handling:** the commented-out handler at the bottom of
-  [src/s3cab.mjs](src/s3cab.mjs) is a parked reminder (kept on purpose — convention 6). It
-  was disabled for a reason since forgotten; work out whether the CLI needs one, then wire
-  it up or remove it.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
