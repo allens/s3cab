@@ -55,12 +55,16 @@ describe("validateSetName", () => {
   });
 
   it("rejects a non-conforming name with the rule and a suggestion", () => {
+    // A ValidationError (so the CLI exits 2 without dumping usage) carrying the
+    // rule + suggestion — both checked in one evaluation.
     assert.throws(
       () => validateSetName("My Photos"),
-      /lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
+      (e) =>
+        e instanceof ValidationError &&
+        /lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/.test(
+          e.message,
+        ),
     );
-    // A ValidationError, so the CLI exits 2 (bad input) without dumping usage.
-    assert.throws(() => validateSetName("My Photos"), ValidationError);
   });
 
   it("rejects a name that is not its own canonical form", () => {
@@ -88,9 +92,13 @@ describe("validateBucketName", () => {
   });
 
   it("rejects an empty name and surrounding whitespace with distinct guidance", () => {
-    assert.throws(() => validateBucketName(""), /No bucket name given/);
+    // Empty name is a ValidationError (exit 2); both type and message in one check.
+    assert.throws(
+      () => validateBucketName(""),
+      (e) =>
+        e instanceof ValidationError && /No bucket name given/.test(e.message),
+    );
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
-    assert.throws(() => validateBucketName(""), ValidationError);
   });
 });
 
