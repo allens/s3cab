@@ -49,6 +49,43 @@ Run 's3cab help auth' for details.`,
   );
 };
 
+/**
+ * The actionable "credentials resolved fine but had expired by request time"
+ * error — an expired SSO/session token the chain handed back without validating,
+ * which the *server* then rejects on the request. The request-time twin of
+ * `noCredentialsError` (which fires when the chain resolves *nothing*): by the
+ * time it surfaces, `auth.mjs` is off the stack, so it is detected and thrown at
+ * the SDK boundary (`src/lib/s3.mjs`) rather than here. A plain-`Error` factory,
+ * not a subclass, because nothing catches it by type — it flows to the CLI's
+ * top-level catch, which only prints `message` (unless S3CAB_DEBUG; `cause` is
+ * kept for that debug path). Follows ADR-0030: goal-framed, constructive, with
+ * copy-pasteable fixes.
+ * @param {unknown} cause - The AWS error that triggered it.
+ */
+export const expiredCredentialsError = (cause) =>
+  new Error(
+    `Your AWS credentials have expired.
+
+To continue, refresh them and run the command again:
+  - for AWS IAM Identity Center, run \`aws sso login\`
+  - for temporary credentials (AWS_SESSION_TOKEN), request a new set
+  - for a named profile, renew it (and set AWS_PROFILE)
+
+Run 's3cab help auth' for details.`,
+    { cause },
+  );
+
+/**
+ * Whether an AWS error is the server rejecting a request because the resolved
+ * credentials had expired. S3 surfaces it as `ExpiredToken`, STS as
+ * `ExpiredTokenException` — matched on `error.name`, as the s3.mjs
+ * NotFound/NoSuchKey/PreconditionFailed guards are.
+ * @param {unknown} error
+ */
+export const isExpiredCredentials = (error) =>
+  Error.isError(error) &&
+  (error.name === "ExpiredToken" || error.name === "ExpiredTokenException");
+
 // The standard AWS SDK Node.js provider chain, built once. The SDK client caches
 // the credentials it returns and re-invokes the provider near expiry, so a single
 // chain instance is reused across refreshes.

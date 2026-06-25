@@ -405,8 +405,8 @@ function propsRows(getProps) {
     for await (const path of paths) {
       try {
         yield [path, await getProps(path)];
-      } catch (err) {
-        yield [path, Error.isError(err) ? err : new Error(String(err))];
+      } catch (error) {
+        yield [path, Error.isError(error) ? error : new Error(String(error))];
       }
     }
   };

@@ -14,7 +14,11 @@ import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
-import { resolveCredentials } from "./auth.mjs";
+import {
+  expiredCredentialsError,
+  isExpiredCredentials,
+  resolveCredentials,
+} from "./auth.mjs";
 import { formatByteValue } from "./format.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
@@ -104,8 +108,39 @@ function client() {
     "S3 operation reached before env was loaded — loadEnv() runs at the CLI " +
       "entry point; a direct caller (test/library) must call it first.",
   );
-  return (_client ??= new S3Client(clientConfig()));
+  if (_client) return _client;
+  _client = new S3Client(clientConfig());
+  // Added at the outermost (initialize) step so it only fires once the SDK's own
+  // retries are exhausted, and covers every request path — direct sends, the
+  // paginator, and lib-storage's Upload — since all share this one client.
+  _client.middlewareStack.add(expiredCredentialsRelay, {
+    step: "initialize",
+    name: "expiredCredentials",
+  });
+  return _client;
 }
+
+/**
+ * SDK middleware relay that translates AWS's terse request-time "ExpiredToken"
+ * rejection into the actionable `expiredCredentialsError` (auth.mjs), passing
+ * every other outcome — success or unrelated error — through untouched.
+ * Credentials resolve fine at startup and expire *later*, so auth.mjs is off the
+ * stack by the time the server rejects; the SDK boundary is where this
+ * request-time failure can be caught. Exported (and pure of any live client) so
+ * the mapping is unit-testable directly with a fake `next`.
+ * @param {(args: any) => Promise<any>} next
+ */
+export const expiredCredentialsRelay =
+  (next) => async (/** @type {any} */ args) => {
+    try {
+      return await next(args);
+    } catch (error) {
+      if (isExpiredCredentials(error)) {
+        throw expiredCredentialsError(error);
+      }
+      throw error;
+    }
+  };
 
 /**
  * Parse an `s3://bucket/key` URI into its bucket and key.

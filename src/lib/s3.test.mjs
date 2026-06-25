@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { clientConfig, formatUploadProgress, putObjectParams } from "./s3.mjs";
+import {
+  clientConfig,
+  expiredCredentialsRelay,
+  formatUploadProgress,
+  putObjectParams,
+} from "./s3.mjs";
 
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
@@ -181,6 +186,44 @@ describe("formatUploadProgress", () => {
       total: 10,
     });
     assert.equal(fill, 10); // half of the 20-char bar
+  });
+});
+
+describe("expiredCredentialsRelay", () => {
+  /** An error carrying the AWS-style `name` the SDK sets from the service code. */
+  const named = (/** @type {string} */ name) =>
+    Object.assign(new Error("The provided token has expired."), { name });
+
+  it("maps a request-time ExpiredToken rejection to the actionable error", async () => {
+    const cause = named("ExpiredToken");
+    const next = async () => {
+      throw cause;
+    };
+    await assert.rejects(
+      expiredCredentialsRelay(next)({}),
+      (/** @type {any} */ error) => {
+        assert.equal(error.cause, cause); // original kept for the debug path
+        assert.match(error.message, /Your AWS credentials have expired/);
+        assert.match(error.message, /aws sso login/);
+        return true;
+      },
+    );
+  });
+
+  it("passes an unrelated error through untouched", async () => {
+    const cause = named("AccessDenied");
+    const next = async () => {
+      throw cause;
+    };
+    await assert.rejects(
+      expiredCredentialsRelay(next)({}),
+      (error) => error === cause,
+    );
+  });
+
+  it("passes a successful result through", async () => {
+    const next = async () => "ok";
+    assert.equal(await expiredCredentialsRelay(next)({}), "ok");
   });
 });
 

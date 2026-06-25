@@ -132,7 +132,7 @@ describe("cli (e2e)", () => {
     mkdirSync(data);
 
     const { status, stderr } = runWithHome(home, "setup", "files", data);
-    assert.strictEqual(status, 1);
+    assert.strictEqual(status, 2); // usage error (missing required option)
     assert.match(stderr, /Missing required argument: --bucket/);
   });
 
@@ -160,7 +160,7 @@ describe("cli (e2e)", () => {
 
     const { status, stderr } = runWithHome(home, "setup", "My Photos", photos);
 
-    assert.strictEqual(status, 1);
+    assert.strictEqual(status, 2); // bad input value (validation error)
     assert.match(stderr, /lowercase letters, digits, and hyphens/);
     assert.match(stderr, /Try: my-photos/);
   });

@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { commands } from "./commands.mjs";
 import { helpTopics, usage } from "./help.mjs";
 import { loadEnv } from "./lib/env.mjs";
-import { isUsageError } from "./lib/error.mjs";
+import { isInputError, isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
 
 const start = Temporal.Now.instant();
@@ -81,10 +81,15 @@ try {
     debug ? error : Error.isError(error) ? error.message : String(error),
   );
   console.error();
+  // Two independent axes (see lib/error.mjs): print the usage block only for a
+  // structural usage error, and pick the exit code by input-vs-runtime. Exit-code
+  // convention: 2 for bad input (args/options/values — the argparse/getopt
+  // convention), 1 for any other runtime failure. (Success is 0; an unknown
+  // command exits 127 above, the shell's "command not found".)
   if (isUsageError(error)) {
     console.error(usage(commands, commandName));
   }
-  process.exitCode = 1;
+  process.exitCode = isInputError(error) ? 2 : 1;
 } finally {
   if (debug) {
     console.warn(
