@@ -41,7 +41,7 @@ export const formatByteValue = (bytes) => {
 };
 
 // @ts-ignore - Intl.DurationFormat exists in Node 24+
-const durationFormat = new Intl.DurationFormat(undefined, {
+const durationFormat = new Intl.DurationFormat("en", {
   // A sub-second duration rounds to all-zero, which the default "auto"
   // display renders as an empty string ("read in " + nothing) — always
   // show the seconds field instead ("0 secs").
