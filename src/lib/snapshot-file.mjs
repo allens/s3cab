@@ -106,15 +106,15 @@ export async function withSnapshotFile(
   if (!overwrite && existsSync(snapshotPath)) {
     throw new Error(
       `Snapshot '${name}' already exists in '${snapshotDir}'. A second ` +
-        `snapshot in the same minute is refused so an accidental re-run can't ` +
-        `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
+      `snapshot in the same minute is refused so an accidental re-run can't ` +
+      `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
     );
   }
   const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
   if (existsSync(tmpPath)) {
     throw new Error(
       `A snapshot is already in progress for this set (temp file ${tmpPath}).\n` +
-        `If a previous run was interrupted, remove that file and snapshot again.`,
+      `If a previous run was interrupted, remove that file and snapshot again.`,
     );
   }
 
@@ -143,7 +143,7 @@ export async function withSnapshotFile(
     await callbackFn(snapshotWriter);
   } catch (error) {
     snapshotWriter.destroy();
-    await pipelinePromise.catch(() => {});
+    await pipelinePromise.catch(() => { });
     throw error;
   }
 
@@ -348,8 +348,10 @@ export async function parseSnapshotStream(input) {
   const rl = createInterface({ input, crlfDelay: Infinity });
 
   for await (const line of rl) {
-    assert(line.trim() !== "", "Empty line in snapshot file");
-    const [hash, size, mtime, path] = line.split("\t").map((s) => s.trim());
+    if (line.trim() === "") continue;
+    const parts = line.split("\t");
+    const path = parts.pop();
+    const [hash, size, mtime] = parts.map((s) => s.trim());
 
     if (hash?.startsWith("#")) {
       // Marker comments carry their payload in the trailing columns (see the

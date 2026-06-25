@@ -88,6 +88,31 @@ describe("parseSnapshotStream", () => {
       [["/home/me/Docs/locked.bin", "EACCES: permission denied"]],
     );
   });
+
+  it("preserves paths with leading/trailing whitespace verbatim", async () => {
+    // Only the hash/size/mtime columns are trimmed; the path column must be
+    // taken verbatim so a file whose name contains leading/trailing spaces
+    // round-trips correctly (hand-editing is the no-lock-in story).
+    const path = " /home/me/ a file with spaces .txt ";
+    const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}`;
+    const { entries } = await parse(text);
+    assert.ok(entries.has(path), "path with surrounding spaces must be kept verbatim");
+    assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
+  });
+
+  it("skips blank lines without throwing", async () => {
+    // A hand-edited snapshot file may have blank lines (e.g. trailing newline).
+    // The parser must skip them gracefully rather than asserting.
+    const text = [
+      "",
+      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      "",
+      `${hashB}\t7\t2026-06-02T08:00:00.000Z\t/home/me/b.txt`,
+      "",
+    ].join("\n");
+    const { entries } = await parse(text);
+    assert.equal(entries.size, 2);
+  });
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
