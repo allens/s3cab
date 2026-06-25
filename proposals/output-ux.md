@@ -45,9 +45,12 @@ a flag, and a structured diff that survives to the CLI edge.
   - **Bytes** (settled) — replace `formatByteValue` in [format.mjs](../src/lib/format.mjs),
     which is *buggy*: `notation: "compact"` collides the English short-scale "B"(illion) suffix
     with the byte unit (`1500000000 → "1.5BB"`) and emits `"KB"` instead of SI `"kB"`. Pick the
-    unit by magnitude (base 1000: `byte→kB→MB→GB→TB→PB`) and render with
+    unit by magnitude (base 1000) and render with
     `Intl.NumberFormat({ style: "unit", unit, unitDisplay: "narrow", maximumFractionDigits: 1 })`
-    — decimal SI (matches Finder / pretty-bytes; `Intl` has no binary unit anyway). Accepted
+    — where `unit` takes a canonical identifier (`byte`, `kilobyte`, `megabyte`, …, `petabyte`),
+    which `unitDisplay: "narrow"` renders as the symbol (`B`, `kB`, `MB`, …, `PB`) — *not* the
+    symbol itself (`unit: "kB"` is invalid). Decimal SI (matches Finder / pretty-bytes; `Intl`
+    has no binary unit anyway). Accepted
     edge: `999999 → "1000kB"` (no roll-up to MB) — rare, not worth the extra logic.
   - **Times** (settled) — three buckets, two display formatters:
     - *Per-step* (one hash, one upload — operations with human-perceptible latency): a **new**
@@ -56,9 +59,9 @@ a flag, and a structured diff that survives to the CLI edge.
     - *Overall / aggregate* (tree duration, whole run): **keep** `secondsSince` as-is — the
       composite `"1 hr, 2 mins, 5 secs"` reads better than raw seconds at scale, and
       integer-second precision is enough.
-    - *Times of record* (e.g. `prop`'s `hashDuration`): already full ms precision — data, not
-      display, so unchanged. mtime is likewise serialized as ISO / applied via `utimes`, never
-      humanized → out of scope.
+    - *Times of record* (e.g. `prop`'s `hashDuration`, stored as fractional seconds at
+      millisecond resolution): already precise enough — data, not display, so unchanged. mtime
+      is likewise serialized as ISO / applied via `utimes`, never humanized → out of scope.
 - **Richer `list`**: snapshot date *and* file count / total size (cheap to read from the
   snapshot), maybe `list --stat`. Today it's bare names.
 - **Flexible snapshot references**: accept unambiguous prefixes (`--since 2025-11-11`),
