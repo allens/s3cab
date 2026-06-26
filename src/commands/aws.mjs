@@ -23,14 +23,19 @@ import { readSet } from "../lib/sets.mjs";
  * with the usual listing; `aws` never *creates* a set (that is `setup`'s job, so
  * the remote name gets claimed).
  * @param {string} [setName]
- * @returns {{ path: string, label: string, isSet: boolean }}
+ * @returns {{ path: string, label: string, isSet: boolean, name?: string }}
  */
 function resolveScope(setName) {
   if (setName === undefined) {
     return { path: userEnvPath(), label: "all backups", isSet: false };
   }
   const set = readSet(setName);
-  return { path: set.envPath, label: `set '${set.name}'`, isSet: true };
+  return {
+    path: set.envPath,
+    label: `set '${set.name}'`,
+    isSet: true,
+    name: set.name,
+  };
 }
 
 /**
@@ -38,17 +43,21 @@ function resolveScope(setName) {
  * the post-layering effective value — the always-on notice from `client()` shows
  * that at use-time). A set with nothing of its own falls back to the user
  * default, so its "none" message says so.
- * @param {{ path: string, label: string, isSet: boolean }} scope
+ * @param {{ path: string, label: string, isSet: boolean, name?: string }} scope
  * @returns {string}
  */
-function describeScope({ path, label, isSet }) {
+function describeScope({ path, label, isSet, name }) {
   const values = parseEnvFile(path);
   const profile = values.AWS_PROFILE;
   const endpoint = values.AWS_ENDPOINT_URL_S3 ?? values.AWS_ENDPOINT_URL;
   if (!profile && !endpoint) {
     return isSet
-      ? `No AWS profile set for ${label} — it uses the user default.`
-      : `No AWS profile set for ${label}.`;
+      ? `No AWS profile set for ${label} — it uses the user default.\n` +
+          `Give this set its own with:\n` +
+          `  s3cab aws --profile <name> ${name}`
+      : `No AWS profile set for ${label}.\n` +
+          `Point s3cab at one of your AWS profiles with:\n` +
+          `  s3cab aws --profile <name>`;
   }
   const parts = [];
   if (profile) parts.push(`profile: ${profile}`);

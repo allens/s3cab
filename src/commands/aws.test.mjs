@@ -161,6 +161,7 @@ describe("aws (show)", () => {
     await aws(undefined, {});
 
     assert.match(io.out(), /No AWS profile set for all backups/);
+    assert.match(io.out(), /s3cab aws --profile <name>/); // constructive fix
   });
 
   it("reports the profile and endpoint set at a scope", async (t) => {
@@ -188,5 +189,6 @@ describe("aws (show)", () => {
     await aws("photos", {});
 
     assert.match(io.out(), /uses the user default/);
+    assert.match(io.out(), /s3cab aws --profile <name> photos/); // set-scoped fix
   });
 });
