@@ -146,16 +146,18 @@ same key — unless you `--force` a re-upload:
 s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
 edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
 
-1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, an endpoint, or a
-   default bucket — including some S3-compatible providers). Highest precedence first, a file
-   always beating the shell:
+1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, or an endpoint —
+   including some S3-compatible providers). Highest precedence first, a file always beating
+   the shell:
    - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
      bucket; add per-set auth overrides here). It takes effect as the set-based commands arrive
      with `backup`;
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
      lives for the common single-bucket case.
 
-   (s3cab does **not** read a `.env` from the current directory.)
+   (s3cab does **not** read a `.env` from the current directory.) The quickest way to set your
+   profile is **`s3cab aws --profile <name>`** — it writes `AWS_PROFILE` to `~/.s3cab/env` for
+   you (add a set name to scope it to one set, e.g. a set backing up to a different AWS account).
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
    sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
 

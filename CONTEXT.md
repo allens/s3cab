@@ -92,3 +92,11 @@ _Avoid_: adopt, clone, migrate, take-over.
 **Setup**:
 The command that creates and configures a backup set; a bucket is required.
 _Avoid_: init, config, register.
+
+**AWS profile**:
+A named profile in the user's AWS shared config (`~/.aws/config` / `~/.aws/credentials`).
+s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the **aws**
+command (`s3cab aws --profile <name>`), user-wide or scoped to a set. A pointer to AWS
+credentials, never credential material itself, and **not** a backup set (the thing line 46
+warns against calling a "profile").
+_Avoid_: account, login, credentials (the profile names them; it is not them).
