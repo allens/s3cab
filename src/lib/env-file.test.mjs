@@ -50,6 +50,15 @@ describe("updateEnvFile", () => {
       "AWS_PROFILE=three\nAWS_PROFILE=three\n",
     );
   });
+
+  it("treats a key with regex metacharacters literally", async () => {
+    await using dir = await mkTmpDir();
+    const path = join(dir.path, "env");
+    // "A.B" must match only "A.B", not the regex-pattern "A<any>B".
+    writeFileSync(path, "AxB=other\nA.B=old\n");
+    updateEnvFile(path, { "A.B": "new" });
+    assert.equal(readFileSync(path, "utf8"), "AxB=other\nA.B=new\n");
+  });
 });
 
 describe("removeEnvKey", () => {
@@ -83,6 +92,15 @@ describe("removeEnvKey", () => {
     writeFileSync(path, "AWS_PROFILE=bert\n");
     removeEnvKey(path, "AWS");
     assert.equal(readFileSync(path, "utf8"), "AWS_PROFILE=bert\n");
+  });
+
+  it("treats a key with regex metacharacters literally", async () => {
+    await using dir = await mkTmpDir();
+    const path = join(dir.path, "env");
+    // Removing "A.B" must not also remove "AxB" (which "A.B" matches as a regex).
+    writeFileSync(path, "AxB=keep\nA.B=drop\n");
+    removeEnvKey(path, "A.B");
+    assert.equal(readFileSync(path, "utf8"), "AxB=keep\n");
   });
 
   it("is a no-op when the key is absent", async () => {

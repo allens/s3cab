@@ -13,6 +13,16 @@ import { isENOENT } from "./error.mjs";
 // cycle, since env.mjs already imports `resolveSet` from sets.mjs.
 
 /**
+ * Escape a string for literal use inside a `RegExp`. The keys we build line
+ * matchers from are internal constants (`AWS_PROFILE`, `S3CAB_BUCKET`) with no
+ * regex metacharacters, so this changes nothing today — but it keeps this shared
+ * primitive correct if a future key ever carries one (`.`/`[`/`$`/…), rather
+ * than silently mis-matching or throwing.
+ * @param {string} text
+ */
+const escapeRegExp = (text) => text.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
  * Read a file's text, or `""` if it doesn't exist.
  * @param {string} path
  */
@@ -39,7 +49,7 @@ export function updateEnvFile(path, updates) {
     const line = `${key}=${value}`;
     // Global: replace EVERY occurrence — parseEnv is last-wins, so updating
     // only the first of hand-made duplicates would leave the old value live.
-    const existing = new RegExp(`^${key}=.*$`, "gm");
+    const existing = new RegExp(`^${escapeRegExp(key)}=.*$`, "gm");
     if (existing.test(text)) {
       text = text.replaceAll(existing, line);
     } else {
@@ -63,7 +73,7 @@ export function updateEnvFile(path, updates) {
 export function removeEnvKey(path, key) {
   const text = readText(path);
   if (text === "") return;
-  const matches = new RegExp(`^${key}=`);
+  const matches = new RegExp(`^${escapeRegExp(key)}=`);
   const lines = text.split("\n");
   const kept = lines.filter((line) => !matches.test(line));
   if (kept.length === lines.length) return; // key absent — nothing to write
