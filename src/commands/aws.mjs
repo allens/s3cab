@@ -67,7 +67,7 @@ async function warnIfUnknownProfile(name) {
   if (!profiles || profiles.includes(name)) return;
   const available = profiles.length
     ? `Profiles found in your AWS config: ${profiles.join(", ")}.`
-    : `No profiles are configured in ~/.aws/config or ~/.aws/credentials.`;
+    : `No profiles are configured in your AWS config.`;
   console.warn(
     `AWS profile '${name}' isn't in your AWS config yet.\n` +
       `${available}\n` +

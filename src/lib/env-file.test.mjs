@@ -40,7 +40,7 @@ describe("updateEnvFile", () => {
     );
   });
 
-  it("collapses hand-made duplicate keys to a single updated value", async () => {
+  it("updates every hand-made duplicate of a key to the same value", async () => {
     await using dir = await mkTmpDir();
     const path = join(dir.path, "env");
     writeFileSync(path, "AWS_PROFILE=one\nAWS_PROFILE=two\n");
