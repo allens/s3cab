@@ -19,11 +19,20 @@ import { readSet } from "../lib/sets.mjs";
 
 /**
  * The env file a command invocation targets, plus how to name that scope in
- * messages. A named set must already exist — `readSet` rejects an unknown name
- * with the usual listing; `aws` never *creates* a set (that is `setup`'s job, so
- * the remote name gets claimed).
+ * messages. A discriminated union: the set scope always carries the set `name`
+ * (used to build set-scoped suggestions), the user scope never does — so an
+ * `isSet: true` scope without a `name` can't be constructed, and `tsc` enforces
+ * the coupling rather than a runtime guard.
+ * @typedef {{ path: string, label: string, isSet: false }
+ *   | { path: string, label: string, isSet: true, name: string }} Scope
+ */
+
+/**
+ * Resolve a command invocation's scope. A named set must already exist —
+ * `readSet` rejects an unknown name with the usual listing; `aws` never
+ * *creates* a set (that is `setup`'s job, so the remote name gets claimed).
  * @param {string} [setName]
- * @returns {{ path: string, label: string, isSet: boolean, name?: string }}
+ * @returns {Scope}
  */
 function resolveScope(setName) {
   if (setName === undefined) {
@@ -43,18 +52,19 @@ function resolveScope(setName) {
  * the post-layering effective value — the always-on notice from `client()` shows
  * that at use-time). A set with nothing of its own falls back to the user
  * default, so its "none" message says so.
- * @param {{ path: string, label: string, isSet: boolean, name?: string }} scope
+ * @param {Scope} scope
  * @returns {string}
  */
-function describeScope({ path, label, isSet, name }) {
+function describeScope(scope) {
+  const { path, label } = scope;
   const values = parseEnvFile(path);
   const profile = values.AWS_PROFILE;
   const endpoint = values.AWS_ENDPOINT_URL_S3 ?? values.AWS_ENDPOINT_URL;
   if (!profile && !endpoint) {
-    return isSet
+    return scope.isSet
       ? `No AWS profile set for ${label} — it uses the user default.\n` +
           `Give this set its own with:\n` +
-          `  s3cab aws --profile <name> ${name}`
+          `  s3cab aws --profile <name> ${scope.name}`
       : `No AWS profile set for ${label}.\n` +
           `Point s3cab at one of your AWS profiles with:\n` +
           `  s3cab aws --profile <name>`;
