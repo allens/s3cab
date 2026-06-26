@@ -22,8 +22,9 @@ export const helpTopics = {
 s3cab resolves credentials in this order:
 
 1. s3cab loads its own env files first, if present. These set AWS_*
-   variables (a profile, region, endpoint, or keys) and a default
-   S3CAB_BUCKET. Highest precedence first (a file always beats the shell):
+   variables — a profile, region, endpoint, or keys (set a profile easily
+   with 's3cab aws --profile <name>'). Highest precedence first (a file
+   always beats the shell):
      ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
                               overrides (written by 's3cab setup'; applies as
                               the set-based commands arrive with backup)
@@ -40,6 +41,8 @@ s3cab resolves credentials in this order:
    these options.
 
 Supported options:
+  - Quickest: 's3cab aws --profile <name>' points s3cab at an AWS profile
+    (writes AWS_PROFILE to ~/.s3cab/env; add a set name to scope it to one set)
   - Existing AWS profile / AWS_PROFILE (for AWS IAM Identity Center,
     run 'aws sso login' first — s3cab picks the session up)
   - Existing shared AWS credential_process setup

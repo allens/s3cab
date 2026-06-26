@@ -8,15 +8,15 @@ import { resolveSet } from "./sets.mjs";
 /** @import { BackupSet } from "./sets.mjs" */
 
 // s3cab's layered environment-file loading. This is the single source of truth
-// for *what configuration applies* to an operation — which bucket, region,
-// endpoint, profile, or default bucket — distinct from *how credentials are
-// obtained* (the standard AWS chain in src/lib/auth.mjs). The model is
-// specified in docs/specs/auth.md.
+// for *what configuration applies* to an operation — the set's bucket, region,
+// endpoint, profile — distinct from *how credentials are obtained* (the standard
+// AWS chain in src/lib/auth.mjs). The model is specified in docs/specs/auth.md.
 //
 // s3cab reads its own env files into process.env before any AWS client is
 // built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
-// profile, a custom endpoint, or a default bucket be configured per-user or
-// per-backup-set. The layers, highest precedence first:
+// profile, or a custom endpoint be configured per-user or per-backup-set, and
+// binds each set's bucket (S3CAB_BUCKET, set env only). The layers, highest
+// precedence first:
 //
 //   set   ~/.s3cab/sets/<set>/env  per-backup-set — which bucket this set backs
 //                                  up to (S3CAB_BUCKET, written by `setup`) + any

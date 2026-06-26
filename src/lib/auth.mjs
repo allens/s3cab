@@ -39,10 +39,11 @@ s3cab tried:
      ${reason}
 
 To continue, do one of the following:
-  - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
-  - use an existing AWS profile and set AWS_PROFILE
+  - point s3cab at an AWS profile:
+      s3cab aws --profile <name>
     (for AWS IAM Identity Center, run \`aws sso login\` first —
     s3cab picks the session up automatically)
+  - or set AWS_* variables directly in ~/.s3cab/env
 
 Run 's3cab help auth' for details.`,
     { cause },
