@@ -18,7 +18,7 @@ create the bucket — it already has the SDK?".
   you can equally paste the generated commands. Active's only unique edge (auto-wiring the
   secret so it never hits the screen) applies to one sub-step for AWS-only users.
 - **It optimizes the cheap part and leaves the fiddly part.** Only bucket creation /
-  versioning / lifecycle could be actived without new costs; the IAM user + access-key + secret
+  versioning / lifecycle could be done actively without new costs; the IAM user + access-key + secret
   transfer — the genuinely fiddly steps — must stay manual regardless. Low return.
 - **It would reverse a settled posture.** Active means s3cab wields your admin credentials to
   mutate your account and (for the key path) owns secret material again — the exact "manager,

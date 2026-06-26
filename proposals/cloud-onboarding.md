@@ -192,7 +192,7 @@ over the bucket-*global* object pool ([ADR-0013](../docs/adr/0013-one-repository
 1. Read **every snapshot of every set** (from the **remote** — the authoritative copy) to mark
    the live set of hashes. Marking from one set's snapshots would delete objects another set
    still needs — the #1 way CAS GC eats live data.
-2. Sweep `objects/` for unreferenced [[orphan]]s and `DeleteObject` them (soft).
+2. Sweep `objects/` for unreferenced orphans and `DeleteObject` them (soft).
 
 Key insight: **snapshot deletion is the precondition for cleanup.** While any snapshot
 references a hash, that object is live; an object becomes an orphan only when the last snapshot
@@ -228,5 +228,5 @@ the elevated `DeleteObjectVersion` identity.
 - ADR-ify the security model + command shape at build time (left in this proposal for now to
   avoid churn while unbuilt).
 - Settle the final command name and the cleanup command's name.
-- Add glossary terms for the command + cleanup once their names settle ([[orphan]] is added now,
+- Add glossary terms for the command + cleanup once their names settle (orphan is added now,
   being name-independent).
