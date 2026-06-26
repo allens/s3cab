@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
+  authNotice,
   clientConfig,
   expiredCredentialsRelay,
   formatUploadProgress,
@@ -186,6 +187,34 @@ describe("formatUploadProgress", () => {
       total: 10,
     });
     assert.equal(fill, 10); // half of the 20-char bar
+  });
+});
+
+describe("authNotice", () => {
+  it("reports the profile alone when no custom endpoint is set", () => {
+    assert.equal(authNotice({ profile: "work" }), "Using AWS profile: work");
+  });
+
+  it("reports both profile and endpoint when both are set", () => {
+    assert.equal(
+      authNotice({ profile: "work", endpoint: "https://example.r2" }),
+      "Using AWS profile: work, endpoint: https://example.r2",
+    );
+  });
+
+  it("reports the endpoint alone when there's no profile (keys-based)", () => {
+    assert.equal(
+      authNotice({ endpoint: "https://example.r2" }),
+      "Using S3 endpoint: https://example.r2",
+    );
+  });
+
+  it("is silent (undefined) for default AWS credentials with no profile", () => {
+    assert.equal(authNotice({}), undefined);
+  });
+
+  it("treats an empty profile as none", () => {
+    assert.equal(authNotice({ profile: "" }), undefined);
   });
 });
 
