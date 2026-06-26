@@ -48,7 +48,9 @@
       "Read(/tmp/**)",
       "Bash(npm ci *)",
       "Bash(bash .claude/hooks/request-copilot-review.sh*)",
-      "Bash(node ./src/s3cab.mjs *)"
+      "Bash(node ./src/s3cab.mjs *)",
+      "Bash(gh api *)",
+      "Bash(git worktree *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
