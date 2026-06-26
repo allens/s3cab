@@ -8,15 +8,15 @@ import { resolveSet } from "./sets.mjs";
 /** @import { BackupSet } from "./sets.mjs" */
 
 // s3cab's layered environment-file loading. This is the single source of truth
-// for *what configuration applies* to an operation — which bucket, region,
-// endpoint, profile, or default bucket — distinct from *how credentials are
-// obtained* (the standard AWS chain in src/lib/auth.mjs). The model is
-// specified in docs/specs/auth.md.
+// for *what configuration applies* to an operation — the set's bucket, region,
+// endpoint, profile — distinct from *how credentials are obtained* (the standard
+// AWS chain in src/lib/auth.mjs). The model is specified in docs/specs/auth.md.
 //
 // s3cab reads its own env files into process.env before any AWS client is
 // built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
-// profile, a custom endpoint, or a default bucket be configured per-user or
-// per-backup-set. The layers, highest precedence first:
+// profile, or a custom endpoint be configured per-user or per-backup-set, and
+// binds each set's bucket (S3CAB_BUCKET, set env only). The layers, highest
+// precedence first:
 //
 //   set   ~/.s3cab/sets/<set>/env  per-backup-set — which bucket this set backs
 //                                  up to (S3CAB_BUCKET, written by `setup`) + any
@@ -45,15 +45,21 @@ import { resolveSet } from "./sets.mjs";
 // tripwire catching a lib consumer who forgot to call `loadEnv`, not load-bearing
 // for correct use (ADR-0022).
 
-const userEnvPath = () => join(s3cabDir(), "env");
+/**
+ * The per-user env file, `~/.s3cab/env` — the one place this path is spelled, so
+ * the `aws` command writes/reads exactly the file `loadEnv` applies.
+ */
+export const userEnvPath = () => join(s3cabDir(), "env");
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
- * because `loadEnv` runs on the synchronous client-construction path.
+ * because `loadEnv` runs on the synchronous client-construction path. Exported so
+ * the `aws` command's get-mode can read a single scope's file (the value set
+ * *there*, before layering).
  * @param {string} path
  * @returns {NodeJS.Dict<string>}
  */
-function parseEnvFile(path) {
+export function parseEnvFile(path) {
   try {
     return parseEnv(readFileSync(path, "utf8"));
   } catch (error) {

@@ -213,6 +213,43 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /standard AWS SDK credential chain/);
   });
 
+  it("prints the AWS profile + endpoint in use on the first S3 touch (stderr)", async () => {
+    // `hashes` touches S3 (listObjects → client()), where the notice is emitted.
+    // A bogus endpoint + AWS_MAX_ATTEMPTS=1 makes the request fail instantly
+    // (ECONNREFUSED, no retries) right *after* the notice prints — so this
+    // asserts the real wiring without needing real credentials or a live bucket.
+    // Dummy static keys are supplied so credential resolution doesn't probe the
+    // IMDS endpoint (a multi-second timeout); the notice still reports the
+    // profile, which it reads straight from AWS_PROFILE.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { stderr } = spawnSync(
+      process.execPath,
+      [CLI, "hashes", "some-bucket"],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          AWS_PROFILE: "work",
+          AWS_ENDPOINT_URL: "http://127.0.0.1:1",
+          AWS_REGION: "us-east-1",
+          AWS_MAX_ATTEMPTS: "1",
+          AWS_ACCESS_KEY_ID: "test",
+          AWS_SECRET_ACCESS_KEY: "test",
+        },
+      },
+    );
+
+    assert.match(
+      stderr,
+      /Using AWS profile: work, endpoint: http:\/\/127\.0\.0\.1:1/,
+    );
+  });
+
   it("help exclude prints the exclude-rules topic on stdout", () => {
     const { status, stdout } = run("help", "exclude");
 

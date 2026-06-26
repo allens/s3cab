@@ -31,7 +31,7 @@ This design must:
 
 2. **Treat s3cab's env files as an explicit user signal.** If s3cab's layered env files (Step 0) exist, the `AWS_*` variables they set are loaded into the environment and allowed to win in normal SDK precedence.
 
-3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK uses them directly.
+3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK uses them directly. **Reading** them is permitted: `s3cab aws --profile <name>` validates the name against the profiles defined there (read-only, advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). What's forbidden is *writing* shared AWS config; the `aws` command writes only s3cab's own env files.
 
 4. **Interactive sign-in is not s3cab's job.** SSO / IAM Identity Center users sign in with `aws sso login` (or any tool that feeds the standard chain); s3cab picks the session up via Step 1. s3cab implements no login flow and stores no tokens of its own.
 
@@ -53,6 +53,8 @@ The layers, **highest precedence first** (a file value always wins over the shel
 
 Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so the per-key precedence above is enforced by s3cab rather than by any one loader's fixed override semantics.
 
+The **`aws` command** is the discoverable door for populating the auth knob that matters: `s3cab aws --profile <name>` writes `AWS_PROFILE` to the user layer, `s3cab aws --profile <name> <set>` to a set override, `s3cab aws [<set>]` shows the current value at that scope, and `--unset` removes it. It writes only s3cab's *own* env files (never `~/.aws`) and validates the name read-only against the shared config (advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). Everything else in these files (region, endpoint, keys for S3-compatible providers) stays hand-edited.
+
 > **History:** the layering once had a fourth, per-bucket layer (`~/.s3cab/env.<bucket>`,
 > "how to authenticate to that bucket"). It was dropped in
 > [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md): auth is no longer treated as a
@@ -65,7 +67,7 @@ Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so th
 > only the path changed. The bucket-scoped plumbing commands (`hashes`/`upload`) pass no
 > scope, taking auth from the user layer; the set layer is consumed by the set-first commands.
 
-This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or a default bucket. Once loaded, those variables participate in the SDK's normal credential resolution.
+This is intentional: the presence of a value in an s3cab env file is treated as an explicit user choice to provide credentials, a profile, an endpoint, or keys. Once loaded, those variables participate in the SDK's normal credential resolution.
 
 ### Step 1: Try the standard AWS credential chain
 
@@ -98,7 +100,7 @@ This allows all of the following to work with no `s3cab` special-casing:
 `s3cab` must **not**:
 
 * implement an interactive sign-in flow or cache login sessions/tokens (see History above — tried and removed);
-* accept raw AWS access keys via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources;
+* accept raw AWS access keys (secrets) via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources. (A *profile name* is not a secret: `s3cab aws --profile <name>` takes one by flag — it is a pointer to a profile, never credential material.)
 * invent a custom AWS credential file format that competes with AWS profiles, shared config, or standard environment-variable handling;
 * write `~/.aws/config` or `~/.aws/credentials` automatically. Shared AWS config remains user-managed.
 
@@ -118,10 +120,11 @@ s3cab tried:
      <the chain's own error message>
 
 To continue, do one of the following:
-  - create ~/.s3cab/env with AWS_* variables (or AWS_PROFILE)
-  - use an existing AWS profile and set AWS_PROFILE
+  - point s3cab at an AWS profile:
+      s3cab aws --profile <name>
     (for AWS IAM Identity Center, run `aws sso login` first —
     s3cab picks the session up automatically)
+  - or set AWS_* variables directly in ~/.s3cab/env
 
 Run 's3cab help auth' for details.
 ```

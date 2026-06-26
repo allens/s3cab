@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { isENOENT, ValidationError } from "./error.mjs";
+import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 
 // The backup-set store (docs/specs/backup.md): one folder per set under
@@ -315,29 +316,4 @@ export function writeSet(name, { dirs, bucket } = {}) {
   if (bucket) updateEnvFile(setEnvPath(name), { S3CAB_BUCKET: bucket });
 
   return readSet(name);
-}
-
-/**
- * Set `KEY=value` lines in an env file, replacing each key's existing line or
- * appending a new one. Line-based on purpose: the file is the API and may
- * carry hand-written comments and overrides, which an update must preserve —
- * never a parse-and-rewrite.
- * @param {string} path
- * @param {Record<string, string>} updates
- */
-function updateEnvFile(path, updates) {
-  let text = readTextFile(path) ?? "";
-  for (const [key, value] of Object.entries(updates)) {
-    const line = `${key}=${value}`;
-    // Global: replace EVERY occurrence — parseEnv is last-wins, so updating
-    // only the first of hand-made duplicates would leave the old value live.
-    const existing = new RegExp(`^${key}=.*$`, "gm");
-    if (existing.test(text)) {
-      text = text.replaceAll(existing, line);
-    } else {
-      if (text && !text.endsWith("\n")) text += "\n";
-      text += line + "\n";
-    }
-  }
-  writeFileSync(path, text);
 }
