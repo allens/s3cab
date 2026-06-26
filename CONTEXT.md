@@ -35,6 +35,13 @@ The `objects/<hash>` half of a repository — the flat content-addressed pool ev
 points into.
 _Avoid_: blob store, CAS pool.
 
+**Orphan** (**orphaned object**):
+An object in the object store that no snapshot references any more — reachable from nothing, so
+safe to delete to reclaim space. An object becomes an orphan only once the last snapshot
+pointing at it is gone, which is why pruning old snapshots is the precondition for reclaiming
+object storage.
+_Avoid_: garbage, dangling, unreachable (the precise term is orphan).
+
 **Repository**:
 One S3 bucket holding the whole backup: the `objects/` object store plus the `snapshots/`
 tree. **One bucket is exactly one repository** — the layout is fixed by convention, not an
