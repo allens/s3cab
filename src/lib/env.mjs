@@ -45,15 +45,21 @@ import { resolveSet } from "./sets.mjs";
 // tripwire catching a lib consumer who forgot to call `loadEnv`, not load-bearing
 // for correct use (ADR-0022).
 
-const userEnvPath = () => join(s3cabDir(), "env");
+/**
+ * The per-user env file, `~/.s3cab/env` — the one place this path is spelled, so
+ * the `aws` command writes/reads exactly the file `loadEnv` applies.
+ */
+export const userEnvPath = () => join(s3cabDir(), "env");
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
- * because `loadEnv` runs on the synchronous client-construction path.
+ * because `loadEnv` runs on the synchronous client-construction path. Exported so
+ * the `aws` command's get-mode can read a single scope's file (the value set
+ * *there*, before layering).
  * @param {string} path
  * @returns {NodeJS.Dict<string>}
  */
-function parseEnvFile(path) {
+export function parseEnvFile(path) {
   try {
     return parseEnv(readFileSync(path, "utf8"));
   } catch (error) {

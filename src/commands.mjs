@@ -1,3 +1,4 @@
+import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { compare } from "./commands/compare.mjs";
 import { hashes } from "./commands/hashes.mjs";
@@ -122,6 +123,26 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   sets: {
     summary: "List your backup sets",
     exec: () => sets(),
+  },
+  aws: {
+    summary: "Set, clear, or show the AWS profile s3cab uses",
+    args: {
+      "[<set>]":
+        "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
+    },
+    options: {
+      profile: {
+        type: "string",
+        short: "p",
+        description:
+          "The AWS profile to use (from your ~/.aws config); omit to show the current setting",
+      },
+      unset: {
+        type: "boolean",
+        description: "Remove the configured AWS profile",
+      },
+    },
+    exec: (options, [set] = []) => aws(set, options),
   },
   backup: {
     summary: "Back up a set to the cloud",
