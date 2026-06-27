@@ -127,7 +127,7 @@ export function awsIamPlan({ bucket, region, profile }) {
 
     `5. Point s3cab at the new key (paste the key + secret from step 4):\n` +
       `   aws configure --profile s3cab\n` +
-      `   s3cab aws --profile s3cab`,
+      `   s3cab profile --profile s3cab`,
 
     nextStep(bucket),
 
@@ -170,7 +170,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
 
     `5. Refresh your session and point s3cab at your profile:\n` +
       `   aws sso login --profile <your-sso-profile>\n` +
-      `   s3cab aws --profile <your-sso-profile>`,
+      `   s3cab profile --profile <your-sso-profile>`,
 
     `--- Advanced: a dedicated s3cab-only identity ---\n\n` +
       `For tighter scope, give s3cab its own permission set instead of reusing\n` +
@@ -182,7 +182,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
       `  3. Add an SSO profile for it, then sign in:\n` +
       `     aws configure sso          # pick the s3cab-backup permission set\n` +
       `     aws sso login --profile s3cab\n` +
-      `     s3cab aws --profile s3cab\n\n` +
+      `     s3cab profile --profile s3cab\n\n` +
       `CLI appendix (if you manage Identity Center from the command line —\n` +
       `substitute the <placeholder> ARNs from your account; they can't be\n` +
       `pre-filled):\n` +

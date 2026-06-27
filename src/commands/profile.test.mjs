@@ -4,12 +4,12 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseEnv } from "node:util";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { aws } from "./aws.mjs";
+import { profile } from "./profile.mjs";
 import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
 import { readSet, writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the `aws` command. Purely local: each test points S3CAB_HOME at a
+// Tests for the `profile` command. Purely local: each test points S3CAB_HOME at a
 // temp dir (useTempHome) and asserts on the bytes left in the scope's env file.
 // Profile validation reads the real ~/.aws, so the set-profile tests redirect
 // AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE at fixtures to stay deterministic.
@@ -63,14 +63,14 @@ function capture(t) {
   return { out: () => out.join(""), warn: () => warn.join("\n") };
 }
 
-describe("aws --profile", () => {
+describe("profile --profile", () => {
   it("writes AWS_PROFILE to the user env for the default scope", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path);
     const io = capture(t);
 
-    await aws(undefined, { profile: "work" });
+    await profile(undefined, { profile: "work" });
 
     assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "work");
     assert.match(io.out(), /Set AWS profile 'work' for all backups/);
@@ -83,7 +83,7 @@ describe("aws --profile", () => {
     useAwsConfig(dir.path); // only 'work' and 'default' exist
     const io = capture(t);
 
-    await aws(undefined, { profile: "bert" });
+    await profile(undefined, { profile: "bert" });
 
     assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "bert"); // written anyway
     assert.match(io.warn(), /AWS profile 'bert' isn't in your AWS config/);
@@ -97,7 +97,7 @@ describe("aws --profile", () => {
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
     capture(t);
 
-    await aws("photos", { profile: "work" });
+    await profile("photos", { profile: "work" });
 
     const env = parseEnv(readFileSync(readSet("photos").envPath, "utf8"));
     assert.equal(env.AWS_PROFILE, "work");
@@ -109,7 +109,7 @@ describe("aws --profile", () => {
     useTempHome(dir.path);
 
     await assert.rejects(
-      () => aws(undefined, { profile: "  " }),
+      () => profile(undefined, { profile: "  " }),
       /Give a profile name.*--unset/s,
     );
   });
@@ -119,7 +119,7 @@ describe("aws --profile", () => {
     useTempHome(dir.path);
 
     await assert.rejects(
-      () => aws(undefined, { profile: "work", unset: true }),
+      () => profile(undefined, { profile: "work", unset: true }),
       /not both/,
     );
   });
@@ -129,22 +129,22 @@ describe("aws --profile", () => {
     useTempHome(dir.path);
 
     await assert.rejects(
-      () => aws("nope", { profile: "work" }),
+      () => profile("nope", { profile: "work" }),
       /Unknown backup set: nope/,
     );
   });
 });
 
-describe("aws --unset", () => {
+describe("profile --unset", () => {
   it("removes the AWS_PROFILE line, preserving the bucket", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path);
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
     capture(t);
-    await aws("photos", { profile: "work" });
+    await profile("photos", { profile: "work" });
 
-    await aws("photos", { unset: true });
+    await profile("photos", { unset: true });
 
     const env = parseEnv(readFileSync(readSet("photos").envPath, "utf8"));
     assert.equal(env.AWS_PROFILE, undefined); // gone
@@ -152,16 +152,16 @@ describe("aws --unset", () => {
   });
 });
 
-describe("aws (show)", () => {
+describe("profile (show)", () => {
   it("reports nothing set for the default scope", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const io = capture(t);
 
-    await aws(undefined, {});
+    await profile(undefined, {});
 
     assert.match(io.out(), /No AWS profile set for all backups/);
-    assert.match(io.out(), /s3cab aws --profile <name>/); // constructive fix
+    assert.match(io.out(), /s3cab profile --profile <name>/); // constructive fix
   });
 
   it("reports the profile and endpoint set at a scope", async (t) => {
@@ -174,7 +174,7 @@ describe("aws (show)", () => {
     );
     const io = capture(t);
 
-    await aws(undefined, {});
+    await profile(undefined, {});
 
     assert.match(io.out(), /profile: work/);
     assert.match(io.out(), /endpoint: https:\/\/example\.r2/);
@@ -186,9 +186,9 @@ describe("aws (show)", () => {
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
     const io = capture(t);
 
-    await aws("photos", {});
+    await profile("photos", {});
 
     assert.match(io.out(), /uses the user default/);
-    assert.match(io.out(), /s3cab aws --profile <name> photos/); // set-scoped fix
+    assert.match(io.out(), /s3cab profile --profile <name> photos/); // set-scoped fix
   });
 });

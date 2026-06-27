@@ -1,9 +1,9 @@
-import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { bucket } from "./commands/bucket.mjs";
 import { compare } from "./commands/compare.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
+import { profile } from "./commands/profile.mjs";
 import { prop } from "./commands/prop.mjs";
 import { restore } from "./commands/restore.mjs";
 import { sets } from "./commands/sets.mjs";
@@ -125,7 +125,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     summary: "List your backup sets",
     exec: () => sets(),
   },
-  aws: {
+  profile: {
     summary: "Set, clear, or show the AWS profile s3cab uses",
     args: {
       "[<set>]":
@@ -143,7 +143,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
         description: "Remove the configured AWS profile",
       },
     },
-    exec: (options, [set] = []) => aws(set, options),
+    exec: (options, [set] = []) => profile(set, options),
   },
   bucket: {
     summary: "Show the steps to set up an S3 bucket for backups",

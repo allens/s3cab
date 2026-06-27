@@ -40,7 +40,7 @@ s3cab tried:
 
 To continue, do one of the following:
   - point s3cab at an AWS profile:
-      s3cab aws --profile <name>
+      s3cab profile --profile <name>
     (for AWS IAM Identity Center, run \`aws sso login\` first —
     s3cab picks the session up automatically)
   - or set AWS_* variables directly in ~/.s3cab/env
