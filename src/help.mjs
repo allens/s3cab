@@ -37,8 +37,9 @@ Choosing an identity:
   --sso      reuse your AWS IAM Identity Center (SSO) sign-in, or set up a
              dedicated permission set (an advanced option is shown too)
   (auto)     a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi, …) is
-             detected from a custom endpoint (AWS_ENDPOINT_URL_S3) and you get
-             provider-neutral steps plus a ready-to-paste ~/.s3cab/env template
+             detected from a custom endpoint (AWS_ENDPOINT_URL_S3, or
+             AWS_ENDPOINT_URL) and you get provider-neutral steps plus a
+             ready-to-paste ~/.s3cab/env template
 
   s3cab bucket my-backups --region eu-west-1 --profile admin
 

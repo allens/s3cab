@@ -165,7 +165,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       region: {
         type: "string",
         description:
-          "The bucket's AWS region (default: $AWS_REGION or us-east-1)",
+          "The bucket's AWS region (default: $AWS_REGION / $AWS_DEFAULT_REGION, else us-east-1)",
       },
     },
     exec: (options, [name] = []) => bucket(name, options),
