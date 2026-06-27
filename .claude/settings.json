@@ -54,6 +54,7 @@
       "Bash(node ./src/s3cab.mjs *)",
       "Bash(gh api *)",
       "Bash(git worktree *)",
+      "Bash(bash .claude/hooks/block-redundant-git-c.sh*)",
       "Bash(tail *)",
       "Bash(head *)",
       "Bash(grep *)",
@@ -79,6 +80,18 @@
     "additionalDirectories": ["\\tmp"]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-redundant-git-c.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash",
