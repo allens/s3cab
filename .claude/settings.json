@@ -54,7 +54,16 @@
       "Bash(node ./src/s3cab.mjs *)",
       "Bash(gh api *)",
       "Bash(git worktree *)",
-      "Bash(bash .claude/hooks/block-redundant-git-c.sh*)"
+      "Bash(bash .claude/hooks/block-redundant-git-c.sh*)",
+      "Bash(tail *)",
+      "Bash(head *)",
+      "Bash(grep *)",
+      "Bash(sed *)",
+      "Bash(cut *)",
+      "Bash(sort *)",
+      "Bash(wc *)",
+      "Bash(cat *)",
+      "Bash(ls *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",

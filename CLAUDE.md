@@ -96,11 +96,14 @@ rather than assuming it is fixed forever.
    belt-and-suspenders fallback for the rare main-tree edit, no longer the primary guard.)
 3. **[.claude/settings.json](.claude/settings.json) is a shared, committed project file**
    (the team-wide permission allow/deny lists), not personal — `settings.local.json` is the
-   gitignored personal override. This does **not** authorise an unprompted commit (rule 1
-   still holds). But _when a commit/PR go-ahead is given_ and the working tree also has
-   changes to `.claude/settings.json`, fold them in rather than setting them aside as
-   unrelated — they need no separate sign-off. Validate via the `update-config` skill first,
-   and keep it as its own `chore:` commit so it reads cleanly apart from the feature change.
+   gitignored personal override. **Committing `.claude/settings.json` changes is
+   pre-authorised — it needs no per-request go-ahead, and may go straight to `main`** (the
+   user granted this standing 2026-06-27, a deliberate exception to rule 1 *for this file
+   only*: permission/config tweaks are low-risk housekeeping they were tired of approving).
+   Every other commit still follows rule 1. Validate via the `update-config` skill first, and
+   keep settings.json as its own `chore:` commit so it reads cleanly; when a feature
+   commit/PR go-ahead is given and the tree also has settings.json changes, fold them into
+   that PR rather than setting them aside as unrelated.
 4. **After non-trivial work, update the docs** so what you learned is shared at the project
    level (this section exists because that wasn't being done for these very rules). Put it in
    the right home (see the map above): a design decision → an ADR; vocabulary → CONTEXT.md; a

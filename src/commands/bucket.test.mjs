@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { bucket } from "./bucket.mjs";
+
+// Tests for the `bucket` command: the *routing* (which recipe it prints) and
+// argument validation. The recipe text itself is asserted in
+// src/lib/onboarding.test.mjs; here we only check the command picks the right one
+// from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment, and prints it.
+
+const ENV_VARS = [
+  "AWS_ENDPOINT_URL_S3",
+  "AWS_ENDPOINT_URL",
+  "AWS_REGION",
+  "AWS_DEFAULT_REGION",
+];
+
+/** @type {Record<string, string | undefined>} */
+let savedEnv;
+beforeEach(() => {
+  // Start from a known no-endpoint, no-region state; restore the host's after.
+  savedEnv = {};
+  for (const v of ENV_VARS) {
+    savedEnv[v] = process.env[v];
+    delete process.env[v];
+  }
+});
+afterEach(() => {
+  for (const v of ENV_VARS) {
+    if (savedEnv[v] === undefined) delete process.env[v];
+    else process.env[v] = savedEnv[v];
+  }
+});
+
+/**
+ * Run `bucket` capturing what it writes to stdout (t.mock auto-restores).
+ * @param {import("node:test").TestContext} t
+ * @param {string | undefined} name
+ * @param {object} [options]
+ */
+function run(t, name, options) {
+  /** @type {string[]} */
+  const out = [];
+  t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
+    out.push(String(chunk));
+    return true;
+  });
+  bucket(name, options);
+  return out.join("");
+}
+
+describe("bucket routing", () => {
+  it("prints the IAM-user recipe by default", (t) => {
+    const out = run(t, "my-backups");
+    assert.match(out, /aws iam create-user/);
+  });
+
+  it("prints the SSO recipe with --sso", (t) => {
+    const out = run(t, "my-backups", { sso: true });
+    assert.match(out, /aws sso login/);
+    assert.doesNotMatch(out, /aws iam create-user/);
+  });
+
+  it("auto-selects the non-AWS recipe when an endpoint is set", (t) => {
+    process.env.AWS_ENDPOINT_URL_S3 = "https://acct.r2.cloudflarestorage.com";
+    const out = run(t, "my-backups");
+    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/acct\.r2/);
+    assert.doesNotMatch(out, /aws iam/);
+  });
+
+  it("lets the endpoint win over --sso (there is no SSO off AWS)", (t) => {
+    process.env.AWS_ENDPOINT_URL = "https://s3.example.test";
+    const out = run(t, "my-backups", { sso: true });
+    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/s3\.example\.test/);
+    assert.doesNotMatch(out, /aws sso login/);
+  });
+});
+
+describe("bucket region resolution", () => {
+  it("uses --region for the create-bucket command", (t) => {
+    const out = run(t, "my-backups", { region: "eu-west-1" });
+    assert.match(out, /LocationConstraint=eu-west-1/);
+  });
+
+  it("falls back to $AWS_REGION when --region is absent", (t) => {
+    process.env.AWS_REGION = "ap-southeast-2";
+    const out = run(t, "my-backups");
+    assert.match(out, /LocationConstraint=ap-southeast-2/);
+  });
+
+  it("defaults to us-east-1 (no LocationConstraint) when nothing is set", (t) => {
+    const out = run(t, "my-backups");
+    assert.match(out, /--region us-east-1/);
+    assert.doesNotMatch(out, /LocationConstraint/);
+  });
+});
+
+describe("bucket validation", () => {
+  it("rejects a missing bucket name as a usage error", () => {
+    assert.throws(() => bucket(undefined), { code: "ERR_PARSE_ARGS" });
+  });
+
+  it("rejects a malformed bucket name (a path, not a bare name)", () => {
+    assert.throws(() => bucket("my/prefix"), { name: "ValidationError" });
+  });
+});

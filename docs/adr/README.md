@@ -43,7 +43,9 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
 - [0030](0030-error-message-guidelines.md) — Error messages follow the Nielsen Norman Group guidelines
 - [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation
-- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active *(proposed)*
+- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active
+- [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
+- [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command
 
 ### Build, release & tooling
 
