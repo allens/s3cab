@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   authNotice,
+  bucketPolicy,
   clientConfig,
   expiredCredentialsRelay,
   formatUploadProgress,
@@ -150,6 +151,39 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
       // Metadata keys must be bare; pre-prefixing double-prefixes on the wire.
       !headers.some((h) => h.startsWith("x-amz-meta-x-amz-meta-")),
       `metadata header is double-prefixed: ${headers.join(", ")}`,
+    );
+  });
+});
+
+describe("bucketPolicy", () => {
+  it("scopes object actions to …/* and ListBucket to the bare bucket ARN", () => {
+    const { Statement } = bucketPolicy("my-backups");
+    const list = Statement.find((s) => s.Action.includes("s3:ListBucket"));
+    const objects = Statement.find((s) => s.Action.includes("s3:GetObject"));
+    assert.deepEqual(list?.Resource, ["arn:aws:s3:::my-backups"]);
+    assert.deepEqual(objects?.Resource, ["arn:aws:s3:::my-backups/*"]);
+  });
+
+  it("grants explicit soft-delete object verbs — never the s3:*Object wildcard", () => {
+    const actions = bucketPolicy("my-backups").Statement.flatMap(
+      (s) => s.Action,
+    );
+    assert.deepEqual([...actions].sort(), [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:ListBucket",
+      "s3:PutObject",
+    ]);
+    // The security seam: a wildcard would silently re-grant DeleteObjectVersion,
+    // which the everyday key must never hold (it must never permanently destroy
+    // history — docs/adr/0033). Guard both the wildcard and the version verb.
+    assert.ok(
+      !actions.some((a) => a.includes("*")),
+      `unexpected wildcard: ${actions}`,
+    );
+    assert.ok(
+      !actions.includes("s3:DeleteObjectVersion"),
+      "everyday policy must not grant DeleteObjectVersion",
     );
   });
 });

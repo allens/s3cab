@@ -98,6 +98,11 @@ can open — while fork PRs get no credentials and skip) is in
 
 ### 1. Least-privilege IAM policy
 
+This is the **same** least-privilege policy s3cab's onboarding generates — `bucketPolicy()`
+in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab bucket` emits and the everyday backup
+identity is scoped to. With explicit verbs the backup and test policies are identical, so one
+definition serves both; running `s3cab bucket your-test-bucket` prints exactly this JSON.
+
 Save as `policy.json` (substitute your bucket). The two-statement split matters: object
 actions target `…/*`, the bucket-level `ListBucket` targets the bare bucket ARN.
 
@@ -106,16 +111,16 @@ actions target `…/*`, the bucket-level `ListBucket` targets the bare bucket AR
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "TestBucketObjects",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::your-test-bucket/*"
-    },
-    {
-      "Sid": "TestBucketList",
+      "Sid": "ListBucket",
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::your-test-bucket"
+      "Resource": ["arn:aws:s3:::your-test-bucket"]
+    },
+    {
+      "Sid": "ObjectAccess",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": ["arn:aws:s3:::your-test-bucket/*"]
     }
   ]
 }

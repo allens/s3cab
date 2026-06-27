@@ -459,25 +459,39 @@ export async function getData(uri) {
 }
 
 /**
- * An IAM policy granting list + per-object access to a bucket. **AWS-only** —
- * the `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS. Unused today
- * (only `setup`, a stub, would call it); provider-aware bucket creation/policy is
- * deferred to when `setup` is actually built (see docs/specs/s3-provider-compatibility.md).
+ * The least-privilege IAM policy for an s3cab everyday identity: bucket-level
+ * `ListBucket` plus per-object `Get`/`Put`/`Delete`. **AWS-only** — the
+ * `arn:aws:s3:::` ARNs and IAM JSON are meaningless off AWS.
+ *
+ * The single source of truth for this policy. The `bucket` onboarding command
+ * emits it (it is what a user attaches to the identity s3cab backs up as), and
+ * docs/integration-testing.md §1 references it as the test identity's policy too
+ * — with explicit verbs the everyday-backup and test policies are *identical*, so
+ * one definition genuinely serves both. The two statements split because the
+ * object actions target `…/*` while bucket-level `ListBucket` targets the bare
+ * bucket ARN.
+ *
+ * The verbs are explicit (`Get`/`Put`/`Delete`Object), not a `s3:*Object`
+ * wildcard: this is the *soft-delete* identity — `DeleteObject` writes a delete
+ * marker on a versioned bucket, but the key deliberately lacks
+ * `DeleteObjectVersion`, so a leaked everyday key can never permanently destroy
+ * backup history (the security model — see docs/adr/0033). Widening to `*Object`
+ * would silently re-grant that.
  * @param {string} bucketName
  */
 export const bucketPolicy = (bucketName) => ({
   Version: "2012-10-17",
   Statement: [
     {
-      Sid: "ListObjectsInBucket",
+      Sid: "ListBucket",
       Effect: "Allow",
       Action: ["s3:ListBucket"],
       Resource: [`arn:aws:s3:::${bucketName}`],
     },
     {
-      Sid: "AllObjectActions",
+      Sid: "ObjectAccess",
       Effect: "Allow",
-      Action: "s3:*Object",
+      Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       Resource: [`arn:aws:s3:::${bucketName}/*`],
     },
   ],
