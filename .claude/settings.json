@@ -53,7 +53,16 @@
       "Bash(bash .claude/hooks/request-copilot-review.sh*)",
       "Bash(node ./src/s3cab.mjs *)",
       "Bash(gh api *)",
-      "Bash(git worktree *)"
+      "Bash(git worktree *)",
+      "Bash(tail *)",
+      "Bash(head *)",
+      "Bash(grep *)",
+      "Bash(sed *)",
+      "Bash(cut *)",
+      "Bash(sort *)",
+      "Bash(wc *)",
+      "Bash(cat *)",
+      "Bash(ls *)"
     ],
     "deny": [
       "Bash(git checkout -- *)",
