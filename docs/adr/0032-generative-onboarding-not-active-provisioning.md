@@ -1,9 +1,9 @@
 # Cloud onboarding is generative, not active
 
-Status: **proposed** (the onboarding command is designed but unbuilt — see
-[proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md)).
+Status: **accepted** (the `bucket` command is built; its *shape* is
+[0034](0034-bucket-command-shape.md) and its *security model* [0033](0033-bucket-onboarding-security-model.md)).
 
-The planned cloud-onboarding command (provisional name `bucket`) helps a user stand up an S3
+The cloud-onboarding command (`bucket`) helps a user stand up an S3
 bucket + a least-privilege identity for s3cab. It does this **generatively** — it *prints* the
 exact `aws` CLI commands and policy/lifecycle JSON for the user to run — rather than
 **actively** calling AWS APIs (CreateBucket, CreateUser, PutUserPolicy, CreateAccessKey)
@@ -48,5 +48,7 @@ create the bucket — it already has the SDK?".
 
 - The command is purely local/offline — no S3, no credentials needed to *run* it.
 - One source of truth for the bucket IAM policy: the command emits `bucketPolicy()`, which the
-  integration-testing docs also reference (see the proposal's dogfood decision).
-- When the command is built, this ADR moves from *proposed* to *accepted*.
+  integration-testing docs also reference (the dogfood decision, now built — see
+  [0033](0033-bucket-onboarding-security-model.md)).
+- An optional future `--run` mode (actively performing the non-secret bucket steps) stays open
+  but out of scope — recorded in [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
