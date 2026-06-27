@@ -299,10 +299,16 @@ rather than assuming it is fixed forever.
     path-form mismatch (`/d/` vs `D:/` vs `d:\`) stopped saved rules from re-matching. **The fix
     (applied 2026-06-27):** the documented "run all Bash without prompts except a few blocked"
     pattern — a **bare `"Bash"` entry in `permissions.allow`** (matches every command, including
-    each subcommand of a compound `a && b`) plus **`"defaultMode": "acceptEdits"`**. The `deny`
-    list and the `block-redundant-git-c.sh` hook still guard everything (deny-first precedence runs
-    before allow), so this is safe and is **not** `bypassPermissions` (which the docs reserve for
-    containers/VMs because it also strips `.git`/`.claude` write guards). Both live in the
+    each subcommand of a compound `a && b`) plus **`"defaultMode": "acceptEdits"`**. **Both keys
+    nest _under_ `permissions`, not at the file's top level** — the bundled
+    `claude-code-settings.json` schema defines `defaultMode` inside `permissions` (a Copilot review
+    "fix" claiming it must be top-level is wrong; don't apply it). The `deny` list and the
+    PreToolUse hooks still guard everything (deny-first precedence runs before allow), so this is
+    safe and is **not** `bypassPermissions` (which the docs reserve for containers/VMs because it
+    also strips `.git`/`.claude` write guards): `block-redundant-git-c.sh` blocks the `git -C <cwd>`
+    deny-bypass (convention #13), and `block-destructive-rm.sh` blocks recursive/force `rm` in any
+    flag ordering — the static `Bash(rm -rf *)` deny only catches one spelling, so under a bare
+    `Bash` allow the hook is what closes `rm -r` / `rm -fr` / `rm -f` / `rm --recursive`. Both live in the
     committed [.claude/settings.json](.claude/settings.json) so **every machine inherits the fix** —
     that is the whole point; a fix kept only in gitignored `settings.local.json` or local memory is
     invisible on the next machine and the prompts return. The now-redundant specific `Bash(...)`
