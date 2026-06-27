@@ -1,5 +1,5 @@
-import { notImplemented, requireArg } from "../lib/error.mjs";
-import { awsIamPlan } from "../lib/onboarding.mjs";
+import { requireArg } from "../lib/error.mjs";
+import { awsIamPlan, awsSsoPlan, nonAwsPlan } from "../lib/onboarding.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
 // `s3cab bucket` — the cloud-onboarding command. It **prints** the exact `aws`
@@ -44,15 +44,17 @@ export function bucket(name, options = {}) {
   const profile = options.profile?.trim() || undefined;
   // A custom endpoint is the single "not AWS" signal (the same SDK-native vars
   // s3.mjs's customEndpoint() reads): an S3-compatible provider has no IAM, so it
-  // takes the provider-neutral path rather than the IAM/SSO recipes.
+  // takes the provider-neutral path rather than the IAM/SSO recipes. It wins over
+  // --sso (an AWS-only concept), since there is no Identity Center off AWS.
   const endpoint =
     process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
 
-  // The non-AWS and SSO recipes arrive in the next slice; the default IAM path
-  // is the common case and works now.
-  if (endpoint) return notImplemented("bucket for a non-AWS endpoint");
-  if (options.sso) return notImplemented("bucket --sso");
+  const plan = endpoint
+    ? nonAwsPlan({ bucket: name, endpoint })
+    : options.sso
+      ? awsSsoPlan({ bucket: name, region, profile })
+      : awsIamPlan({ bucket: name, region, profile });
 
-  process.stdout.write(awsIamPlan({ bucket: name, region, profile }) + "\n");
+  process.stdout.write(plan + "\n");
   return undefined;
 }
