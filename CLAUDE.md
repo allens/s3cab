@@ -288,6 +288,30 @@ rather than assuming it is fixed forever.
       for when you're driving by hand.
     When the review lands, bring its comments back to the user to discuss (convention #10) —
     don't auto-action them.
+16. **The permission-prompt fix is settled — do NOT re-litigate it.** The user spent ~20
+    sessions fighting constant Bash permission prompts; every prior attempt failed because it
+    worked the wrong layer. **Root cause:** "edit automatically" (`acceptEdits` mode)
+    auto-approves *only file edits + `mkdir`/`touch`/`mv`/`cp`* — **never** `git`/`npm`/`gh`/`node`
+    (confirmed at [code.claude.com/docs/en/permissions](https://code.claude.com/docs/en/permissions)).
+    So every shell command was matched against the allow-list, which can never converge: the "Yes,
+    don't ask again" button and the `fewer-permissions` skill kept appending dead one-shot rules
+    (absolute paths, temp filenames, `git -C <path>` strings — measured 44–61% junk), and Windows
+    path-form mismatch (`/d/` vs `D:/` vs `d:\`) stopped saved rules from re-matching. **The fix
+    (applied 2026-06-27):** the documented "run all Bash without prompts except a few blocked"
+    pattern — a **bare `"Bash"` entry in `permissions.allow`** (matches every command, including
+    each subcommand of a compound `a && b`) plus **`"defaultMode": "acceptEdits"`**. The `deny`
+    list and the `block-redundant-git-c.sh` hook still guard everything (deny-first precedence runs
+    before allow), so this is safe and is **not** `bypassPermissions` (which the docs reserve for
+    containers/VMs because it also strips `.git`/`.claude` write guards). Both live in the
+    committed [.claude/settings.json](.claude/settings.json) so **every machine inherits the fix** —
+    that is the whole point; a fix kept only in gitignored `settings.local.json` or local memory is
+    invisible on the next machine and the prompts return. The now-redundant specific `Bash(...)`
+    allow entries below the bare `Bash` are harmless (left in place so the file still documents the
+    common commands if anyone narrows the mode later). **So: never "solve" recurring prompts by
+    adding more specific allow entries or re-running `fewer-permissions`** — that is the failed
+    approach. If prompts persist after this is in place, it is because `defaultMode` applies on
+    *next session start* (restart Claude Code once), or the command genuinely matched a `deny` rule
+    (a real safety block — surface it, don't widen the allow-list).
 
 ### Coding conventions
 
