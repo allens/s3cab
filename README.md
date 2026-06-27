@@ -54,6 +54,7 @@ them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
+| `s3cab bucket <bucket>`       | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/bucket.md)). |
 | `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination).   |
 | `s3cab sets`                  | List your backup sets, their folders, and where they back up to.              |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |

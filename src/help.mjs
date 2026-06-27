@@ -17,6 +17,36 @@
 // URLs before release.
 /** @type {Record<string, string>} */
 export const helpTopics = {
+  bucket: `Setting up a cloud bucket
+
+'s3cab bucket <bucket>' prints the exact steps to stand up an S3 bucket as
+a backup destination, plus a locked-down identity for s3cab to use. It only
+PRINTS commands — it never touches your account and needs no credentials to
+run, so you can read the whole plan first.
+
+It walks you through three things:
+  1. the bucket, with versioning ON (your safety net) and lifecycle rules that
+     reclaim space from deleted backups after 90 days — never a live backup;
+  2. a least-privilege policy: list + read/write/soft-delete on this bucket
+     only. The everyday identity can add to and tweak your backup but can NEVER
+     permanently destroy its history — versioning is the backstop;
+  3. how to point s3cab at the new identity ('s3cab aws --profile <name>').
+
+Choosing an identity:
+  (default)  a dedicated AWS IAM user — simplest if you don't use SSO
+  --sso      reuse your AWS IAM Identity Center (SSO) sign-in, or set up a
+             dedicated permission set (an advanced option is shown too)
+  (auto)     a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi, …) is
+             detected from a custom endpoint (AWS_ENDPOINT_URL_S3) and you get
+             provider-neutral steps plus a ready-to-paste ~/.s3cab/env template
+
+  s3cab bucket my-backups --region eu-west-1 --profile admin
+
+Then create a backup set in it:
+  s3cab setup <name> <folder>... --bucket my-backups
+
+Full guide: https://github.com/allens/s3cab/blob/main/guide/bucket.md`,
+
   auth: `Authentication
 
 s3cab resolves credentials in this order:
