@@ -169,7 +169,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
       `   permission set you sign in with → Inline policy, paste policy.json.`,
 
     `5. Refresh your session and point s3cab at your profile:\n` +
-      `   aws sso login\n` +
+      `   aws sso login --profile <your-sso-profile>\n` +
       `   s3cab aws --profile <your-sso-profile>`,
 
     `--- Advanced: a dedicated s3cab-only identity ---\n\n` +

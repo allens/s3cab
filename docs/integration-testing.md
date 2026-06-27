@@ -101,7 +101,8 @@ can open — while fork PRs get no credentials and skip) is in
 This is the **same** least-privilege policy s3cab's onboarding generates — `bucketPolicy()`
 in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab bucket` emits and the everyday backup
 identity is scoped to. With explicit verbs the backup and test policies are identical, so one
-definition serves both; running `s3cab bucket your-test-bucket` prints exactly this JSON.
+definition serves both; on AWS (with no custom endpoint set), `s3cab bucket your-test-bucket`
+prints exactly this JSON.
 
 Save as `policy.json` (substitute your bucket). The two-statement split matters: object
 actions target `…/*`, the bucket-level `ListBucket` targets the bare bucket ARN.
