@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { bucket } from "./bucket.mjs";
+import { aws } from "./aws.mjs";
 
-// Tests for the `bucket` command: the *routing* (which recipe it prints) and
+// Tests for the `aws` command: the *routing* (which recipe it prints) and
 // argument validation. The recipe text itself is asserted in
 // src/lib/onboarding.test.mjs; here we only check the command picks the right one
 // from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment, and prints it.
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 /**
- * Run `bucket` capturing what it writes to stdout (t.mock auto-restores).
+ * Run `aws` capturing what it writes to stdout (t.mock auto-restores).
  * @param {import("node:test").TestContext} t
  * @param {string | undefined} name
  * @param {object} [options]
@@ -44,11 +44,11 @@ function run(t, name, options) {
     out.push(String(chunk));
     return true;
   });
-  bucket(name, options);
+  aws(name, options);
   return out.join("");
 }
 
-describe("bucket routing", () => {
+describe("aws routing", () => {
   it("prints the IAM-user recipe by default", (t) => {
     const out = run(t, "my-backups");
     assert.match(out, /aws iam create-user/);
@@ -75,7 +75,7 @@ describe("bucket routing", () => {
   });
 });
 
-describe("bucket region resolution", () => {
+describe("aws region resolution", () => {
   it("uses --region for the create-bucket command", (t) => {
     const out = run(t, "my-backups", { region: "eu-west-1" });
     assert.match(out, /LocationConstraint=eu-west-1/);
@@ -94,12 +94,12 @@ describe("bucket region resolution", () => {
   });
 });
 
-describe("bucket validation", () => {
+describe("aws validation", () => {
   it("rejects a missing bucket name as a usage error", () => {
-    assert.throws(() => bucket(undefined), { code: "ERR_PARSE_ARGS" });
+    assert.throws(() => aws(undefined), { code: "ERR_PARSE_ARGS" });
   });
 
   it("rejects a malformed bucket name (a path, not a bare name)", () => {
-    assert.throws(() => bucket("my/prefix"), { name: "ValidationError" });
+    assert.throws(() => aws("my/prefix"), { name: "ValidationError" });
   });
 });

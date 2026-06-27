@@ -2,14 +2,14 @@ import { requireArg } from "../lib/error.mjs";
 import { awsIamPlan, awsSsoPlan, nonAwsPlan } from "../lib/onboarding.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
-// `s3cab bucket` — the cloud-onboarding command. It **prints** the exact `aws`
+// `s3cab aws` — the cloud-onboarding command. It **prints** the exact `aws`
 // CLI commands + policy/lifecycle JSON to stand up an S3 bucket as a backup
 // destination and a least-privilege identity for s3cab; it makes no AWS calls
 // and needs no credentials to run (generative, not active — ADR-0032). Provisioning
 // is a rare, one-time, per-bucket bootstrap, so it is a separate top-level command,
-// not part of `setup` (a per-set operation) or `aws` (the "point at an existing
+// not part of `sets` (a per-set operation) or `profile` (the "point at an existing
 // profile" door, ADR-0031) — though it composes with both: its final step is
-// `s3cab aws --profile <name>`, then `s3cab setup`.
+// `s3cab profile --profile <name>`, then `s3cab sets`.
 //
 // The identity step is the only fork: the default emits the IAM-user recipe;
 // `--sso` emits the AWS IAM Identity Center recipe; a custom endpoint
@@ -29,7 +29,7 @@ import { validateBucketName } from "../lib/sets.mjs";
  * @param {boolean} [options.sso] - Emit the AWS IAM Identity Center (SSO) recipe instead of the IAM-user one
  * @returns {undefined}
  */
-export function bucket(name, options = {}) {
+export function aws(name, options = {}) {
   requireArg(name, "<bucket>");
   validateBucketName(name);
 

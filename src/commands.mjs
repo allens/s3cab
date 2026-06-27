@@ -1,5 +1,5 @@
+import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
-import { bucket } from "./commands/bucket.mjs";
 import { compare } from "./commands/compare.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
@@ -145,7 +145,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     },
     exec: (options, [set] = []) => profile(set, options),
   },
-  bucket: {
+  aws: {
     summary: "Show the steps to set up an S3 bucket for backups",
     args: {
       "<bucket>": "The S3 bucket name to set up as a backup destination",
@@ -168,7 +168,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "The bucket's AWS region (default: $AWS_REGION / $AWS_DEFAULT_REGION, else us-east-1)",
       },
     },
-    exec: (options, [name] = []) => bucket(name, options),
+    exec: (options, [name] = []) => aws(name, options),
   },
   backup: {
     summary: "Back up a set to the cloud",

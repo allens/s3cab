@@ -1,11 +1,11 @@
 import { bucketPolicy } from "./s3.mjs";
 
-// Generates the cloud-onboarding plan the `bucket` command prints: the exact
+// Generates the cloud-onboarding plan the `aws` command prints: the exact
 // `aws` CLI commands plus policy/lifecycle JSON a user runs to stand up an S3
 // backup destination and a least-privilege identity for s3cab. Pure text — no
 // AWS calls, no I/O — which is what makes the command generative (ADR-0032) and
 // unit-testable without a client (src/lib/onboarding.test.mjs). The command
-// (src/commands/bucket.mjs) resolves region/profile/endpoint and prints what
+// (src/commands/aws.mjs) resolves region/profile/endpoint and prints what
 // these return; the JSON is `bucketPolicy()` (the same source the test docs
 // reference) and `backupLifecycle()` below.
 

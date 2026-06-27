@@ -17,9 +17,9 @@
 // URLs before release.
 /** @type {Record<string, string>} */
 export const helpTopics = {
-  bucket: `Setting up a cloud bucket
+  aws: `Setting up a cloud bucket
 
-'s3cab bucket <bucket>' prints the exact steps to stand up an S3 bucket as
+'s3cab aws <bucket>' prints the exact steps to stand up an S3 bucket as
 a backup destination, plus a locked-down identity for s3cab to use. It only
 PRINTS commands — it never touches your account and needs no credentials to
 run, so you can read the whole plan first.
@@ -41,12 +41,12 @@ Choosing an identity:
              AWS_ENDPOINT_URL) and you get provider-neutral steps plus a
              ready-to-paste ~/.s3cab/env template
 
-  s3cab bucket my-backups --region eu-west-1 --profile admin
+  s3cab aws my-backups --region eu-west-1 --profile admin
 
 Then create a backup set in it:
   s3cab setup <name> <folder>... --bucket my-backups
 
-Full guide: https://github.com/allens/s3cab/blob/main/guide/bucket.md`,
+Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
 
   auth: `Authentication
 
