@@ -63,7 +63,7 @@ const oneExportPerCommand = {
 
 export default defineConfig([
   // Not linted: generated build artifacts (esbuild bundle, coverage, dist) and
-  // nested Claude Code worktrees (.claude/worktrees/ — see CLAUDE.md #13).
+  // nested Claude Code worktrees (.claude/worktrees/ — see CLAUDE.md's worktree convention).
   { ignores: ["build/", "coverage/", "dist/", ".claude/worktrees/"] },
   {
     files: ["**/*.{js,mjs,cjs}"],

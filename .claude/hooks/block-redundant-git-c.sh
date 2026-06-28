@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Block `git -C <path>` when <path> is the already-checked-out repo (cwd or its
 # toplevel). That form bypasses path-free allow/deny permission rules and forces
-# new literal one-off allow entries every time (CLAUDE.md convention #13: "Run
+# new literal one-off allow entries every time (CLAUDE.md's worktree convention: "Run
 # bare commands — don't prepend cd ... git -C <the-cwd-path> is the same trap").
 #
 # Fired by the PreToolUse hook on every Bash call in .claude/settings.json (no
@@ -40,7 +40,7 @@ while IFS= read -r path; do
   np=$(norm "$path")
   if [ "$np" = "$ncwd" ] || { [ -n "$nroot" ] && [ "$np" = "$nroot" ]; }; then
     cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"git -C on the already-checked-out repo is redundant and bypasses path-free allow/deny rules (CLAUDE.md convention #13). Re-run as bare 'git ...' instead — cwd is already this repo."}}
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"git -C on the already-checked-out repo is redundant and bypasses path-free allow/deny rules (CLAUDE.md's worktree convention). Re-run as bare 'git ...' instead — cwd is already this repo."}}
 EOF
     exit 0
   fi

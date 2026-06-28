@@ -3,7 +3,7 @@
 #
 # Fired automatically by the PostToolUse hook on `gh pr create` (.claude/settings.json),
 # so requesting a Copilot review is part of the single "commit, create pr" step
-# rather than a manual follow-up. CLAUDE.md convention #15 carries the *rule* (when
+# rather than a manual follow-up. CLAUDE.md's Copilot-review convention carries the *rule* (when
 # and why this fires); this header is the source of truth for the *mechanics*. Safe
 # to run by hand too: `bash .claude/hooks/request-copilot-review.sh`.
 #

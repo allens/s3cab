@@ -54,7 +54,7 @@ Thumbs.db
 
 # Claude Code worktrees. The harness (EnterWorktree / --worktree) creates
 # per-session worktrees here; ignored so the main checkout's git, search,
-# watchers, and lint don't wander into a nested working tree (see CLAUDE.md #13).
+# watchers, and lint don't wander into a nested working tree (see CLAUDE.md's worktree convention).
 .claude/worktrees/
 
 # Transient snapshot temp/lock file and the --debug decompressed copy. Snapshots
