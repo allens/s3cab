@@ -5,7 +5,8 @@
 > separateness, generative posture, and flags below all stand unchanged — only the
 > "## The name `bucket`" section's naming argument is what 0035 replaces. The `bucket`
 > form throughout this ADR (and the then-current `s3cab aws`/`s3cab setup` in its compose
-> example, now `s3cab profile`/`s3cab sets`) is the *historical* naming.
+> example, now `s3cab profile`/`s3cab setup` — 0035 renamed `setup`→`sets`, then
+> [0036](0036-setup-mutates-list-shows-drop-sets.md) renamed it back) is the *historical* naming.
 
 `s3cab bucket <bucket>` prints the steps to stand up an S3 bucket as a backup destination plus
 a least-privilege identity for s3cab. This ADR records its *shape* — name, where it sits among

@@ -6,7 +6,7 @@ import { list } from "./commands/list.mjs";
 import { profile } from "./commands/profile.mjs";
 import { prop } from "./commands/prop.mjs";
 import { restore } from "./commands/restore.mjs";
-import { sets } from "./commands/sets.mjs";
+import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
 import { sep } from "node:path";
@@ -48,21 +48,21 @@ export const commands = {
     exec: (options, [set] = []) => snapshot(set, options),
   },
   list: {
-    summary: "List a backup set's snapshots",
+    summary: "List backup sets and their snapshots",
     args: {
       "[<set>]":
-        "The backup set whose snapshots to list (default: the only set)",
+        "A single set to show in detail (with its folders); omit to list all sets",
     },
     options: {
       latest: {
         type: "boolean",
         short: "l",
-        description: "Show only the most recent snapshot",
+        description: "Show only each set's most recent snapshot",
       },
       remote: {
         type: "boolean",
         short: "r",
-        description: "List backups in the cloud instead of local snapshots",
+        description: "List one set's cloud backups instead of local snapshots",
       },
     },
     exec: (options, [set] = []) => list(set, options),
@@ -96,32 +96,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     exec: (_options, [set] = []) => status(set),
   },
 
-  // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
-  sets: {
-    group: "Backup sets",
-    summary: "List, create, update, or inherit backup sets",
-    args: {
-      "[<set>]":
-        "The set to create, update, or inherit (omit to list your sets)",
-      "[<folder>...]":
-        "The folders that make up the set (required when creating)",
-    },
-    options: {
-      bucket: {
-        type: "string",
-        short: "b",
-        description:
-          "The S3 bucket to back this set up to (required when creating)",
-      },
-      inherit: {
-        type: "boolean",
-        description:
-          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
-      },
-    },
-    exec: (options, [name, ...folders] = []) => sets(name, folders, options),
-  },
+  // ── Setup: provision the cloud, point at credentials, define a set ─────
+  // The onboarding order (ADR-0036): aws → profile → setup → backup.
   aws: {
+    group: "Setup",
     summary: "Show the steps to set up an S3 bucket for backups",
     args: {
       "<bucket>": "The S3 bucket name to set up as a backup destination",
@@ -166,7 +144,32 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     },
     exec: (options, [set] = []) => profile(set, options),
   },
+  setup: {
+    summary: "Create, update, or inherit a backup set",
+    args: {
+      "<set>": "The backup set to create, update, or inherit",
+      "[<folder>...]":
+        "The folders that make up the set (required when creating)",
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description:
+          "The S3 bucket to back this set up to (required when creating)",
+      },
+      inherit: {
+        type: "boolean",
+        description:
+          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
+      },
+    },
+    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+  },
+
+  // ── Backup & restore (docs/specs/backup.md) — verify still to come ─────
   backup: {
+    group: "Backup & restore",
     summary: "Back up a set to the cloud",
     args: { "[<set>]": "The backup set to back up (default: the only set)" },
     options: {

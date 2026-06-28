@@ -17,7 +17,7 @@ import { remoteSetPrefix } from "../lib/set-marker.mjs";
 import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { backup } from "./backup.mjs";
 import { restore } from "./restore.mjs";
-import { sets } from "./sets.mjs";
+import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // The pure restore-planning functions (selectEntries, reroot, planRestore) are
@@ -75,8 +75,8 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
     writeFileSync(beach, `beach ${setName}`);
     writeFileSync(ski, `ski ${setName}`);
 
-    const set = await sets(setName, [srcDir], { bucket });
-    assert.ok(set); // creating a set returns it (never the listing's undefined)
+    const set = await setup(setName, [srcDir], { bucket });
+    assert.ok(set); // creating a set returns it
     const { snapshot } = await backup(setName);
 
     // The snapshot is the source of truth for what restore should reproduce
@@ -137,7 +137,7 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
       );
-      // sets() also claimed the set's remote marker — clean it up too.
+      // setup() also claimed the set's remote marker — clean it up too.
       for (const file of ["info", "dirs.txt", "exclude.txt"]) {
         await deleteObject(
           `s3://${bucket}/${remoteSetPrefix(setName)}${file}`,

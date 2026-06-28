@@ -37,7 +37,7 @@ A good message meets all five NN/g criteria:
 ### House shape
 
 Mirror the existing well-formed messages (e.g. `collisionError` in
-[`src/commands/sets.mjs`](../../src/commands/sets.mjs)): a plain-language statement line,
+[`src/commands/setup.mjs`](../../src/commands/setup.mjs)): a plain-language statement line,
 then the fix introduced by `To <do X>:` (or inline for a one-liner), then the command on its
 own indented (`  `) line so it stands out and copies cleanly. Keep the precise diagnostic
 (the path, the var) in the statement's parenthetical. Worked example, the bucket-less set:
@@ -45,7 +45,7 @@ own indented (`  `) line so it stands out and copies cleanly. Keep the precise d
 ```
 Backup set 'photos' has no bucket to back up to (no S3CAB_BUCKET in …/env).
 To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set folder and create it again:
-  s3cab sets photos <folder>... --bucket <bucket>
+  s3cab setup photos <folder>... --bucket <bucket>
 ```
 
 The headline is the user's goal ("no bucket to back up to"); the env-var name is detail in

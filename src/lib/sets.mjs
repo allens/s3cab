@@ -195,6 +195,7 @@ export function listSets() {
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
  * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at creation (ADR-0026), so this is never absent — `readSet` enforces it.
  * @property {string} snapshotsDir - The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` (derived from `name`)
+ * @property {string} dirsPath - The set's member-folders file, `~/.s3cab/sets/<name>/dirs.txt` (derived from `name`)
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
  * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
  */
@@ -235,7 +236,7 @@ export function readSet(name) {
         `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
         `folder and create it again:\n` +
-        `  s3cab sets ${name} <folder>... --bucket <bucket>`,
+        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
     );
   }
   return {
@@ -243,13 +244,14 @@ export function readSet(name) {
     dirs,
     bucket,
     snapshotsDir: setSnapshotsDir(name),
+    dirsPath: setDirsPath(name),
     excludePath: setExcludePath(name),
     envPath: setEnvPath(name),
   };
 }
 
 const NO_SETS_MESSAGE =
-  "No backup sets configured.\nCreate one with: s3cab sets <set> <folder>...";
+  "No backup sets configured.\nCreate one with: s3cab setup <set> <folder>...";
 
 /**
  * Resolve which set a command operates on: a given name, or — per the

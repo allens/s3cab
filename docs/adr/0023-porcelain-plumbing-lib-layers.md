@@ -34,7 +34,7 @@ a plumbing interface — it is a `lib/` primitive that hasn't moved yet.
 ## Consequences
 
 - **Classification is per command, and now a deliberate call.** `upload`/`hashes`/`prop` are
-  plumbing; `backup`/`restore`/`snapshot`/`status`/`compare`/`list`/`setup`/`sets` are
+  plumbing; `backup`/`restore`/`snapshot`/`status`/`compare`/`list`/`setup` are
   porcelain. A command whose home is genuinely contested — `tree`, which is both a user
   diagnostic and the walk that `snapshot` consumes — is now a decision the model lets us make
   on purpose, rather than an accident.

@@ -11,16 +11,16 @@ import {
   readSetConfig,
   remoteSetPrefix,
 } from "../lib/set-marker.mjs";
-import { readSet, writeSet } from "../lib/sets.mjs";
-import { sets } from "./sets.mjs";
+import { readSet } from "../lib/sets.mjs";
+import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the sets command (docs/specs/backup.md, ADR-0035). The offline block
-// covers the listing path plus the pre-S3 create/update/inherit validation (which
-// fires before any network touch); the create / collision / inherit behaviour
-// touches the bucket, so it lives in the gated real-bucket block below (mirroring
-// remote.test.mjs / restore.test.mjs). The set store keeps no module state, so each
-// test points S3CAB_HOME at a temp dir.
+// Tests for the setup command (docs/specs/backup.md, ADR-0036). The offline block
+// covers the pre-S3 create/update/inherit validation (which fires before any
+// network touch); the create / collision / inherit behaviour touches the bucket,
+// so it lives in the gated real-bucket block below (mirroring remote.test.mjs /
+// restore.test.mjs). The set store keeps no module state, so each test points
+// S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -47,73 +47,23 @@ function withMemberFolder(root) {
   return { home, photos };
 }
 
-/**
- * Capture stdout + console.warn for one test (t.mock auto-restores).
- * @param {import("node:test").TestContext} t
- */
-function capture(t) {
-  /** @type {string[]} */
-  const out = [];
-  /** @type {string[]} */
-  const warn = [];
-  t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
-    out.push(String(chunk));
-    return true;
-  });
-  t.mock.method(console, "warn", (/** @type {unknown[]} */ ...args) => {
-    warn.push(args.join(" "));
-  });
-  return { out: () => out.join(""), warn: () => warn.join("\n") };
-}
-
-describe("sets (listing)", () => {
-  it("warns (on stderr) when there are no sets yet, leaving stdout empty", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    const io = capture(t);
-
-    const result = await sets();
-
-    assert.equal(result, undefined);
-    assert.equal(io.out(), ""); // nothing on stdout when there's nothing to list
-    assert.match(io.warn(), /No backup sets yet.*s3cab sets <set> <folder>/);
-  });
-
-  it("lists configured sets with their bucket on stdout", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    const io = capture(t);
-
-    const result = await sets();
-
-    assert.equal(result, undefined);
-    assert.match(io.out(), /photos/);
-    assert.match(io.out(), /my-bucket/);
-  });
-
-  it("rejects lifecycle flags when no set is named, rather than silently listing", async () => {
+describe("setup (offline validation)", () => {
+  it("requires a set name, since setup only mutates a named set", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
     await assert.rejects(
-      () => sets(undefined, [], { inherit: true }),
-      /name it: s3cab sets <set>/,
-    );
-    await assert.rejects(
-      () => sets(undefined, [], { bucket: "b" }),
-      /need a set name/,
+      () => setup(undefined, [], { bucket: "b" }),
+      /Missing required argument: <set>[\s\S]*s3cab setup <set>/,
     );
   });
-});
 
-describe("sets (offline validation)", () => {
   it("requires at least one folder when creating", async () => {
     await using dir = await mkTmpDir();
     withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("photos", []),
+      () => setup("photos", []),
       /Missing required argument: <folder>/,
     );
   });
@@ -123,7 +73,7 @@ describe("sets (offline validation)", () => {
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("photos", [photos]),
+      () => setup("photos", [photos]),
       /Missing required argument: --bucket/,
     );
   });
@@ -133,7 +83,7 @@ describe("sets (offline validation)", () => {
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("My Photos", [photos], { bucket: "b" }),
+      () => setup("My Photos", [photos], { bucket: "b" }),
       /Invalid set name: My Photos[\s\S]*lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
     );
   });
@@ -143,7 +93,7 @@ describe("sets (offline validation)", () => {
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("photos", [photos], { bucket: "s3://my-bucket" }),
+      () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
       /Invalid bucket name[\s\S]*not a URL/,
     );
   });
@@ -153,7 +103,7 @@ describe("sets (offline validation)", () => {
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("photos", [photos], { bucket: "" }),
+      () => setup("photos", [photos], { bucket: "" }),
       /No bucket name given/,
     );
   });
@@ -167,11 +117,11 @@ describe("sets (offline validation)", () => {
     // Folder resolution runs before the --bucket check, so a bad folder reports
     // itself regardless of whether a bucket was given.
     await assert.rejects(
-      () => sets("photos", [join(dir.path, "nope")]),
+      () => setup("photos", [join(dir.path, "nope")]),
       /Folder not found: /,
     );
     await assert.rejects(
-      () => sets("photos", [photos, file]),
+      () => setup("photos", [photos, file]),
       /Not a folder: /,
     );
   });
@@ -181,11 +131,11 @@ describe("sets (offline validation)", () => {
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
-      () => sets("photos", [photos], { inherit: true, bucket: "b" }),
+      () => setup("photos", [photos], { inherit: true, bucket: "b" }),
       /takes no folders/,
     );
     await assert.rejects(
-      () => sets("photos", [], { inherit: true }),
+      () => setup("photos", [], { inherit: true }),
       /Inheriting needs the bucket/,
     );
   });
@@ -220,7 +170,7 @@ async function cleanupSet(bucket, name) {
   }
 }
 
-describe("sets (real bucket)", { skip }, () => {
+describe("setup (real bucket)", { skip }, () => {
   it("create claims the name and publishes its config", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
@@ -230,7 +180,7 @@ describe("sets (real bucket)", { skip }, () => {
     mkdirSync(content, { recursive: true });
 
     try {
-      const set = await sets(name, [content], { bucket });
+      const set = await setup(name, [content], { bucket });
       assert.equal(set?.name, name);
       assert.equal(set?.bucket, bucket);
       assert.deepEqual(set?.dirs, [realpathSync.native(content)]);
@@ -257,12 +207,12 @@ describe("sets (real bucket)", { skip }, () => {
     try {
       // Machine A claims the name.
       useTempHome(join(dir.path, "a"));
-      await sets(name, [content], { bucket });
+      await setup(name, [content], { bucket });
 
       // Machine B (a fresh local home, same bucket) is refused.
       useTempHome(join(dir.path, "b"));
       await assert.rejects(
-        () => sets(name, [content], { bucket }),
+        () => setup(name, [content], { bucket }),
         /already set up[\s\S]*--inherit/,
       );
     } finally {
@@ -280,12 +230,12 @@ describe("sets (real bucket)", { skip }, () => {
     try {
       // Machine A creates it.
       useTempHome(join(dir.path, "a"));
-      await sets(name, [content], { bucket });
+      await setup(name, [content], { bucket });
       const before = await readRemoteInfo(bucket, name);
 
       // Machine B inherits — no folders, recreated from the remote config.
       useTempHome(join(dir.path, "b"));
-      const inherited = await sets(name, [], { bucket, inherit: true });
+      const inherited = await setup(name, [], { bucket, inherit: true });
       assert.equal(inherited?.bucket, bucket);
       assert.deepEqual(inherited?.dirs, [realpathSync.native(content)]);
       // The local set really exists on machine B.
@@ -310,8 +260,8 @@ describe("sets (real bucket)", { skip }, () => {
     mkdirSync(c2, { recursive: true });
 
     try {
-      await sets(name, [c1], { bucket });
-      await sets(name, [c1, c2], { bucket }); // update: add a folder
+      await setup(name, [c1], { bucket });
+      await setup(name, [c1, c2], { bucket }); // update: add a folder
 
       const config = await readSetConfig(bucket, name);
       assert.deepEqual(config.dirs, [

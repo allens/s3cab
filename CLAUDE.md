@@ -353,30 +353,34 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against
   [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8).
 - **Don't bury `await` inside a conditional or a member-access expression** — a compound
-  `if`/`while` condition, a ternary, a short-circuit (`&&`/`||`), or a property/index access
+  `if`/`while` condition, a short-circuit (`&&`/`||`), or a property/index access
   on the result. Await into a named local on its own line first, then use it: `const exists =
   await objectExists(uri); if (exists) …`, not `if (… && (await objectExists(uri)))`; and
   `const m = await readRemoteSnapshot(…); … m.entries`, not `(await readRemoteSnapshot(…)).entries`
   (the member-access slip that prompted this rule, 2026-06-16). The suspension point stays
   visible and the value gets a name. (When the inline form was guarding a short-circuit, a
-  nested `if` preserves the same conditional evaluation without the inline await; a
-  conditional-await ternary likewise becomes an `if` writing into a `let`.)
-  - **These are all fine** — only conditionals and member access bury the await (scope
-    clarified 2026-06-17, PR #59 review, after the rule had over-reached): a bare `const x =
-    await …`, `return await …`, a standalone `await …;`, **destructuring an awaited result**
+  nested `if` preserves the same conditional evaluation without the inline await.) **A ternary
+  branch is exempt (relaxed 2026-06-28): `cond ? await f() : g()` reads cleanly — the `await` is
+  naked, not wrapped in brackets, so the suspension point is plain; it's reaching *into* a
+  bracketed result (`(await …).x`) where readability actually suffers, not a ternary.**
+  - **These are all fine** — only a compound `if`/`while` condition, a short-circuit, or member
+    access buries the await (scope clarified 2026-06-17, PR #59 review, after the rule had
+    over-reached; ternary added 2026-06-28): a bare `const x =
+    await …`, `return await …`, a standalone `await …;`, **a ternary branch**
+    (`cond ? await f() : g()`), **destructuring an awaited result**
     (`const { lookup } = await readLatestRemoteSnapshot(…)`), and **`await` as a call
     argument** (`assert.deepEqual(await foo(), …)`). Each keeps the suspension point plainly
-    visible on its own line and names the value. (Copilot review flags destructuring- and
-    argument-position awaits as violations; they are not — decline them.)
+    visible and names the value. (Copilot review flags destructuring-, argument-, and
+    ternary-position awaits as violations; they are not — decline them.)
   - **No linter enforces this** (a `no-restricted-syntax` rule was weighed and rejected
     2026-06-16: it can't tell the ugly cases from the occasionally-fine ternary-await, so it
     would trade real false positives for a cosmetic gain — against
     [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8, same call as the
     removed organizeImports action). So **self-check instead: grep the diff for the buried
     shapes** before committing — `(await …).` / `(await …)[` (member/index access on the
-    result) and a `? `/`: `/`&& `/`|| ` sitting immediately before `await` (ternary /
-    short-circuit). An `await` that is a call argument or a destructuring/assignment
-    initializer is not the smell; one wrapped in a conditional or a member access is.
+    result) and a `&& `/`|| ` sitting immediately before `await` (short-circuit). An `await`
+    that is a call argument, a destructuring/assignment initializer, or a ternary branch is not
+    the smell; one in a compound condition, a short-circuit, or a member access is.
 - **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
   the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
   scratch, but excluded files just get squiggles from VS Code's inferred project instead —
@@ -427,7 +431,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   the user's *goal* (no codes/jargon up front — env-var names, paths and keys go in a
   parenthetical or follow-up line), polite (describe, don't blame), and *constructive* (give
   the exact fix, copy-pasteable command on its own indented line — mirror `collisionError` in
-  [src/commands/sets.mjs](src/commands/sets.mjs)). Internal invariants and programmer errors
+  [src/commands/setup.mjs](src/commands/setup.mjs)). Internal invariants and programmer errors
   (a malformed `s3://` URI, a broken assumption) are *out of scope* — keep those terse and
   factual; they signal bugs, not user guidance. Checked in review, not by a linter
   ([ADR-0006](docs/adr/0006-minimal-code.md)).
@@ -485,8 +489,8 @@ _what works now_. A few layout notes the README and code don't carry:
   needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
   guards remain for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt) template.
 - **The repo dogfoods itself via a set:** [.s3cab/exclude.txt](.s3cab/exclude.txt) is kept
-  as a ready-made exclude template — to snapshot this repo, `s3cab sets s3cab .` then copy
-  those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
+  as a ready-made exclude template — to snapshot this repo, `s3cab setup s3cab . --bucket <bucket>`
+  then copy those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
   wired automatically now that excludes are per-set under `~/.s3cab`.)
 
 The licensing model (GPL-3.0-or-later; CLA not DCO) is in

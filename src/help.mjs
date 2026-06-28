@@ -44,7 +44,7 @@ Choosing an identity:
   s3cab aws my-backups --region eu-west-1 --profile admin
 
 Then create a backup set in it:
-  s3cab sets <name> <folder>... --bucket my-backups
+  s3cab setup <name> <folder>... --bucket my-backups
 
 Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
 
@@ -57,7 +57,7 @@ s3cab resolves credentials in this order:
    with 's3cab profile --profile <name>'). Highest precedence first (a file
    always beats the shell):
      ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
-                              overrides (written by 's3cab sets'; applies as
+                              overrides (written by 's3cab setup'; applies as
                               the set-based commands arrive with backup)
      ~/.s3cab/env             per-user defaults - the base layer under the set,
                               where auth lives for the common single-bucket case

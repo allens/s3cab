@@ -2,10 +2,8 @@
 
 Status: **accepted and implemented** (design decided via a `/grilling` session 2026-06-27;
 implemented in #122). **Point 3 below (folding `setup` into `sets`) is since superseded by
-[0036](0036-setup-mutates-list-shows-drop-sets.md)**: the `sets` command built here is to be
-*dropped*, with `setup` revived as the set-mutation verb and listing moved to `list` (that
-reshaping is tracked in
-[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md)).
+[0036](0036-setup-mutates-list-shows-drop-sets.md)**: the `sets` command built here was
+*dropped*, with `setup` revived as the set-mutation verb and listing moved to `list`.
 Points 1–2 (`bucket`→`aws`, old-`aws`→`profile`) stand as shipped.
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
@@ -87,8 +85,7 @@ move.
 from invisible local state — "does this set already exist locally?" — rather than an explicit
 flag. This was flagged during the grilling session as a real shape smell, but deliberately **left
 unfixed**: it's idempotent and low-stakes (re-running it just re-publishes the same config), and
-fixing it is orthogonal to the rename/merge decided here. Tracked as a future improvement in
-[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md), not
+fixing it is orthogonal to the rename/merge decided here. Left as a future improvement, not
 part of this ADR's consequences.
 
 ## Consequences
