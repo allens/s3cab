@@ -156,7 +156,7 @@ one. That is strictly better than baking an emulator into CI, and it's free.
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
   container, far too much surface to bolt onto CI for one service
   ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) /
-  [ADR-0006](../docs/adr/0006-minimal-code.md) / CLAUDE.md convention #8 — built-ins over deps,
+  [ADR-0006](../docs/adr/0006-minimal-code.md) / CLAUDE.md convention #7 — built-ins over deps,
   minimal code, don't over-engineer).
 - **Why no emulator at all:** the only genuine advantage an emulator has over real S3 is
   *no credentials* (so it could run on fork CI / for a contributor with no AWS account). Cost

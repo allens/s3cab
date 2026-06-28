@@ -43,7 +43,7 @@ seam (exported, pure). Drive it directly with in-memory Maps; keep a thin set of
 interface directly.
 
 Wins: interface is the test surface; pairing edge cases cheap to enumerate; tests survive I/O and
-format refactors. Pairs with CLAUDE.md convention #12 (coverage by review). Cheap, high-value;
+format refactors. Pairs with CLAUDE.md convention #8 (coverage by review). Cheap, high-value;
 could even ride along with candidate 1 since both touch this corner.
 
 Decision for later: keep `diff` exported purely as a test surface (a deliberate internal seam

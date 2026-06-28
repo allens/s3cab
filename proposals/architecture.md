@@ -66,5 +66,5 @@ lands, its decision moves to an [ADR](../docs/adr/) (or the design to
   `--json` mode, a TUI) couldn't get the structured relations without re-parsing the arrows. Split:
   `compareSnapshots` returns structured relations; a formatter at the command edge renders the
   display. **Speculative on purpose** — only the terminal renderer consumes this today, so by the
-  project's own bar ([ADR-0006](../docs/adr/0006-minimal-code.md) / convention #8) it's a
+  project's own bar ([ADR-0006](../docs/adr/0006-minimal-code.md) / convention #7) it's a
   hypothetical seam until a second output format actually appears. Listed for when it does.
