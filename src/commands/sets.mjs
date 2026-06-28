@@ -60,6 +60,16 @@ export async function sets(name, folders = [], options = {}) {
   // so it goes to stdout directly (JSON.stringify would escape it into one quoted
   // line). With no sets yet, stdout stays empty and the create hint goes to stderr.
   if (name === undefined) {
+    // Lifecycle flags need a set to act on. After the merge they parse cleanly on
+    // a bare `sets` (the command now defines them), so reject them here rather than
+    // silently listing — a forgotten set name on an intended `--inherit` must not
+    // look like it succeeded.
+    if (options.inherit || options.bucket !== undefined) {
+      throw new ParseArgsError(
+        "To create or inherit a set, name it: s3cab sets <set> [<folder>...] " +
+          "(--bucket and --inherit need a set name; with no name, sets only lists).",
+      );
+    }
     const names = listSets();
     if (names.length === 0) {
       console.warn(

@@ -91,6 +91,20 @@ describe("sets (listing)", () => {
     assert.match(io.out(), /photos/);
     assert.match(io.out(), /my-bucket/);
   });
+
+  it("rejects lifecycle flags when no set is named, rather than silently listing", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+
+    await assert.rejects(
+      () => sets(undefined, [], { inherit: true }),
+      /name it: s3cab sets <set>/,
+    );
+    await assert.rejects(
+      () => sets(undefined, [], { bucket: "b" }),
+      /need a set name/,
+    );
+  });
 });
 
 describe("sets (offline validation)", () => {
