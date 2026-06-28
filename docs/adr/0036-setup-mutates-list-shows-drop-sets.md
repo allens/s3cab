@@ -103,9 +103,9 @@ noun is gone, and the CRUD multiplexer with it. Verbs name actions, nouns name r
 ## Consequences
 
 Pure rename/regroup of the management surface — no change to what create/update/inherit or listing
-*do*. Implementation is deferred to a future session; the checklist (covering 0035's still-live
-points 1–2 and this ADR's shape) is
-[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md). It
+*do*. Implementation is deferred to a future session; the checklist is
+[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md)
+(0035's renames already shipped in #122, so only this ADR's reshaping remains). It
 touches: the command registry ([src/commands.mjs](../../src/commands.mjs)) — remove `sets`, add
 `setup`, extend `list`; the command file ([src/commands/sets.mjs](../../src/commands/sets.mjs) →
 `setup.mjs`, one-export-per-command [0023](0023-porcelain-plumbing-lib-layers.md) still holds);
