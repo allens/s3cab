@@ -1,8 +1,7 @@
 # `setup` mutates a set, `list` shows sets; drop the `sets` command
 
-Status: **accepted** (design decided via a design session 2026-06-28; not yet implemented — see
-[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md) for
-the implementation checklist). **Supersedes [0035](0035-aws-profile-sets-command-rationalization.md)
+Status: **accepted** (design decided via a design session 2026-06-28) — **implemented**
+(2026-06-28). **Supersedes [0035](0035-aws-profile-sets-command-rationalization.md)
 point 3** (the `setup`-folds-into-`sets` half); 0035's points 1–2 (`bucket`→`aws`, old-`aws`→`profile`)
 stand untouched.
 
@@ -103,17 +102,14 @@ noun is gone, and the CRUD multiplexer with it. Verbs name actions, nouns name r
 ## Consequences
 
 Pure rename/regroup of the management surface — no change to what create/update/inherit or listing
-*do*. Implementation is deferred to a future session; the checklist is
-[proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md)
-(0035's renames already shipped in #122, so only this ADR's reshaping remains). It
-touches: the command registry ([src/commands.mjs](../../src/commands.mjs)) — remove `sets`, add
-`setup`, extend `list`; the command file ([src/commands/sets.mjs](../../src/commands/sets.mjs) →
-`setup.mjs`, one-export-per-command [0023](0023-porcelain-plumbing-lib-layers.md) still holds);
-help ([src/help.mjs](../../src/help.mjs)); [CONTEXT.md](../../CONTEXT.md) (the "Sets (the command)"
-term splits into `setup` + `list`; the `Inherit` term's `s3cab sets … --inherit` example becomes
-`s3cab setup … --inherit`); and the README/guide. Error-message examples that show `s3cab sets …`
-(e.g. `collisionError`, the bucket-less-set message in [0030](0030-error-message-guidelines.md))
-update to `s3cab setup …`.
+*do*. Implemented across one branch (0035's renames had already shipped in #122, so only this ADR's
+reshaping remained). It touched: the command registry ([src/commands.mjs](../../src/commands.mjs)) —
+dropped `sets`, added `setup`, extended `list`; the command file `src/commands/sets.mjs`, renamed to
+[`setup.mjs`](../../src/commands/setup.mjs) (one-export-per-command [0023](0023-porcelain-plumbing-lib-layers.md)
+still holds); help ([src/help.mjs](../../src/help.mjs)); [CONTEXT.md](../../CONTEXT.md) (the "Sets (the
+command)" term split into `setup` + `list`; the `Inherit` example became `s3cab setup … --inherit`);
+and the README/guide. Error-message examples that showed `s3cab sets …` (e.g. `collisionError`, the
+bucket-less-set message in [0030](0030-error-message-guidelines.md)) now read `s3cab setup …`.
 
 ### Implementation notes (2026-06-28)
 
