@@ -6,7 +6,7 @@ import { list } from "./commands/list.mjs";
 import { profile } from "./commands/profile.mjs";
 import { prop } from "./commands/prop.mjs";
 import { restore } from "./commands/restore.mjs";
-import { sets } from "./commands/sets.mjs";
+import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
 import { sep } from "node:path";
@@ -97,12 +97,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
 
   // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
-  sets: {
+  setup: {
     group: "Backup sets",
-    summary: "List, create, update, or inherit backup sets",
+    summary: "Create, update, or inherit a backup set",
     args: {
-      "[<set>]":
-        "The set to create, update, or inherit (omit to list your sets)",
+      "<set>": "The backup set to create, update, or inherit",
       "[<folder>...]":
         "The folders that make up the set (required when creating)",
     },
@@ -119,7 +118,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
       },
     },
-    exec: (options, [name, ...folders] = []) => sets(name, folders, options),
+    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
   },
   aws: {
     summary: "Show the steps to set up an S3 bucket for backups",
