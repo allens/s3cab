@@ -92,18 +92,20 @@ _Avoid_: pull, download (the plumbing verb), recover.
 
 **Inherit**:
 Taking over an existing remote set on a new machine when the old one is being retired,
-replaced, or recovered after loss — machine **succession** (`s3cab setup <set> --inherit`). Not
+replaced, or recovered after loss — machine **succession** (`s3cab sets <set> --inherit`). Not
 a way to run two live machines off one set.
 _Avoid_: adopt, clone, migrate, take-over.
 
-**Setup**:
-The command that creates and configures a backup set; a bucket is required.
-_Avoid_: init, config, register.
+**Sets** (the command):
+The single command for the whole backup-set lifecycle (ADR-0035): with no argument it lists
+your sets; with a set named it creates, updates, or inherits that set (a bucket is required to
+create). Distinct from a **backup set**, the noun it operates on.
+_Avoid_: setup (the retired name), init, config, register.
 
 **AWS profile**:
 A named profile in the user's AWS shared config (`~/.aws/config` / `~/.aws/credentials`).
-s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the **aws**
-command (`s3cab aws --profile <name>`), user-wide or scoped to a set. A pointer to AWS
+s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the **profile**
+command (`s3cab profile --profile <name>`), user-wide or scoped to a set. A pointer to AWS
 credentials, never credential material itself, and **not** a backup set (the thing line 46
 warns against calling a "profile").
 _Avoid_: account, login, credentials (the profile names them; it is not them).

@@ -1,6 +1,6 @@
 # Setting up a cloud bucket
 
-`s3cab bucket <bucket>` helps you stand up an S3 bucket as a backup destination,
+`s3cab aws <bucket>` helps you stand up an S3 bucket as a backup destination,
 together with a least-privilege identity for s3cab to use — without s3cab
 becoming a manager of your cloud account.
 
@@ -12,7 +12,7 @@ command works the same for the S3-compatible providers that have no AWS CLI at
 all; see [Non-AWS providers](#non-aws-providers).)
 
 ```console
-> s3cab bucket my-backups --region eu-west-1 --profile admin
+> s3cab aws my-backups --region eu-west-1 --profile admin
 ```
 
 - `<bucket>` — the bucket name to set up (one repository is one bucket).
@@ -71,7 +71,7 @@ attach the policy to_ differs.
 
 The simplest path if you don't use SSO. The command prints commands to create an
 IAM user, attach the policy to it, mint an access key, and point s3cab at it with
-`aws configure` + `s3cab aws --profile s3cab`.
+`aws configure` + `s3cab profile --profile s3cab`.
 
 > AWS now steers even basic users toward IAM Identity Center over standalone IAM
 > users. The IAM-user path is kept because it is the least moving parts when you
@@ -83,7 +83,7 @@ For accounts that sign in through IAM Identity Center (there is no long-lived
 access key to mint). Two tiers are printed:
 
 - **Reuse your existing sign-in** (the common case): attach the policy to the
-  permission set you already use, `aws sso login`, then `s3cab aws --profile
+  permission set you already use, `aws sso login`, then `s3cab profile --profile
   <your-sso-profile>`.
 - **A dedicated s3cab-only permission set** (advanced, optional): tighter scope
   at the cost of more setup. It is shown console-first, with a `<placeholder>`
@@ -127,7 +127,7 @@ when the region isn't `us-east-1`.
 Once the identity is wired up, create a backup set pointed at the bucket:
 
 ```console
-> s3cab setup <name> <folder>... --bucket my-backups
+> s3cab sets <name> <folder>... --bucket my-backups
 ```
 
 See the [README](../README.md) for backing up and restoring.
