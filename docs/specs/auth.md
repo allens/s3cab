@@ -47,7 +47,7 @@ The layers, **highest precedence first** (a file value always wins over the shel
 
 | Layer | Path | Purpose |
 | --- | --- | --- |
-| set | `~/.s3cab/sets/<set>/env` | per-backup-set: which bucket this set backs up to (`S3CAB_BUCKET`, written by `sets`), the pinned identity namespace + any per-set auth override |
+| set | `~/.s3cab/sets/<set>/env` | per-backup-set: which bucket this set backs up to (`S3CAB_BUCKET`, written by `setup`), the pinned identity namespace + any per-set auth override |
 | user | `~/.s3cab/env` | per-user defaults — auth (`AWS_PROFILE` / region / endpoint / keys) for the common single-bucket case lives here |
 | shell | `process.env` | the real environment (lowest) |
 

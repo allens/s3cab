@@ -3,8 +3,9 @@
 ## Status
 
 Designed (2026-06-12), **implementation in progress**. Slices 1–3 and the restore half of
-slice 4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), `setup`, `sets`, and
-the set env layer in auth; slice 2 moved the local engine onto sets —
+slice 4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), the set-management
+command (now split into `setup` + `list`, [ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)),
+and the set env layer in auth; slice 2 moved the local engine onto sets —
 `snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every member dir with the set's
 `exclude.txt`, write one snapshot (with `#SNAPSHOT` identity + `#DIR` headers) into
 `~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
@@ -17,16 +18,16 @@ the `snapshots/` remote half and the cloud porcelain: the remote repository engi
 `remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
 `objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
 added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and machine
-succession (`sets --inherit`, via the remote `sets/<set>/` marker). `restore --output`
+succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --output`
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
 Remaining target: slice 5 (`verify`/`delete`/`cleanup`). (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
-stays local-only, and `sets --inherit` instead syncs the set's manifests down so local
+stays local-only, and `setup --inherit` instead syncs the set's manifests down so local
 `compare` works on a fresh machine.)
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
-identity, flattened `snapshots/<set>/`, the `sets` collision check + `--inherit`, the
+identity, flattened `snapshots/<set>/`, the `setup` collision check + `--inherit`, the
 `sets/<set>/` marker, bucket-required set creation, and the single-tier set resolver) —
 [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md),
 [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md), and
@@ -47,7 +48,7 @@ landed model.
 ## Purpose
 
 Define s3cab's unit of backup (the **backup set**), its on-disk configuration, the
-remote repository format, and the behaviour of the `sets`/`backup` commands. Format
+remote repository format, and the behaviour of the `setup`/`list`/`backup` commands. Format
 decisions are commitments: per [ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md) (no lock-in), the stored layouts —
 local *and* remote — are the contract a hand-recoverer or replacement tool relies on.
 
@@ -119,43 +120,32 @@ sets exist and none is named, the error lists them. `tree [<set>]` becomes "exac
 a snapshot of this set would include", sharpening its diagnostic role. The file/bucket
 diagnostics (`prop`, `hashes`, `upload`) are unchanged.
 
-### `sets` — the front door
+### `setup` — create, update, inherit a set
 
-`s3cab sets` owns the whole backup-set lifecycle ([ADR-0035](../adr/0035-aws-profile-sets-command-rationalization.md)).
-With **no set named** it lists what you have — the discoverability counterpart of "files
-are the API", and what error messages point at:
-
-```
-> s3cab sets
-photos   → s3://my-backup-bucket   (2 folders)
-           C:\Users\me\Photos
-           D:\Pics
-docs     → s3://my-backup-bucket   (1 folder)
-           C:\Users\me\Documents
-```
-
-With a set **named**, it creates, updates, or inherits that set:
+`s3cab setup` is the set-**mutation** verb ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)):
+it creates, updates, or inherits a backup set. (Listing what you have is `list`'s job — the
+read/write split that ADR-0036 made.)
 
 ```
-s3cab sets <set> <dir>... --bucket <bucket>
-s3cab sets <set> --inherit --bucket <bucket>
+s3cab setup <set> <dir>... --bucket <bucket>
+s3cab setup <set> --inherit --bucket <bucket>
 ```
 
 **`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
 bound to its bucket at creation, and creating a set always touches S3 to run the collision
-check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`
+check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`/`list`
 still work after a one-time online set-up; only creating or updating a set needs
-connectivity.) The three lifecycle modes:
+connectivity.) The three modes:
 
-- **Create** (`sets <name> <dir>... --bucket <b>`): collision-check the remote
+- **Create** (`setup <name> <dir>... --bucket <b>`): collision-check the remote
   `sets/<name>/` marker; if it already exists, error naming the owning machine and
   suggesting `--inherit`; otherwise claim the marker (a conditional PUT — first writer wins),
   write the local set, and publish its `dirs.txt`/`exclude.txt` to the marker.
-- **Inherit / succession** (`sets <name> --inherit --bucket <b>`): the path for a
+- **Inherit / succession** (`setup <name> --inherit --bucket <b>`): the path for a
   replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
   `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
   no folders (they come from the remote). For machine retirement/replacement or DR only.
-- **Update** (`sets <name> [<dir>...]` on a set you already have): refresh the member
+- **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
   folders and re-publish the config; the bucket is fixed at creation (re-binding to a
   different bucket — migration — isn't supported yet).
 
@@ -163,6 +153,43 @@ Two live machines on one set is a discouraged-but-tolerated power-user case (e.g
 OneDrive-synced folder, where both hold the same content so the interleaving is benign):
 `--inherit` never disables the prior machine — re-stamping the owner is its only remote
 change. An interactive wizard may later wrap this one-shot form; it is not part of v1.
+
+### `list` — show sets and their snapshots
+
+`s3cab list` is the **read** counterpart ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)) —
+the discoverability counterpart of "files are the API", and what the resolve-a-set error
+messages point at. With **no set named** it lists every set compactly (name + snapshot times),
+so a single-set user's plain `s3cab list` is still their snapshots:
+
+```
+> s3cab list
+docs:
+  2026-05-12T0946
+photos:
+  2026-06-12T0915
+  2026-06-11T0915
+```
+
+With a set **named** it switches to a detail view — the set's bucket, member folders, and
+exclude file, each shown with the config-file path that holds it (so the listing doubles as
+"where do I edit this set"), then its snapshots:
+
+```
+> s3cab list photos
+name: photos
+bucket: my-backup-bucket
+dirs (~/.s3cab/sets/photos/dirs.txt):
+  C:\Users\me\Photos
+  D:\Pics
+exclude file: ~/.s3cab/sets/photos/exclude.txt
+snapshots:
+  2026-06-12T0915
+  2026-06-11T0915
+```
+
+`--latest` narrows the snapshot list to the newest. `--remote` lists one set's cloud backups
+under `snapshots/<set>/` — a **single** set (the sole-set default), since it is a network call
+carrying that set's auth, unlike the offline all-sets default.
 
 ### `backup` — porcelain semantics
 
@@ -422,7 +449,7 @@ time) — recorded as an open item.
   as CRC64NVME may be the workable variant.)
 - **Retention policy automation** — keep-last/daily/weekly/monthly rules on top of the
   `delete` primitive; design after real usage shows the shapes people need.
-- **Interactive `sets` wizard** — explicitly post-milestone; the one-shot form plus
+- **Interactive `setup` wizard** — explicitly post-milestone; the one-shot form plus
   good error messages is v1.
 - **auth.md update** — the dir env layer becomes the set layer when implemented.
 - **Doc updates at implementation** — README "How it works" (local layout moves to

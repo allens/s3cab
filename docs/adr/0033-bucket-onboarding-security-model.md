@@ -1,6 +1,6 @@
 # Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
 
-The `aws` command (and the AWS path of `sets`) sets a user up with an everyday cloud
+The `aws` command (and the AWS path of `setup`) sets a user up with an everyday cloud
 identity and a bucket configured so the pair has the property a backup tool should have: **a
 leaked everyday key can add to your backup and tweak its own set markers, but can never
 *permanently destroy* your content or history.** This ADR records how that property is
