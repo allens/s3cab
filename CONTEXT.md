@@ -92,15 +92,23 @@ _Avoid_: pull, download (the plumbing verb), recover.
 
 **Inherit**:
 Taking over an existing remote set on a new machine when the old one is being retired,
-replaced, or recovered after loss — machine **succession** (`s3cab sets <set> --inherit`). Not
+replaced, or recovered after loss — machine **succession** (`s3cab setup <set> --inherit`). Not
 a way to run two live machines off one set.
 _Avoid_: adopt, clone, migrate, take-over.
 
-**Sets** (the command):
-The single command for the whole backup-set lifecycle (ADR-0035): with no argument it lists
-your sets; with a set named it creates, updates, or inherits that set (a bucket is required to
-create). Distinct from a **backup set**, the noun it operates on.
-_Avoid_: setup (the retired name), init, config, register.
+**Setup** (the command):
+The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <folder>... --bucket <b>`
+creates or updates a set, and `--inherit` adopts an existing remote set onto this machine. A
+bucket is required to create, and every mode touches S3. Distinct from a **backup set**, the
+noun it operates on.
+_Avoid_: sets (the retired command name), init, config, register, create.
+
+**List** (the command):
+The verb that *shows* backup sets and their snapshots (ADR-0036): with no argument it lists
+every set with its snapshot times; with a set named it shows that one in detail (bucket,
+folders, exclude file) plus its snapshots. `--latest` narrows to the newest snapshot, `--remote`
+shows one set's cloud backups. The read counterpart to **setup**.
+_Avoid_: ls, show; sets (the retired command name).
 
 **AWS profile**:
 A named profile in the user's AWS shared config (`~/.aws/config` / `~/.aws/credentials`).
