@@ -414,6 +414,14 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   one `lstat` each — the cache could never hit, yet sat there looking load-bearing. Removed
   2026-06-18 after a static-call-graph check confirmed it was dead. Keep the saving *in the
   interface*, where it's visible and the compiler can see it rot.)
+- **Two UX references govern user-facing design — treat them as the bibles.** Command *shape*
+  (commands, flags vs. positional args, naming, output) follows the **Command Line Interface
+  Guidelines** ([clig.dev](https://clig.dev)); error/warning *wording* follows the **Nielsen
+  Norman Group** error-message guidelines (the next bullet,
+  [ADR-0030](docs/adr/0030-error-message-guidelines.md)). Same shape-vs-wording split as the two
+  bullets that follow this one. The most recent shape decision worked under clig.dev is
+  [ADR-0036](docs/adr/0036-setup-mutates-list-shows-drop-sets.md) (the `setup`/`list` surface).
+  Both are checked in review, not by a linter ([ADR-0006](docs/adr/0006-minimal-code.md)).
 - **User-facing error/warning text follows the Nielsen Norman Group error-message guidelines**
   ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
   the user's *goal* (no codes/jargon up front — env-var names, paths and keys go in a

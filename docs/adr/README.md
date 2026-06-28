@@ -46,7 +46,8 @@ reverse**, **surprising without context**, and **the result of a real trade-off*
 - [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active
 - [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
 - [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command *(command name superseded by 0035 — now `aws`)*
-- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets`
+- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036)*
+- [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
 
 ### Build, release & tooling
 
