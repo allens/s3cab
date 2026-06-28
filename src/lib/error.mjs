@@ -12,7 +12,7 @@
 //   2. (plain-Error branch only) Is the message heavy / actionable / reused?
 //        yes → a named factory returning `new Error(msg, { cause })` —
 //              `noCredentialsError` / `expiredCredentialsError` (auth.mjs),
-//              `collisionError` (commands/setup.mjs).
+//              `collisionError` (commands/sets.mjs).
 //        no  → an inline `throw new Error("…")` at the site (the URI /
 //              validation / invariant throws).
 //
