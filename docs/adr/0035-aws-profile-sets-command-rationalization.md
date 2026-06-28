@@ -2,7 +2,10 @@
 
 Status: **accepted** (design decided via a `/grilling` session 2026-06-27; not yet implemented —
 see [proposals/cli-command-rationalization.md](../../proposals/cli-command-rationalization.md)
-for the implementation checklist).
+for the implementation checklist). **Point 3 below (folding `setup` into `sets`) is superseded by
+[0036](0036-setup-mutates-list-shows-drop-sets.md)**: `sets` is instead *dropped*, with `setup`
+revived as the set-mutation verb and listing moved to `list`. Points 1–2 (`bucket`→`aws`,
+old-`aws`→`profile`) stand unchanged.
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
 inherit a backup set, [docs/specs/backup.md](../specs/backup.md)), `aws` (point s3cab at an AWS
@@ -47,6 +50,12 @@ move.
    create/update/inherit (today's `setup` behavior, unchanged) — removing the setup/sets
    near-synonym collision rather than inventing a third word. The standalone `setup` command name
    retires.
+
+   > **Superseded by [0036](0036-setup-mutates-list-shows-drop-sets.md).** Working the merged
+   > `sets` further showed it to be a four-mode multiplexer; 0036 splits it on the read/write
+   > seam instead — `sets` is *dropped*, `setup` is *revived* as the mutation verb, and listing
+   > moves into `list`. The synonym this point removed by keeping the noun, 0036 removes by
+   > keeping the verb. Points 1–2 are unaffected.
 
 ## Rejected alternatives
 
