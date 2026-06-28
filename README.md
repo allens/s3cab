@@ -55,9 +55,9 @@ them back**. You create a set once, then the commands act on it:
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab aws <bucket>`          | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
-| `s3cab sets [<set> <folder>…]` | List your backup sets — or create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
+| `s3cab setup <set> <folder>…` | Create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
-| `s3cab list [<set>]`          | List a set's snapshots — or its cloud backups with `--remote`.                |
+| `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
@@ -79,7 +79,7 @@ back to the locations they were backed up from; pass `--output <dir>` to recover
 folder you choose instead (each backed-up folder lands as `<dir>/<folder-name>/…`), which is
 how you restore a backup whose original paths don't fit this machine — a different drive
 layout, or another OS. To recover onto a **fresh machine**, re-create the set pointed at the
-existing backup — `s3cab sets <set> --inherit --bucket <bucket>` — then `restore`.
+existing backup — `s3cab setup <set> --inherit --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
 and `upload`, also work already — advanced building blocks covered under
@@ -149,7 +149,7 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
 1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, or an endpoint —
    including some S3-compatible providers). Highest precedence first, a file always beating
    the shell:
-   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab sets` records the set's
+   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
      bucket; add per-set auth overrides here). It takes effect as the set-based commands arrive
      with `backup`;
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
@@ -169,8 +169,8 @@ the session up automatically through the standard chain.
 ## Quick start
 
 ```console
-# Create a backup set (a name plus the folders it contains):
-> s3cab sets photos C:\Users\me\Photos
+# Create a backup set (a name, the folders it contains, and the bucket to back up to):
+> s3cab setup photos C:\Users\me\Photos --bucket my-backups
 
 # Snapshot the set. With only one set, you can leave its name out:
 > s3cab snapshot
@@ -191,12 +191,11 @@ Generating new snapshot: 2025-11-12T0915
   "deleted": []
 }
 
-# List every snapshot you've taken of the set:
+# List your backup sets and their snapshots:
 > s3cab list
-[
-  "2025-11-12T0915",
-  "2025-11-11T0830"
-]
+photos:
+  2025-11-12T0915
+  2025-11-11T0830
 
 # Compare any two snapshots (defaults to the latest two; --since picks an older one):
 > s3cab compare --since 2025-11-11T0830
@@ -251,7 +250,7 @@ Pick whichever suits you — all three run the same tool:
 
   ```console
   > npm install -g s3cab
-  > s3cab sets photos C:\Users\me\Photos
+  > s3cab setup photos C:\Users\me\Photos --bucket my-backups
   > s3cab snapshot
   ```
 
@@ -263,7 +262,7 @@ Pick whichever suits you — all three run the same tool:
   directly:
 
   ```console
-  > node src/s3cab.mjs setup photos C:\Users\me\Photos
+  > node src/s3cab.mjs setup photos C:\Users\me\Photos --bucket my-backups
   > node src/s3cab.mjs snapshot
   ```
 
