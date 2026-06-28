@@ -62,8 +62,7 @@ export const commands = {
       remote: {
         type: "boolean",
         short: "r",
-        description:
-          "List one set's cloud backups instead of local snapshots",
+        description: "List one set's cloud backups instead of local snapshots",
       },
     },
     exec: (options, [set] = []) => list(set, options),
