@@ -114,3 +114,21 @@ term splits into `setup` + `list`; the `Inherit` term's `s3cab sets … --inheri
 `s3cab setup … --inherit`); and the README/guide. Error-message examples that show `s3cab sets …`
 (e.g. `collisionError`, the bucket-less-set message in [0030](0030-error-message-guidelines.md))
 update to `s3cab setup …`.
+
+### Implementation notes (2026-06-28)
+
+Two presentation/behaviour calls left open above were settled while building it (see
+[docs/specs/backup.md](../specs/backup.md) for the resulting CLI surface):
+
+1. **`list` does use an overview/detail split — but on *relevance*, not volume.** No-arg `list` shows
+   every set *compactly* (`name:` + snapshot times only); naming a set switches to a *detail* view
+   that adds the set's bucket, member folders, and the path to its exclude file. The `dirs.txt` and
+   `exclude.txt` paths are shown absolute and platform-native so a capable terminal opens them in the
+   editor ("the files are the API", [0002](0002-no-lock-in-hard-constraint.md)). This refines point
+   3's "don't add an overview/detail tier the volume doesn't justify": the tier here keeps the
+   *all-sets* view scannable (per-set config would bury the snapshots), not to cap volume — the
+   single-set user still gets their snapshots from a bare `list`, the hard constraint.
+2. **`--remote` resolves a *single* set (sole-set default), not all sets.** It is a network call
+   carrying the set's own auth, so listing every set remotely would be N round-trips under N stacked
+   env layers; one set keeps it cheap and the credentials unambiguous. A deliberate narrowing of
+   point 3's "`--remote` composes over the grouped form" — the grouped form is just one group.

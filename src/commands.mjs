@@ -48,21 +48,22 @@ export const commands = {
     exec: (options, [set] = []) => snapshot(set, options),
   },
   list: {
-    summary: "List a backup set's snapshots",
+    summary: "List backup sets and their snapshots",
     args: {
       "[<set>]":
-        "The backup set whose snapshots to list (default: the only set)",
+        "A single set to show in detail (with its folders); omit to list all sets",
     },
     options: {
       latest: {
         type: "boolean",
         short: "l",
-        description: "Show only the most recent snapshot",
+        description: "Show only each set's most recent snapshot",
       },
       remote: {
         type: "boolean",
         short: "r",
-        description: "List backups in the cloud instead of local snapshots",
+        description:
+          "List one set's cloud backups instead of local snapshots",
       },
     },
     exec: (options, [set] = []) => list(set, options),

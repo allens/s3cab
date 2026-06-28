@@ -114,10 +114,26 @@ describe("cli (e2e)", () => {
     const result = JSON.parse(snap.stdout);
     assert.deepStrictEqual(result.added, ["alpha.txt"]);
 
-    // The snapshot is now listed under the set.
+    // The snapshot is now listed under the set (compact: `files:` then the time).
     const listed = runWithHome(home, "list");
     assert.strictEqual(listed.status, 0, listed.stderr);
-    assert.match(listed.stdout, /\d{4}-\d{2}-\d{2}T\d{4}/);
+    assert.match(listed.stdout, /files:\n\s+\d{4}-\d{2}-\d{2}T\d{4}/);
+  });
+
+  it("list <set> shows the set's backup target in detail", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const photos = join(dir.path, "photos");
+    mkdirSync(home);
+    mkdirSync(photos);
+
+    seedSet(home, "photos", [photos], "my-bucket");
+
+    const listed = runWithHome(home, "list", "photos");
+
+    assert.strictEqual(listed.status, 0, listed.stderr);
+    assert.match(listed.stdout, /name: photos/);
+    assert.match(listed.stdout, /bucket: my-bucket/);
   });
 
   it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
