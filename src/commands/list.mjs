@@ -13,7 +13,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  *   so a single-set user still gets `s3cab list` → their snapshots, now under a
  *   heading. Local and offline.
  * - **`list <set>`**: that set in detail — name, bucket, member folders (with the
- *   `dirs.txt` path), exclude-rule count (with the `exclude.txt` path), then its
+ *   `dirs.txt` path), and its exclude file (with the `exclude.txt` path), then its
  *   snapshots. The config paths teach where to edit a set ("the files are the
  *   API", ADR-0002).
  * - **`list --remote [<set>]`**: the set's cloud backups under `snapshots/<set>/`,
