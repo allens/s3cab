@@ -236,7 +236,7 @@ export function readSet(name) {
         `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
         `folder and create it again:\n` +
-        `  s3cab sets ${name} <folder>... --bucket <bucket>`,
+        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
     );
   }
   return {
@@ -251,7 +251,7 @@ export function readSet(name) {
 }
 
 const NO_SETS_MESSAGE =
-  "No backup sets configured.\nCreate one with: s3cab sets <set> <folder>...";
+  "No backup sets configured.\nCreate one with: s3cab setup <set> <folder>...";
 
 /**
  * Resolve which set a command operates on: a given name, or — per the
