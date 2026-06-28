@@ -1,194 +1,105 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtempDisposable } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { parseEnv } from "node:util";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { aws } from "./aws.mjs";
-import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
-import { readSet, writeSet } from "../lib/sets.mjs";
-import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the `aws` command. Purely local: each test points S3CAB_HOME at a
-// temp dir (useTempHome) and asserts on the bytes left in the scope's env file.
-// Profile validation reads the real ~/.aws, so the set-profile tests redirect
-// AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE at fixtures to stay deterministic.
+// Tests for the `aws` command: the *routing* (which recipe it prints) and
+// argument validation. The recipe text itself is asserted in
+// src/lib/onboarding.test.mjs; here we only check the command picks the right one
+// from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment, and prints it.
 
-const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+const ENV_VARS = [
+  "AWS_ENDPOINT_URL_S3",
+  "AWS_ENDPOINT_URL",
+  "AWS_REGION",
+  "AWS_DEFAULT_REGION",
+];
 
-/** @type {NodeJS.ProcessEnv} */
+/** @type {Record<string, string | undefined>} */
 let savedEnv;
 beforeEach(() => {
-  savedEnv = { ...process.env };
+  // Start from a known no-endpoint, no-region state; restore the host's after.
+  savedEnv = {};
+  for (const v of ENV_VARS) {
+    savedEnv[v] = process.env[v];
+    delete process.env[v];
+  }
 });
 afterEach(() => {
-  for (const key of Object.keys(process.env)) {
-    if (!(key in savedEnv)) delete process.env[key];
+  for (const v of ENV_VARS) {
+    if (savedEnv[v] === undefined) delete process.env[v];
+    else process.env[v] = savedEnv[v];
   }
-  Object.assign(process.env, savedEnv);
 });
 
 /**
- * Point the SDK's config readers at a fixture so validation is deterministic.
- * Sections need at least one key — the INI parser drops empty ones.
- * @param {string} root
- * @param {string} [body]
- */
-function useAwsConfig(
-  root,
-  body = "[profile work]\nregion = eu-west-1\n[default]\nregion = us-east-1\n",
-) {
-  const cfg = join(root, "aws-config");
-  writeFileSync(cfg, body);
-  process.env.AWS_CONFIG_FILE = cfg;
-  process.env.AWS_SHARED_CREDENTIALS_FILE = join(root, "no-credentials");
-}
-
-/**
- * Capture stdout + console.warn for one test (t.mock auto-restores).
+ * Run `aws` capturing what it writes to stdout (t.mock auto-restores).
  * @param {import("node:test").TestContext} t
+ * @param {string | undefined} name
+ * @param {object} [options]
  */
-function capture(t) {
+function run(t, name, options) {
   /** @type {string[]} */
   const out = [];
-  /** @type {string[]} */
-  const warn = [];
   t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
     out.push(String(chunk));
     return true;
   });
-  t.mock.method(console, "warn", (/** @type {unknown[]} */ ...args) => {
-    warn.push(args.join(" "));
-  });
-  return { out: () => out.join(""), warn: () => warn.join("\n") };
+  aws(name, options);
+  return out.join("");
 }
 
-describe("aws --profile", () => {
-  it("writes AWS_PROFILE to the user env for the default scope", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    useAwsConfig(dir.path);
-    const io = capture(t);
-
-    await aws(undefined, { profile: "work" });
-
-    assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "work");
-    assert.match(io.out(), /Set AWS profile 'work' for all backups/);
-    assert.equal(io.warn(), ""); // a known profile warns nothing
+describe("aws routing", () => {
+  it("prints the IAM-user recipe by default", (t) => {
+    const out = run(t, "my-backups");
+    assert.match(out, /aws iam create-user/);
   });
 
-  it("warns but still writes when the profile is unknown", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    useAwsConfig(dir.path); // only 'work' and 'default' exist
-    const io = capture(t);
-
-    await aws(undefined, { profile: "bert" });
-
-    assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "bert"); // written anyway
-    assert.match(io.warn(), /AWS profile 'bert' isn't in your AWS config/);
-    assert.match(io.warn(), /default, work/); // available profiles, sorted
+  it("prints the SSO recipe with --sso", (t) => {
+    const out = run(t, "my-backups", { sso: true });
+    assert.match(out, /aws sso login/);
+    assert.doesNotMatch(out, /aws iam create-user/);
   });
 
-  it("writes AWS_PROFILE to a named set's env, preserving its bucket", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    useAwsConfig(dir.path);
-    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    capture(t);
-
-    await aws("photos", { profile: "work" });
-
-    const env = parseEnv(readFileSync(readSet("photos").envPath, "utf8"));
-    assert.equal(env.AWS_PROFILE, "work");
-    assert.equal(env.S3CAB_BUCKET, "my-bucket"); // untouched
+  it("auto-selects the non-AWS recipe when an endpoint is set", (t) => {
+    process.env.AWS_ENDPOINT_URL_S3 = "https://acct.r2.cloudflarestorage.com";
+    const out = run(t, "my-backups");
+    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/acct\.r2/);
+    assert.doesNotMatch(out, /aws iam/);
   });
 
-  it("rejects an empty profile name, pointing at --unset", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-
-    await assert.rejects(
-      () => aws(undefined, { profile: "  " }),
-      /Give a profile name.*--unset/s,
-    );
-  });
-
-  it("rejects --profile together with --unset", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-
-    await assert.rejects(
-      () => aws(undefined, { profile: "work", unset: true }),
-      /not both/,
-    );
-  });
-
-  it("errors on an unknown set", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-
-    await assert.rejects(
-      () => aws("nope", { profile: "work" }),
-      /Unknown backup set: nope/,
-    );
+  it("lets the endpoint win over --sso (there is no SSO off AWS)", (t) => {
+    process.env.AWS_ENDPOINT_URL = "https://s3.example.test";
+    const out = run(t, "my-backups", { sso: true });
+    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/s3\.example\.test/);
+    assert.doesNotMatch(out, /aws sso login/);
   });
 });
 
-describe("aws --unset", () => {
-  it("removes the AWS_PROFILE line, preserving the bucket", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    useAwsConfig(dir.path);
-    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    capture(t);
-    await aws("photos", { profile: "work" });
+describe("aws region resolution", () => {
+  it("uses --region for the create-bucket command", (t) => {
+    const out = run(t, "my-backups", { region: "eu-west-1" });
+    assert.match(out, /LocationConstraint=eu-west-1/);
+  });
 
-    await aws("photos", { unset: true });
+  it("falls back to $AWS_REGION when --region is absent", (t) => {
+    process.env.AWS_REGION = "ap-southeast-2";
+    const out = run(t, "my-backups");
+    assert.match(out, /LocationConstraint=ap-southeast-2/);
+  });
 
-    const env = parseEnv(readFileSync(readSet("photos").envPath, "utf8"));
-    assert.equal(env.AWS_PROFILE, undefined); // gone
-    assert.equal(env.S3CAB_BUCKET, "my-bucket"); // preserved
+  it("defaults to us-east-1 (no LocationConstraint) when nothing is set", (t) => {
+    const out = run(t, "my-backups");
+    assert.match(out, /--region us-east-1/);
+    assert.doesNotMatch(out, /LocationConstraint/);
   });
 });
 
-describe("aws (show)", () => {
-  it("reports nothing set for the default scope", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    const io = capture(t);
-
-    await aws(undefined, {});
-
-    assert.match(io.out(), /No AWS profile set for all backups/);
-    assert.match(io.out(), /s3cab aws --profile <name>/); // constructive fix
+describe("aws validation", () => {
+  it("rejects a missing bucket name as a usage error", () => {
+    assert.throws(() => aws(undefined), { code: "ERR_PARSE_ARGS" });
   });
 
-  it("reports the profile and endpoint set at a scope", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    mkdirSync(dirname(userEnvPath()), { recursive: true });
-    writeFileSync(
-      userEnvPath(),
-      "AWS_PROFILE=work\nAWS_ENDPOINT_URL=https://example.r2\n",
-    );
-    const io = capture(t);
-
-    await aws(undefined, {});
-
-    assert.match(io.out(), /profile: work/);
-    assert.match(io.out(), /endpoint: https:\/\/example\.r2/);
-  });
-
-  it("reports a set with no override falls back to the user default", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    const io = capture(t);
-
-    await aws("photos", {});
-
-    assert.match(io.out(), /uses the user default/);
-    assert.match(io.out(), /s3cab aws --profile <name> photos/); // set-scoped fix
+  it("rejects a malformed bucket name (a path, not a bare name)", () => {
+    assert.throws(() => aws("my/prefix"), { name: "ValidationError" });
   });
 });

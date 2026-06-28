@@ -59,7 +59,7 @@ function runWithHome(home, ...args) {
 }
 
 /**
- * Create a local backup set directly on disk, without running `setup`. `setup`
+ * Create a local backup set directly on disk, without running `sets`. `sets`
  * now requires a bucket and touches S3 (the collision claim, ADR-0024/0026), so
  * the offline-engine e2e cases (tree/snapshot/list/sets) seed the set's files —
  * the set store *is* those files — instead of going online.
@@ -120,10 +120,10 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
-  it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
+  it("sets without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
     // Creating a set now requires a bucket and touches S3 (the collision claim,
     // ADR-0024/0026); the full create → backup → list cloud round-trip is
-    // covered by the gated lib tests (S3CAB_TEST_BUCKET). Offline, `setup`
+    // covered by the gated lib tests (S3CAB_TEST_BUCKET). Offline, `sets`
     // without --bucket must fail fast with the usage error, before any S3 touch.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
@@ -131,7 +131,7 @@ describe("cli (e2e)", () => {
     mkdirSync(home);
     mkdirSync(data);
 
-    const { status, stderr } = runWithHome(home, "setup", "files", data);
+    const { status, stderr } = runWithHome(home, "sets", "files", data);
     assert.strictEqual(status, 2); // usage error (missing required option)
     assert.match(stderr, /Missing required argument: --bucket/);
   });
@@ -151,14 +151,14 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /photos\s+→ s3:\/\/my-bucket\s+\(1 folder\)/);
   });
 
-  it("setup rejects an invalid set name with the rule and a suggestion", async () => {
+  it("sets rejects an invalid set name with the rule and a suggestion", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     const photos = join(dir.path, "photos");
     mkdirSync(home);
     mkdirSync(photos);
 
-    const { status, stderr } = runWithHome(home, "setup", "My Photos", photos);
+    const { status, stderr } = runWithHome(home, "sets", "My Photos", photos);
 
     assert.strictEqual(status, 2); // bad input value (validation error)
     assert.match(stderr, /lowercase letters, digits, and hyphens/);

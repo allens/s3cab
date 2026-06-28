@@ -17,17 +17,17 @@ the `snapshots/` remote half and the cloud porcelain: the remote repository engi
 `remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
 `objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
 added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and machine
-succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --output`
+succession (`sets --inherit`, via the remote `sets/<set>/` marker). `restore --output`
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
 Remaining target: slice 5 (`verify`/`delete`/`cleanup`). (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
-stays local-only, and `setup --inherit` instead syncs the set's manifests down so local
+stays local-only, and `sets --inherit` instead syncs the set's manifests down so local
 `compare` works on a fresh machine.)
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
-identity, flattened `snapshots/<set>/`, `setup` collision check + `--inherit`, the
-`sets/<set>/` marker, bucket-required setup, and the single-tier set resolver) —
+identity, flattened `snapshots/<set>/`, the `sets` collision check + `--inherit`, the
+`sets/<set>/` marker, bucket-required set creation, and the single-tier set resolver) —
 [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md),
 [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md), and
 [ADR-0026](../adr/0026-bucket-required-at-setup.md). The detail sections below describe that
@@ -47,7 +47,7 @@ landed model.
 ## Purpose
 
 Define s3cab's unit of backup (the **backup set**), its on-disk configuration, the
-remote repository format, and the behaviour of the `setup`/`backup` commands. Format
+remote repository format, and the behaviour of the `sets`/`backup` commands. Format
 decisions are commitments: per [ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md) (no lock-in), the stored layouts —
 local *and* remote — are the contract a hand-recoverer or replacement tool relies on.
 
@@ -119,39 +119,11 @@ sets exist and none is named, the error lists them. `tree [<set>]` becomes "exac
 a snapshot of this set would include", sharpening its diagnostic role. The file/bucket
 diagnostics (`prop`, `hashes`, `upload`) are unchanged.
 
-### `setup` — the front door
+### `sets` — the front door
 
-```
-s3cab setup <set> <dir>... --bucket <bucket>
-s3cab setup <set> --inherit --bucket <bucket>
-```
-
-**`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
-bound to its bucket at creation, and `setup` always touches S3 to run the collision check —
-there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree` still
-work after a one-time online setup; only `setup` itself needs connectivity.) The three modes:
-
-- **Create** (`setup <name> <dir>... --bucket <b>`): collision-check the remote
-  `sets/<name>/` marker; if it already exists, error naming the owning machine and
-  suggesting `--inherit`; otherwise claim the marker (a conditional PUT — first writer wins),
-  write the local set, and publish its `dirs.txt`/`exclude.txt` to the marker.
-- **Inherit / succession** (`setup <name> --inherit --bucket <b>`): the path for a
-  replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
-  `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
-  no folders (they come from the remote). For machine retirement/replacement or DR only.
-- **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
-  folders and re-publish the config; the bucket is fixed at creation (re-binding to a
-  different bucket — migration — isn't supported yet).
-
-Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
-OneDrive-synced folder, where both hold the same content so the interleaving is benign):
-`--inherit` never disables the prior machine — re-stamping the owner is its only remote
-change. An interactive wizard may later wrap this one-shot form; it is not part of v1.
-
-### `sets` — the lister
-
-Shows every set with its directories and bucket binding — the discoverability
-counterpart of "files are the API", and what error messages point at:
+`s3cab sets` owns the whole backup-set lifecycle ([ADR-0035](../adr/0035-aws-profile-sets-command-rationalization.md)).
+With **no set named** it lists what you have — the discoverability counterpart of "files
+are the API", and what error messages point at:
 
 ```
 > s3cab sets
@@ -161,6 +133,36 @@ photos   → s3://my-backup-bucket   (2 folders)
 docs     → s3://my-backup-bucket   (1 folder)
            C:\Users\me\Documents
 ```
+
+With a set **named**, it creates, updates, or inherits that set:
+
+```
+s3cab sets <set> <dir>... --bucket <bucket>
+s3cab sets <set> --inherit --bucket <bucket>
+```
+
+**`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
+bound to its bucket at creation, and creating a set always touches S3 to run the collision
+check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`
+still work after a one-time online set-up; only creating or updating a set needs
+connectivity.) The three lifecycle modes:
+
+- **Create** (`sets <name> <dir>... --bucket <b>`): collision-check the remote
+  `sets/<name>/` marker; if it already exists, error naming the owning machine and
+  suggesting `--inherit`; otherwise claim the marker (a conditional PUT — first writer wins),
+  write the local set, and publish its `dirs.txt`/`exclude.txt` to the marker.
+- **Inherit / succession** (`sets <name> --inherit --bucket <b>`): the path for a
+  replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
+  `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
+  no folders (they come from the remote). For machine retirement/replacement or DR only.
+- **Update** (`sets <name> [<dir>...]` on a set you already have): refresh the member
+  folders and re-publish the config; the bucket is fixed at creation (re-binding to a
+  different bucket — migration — isn't supported yet).
+
+Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
+OneDrive-synced folder, where both hold the same content so the interleaving is benign):
+`--inherit` never disables the prior machine — re-stamping the owner is its only remote
+change. An interactive wizard may later wrap this one-shot form; it is not part of v1.
 
 ### `backup` — porcelain semantics
 
@@ -263,7 +265,7 @@ Snapshots are **folder-per-set** (`snapshots/<set>/…`), not a flat
 and would prefix-collide with another set (`work-laptop` vs `work-laptop-backup`). The set
 name is a single `[a-z0-9-]+` segment, so it needs no escaping anywhere in these keys.
 
-The `sets/<set>/` marker is written at `setup`: `info` (the atomic claim token + advisory
+The `sets/<set>/` marker is written when a set is created: `info` (the atomic claim token + advisory
 owner/created fields) doubles as the collision-registration marker — a set with no snapshots
 yet would otherwise be invisible — and `dirs.txt`/`exclude.txt` are pushed for the
 **full-DR** story (point a fresh machine at the bucket, `--inherit`, and the set config comes
@@ -397,7 +399,7 @@ choice:
   negligible. The name `cleanup` is consumer vocabulary on purpose (not `gc`/`prune`).
 - **First command to need `DeleteObject`.** Everything else needs only Put/Get/List —
   keep it that way. Everyday backup credentials should not carry delete rights (limits
-  the ransomware blast radius); cleanup runs under elevated ones. `setup`'s eventual
+  the ransomware blast radius); cleanup runs under elevated ones. The `aws` command's
   policy helper should encode this split.
 - **Versioned buckets (document only — decided):** s3cab neither requires nor manages
   bucket versioning / Object Lock. User docs will recommend enabling versioning as
@@ -420,7 +422,7 @@ time) — recorded as an open item.
   as CRC64NVME may be the workable variant.)
 - **Retention policy automation** — keep-last/daily/weekly/monthly rules on top of the
   `delete` primitive; design after real usage shows the shapes people need.
-- **Interactive `setup` wizard** — explicitly post-milestone; the one-shot form plus
+- **Interactive `sets` wizard** — explicitly post-milestone; the one-shot form plus
   good error messages is v1.
 - **auth.md update** — the dir env layer becomes the set layer when implemented.
 - **Doc updates at implementation** — README "How it works" (local layout moves to

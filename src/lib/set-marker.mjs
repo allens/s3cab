@@ -10,7 +10,7 @@ import { deleteObject, getData, listObjects, putData } from "./s3.mjs";
 //   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (ISO minute)
 //
 // `info` doubles as the collision-registration marker and the atomic claim token:
-// `setup` claims a name by conditional-PUTting `info` (first writer wins), and the
+// `sets` claims a name by conditional-PUTting `info` (first writer wins), and the
 // presence of `info` is how the collision check and `--inherit` learn a name is
 // taken. The set name is canonical `[a-z0-9-]+` (validateSetName), so it is a safe
 // key segment with no escaping. The set `env` is NEVER pushed here (it may hold
@@ -101,7 +101,7 @@ export async function writeRemoteInfo(bucket, set, info) {
  * Push a set's config to its remote marker for the full-DR story, **mirroring
  * the local set**: `dirs.txt` always, and `exclude.txt` only when the set has
  * one — when it doesn't (`exclude` undefined), any stale remote `exclude.txt` is
- * **deleted**, so removing `exclude.txt` locally and re-running `setup` can't
+ * **deleted**, so removing `exclude.txt` locally and re-running `sets` can't
  * leave one behind for `--inherit` to resurrect. Plain overwrites — the caller
  * owns the set (it won the claim or inherited it).
  * @param {string} bucket

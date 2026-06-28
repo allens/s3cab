@@ -17,9 +17,9 @@
 // URLs before release.
 /** @type {Record<string, string>} */
 export const helpTopics = {
-  bucket: `Setting up a cloud bucket
+  aws: `Setting up a cloud bucket
 
-'s3cab bucket <bucket>' prints the exact steps to stand up an S3 bucket as
+'s3cab aws <bucket>' prints the exact steps to stand up an S3 bucket as
 a backup destination, plus a locked-down identity for s3cab to use. It only
 PRINTS commands — it never touches your account and needs no credentials to
 run, so you can read the whole plan first.
@@ -30,7 +30,7 @@ It walks you through three things:
   2. a least-privilege policy: list + read/write/soft-delete on this bucket
      only. The everyday identity can add to and tweak your backup but can NEVER
      permanently destroy its history — versioning is the backstop;
-  3. how to point s3cab at the new identity ('s3cab aws --profile <name>').
+  3. how to point s3cab at the new identity ('s3cab profile --profile <name>').
 
 Choosing an identity:
   (default)  a dedicated AWS IAM user — simplest if you don't use SSO
@@ -41,12 +41,12 @@ Choosing an identity:
              AWS_ENDPOINT_URL) and you get provider-neutral steps plus a
              ready-to-paste ~/.s3cab/env template
 
-  s3cab bucket my-backups --region eu-west-1 --profile admin
+  s3cab aws my-backups --region eu-west-1 --profile admin
 
 Then create a backup set in it:
-  s3cab setup <name> <folder>... --bucket my-backups
+  s3cab sets <name> <folder>... --bucket my-backups
 
-Full guide: https://github.com/allens/s3cab/blob/main/guide/bucket.md`,
+Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
 
   auth: `Authentication
 
@@ -54,10 +54,10 @@ s3cab resolves credentials in this order:
 
 1. s3cab loads its own env files first, if present. These set AWS_*
    variables — a profile, region, endpoint, or keys (set a profile easily
-   with 's3cab aws --profile <name>'). Highest precedence first (a file
+   with 's3cab profile --profile <name>'). Highest precedence first (a file
    always beats the shell):
      ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
-                              overrides (written by 's3cab setup'; applies as
+                              overrides (written by 's3cab sets'; applies as
                               the set-based commands arrive with backup)
      ~/.s3cab/env             per-user defaults - the base layer under the set,
                               where auth lives for the common single-bucket case
@@ -72,7 +72,7 @@ s3cab resolves credentials in this order:
    these options.
 
 Supported options:
-  - Quickest: 's3cab aws --profile <name>' points s3cab at an AWS profile
+  - Quickest: 's3cab profile --profile <name>' points s3cab at an AWS profile
     (writes AWS_PROFILE to ~/.s3cab/env; add a set name to scope it to one set)
   - Existing AWS profile / AWS_PROFILE (for AWS IAM Identity Center,
     run 'aws sso login' first — s3cab picks the session up)

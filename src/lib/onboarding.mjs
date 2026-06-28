@@ -1,11 +1,11 @@
 import { bucketPolicy } from "./s3.mjs";
 
-// Generates the cloud-onboarding plan the `bucket` command prints: the exact
+// Generates the cloud-onboarding plan the `aws` command prints: the exact
 // `aws` CLI commands plus policy/lifecycle JSON a user runs to stand up an S3
 // backup destination and a least-privilege identity for s3cab. Pure text — no
 // AWS calls, no I/O — which is what makes the command generative (ADR-0032) and
 // unit-testable without a client (src/lib/onboarding.test.mjs). The command
-// (src/commands/bucket.mjs) resolves region/profile/endpoint and prints what
+// (src/commands/aws.mjs) resolves region/profile/endpoint and prints what
 // these return; the JSON is `bucketPolicy()` (the same source the test docs
 // reference) and `backupLifecycle()` below.
 
@@ -98,7 +98,7 @@ const bucketSteps = (bucket, region, pf) => [
  */
 const nextStep = (bucket) =>
   `Next — create a backup set in this bucket:\n` +
-  `   s3cab setup <name> <folder>... --bucket ${bucket}`;
+  `   s3cab sets <name> <folder>... --bucket ${bucket}`;
 
 /**
  * The default onboarding recipe: a dedicated **IAM user** scoped to this bucket
@@ -127,7 +127,7 @@ export function awsIamPlan({ bucket, region, profile }) {
 
     `5. Point s3cab at the new key (paste the key + secret from step 4):\n` +
       `   aws configure --profile s3cab\n` +
-      `   s3cab aws --profile s3cab`,
+      `   s3cab profile --profile s3cab`,
 
     nextStep(bucket),
 
@@ -170,7 +170,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
 
     `5. Refresh your session and point s3cab at your profile:\n` +
       `   aws sso login --profile <your-sso-profile>\n` +
-      `   s3cab aws --profile <your-sso-profile>`,
+      `   s3cab profile --profile <your-sso-profile>`,
 
     `--- Advanced: a dedicated s3cab-only identity ---\n\n` +
       `For tighter scope, give s3cab its own permission set instead of reusing\n` +
@@ -182,7 +182,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
       `  3. Add an SSO profile for it, then sign in:\n` +
       `     aws configure sso          # pick the s3cab-backup permission set\n` +
       `     aws sso login --profile s3cab\n` +
-      `     s3cab aws --profile s3cab\n\n` +
+      `     s3cab profile --profile s3cab\n\n` +
       `CLI appendix (if you manage Identity Center from the command line —\n` +
       `substitute the <placeholder> ARNs from your account; they can't be\n` +
       `pre-filled):\n` +

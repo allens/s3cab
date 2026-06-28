@@ -105,7 +105,7 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
  * correct and avoids needless decompress-then-recompress.
  *
- * This is what lets `compare`/`list`/`restore` stay local-only: `setup --inherit`
+ * This is what lets `compare`/`list`/`restore` stay local-only: `sets --inherit`
  * calls it so a fresh machine lands with full local history, instead of growing a
  * remote-reading variant of every browse command (ADR-0027). It streams
  * (bounded memory) and writes each file atomically, so a mid-pull failure leaves

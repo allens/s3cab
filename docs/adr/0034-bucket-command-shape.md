@@ -1,5 +1,12 @@
 # The `bucket` command: a separate, generative cloud-onboarding command
 
+> **Command name superseded by [0035](0035-aws-profile-sets-command-rationalization.md)**
+> (accepted): the cloud-onboarding command described here is now **`s3cab aws`**. Its
+> separateness, generative posture, and flags below all stand unchanged — only the
+> "## The name `bucket`" section's naming argument is what 0035 replaces. The `bucket`
+> form throughout this ADR (and the then-current `s3cab aws`/`s3cab setup` in its compose
+> example, now `s3cab profile`/`s3cab sets`) is the *historical* naming.
+
 `s3cab bucket <bucket>` prints the steps to stand up an S3 bucket as a backup destination plus
 a least-privilege identity for s3cab. This ADR records its *shape* — name, where it sits among
 the commands, and its flags — which are not obvious from the code. Its two other pillars have

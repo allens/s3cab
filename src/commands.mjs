@@ -1,13 +1,12 @@
 import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
-import { bucket } from "./commands/bucket.mjs";
 import { compare } from "./commands/compare.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
+import { profile } from "./commands/profile.mjs";
 import { prop } from "./commands/prop.mjs";
 import { restore } from "./commands/restore.mjs";
 import { sets } from "./commands/sets.mjs";
-import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
 import { status } from "./commands/status.mjs";
 import { sep } from "node:path";
@@ -98,11 +97,12 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
 
   // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
-  setup: {
+  sets: {
     group: "Backup sets",
-    summary: "Create, update, or inherit a backup set",
+    summary: "List, create, update, or inherit backup sets",
     args: {
-      "<set>": "The set's name (lowercase letters, digits, and hyphens)",
+      "[<set>]":
+        "The set to create, update, or inherit (omit to list your sets)",
       "[<folder>...]":
         "The folders that make up the set (required when creating)",
     },
@@ -119,33 +119,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
       },
     },
-    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
-  },
-  sets: {
-    summary: "List your backup sets",
-    exec: () => sets(),
+    exec: (options, [name, ...folders] = []) => sets(name, folders, options),
   },
   aws: {
-    summary: "Set, clear, or show the AWS profile s3cab uses",
-    args: {
-      "[<set>]":
-        "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
-    },
-    options: {
-      profile: {
-        type: "string",
-        short: "p",
-        description:
-          "The AWS profile to use (from your ~/.aws config); omit to show the current setting",
-      },
-      unset: {
-        type: "boolean",
-        description: "Remove the configured AWS profile",
-      },
-    },
-    exec: (options, [set] = []) => aws(set, options),
-  },
-  bucket: {
     summary: "Show the steps to set up an S3 bucket for backups",
     args: {
       "<bucket>": "The S3 bucket name to set up as a backup destination",
@@ -168,7 +144,27 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "The bucket's AWS region (default: $AWS_REGION / $AWS_DEFAULT_REGION, else us-east-1)",
       },
     },
-    exec: (options, [name] = []) => bucket(name, options),
+    exec: (options, [name] = []) => aws(name, options),
+  },
+  profile: {
+    summary: "Set, clear, or show the AWS profile s3cab uses",
+    args: {
+      "[<set>]":
+        "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
+    },
+    options: {
+      profile: {
+        type: "string",
+        short: "p",
+        description:
+          "The AWS profile to use (from your ~/.aws config); omit to show the current setting",
+      },
+      unset: {
+        type: "boolean",
+        description: "Remove the configured AWS profile",
+      },
+    },
+    exec: (options, [set] = []) => profile(set, options),
   },
   backup: {
     summary: "Back up a set to the cloud",

@@ -1,5 +1,12 @@
 # `s3cab aws`: a profile-config door, with read-only `~/.aws` validation
 
+> **Command name superseded by [0035](0035-aws-profile-sets-command-rationalization.md)**
+> (accepted): the profile-config door described here is now **`s3cab profile`** — the
+> rename freed `aws` for the cloud-onboarding command. Only the command's *name* moved;
+> every decision below (a focused door not a general `config`, read-only `~/.aws`
+> validation, the always-on notice, explicit scope) stands. The `s3cab aws` form
+> throughout this ADR is the *historical* name.
+
 `s3cab aws` is a small, focused command for pointing s3cab at an AWS profile —
 writing `AWS_PROFILE` into s3cab's own env files (`~/.s3cab/env` for the user-wide
 default, or a set's `env` for a per-set override), showing the current setting, or

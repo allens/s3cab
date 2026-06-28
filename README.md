@@ -54,9 +54,8 @@ them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
-| `s3cab bucket <bucket>`       | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/bucket.md)). |
-| `s3cab setup <set> <folder>…` | Create or update a **backup set** (`--bucket` binds its cloud destination).   |
-| `s3cab sets`                  | List your backup sets, their folders, and where they back up to.              |
+| `s3cab aws <bucket>`          | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
+| `s3cab sets [<set> <folder>…]` | List your backup sets — or create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List a set's snapshots — or its cloud backups with `--remote`.                |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
@@ -80,7 +79,7 @@ back to the locations they were backed up from; pass `--output <dir>` to recover
 folder you choose instead (each backed-up folder lands as `<dir>/<folder-name>/…`), which is
 how you restore a backup whose original paths don't fit this machine — a different drive
 layout, or another OS. To recover onto a **fresh machine**, re-create the set pointed at the
-existing backup — `s3cab setup <set> --inherit --bucket <bucket>` — then `restore`.
+existing backup — `s3cab sets <set> --inherit --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
 and `upload`, also work already — advanced building blocks covered under
@@ -150,14 +149,14 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
 1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, or an endpoint —
    including some S3-compatible providers). Highest precedence first, a file always beating
    the shell:
-   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
+   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab sets` records the set's
      bucket; add per-set auth overrides here). It takes effect as the set-based commands arrive
      with `backup`;
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
      lives for the common single-bucket case.
 
    (s3cab does **not** read a `.env` from the current directory.) The quickest way to set your
-   profile is **`s3cab aws --profile <name>`** — it writes `AWS_PROFILE` to `~/.s3cab/env` for
+   profile is **`s3cab profile --profile <name>`** — it writes `AWS_PROFILE` to `~/.s3cab/env` for
    you (add a set name to scope it to one set, e.g. a set backing up to a different AWS account).
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
    sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
@@ -171,7 +170,7 @@ the session up automatically through the standard chain.
 
 ```console
 # Create a backup set (a name plus the folders it contains):
-> s3cab setup photos C:\Users\me\Photos
+> s3cab sets photos C:\Users\me\Photos
 
 # Snapshot the set. With only one set, you can leave its name out:
 > s3cab snapshot
@@ -252,7 +251,7 @@ Pick whichever suits you — all three run the same tool:
 
   ```console
   > npm install -g s3cab
-  > s3cab setup photos C:\Users\me\Photos
+  > s3cab sets photos C:\Users\me\Photos
   > s3cab snapshot
   ```
 

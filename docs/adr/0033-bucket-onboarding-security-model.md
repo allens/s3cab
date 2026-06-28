@@ -1,6 +1,6 @@
 # Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
 
-The `bucket` command (and the AWS path of `setup`) sets a user up with an everyday cloud
+The `aws` command (and the AWS path of `sets`) sets a user up with an everyday cloud
 identity and a bucket configured so the pair has the property a backup tool should have: **a
 leaked everyday key can add to your backup and tweak its own set markers, but can never
 *permanently destroy* your content or history.** This ADR records how that property is
@@ -8,7 +8,7 @@ achieved, because the choices (why `DeleteObject` is granted at all, why per-pre
 *not* used) are not obvious from the policy JSON alone.
 
 The least-privilege policy is `bucketPolicy()` in [src/lib/s3.mjs](../../src/lib/s3.mjs) — the
-single source of truth, emitted by `s3cab bucket` and referenced by
+single source of truth, emitted by `s3cab aws` and referenced by
 [docs/integration-testing.md](../integration-testing.md) §1.
 
 ## 1. One everyday identity, explicit-verb least privilege

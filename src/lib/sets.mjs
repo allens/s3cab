@@ -67,7 +67,7 @@ function readTextFile(path) {
 
 /**
  * Read a set's local `exclude.txt` verbatim, or `undefined` if it has none —
- * what `setup` pushes to the remote marker and `--inherit` writes back. Verbatim
+ * what `sets` pushes to the remote marker and `--inherit` writes back. Verbatim
  * (not parsed) because the exclude file is the user's to read and edit, and is
  * stored on the remote byte-for-byte (set-marker.mjs).
  * @param {string} name
@@ -119,7 +119,7 @@ export function validateSetName(name) {
 }
 
 /**
- * Validate a user-supplied bucket name at `setup` time — a fail-fast guard
+ * Validate a user-supplied bucket name when a set is created — a fail-fast guard
  * against the two natural mistakes (deferred from PR #33): pasting an `s3://`
  * URL, or a path/prefix rather than a bare bucket. One s3cab repository is one
  * whole bucket (CLAUDE.md), so the name must be a single segment.
@@ -193,7 +193,7 @@ export function listSets() {
  * @typedef {Object} BackupSet
  * @property {string} name - The local handle, local folder name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
- * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at `setup` (ADR-0026), so this is never absent — `readSet` enforces it.
+ * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at creation (ADR-0026), so this is never absent — `readSet` enforces it.
  * @property {string} snapshotsDir - The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` (derived from `name`)
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
  * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
@@ -202,7 +202,7 @@ export function listSets() {
 /**
  * Read one set's configuration from its folder.
  *
- * Every set is bound to a bucket at `setup` (ADR-0026), so this is the single
+ * Every set is bound to a bucket at creation (ADR-0026), so this is the single
  * point that enforces the invariant: a set folder whose `env` is missing
  * `S3CAB_BUCKET` is *corrupt* (hand-edited, or a pre-redesign local-only folder),
  * not a supported "local-only" set, and is rejected here. Guaranteeing the bucket
@@ -235,7 +235,7 @@ export function readSet(name) {
         `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
         `folder and create it again:\n` +
-        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
+        `  s3cab sets ${name} <folder>... --bucket <bucket>`,
     );
   }
   return {
@@ -249,7 +249,7 @@ export function readSet(name) {
 }
 
 const NO_SETS_MESSAGE =
-  "No backup sets configured.\nCreate one with: s3cab setup <set> <folder>...";
+  "No backup sets configured.\nCreate one with: s3cab sets <set> <folder>...";
 
 /**
  * Resolve which set a command operates on: a given name, or — per the
@@ -298,7 +298,7 @@ export function formatSets(sets) {
 /**
  * Create or update a set: write `dirs.txt` when dirs are given, and bind the
  * bucket when given. Member dirs are stored as passed — resolving/validating
- * them is the `setup` command's job. The set's identity is just its `name`
+ * them is the `sets` command's job. The set's identity is just its `name`
  * (ADR-0024), so there is nothing to pin: creating and updating run the same path.
  * @param {string} name - A valid set name (see `validateSetName`)
  * @param {object} [pieces]
