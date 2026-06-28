@@ -97,31 +97,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     exec: (_options, [set] = []) => status(set),
   },
 
-  // ── Backup sets (docs/specs/backup.md) — restore/verify still to come ─
-  setup: {
-    group: "Backup sets",
-    summary: "Create, update, or inherit a backup set",
-    args: {
-      "<set>": "The backup set to create, update, or inherit",
-      "[<folder>...]":
-        "The folders that make up the set (required when creating)",
-    },
-    options: {
-      bucket: {
-        type: "string",
-        short: "b",
-        description:
-          "The S3 bucket to back this set up to (required when creating)",
-      },
-      inherit: {
-        type: "boolean",
-        description:
-          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
-      },
-    },
-    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
-  },
+  // ── Setup: provision the cloud, point at credentials, define a set ─────
+  // The onboarding order (ADR-0036): aws → profile → setup → backup.
   aws: {
+    group: "Setup",
     summary: "Show the steps to set up an S3 bucket for backups",
     args: {
       "<bucket>": "The S3 bucket name to set up as a backup destination",
@@ -166,7 +145,32 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     },
     exec: (options, [set] = []) => profile(set, options),
   },
+  setup: {
+    summary: "Create, update, or inherit a backup set",
+    args: {
+      "<set>": "The backup set to create, update, or inherit",
+      "[<folder>...]":
+        "The folders that make up the set (required when creating)",
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description:
+          "The S3 bucket to back this set up to (required when creating)",
+      },
+      inherit: {
+        type: "boolean",
+        description:
+          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
+      },
+    },
+    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+  },
+
+  // ── Backup & restore (docs/specs/backup.md) — verify still to come ─────
   backup: {
+    group: "Backup & restore",
     summary: "Back up a set to the cloud",
     args: { "[<set>]": "The backup set to back up (default: the only set)" },
     options: {
