@@ -23,7 +23,7 @@ rather than renaming it.
 
 This is reasoned under the project's two UX references (see CLAUDE.md → coding conventions): the
 **Command Line Interface Guidelines** ([clig.dev](https://clig.dev)) for command *shape*, and the
-Nielsen Norman Group error-message guidelines ([0030](0030-error-message-guidelines.md)) for
+in-house error-message standard ([0030](0030-error-message-guidelines.md)) for
 message *wording*.
 
 ## Decision

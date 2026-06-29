@@ -1,38 +1,44 @@
-# Error messages follow the Nielsen Norman Group guidelines
+# Error messages follow Nielsen's usability heuristic #9
 
-Every error or failure message s3cab shows to a user is written to a fixed standard: the
-**Nielsen Norman Group's "Error-Message Guidelines"** (the UX field's canonical checklist),
-adapted for a CLI by the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev),
-whose rule is *"catch errors and rewrite them for humans"*). This applies to the message text
-of every `throw new Error(...)` / `throw new ParseArgsError(...)` and every user-facing
-`console.warn`/`console.error` — not internal invariants that "can't happen" or programmer
-errors (a bad `s3://` URI shape, a failed type assumption), which are bug signals, not user
-guidance.
+s3cab writes every user-facing error or failure message to **Nielsen's usability heuristic
+#9**, quoted here in full as our standard:
+
+> **Help users recognize, diagnose, and recover from errors.** Error messages should be
+> expressed in plain language (no error codes), precisely indicate the problem, and
+> constructively suggest a solution.
+
+— Jakob Nielsen, *[10 Usability Heuristics for User Interface
+Design](https://www.nngroup.com/articles/ten-usability-heuristics/)* (Nielsen Norman Group).
+
+This applies to the message text of every `throw new Error(...)` / `throw new
+ParseArgsError(...)` and every user-facing `console.warn`/`console.error` — not internal
+invariants that "can't happen" or programmer errors (a bad `s3://` URI shape, a failed type
+assumption), which are bug signals, not user guidance.
 
 ## Why
 
 Transparency is a core project value ([0002](0002-no-lock-in-hard-constraint.md)): a backup
 tool earns trust partly by failing *legibly*. A message that names an internal artifact and
 stops ("`has no bucket bound (missing S3CAB_BUCKET in …/env)`") tells a user *what tripped*
-but not *what they were trying to do that failed* or *how to get unstuck*. The NN/g criteria
-turn taste into a checklist anyone can apply in review, so message quality stops being
-re-argued per PR.
+but not *what they were trying to do that failed* or *how to get unstuck*. Holding every
+message to one published principle turns taste into a checklist anyone can apply in review,
+so message quality stops being re-argued per PR.
 
-## The standard
+## Applying it in s3cab
 
-A good message meets all five NN/g criteria:
+The heuristic's three parts, in CLI terms:
 
-1. **Explicit** — state plainly that something failed, and what.
-2. **Human-readable** — plain language; **no codes or jargon in the headline.** Internal
-   identifiers (env-var names, file paths, S3 keys) are *diagnostic detail*, not the lead —
-   put them in a parenthetical or a follow-up line, never the first thing the user reads.
-3. **Polite** — describe the situation, don't blame the user ("You need to delete…" → "Remove…").
-4. **Precise** — frame the problem in terms of the user's **goal**, not an internal field.
-   "has no bucket to back up to" beats "is missing its bucket": the first says what the user
-   can't do, the second names a struct property.
-5. **Constructive** — say how to fix it, concretely. When the fix is a command, give the exact
-   one, copy-pasteable, with the values you know filled in (e.g. the set name) and clear
-   placeholders like `<bucket>` only where the value genuinely isn't available.
+1. **Plain language (no error codes)** — a human-readable headline, no codes or jargon.
+   Internal identifiers (env-var names, file paths, S3 keys) are *diagnostic detail*, not the
+   lead — put them in a parenthetical or a follow-up line, never the first thing the user
+   reads. Describe, don't blame ("You need to delete…" → "Remove…").
+2. **Precisely indicate the problem** — frame it by the user's **goal**, not an internal
+   field. "has no bucket to back up to" beats "is missing its bucket": the first says what the
+   user can't do, the second names a struct property.
+3. **Constructively suggest a solution** — say how to fix it, concretely. When the fix is a
+   command, give the exact one, copy-pasteable, with the values you know filled in (e.g. the
+   set name) and clear placeholders like `<bucket>` only where the value genuinely isn't
+   available.
 
 ### House shape
 
@@ -54,7 +60,7 @@ the parenthetical; the two fixes are explicit and the command is exact.
 ## Consequences
 
 - The `/review` Standards axis and Copilot review ([.github/copilot-instructions.md](../../.github/copilot-instructions.md))
-  check new/changed user-facing messages against the five criteria, the same way they check
+  check new/changed user-facing messages against the heuristic, the same way they check
   test coverage ([0020](0020-coverage-review-not-gate.md)) — by reading the diff, not a linter.
   A jargon-first headline or a dead-end message (no fix) is a review finding.
 - No machinery is added to enforce this ([0006](0006-minimal-code.md)): it is a writing
