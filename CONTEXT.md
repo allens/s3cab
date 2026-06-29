@@ -25,6 +25,13 @@ The lowercase-hex SHA-256 of a whole file's contents. It is the file's identity 
 name of its object.
 _Avoid_: digest, checksum, SHA.
 
+**File properties** (**Props**):
+The triple a snapshot records for one file — its content **hash**, byte **size**, and
+modification time (**mtime**). Computed by `fileProps` (and the `prop` command over it) from
+the file on disk; an unchanged file (same size and mtime as a previous snapshot) reuses its
+stored hash rather than re-hashing. The per-file unit a **snapshot** row stores.
+_Avoid_: stat, metadata, attributes, file info.
+
 **Object**:
 A single stored file's contents, named by its hash, living at `objects/<hash>` in a
 repository.
