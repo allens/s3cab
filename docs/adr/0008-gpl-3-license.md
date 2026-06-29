@@ -1,5 +1,7 @@
 # GPL-3.0-or-later license
 
+**Status:** accepted
+
 s3cab is licensed **GPL-3.0-or-later**, chosen on purpose to keep derivatives open. The
 LICENSE file is the verbatim FSF text — leave it untouched.
 

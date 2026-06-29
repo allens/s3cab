@@ -1,5 +1,7 @@
 # LF line endings; Prettier formats code only, Markdown excluded
 
+**Status:** accepted
+
 Line endings are normalised to **LF** via [.gitattributes](../../.gitattributes)
 (`* text=auto eol=lf`), and Prettier formats **code only** — Markdown is excluded via
 [.prettierignore](../../.prettierignore).

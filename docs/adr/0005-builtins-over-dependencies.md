@@ -1,5 +1,7 @@
 # Built-ins over dependencies
 
+**Status:** accepted
+
 Prefer Node/JS built-ins; the bar to add a third-party dependency is high and applies to
 runtime deps, CLI ergonomics, and dev tooling alike. Arg parsing → `node:util` `parseArgs`,
 not commander. Terminal output → plain ANSI / `process.stderr`, not chalk. Tests → `node:test`,

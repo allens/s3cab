@@ -1,5 +1,7 @@
 # Contributions take a CLA, not a DCO
 
+**Status:** accepted
+
 Contributions require a **CLA** ([CLA.md](../../CLA.md) — Project Harmony HA-CLA-I v1.0,
 "any-licence" outbound variant), not a DCO `Signed-off-by`. The onboarding flow and
 one-comment sign-off live in [CONTRIBUTING.md](../../CONTRIBUTING.md).

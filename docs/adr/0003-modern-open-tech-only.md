@@ -1,5 +1,7 @@
 # Target modern tech, but only open standards
 
+**Status:** accepted
+
 Deliberately target the newest OS, runtime, and language features — **provided they are
 standard and open**. Modern ≠ proprietary. The project happily requires recent tech (see
 `engines.node`), but only open, widely-implemented tech.

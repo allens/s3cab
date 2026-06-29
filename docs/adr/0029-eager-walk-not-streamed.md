@@ -1,5 +1,7 @@
 # The walk materializes the full file set up front; it is not streamed into hashing
 
+**Status:** accepted
+
 `walkSet(set) → { files, excluded }` in [`src/lib/walk.mjs`](../../src/lib/walk.mjs) walks every
 member directory to completion and returns the **whole** kept-file list as a materialized array,
 which `snapshot` then feeds into the hashing pipeline. The walk is deliberately **eager**: it is

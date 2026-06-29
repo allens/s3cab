@@ -1,5 +1,7 @@
 # Test coverage is judged by review, not a CI percentage gate
 
+**Status:** accepted
+
 Good, *asserting* tests for new or changed behaviour are a per-PR obligation, checked by
 **reading the diff** (the `/review` skill's Standards axis, and Copilot review via
 [.github/copilot-instructions.md](../../.github/copilot-instructions.md)) — not by a CI

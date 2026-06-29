@@ -1,8 +1,6 @@
----
-status: proposed
----
-
 # Plain JavaScript, typed via JSDoc
+
+**Status:** proposed
 
 Source is plain JS; full type-checking comes from **JSDoc annotations + `jsconfig.json`**,
 enforced in the editor and runnable as a whole-project check (the `typecheck` script). No

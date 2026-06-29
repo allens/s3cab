@@ -1,5 +1,7 @@
 # Consumer-vocabulary command and flag naming
 
+**Status:** accepted
+
 The audience is **ordinary, non-technical people**, so user-facing names favour consumer
 backup vocabulary over git/dev jargon. The canonical terms are pinned in
 [CONTEXT.md](../../CONTEXT.md); this ADR records the naming *calls* — weighed on purpose,

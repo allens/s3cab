@@ -1,6 +1,6 @@
 # Cloud onboarding is generative, not active
 
-Status: **accepted** (the `bucket` command is built; its *shape* is
+**Status:** accepted (the `bucket` command is built; its *shape* is
 [0034](0034-bucket-command-shape.md) and its *security model* [0033](0033-bucket-onboarding-security-model.md)).
 
 The cloud-onboarding command (`bucket`) helps a user stand up an S3

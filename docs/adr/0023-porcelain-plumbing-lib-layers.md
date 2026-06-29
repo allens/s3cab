@@ -1,5 +1,7 @@
 # Commands are porcelain or plumbing, over a shared lib
 
+**Status:** accepted
+
 The source has three dependency layers, and the allowed dependency directions are fixed:
 
 - **`lib/`** — shared primitives (deep modules: `s3`, `remote`, `objects`, `snapshot-file`,

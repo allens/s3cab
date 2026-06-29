@@ -1,6 +1,6 @@
 # `setup` mutates a set, `list` shows sets; drop the `sets` command
 
-Status: **accepted** (design decided via a design session 2026-06-28) — **implemented**
+**Status:** accepted (design decided via a design session 2026-06-28) — **implemented**
 (2026-06-28). **Supersedes [0035](0035-aws-profile-sets-command-rationalization.md)
 point 3** (the `setup`-folds-into-`sets` half); 0035's points 1–2 (`bucket`→`aws`, old-`aws`→`profile`)
 stand untouched.
