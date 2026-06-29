@@ -20,7 +20,7 @@ candidate 2 (the diff-seam test discipline — the third goal) plus the recorded
 notes (3 and 4).
 
 **Follow-up review (2026-06-29).** A second `/improve-codebase-architecture` pass mostly
-re-trod this ground; recording its outcome so a third doesn't:
+retread this ground; recording its outcome so a third doesn't:
 
 - **`fileProps` extracted — landed** ([PR #127](https://github.com/allens/s3cab/pull/127)). The
   file-hashing core moved to `lib/file-props.mjs`; `prop` is now a path-only command over it
