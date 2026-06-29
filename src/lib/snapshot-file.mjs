@@ -55,8 +55,8 @@ const ERROR = "#ERROR";
 
 /**
  * The properties a snapshot records for one file — its content `hash`, `size`,
- * and `mtime`. Produced by the `prop` command; this is the canonical home so
- * lib doesn't reach up into a command for the type.
+ * and `mtime`. Produced by `fileProps` (lib/file-props.mjs) and the `prop`
+ * command over it; this is the canonical home for the type.
  * @typedef {Object} Props
  * @property {number} size
  * @property {string} mtime
@@ -169,10 +169,12 @@ export async function withSnapshotFile(
  * (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`/`formatLine`,
  * `SnapshotRow`) never leaves this module.
  *
- * Hashing is *injected*, not imported: `prop` lives under `commands/` and `lib`
- * must not depend on it (ADR-0023), so the caller passes a `getProps` with the
- * previous-snapshot lookup already bound in. `files` is accepted as any (async)
- * iterable, so the command can hand in a progress-wrapped stream.
+ * Hashing is *injected* as `getProps`, not imported — the seam that lets a test
+ * drive the writer without touching disk (it passes a `getProps` that synthesizes
+ * props; see test/helpers/write-snapshot.mjs). Production binds it to the lib
+ * `fileProps` with the previous-snapshot lookup already in (commands/snapshot.mjs).
+ * `files` is accepted as any (async) iterable, so the command can hand in a
+ * progress-wrapped stream.
  *
  * Write order is header → excluded → skipped → entries: the "not backed up"
  * diagnostics sit near the top, where someone opening the file to ask "why
@@ -395,8 +397,8 @@ export async function parseSnapshotStream(input) {
  * `[path, Props]` per file, or `[path, Error]` when hashing fails — the latter
  * becomes an `#ERROR` row (via `stringifySnapshot`), so an unreadable file is
  * reported rather than silently dropped or mistaken for deleted. Module-private:
- * `writeSnapshot`'s pipeline is its only caller. Hashing itself is injected —
- * `prop` lives under `commands/`, off-limits to `lib` — see `writeSnapshot`.
+ * `writeSnapshot`'s pipeline is its only caller. Hashing itself is injected via
+ * `getProps` (the writer's test seam) — see `writeSnapshot`.
  * @param {(path: string) => Promise<Props>} getProps
  * @returns {(paths: AsyncIterable<string>) => AsyncGenerator<SnapshotRow>}
  */

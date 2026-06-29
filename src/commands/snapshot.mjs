@@ -4,6 +4,7 @@ import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
+import { fileProps } from "../lib/file-props.mjs";
 import { secondsSince } from "../lib/format.mjs";
 import {
   listSnapshotNames,
@@ -11,7 +12,6 @@ import {
   writeSnapshot,
 } from "../lib/snapshot-file.mjs";
 import { walkSet } from "../lib/walk.mjs";
-import { prop } from "./prop.mjs";
 
 /**
  * @import { SnapshotEntries } from "../lib/snapshot-file.mjs"
@@ -50,9 +50,10 @@ export async function snapshot(setName, options = {}) {
 
   // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
   // one #DIR line per member directory, so the file is self-describing even when
-  // found alone in a bucket (docs/specs/backup.md). Hashing is handed in:
-  // `prop` lives here under `commands/`, so the lib writer can't import it
-  // (ADR-0023) — the command binds the previous-snapshot lookup into `getProps`.
+  // found alone in a bucket (docs/specs/backup.md). Hashing is handed in as
+  // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
+  // without disk) — here bound to the lib `fileProps` with the previous-snapshot
+  // lookup, so an unchanged file reuses its stored hash.
   const datetime = Temporal.Now.plainDateTimeISO().toString({
     smallestUnit: "minutes",
   });
@@ -63,7 +64,7 @@ export async function snapshot(setName, options = {}) {
     files: withProgress("Generating snapshot file...", files.length)(files),
     excluded,
     skipped,
-    getProps: (path) => prop(path, { lookup }),
+    getProps: (path) => fileProps(path, lookup),
     overwrite: Boolean(options.debug),
   });
 

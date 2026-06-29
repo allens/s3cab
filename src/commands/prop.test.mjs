@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { hash } from "node:crypto";
-import { utimes } from "node:fs/promises";
+import { mkdtempDisposable, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { prop } from "./prop.mjs";
 
 describe("prop", () => {
@@ -74,5 +77,26 @@ describe("prop", () => {
     await assert.rejects(prop(path), {
       message: `Not a regular file: ${path}`,
     });
+  });
+
+  it("reuses a stored hash via a --lookup snapshot path", async () => {
+    const filePath = resolve("./test/fixtures/dir1/hello-world.txt");
+    const mtime = new Date("2025-01-15T10:30:00.000Z");
+    await utimes(filePath, mtime, mtime);
+
+    await using dir = await mkdtempDisposable(join(tmpdir(), "s3cab-prop-"));
+    const snapshotPath = await writeSnapshot(dir.path, "2026-06-23T1000", [
+      filePath,
+    ]);
+
+    const props = await prop(filePath, { lookup: snapshotPath });
+
+    // Reused from the snapshot, not re-hashed — so the stored hash comes back
+    // and no `hashDuration` is present (snapshot entries don't carry one).
+    assert.equal(
+      props.hash,
+      "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a",
+    );
+    assert.equal(props.hashDuration, undefined);
   });
 });
