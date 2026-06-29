@@ -9,11 +9,13 @@ New ADR: take the next number, `NNNN-slug.md`. Offer one only when a decision is
 reverse**, **surprising without context**, and **the result of a real trade-off**.
 
 Every ADR carries a `**Status:**` line directly under its title — one of `accepted`,
-`proposed`, or `partly superseded by NNNN` (the vocabulary `ADR-FORMAT.md` prescribes). A
-superseded decision is **never deleted**: its record is what stops the reversed choice being
-re-proposed, so it stays in place with the status line (and, where the nuance matters, a
-top-of-file banner) pointing forward to the ADR that replaced it. Read the status line before
-treating any ADR as a live constraint.
+`proposed`, or `partly superseded by NNNN`. This adapts the status vocabulary in
+`ADR-FORMAT.md` (`proposed | accepted | deprecated | superseded by NNNN`); `partly superseded
+by` is our own extension, since every supersession here has been partial. A superseded
+decision is **never deleted**: its record is what stops the reversed choice being re-proposed,
+so it stays in place with the status line (and, where the nuance matters, a top-of-file
+banner) pointing forward to the ADR that replaced it. Read the status line before treating any
+ADR as a live constraint.
 
 ## Index
 
