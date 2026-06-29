@@ -95,7 +95,7 @@ rather than assuming it is fixed forever.
    don't carry it forward. "You're right that X is better" ≠ "do X now." One principle, four
    faces:
    - **Commits/pushes** — never `git commit`/`push` without an explicit "commit"/"pr" in that
-     same message. (Exception: settling — see #2.)
+     same message. (Exception: settings.json — see #2.)
    - **"Work through one by one"** — a strict per-step protocol: (a) propose the step and ask
      any questions; (b) once agreed, make the changes and present the diff *uncommitted*; (c)
      move on only when the user agrees, committing that step as you go (don't accumulate every

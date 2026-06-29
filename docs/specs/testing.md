@@ -164,7 +164,7 @@ one. That is strictly better than baking an emulator into CI, and it's free.
   *nice-to-have, not essential* (local devs use their own bucket), the emulator's sole
   justification mostly evaporates — and the mocked-seam tier already covers the
   credential-free path. Adding a container dependency to buy a deprioritised capability is
-  the over-engineering #8 warns against.
+  the over-engineering #7 warns against.
 
 ## Non-AWS provider compatibility
 
