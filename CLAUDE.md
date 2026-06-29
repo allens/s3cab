@@ -38,6 +38,9 @@ specs map straight across (`#1 → 0001`, … `#7 → 0007`); the full map is in
 > These skills come from [mattpocock/skills](https://github.com/mattpocock/skills) and are **not
 > vendored into this repo** — install them into your personal **global** `~/.claude/skills/` (follow
 > that repo's install instructions), not the project tree, so every checkout doesn't carry a copy.
+> (That no-vendor rule targets those _general-purpose_ skills; a **project-specific** skill is the
+> opposite case and **is** vendored — e.g. [`.claude/skills/cli-design/`](.claude/skills/cli-design/),
+> the project's own CLI-design bible — so it travels with the repo and every checkout/agent gets it.)
 
 ### Documentation discipline (applies to every doc here)
 
@@ -297,14 +300,15 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   compiler can see it rot.)
 - **Two UX references govern user-facing design — treat them as the bibles.** Command *shape*
   (commands, flags vs. positional args, naming, output) follows the **Command Line Interface
-  Guidelines** ([clig.dev](https://clig.dev)); error/warning *wording* follows the **Nielsen
-  Norman Group** error-message guidelines (the next bullet,
-  [ADR-0030](docs/adr/0030-error-message-guidelines.md)). Same shape-vs-wording split as the two
-  bullets that follow this one. The most recent shape decision worked under clig.dev is
+  Guidelines** (clig.dev), distilled into the **`cli-design` skill**
+  ([.claude/skills/cli-design/](.claude/skills/cli-design/)) — consult it for any command-shape
+  decision; error/warning *wording* follows **Nielsen's usability heuristic #9** (the next
+  bullet, [ADR-0030](docs/adr/0030-error-message-guidelines.md)). Same shape-vs-wording split as
+  the two bullets that follow this one. The most recent shape decision worked under clig.dev is
   [ADR-0036](docs/adr/0036-setup-mutates-list-shows-drop-sets.md) (the `setup`/`list` surface).
   Both are checked in review, not by a linter ([ADR-0006](docs/adr/0006-minimal-code.md)).
-- **User-facing error/warning text follows the Nielsen Norman Group error-message guidelines**
-  ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
+- **User-facing error/warning text follows ADR-0030's error-message standard (Nielsen's usability
+  heuristic #9)** ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
   the user's *goal* (no codes/jargon up front — env-var names, paths and keys go in a
   parenthetical or follow-up line), polite (describe, don't blame), and *constructive* (give
   the exact fix, copy-pasteable command on its own indented line — mirror `collisionError` in
