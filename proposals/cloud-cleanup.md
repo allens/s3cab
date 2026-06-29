@@ -48,4 +48,4 @@ race — see [ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md)). 
   ([ADR-0032](../docs/adr/0032-generative-onboarding-not-active-provisioning.md)).
 - **`emptyBucket()`** in [src/lib/s3.mjs](../src/lib/s3.mjs) is currently **dead code** (no
   caller) — a future delete/teardown primitive. Flagged here, not removed (CLAUDE.md
-  convention #6).
+  convention #5).

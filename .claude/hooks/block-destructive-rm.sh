@@ -2,8 +2,8 @@
 # Block destructive `rm` — any rm carrying a recursive (-r/-R/--recursive) or
 # force (-f/--force) flag, in any flag ordering or bundling, anywhere in a
 # compound command. Closes the gap the static deny rule `Bash(rm -rf *)` leaves
-# open now that a bare `Bash` allow auto-approves everything not denied (CLAUDE.md
-# convention #16): a fixed `-rf` prefix misses `rm -r`, `rm -fr`, `rm -f`,
+# open now that a bare `Bash` allow auto-approves everything not denied (CLAUDE.md's
+# permission-prompt convention): a fixed `-rf` prefix misses `rm -r`, `rm -fr`, `rm -f`,
 # `rm --recursive`, `rm -r -f`, etc. Plain non-recursive `rm <file>` still runs.
 #
 # Fired by the PreToolUse hook on every Bash call in .claude/settings.json (no
@@ -47,7 +47,7 @@ process.stdin.on("end", () => {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason:
-            "Destructive rm (recursive/force) is blocked under the bare-Bash allow (CLAUDE.md #16). The static `rm -rf *` deny misses the -r / -fr / -f / --recursive orderings; this hook closes them. If a deliberate, scoped delete is genuinely needed, ask the user to run it (or confirm) rather than widening the rule.",
+            "Destructive rm (recursive/force) is blocked under the bare-Bash allow (the permission-prompt convention in CLAUDE.md). The static `rm -rf *` deny misses the -r / -fr / -f / --recursive orderings; this hook closes them. If a deliberate, scoped delete is genuinely needed, ask the user to run it (or confirm) rather than widening the rule.",
         },
       }),
     );

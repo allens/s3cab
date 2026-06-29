@@ -38,6 +38,9 @@ specs map straight across (`#1 → 0001`, … `#7 → 0007`); the full map is in
 > These skills come from [mattpocock/skills](https://github.com/mattpocock/skills) and are **not
 > vendored into this repo** — install them into your personal **global** `~/.claude/skills/` (follow
 > that repo's install instructions), not the project tree, so every checkout doesn't carry a copy.
+> (That no-vendor rule targets those _general-purpose_ skills; a **project-specific** skill is the
+> opposite case and **is** vendored — e.g. [`.claude/skills/cli-design/`](.claude/skills/cli-design/),
+> the project's own CLI-design bible — so it travels with the repo and every checkout/agent gets it.)
 
 ### Documentation discipline (applies to every doc here)
 
@@ -87,237 +90,136 @@ These are **defaults, not shackles:** if you think the context behind a rule has
 it is fine — encouraged, even, once in a while — to ask the user whether it still holds
 rather than assuming it is fixed forever.
 
-1. **Never `git commit`/`push` without an explicit go-ahead in that same message.** Do the
-   work, show what changed, then wait to be told "commit" / "pr". A go-ahead is per-request,
-   not standing — don't carry it forward to later changes.
-2. **Multiple sessions may run on this repo at once.** Stage only the files _you_ changed
-   (`git add <path>`, never `git add -A`/`.`), so you don't sweep up another session's
-   in-flight work. (With #13 — a worktree per writing session, default-on — this is the
-   belt-and-suspenders fallback for the rare main-tree edit, no longer the primary guard.)
-3. **[.claude/settings.json](.claude/settings.json) is a shared, committed project file**
-   (the team-wide permission allow/deny lists), not personal — `settings.local.json` is the
-   gitignored personal override. **Committing `.claude/settings.json` changes is
-   pre-authorised — it needs no per-request go-ahead, and may go straight to `main`** (the
-   user granted this standing 2026-06-27, a deliberate exception to rule 1 *for this file
-   only*: permission/config tweaks are low-risk housekeeping they were tired of approving).
-   Every other commit still follows rule 1. Validate via the `update-config` skill first, and
-   keep settings.json as its own `chore:` commit so it reads cleanly; when a feature
-   commit/PR go-ahead is given and the tree also has settings.json changes, fold them into
-   that PR rather than setting them aside as unrelated.
-4. **After non-trivial work, update the docs** so what you learned is shared at the project
-   level (this section exists because that wasn't being done for these very rules). Put it in
-   the right home (see the map above): a design decision → an ADR; vocabulary → CONTEXT.md; a
-   working/coding rule → this file. A cross-machine rule belongs in source, never only in
-   local memory.
-5. **Refactors and minor chores may ride along with a feature** — the user is relaxed about
-   this; a one-feature commit/PR carrying a small refactor, a settings.json tweak (point 3),
-   a `proposals/` addition (any provisional idea the work surfaces — fold it into the PR you're
-   on rather than spinning a separate one), or a doc fix needn't be split into its own PR. Don't
-   over-engineer separation. (Still prefer a _separate commit_ per logical change within the PR,
-   as the `chore:` commits do.)
-6. **Don't delete commented-out code or TODO notes as "dead code" without asking.** They may
+1. **Act only on an explicit go-ahead — your agreeing isn't authorization.** The default is to
+   do the work, show what changed, then *wait*. A go-ahead is per-request, never standing —
+   don't carry it forward. "You're right that X is better" ≠ "do X now." One principle, four
+   faces:
+   - **Commits/pushes** — never `git commit`/`push` without an explicit "commit"/"pr" in that
+     same message. (Exception: settings.json — see #2.)
+   - **"Work through one by one"** — a strict per-step protocol: (a) propose the step and ask
+     any questions; (b) once agreed, make the changes and present the diff *uncommitted*; (c)
+     move on only when the user agrees, committing that step as you go (don't accumulate every
+     step to the end — that keeps per-step commits splittable). A batch go-ahead ("execute",
+     "go ahead") authorizes _starting_, not skipping the per-slice pause; run straight through
+     only when told explicitly ("don't pause").
+   - **"Review the PR comments"** — review them _with_ the user: assess each (valid / not /
+     nuance) with a suggested action, then stop and let them decide. Holds for _every_ wave,
+     including a push-triggered re-review; a "fix and resolve" go-ahead is per-batch and never
+     carries forward.
+   - **A question** ("why is it done this way?", "wouldn't X be simpler?") wants an *answer* —
+     explain, say whether their instinct is right, then **stop and offer**. Don't edit off the
+     back of a question.
+2. **Committing [.claude/settings.json](.claude/settings.json) is pre-authorised** — it needs
+   no per-request go-ahead and may go straight to `main` (a standing exception to #1 *for this
+   file only*: permission/config tweaks are low-risk housekeeping). Validate via the
+   `update-config` skill first, and keep it as its own `chore:` commit; when a feature-PR
+   go-ahead is given and the tree also has settings.json changes, fold them into that PR.
+3. **After non-trivial work, update the docs** so what you learned is shared at the project
+   level. Put it in the right home (see the map above): a design decision → an ADR; vocabulary
+   → CONTEXT.md; a working/coding rule → this file; never only in local memory. **But recording
+   a rule is only half the job — once it has _settled_, distill it to {rule + why + at most one
+   example} and let `git blame` hold the story of how it got there.** Appending every correction
+   without ever compressing is what bloats this file; the record is for the *current* rule, not
+   its changelog.
+4. **Refactors and minor chores may ride along with a feature** — a one-feature commit/PR
+   carrying a small refactor, a settings.json tweak (#2), a `proposals/` addition (any
+   provisional idea the work surfaces), or a doc fix needn't be split into its own PR. Don't
+   over-engineer separation. (Still prefer a _separate commit_ per logical change within the PR.)
+5. **Don't delete commented-out code or TODO notes as "dead code" without asking.** They may
    be the user's parked reminders of an unresolved question, not cruft. Flag them as
    candidates instead — then analyse and resolve on the user's say-so, recording the rationale
-   so the decision isn't re-litigated. (Two worked examples: the `objectPaths.delete` note in
-   `compare.mjs`, resolved in the 2026-06 compare pass; and the commented-out SIGINT handler in
-   `src/s3cab.mjs`, analysed and removed 2026-06-26 once its rationale was understood.)
-7. **Always use the Bash tool, not PowerShell.** Bash is available even on Windows and the
+   so the decision isn't re-litigated. (Worked example: the commented-out SIGINT handler in
+   `src/s3cab.mjs`, analysed and removed once its rationale was understood.)
+6. **Always use the Bash tool, not PowerShell.** Bash is available even on Windows and the
    project's permission allowlist is Bash-based. The system prompt identifies PowerShell as
    the interactive shell — ignore that signal for tool selection. Reserve PowerShell only
    when a command genuinely requires it (e.g. `$env:VAR`, `Select-String`, or Windows-only
    cmdlets with no Bash equivalent).
-8. **Do not over-engineer.** A standing edict from the user (2026-06-12), the process-level
-   twin of [ADR-0006](docs/adr/0006-minimal-code.md): build the small thing the current need
-   justifies, and generalize only when the second case actually appears — the same
-   later-when-needed bar as function extraction and module promotion. (Worked example:
-   `isENOENT` in `src/lib/error.mjs` was added once the check had four call sites, and shaped
-   as the specific predicate rather than a generic `isErrnoCode(error, code)` — no second
-   error code needed it.) **This forbids _speculative_ structure, not _justified_ refactoring**
-   (clarified by the user 2026-06-14): when restructuring existing code genuinely improves it
-   — clearer separation, or making a real behaviour testable — don't shy off it out of
-   minimalism, even a sizable refactor. Right-sizing cuts both ways: as small as the need
-   allows, but as large as the need warrants. (Worked example: `clientConfig()` and
-   `putObjectParams()` were extracted from `s3.mjs` so the non-AWS request-shaping gating
-   became unit-testable without a live client — see [src/lib/s3.test.mjs](src/lib/s3.test.mjs).)
-   **Version gates how bold to be (recorded 2026-06-15):** while the project is **pre-1.0**
-   (`package.json` major version `0`), you have **free rein** for large, correct refactors —
-   favour getting the design *right* over minimizing churn or preserving back-compat; there
-   is no deadline, the goal is to get the project as close to perfect as possible, so do the
-   massive refactor when it is the right thing. **Once it ships 1.0 this reverses:** breaking
-   changes and sweeping refactors then need real care, justification, and a migration story.
-   Check the major version first: `0` → bold; `≥ 1` → conservative.
-9. **"Work through one by one" is a strict per-step protocol.** When the user says to work
-   through a list one by one: (a) propose the step and ask any questions; (b) once the
-   proposal is agreed, make the code changes and present the diff for review —
-   *uncommitted*; (c) move to the next step only when the user has agreed to. Never commit
-   a step sight-unseen, never start the next step unasked, and don't batch the per-step
-   decisions into one up-front question round. The user will say explicitly when firing
-   ahead without asking is wanted. (Recorded 2026-06-12 after three escalating corrections
-   in one session.) **The default is to commit each step once approved** — present it
-   uncommitted for review (b), then commit that step when the user agrees to move on (c),
-   rather than accumulating every step uncommitted to the end. (Added 2026-06-13 after a
-   slice was built end-to-end before the first commit, which then couldn't be split into
-   per-step commits without interactive hunk-staging.) **A batch go-ahead ("execute", "go
-   ahead", "do it") on a multi-slice plan authorizes _starting_ — it does not waive the
-   per-slice pause.** After each slice, present its diff and stop for review before the next;
-   only run straight through when the user says so explicitly ("don't pause", "do them all
-   without stopping"). (Recorded 2026-06-19 after I read "execute and wire lint rule" as
-   licence to land all six slices without pausing.)
-10. **"Review the PR comments" means critically review them _with the user_ and give
-    suggestions — not make changes.** When the user asks you to look at review comments on a
-    PR, **assess each one and state your opinion** (valid / not / nuance) with a suggested
-    action, then **stop and let the user decide** — do not automatically edit code or offer
-    to push. Apply changes only once the user says which comments to action. **This holds
-    for _every_ wave of comments, including a re-review triggered by a push: each new batch
-    returns to discuss-first — give the rationale and suggestions, then wait. A prior "fix
-    and comment and resolve" go-ahead is per-batch and never carries forward** to the next
-    wave. (Recorded 2026-06-13 after I jumped from "look at the comments" straight to editing
-    files; re-emphasised 2026-06-14 after I treated one batch's "fix" go-ahead as standing
-    and auto-actioned two further review rounds without first reviewing them with the user.)
-11. **Step-by-step feature work lands on a feature branch / PR, never straight on `main`.**
-    The per-step commits of a multi-step feature (convention #9) belong on a `feat/…` branch
-    that becomes one PR — `main` stays at `origin/main` so the feature merges *through* the
-    PR. Branch before the first step's commit (or move the commits onto a branch and reset
-    `main` back if you started on it). (Recorded 2026-06-14 after committing the restore
-    slice's first four steps onto local `main` before the user asked for it to be a PR.)
-12. **Test coverage is judged by review, not a percentage gate**
+7. **Do not over-engineer.** A standing edict from the user, the process-level twin of
+   [ADR-0006](docs/adr/0006-minimal-code.md): build the small thing the current need justifies,
+   and generalize only when the second case actually appears. (Worked example: `isENOENT` in
+   `src/lib/error.mjs` was added once the check had four call sites, shaped as the specific
+   predicate rather than a generic `isErrnoCode(error, code)`.) **Over-engineering is about the
+   _solution_ being more complex than the problem warrants — not how much work or churn a change
+   takes:** swapping one design for a simpler, very different one can be a lot of work yet the
+   opposite of over-engineering. The guiding heuristic, in the project's spirit of keeping it
+   simple, is to **minimize lines of code** as a proxy for complexity — clear, not obfuscated,
+   but not overly verbose either. So this forbids _speculative_ structure, not _justified_
+   refactoring: when restructuring genuinely simplifies, do it even if sizable. **Version gates
+   how bold to be:** while **pre-1.0** (`package.json` major `0`) you have **free rein** for
+   large, correct refactors — favour getting the design *right* over minimizing churn or
+   back-compat. **Once it ships 1.0 this reverses:** breaking changes then need real care and a
+   migration story. Check the major version first: `0` → bold; `≥ 1` → conservative.
+8. **Test coverage is judged by review, not a percentage gate**
     ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). Good, *asserting* tests for new
     or changed behaviour are a per-PR obligation, checked by **reading the diff** — the
     `/review` skill's Standards axis, and Copilot code review via
     [.github/copilot-instructions.md](.github/copilot-instructions.md) — not by a CI
     threshold. When you add or change behaviour, add a test that makes a real assertion about
     the *result*, not one that merely executes the line.
-13. **Every session that will _write_ works in its own git worktree — default-on, no size
-    threshold.** Multiple sessions share *one* main working tree, so one session's uncommitted
-    edits are visible to (and confuse) the others; a per-session worktree removes that hazard
-    entirely. So **branch a worktree before the first edit of any change you intend to commit,
-    however small.** The old "trivial single-file edits stay in the main tree" carve-out is
-    **dropped** — it was the very hole that let one session's "trivial" edit dirty the tree
-    another session was working in. The only thing that stays in the main tree is **pure
-    read-only / Q&A work** — there is nothing to isolate when you are not writing. (Reversed
-    2026-06-21 after repeated cross-session collisions; supersedes the 2026-06-16 "only when it
-    earns one" scoping, which this replaces outright.)
-    - **The tax is acceptable, and we deliberately do _not_ share `node_modules`.** A fresh
-      worktree is gitignored-empty, so code work runs `npm install` first — but from the warm
-      npm cache that is tens of seconds, and **doc-only changes skip it entirely.** A
-      junctioned/shared `node_modules` was weighed and **rejected** (2026-06-21): it
-      re-introduces a shared mutable resource across sessions (the very thing the worktree
-      removes) and, worse, a fallback `rm -rf <worktree>` can recurse *through* the junction and
-      delete the **main** checkout's `node_modules`. Each worktree keeps its own — the seconds
-      saved aren't worth the footgun (#8). If a task changes dependencies, it does its own install.
-    - **Mechanics & cleanup.** Worktrees live where the harness puts them —
-      **`.claude/worktrees/<name>`**, nested inside the repo (the real Claude Code convention:
-      `EnterWorktree`/`ExitWorktree` in-session, or `isolation: "worktree"` when spawning an
-      agent). The earlier "sibling path" rule was **dropped 2026-06-24**: the harness ignores it
-      and creates worktrees under `.claude/worktrees/` regardless, so we follow the current rather
-      than fight it. The one real downside of a nested tree — the main checkout's tools wandering
-      in — is neutralised by **excluding `.claude/worktrees/`** in `.gitignore`, the `.vscode`
-      `search.exclude`/`files.watcherExclude`, and eslint `ignores` (all added with this rule).
-    - **Accept the harness's branch name** — `EnterWorktree(name: "feat/x")` creates the branch
-      `worktree-feat+x` (it prefixes `worktree-` and swaps `/`→`+`). Don't rename it for a tidier
-      PR branch: renaming orphans it from `ExitWorktree(remove)`'s auto-cleanup, so the branch
-      lingers and needs a manual `git branch -D`. The PR *title* is clean regardless, and the
-      branch is deleted on merge — the name is ephemeral cosmetics, not worth the friction.
-    - **Teardown is `ExitWorktree(remove)`** — it deletes the worktree directory *and* its branch,
-      so there's no manual `git worktree remove` / `git branch -D` (provided you didn't rename,
-      above). Advancing local `main` afterwards is **optional**: a new worktree branches fresh from
-      `origin/main` (`worktree.baseRef` default), so a stale local main blocks nothing — a bare
-      `git fetch` when you want refreshed refs is enough. **Review the work on the GitHub PR; don't
-      open the worktree folder in the IDE** — an open file there gives Windows a lock that can block
-      removal (hit 2026-06-21); if it's locked, close it and retry.
-    - **Run bare commands — don't prepend `cd` to the worktree.** `EnterWorktree` sets the session's
-      working directory to the worktree and the Bash tool persists cwd between calls, so `git push …`
-      / `npm test …` already run there. Prepending `cd <path> && …` is redundant *and* defeats the
-      permission allowlist — a compound that leads with `cd` matches no `Bash(git …)` rule, so each
-      one needlessly re-prompts (the Bash tool warns of this). Use `git -C <path> …` to act on a
-      different checkout, never a `cd` compound. (Recorded 2026-06-24 after exactly this
-      self-inflicted prompt.) **And only when it _is_ a different checkout:** when cwd is already
-      the target repo (the main tree, or after `EnterWorktree`), run **bare `git …`**. `git -C
-      <the-cwd-path>` is the same trap as the `cd` compound — it defeats the path-free **allow**
-      rules (`Bash(git commit *)` etc. never match a `git -C …` command) *and* the path-free
-      **deny** rules (`Bash(git reset --hard *)` won't match `git -C … reset --hard`), so it
-      re-prompts on every call **and silently bypasses the destructive-command guards.** The same
-      lesson generalizes: prefer the bare invocation the allowlist patterns are written against.
-      (Extended 2026-06-25 after a whole session of `git -C d:/src/s3cab …` re-prompted because
-      not one of the broad `git` rules matched.)
-14. **When the user asks a question, answer it — do not start editing code off the back of it.**
-    A question ("why is it done this way?", "wouldn't X be simpler?", "correct me if I'm
-    wrong") wants an *answer*: explain the why, say whether their instinct is right, and then
-    **stop and offer** to make the change — don't implement it unasked. Crucially, the user
-    *agreeing with you* (or you concluding they're right) is **not** authorization to act:
-    "you're right that X is better" ≠ "change it now." Wait for an explicit go-ahead, the same
-    discuss-first discipline as #10 (review comments) and #9 (one-by-one). This is a strict
-    instruction, not a judgement call — jumping to edits on a question needlessly burns tokens
-    and pre-empts the user's decision. (Recorded 2026-06-19 after I answered two consecutive
-    questions by immediately rewriting code instead of replying, the second time *while already
-    being corrected* for having done it the first.)
-15. **A Copilot code review is requested automatically on every PR you open.** A `PostToolUse`
+9. **Every session that will _write_ works in its own git worktree — default-on, no size
+   threshold.** Sessions share *one* main working tree, so one session's uncommitted edits are
+   visible to (and confuse) the others; a per-session worktree removes that hazard. **Branch a
+   worktree before the first edit of any change you intend to commit, however small.** Only
+   **pure read-only / Q&A work** stays in the main tree. Feature work therefore lands on the
+   worktree branch → one PR, with `main` left at `origin/main` (it merges *through* the PR). In
+   the rare main-tree edit, stage only the files _you_ changed (`git add <path>`, never `-A`/`.`)
+   so you don't sweep up another session's in-flight work.
+   - **We deliberately do _not_ share `node_modules`.** A fresh worktree is gitignored-empty,
+     so code work runs `npm install` first (tens of seconds from the warm cache; doc-only
+     changes skip it). A junctioned/shared `node_modules` was **rejected**: it re-introduces a
+     shared mutable resource, and a fallback `rm -rf <worktree>` can recurse *through* the
+     junction and delete the **main** checkout's `node_modules`. The seconds saved aren't worth
+     the footgun (#7); a task that changes dependencies does its own install.
+   - **Mechanics.** Worktrees live where the harness puts them — **`.claude/worktrees/<name>`**,
+     nested in the repo (`EnterWorktree`/`ExitWorktree` in-session, or `isolation: "worktree"`
+     when spawning an agent). The one downside of a nested tree — the main checkout's tools
+     wandering in — is neutralised by **excluding `.claude/worktrees/`** in `.gitignore`, the
+     `.vscode` `search.exclude`/`files.watcherExclude`, and eslint `ignores`.
+   - **Accept the harness's branch name** — `EnterWorktree(name: "feat/x")` creates branch
+     `worktree-feat+x`. Don't rename it: that orphans it from `ExitWorktree(remove)`'s
+     auto-cleanup. The PR *title* is clean regardless and the branch is deleted on merge.
+   - **Teardown is `ExitWorktree(remove)`** — it deletes the worktree directory *and* its
+     branch (a new worktree branches fresh from `origin/main`, so a stale local `main` blocks
+     nothing — a bare `git fetch` is enough when you want refreshed refs). **Review the work on
+     the GitHub PR; don't open the worktree folder in the IDE** — an open file there gives
+     Windows a lock that can block removal; if it's locked, close it and retry.
+   - **Run bare commands — don't prepend `cd`, and don't use `git -C <cwd>`.** `EnterWorktree`
+     sets the session cwd to the worktree and the Bash tool persists it, so bare `git …` /
+     `npm test …` already run there. A leading `cd <path> && …` *and* `git -C <the-cwd-path> …`
+     both defeat the path-free allowlist (`Bash(git commit *)` never matches a `git -C …`
+     command), so they re-prompt on every call — and `git -C …` *also* slips past the path-free
+     **deny** guards (`Bash(git reset --hard *)` won't match it), bypassing the
+     destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
+     checkout; when cwd is already the target, run bare.
+10. **A Copilot code review is requested automatically on every PR you open.** A `PostToolUse`
     hook on `gh pr create` ([.claude/settings.json](.claude/settings.json)) runs
     [.claude/hooks/request-copilot-review.sh](.claude/hooks/request-copilot-review.sh), so the
     request rides inside the single "commit, create pr" step — no manual follow-up. It is the
-    complement to the `/review` skill and the coverage-by-review rule #12, driven by
-    [.github/copilot-instructions.md](.github/copilot-instructions.md). The script is best-effort:
-    no PR for the branch, or Copilot review not enabled on the repo, → it logs and exits 0, never
-    failing the PR flow it rides on. Run it by hand with `bash
-    .claude/hooks/request-copilot-review.sh` if a request is ever missed.
-
-    The mechanics below are retained for debugging the script. The requestable reviewer is the bot
-    **`Copilot`** (REST login `Copilot`, app `copilot-pull-request-reviewer[bot]`, db id
-    `175728472`, node `BOT_kgDOCnlnWA`; in a GraphQL `reviewRequests` it surfaces as Bot login
-    `copilot-pull-request-reviewer`). **The working programmatic path — what the script runs — is
-    the GraphQL `requestReviews` mutation with `botIds`** (confirmed 2026-06-21; it supersedes the
-    unreliable REST call, and unlike the web-UI fallback an agent can actually run it). On success
-    the mutation echoes `copilot-pull-request-reviewer` in its `reviewRequests` — that echo is the
-    confirmation. Hard-won gotchas:
-    - **It's `botIds`, not `userIds`.** The Copilot reviewer is a `Bot` node (`BOT_` prefix), so
-      `userIds` rejects it (`Could not resolve to User node with the global id …`) — the dead end
-      that earlier made GraphQL look impossible here. (Re-fetch the node with `gh api
-      user/175728472 --jq .node_id` if `BOT_kgDOCnlnWA` ever changes.)
-    - **The REST endpoint silently no-ops — don't rely on it.** `gh api
-      repos/allens/s3cab/pulls/<n>/requested_reviewers -f "reviewers[]=Copilot"` (the previously
-      documented path) can return `200/201` and add *nothing*: `-f "reviewers[]=…"` sends the
-      *literal* key `reviewers[]` (not a `reviewers` array), and even a proper
-      `{"reviewers":["Copilot"]}` body — and a **bogus** reviewer name — returned success on a
-      Windows/gh-2.x setup without attaching anyone.
-    - **`gh pr edit --add-reviewer` also silently no-ops** for this bot, and it isn't in
-      `suggestedActors`.
-    - **`gh pr view --json reviewRequests` does not surface this bot** — it can print `[]` even
-      when the request landed. Trust the mutation's echo (or query `pullRequest.reviewRequests`
-      via `gh api graphql`), never the HTTP status or `gh pr view`.
-    - **Web-UI fallback** (Reviewers → Copilot) always works while Copilot review is enabled —
-      for when you're driving by hand.
-    When the review lands, bring its comments back to the user to discuss (convention #10) —
-    don't auto-action them.
-16. **The permission-prompt fix is settled — do NOT re-litigate it.** The user spent ~20
-    sessions fighting constant Bash permission prompts; every prior attempt failed because it
-    worked the wrong layer. **Root cause:** "edit automatically" (`acceptEdits` mode)
-    auto-approves *only file edits + `mkdir`/`touch`/`mv`/`cp`* — **never** `git`/`npm`/`gh`/`node`
-    (confirmed at [code.claude.com/docs/en/permissions](https://code.claude.com/docs/en/permissions)).
-    So every shell command was matched against the allow-list, which can never converge: the "Yes,
-    don't ask again" button and the `fewer-permissions` skill kept appending dead one-shot rules
-    (absolute paths, temp filenames, `git -C <path>` strings — measured 44–61% junk), and Windows
-    path-form mismatch (`/d/` vs `D:/` vs `d:\`) stopped saved rules from re-matching. **The fix
-    (applied 2026-06-27):** the documented "run all Bash without prompts except a few blocked"
-    pattern — a **bare `"Bash"` entry in `permissions.allow`** (matches every command, including
-    each subcommand of a compound `a && b`) plus **`"defaultMode": "acceptEdits"`**. **Both keys
-    nest _under_ `permissions`, not at the file's top level** — the bundled
-    `claude-code-settings.json` schema defines `defaultMode` inside `permissions` (a Copilot review
-    "fix" claiming it must be top-level is wrong; don't apply it). The `deny` list and the
-    PreToolUse hooks still guard everything (deny-first precedence runs before allow), so this is
-    safe and is **not** `bypassPermissions` (which the docs reserve for containers/VMs because it
-    also strips `.git`/`.claude` write guards): `block-redundant-git-c.sh` blocks the `git -C <cwd>`
-    deny-bypass (convention #13), and `block-destructive-rm.sh` blocks recursive/force `rm` in any
-    flag ordering — the static `Bash(rm -rf *)` deny only catches one spelling, so under a bare
-    `Bash` allow the hook is what closes `rm -r` / `rm -fr` / `rm -f` / `rm --recursive`. Both live in the
-    committed [.claude/settings.json](.claude/settings.json) so **every machine inherits the fix** —
-    that is the whole point; a fix kept only in gitignored `settings.local.json` or local memory is
-    invisible on the next machine and the prompts return. The now-redundant specific `Bash(...)`
-    allow entries below the bare `Bash` are harmless (left in place so the file still documents the
-    common commands if anyone narrows the mode later). **So: never "solve" recurring prompts by
-    adding more specific allow entries or re-running `fewer-permissions`** — that is the failed
-    approach. If prompts persist after this is in place, it is because `defaultMode` applies on
-    *next session start* (restart Claude Code once), or the command genuinely matched a `deny` rule
-    (a real safety block — surface it, don't widen the allow-list).
+    complement to the `/review` skill and the coverage-by-review rule #8, driven by
+    [.github/copilot-instructions.md](.github/copilot-instructions.md). Best-effort: no PR for
+    the branch, or Copilot review not enabled on the repo, → it logs and exits 0, never failing
+    the PR flow it rides on. Run it by hand with `bash .claude/hooks/request-copilot-review.sh`
+    if a request is ever missed. **The hard-won programmatic mechanics — the working GraphQL
+    `requestReviews`/`botIds` path and the dead ends that silently fail (REST no-op,
+    `gh pr edit`/`gh pr view` blind spots) — live in that script's header comments; read them
+    there if a request ever fails.** When the review lands, bring its comments back to the user
+    to discuss (#1) — don't auto-action them.
+11. **The permission-prompt fix is settled — do NOT re-litigate it.** After ~20 sessions of
+    constant Bash prompts (every prior attempt failed by working the wrong layer), the fix
+    (applied 2026-06-27) is the documented "run all Bash without prompts except a few blocked"
+    pattern: a **bare `"Bash"` entry in `permissions.allow`** plus **`"defaultMode":
+    "acceptEdits"`** — both nested **under `permissions`**, not at the file's top level. This is
+    safe, **not** `bypassPermissions`: the `deny` list and the PreToolUse hooks still guard
+    everything (deny-first precedence runs before allow) — `block-redundant-git-c.sh` blocks the
+    `git -C <cwd>` deny-bypass (#9), and `block-destructive-rm.sh` catches recursive/force `rm`
+    in any flag ordering. It lives in the committed
+    [.claude/settings.json](.claude/settings.json) so **every machine inherits it**. **The
+    behavioral rule: never "solve" recurring prompts by adding specific allow entries or
+    re-running `fewer-permissions`** — that is the failed layer that never converges (it only
+    appends dead one-shot rules). If prompts persist, `defaultMode` applies on *next session
+    start* (restart once), or the command genuinely hit a `deny` rule (a real safety block —
+    surface it, don't widen the allow-list).
 
 ### Coding conventions
 
@@ -330,16 +232,13 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 - **Each file in `src/commands/` exports exactly one symbol — its command function.** The
   mechanical form of [ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md)'s
   porcelain/plumbing/`lib` layering: if anything else — a sibling command *or* a test — needs
-  to import something from a command file that isn't the command, that thing is a `lib/`
-  primitive that hasn't moved yet, so extract it to `lib/`. Porcelain still *composes* a
-  plumbing command through that one export (`backup` calls `snapshot()`; `upload` and
-  `snapshot` call `prop()`); what the rule bans is reaching past the command for a co-resident
-  helper (the old `snapshot → tree.walkSet`, `* → list.listSnapshotNames`). A symbol used only
+  something from a command file that isn't the command, that thing is a `lib/` primitive that
+  hasn't moved yet, so extract it to `lib/`. Porcelain still *composes* a plumbing command
+  through that one export (`backup` calls `snapshot()`; `upload` and `snapshot` call `prop()`);
+  what the rule bans is reaching past the command for a co-resident helper. A symbol used only
   inside its own command file just stops being `export`ed (it doesn't move to `lib/` without a
-  second caller — #8); cross-module types travel by `@typedef`/`@import` — not `export` — so
-  they don't count. Enforced by the `local/one-export-per-command` ESLint rule in
-  [eslint.config.js](eslint.config.js) — a structural check, lighter than the
-  signature-enforcement [0022](docs/adr/0022-prepare-remote-set-front-door.md)/0023 declined.
+  second caller — #7); cross-module types travel by `@typedef`/`@import`, not `export`. Enforced
+  by the `local/one-export-per-command` ESLint rule in [eslint.config.js](eslint.config.js).
 - **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does for
   `SnapshotEntries`), then bare `{Foo}` in annotations — cleaner than repeating the inline
@@ -351,36 +250,19 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
   by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
   *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against
-  [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8).
-- **Don't bury `await` inside a conditional or a member-access expression** — a compound
-  `if`/`while` condition, a short-circuit (`&&`/`||`), or a property/index access
-  on the result. Await into a named local on its own line first, then use it: `const exists =
-  await objectExists(uri); if (exists) …`, not `if (… && (await objectExists(uri)))`; and
-  `const m = await readRemoteSnapshot(…); … m.entries`, not `(await readRemoteSnapshot(…)).entries`
-  (the member-access slip that prompted this rule, 2026-06-16). The suspension point stays
-  visible and the value gets a name. (When the inline form was guarding a short-circuit, a
-  nested `if` preserves the same conditional evaluation without the inline await.) **A ternary
-  branch is exempt (relaxed 2026-06-28): `cond ? await f() : g()` reads cleanly — the `await` is
-  naked, not wrapped in brackets, so the suspension point is plain; it's reaching *into* a
-  bracketed result (`(await …).x`) where readability actually suffers, not a ternary.**
-  - **These are all fine** — only a compound `if`/`while` condition, a short-circuit, or member
-    access buries the await (scope clarified 2026-06-17, PR #59 review, after the rule had
-    over-reached; ternary added 2026-06-28): a bare `const x =
-    await …`, `return await …`, a standalone `await …;`, **a ternary branch**
-    (`cond ? await f() : g()`), **destructuring an awaited result**
-    (`const { lookup } = await readLatestRemoteSnapshot(…)`), and **`await` as a call
-    argument** (`assert.deepEqual(await foo(), …)`). Each keeps the suspension point plainly
-    visible and names the value. (Copilot review flags destructuring-, argument-, and
-    ternary-position awaits as violations; they are not — decline them.)
-  - **No linter enforces this** (a `no-restricted-syntax` rule was weighed and rejected
-    2026-06-16: it can't tell the ugly cases from the occasionally-fine ternary-await, so it
-    would trade real false positives for a cosmetic gain — against
-    [ADR-0006](docs/adr/0006-minimal-code.md) / convention #8, same call as the
-    removed organizeImports action). So **self-check instead: grep the diff for the buried
-    shapes** before committing — `(await …).` / `(await …)[` (member/index access on the
-    result) and a `&& `/`|| ` sitting immediately before `await` (short-circuit). An `await`
-    that is a call argument, a destructuring/assignment initializer, or a ternary branch is not
-    the smell; one in a compound condition, a short-circuit, or a member access is.
+  [ADR-0006](docs/adr/0006-minimal-code.md) / convention #7).
+- **Don't bury `await` in a larger expression — give it its own line and a name.** A "buried"
+  await is one nested inside a bigger expression rather than standing alone; the two smells are
+  **member/index access on an awaited result** (`(await read(…)).entries`, `(await xs())[0]`)
+  and **a compound `if`/`while` or `&&`/`||` condition** containing the await. Hoist into a
+  named local first: `const m = await read(…); … m.entries`; `const ok = await exists(uri); if
+  (ok) …`. **Not buried — all fine:** `const x = await …`, `return await …`, a standalone
+  `await …;`, a ternary branch (`cond ? await f() : g()`), destructuring an awaited result
+  (`const { lookup } = await read(…)`), and `await` as a call argument
+  (`assert.deepEqual(await foo(), …)`). (Copilot flags the destructuring, argument, and ternary
+  cases as violations — decline those.) No linter enforces this (rejected as too
+  false-positive-prone, against [ADR-0006](docs/adr/0006-minimal-code.md) / #7); self-check by
+  grepping the diff for `(await …).` / `(await …)[` and a `&& `/`|| ` immediately before `await`.
 - **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
   the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
   scratch, but excluded files just get squiggles from VS Code's inferred project instead —
@@ -406,28 +288,27 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
   debugging shared state — just not a speedup.
 - **Watch for per-file overhead in the walk/snapshot hot path — small costs mount up over
-  thousands of files.** A second `lstat`/`stat`/read on each file is invisible on one file
-  and dominant on a backup set of tens of thousands. When you find one, the fix is to
-  **thread the data you already have through the pipeline** — the `Dirent` from
-  `readdirSync(…, { withFileTypes: true })` already carries the file type, and `prop` already
-  takes one `stat` it reads `isFile`/`size`/`mtime` off — *not* a hidden module-level cache.
-  A cache keyed on "the last path" is invisible to the type checker, makes a pure function
-  order-dependent, and silently rots into dead code the day the redundant call it guarded
-  goes away. (Worked example: `prop.mjs`'s `_lstatCache` was added when *multiple* `prop`
-  calls hit each file; once the pipeline settled to one `prop` per file — single call site,
-  one `lstat` each — the cache could never hit, yet sat there looking load-bearing. Removed
-  2026-06-18 after a static-call-graph check confirmed it was dead. Keep the saving *in the
-  interface*, where it's visible and the compiler can see it rot.)
+  thousands of files.** A second `lstat`/`stat`/read on each file is invisible on one file and
+  dominant on tens of thousands. The fix is to **thread the data you already have through the
+  pipeline** — the `Dirent` from `readdirSync(…, { withFileTypes: true })` already carries the
+  file type, and `prop` already takes one `stat` it reads `isFile`/`size`/`mtime` off — *not* a
+  hidden module-level cache. A cache keyed on "the last path" is invisible to the type checker,
+  makes a pure function order-dependent, and silently rots into dead code the day the redundant
+  call it guarded goes away. (Worked example: `prop.mjs`'s `_lstatCache`, added when multiple
+  `prop` calls hit each file, became dead once the pipeline settled to one `prop` per file —
+  removed after a static-call-graph check. Keep the saving *in the interface*, where the
+  compiler can see it rot.)
 - **Two UX references govern user-facing design — treat them as the bibles.** Command *shape*
   (commands, flags vs. positional args, naming, output) follows the **Command Line Interface
-  Guidelines** ([clig.dev](https://clig.dev)); error/warning *wording* follows the **Nielsen
-  Norman Group** error-message guidelines (the next bullet,
-  [ADR-0030](docs/adr/0030-error-message-guidelines.md)). Same shape-vs-wording split as the two
-  bullets that follow this one. The most recent shape decision worked under clig.dev is
+  Guidelines** (clig.dev), distilled into the **`cli-design` skill**
+  ([.claude/skills/cli-design/](.claude/skills/cli-design/)) — consult it for any command-shape
+  decision; error/warning *wording* follows **Nielsen's usability heuristic #9** (the next
+  bullet, [ADR-0030](docs/adr/0030-error-message-guidelines.md)). Same shape-vs-wording split as
+  the two bullets that follow this one. The most recent shape decision worked under clig.dev is
   [ADR-0036](docs/adr/0036-setup-mutates-list-shows-drop-sets.md) (the `setup`/`list` surface).
   Both are checked in review, not by a linter ([ADR-0006](docs/adr/0006-minimal-code.md)).
-- **User-facing error/warning text follows the Nielsen Norman Group error-message guidelines**
-  ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
+- **User-facing error/warning text follows ADR-0030's error-message standard (Nielsen's usability
+  heuristic #9)** ([ADR-0030](docs/adr/0030-error-message-guidelines.md)): plain-language headline framed by
   the user's *goal* (no codes/jargon up front — env-var names, paths and keys go in a
   parenthetical or follow-up line), polite (describe, don't blame), and *constructive* (give
   the exact fix, copy-pasteable command on its own indented line — mirror `collisionError` in
@@ -440,12 +321,10 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   the error caught by *type* to branch behaviour? → an Error *subclass* (`ParseArgsError`,
   which `isUsageError` `instanceof`-checks), else a plain `Error`; (2) for plain errors, is the
   message heavy/actionable/reused? → a named factory (`noCredentialsError` /
-  `expiredCredentialsError` in `auth.mjs`, `collisionError` in `sets.mjs`), else an inline
+  `expiredCredentialsError` in `auth.mjs`, `collisionError` in `setup.mjs`), else an inline
   `throw new Error`. Foreign SDK/Node errors we can't subclass are matched by `code`/`name`
-  instead. A subclass nobody catches by type is unused identity, against convention #8 — don't
-  reach for one until a catch site actually reads it. (Recorded 2026-06-26 after an
-  `ExpiredCredentialsError` class was added that nothing caught by type, then downgraded to the
-  `expiredCredentialsError` factory to match its siblings.)
+  instead. A subclass nobody catches by type is unused identity, against convention #7 — don't
+  reach for one until a catch site actually reads it.
 
 ---
 
@@ -559,49 +438,28 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **`verify` flow not built yet** — the design *and* the five-slice
-  implementation plan are settled in [docs/specs/backup.md](docs/specs/backup.md) (backup sets,
-  set-first porcelain, `snapshots/<set>/`, snapshot-last invariant,
-  diff-vs-latest-remote + objects-cache upload set). **Slices 1–3 and slice 4's restore
-  path are built** (2026-06):
-  slice 1 gave the set store (`src/lib/sets.mjs`), the real `setup`/`sets` commands, and
-  the set env layer in auth; slice 2 moved the local engine onto sets —
-  `snapshot`/`list`/`compare`/`tree` take `[<set>]` (sole-set default), walk every member
-  dir with the set's `exclude.txt`, write one snapshot (with `#SNAPSHOT` identity + `#DIR`
-  headers) into `~/.s3cab/sets/<set>/snapshots/`, and the per-dir `<dir>/.s3cab/` has
-  retired; slice 3 (PR #39) built the cloud half — the remote engine
-  ([src/lib/remote.mjs](src/lib/remote.mjs)) plus `backup`, `status`, and `list --remote`,
-  so the read-stream/bucket ops in `s3.mjs` now have callers. `upload` still owes its
-  **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
-  *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
-  `backup`'s upload-set diff; see the TODO in
-  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
-  `node:sqlite`-backed cache was spiked for this and **rejected** (2026-06-13): the
-  in-memory `Map` built from the previous snapshot beats it on both build (~4×) and lookup
-  (~40×), and a flat file would cover the only case sqlite might win (a persistent
-  cross-run remote-hash set). See
-  [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).
-  slice 4's restore path (PR #44) added `restore` (its own `src/commands/restore.mjs`, on
-  the verified download — added then as `remote.mjs`'s `downloadObject`, since moved to
-  `objects.mjs` as `getObject` (2026-06-17)); `restore --output` re-rooting followed
-  (`reroot`, on `parseSnapshotStream` now surfacing the `#DIR`/`#SNAPSHOT` headers it used to
-  drop). Remaining scaffold: `verify` is still an inline registry stub — promote it into its
-  own `src/commands/` file as it gains a real body (rest of slice 5). **`compare --remote` was
-  dropped, not built** (PR #89, [ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)):
-  `compare` is local-only (the `--remote` flag + `notImplemented()` stub are gone), and
-  `setup --inherit` instead pulls the set's remote manifests down (verbatim `.tsv.zst` copies,
-  no objects, via `downloadRemoteSnapshots` in [src/lib/remote.mjs](src/lib/remote.mjs)) so a
-  fresh machine's local `compare`/`list`/`restore` work on full history.
-- **The 2026-06-20 local-config/remote-structure redesign has fully landed** (ADR-0024/0025/0026):
-  the set **name** is the whole identity (no `user@machine`), the remote snapshot namespace
-  flattened to `snapshots/<set>/`, and `setup` now requires `--bucket` and touches S3 — it
-  claims the name "first person wins" via the remote `sets/<set>/` marker
-  ([src/lib/set-marker.mjs](src/lib/set-marker.mjs): `info` + pushed `dirs.txt`/`exclude.txt`),
-  with `--inherit` for machine succession (this replaced the old `setup --from` adoption +
-  `remote.mjs`'s `listRemoteNamespaces`, both removed). ADR-0026's resolver cleanup landed last:
-  `resolveRemoteSet` folded into `resolveSet`, `BackupSet.bucket` is non-optional (enforced once
-  in `readSet`), and `formatSets`' "(no bucket — local only)" branch is gone — the redesign
-  proposal file was deleted and `docs/specs/backup.md` rewritten to the new model at that point.
+- **`verify` flow not built yet** — design + the five-slice implementation plan are settled in
+  [docs/specs/backup.md](docs/specs/backup.md) (read it for the slice detail; not re-narrated
+  here). **Slices 1–4 are built:** the set store ([src/lib/sets.mjs](src/lib/sets.mjs)), the
+  local engine on sets (`snapshot`/`list`/`compare`/`tree` over `[<set>]`, one snapshot into
+  `~/.s3cab/sets/<set>/snapshots/`), the cloud half ([src/lib/remote.mjs](src/lib/remote.mjs)
+  with `backup`/`status`/`list --remote`), and the `restore` / `restore --output` path.
+  Remaining: `verify` is still an inline registry stub — promote it to its own `src/commands/`
+  file as it gains a body (rest of slice 5); and `upload` still owes its **`--if-modified-from
+  <snapshot>` skip** — the snapshot-aware "only upload what changed" *hashing* optimization
+  (snapshot-time machinery via `prop`'s `lookup`, distinct from `backup`'s upload-set diff; see
+  the TODO in [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
+  `node:sqlite`-backed cache was spiked for this and **rejected** — the in-memory `Map` from the
+  previous snapshot wins on build and lookup; see
+  [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs). `compare` is
+  local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)); `setup
+  --inherit` instead pulls a set's remote manifests down so a fresh machine's
+  `compare`/`list`/`restore` work on full history.
+- **Local-config/remote-structure model** (ADR-0024/0025/0026, fully landed; detail in
+  `docs/specs/backup.md`): the set **name** is the whole identity (no `user@machine`), the
+  remote namespace is `snapshots/<set>/`, and `setup` requires `--bucket` and claims the name
+  "first person wins" via the remote `sets/<set>/` marker
+  ([src/lib/set-marker.mjs](src/lib/set-marker.mjs)), with `--inherit` for machine succession.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
   and GitHub Release all succeed). Since the `createRequire` regression, ci.yml's `exe

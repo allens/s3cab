@@ -45,7 +45,7 @@ design removes. Precedence (`set > user`) still holds because user went on first
 ### Rejected alternatives (so the architecture scan's re-suggestion is pre-answered)
 
 We weighed two ways to *type-enforce* the precondition and rejected both, on the
-don't-over-engineer edict ([0006](0006-minimal-code.md) / CLAUDE.md #8):
+don't-over-engineer edict ([0006](0006-minimal-code.md) / CLAUDE.md #7):
 
 - **A "prepared set" / `Bucket` brand** — a phantom `string & {__envLoaded}` minted by a cast
   at the door, so a bare `uploadSnapshot(bucket, …)` would fail to compile. It works, but it is
