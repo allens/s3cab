@@ -1,5 +1,7 @@
 # Backup sets are the unit of snapshot, backup, and restore
 
+**Status:** partly superseded by [0024](0024-set-name-is-the-whole-identity.md)
+
 > **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (accepted): the
 > `user@machine:set` identity / `user@machine/set` namespace pinned at creation was dropped —
 > the set **name** is now the whole identity. The "a backup set is the unit of

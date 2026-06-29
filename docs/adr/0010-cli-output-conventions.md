@@ -1,5 +1,7 @@
 # CLI output: JSON.stringify, stream discipline, env-gated debug
 
+**Status:** accepted
+
 Three linked conventions for how commands emit output.
 
 ## Results are serialized with `JSON.stringify`, never `console.log`

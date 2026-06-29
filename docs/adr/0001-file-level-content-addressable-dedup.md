@@ -1,5 +1,7 @@
 # File-level content-addressable dedup with SHA-256
 
+**Status:** accepted
+
 Deduplicate by the **SHA-256 of whole-file contents**: identical content under any name,
 anywhere, is stored once. Dedup is deliberately **file-level only** — no sub-file/block
 packing, no chunking, no delta encoding.

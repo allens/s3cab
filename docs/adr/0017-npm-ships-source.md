@@ -1,5 +1,7 @@
 # The npm package ships source, not the bundle
 
+**Status:** accepted
+
 npm installs a file tree and resolves imports, so the package ships the plain `src/` modules
 with `bin` pointing at the entry — no bundle, no build step on publish. (The SEA channel is
 separate: [0016](0016-native-executable-build.md).)

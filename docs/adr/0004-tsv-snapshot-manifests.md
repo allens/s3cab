@@ -1,5 +1,7 @@
 # TSV snapshot files
 
+**Status:** accepted
+
 _(The term "manifest" was retired in favour of "snapshot file"; the filename is kept for stable links.)_
 
 Snapshots are tab-separated values. Fixed-width fields first (`hash` → `size` → `mtime`),

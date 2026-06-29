@@ -1,5 +1,7 @@
 # Argument validation lives in the command functions, not the dispatcher
 
+**Status:** accepted
+
 A command that needs a positional checks it itself (`requireArg()` → `ParseArgsError`) — not
 the dispatcher.
 

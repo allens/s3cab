@@ -1,10 +1,10 @@
 # Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets`
 
-Status: **accepted and implemented** (design decided via a `/grilling` session 2026-06-27;
-implemented in #122). **Point 3 below (folding `setup` into `sets`) is since superseded by
-[0036](0036-setup-mutates-list-shows-drop-sets.md)**: the `sets` command built here was
-*dropped*, with `setup` revived as the set-mutation verb and listing moved to `list`.
-Points 1–2 (`bucket`→`aws`, old-`aws`→`profile`) stand as shipped.
+**Status:** partly superseded by [0036](0036-setup-mutates-list-shows-drop-sets.md). Points 1–2
+(`bucket`→`aws`, old-`aws`→`profile`) stand as shipped; **point 3 (folding `setup` into `sets`) is
+superseded** — the `sets` command built here was *dropped*, with `setup` revived as the
+set-mutation verb and listing moved to `list`. (Design decided via a `/grilling` session
+2026-06-27; implemented in #122.)
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
 inherit a backup set, [docs/specs/backup.md](../specs/backup.md)), `aws` (point s3cab at an AWS

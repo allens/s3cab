@@ -1,5 +1,7 @@
 # The `bucket` command: a separate, generative cloud-onboarding command
 
+**Status:** partly superseded by [0035](0035-aws-profile-sets-command-rationalization.md)
+
 > **Command name superseded by [0035](0035-aws-profile-sets-command-rationalization.md)**
 > (accepted): the cloud-onboarding command described here is now **`s3cab aws`**. Its
 > separateness, generative posture, and flags below all stand unchanged — only the

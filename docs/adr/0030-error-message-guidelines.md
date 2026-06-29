@@ -1,5 +1,7 @@
 # Error messages follow Nielsen's usability heuristic #9
 
+**Status:** accepted
+
 s3cab writes every user-facing error or failure message to **Nielsen's usability heuristic
 #9**, quoted here in full as our standard:
 

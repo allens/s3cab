@@ -1,5 +1,7 @@
 # Minimal, simple code — minimize total complexity
 
+**Status:** accepted
+
 Code should be as small and low-surface-area as possible — easy for a newcomer to pick up.
 This is in honest tension with [0005](0005-builtins-over-dependencies.md), since avoiding a
 library can mean writing bespoke code. The resolution: **minimize total complexity = bespoke

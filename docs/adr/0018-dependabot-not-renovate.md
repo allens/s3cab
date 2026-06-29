@@ -1,5 +1,7 @@
 # Dependency updates via Dependabot, not Renovate
 
+**Status:** accepted
+
 Dependency updates use **Dependabot**: native to GitHub, zero extra accounts/config. Renovate
 would be over-engineering for this dependency surface ([0005](0005-builtins-over-dependencies.md),
 [0006](0006-minimal-code.md)).

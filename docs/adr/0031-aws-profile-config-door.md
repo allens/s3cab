@@ -1,5 +1,7 @@
 # `s3cab aws`: a profile-config door, with read-only `~/.aws` validation
 
+**Status:** partly superseded by [0035](0035-aws-profile-sets-command-rationalization.md)
+
 > **Command name superseded by [0035](0035-aws-profile-sets-command-rationalization.md)**
 > (accepted): the profile-config door described here is now **`s3cab profile`** — the
 > rename freed `aws` for the cloud-onboarding command. Only the command's *name* moved;

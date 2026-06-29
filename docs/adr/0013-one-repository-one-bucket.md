@@ -1,5 +1,7 @@
 # One s3cab repository == one bucket, fixed layout
 
+**Status:** partly superseded by [0024](0024-set-name-is-the-whole-identity.md)
+
 > **Partly superseded by [0024](0024-set-name-is-the-whole-identity.md)** (accepted): the
 > snapshot namespace flattened from `snapshots/<user>@<machine>/<set>/` to `snapshots/<set>/`,
 > and a `sets/<set>/` config/marker area was added. The "one bucket == one repository, fixed

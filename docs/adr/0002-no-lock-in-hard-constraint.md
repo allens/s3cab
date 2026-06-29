@@ -1,5 +1,7 @@
 # No lock-in is a hard constraint
 
+**Status:** accepted
+
 If s3cab disappeared tomorrow, a competent person must be able to recover their data by
 hand — or write a replacement in an afternoon. Snapshot files and the object store use
 plain, self-evident formats; recoverability is a designed-in, first-class feature.

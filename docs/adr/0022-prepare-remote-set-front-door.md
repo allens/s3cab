@@ -1,5 +1,7 @@
 # Env is loaded at the entry point; the set layer goes through the `loadSet` door
 
+**Status:** accepted
+
 s3cab's "load env before any S3 op" precondition is satisfied **by construction**, not
 enforced per command:
 

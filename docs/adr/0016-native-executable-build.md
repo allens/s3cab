@@ -1,5 +1,7 @@
 # Native executable via esbuild bundle + Node SEA
 
+**Status:** accepted
+
 The distribution goal is a **single native executable** — a user shouldn't need Node
 installed. Producing it is two steps: [build.mjs](../../build.mjs) calls the **esbuild** JS
 API to bundle the ESM source into one file `dist/s3cab.js`, then `node --build-sea` (Node ≥ 26)
