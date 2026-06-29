@@ -19,6 +19,29 @@ two epic goals). Its section was deleted per the proposals convention. What rema
 candidate 2 (the diff-seam test discipline — the third goal) plus the recorded reject/parked
 notes (3 and 4).
 
+**Follow-up review (2026-06-29).** A second `/improve-codebase-architecture` pass mostly
+re-trod this ground; recording its outcome so a third doesn't:
+
+- **`fileProps` extracted — landed** ([PR #127](https://github.com/allens/s3cab/pull/127)). The
+  file-hashing core moved to `lib/file-props.mjs`; `prop` is now a path-only command over it
+  (both its `lookup: SnapshotEntries | string` and `path: string | File` unions gone), and the
+  snapshot writer injects `fileProps` directly rather than the `prop` command — closing the last
+  `commands → lib` reach in the write path. `getProps` stays as `writeSnapshot`'s test seam.
+  Glossary term **Props** added to [CONTEXT.md](../CONTEXT.md).
+- **"Extract a snapshot codec/grammar module" — reconsidered, still rejected.** It re-floated
+  splitting the grammar (`parseSnapshotStream`/`snapshotNames`/the writers) out of
+  `snapshot-file.mjs` into a module the local and remote readers both compose. It contradicts
+  [ADR-0028](../docs/adr/0028-snapshot-writer-owns-the-grammar.md) (the grammar is deliberately
+  the writer's, in one module) and re-treads the section-3 rejection below — those exports are
+  real seams; the reader half is deep. Don't re-suggest. The "500-line file" that prompted it is
+  ~200 lines of code under heavy JSDoc — file size is not a depth signal.
+- **"Concentrate the list-and-strip mechanic across `objects`/`remote`/`set-marker`" — not worth
+  it.** The shared part (iterate `listObjects`, slice the prefix) is ~1–2 lines; each caller's
+  real work diverges (bare hash / datestamp filter+sort / segment+dedup+filter). Both reviews
+  found the remote engine cleanly seamed, and merging the per-prefix modules would contradict
+  [ADR-0013](../docs/adr/0013-one-repository-one-bucket.md)/[ADR-0023](../docs/adr/0023-porcelain-plumbing-lib-layers.md).
+  Skip (#7).
+
 ---
 
 ## 2. Test `diff` at its own interface, not through the I/O shell — *worth exploring*
