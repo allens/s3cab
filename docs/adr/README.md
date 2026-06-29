@@ -8,8 +8,10 @@ Domain vocabulary lives in [CONTEXT.md](../../CONTEXT.md); fuller designs in
 New ADR: take the next number, `NNNN-slug.md`. Offer one only when a decision is **hard to
 reverse**, **surprising without context**, and **the result of a real trade-off**.
 
-Every ADR carries a `**Status:**` line directly under its title — one of `accepted`,
-`proposed`, or `partly superseded by NNNN`. This adapts the status vocabulary in
+Every ADR carries a `**Status:**` line directly under its title, starting with one of
+`accepted`, `proposed`, or `partly superseded by NNNN` (trailing detail — a date,
+`implemented`, what a supersession left standing — may follow). This adapts the status
+vocabulary in
 `ADR-FORMAT.md` (`proposed | accepted | deprecated | superseded by NNNN`); `partly superseded
 by` is our own extension, since every supersession here has been partial. A superseded
 decision is **never deleted**: its record is what stops the reversed choice being re-proposed,
