@@ -27,7 +27,9 @@ import {
 const propsOfFile = async (file) => ({
   size: file.size,
   mtime: Temporal.Instant.fromEpochMilliseconds(file.lastModified).toString(),
-  hash: crypto.hash("sha256", await file.text(), "hex"),
+  // Hash the raw bytes (not `file.text()`, which UTF-8-decodes), so a `File`
+  // hashes byte-identically to its on-disk twin (`fileProps` reads bytes too).
+  hash: crypto.hash("sha256", await file.bytes(), "hex"),
 });
 
 /**
