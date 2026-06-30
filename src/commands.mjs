@@ -164,7 +164,8 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
       },
     },
-    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+    exec: (options, [name, ...directories] = []) =>
+      setup(name, directories, options),
   },
 
   // ── Backup & restore (docs/specs/backup.md) — verify still to come ─────

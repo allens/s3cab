@@ -5,20 +5,20 @@ import { isENOENT, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 
-// The backup-set store (docs/specs/backup.md): one folder per set under
+// The backup-set store (docs/specs/backup.md): one directory per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
 // `env` (the bound bucket and any per-set auth overrides — a layer in env.mjs's
 // env layering). The files are the API: editing a set is opening these files in
-// an editor, deleting the folder deletes the set, so this module never caches
+// an editor, deleting the directory deletes the set, so this module never caches
 // and re-reads from disk on every call.
 //
 // A set's **name** is its whole identity (ADR-0024): the local handle, the local
-// folder name, and the remote namespace, all one `[a-z0-9-]+` string. There is
+// directory name, and the remote namespace, all one `[a-z0-9-]+` string. There is
 // no `user@machine` component — `validateSetName` keeps the single name clean as
 // handle, path segment, and remote key with zero escaping anywhere downstream.
 
-/** `~/.s3cab/sets` — one folder per backup set. */
+/** `~/.s3cab/sets` — one directory per backup set. */
 const setsRoot = () => join(s3cabDir(), "sets");
 
 /**
@@ -77,7 +77,7 @@ export const readSetExclude = (name) => readTextFile(setExcludePath(name));
 
 /**
  * Write a set's local `exclude.txt` from text — used by `--inherit` to recreate
- * the exclude file pulled from the remote marker. Creates the set folder if
+ * the exclude file pulled from the remote marker. Creates the set directory if
  * absent (so it can run before `writeSet` if ever needed).
  * @param {string} name
  * @param {string} text
@@ -158,7 +158,7 @@ export function validateBucketName(bucket) {
   }
 }
 
-/** The names of all backup sets (the folders under `~/.s3cab/sets`), sorted. */
+/** The names of all backup sets (the directories under `~/.s3cab/sets`), sorted. */
 export function listSets() {
   /** @type {import("node:fs").Dirent[]} */
   let entries;
@@ -191,21 +191,21 @@ export function listSets() {
  * so `~/.s3cab/sets/<name>/…` lives in exactly one place (see `setSnapshotsDir`
  * and friends above).
  * @typedef {Object} BackupSet
- * @property {string} name - The local handle, local folder name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
+ * @property {string} name - The local handle, local directory name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
  * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at creation (ADR-0026), so this is never absent — `readSet` enforces it.
  * @property {string} snapshotsDir - The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` (derived from `name`)
- * @property {string} dirsPath - The set's member-folders file, `~/.s3cab/sets/<name>/dirs.txt` (derived from `name`)
+ * @property {string} dirsPath - The set's member-directories file, `~/.s3cab/sets/<name>/dirs.txt` (derived from `name`)
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
  * @property {string} envPath - The set's env file, `~/.s3cab/sets/<name>/env` (derived from `name`)
  */
 
 /**
- * Read one set's configuration from its folder.
+ * Read one set's configuration from its directory.
  *
  * Every set is bound to a bucket at creation (ADR-0026), so this is the single
- * point that enforces the invariant: a set folder whose `env` is missing
- * `S3CAB_BUCKET` is *corrupt* (hand-edited, or a pre-redesign local-only folder),
+ * point that enforces the invariant: a set directory whose `env` is missing
+ * `S3CAB_BUCKET` is *corrupt* (hand-edited, or a pre-redesign local-only directory),
  * not a supported "local-only" set, and is rejected here. Guaranteeing the bucket
  * at the one place a `BackupSet` is built from disk is what lets `bucket` be a
  * plain `string` for every consumer — and is why the old two-tier

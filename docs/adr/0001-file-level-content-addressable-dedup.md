@@ -10,7 +10,7 @@ _(Foundational design principle #1.)_
 
 ## Why
 
-The big wins (moved folders, duplicate files) come from file-level hashing alone, and the
+The big wins (moved directories, duplicate files) come from file-level hashing alone, and the
 largest files — video, photos — rarely change in place. SHA-256 is ubiquitous in every
 runtime and CLI (`sha256sum`, `openssl`, `certutil`, Node's `crypto`), fast enough that I/O
 not hashing is the bottleneck, and collision-resistant with an intact security margin.

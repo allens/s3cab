@@ -91,14 +91,14 @@ describe("list", () => {
     await list();
     const out = io.out();
 
-    // Compact form: a `name:` heading then indented times — no bucket/folders.
+    // Compact form: a `name:` heading then indented times — no bucket/directories.
     assert.match(out, /docs:\n {2}2026-05-12T0946/);
     assert.match(
       out,
       /photos:\n {2}2026-06-12T0915\n {2}2026-06-11T0915/, // newest first
     );
     assert.doesNotMatch(out, /s3:\/\//); // the compact form omits the bucket
-    assert.doesNotMatch(out, /\/data\/photos/); // …and the folders
+    assert.doesNotMatch(out, /\/data\/photos/); // …and the directories
   });
 
   it("shows '(none yet)' for a set with no snapshots", async (t) => {

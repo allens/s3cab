@@ -105,7 +105,7 @@ a way to run two live machines off one set.
 _Avoid_: adopt, clone, migrate, take-over.
 
 **Setup** (the command):
-The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <folder>... --bucket <b>`
+The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <directory>... --bucket <b>`
 creates or updates a set, and `--inherit` adopts an existing remote set onto this machine. A
 bucket is required to create, and every mode touches S3. Distinct from a **backup set**, the
 noun it operates on.
@@ -114,7 +114,7 @@ _Avoid_: sets (the retired command name), init, config, register, create.
 **List** (the command):
 The verb that *shows* backup sets and their snapshots (ADR-0036): with no argument it lists
 every set with its snapshot times; with a set named it shows that one in detail (bucket,
-folders, exclude file) plus its snapshots. `--latest` narrows to the newest snapshot, `--remote`
+directories, exclude file) plus its snapshots. `--latest` narrows to the newest snapshot, `--remote`
 shows one set's cloud backups. The read counterpart to **setup**.
 _Avoid_: ls, show; sets (the retired command name).
 

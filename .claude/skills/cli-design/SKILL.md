@@ -46,7 +46,7 @@ violation is a review finding (the `/review` Standards axis + Copilot).
 - **Prefer flags to positional args** — named parameters are clearer and leave
   room to grow. Reserve positionals for the one obvious primary input.
 - **Multiple positionals of the *same* kind are fine** for bulk actions and
-  globbing (`rm a b c`; s3cab `setup <set> <folder>...`). **Avoid multiple
+  globbing (`rm a b c`; s3cab `setup <set> <directory>...`). **Avoid multiple
   positionals of *different* kinds** unless it's a memorable primary action
   (`cp src dest`).
 - **Offer long and short forms;** restrict single-letter flags to common options

@@ -116,7 +116,7 @@ export function selectEntries(paths, filters) {
  * segments. Path-vs-root matching is case-sensitive (a path and its `#DIR` root
  * were written by the same snapshot run, so their casing already agrees); only
  * the basename-collision check below folds case, deliberately, to catch two roots
- * that would land in the same `<output>` folder. The destination is rebuilt with
+ * that would land in the same `<output>` directory. The destination is rebuilt with
  * this platform's separator under `output`. The longest matching root wins, so a
  * nested member dir takes precedence over a parent.
  *
