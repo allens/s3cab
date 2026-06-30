@@ -97,7 +97,8 @@ s3cab names the cause and shows the raw error. By cause:
   Invalid / rejected credentials
     Replace the credentials s3cab is using, by their source:
     - env vars / env file: re-check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-      and AWS_SESSION_TOKEN in ~/.s3cab/env (no stray quotes or spaces)
+      and AWS_SESSION_TOKEN in ~/.s3cab/env (or ~/.s3cab/sets/<set>/env if
+      you scoped them to a set; no stray quotes or spaces)
     - a profile: renew it, and confirm AWS_PROFILE names the right one
     - SSO: run 'aws sso login' again
 
