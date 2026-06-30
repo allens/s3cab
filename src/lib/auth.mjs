@@ -79,13 +79,163 @@ Run 's3cab help auth' for details.`,
 /**
  * Whether an AWS error is the server rejecting a request because the resolved
  * credentials had expired. S3 surfaces it as `ExpiredToken`, STS as
- * `ExpiredTokenException` — matched on `error.name`, as the s3.mjs
- * NotFound/NoSuchKey/PreconditionFailed guards are.
+ * `ExpiredTokenException`, and a token the SDK couldn't refresh in time as
+ * `TokenRefreshRequired` — all three share the one remedy (`aws sso login` /
+ * request a fresh set), so they share this predicate. Matched on `error.name`,
+ * as the s3.mjs NotFound/NoSuchKey/PreconditionFailed guards are.
  * @param {unknown} error
  */
 export const isExpiredCredentials = (error) =>
   Error.isError(error) &&
-  (error.name === "ExpiredToken" || error.name === "ExpiredTokenException");
+  ["ExpiredToken", "ExpiredTokenException", "TokenRefreshRequired"].includes(
+    error.name,
+  );
+
+// ---------------------------------------------------------------------------
+// Request-time credential rejections, beyond expiry (ADR-0037).
+//
+// When the resolved credentials work at startup but the *server* rejects a
+// request, the family splits by the *remedy* we can offer — and we match the
+// AWS error *code* (`error.name`), never HTTP status, because only the code
+// maps ~1:1 to a user action (403 alone spans permission, signature and clock
+// skew). The relay (src/lib/s3.mjs) walks these predicate→factory pairs; only
+// codes we can fix or commonly advise on are caught, everything else falls
+// through to the raw `ERROR:` dump. Wording follows ADR-0030 (goal-framed,
+// polite, constructive); headlines stay provider-neutral (the codes are the
+// de-facto S3-compatibility surface), and only the AccessDenied *remedy*
+// branches on AWS-vs-not.
+// ---------------------------------------------------------------------------
+
+/**
+ * The raw AWS rejection, code first (so it's googleable) then its message,
+ * indented to sit under a label — the same 5-space inset `noCredentialsError`
+ * uses for the chain's own message.
+ * @param {unknown} cause
+ */
+const rawAwsError = (cause) => {
+  if (!Error.isError(cause)) return String(cause).trim();
+  const code = cause.name && cause.name !== "Error" ? `${cause.name}: ` : "";
+  return `${code}${cause.message}`.trim().replaceAll("\n", "\n     ");
+};
+
+/**
+ * Whether an AWS error is the server refusing the request for lack of
+ * permission — the credentials are valid and signed in, they just aren't
+ * allowed. `AccessDenied` is a modeled SDK class with `readonly name`, and the
+ * code every S3-compatible provider returns for an authorization failure.
+ * @param {unknown} error
+ */
+export const isAccessDenied = (error) =>
+  Error.isError(error) && error.name === "AccessDenied";
+
+/**
+ * The actionable "signed in, but not allowed" error. The credentials resolved
+ * and authenticated fine — this is a *permissions* problem, so the remedy is
+ * the bucket's access policy, not the credentials. On AWS that's the exact
+ * least-privilege policy `s3cab aws <bucket>` prints; off AWS (a custom
+ * endpoint) the IAM JSON is meaningless, so we point at the provider's own
+ * bucket/token permissions instead. A plain-`Error` factory (nothing catches it
+ * by type); keeps `cause` for the S3CAB_DEBUG path. ADR-0030 wording.
+ * @param {unknown} cause - The AWS error that triggered it.
+ * @param {{ bucket?: string, endpoint?: string }} [ctx] - Request bucket and the
+ *   custom endpoint, if any (its presence means "not AWS").
+ */
+export const accessDeniedError = (cause, { bucket, endpoint } = {}) => {
+  const target = bucket ? `the bucket "${bucket}"` : "that bucket";
+  const remedy = endpoint
+    ? `Check that your provider's bucket and token permissions allow listing
+and read/write access to ${target}.`
+    : `To see the exact least-privilege policy your identity needs, run:
+  s3cab aws ${bucket ?? "<bucket>"}`;
+  return new Error(
+    `You're signed in, but you don't have permission to use ${target}.
+
+Your sign-in worked — this is a permissions problem, not a credentials one.
+${remedy}
+
+Run 's3cab help auth' for details.`,
+    { cause },
+  );
+};
+
+/**
+ * Shared builder for the rejections that have no single-command fix — the
+ * secret/profile/SSO/endpoint could live anywhere s3cab is source-agnostic
+ * about (ADR-0015) — so each recognized *cause* supplies its own plain-language
+ * headline + advice, and we embed the raw AWS error (code-first, for googling)
+ * and point at `s3cab help auth` for the per-source depth. ADR-0030 wording.
+ * @param {unknown} cause
+ * @param {{ headline: string, advice: string }} copy
+ */
+const credentialAdviceError = (cause, { headline, advice }) =>
+  new Error(
+    `${headline}
+
+${advice}
+
+The server reported:
+     ${rawAwsError(cause)}
+
+Run 's3cab help auth' for details.`,
+    { cause },
+  );
+
+/**
+ * Whether an AWS error is the server rejecting the credentials themselves as
+ * invalid/malformed (as opposed to *expired* — `isExpiredCredentials`).
+ * `InvalidToken`/`InvalidSecurity` are STS session-token codes; `InvalidAccessKeyId`
+ * is portable (every S3 provider returns it for an unknown key).
+ * @param {unknown} error
+ */
+export const isInvalidCredentials = (error) =>
+  Error.isError(error) &&
+  ["InvalidToken", "InvalidAccessKeyId", "InvalidSecurity"].includes(
+    error.name,
+  );
+
+/** The "your credentials were rejected as invalid" error. @param {unknown} cause */
+export const invalidCredentialsError = (cause) =>
+  credentialAdviceError(cause, {
+    headline: "Your credentials were rejected as invalid.",
+    advice: `The server wouldn't accept the credentials s3cab is using. This usually
+means a key, secret, or session token is wrong, incomplete, or no longer
+valid — replace the ones for whichever source you're using (an env file,
+a profile, or an SSO session).`,
+  });
+
+/**
+ * Whether an AWS error is a request-signature mismatch — `SignatureDoesNotMatch`,
+ * part of SigV4 signing every S3-compatible provider implements (and *more*
+ * common off-AWS, where a wrong endpoint/region is the classic R2/B2 trap).
+ * @param {unknown} error
+ */
+export const isBadSignature = (error) =>
+  Error.isError(error) && error.name === "SignatureDoesNotMatch";
+
+/** The "request signature didn't match" error. @param {unknown} cause */
+export const badSignatureError = (cause) =>
+  credentialAdviceError(cause, {
+    headline: "Your credentials couldn't be verified (signature mismatch).",
+    advice: `The request signature didn't match. This almost always means a wrong
+secret key, or a region or endpoint that doesn't match your provider —
+for non-AWS S3 providers, a wrong endpoint or region is the usual cause.`,
+  });
+
+/**
+ * Whether an AWS error is the server rejecting the request because the client
+ * clock drifted too far — `RequestTimeTooSkewed`, a portable SigV4 code.
+ * @param {unknown} error
+ */
+export const isClockSkew = (error) =>
+  Error.isError(error) && error.name === "RequestTimeTooSkewed";
+
+/** The "your clock is out of sync" error. @param {unknown} cause */
+export const clockSkewError = (cause) =>
+  credentialAdviceError(cause, {
+    headline: "Your computer's clock is too far out of sync.",
+    advice: `S3 rejects requests whose timestamp drifts too far from its own, and
+yours did. Sync your system clock, then run the command again.`,
+  });
 
 // The standard AWS SDK Node.js provider chain, built once. The SDK client caches
 // the credentials it returns and re-invokes the provider near expiry, so a single

@@ -85,6 +85,41 @@ Notes:
   - For AWS, temporary credentials from profile-based setups are preferred
     over long-lived keys.
 
+When the server rejects your credentials:
+
+s3cab names the cause and shows the raw error. By cause:
+
+  Expired credentials
+    - AWS IAM Identity Center (SSO): run 'aws sso login' again
+    - temporary credentials (AWS_SESSION_TOKEN): request a fresh set
+    - a named profile: renew it (and set AWS_PROFILE)
+
+  Invalid / rejected credentials
+    Replace the credentials s3cab is using, by their source:
+    - env vars / env file: re-check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+      and AWS_SESSION_TOKEN in ~/.s3cab/env (or ~/.s3cab/sets/<set>/env if
+      you scoped them to a set; no stray quotes or spaces)
+    - a profile: renew it, and confirm AWS_PROFILE names the right one
+    - SSO: run 'aws sso login' again
+
+  Signature mismatch
+    Almost always a wrong secret, region, or endpoint:
+    - confirm AWS_SECRET_ACCESS_KEY is correct and complete
+    - confirm AWS_REGION matches the bucket's region
+    - non-AWS providers: confirm the endpoint (AWS_ENDPOINT_URL_S3) matches
+      your provider — a wrong endpoint/region is the classic Cloudflare R2 /
+      Backblaze B2 trap
+
+  Permission denied (signed in, but not allowed)
+    - on AWS, run 's3cab aws <bucket>' for the exact least-privilege policy
+    - on another provider, grant the token list + read/write on the bucket
+
+  Clock out of sync
+    S3 rejects requests whose time drifts too far. Sync your clock:
+    - Windows: Settings > Time & language > Date & time > Sync now
+    - macOS:   sudo sntp -sS time.apple.com
+    - Linux:   sudo timedatectl set-ntp true
+
 Full guide: https://github.com/allens/s3cab#authentication`,
 
   exclude: `Excluding files
