@@ -4,7 +4,7 @@
 # copy these patterns into ~/.s3cab/sets/s3cab/exclude.txt.
 # Syntax: see guide/exclude.md. '/' is always the separator, '**/' spans whole
 # directories, '*' matches within a single segment, and a trailing '/' marks a
-# directory. (The walker always skips a .s3cab/ folder, so it needs no rule here.)
+# directory. (The walker always skips a .s3cab/ directory, so it needs no rule here.)
 
 # Dependencies and VCS metadata
 **/node_modules/

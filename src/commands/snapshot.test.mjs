@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("snapshot", () => {
-  it("errors for a set whose folder no longer exists", async () => {
+  it("errors for a set whose directory no longer exists", async () => {
     const workDir = copyFixtureToWorkDir("before", "snapshot > missing-dir");
     useTempHome(workDir());
     mkdirSync(workDir("data"));

@@ -65,7 +65,7 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const setName = `rt${Date.now()}`; // lowercase + digits: a valid set name
 
-    // A small tree with a nested folder; unique content → unique object hashes,
+    // A small tree with a nested directory; unique content → unique object hashes,
     // so the shared objects/ store stays isolated and teardown deletes exactly
     // what this run made.
     const srcDir = join(dir.path, "Photos");
@@ -115,7 +115,7 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
       assert.equal(r3.skipped.length, 0);
       assert.equal(sha256(firstPath), firstProps.hash);
 
-      // --output re-roots the same backup under a chosen folder, as
+      // --output re-roots the same backup under a chosen directory, as
       // <output>/<source-basename>/… — independent of the originals.
       const outDir = join(dir.path, "restored");
       const r4 = await restore(setName, [], { output: outDir });
@@ -126,7 +126,7 @@ describe("backup → restore round trip (real bucket)", { skip }, () => {
         assert.ok(dest.startsWith(resolve(outDir)), `${dest} under ${outDir}`);
         assert.ok(
           dest.includes("Photos"),
-          `${dest} keeps the source folder name`,
+          `${dest} keeps the source directory name`,
         );
         assert.ok(wantHashes.has(sha256(dest)), `content of ${dest}`);
       }

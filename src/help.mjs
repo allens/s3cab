@@ -44,7 +44,7 @@ Choosing an identity:
   s3cab aws my-backups --region eu-west-1 --profile admin
 
 Then create a backup set in it:
-  s3cab setup <name> <folder>... --bucket my-backups
+  s3cab setup <name> <directory>... --bucket my-backups
 
 Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
 
@@ -89,25 +89,25 @@ Full guide: https://github.com/allens/s3cab#authentication`,
 
   exclude: `Excluding files
 
-Files and folders to skip are listed in a backup set's exclude file,
+Files and directories to skip are listed in a backup set's exclude file,
 ~/.s3cab/sets/<set>/exclude.txt, one glob pattern per line. Lines
 starting with # are comments and blank lines are ignored.
 
-Patterns match each file or folder's path relative to each of the set's
-member directories. Write / between folders; on Windows \\ works too.
+Patterns match each file or directory's path relative to each of the set's
+member directories. Write / between directories; on Windows \\ works too.
 
   *    one or more characters, within a single name
-  **/  zero or more whole folders
+  **/  zero or more whole directories
   ?    exactly one character
 
-A pattern ending in / matches a folder and everything inside it.
+A pattern ending in / matches a directory and everything inside it.
 Matching is case-insensitive on Windows, case-sensitive elsewhere.
 
 Examples:
-  **/node_modules/   every node_modules folder, wherever it appears
-  build/             the top-level build folder only
+  **/node_modules/   every node_modules directory, wherever it appears
+  build/             the top-level build directory only
   Tests/**/*.js      .js files anywhere under Tests
-  **/log.txt         a file named log.txt in any folder
+  **/log.txt         a file named log.txt in any directory
 
 Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md`,
 };
@@ -168,6 +168,8 @@ export function usage(commands, commandName) {
       Math.max(...Object.keys(commands).map((name) => name.length)) + 4;
     lines.push(
       "s3cab — S3 Content Addressable Backup",
+      "",
+      "A backup set is a named group of directories you keep safe in the cloud.",
       "",
       "Usage: s3cab <command> [options] [args]",
     );

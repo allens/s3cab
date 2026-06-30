@@ -52,8 +52,8 @@ own indented (`  `) line so it stands out and copies cleanly. Keep the precise d
 
 ```
 Backup set 'photos' has no bucket to back up to (no S3CAB_BUCKET in …/env).
-To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set folder and create it again:
-  s3cab setup photos <folder>... --bucket <bucket>
+To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set directory and create it again:
+  s3cab setup photos <directory>... --bucket <bucket>
 ```
 
 The headline is the user's goal ("no bucket to back up to"); the env-var name is detail in
