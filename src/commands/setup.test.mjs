@@ -58,13 +58,13 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("requires at least one folder when creating", async () => {
+  it("requires at least one directory when creating", async () => {
     await using dir = await mkTmpDir();
     withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup("photos", []),
-      /Missing required argument: <folder>/,
+      /Missing required argument: <directory>/,
     );
   });
 
@@ -88,7 +88,7 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("rejects an s3:// URL passed as the bucket, before touching folders", async () => {
+  it("rejects an s3:// URL passed as the bucket, before touching directories", async () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberFolder(dir.path);
 
@@ -108,31 +108,31 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("rejects a missing folder and a non-folder member (before --bucket)", async () => {
+  it("rejects a missing directory and a non-directory member (before --bucket)", async () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberFolder(dir.path);
     const file = join(dir.path, "plain.txt");
     writeFileSync(file, "x");
 
-    // Folder resolution runs before the --bucket check, so a bad folder reports
-    // itself regardless of whether a bucket was given.
+    // Directory resolution runs before the --bucket check, so a bad directory
+    // reports itself regardless of whether a bucket was given.
     await assert.rejects(
       () => setup("photos", [join(dir.path, "nope")]),
-      /Folder not found: /,
+      /Directory not found: /,
     );
     await assert.rejects(
       () => setup("photos", [photos, file]),
-      /Not a folder: /,
+      /Not a directory: /,
     );
   });
 
-  it("inherit takes no folders and needs a bucket", async () => {
+  it("inherit takes no directories and needs a bucket", async () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberFolder(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { inherit: true, bucket: "b" }),
-      /takes no folders/,
+      /takes no directories/,
     );
     await assert.rejects(
       () => setup("photos", [], { inherit: true }),

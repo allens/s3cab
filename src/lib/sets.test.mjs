@@ -204,7 +204,7 @@ describe("set store", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => readSet("."), /No backup sets configured/);
+    assert.throws(() => readSet("."), /No backup sets yet/);
   });
 
   it("listSets returns sorted names, and [] before any setup", async () => {
@@ -234,7 +234,7 @@ describe("resolveSet", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => resolveSet(), /No backup sets configured/);
+    assert.throws(() => resolveSet(), /No backup sets yet/);
   });
 
   it("errors listing the sets when several exist and none is named", async () => {
@@ -281,10 +281,10 @@ describe("formatSets", () => {
     assert.equal(
       text,
       [
-        "photos   → s3://my-backup-bucket   (2 folders)",
+        "photos   → s3://my-backup-bucket   (2 directories)",
         "         C:\\Users\\me\\Photos",
         "         D:\\Pics",
-        "docs     → s3://docs-bucket   (1 folder)",
+        "docs     → s3://docs-bucket   (1 directory)",
         "         C:\\Users\\me\\Documents",
       ].join("\n"),
     );

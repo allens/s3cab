@@ -60,9 +60,10 @@ _Avoid_: repo (the git sense), archive, vault.
 **Backup set** (**set**):
 A named list of directories that is the unit of snapshot, backup, and restore. Its **name** (a
 `[a-z0-9-]+` label, e.g. `work-laptop`) is its whole identity — at once the local handle, the
-local folder under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
+local directory under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
 (first-come).
-_Avoid_: profile, job, project, config.
+_Avoid_: profile, job, project, config; folder (the user-facing word is **directory** — `#DIR` in
+the snapshot file is just its abbreviation; "folder" collides with S3's pseudo-folders).
 
 **Identity**:
 What names a backup set: its **name**, and nothing more — there is no separate machine or user

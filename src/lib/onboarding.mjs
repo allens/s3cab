@@ -98,7 +98,7 @@ const bucketSteps = (bucket, region, pf) => [
  */
 const nextStep = (bucket) =>
   `Next — create a backup set in this bucket:\n` +
-  `   s3cab setup <name> <folder>... --bucket ${bucket}`;
+  `   s3cab setup <name> <directory>... --bucket ${bucket}`;
 
 /**
  * The default onboarding recipe: a dedicated **IAM user** scoped to this bucket

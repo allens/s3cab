@@ -147,7 +147,10 @@ describe("reroot", () => {
 
   it("rejects a path that lies under no member root", () => {
     const map = reroot(["/home/me/Photos"], "out");
-    assert.throws(() => map("/etc/passwd"), /not under any backed-up folder/);
+    assert.throws(
+      () => map("/etc/passwd"),
+      /not under any backed-up directory/,
+    );
   });
 });
 

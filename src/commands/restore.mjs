@@ -97,7 +97,7 @@ export async function restore(setName, paths = [], options = {}) {
         `Snapshot '${name}' has ${notAbsolute.length} path(s) that aren't absolute ` +
           `on this system (e.g. ${notAbsolute.slice(0, 3).join(", ")}). The backup ` +
           `was likely made on a different OS; restore it here with --output <dir> ` +
-          `to re-root under a folder you choose.`,
+          `to re-root under a directory you choose.`,
       );
     }
   }

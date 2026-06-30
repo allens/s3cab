@@ -55,7 +55,7 @@ export async function setup(name, folders = [], options = {}) {
   if (name === undefined) {
     throw new ParseArgsError(
       "Missing required argument: <set> (name the set to set up: " +
-        "s3cab setup <set> <folder>... --bucket <bucket>)",
+        "s3cab setup <set> <directory>... --bucket <bucket>)",
     );
   }
 
@@ -85,12 +85,12 @@ function resolveFolders(folders) {
       real = realpathSync.native(folder);
     } catch (error) {
       if (isENOENT(error)) {
-        throw new Error(`Folder not found: ${folder}`, { cause: error });
+        throw new Error(`Directory not found: ${folder}`, { cause: error });
       }
       throw error;
     }
     if (!statSync(real).isDirectory()) {
-      throw new Error(`Not a folder: ${folder}`);
+      throw new Error(`Not a directory: ${folder}`);
     }
     return real;
   });
@@ -132,11 +132,11 @@ const collisionError = (name, bucket, info) => {
 async function create(name, folders, options) {
   if (folders.length === 0) {
     throw new ParseArgsError(
-      "Missing required argument: <folder> (a new set needs at least one folder)",
+      "Missing required argument: <directory> (a new set needs at least one directory)",
     );
   }
   // Resolve folders (local, cheap) before the --bucket check so a bad folder
-  // reports "Folder not found" regardless of whether a bucket was given.
+  // reports "Directory not found" regardless of whether a bucket was given.
   const dirs = resolveFolders(folders);
   if (!options.bucket) {
     // A missing required argument (like the missing-folder check), so
@@ -212,7 +212,7 @@ async function update(name, folders, options) {
 async function inherit(name, folders, creating, options) {
   if (folders.length) {
     throw new ParseArgsError(
-      "setup --inherit takes no folders (it adopts an existing remote set)",
+      "setup --inherit takes no directories (it adopts an existing remote set)",
     );
   }
   if (!options.bucket) {
@@ -264,8 +264,8 @@ async function inherit(name, folders, creating, options) {
   if (dirs.length === 0) {
     console.warn(
       `Inherited '${name}' with no member directories from the remote config. ` +
-        `It can restore, but can't snapshot or back up until you add folders:\n` +
-        `  s3cab setup ${name} <folder>...`,
+        `It can restore, but can't snapshot or back up until you add directories:\n` +
+        `  s3cab setup ${name} <directory>...`,
     );
   }
 

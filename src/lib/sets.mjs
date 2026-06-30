@@ -235,8 +235,8 @@ export function readSet(name) {
       `Backup set '${name}' has no bucket to back up to ` +
         `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
-        `folder and create it again:\n` +
-        `  s3cab setup ${name} <folder>... --bucket <bucket>`,
+        `directory and create it again:\n` +
+        `  s3cab setup ${name} <directory>... --bucket <bucket>`,
     );
   }
   return {
@@ -250,8 +250,15 @@ export function readSet(name) {
   };
 }
 
-const NO_SETS_MESSAGE =
-  "No backup sets configured.\nCreate one with: s3cab setup <set> <folder>...";
+/**
+ * The shared "you have no sets yet" guidance — a complete, copy-pasteable next
+ * step (ADR-0030). Exported so `list`'s empty case prints the same words, since
+ * the two messages had drifted ("configured." vs "yet."). `--bucket` is included
+ * because `setup` requires it (ADR-0026): omitting it dead-ended a first-timer at
+ * `Missing required argument: --bucket`.
+ */
+export const NO_SETS_MESSAGE =
+  "No backup sets yet.\nCreate one with: s3cab setup <set> <directory>... --bucket <bucket>";
 
 /**
  * Resolve which set a command operates on: a given name, or — per the
@@ -288,7 +295,7 @@ export function formatSets(sets) {
   const nameColumn = Math.max(...sets.map(({ name }) => name.length)) + 3;
   const lines = [];
   for (const { name, dirs, bucket } of sets) {
-    const count = `(${dirs.length} folder${dirs.length === 1 ? "" : "s"})`;
+    const count = `(${dirs.length} ${dirs.length === 1 ? "directory" : "directories"})`;
     lines.push(name.padEnd(nameColumn) + `→ s3://${bucket}   ${count}`);
     for (const dir of dirs) {
       lines.push(" ".repeat(nameColumn) + dir);

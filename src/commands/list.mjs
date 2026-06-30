@@ -1,6 +1,6 @@
 import { loadSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
-import { listSets, readSet } from "../lib/sets.mjs";
+import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
@@ -57,9 +57,7 @@ export async function list(setName, options = {}) {
   // No set named → every set, compact (name + snapshot times).
   const names = listSets();
   if (names.length === 0) {
-    console.warn(
-      "No backup sets yet. Create one with: s3cab setup <set> <folder>...",
-    );
+    console.warn(NO_SETS_MESSAGE);
     return undefined;
   }
 

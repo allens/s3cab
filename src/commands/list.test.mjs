@@ -72,7 +72,10 @@ describe("list", () => {
 
     assert.equal(result, undefined);
     assert.equal(io.out(), "");
-    assert.match(io.warn(), /No backup sets yet.*s3cab setup <set> <folder>/);
+    assert.match(
+      io.warn(),
+      /No backup sets yet[\s\S]*s3cab setup <set> <directory>\.\.\. --bucket <bucket>/,
+    );
   });
 
   it("lists every set compactly (name + snapshot times), newest first", async (t) => {
@@ -125,7 +128,7 @@ describe("list", () => {
     assert.doesNotMatch(out, /2026-06-11T0915/); // the older one is dropped
   });
 
-  it("a named set shows its full config (target, folders, exclude file) above its snapshots", async (t) => {
+  it("a named set shows its full config (target, directories, exclude file) above its snapshots", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("docs", ["/data/docs"], "my-bucket", ["2026-05-12T0946"]);

@@ -147,7 +147,7 @@ export function reroot(dirs, output) {
     const key = base.toLowerCase();
     if (seen.has(key)) {
       throw new Error(
-        `Two backed-up folders are both named "${base}", so --output cannot keep ` +
+        `Two backed-up directories are both named "${base}", so --output cannot keep ` +
           `them apart under one root. Restore them one at a time with a path ` +
           `filter, or to their original locations.`,
       );
@@ -165,7 +165,7 @@ export function reroot(dirs, output) {
     );
     if (!root) {
       throw new Error(
-        `Path is not under any backed-up folder, so --output cannot place it: ${path}`,
+        `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
       );
     }
     // No `.`/`..` sandbox guard here on purpose: snapshot paths are first-party
