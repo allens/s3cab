@@ -258,7 +258,10 @@ describe("credentialErrorRelay", () => {
     Object.assign(new Error(`raw text for ${name}`), { name });
 
   /** Run the relay over a `next` that throws `cause`, optionally with a request input. */
-  const rejectWith = (/** @type {Error} */ cause, /** @type {any} */ input = {}) =>
+  const rejectWith = (
+    /** @type {Error} */ cause,
+    /** @type {any} */ input = {},
+  ) =>
     credentialErrorRelay(async () => {
       throw cause;
     })({ input });
@@ -267,7 +270,10 @@ describe("credentialErrorRelay", () => {
   // error.name (never HTTP status) and first match wins (ADR-0037).
   for (const { code, expect } of [
     { code: "ExpiredToken", expect: /Your AWS credentials have expired/ },
-    { code: "TokenRefreshRequired", expect: /Your AWS credentials have expired/ },
+    {
+      code: "TokenRefreshRequired",
+      expect: /Your AWS credentials have expired/,
+    },
     { code: "InvalidToken", expect: /rejected as invalid/ },
     { code: "InvalidAccessKeyId", expect: /rejected as invalid/ },
     { code: "InvalidSecurity", expect: /rejected as invalid/ },

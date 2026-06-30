@@ -14,8 +14,10 @@ import {
 } from "./auth.mjs";
 
 /** An error carrying the AWS-style `name` the SDK sets from the service code. */
-const named = (/** @type {string} */ name, message = "The provided token has expired.") =>
-  Object.assign(new Error(message), { name });
+const named = (
+  /** @type {string} */ name,
+  message = "The provided token has expired.",
+) => Object.assign(new Error(message), { name });
 
 describe("isExpiredCredentials", () => {
   it("recognizes ExpiredToken, ExpiredTokenException, and TokenRefreshRequired", () => {
@@ -79,7 +81,10 @@ describe("accessDeniedError", () => {
     const error = accessDeniedError(cause, { bucket: "my-backups" });
     assert.equal(error.cause, cause);
     // Goal-framed: a permissions problem, not a credentials one.
-    assert.match(error.message, /don't have permission to use the bucket "my-backups"/);
+    assert.match(
+      error.message,
+      /don't have permission to use the bucket "my-backups"/,
+    );
     assert.match(error.message, /permissions problem, not a credentials one/);
     // The exact, copy-pasteable AWS remedy, naming the bucket.
     assert.match(error.message, /s3cab aws my-backups/);
@@ -101,19 +106,28 @@ describe("invalidCredentialsError / badSignatureError / clockSkewError", () => {
     const cases = [
       {
         make: invalidCredentialsError,
-        cause: named("InvalidToken", "The provided token is malformed or otherwise invalid."),
+        cause: named(
+          "InvalidToken",
+          "The provided token is malformed or otherwise invalid.",
+        ),
         headline: /^Your credentials were rejected as invalid\./,
         raw: /InvalidToken: The provided token is malformed/,
       },
       {
         make: badSignatureError,
-        cause: named("SignatureDoesNotMatch", "The request signature we calculated does not match."),
+        cause: named(
+          "SignatureDoesNotMatch",
+          "The request signature we calculated does not match.",
+        ),
         headline: /signature mismatch/,
         raw: /SignatureDoesNotMatch: The request signature/,
       },
       {
         make: clockSkewError,
-        cause: named("RequestTimeTooSkewed", "The difference between the request time and the current time is too large."),
+        cause: named(
+          "RequestTimeTooSkewed",
+          "The difference between the request time and the current time is too large.",
+        ),
         headline: /clock is too far out of sync/,
         raw: /RequestTimeTooSkewed: The difference between/,
       },

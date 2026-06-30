@@ -174,9 +174,18 @@ function client() {
  * }[]}
  */
 const credentialErrorTable = [
-  { match: isExpiredCredentials, make: (cause) => expiredCredentialsError(cause) },
-  { match: isAccessDenied, make: (cause, ctx) => accessDeniedError(cause, ctx) },
-  { match: isInvalidCredentials, make: (cause) => invalidCredentialsError(cause) },
+  {
+    match: isExpiredCredentials,
+    make: (cause) => expiredCredentialsError(cause),
+  },
+  {
+    match: isAccessDenied,
+    make: (cause, ctx) => accessDeniedError(cause, ctx),
+  },
+  {
+    match: isInvalidCredentials,
+    make: (cause) => invalidCredentialsError(cause),
+  },
   { match: isBadSignature, make: (cause) => badSignatureError(cause) },
   { match: isClockSkew, make: (cause) => clockSkewError(cause) },
 ];
