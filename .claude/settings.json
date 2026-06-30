@@ -52,7 +52,6 @@
       "WebFetch(domain:docs.claude.com)",
       "Read(/tmp/**)",
       "Bash(npm ci *)",
-      "Bash(bash .claude/hooks/request-copilot-review.sh*)",
       "Bash(node ./src/s3cab.mjs *)",
       "Bash(gh api *)",
       "Bash(git worktree *)",
@@ -95,19 +94,6 @@
             "type": "command",
             "command": "bash .claude/hooks/block-destructive-rm.sh",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/request-copilot-review.sh",
-            "if": "Bash(gh pr create*)",
-            "timeout": 30
           }
         ]
       }

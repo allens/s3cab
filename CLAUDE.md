@@ -192,19 +192,18 @@ rather than assuming it is fixed forever.
      **deny** guards (`Bash(git reset --hard *)` won't match it), bypassing the
      destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
      checkout; when cwd is already the target, run bare.
-10. **A Copilot code review is requested automatically on every PR you open.** A `PostToolUse`
-    hook on `gh pr create` ([.claude/settings.json](.claude/settings.json)) runs
-    [.claude/hooks/request-copilot-review.sh](.claude/hooks/request-copilot-review.sh), so the
-    request rides inside the single "commit, create pr" step — no manual follow-up. It is the
+10. **Request a Copilot code review on every PR you open** — pass `--reviewer "@copilot"` to
+    `gh pr create` (so the request rides inside the single "commit, create pr" step, no manual
+    follow-up). For an already-open PR, or if the create flag didn't attach the bot, use
+    `gh pr edit --add-reviewer "@copilot"`. The `@copilot` special value needs a recent `gh` (the
+    [March 2026 CLI feature](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/));
+    it replaced a hand-rolled GraphQL hook once the CLI gained native support. It's the
     complement to the `/review` skill and the coverage-by-review rule #8, driven by
-    [.github/copilot-instructions.md](.github/copilot-instructions.md). Best-effort: no PR for
-    the branch, or Copilot review not enabled on the repo, → it logs and exits 0, never failing
-    the PR flow it rides on. Run it by hand with `bash .claude/hooks/request-copilot-review.sh`
-    if a request is ever missed. **The hard-won programmatic mechanics — the working GraphQL
-    `requestReviews`/`botIds` path and the dead ends that silently fail (REST no-op,
-    `gh pr edit`/`gh pr view` blind spots) — live in that script's header comments; read them
-    there if a request ever fails.** When the review lands, bring its comments back to the user
-    to discuss (#1) — don't auto-action them.
+    [.github/copilot-instructions.md](.github/copilot-instructions.md). Copilot review must be
+    enabled on the repo; if it isn't (or the PR is on a fork), the request silently no-ops — so
+    **verify the bot actually landed** on the PR, since these CLI paths have historically
+    returned success while attaching nobody. When the review lands, bring its comments back to
+    the user to discuss (#1) — don't auto-action them.
 11. **The permission-prompt fix is settled — do NOT re-litigate it.** After ~20 sessions of
     constant Bash prompts (every prior attempt failed by working the wrong layer), the fix
     (applied 2026-06-27) is the documented "run all Bash without prompts except a few blocked"
