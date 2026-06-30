@@ -17,7 +17,7 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * chosen remote snapshot (latest, or `--snapshot <name>`) and writes each file
  * back to the **original absolute path** it was captured from, **never touching
  * an existing file** (it is reported skipped) unless `--overwrite` is given — so
- * the empty-disk and the "I deleted a folder" cases both just work and a
+ * the empty-disk and the "I deleted a directory" cases both just work and a
  * careless restore can't destroy newer work. Positional `paths…` filter what is
  * restored (see `selectEntries`); with none, the whole snapshot is restored.
  *
@@ -97,7 +97,7 @@ export async function restore(setName, paths = [], options = {}) {
         `Snapshot '${name}' has ${notAbsolute.length} path(s) that aren't absolute ` +
           `on this system (e.g. ${notAbsolute.slice(0, 3).join(", ")}). The backup ` +
           `was likely made on a different OS; restore it here with --output <dir> ` +
-          `to re-root under a folder you choose.`,
+          `to re-root under a directory you choose.`,
       );
     }
   }

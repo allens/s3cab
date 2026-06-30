@@ -1,6 +1,6 @@
 import { loadSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
-import { listSets, readSet } from "../lib/sets.mjs";
+import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
@@ -12,7 +12,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  * - **`list`** (no set): every set compactly — `name:` then its snapshot times —
  *   so a single-set user still gets `s3cab list` → their snapshots, now under a
  *   heading. Local and offline.
- * - **`list <set>`**: that set in detail — name, bucket, member folders (with the
+ * - **`list <set>`**: that set in detail — name, bucket, member directories (with the
  *   `dirs.txt` path), and its exclude file (with the `exclude.txt` path), then its
  *   snapshots. The config paths teach where to edit a set ("the files are the
  *   API", ADR-0002).
@@ -57,9 +57,7 @@ export async function list(setName, options = {}) {
   // No set named → every set, compact (name + snapshot times).
   const names = listSets();
   if (names.length === 0) {
-    console.warn(
-      "No backup sets yet. Create one with: s3cab setup <set> <folder>...",
-    );
+    console.warn(NO_SETS_MESSAGE);
     return undefined;
   }
 
@@ -89,7 +87,7 @@ async function snapshotsFor(set, { latest, remote }) {
 }
 
 /**
- * The detail view for one set: its config (bucket, member folders, exclude file)
+ * The detail view for one set: its config (bucket, member directories, exclude file)
  * then its snapshots. The `dirs.txt`/`exclude.txt` paths are shown — absolute and
  * platform-native (from `node:path`, rooted at `homedir()`) — so the listing
  * doubles as "where do I edit this set": a capable terminal opens the path in the

@@ -21,7 +21,7 @@ under [docs/](docs/) — `adr/` = pinned *decisions* ("don't re-litigate"), `spe
 subsystem *designs* (the fuller *what/how*, which evolves), and the loose `docs/*.md` =
 *how-tos* (task recipes) — while user-facing prose is README + `guide/`. A spec and an ADR
 differ in *kind* (a design vs. a single pinned decision), which is why they are sibling
-folders; both are contributor docs, which is why both sit under `docs/` rather than one
+directories; both are contributor docs, which is why both sit under `docs/` rather than one
 floating at the root. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
 single-purpose file; the [proposals/](proposals/) ideas bucket sits outside `docs/` on
 purpose — it is provisional and *not* of record, the opposite of what `docs/` holds.)
@@ -182,7 +182,7 @@ rather than assuming it is fixed forever.
    - **Teardown is `ExitWorktree(remove)`** — it deletes the worktree directory *and* its
      branch (a new worktree branches fresh from `origin/main`, so a stale local `main` blocks
      nothing — a bare `git fetch` is enough when you want refreshed refs). **Review the work on
-     the GitHub PR; don't open the worktree folder in the IDE** — an open file there gives
+     the GitHub PR; don't open the worktree directory in the IDE** — an open file there gives
      Windows a lock that can block removal; if it's locked, close it and retry.
    - **Run bare commands — don't prepend `cd`, and don't use `git -C <cwd>`.** `EnterWorktree`
      sets the session cwd to the worktree and the Bash tool persists it, so bare `git …` /
@@ -361,7 +361,7 @@ vocabulary. Treat the README's S3/backup descriptions as the _target_; treat `sr
 _what works now_. A few layout notes the README and code don't carry:
 
 - **Scratch and throwaway experiments go in [scripts/](scripts/)** — never a parked sandbox
-  under `src/` (the old `src/_poc/` folder is retired) and never under `test/` (see the
+  under `src/` (the old `src/_poc/` directory is retired) and never under `test/` (see the
   test-layout convention above).
 - **Snapshots no longer land in the repo tree.** Since backup-sets slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/` (outside any working copy), so `.gitignore` no longer
@@ -394,14 +394,14 @@ own doc comment.
 - **Source layout.** App-level shell files at the `src/` root (`s3cab.mjs` entry,
   `commands.mjs` registry, `help.mjs` renderer — root, not `lib/`, because it's bespoke
   CLI-shell glue tied to the registry shape, not a reusable primitive); the rest splits into
-  **sibling** folders [src/commands/](src/commands/) (one file per command) and
+  **sibling** directories [src/commands/](src/commands/) (one file per command) and
   [src/lib/](src/lib/) (shared modules). The siblings sit beside each other on purpose — the
   shared modules are _depended on by_ the commands, not a layer above — and it's taste-driven,
   not a hard boundary: a `lib/` module importing a `commands/` one would be fine if a real
   need arose, though today none does (the lone such import, `snapshot-file.mjs` → `commands/prop.mjs`,
   was retired when its only user, the `writeSnapshot` test helper, moved to `test/helpers/`).
   Grouping is by **subsystem/cohesion, not abstract layer**: no `lib/util/` junk-drawer. If
-  `lib/` ever grows enough to cleave, extract a folder named for the subsystem and leave the
+  `lib/` ever grows enough to cleave, extract a directory named for the subsystem and leave the
   generic leaves (`format`, `read-lines`, `error`) flat at the root.
 - **The S3/remote engine.** The remote layout and its module ownership
   (`objects/<sha256>` → [src/lib/objects.mjs](src/lib/objects.mjs);

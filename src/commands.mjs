@@ -51,7 +51,7 @@ export const commands = {
     summary: "List backup sets and their snapshots",
     args: {
       "[<set>]":
-        "A single set to show in detail (with its folders); omit to list all sets",
+        "A single set to show in detail (with its directories); omit to list all sets",
     },
     options: {
       latest: {
@@ -70,7 +70,7 @@ export const commands = {
   compare: {
     summary: "Show what changed between two snapshots",
     description: `The report compares file content (SHA-256 hashes), never timestamps.
-'old.txt → new.txt' is a rename, '→→' a move to another folder, and
+'old.txt → new.txt' is a rename, '→→' a move to another directory, and
 'new.txt == old.txt' a copy of content that already existed.
 Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     args: {
@@ -148,8 +148,8 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     summary: "Create, update, or inherit a backup set",
     args: {
       "<set>": "The backup set to create, update, or inherit",
-      "[<folder>...]":
-        "The folders that make up the set (required when creating)",
+      "[<directory>...]":
+        "The directories that make up the set (required when creating)",
     },
     options: {
       bucket: {
@@ -164,7 +164,8 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
           "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
       },
     },
-    exec: (options, [name, ...folders] = []) => setup(name, folders, options),
+    exec: (options, [name, ...directories] = []) =>
+      setup(name, directories, options),
   },
 
   // ── Backup & restore (docs/specs/backup.md) — verify still to come ─────
@@ -192,7 +193,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     args: {
       "[<set>]": "The backup set to restore (default: the only set)",
       "[<path>...]":
-        "Specific files or folders to restore (default: everything). " +
+        "Specific files or directories to restore (default: everything). " +
         "Name the set first when filtering.",
     },
     options: {
@@ -208,7 +209,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       output: {
         type: "string",
         short: "o",
-        description: `Restore under this folder (as <output>${sep}<folder-name>${sep}…) instead of the original locations`,
+        description: `Restore under this directory (as <output>${sep}<directory-name>${sep}…) instead of the original locations`,
       },
     },
     exec: (options, [set, ...paths] = []) => restore(set, paths, options),

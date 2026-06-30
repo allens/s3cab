@@ -1,6 +1,6 @@
 # Exclude rules
 
-Files and folders to skip are listed in a backup set's exclude file,
+Files and directories to skip are listed in a backup set's exclude file,
 `~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
 `#` are comments; blank lines are ignored.
 
@@ -11,8 +11,8 @@ Files and folders to skip are listed in a backup set's exclude file,
 
 Patterns are matched against the path of each file or directory, relative to
 **each** of the set's member directories (so one pattern applies the same way to
-every folder in the set). Write `/` between folders; on Windows `\` works too. A
-_segment_ is one folder or file name (the text between two separators).
+every directory in the set). Write `/` between directories; on Windows `\` works
+too. A _segment_ is one directory or file name (the text between two separators).
 
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |

@@ -36,7 +36,7 @@ export class ParseArgsError extends Error {
  * A bad argument *value* — e.g. an invalid set name or bucket. An input error
  * (exit 2) like a parse failure, but it carries its own tailored fix, so unlike
  * `ParseArgsError` it does NOT also dump the generic usage block. Reserve it for
- * malformed argument *values*; operational/state failures (folder not found, a
+ * malformed argument *values*; operational/state failures (directory not found, a
  * name already claimed) stay plain Errors at exit 1.
  */
 export class ValidationError extends Error {

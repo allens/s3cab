@@ -591,7 +591,7 @@ describe("compare", () => {
   it("keeps a relative display for a top segment that starts with '..'", async () => {
     await using dir = await mkTmpDir();
 
-    // A folder literally named `..stuff` produces a relative path beginning
+    // A directory literally named `..stuff` produces a relative path beginning
     // with `..` that is NOT a parent escape — it must still display relative,
     // not fall back to the absolute path.
     await writeSnapshot(dir.path, PREVIOUS, []);

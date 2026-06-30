@@ -121,7 +121,7 @@ export async function profile(setName, options = {}) {
   const scope = resolveScope(setName);
 
   if (unset) {
-    // A set's folder already exists; the user's ~/.s3cab may not on a fresh
+    // A set's directory already exists; the user's ~/.s3cab may not on a fresh
     // machine — but unsetting a never-set profile is a harmless no-op, so only
     // the write paths below need the directory.
     removeEnvKey(scope.path, "AWS_PROFILE");

@@ -31,7 +31,7 @@ message *wording*.
 1. **Drop the `sets` command.** Its two jobs split by the read/write seam: its *listing* folds
    into `list`; its *mutation* (create/update/inherit) moves to `setup`.
 
-2. **`setup` is the set-mutation verb.** `setup <set> <folder>… --bucket <b>` upserts (creates the
+2. **`setup` is the set-mutation verb.** `setup <set> <directory>… --bucket <b>` upserts (creates the
    set the first time, updates it after — the same declarative upsert `sets` had, which is fine:
    non-destructive and idempotent, the model `kubectl apply` / `terraform` use deliberately);
    `setup <set> --inherit --bucket <b>` inherits (machine succession). The `setup` name that 0035
@@ -50,7 +50,7 @@ message *wording*.
 
 4. **The AWS profile stays in `profile`, separate from `setup`.** A set's profile is its **auth
    pointer** ([0031](0031-aws-profile-config-door.md)), a different layer from its **backup
-   definition** (folders, bucket). Keeping it out of `setup` is deliberate: `setup` needs working
+   definition** (directories, bucket). Keeping it out of `setup` is deliberate: `setup` needs working
    credentials to run (it claims/publishes to S3), so the profile is *logically prior* to it — the
    thing you set first and the thing you fix offline when `setup` can't even authenticate — and
    `profile`'s user-wide scope (no set named) can't be expressed on a per-set `setup`.
@@ -93,8 +93,8 @@ noun is gone, and the CRUD multiplexer with it. Verbs name actions, nouns name r
 - **`--inherit` stays a flag on `setup`** rather than its own `inherit` verb. Pulling it out would
   make `setup` a *pure* upsert (one job per command), at the cost of one more command — declined
   for now under [0006](0006-minimal-code.md); revisit only if the flag-mode grates in use.
-- **Set-config detail in `list`.** A set's member folders are config, not snapshots; whether
-  `list`'s per-set heading carries the folders (vs. just `set → bucket`, with folders left to a
+- **Set-config detail in `list`.** A set's member directories are config, not snapshots; whether
+  `list`'s per-set heading carries the directories (vs. just `set → bucket`, with directories left to a
   detail view) is a presentation call left to implementation.
 - **Renaming the *concept* `set` → `plan`** (warmer consumer vocabulary) is orthogonal and parked
   — it changes a noun, not this command shape.
@@ -118,7 +118,7 @@ Two presentation/behaviour calls left open above were settled while building it 
 
 1. **`list` does use an overview/detail split — but on *relevance*, not volume.** No-arg `list` shows
    every set *compactly* (`name:` + snapshot times only); naming a set switches to a *detail* view
-   that adds the set's bucket, member folders, and the path to its exclude file. The `dirs.txt` and
+   that adds the set's bucket, member directories, and the path to its exclude file. The `dirs.txt` and
    `exclude.txt` paths are shown absolute and platform-native so a capable terminal opens them in the
    editor ("the files are the API", [0002](0002-no-lock-in-hard-constraint.md)). This refines point
    3's "don't add an overview/detail tier the volume doesn't justify": the tier here keeps the

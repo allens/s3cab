@@ -60,8 +60,8 @@ moved-to location instead, so a copy is never mistaken for brand-new content.
 
 ### One arrow or two
 
-`a.txt → b.txt` is a rename within the same folder;
-`dir1/a.txt →→ dir2/a.txt` moved across folders.
+`a.txt → b.txt` is a rename within the same directory;
+`dir1/a.txt →→ dir2/a.txt` moved across directories.
 
 ## Why a "rotated" file shows as modified, not moved
 

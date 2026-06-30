@@ -32,7 +32,7 @@ describe("selectEntries", () => {
     ]);
   });
 
-  it("matches everything under a folder filter", () => {
+  it("matches everything under a directory filter", () => {
     assert.deepEqual(selectEntries(paths, ["/home/me/Photos"]), [
       "/home/me/Photos/beach.jpg",
       "/home/me/Photos/2024/ski.jpg",
@@ -147,7 +147,10 @@ describe("reroot", () => {
 
   it("rejects a path that lies under no member root", () => {
     const map = reroot(["/home/me/Photos"], "out");
-    assert.throws(() => map("/etc/passwd"), /not under any backed-up folder/);
+    assert.throws(
+      () => map("/etc/passwd"),
+      /not under any backed-up directory/,
+    );
   });
 });
 

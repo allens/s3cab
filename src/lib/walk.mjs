@@ -83,9 +83,9 @@ export function walkDirs(dirs, patterns) {
   for (const path of files) {
     if (seen.has(path)) {
       throw new Error(
-        `File found under more than one of the set's folders: ${path}\n` +
-          `The set's folders overlap (one is nested under another). Edit the ` +
-          `set's dirs.txt so its folders don't contain one another.`,
+        `File found under more than one of the set's directories: ${path}\n` +
+          `The set's directories overlap (one is nested under another). Edit the ` +
+          `set's dirs.txt so its directories don't contain one another.`,
       );
     }
     seen.add(path);
