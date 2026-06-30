@@ -201,9 +201,12 @@ rather than assuming it is fixed forever.
     complement to the `/review` skill and the coverage-by-review rule #8, driven by
     [.github/copilot-instructions.md](.github/copilot-instructions.md). Copilot review must be
     enabled on the repo; if it isn't (or the PR is on a fork), the request silently no-ops — so
-    **verify the bot actually landed** on the PR, since these CLI paths have historically
-    returned success while attaching nobody. When the review lands, bring its comments back to
-    the user to discuss (#1) — don't auto-action them.
+    **verify the bot actually landed**, since these CLI paths have historically returned success
+    while attaching nobody. Don't verify with `gh pr view --json reviewRequests` — it does *not*
+    surface the Copilot bot (prints `[]` even when attached); confirm via the web Reviewers panel
+    or the GraphQL `reviewRequests` query (`requestedReviewer ... on Bot { login }` →
+    `copilot-pull-request-reviewer`). When the review lands, bring its comments back to the user
+    to discuss (#1) — don't auto-action them.
 11. **The permission-prompt fix is settled — do NOT re-litigate it.** After ~20 sessions of
     constant Bash prompts (every prior attempt failed by working the wrong layer), the fix
     (applied 2026-06-27) is the documented "run all Bash without prompts except a few blocked"
