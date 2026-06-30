@@ -46,7 +46,17 @@ Landed design, in full in the ADR:
 - **Non-AWS:** code matching is portable (SigV4 codes) / inert (STS+account codes); headlines
   stay provider-neutral; only the `AccessDenied` remedy branches on `customEndpoint()`.
 
-## Remaining implementation
+## Handoff — paste into the implementation session
+
+Read [ADR-0037](../docs/adr/0037-aws-auth-error-categorization.md) (the *why* — don't
+re-litigate) and this file first. **Core rule:** match request-time AWS rejections on the error
+*code* (`error.name`), never HTTP status; catch only "can fix" + "common & can advise" codes,
+bucketed by the four remedies (`s3cab profile` / `aws sso login` / `s3cab aws <bucket>` /
+`s3cab help auth`); account-level + unrecognized codes fall through to the raw `ERROR:` dump —
+no generic middle. Wording follows [ADR-0030](../docs/adr/0030-error-message-guidelines.md) and
+consumer vocabulary [ADR-0012](../docs/adr/0012-consumer-vocabulary-naming.md); the catch-all
+headlines embed the raw AWS error (code-first, for googling) indented under a label, reusing the
+`noCredentialsError` style. Work in a worktree, uncommitted for review, ask before committing.
 
 1. **`auth.mjs`** — `accessDeniedError` (+ `isAccessDenied`); an invalid/signature/clock factory
    fed by per-cause headlines (+ predicates). Fold `TokenRefreshRequired` into the expired path.
@@ -58,6 +68,7 @@ Landed design, in full in the ADR:
 4. **Tests** — relay table unit tests via the `s3.mjs` mock (no network); assert each code →
    its factory, and unknown → rethrow raw.
 5. **Live confirmation before shipping** — the exact `.name` a live bad-credential response
-   carries, and which codes reach the relay vs. are caught earlier by `noCredentialsError`.
+   carries, and which codes reach the relay vs. are caught earlier by `noCredentialsError`. (The
+   grilling never had a real rejected response to hand, so expect to confirm this live.)
 
 When done and verified, delete this file (the ADR is the lasting record).
