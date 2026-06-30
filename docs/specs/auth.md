@@ -129,6 +129,30 @@ To continue, do one of the following:
 Run 's3cab help auth' for details.
 ```
 
+### Request-time rejections (credentials resolve, the server rejects)
+
+`noCredentialsError` above fires when the chain resolves *nothing*. When it
+resolves credentials that *work at startup* but the **server** rejects a later
+request, s3cab translates that rejection at the SDK relay boundary
+(`credentialErrorRelay` in `src/lib/s3.mjs`, see
+[ADR-0037](../adr/0037-aws-auth-error-categorization.md)). The relay walks an
+ordered table that matches the AWS error **code** (`error.name`, never HTTP
+status) and routes each to one of a few remedies; only codes s3cab can fix or
+commonly advise on are caught, and everything else falls through to the raw
+`ERROR:` dump unchanged.
+
+| Cause (AWS codes) | Factory (`src/lib/auth.mjs`) | Remedy |
+| --- | --- | --- |
+| Expired (`ExpiredToken`, `ExpiredTokenException`, `TokenRefreshRequired`) | `expiredCredentialsError` | refresh (`aws sso login` / new session) |
+| Invalid (`InvalidToken`, `InvalidAccessKeyId`, `InvalidSecurity`) | `invalidCredentialsError` | replace the credentials (by source) |
+| Bad signature (`SignatureDoesNotMatch`) | `badSignatureError` | check secret / region / endpoint |
+| Clock skew (`RequestTimeTooSkewed`) | `clockSkewError` | sync the clock |
+| Not authorized (`AccessDenied`) | `accessDeniedError` | the bucket policy (`s3cab aws <bucket>` on AWS; the provider's permissions off AWS) |
+
+Headlines stay provider-neutral; only the `AccessDenied` remedy branches on
+whether a custom endpoint is set. The per-source/per-provider depth lives in the
+`s3cab help auth` topic.
+
 ## Acceptance Criteria
 
 * if an s3cab env file exists and defines `AWS_*` variables, those values are loaded before AWS clients are created and are eligible to win through normal SDK precedence;

@@ -15,8 +15,16 @@ import { hostname, userInfo } from "node:os";
 import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
 import {
+  accessDeniedError,
+  badSignatureError,
+  clockSkewError,
   expiredCredentialsError,
+  invalidCredentialsError,
+  isAccessDenied,
+  isBadSignature,
+  isClockSkew,
   isExpiredCredentials,
+  isInvalidCredentials,
   resolveCredentials,
 } from "./auth.mjs";
 import { formatByteValue } from "./format.mjs";
@@ -144,30 +152,58 @@ function client() {
   // Added at the outermost (initialize) step so it only fires once the SDK's own
   // retries are exhausted, and covers every request path — direct sends, the
   // paginator, and lib-storage's Upload — since all share this one client.
-  _client.middlewareStack.add(expiredCredentialsRelay, {
+  _client.middlewareStack.add(credentialErrorRelay, {
     step: "initialize",
-    name: "expiredCredentials",
+    name: "credentialErrors",
   });
   return _client;
 }
 
 /**
- * SDK middleware relay that translates AWS's terse request-time "ExpiredToken"
- * rejection into the actionable `expiredCredentialsError` (auth.mjs), passing
- * every other outcome — success or unrelated error — through untouched.
- * Credentials resolve fine at startup and expire *later*, so auth.mjs is off the
- * stack by the time the server rejects; the SDK boundary is where this
- * request-time failure can be caught. Exported (and pure of any live client) so
- * the mapping is unit-testable directly with a fake `next`.
+ * The ordered table of request-time AWS credential rejections s3cab translates
+ * into friendly, actionable errors (ADR-0037). Each row pairs a predicate
+ * (matched on the AWS error *code*, `error.name`, never HTTP status) with the
+ * factory that builds its message; the relay walks the rows in order, first
+ * match wins, and anything unmatched rethrows raw. `ctx` carries the request's
+ * bucket and the custom endpoint (if any) so `accessDeniedError` can name the
+ * bucket and pick the AWS-vs-provider remedy. Data, not branching (ADR-0006) —
+ * the existing expired case is just the first row.
+ * @type {{
+ *   match: (error: unknown) => boolean,
+ *   make: (cause: unknown, ctx: { bucket?: string, endpoint?: string }) => Error,
+ * }[]}
+ */
+const credentialErrorTable = [
+  { match: isExpiredCredentials, make: (cause) => expiredCredentialsError(cause) },
+  { match: isAccessDenied, make: (cause, ctx) => accessDeniedError(cause, ctx) },
+  { match: isInvalidCredentials, make: (cause) => invalidCredentialsError(cause) },
+  { match: isBadSignature, make: (cause) => badSignatureError(cause) },
+  { match: isClockSkew, make: (cause) => clockSkewError(cause) },
+];
+
+/**
+ * SDK middleware relay that translates AWS's terse request-time credential
+ * rejections (expired/invalid token, missing permission, bad signature, clock
+ * skew) into the actionable errors in `credentialErrorTable`, passing every
+ * other outcome — success or unrecognized error — through untouched. Credentials
+ * resolve fine at startup and the *server* rejects later, so auth.mjs is off the
+ * stack by then; the SDK boundary is where these request-time failures can be
+ * caught. Exported (and pure of any live client) so the routing is unit-testable
+ * directly with a fake `next`.
  * @param {(args: any) => Promise<any>} next
  */
-export const expiredCredentialsRelay =
+export const credentialErrorRelay =
   (next) => async (/** @type {any} */ args) => {
     try {
       return await next(args);
     } catch (error) {
-      if (isExpiredCredentials(error)) {
-        throw expiredCredentialsError(error);
+      for (const { match, make } of credentialErrorTable) {
+        if (match(error)) {
+          throw make(error, {
+            bucket: args.input?.Bucket,
+            endpoint: customEndpoint(),
+          });
+        }
       }
       throw error;
     }

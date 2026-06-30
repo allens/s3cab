@@ -5,7 +5,7 @@ import {
   authNotice,
   bucketPolicy,
   clientConfig,
-  expiredCredentialsRelay,
+  credentialErrorRelay,
   formatUploadProgress,
   putObjectParams,
 } from "./s3.mjs";
@@ -252,41 +252,57 @@ describe("authNotice", () => {
   });
 });
 
-describe("expiredCredentialsRelay", () => {
+describe("credentialErrorRelay", () => {
   /** An error carrying the AWS-style `name` the SDK sets from the service code. */
   const named = (/** @type {string} */ name) =>
-    Object.assign(new Error("The provided token has expired."), { name });
+    Object.assign(new Error(`raw text for ${name}`), { name });
 
-  it("maps a request-time ExpiredToken rejection to the actionable error", async () => {
-    const cause = named("ExpiredToken");
-    const next = async () => {
+  /** Run the relay over a `next` that throws `cause`, optionally with a request input. */
+  const rejectWith = (/** @type {Error} */ cause, /** @type {any} */ input = {}) =>
+    credentialErrorRelay(async () => {
       throw cause;
-    };
-    await assert.rejects(
-      expiredCredentialsRelay(next)({}),
-      (/** @type {any} */ error) => {
+    })({ input });
+
+  // Each recognized code routes to its factory's message; the relay matches on
+  // error.name (never HTTP status) and first match wins (ADR-0037).
+  for (const { code, expect } of [
+    { code: "ExpiredToken", expect: /Your AWS credentials have expired/ },
+    { code: "TokenRefreshRequired", expect: /Your AWS credentials have expired/ },
+    { code: "InvalidToken", expect: /rejected as invalid/ },
+    { code: "InvalidAccessKeyId", expect: /rejected as invalid/ },
+    { code: "InvalidSecurity", expect: /rejected as invalid/ },
+    { code: "SignatureDoesNotMatch", expect: /signature mismatch/ },
+    { code: "RequestTimeTooSkewed", expect: /clock is too far out of sync/ },
+  ]) {
+    it(`maps a request-time ${code} rejection to its actionable error`, async () => {
+      const cause = named(code);
+      await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
         assert.equal(error.cause, cause); // original kept for the debug path
-        assert.match(error.message, /Your AWS credentials have expired/);
-        assert.match(error.message, /aws sso login/);
+        assert.match(error.message, expect);
+        return true;
+      });
+    });
+  }
+
+  it("threads the request bucket into the AccessDenied remedy", async () => {
+    await assert.rejects(
+      rejectWith(named("AccessDenied"), { Bucket: "my-backups" }),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /the bucket "my-backups"/);
+        assert.match(error.message, /s3cab aws my-backups/); // AWS remedy (no custom endpoint)
         return true;
       },
     );
   });
 
-  it("passes an unrelated error through untouched", async () => {
-    const cause = named("AccessDenied");
-    const next = async () => {
-      throw cause;
-    };
-    await assert.rejects(
-      expiredCredentialsRelay(next)({}),
-      (error) => error === cause,
-    );
+  it("rethrows an unrecognized code raw (no mushy middle)", async () => {
+    const cause = named("AccountProblem");
+    await assert.rejects(rejectWith(cause), (error) => error === cause);
   });
 
   it("passes a successful result through", async () => {
     const next = async () => "ok";
-    assert.equal(await expiredCredentialsRelay(next)({}), "ok");
+    assert.equal(await credentialErrorRelay(next)({ input: {} }), "ok");
   });
 });
 
