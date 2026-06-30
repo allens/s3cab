@@ -11,7 +11,7 @@ done. Anything that doesn't fit a theme yet lives in [misc.md](misc.md). One spe
 [bugs.md](bugs.md), is the interim defect tracker until the repo moves bugs to GitHub Issues —
 it should reach zero before release.
 
-An idea leaves this folder one of two ways, and either way the entry is deleted:
+An idea leaves this directory one of two ways, and either way the entry is deleted:
 
 - **Implemented** — its lasting knowledge moves to its real home first (a decision to an
   [ADR](../docs/adr/), a subsystem design to [docs/specs/](../docs/specs/), user docs to

@@ -37,10 +37,10 @@ afterEach(() => {
 });
 
 /**
- * Wire up a temp home (via the shared helper) plus a member folder to enrol.
+ * Wire up a temp home (via the shared helper) plus a member directory to enrol.
  * @param {string} root - The disposable temp directory.
  */
-function withMemberFolder(root) {
+function withMemberDir(root) {
   const home = useTempHome(root);
   const photos = join(root, "photos");
   mkdirSync(photos, { recursive: true });
@@ -58,19 +58,19 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("requires at least one folder when creating", async () => {
+  it("requires at least one directory when creating", async () => {
     await using dir = await mkTmpDir();
-    withMemberFolder(dir.path);
+    withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("photos", []),
-      /Missing required argument: <folder>/,
+      /Missing required argument: <directory>/,
     );
   });
 
   it("requires --bucket when creating (a set always backs up to a bucket)", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos]),
@@ -80,7 +80,7 @@ describe("setup (offline validation)", () => {
 
   it("rejects an invalid set name, teaching the rule and a kebab form", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("My Photos", [photos], { bucket: "b" }),
@@ -88,9 +88,9 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("rejects an s3:// URL passed as the bucket, before touching folders", async () => {
+  it("rejects an s3:// URL passed as the bucket, before touching directories", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
@@ -100,7 +100,7 @@ describe("setup (offline validation)", () => {
 
   it("rejects an explicit empty --bucket rather than silently ignoring it", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { bucket: "" }),
@@ -108,31 +108,31 @@ describe("setup (offline validation)", () => {
     );
   });
 
-  it("rejects a missing folder and a non-folder member (before --bucket)", async () => {
+  it("rejects a missing directory and a non-directory member (before --bucket)", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
     const file = join(dir.path, "plain.txt");
     writeFileSync(file, "x");
 
-    // Folder resolution runs before the --bucket check, so a bad folder reports
-    // itself regardless of whether a bucket was given.
+    // Directory resolution runs before the --bucket check, so a bad directory
+    // reports itself regardless of whether a bucket was given.
     await assert.rejects(
       () => setup("photos", [join(dir.path, "nope")]),
-      /Folder not found: /,
+      /Directory not found: /,
     );
     await assert.rejects(
       () => setup("photos", [photos, file]),
-      /Not a folder: /,
+      /Not a directory: /,
     );
   });
 
-  it("inherit takes no folders and needs a bucket", async () => {
+  it("inherit takes no directories and needs a bucket", async () => {
     await using dir = await mkTmpDir();
-    const { photos } = withMemberFolder(dir.path);
+    const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
       () => setup("photos", [photos], { inherit: true, bucket: "b" }),
-      /takes no folders/,
+      /takes no directories/,
     );
     await assert.rejects(
       () => setup("photos", [], { inherit: true }),
@@ -233,7 +233,7 @@ describe("setup (real bucket)", { skip }, () => {
       await setup(name, [content], { bucket });
       const before = await readRemoteInfo(bucket, name);
 
-      // Machine B inherits — no folders, recreated from the remote config.
+      // Machine B inherits — no directories, recreated from the remote config.
       useTempHome(join(dir.path, "b"));
       const inherited = await setup(name, [], { bucket, inherit: true });
       assert.equal(inherited?.bucket, bucket);
@@ -249,7 +249,7 @@ describe("setup (real bucket)", { skip }, () => {
     }
   });
 
-  it("update re-publishes changed folders to the remote", async () => {
+  it("update re-publishes changed directories to the remote", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
@@ -261,7 +261,7 @@ describe("setup (real bucket)", { skip }, () => {
 
     try {
       await setup(name, [c1], { bucket });
-      await setup(name, [c1, c2], { bucket }); // update: add a folder
+      await setup(name, [c1, c2], { bucket }); // update: add a directory
 
       const config = await readSetConfig(bucket, name);
       assert.deepEqual(config.dirs, [

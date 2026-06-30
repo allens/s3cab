@@ -31,7 +31,7 @@ is never locked in**:
   afternoon. Easy recovery is a first-class feature, not an afterthought.
 
 - **🧮 Content-addressable deduplication.** Files are identified by the SHA-256 of their
-  contents, not their name or path. Move a folder of photos, or back up the same file in
+  contents, not their name or path. Move a directory of photos, or back up the same file in
   two places, and it costs **zero** extra storage. Deduplication is whole-file, which
   keeps the stored format simple and transparent.
 
@@ -49,13 +49,13 @@ is never locked in**:
 ## Status
 
 s3cab records and compares the state of your files, organised into **backup sets** (a
-named list of folders that snapshot as one unit), **backs them up to S3**, and **restores
+named list of directories that snapshot as one unit), **backs them up to S3**, and **restores
 them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab aws <bucket>`          | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
-| `s3cab setup <set> <folder>…` | Create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
+| `s3cab setup <set> <directory>…` | Create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
@@ -76,7 +76,7 @@ there.
 
 With no `paths…` it restores the **whole set** — the disaster-recovery backstop. Files go
 back to the locations they were backed up from; pass `--output <dir>` to recover under a
-folder you choose instead (each backed-up folder lands as `<dir>/<folder-name>/…`), which is
+directory you choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is
 how you restore a backup whose original paths don't fit this machine — a different drive
 layout, or another OS. To recover onto a **fresh machine**, re-create the set pointed at the
 existing backup — `s3cab setup <set> --inherit --bucket <bucket>` — then `restore`.
@@ -101,7 +101,7 @@ covers the cloud copy too.)
 ### Cloud repositories
 
 A cloud **repository** lives in its own S3 bucket — _one repository is one bucket_, not a
-folder inside a shared one. Inside, the structure is fixed and well-known, so anything
+directory inside a shared one. Inside, the structure is fixed and well-known, so anything
 (s3cab, another tool, or you by hand) can find everything by convention:
 
 ```
@@ -169,7 +169,7 @@ the session up automatically through the standard chain.
 ## Quick start
 
 ```console
-# Create a backup set (a name, the folders it contains, and the bucket to back up to):
+# Create a backup set (a name, the directories it contains, and the bucket to back up to):
 > s3cab setup photos C:\Users\me\Photos --bucket my-backups
 
 # Snapshot the set. With only one set, you can leave its name out:
@@ -206,12 +206,12 @@ covered in [guide/compare.md](guide/compare.md).
 
 ## How it works
 
-Running `snapshot` walks every folder in the set and writes one immutable snapshot file into
-the set's own folder under your home directory — never inside your backed-up files:
+Running `snapshot` walks every directory in the set and writes one immutable snapshot file into
+the set's own directory under your home directory — never inside your backed-up files:
 
 ```
 ~/.s3cab/sets/photos/
-  dirs.txt                       # the folders that make up the set
+  dirs.txt                       # the directories that make up the set
   env                            # the set's identity + (optional) cloud bucket
   exclude.txt                    # optional: glob patterns for files to skip
   snapshots/
@@ -222,7 +222,7 @@ the set's own folder under your home directory — never inside your backed-up f
 Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
 fixed-width leading columns so it stays readable, with the variable-length (and
 platform-native, absolute) path last. It opens with a header naming the set and each member
-folder, so a snapshot file is self-describing even found on its own:
+directory, so a snapshot file is self-describing even found on its own:
 
 ```
 #SNAPSHOT                                                            2025-11-11T08:30          photos
@@ -236,7 +236,7 @@ To inspect a compressed snapshot by hand, decompress it with any zstd tool
 story — no s3cab required.
 
 Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
-set's folders; run `s3cab help exclude` for a quick reference, or see
+set's directories; run `s3cab help exclude` for a quick reference, or see
 [guide/exclude.md](guide/exclude.md) for the full guide.
 
 > s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort

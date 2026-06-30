@@ -38,7 +38,7 @@ landed model.
 > per-directory stored label, keeping the local engine per-directory. It was superseded
 > within hours by the **backup set** model below, because a set name solves the identity
 > problem outright: directories become the *contents* of a set rather than its identity,
-> so renaming a machine or moving a folder edits a config file instead of forking the
+> so renaming a machine or moving a directory edits a config file instead of forking the
 > backup history. Decisions that survived unchanged: byte-identical snapshots, the
 > snapshot-last invariant, and the diff-vs-latest-remote upload set. A second reshape
 > (2026-06-20) then made the set **name** the whole identity — dropping the `user@machine`
@@ -53,23 +53,23 @@ decisions are commitments: per [ADR-0002](../docs/adr/0002-no-lock-in-hard-const
 local *and* remote — are the contract a hand-recoverer or replacement tool relies on.
 
 Guiding instinct throughout: **simple, obvious, accessible, discoverable.** Every config
-artifact is a self-evident plain-text file a user can find by listing a folder and
+artifact is a self-evident plain-text file a user can find by listing a directory and
 understand by opening it.
 
 ## The backup set
 
 A **backup set** is a named list of directories that snapshot, back up, and restore as
-one unit — the consumer mental model ("my photos" = two folders on two drives). It is
+one unit — the consumer mental model ("my photos" = two directories on two drives). It is
 the operand of every porcelain command.
 
 A set's **name** is its entire identity (e.g. `photos`) — one user-chosen `[a-z0-9-]+`
-label that is at once the local handle, the local folder name under `~/.s3cab/sets/`, and
+label that is at once the local handle, the local directory name under `~/.s3cab/sets/`, and
 the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` component
 ([ADR-0024](../adr/0024-set-name-is-the-whole-identity.md)).
 
 - The anchor is **"a user and their data,"** not a machine. Machine isn't how a person
   thinks about their backup, and baking it into the identity would fork the history on a
-  host rename or replacement. Renaming a machine or moving a member folder edits `dirs.txt`
+  host rename or replacement. Renaming a machine or moving a member directory edits `dirs.txt`
   — it never touches identity.
 - **Bucket-wide uniqueness is "first person wins,"** enforced by a setup-time collision
   check against the remote `sets/<name>/` marker (see "Remote repository layout"). The
@@ -84,7 +84,7 @@ the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` 
   record the set name *and* their member directories (see header), so a recoverer can
   always learn what a namespace is by opening one snapshot.
 
-### On disk: one folder per set
+### On disk: one directory per set
 
 ```
 ~/.s3cab/
@@ -99,7 +99,7 @@ the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` 
 ```
 
 - **The files are the API.** Editing a set = opening `dirs.txt`/`env`/`exclude.txt` in
-  any editor; deleting the folder deletes the set. No structured config format, no
+  any editor; deleting the directory deletes the set. No structured config format, no
   management subcommands to keep honest with the files.
 - The set's `env` is the **set layer** in the env layering (env.mjs): precedence is
   **set → user → shell** ([ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) dropped the
@@ -144,13 +144,13 @@ connectivity.) The three modes:
 - **Inherit / succession** (`setup <name> --inherit --bucket <b>`): the path for a
   replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
   `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
-  no folders (they come from the remote). For machine retirement/replacement or DR only.
+  no directories (they come from the remote). For machine retirement/replacement or DR only.
 - **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
-  folders and re-publish the config; the bucket is fixed at creation (re-binding to a
+  directories and re-publish the config; the bucket is fixed at creation (re-binding to a
   different bucket — migration — isn't supported yet).
 
 Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
-OneDrive-synced folder, where both hold the same content so the interleaving is benign):
+OneDrive-synced directory, where both hold the same content so the interleaving is benign):
 `--inherit` never disables the prior machine — re-stamping the owner is its only remote
 change. An interactive wizard may later wrap this one-shot form; it is not part of v1.
 
@@ -170,7 +170,7 @@ photos:
   2026-06-11T0915
 ```
 
-With a set **named** it switches to a detail view — the set's bucket, member folders, and
+With a set **named** it switches to a detail view — the set's bucket, member directories, and
 exclude file, each shown with the config-file path that holds it (so the listing doubles as
 "where do I edit this set"), then its snapshots:
 
@@ -206,7 +206,7 @@ implementation.
 `s3cab restore [<set>] [paths…]` restores to **original locations** (the snapshot's
 absolute paths) but **never touches an existing file** — existing files are reported as
 skipped; `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
-"I deleted a folder" case both just work, and a careless restore can't destroy newer
+"I deleted a directory" case both just work, and a careless restore can't destroy newer
 work. `--snapshot <name>` picks the source snapshot (default: the latest remote);
 positional `paths…` filter what is restored. Restored files get their snapshot **mtime**
 (required — the snapshot diff depends on mtimes).
@@ -287,7 +287,7 @@ s3://my-backup-bucket/
     docs/…
 ```
 
-Snapshots are **folder-per-set** (`snapshots/<set>/…`), not a flat
+Snapshots are **directory-per-set** (`snapshots/<set>/…`), not a flat
 `snapshots/<set>-<timestamp>` — a `-`-bearing key can't be split back into (set, timestamp)
 and would prefix-collide with another set (`work-laptop` vs `work-laptop-backup`). The set
 name is a single `[a-z0-9-]+` segment, so it needs no escaping anywhere in these keys.
@@ -485,7 +485,7 @@ commands → shared-machinery wiring.
 ### Slice 2 — Local engine moves to sets
 
 `snapshot`/`tree`/`list`/`compare` take `[<set>]`: multi-root walk; per-set
-`exclude.txt`; `#DIR` header lines; snapshots into the set folder; the same-minute
+`exclude.txt`; `#DIR` header lines; snapshots into the set directory; the same-minute
 error (+ `S3CAB_DEBUG` overwrite). `<dir>/.s3cab/` retires — the biggest user-visible
 change, so README "How it works", guide/exclude.md, help topics, the repo's own dogfood
 config, and test fixtures all move in this PR.

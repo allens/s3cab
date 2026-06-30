@@ -8,7 +8,7 @@ set **name** is the whole identity, the remote layout flattened to `snapshots/<s
 [docs/specs/backup.md](../specs/backup.md).
 
 A backup set's **name** (a user-chosen `[a-z0-9-]+` label, e.g. `work-laptop`) is its *entire*
-identity: it is at once the local handle, the local folder name, and the remote namespace.
+identity: it is at once the local handle, the local directory name, and the remote namespace.
 The `user@machine:set` identity / `user@machine/set` namespace that [0014](0014-backup-sets.md)
 pinned at creation is **dropped** — no machine, and no auto-derived `user`, in the stored
 identity at all.
@@ -28,7 +28,7 @@ default for the first set's name, nudging toward scoped names without *enforcing
 ## Consequences
 
 - **Remote layout flattens** to `snapshots/<set>/<timestamp>.tsv.zst` (one segment, not
-  `snapshots/<user>@<machine>/<set>/`). Folder-per-set, *not* a flat
+  `snapshots/<user>@<machine>/<set>/`). Directory-per-set, *not* a flat
   `snapshots/<set>-<timestamp>` filename, because a `-`-bearing name (`work-laptop`) can't be
   split back into (set, timestamp) and would prefix-collide with `work-laptop-backup`.
 - **Set config is pushed to the remote** at `sets/<set>/{dirs.txt, exclude.txt}` — for
@@ -39,7 +39,7 @@ default for the first set's name, nudging toward scoped names without *enforcing
 - **`--inherit` replaces `setup --from`** for the one legitimate succession case — retiring or
   recovering a machine. The flat name *is* the argument, so adoption collapses from
   `--from <user@machine/set>` to a bare boolean `--inherit`. Two live machines on one set is a
-  discouraged-but-tolerated power-user case (e.g. a OneDrive-synced folder); it is never
+  discouraged-but-tolerated power-user case (e.g. a OneDrive-synced directory); it is never
   locked out, and `--inherit` must not disable the prior machine.
 - **An advisory "created-on `<machine>`" field** lives in the remote `sets/<set>/` marker —
   surfaced only in the collision error to help a human choose rename-vs-inherit, re-stamped on

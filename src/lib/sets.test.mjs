@@ -103,7 +103,7 @@ describe("validateBucketName", () => {
 });
 
 describe("set store", () => {
-  it("writeSet creates the folder and dirs.txt", async () => {
+  it("writeSet creates the directory and dirs.txt", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
 
@@ -183,7 +183,7 @@ describe("set store", () => {
     assert.throws(() => readSet("nope"), /Unknown backup set: nope/);
   });
 
-  // Resolution is a membership test against the real set folders, so an
+  // Resolution is a membership test against the real set directories, so an
   // arbitrary string (`.`, `../evil`) is just a miss like any other — reported
   // as "Unknown backup set", never as a low-level path/traversal error, and the
   // bad name is never joined into a path. With no sets at all, it points at
@@ -204,7 +204,7 @@ describe("set store", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => readSet("."), /No backup sets configured/);
+    assert.throws(() => readSet("."), /No backup sets yet/);
   });
 
   it("listSets returns sorted names, and [] before any setup", async () => {
@@ -234,7 +234,7 @@ describe("resolveSet", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
-    assert.throws(() => resolveSet(), /No backup sets configured/);
+    assert.throws(() => resolveSet(), /No backup sets yet/);
   });
 
   it("errors listing the sets when several exist and none is named", async () => {
@@ -251,10 +251,10 @@ describe("readSet bucket guarantee", () => {
   it("rejects a corrupt set whose env is missing S3CAB_BUCKET", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
-    // A hand-made / pre-redesign folder: dirs.txt but no bound bucket. Not a
+    // A hand-made / pre-redesign directory: dirs.txt but no bound bucket. Not a
     // supported "local-only" set (ADR-0026), so readSet refuses it — the single
     // point that guarantees every BackupSet has a bucket. (writeSet can't make
-    // one, since it returns readSet, so the folder is seeded by hand here.)
+    // one, since it returns readSet, so the directory is seeded by hand here.)
     const setDir = join(home, ".s3cab", "sets", "photos");
     mkdirSync(setDir, { recursive: true });
     writeFileSync(join(setDir, "dirs.txt"), "C:\\Photos\n");
@@ -281,10 +281,10 @@ describe("formatSets", () => {
     assert.equal(
       text,
       [
-        "photos   → s3://my-backup-bucket   (2 folders)",
+        "photos   → s3://my-backup-bucket   (2 directories)",
         "         C:\\Users\\me\\Photos",
         "         D:\\Pics",
-        "docs     → s3://docs-bucket   (1 folder)",
+        "docs     → s3://docs-bucket   (1 directory)",
         "         C:\\Users\\me\\Documents",
       ].join("\n"),
     );

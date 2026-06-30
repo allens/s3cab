@@ -127,7 +127,7 @@ when the region isn't `us-east-1`.
 Once the identity is wired up, create a backup set pointed at the bucket:
 
 ```console
-> s3cab setup <name> <folder>... --bucket my-backups
+> s3cab setup <name> <directory>... --bucket my-backups
 ```
 
 See the [README](../README.md) for backing up and restoring.

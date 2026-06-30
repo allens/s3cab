@@ -65,8 +65,8 @@ describe("walkDirs", () => {
     write(base, "sub/Thumbs.db");
     write(base, "sub/scratch.tmp");
 
-    // The walker always skips a .s3cab/ folder, so its contents never surface
-    // (defensive against stale snapshot folders left in a backed-up tree).
+    // The walker always skips a .s3cab/ directory, so its contents never surface
+    // (defensive against stale snapshot directories left in a backed-up tree).
     write(base, ".s3cab/should-not-appear.txt");
 
     const root = realpathSync.native(base);
@@ -101,7 +101,7 @@ describe("walkDirs", () => {
     const inner = join(dir.path, "inner");
 
     // A nested root re-walks files the outer root already yielded; the error
-    // names the cause (overlapping folders) rather than a bare invariant.
+    // names the cause (overlapping directories) rather than a bare invariant.
     assert.throws(() => walkDirs([dir.path, inner], []), /overlap/);
   });
 

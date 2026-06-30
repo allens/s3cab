@@ -61,7 +61,7 @@ The **`profile` command** is the discoverable door for populating the auth knob 
 > property of the bucket but of the user (single-bucket common case) or the set (overrides),
 > which also removes the circular bucket-resolution dance the per-bucket file forced (resolve
 > the bucket from set/user/shell, *then* load its env). The top layer was originally
-> specified as a per-backup-folder file, `<dir>/.s3cab/env`. It was implemented and tested
+> specified as a per-backup-directory file, `<dir>/.s3cab/env`. It was implemented and tested
 > but never wired to a command, and the backup-set model ([backup.md](backup.md), 2026-06)
 > replaced it with the per-set layer above before it ever shipped — same layering machinery,
 > only the path changed. The bucket-scoped plumbing commands (`hashes`/`upload`) pass no
