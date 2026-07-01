@@ -104,7 +104,7 @@ rather than assuming it is fixed forever.
      only when told explicitly ("don't pause").
    - **"Review the PR comments"** — review them _with_ the user: assess each (valid / not /
      nuance) with a suggested action, then stop and let them decide. Holds for _every_ wave,
-     including a push-triggered re-review; a "fix and resolve" go-ahead is per-batch and never
+     including a manually-triggered re-review; a "fix and resolve" go-ahead is per-batch and never
      carries forward.
    - **A question** ("why is it done this way?", "wouldn't X be simpler?") wants an *answer* —
      explain, say whether their instinct is right, then **stop and offer**. Don't edit off the
@@ -192,10 +192,12 @@ rather than assuming it is fixed forever.
      **deny** guards (`Bash(git reset --hard *)` won't match it), bypassing the
      destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
      checkout; when cwd is already the target, run bare.
-10. **Request a Copilot code review on every PR you open** — pass `--reviewer "@copilot"` to
+10. **Request a Copilot code review once, at PR create** — pass `--reviewer "@copilot"` to
     `gh pr create` (so the request rides inside the single "commit, create pr" step, no manual
-    follow-up). For an already-open PR, or if the create flag didn't attach the bot, use
-    `gh pr edit --add-reviewer "@copilot"`. The `@copilot` special value needs a recent `gh` (the
+    follow-up). This create-time request is the **only** one you make: Copilot does **not**
+    auto-review on push, so **never** re-request it after pushing — any further review passes are
+    the user's to trigger manually. The sole fallback use of `gh pr edit --add-reviewer "@copilot"`
+    is when the create flag failed to attach the bot at all. The `@copilot` special value needs a recent `gh` (the
     [March 2026 CLI feature](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/));
     it replaced a hand-rolled GraphQL hook once the CLI gained native support. It's the
     complement to the `/review` skill and the coverage-by-review rule #8, driven by
