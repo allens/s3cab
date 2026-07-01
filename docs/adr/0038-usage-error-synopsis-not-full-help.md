@@ -39,8 +39,11 @@ so the fix is a single CLI-wide convention rather than a `setup` patch.
    git) prints on error.
 
 2. **Scope: only the `isUsageError` set gets the synopsis + pointer** — our own
-   `ParseArgsError` (missing arg) and Node's foreign `ERR_PARSE_ARGS*` family (unknown
-   option, missing option value). `ValidationError` (bad set/bucket *value*) and plain
+   `ParseArgsError` (a missing arg, or a flag conflict / bad flag value that names no
+   single arg — e.g. `--profile` with `--unset`) and Node's foreign `ERR_PARSE_ARGS*`
+   family (unknown option, missing option value). Only the missing-arg case carries an
+   `argName` and gets the inline description; the rest print the synopsis + pointer with
+   just their own message. `ValidationError` (bad set/bucket *value*) and plain
    runtime errors stay **message-only**: they already carry their own tailored fix, so a
    synopsis would be noise. An unknown *command* keeps printing the full command **list**
    (there is no single command to point `--help` at — the list *is* the help).

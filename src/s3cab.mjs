@@ -83,8 +83,9 @@ try {
   // command exits 127 above, the shell's "command not found".)
   const usageErr = isUsageError(error);
   const message = Error.isError(error) ? error.message : String(error);
-  // Gloss a missing-arg usage error with the arg's registry description; other
-  // usage errors (Node's own parse failures) carry no argName, so no gloss (ADR-0038).
+  // Gloss a missing-arg usage error with the arg's registry description. Usage
+  // errors that name no single arg — our flag-conflict / bad-value ParseArgsErrors
+  // and Node's own parse failures — carry no argName, so no gloss (ADR-0038).
   const argName = usageErr
     ? /** @type {{ argName?: string }} */ (error).argName
     : undefined;
