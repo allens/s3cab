@@ -161,10 +161,14 @@ rather than assuming it is fixed forever.
    threshold.** Sessions share *one* main working tree, so one session's uncommitted edits are
    visible to (and confuse) the others; a per-session worktree removes that hazard. **Branch a
    worktree before the first edit of any change you intend to commit, however small.** Only
-   **pure read-only / Q&A work** stays in the main tree. Feature work therefore lands on the
-   worktree branch → one PR, with `main` left at `origin/main` (it merges *through* the PR). In
-   the rare main-tree edit, stage only the files _you_ changed (`git add <path>`, never `-A`/`.`)
-   so you don't sweep up another session's in-flight work.
+   **pure read-only / Q&A work** — and **doc-only changes** — stay in the main tree. **A doc-only
+   commit goes straight to `main`, no worktree and no PR** (Markdown/prose only: `docs/`, `guide/`,
+   README, CONTEXT.md, ADRs, this file, `proposals/` — nothing under `src/` or config): it carries
+   no code-conflict risk with another session and needs no review ceremony. Feature work, by
+   contrast, lands on the worktree branch → one PR, with `main` left at `origin/main` (it merges
+   *through* the PR). In any main-tree edit (doc-only commits included), stage only the files _you_
+   changed (`git add <path>`, never `-A`/`.`) so you don't sweep up another session's in-flight
+   work, and still commit only on an explicit go-ahead (#1).
    - **We deliberately do _not_ share `node_modules`.** A fresh worktree is gitignored-empty,
      so code work runs `npm install` first (tens of seconds from the warm cache; doc-only
      changes skip it). A junctioned/shared `node_modules` was **rejected**: it re-introduces a
