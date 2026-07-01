@@ -1,6 +1,7 @@
 # A bucket is required at setup; no local-only sets
 
-**Status:** accepted (2026-06-21) — implemented. Part of the 2026-06-20 redesign with
+**Status:** accepted (2026-06-21) — implemented; **reaffirmed 2026-07-02** (the lazy-claim
+alternative was reconsidered and rejected — see the note at the end). Part of the 2026-06-20 redesign with
 [0024](0024-set-name-is-the-whole-identity.md) and [0025](0025-drop-per-bucket-env-layer.md);
 full design in [docs/specs/backup.md](../specs/backup.md). `setup` requires `--bucket` and
 always touches S3 when creating (it pulled forward with the
@@ -41,3 +42,25 @@ setup-with-bucket / bind-later / first-backup with "already registered?" conditi
 - Weighed against [0002](0002-no-lock-in-hard-constraint.md) (no lock-in): no-lock-in is about
   the *stored format* being self-evident and recoverable without s3cab, not about running
   s3cab itself offline — so requiring a bucket at setup does not dent it.
+
+## Reconsidered and reaffirmed (2026-07-02)
+
+The opposite model — a **lazy claim**, where `setup` is a purely local declaration and the
+remote name-claim + credential use defer to first `backup` — was seriously re-explored in a
+2026-07-02 design session, prompted by onboarding friction: a confusing "No AWS credentials
+found" *at setup*. It was **rejected**, and this ADR stands, for two reasons:
+
+1. **A deferred collision is worse than a setup-time credential error.** A creds failure at
+   setup is recoverable — fix credentials, re-run, same name. But if the name-claim defers to
+   first backup, two machines can both "set up" a name locally and only collide at backup, and
+   the loser's already-configured set is *gone* (rename or `--inherit`) — unrecoverable, and not
+   fixable by fixing credentials. Lazy trades a recoverable, immediate problem for an
+   unrecoverable, deferred one — exactly the "deferred surprise" this ADR set out to avoid.
+2. **It reintroduces asymmetry.** `inherit` must touch the cloud at setup (it reads the remote
+   set), so making `create` *not* touch the cloud splits setup into "one mode needs my
+   credentials, the other doesn't." Keeping the setup-time claim keeps create/inherit symmetric.
+
+The real problem — a confusing, self-contradictory credential *error* — is fixed by making the
+failure **configuration-aware** (name the configured profile as the suspect), not by deferring
+the work. That design is in
+[proposals/auth-onboarding-ux.md](../../proposals/auth-onboarding-ux.md).
