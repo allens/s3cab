@@ -148,6 +148,57 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md`,
 };
 
 /**
+ * The display form of a positional argument, built from its metadata rather than
+ * parsed out of a decorated key: required → `<name>`, optional → `[<name>]`,
+ * variadic → a trailing `...`. The registry stores the parts (ADR-0038); this
+ * renders them, so args and options share one plain-keyed shape.
+ * @param {string} name
+ * @param {import("./commands.mjs").CommandArg} arg
+ * @returns {string}
+ */
+const displayArg = (name, { required, variadic }) => {
+  const core = `<${name}>${variadic ? "..." : ""}`;
+  return required ? core : `[${core}]`;
+};
+
+/**
+ * The one-line command shape — `Usage: s3cab setup [options] <set> [<directory>...]`.
+ * Every command accepts `[options]` (the dispatcher answers -h/--help even for
+ * those that declare none). Split out of usage() so a usage *error* prints just
+ * this line plus a --help pointer, while --help prints the full arg/option tables
+ * (ADR-0038).
+ * @param {Record<string, import("./commands.mjs").Command>} commands
+ * @param {string} commandName
+ * @returns {string}
+ */
+export function synopsis(commands, commandName) {
+  const args = commands[commandName]?.args;
+  const positionals = args
+    ? Object.entries(args).map(([name, arg]) => displayArg(name, arg))
+    : [];
+  const tail = positionals.length ? " " + positionals.join(" ") : "";
+  return `Usage: s3cab ${commandName} [options]${tail}`;
+}
+
+/**
+ * The registry description for a missing argument, matched by its plain name
+ * across the command's positional args and its options — an exact hit in
+ * whichever map holds it, no string-stripping (both are keyed by plain name).
+ * Undefined when there is no argName (Node's own parse errors carry none) or the
+ * name isn't found. Glosses a missing-arg error inline (ADR-0038).
+ * @param {import("./commands.mjs").Command} command
+ * @param {string} [argName]
+ * @returns {string | undefined}
+ */
+export function argDescription(command, argName) {
+  if (!argName) return undefined;
+  return (
+    command.args?.[argName]?.description ??
+    command.options?.[argName]?.description
+  );
+}
+
+/**
  * Build help text from the command registry. With no (or an unrecognized)
  * `commandName`, returns the top-level command list; otherwise returns that
  * command's args/options. The registry is passed in (rather than imported) so
@@ -162,16 +213,10 @@ export function usage(commands, commandName) {
   const command = commandName ? commands[commandName] : undefined;
   const lines = [];
 
-  if (command) {
+  if (command && commandName) {
     const { args, options, summary, description } = command;
 
-    // Every command accepts [options]: the dispatcher handles -h/--help even
-    // for commands that declare none of their own.
-    let usageLine = `Usage: s3cab ${commandName} [options]`;
-    if (args) {
-      usageLine += " " + Object.keys(args).join(" ");
-    }
-    lines.push(usageLine, "");
+    lines.push(synopsis(commands, commandName), "");
 
     if (summary) {
       lines.push(summary, "");
@@ -179,8 +224,8 @@ export function usage(commands, commandName) {
 
     if (args) {
       lines.push("Arguments:");
-      for (const [name, description = ""] of Object.entries(args)) {
-        lines.push(`  ${name}`.padEnd(24) + description);
+      for (const [name, arg] of Object.entries(args)) {
+        lines.push(`  ${displayArg(name, arg)}`.padEnd(24) + arg.description);
       }
       lines.push("");
     }

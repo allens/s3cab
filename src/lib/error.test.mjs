@@ -19,19 +19,26 @@ describe("ParseArgsError", () => {
 });
 
 describe("requireArg", () => {
-  it("throws ParseArgsError when value is absent", () => {
-    assert.throws(() => requireArg(undefined, "<bucket>"), {
+  it("throws ParseArgsError when value is absent, wrapping the plain name", () => {
+    assert.throws(() => requireArg(undefined, "bucket"), {
       code: "ERR_PARSE_ARGS",
       message: "Missing required argument: <bucket>",
     });
   });
 
+  it("tags the error with the plain argName for the description lookup", () => {
+    assert.throws(
+      () => requireArg(undefined, "bucket"),
+      (err) => err instanceof ParseArgsError && err.argName === "bucket",
+    );
+  });
+
   it("throws ParseArgsError when value is empty string", () => {
-    assert.throws(() => requireArg("", "<file>"), { code: "ERR_PARSE_ARGS" });
+    assert.throws(() => requireArg("", "file"), { code: "ERR_PARSE_ARGS" });
   });
 
   it("does not throw when value is present", () => {
-    assert.doesNotThrow(() => requireArg("something", "<bucket>"));
+    assert.doesNotThrow(() => requireArg("something", "bucket"));
   });
 });
 

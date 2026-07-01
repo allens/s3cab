@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { loadSet } from "../lib/env.mjs";
-import { ParseArgsError, isENOENT } from "../lib/error.mjs";
+import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   claimRemoteSet,
@@ -53,10 +53,11 @@ import {
  */
 export async function setup(name, directories = [], options = {}) {
   if (name === undefined) {
-    throw new ParseArgsError(
-      "Missing required argument: <set> (name the set to set up: " +
-        "s3cab setup <set> <directory>... --bucket <bucket>)",
-    );
+    // A distinct undefined-check (not requireArg) so an *empty* string still
+    // routes to validateSetName below as invalid, not "missing".
+    throw new ParseArgsError("Missing required argument: <set>", {
+      argName: "set",
+    });
   }
 
   validateSetName(name);
@@ -130,20 +131,18 @@ const collisionError = (name, bucket, info) => {
  * @returns {Promise<BackupSet>}
  */
 async function create(name, directories, options) {
-  if (directories.length === 0) {
-    throw new ParseArgsError(
-      "Missing required argument: <directory> (a new set needs at least one directory)",
-    );
-  }
+  requireArg(directories.length, "directory");
   // Resolve directories (local, cheap) before the --bucket check so a bad directory
   // reports "Directory not found" regardless of whether a bucket was given.
   const dirs = resolveDirectories(directories);
   if (!options.bucket) {
     // A missing required argument (like the missing-directory check), so
-    // ParseArgsError — the CLI prints usage.
-    throw new ParseArgsError(
-      "Missing required argument: --bucket (a backup set always backs up to a bucket, chosen when you create it)",
-    );
+    // ParseArgsError — the CLI prints usage. `--bucket` is an option, not a
+    // positional, so it's spelled out here rather than via requireArg; argName
+    // lets the dispatcher gloss it with the registry description (ADR-0038).
+    throw new ParseArgsError("Missing required argument: --bucket", {
+      argName: "bucket",
+    });
   }
   const bucket = options.bucket;
 

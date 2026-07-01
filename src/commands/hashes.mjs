@@ -24,7 +24,7 @@ import { listObjectHashes } from "../lib/objects.mjs";
  * @returns {Promise<undefined>} Output is streamed, not returned.
  */
 export async function hashes(bucket, options = {}) {
-  requireArg(bucket, "<bucket>");
+  requireArg(bucket, "bucket");
 
   const all = [];
   for await (const hash of listObjectHashes(bucket)) all.push(hash);

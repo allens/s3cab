@@ -30,7 +30,7 @@ import { validateBucketName } from "../lib/sets.mjs";
  * @returns {undefined}
  */
 export function aws(name, options = {}) {
-  requireArg(name, "<bucket>");
+  requireArg(name, "bucket");
   validateBucketName(name);
 
   // Region for the create-bucket command, defaulting like the test-bucket script

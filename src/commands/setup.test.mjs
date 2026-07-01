@@ -54,7 +54,7 @@ describe("setup (offline validation)", () => {
 
     await assert.rejects(
       () => setup(undefined, [], { bucket: "b" }),
-      /Missing required argument: <set>[\s\S]*s3cab setup <set>/,
+      /Missing required argument: <set>/,
     );
   });
 

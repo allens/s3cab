@@ -22,7 +22,7 @@ import { readSnapshotFile } from "../lib/snapshot-file.mjs";
  * @returns {Promise<Props>} File properties
  */
 export async function prop(path, options = {}) {
-  requireArg(path, "<file>");
+  requireArg(path, "file");
 
   let lookup;
   if (options.lookup) {

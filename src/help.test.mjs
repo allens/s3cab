@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
-import { helpTopics, usage } from "./help.mjs";
+import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 
 // usage() is a pure function over a registry (passed in, not imported), so it
 // can be exercised with a small synthetic registry — plus a couple of checks
@@ -11,7 +11,10 @@ import { helpTopics, usage } from "./help.mjs";
 const fakeRegistry = {
   go: {
     summary: "Do the thing",
-    args: { "<target>": "What to do it to", "[<extra>]": "Optional extra" },
+    args: {
+      target: { required: true, description: "What to do it to" },
+      extra: { description: "Optional extra" },
+    },
     options: {
       fast: { type: "boolean", short: "f", description: "Do it quickly" },
       mode: { type: "string", description: "How to do it" },
@@ -97,6 +100,47 @@ describe("usage", () => {
     for (const name of Object.keys(commands)) {
       assert.match(text, new RegExp(`^  ${name}\\s`, "m"));
     }
+  });
+});
+
+describe("synopsis", () => {
+  it("renders required and optional positionals from their metadata", () => {
+    assert.equal(
+      synopsis(fakeRegistry, "go"),
+      "Usage: s3cab go [options] <target> [<extra>]",
+    );
+  });
+
+  it("is just the command + [options] when it declares no args", () => {
+    assert.equal(
+      synopsis(fakeRegistry, "later"),
+      "Usage: s3cab later [options]",
+    );
+  });
+
+  it("renders a variadic optional positional with brackets and an ellipsis", () => {
+    // Guards the real setup shape: <set> required, [<directory>...] optional variadic.
+    assert.equal(
+      synopsis(commands, "setup"),
+      "Usage: s3cab setup [options] <set> [<directory>...]",
+    );
+  });
+});
+
+describe("argDescription", () => {
+  const go = /** @type {import("./commands.mjs").Command} */ (fakeRegistry.go);
+
+  it("finds a positional arg's description by plain name", () => {
+    assert.equal(argDescription(go, "target"), "What to do it to");
+  });
+
+  it("finds an option's description by plain name", () => {
+    assert.equal(argDescription(go, "mode"), "How to do it");
+  });
+
+  it("is undefined for an unknown name or a missing argName", () => {
+    assert.equal(argDescription(go, "nope"), undefined);
+    assert.equal(argDescription(go, undefined), undefined);
   });
 });
 
