@@ -19,8 +19,20 @@ import { notImplemented } from "./lib/error.mjs";
 /** @typedef {string | string[] | object | undefined} CommandResult */
 
 /**
+ * A positional argument. `parseArgs` handles positionals as a flat array, not by
+ * per-name descriptor, so unlike {@link CommandOption} this is purely our own
+ * metadata — the display form (`<set>`, `[<directory>...]`) is *derived* from it
+ * by `displayArg` in help.mjs, never baked into the key. `required`/`variadic`
+ * default false (an optional single arg).
+ * @typedef {Object} CommandArg
+ * @property {string} description - Shown in `--help` and inline in a missing-arg error
+ * @property {boolean} [required] - A mandatory positional: renders `<name>`, not `[<name>]`
+ * @property {boolean} [variadic] - Accepts multiple values: renders a trailing `...`
+ */
+
+/**
  * @typedef {Object} Command
- * @property {Record<string, string>} [args]
+ * @property {Record<string, CommandArg>} [args]
  * @property {Record<string, CommandOption>} [options]
  * @property {(options: ParsedOptions, positionals?: string[]) => CommandResult | Promise<CommandResult>} exec
  * @property {string} summary
@@ -36,7 +48,9 @@ export const commands = {
     group: "Snapshots",
     summary: "Take a snapshot of a backup set",
     args: {
-      "[<set>]": "The backup set to snapshot (default: the only set)",
+      set: {
+        description: "The backup set to snapshot (default: the only set)",
+      },
     },
     options: {
       rehash: {
@@ -50,8 +64,10 @@ export const commands = {
   list: {
     summary: "List backup sets and their snapshots",
     args: {
-      "[<set>]":
-        "A single set to show in detail (with its directories); omit to list all sets",
+      set: {
+        description:
+          "A single set to show in detail (with its directories); omit to list all sets",
+      },
     },
     options: {
       latest: {
@@ -74,8 +90,10 @@ export const commands = {
 'new.txt == old.txt' a copy of content that already existed.
 Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     args: {
-      "[<set>]":
-        "The backup set whose snapshots to compare (default: the only set)",
+      set: {
+        description:
+          "The backup set whose snapshots to compare (default: the only set)",
+      },
     },
     options: {
       since: {
@@ -92,7 +110,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",
-    args: { "[<set>]": "The backup set to report on (default: the only set)" },
+    args: {
+      set: {
+        description: "The backup set to report on (default: the only set)",
+      },
+    },
     exec: (_options, [set] = []) => status(set),
   },
 
@@ -102,7 +124,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     group: "Setup",
     summary: "Show the steps to set up an S3 bucket for backups",
     args: {
-      "<bucket>": "The S3 bucket name to set up as a backup destination",
+      bucket: {
+        required: true,
+        description: "The S3 bucket name to set up as a backup destination",
+      },
     },
     options: {
       sso: {
@@ -127,8 +152,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   profile: {
     summary: "Set, clear, or show the AWS profile s3cab uses",
     args: {
-      "[<set>]":
-        "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
+      set: {
+        description:
+          "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
+      },
     },
     options: {
       profile: {
@@ -147,16 +174,22 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   setup: {
     summary: "Create, update, or inherit a backup set",
     args: {
-      "<set>": "The backup set to create, update, or inherit",
-      "[<directory>...]":
-        "The directories that make up the set (required when creating)",
+      set: {
+        required: true,
+        description: "The backup set to create, update, or inherit",
+      },
+      directory: {
+        variadic: true,
+        description:
+          "The directories that make up the set, set when you first create it",
+      },
     },
     options: {
       bucket: {
         type: "string",
         short: "b",
         description:
-          "The S3 bucket to back this set up to (required when creating)",
+          "The S3 bucket to back this set up to, set when you first create it",
       },
       inherit: {
         type: "boolean",
@@ -172,7 +205,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   backup: {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",
-    args: { "[<set>]": "The backup set to back up (default: the only set)" },
+    args: {
+      set: { description: "The backup set to back up (default: the only set)" },
+    },
     options: {
       snapshot: {
         type: "string",
@@ -191,10 +226,13 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   restore: {
     summary: "Restore files from a backup",
     args: {
-      "[<set>]": "The backup set to restore (default: the only set)",
-      "[<path>...]":
-        "Specific files or directories to restore (default: everything). " +
-        "Name the set first when filtering.",
+      set: { description: "The backup set to restore (default: the only set)" },
+      path: {
+        variadic: true,
+        description:
+          "Specific files or directories to restore (default: everything). " +
+          "Name the set first when filtering.",
+      },
     },
     options: {
       snapshot: {
@@ -217,7 +255,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   verify: {
     summary: "Check that a backup is complete and undamaged",
     planned: true,
-    args: { "[<set>]": "The backup set to check (default: the only set)" },
+    args: {
+      set: { description: "The backup set to check (default: the only set)" },
+    },
     exec: () => notImplemented("verify"),
   },
 
@@ -226,7 +266,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     group: "Advanced",
     summary: "List a repository's stored object hashes (one per line)",
     args: {
-      "<bucket>": "The repository's S3 bucket name",
+      bucket: {
+        required: true,
+        description: "The repository's S3 bucket name",
+      },
     },
     options: {
       file: {
@@ -241,8 +284,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   upload: {
     summary: "Upload a single file to a repository's object store",
     args: {
-      "<bucket>": "The repository's S3 bucket name",
-      "<file>": "The file to upload",
+      bucket: {
+        required: true,
+        description: "The repository's S3 bucket name",
+      },
+      file: { required: true, description: "The file to upload" },
     },
     options: {
       force: {
@@ -255,12 +301,16 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
-    args: { "[<set>]": "The backup set to list (default: the only set)" },
+    args: {
+      set: { description: "The backup set to list (default: the only set)" },
+    },
     exec: (_options, [set] = []) => tree(set),
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",
-    args: { "<file>": "The file to inspect" },
+    args: {
+      file: { required: true, description: "The file to inspect" },
+    },
     options: {
       lookup: {
         type: "string",

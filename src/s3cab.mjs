@@ -5,7 +5,7 @@ import pkg from "../package.json" with { type: "json" };
 import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
-import { helpTopics, usage } from "./help.mjs";
+import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 import { loadEnv } from "./lib/env.mjs";
 import { isInputError, isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
@@ -76,18 +76,29 @@ try {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   }
 } catch (error) {
-  console.error(
-    "ERROR:",
-    debug ? error : Error.isError(error) ? error.message : String(error),
-  );
-  console.error();
-  // Two independent axes (see lib/error.mjs): print the usage block only for a
+  // Two independent axes (see lib/error.mjs): print the usage help only for a
   // structural usage error, and pick the exit code by input-vs-runtime. Exit-code
   // convention: 2 for bad input (args/options/values — the argparse/getopt
   // convention), 1 for any other runtime failure. (Success is 0; an unknown
   // command exits 127 above, the shell's "command not found".)
-  if (isUsageError(error)) {
-    console.error(usage(commands, commandName));
+  const usageErr = isUsageError(error);
+  const message = Error.isError(error) ? error.message : String(error);
+  // Gloss a missing-arg usage error with the arg's registry description; other
+  // usage errors (Node's own parse failures) carry no argName, so no gloss (ADR-0038).
+  const argName = usageErr
+    ? /** @type {{ argName?: string }} */ (error).argName
+    : undefined;
+  const description = argName ? argDescription(command, argName) : undefined;
+  console.error(
+    "ERROR:",
+    debug ? error : description ? `${message} — ${description}` : message,
+  );
+  // A usage error prints the one-line synopsis + a --help pointer, not the full
+  // arg/option tables (those live behind --help) — ADR-0038.
+  if (usageErr) {
+    console.error();
+    console.error(synopsis(commands, commandName));
+    console.error(`Run 's3cab ${commandName} --help' for details.`);
   }
   process.exitCode = isInputError(error) ? 2 : 1;
 } finally {

@@ -24,11 +24,18 @@
 export class ParseArgsError extends Error {
   /**
    * @param {string} message
-   * @param {ErrorOptions} [options]
+   * @param {ErrorOptions & { argName?: string }} [options]
    */
   constructor(message, options) {
     super(message, options);
     this.code = "ERR_PARSE_ARGS";
+    /**
+     * The registry arg this concerns (plain name, e.g. `set`/`bucket`), so the
+     * dispatcher can gloss the error with its description (ADR-0038). Undefined
+     * for generic parse failures that name no single arg.
+     * @type {string | undefined}
+     */
+    this.argName = options?.argName;
   }
 }
 
@@ -51,15 +58,19 @@ export class ValidationError extends Error {
 }
 
 /**
- * Assert a required positional argument is present, throwing a usage error
- * (named after the argument, e.g. `<bucket>`) if it is missing or empty.
+ * Assert a required positional argument is present, throwing a usage error if it
+ * is missing or empty. Takes the arg's *plain* name (e.g. `bucket`) — the display
+ * form `<bucket>` is rendered here, and the plain name rides on the error as
+ * `argName` so the dispatcher can gloss it with the registry description (ADR-0038).
  * @param {unknown} value - The positional value to check
- * @param {string} name - The argument's display name, e.g. `<bucket>`
+ * @param {string} name - The argument's plain name, e.g. `bucket`
  * @returns {asserts value}
  */
 export function requireArg(value, name) {
   if (!value) {
-    throw new ParseArgsError(`Missing required argument: ${name}`);
+    throw new ParseArgsError(`Missing required argument: <${name}>`, {
+      argName: name,
+    });
   }
 }
 

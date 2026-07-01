@@ -36,8 +36,8 @@ import { prop } from "./prop.mjs";
  * @returns {Promise<{ hash: string, size: number, key: string, uploaded: boolean }>}
  */
 export async function upload(bucket, file, options = {}) {
-  requireArg(bucket, "<bucket>");
-  requireArg(file, "<file>");
+  requireArg(bucket, "bucket");
+  requireArg(file, "file");
 
   // prop() does the file validation (rejects non-regular files) and the streaming
   // SHA-256 hash; reuse it rather than re-deriving either here (#6).
