@@ -1,12 +1,13 @@
 # Tests
 
 Test layout for s3cab. Run the suite with `npm test` (Node's built-in
-`node:test` runner — no framework, see [../CLAUDE.md](../CLAUDE.md) #5).
+`node:test` runner — no framework,
+[ADR-0005](../docs/adr/0005-builtins-over-dependencies.md)).
 
 ## Where tests live
 
 - **Unit tests are co-located with their source** as `*.test.mjs` next to the
-  module they cover (e.g. [../src/commands/tree.test.mjs](../src/commands/tree.test.mjs)).
+  module they cover (e.g. [../src/commands/list.test.mjs](../src/commands/list.test.mjs)).
 - **This directory holds cross-cutting tests and shared support:**
   - [e2e.test.mjs](e2e.test.mjs) — end-to-end CLI behaviour; spawns `node src/s3cab.mjs`
     as a subprocess.
@@ -17,7 +18,8 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
   - [helpers/](helpers/) — shared, importable test helpers (not run as tests).
 
 The `test` script points the runner at an explicit glob —
-`node --test "src/**/*.test.mjs" "test/**/*.test.mjs"` — rather than default discovery,
+`node --test --experimental-test-module-mocks "src/**/*.test.mjs" "test/**/*.test.mjs"` —
+rather than default discovery,
 which would run **every** `.mjs` under `test/`. That's what lets `helpers/` and `fixtures/`
 hold non-test `.mjs` here without them executing as phantom empty tests. Scratch and
 experiments still go in [../scripts/](../scripts/).

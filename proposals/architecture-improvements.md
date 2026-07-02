@@ -113,12 +113,14 @@ make it a conscious call.
 ### Narrow `s3.mjs` to the SDK seam it guards. _(Worth exploring.)_
 
 _Surfaced 2026-06-23 (as "candidate C"); previously filed under engine-robustness.md, moved
-here 2026-07-02._ `s3.mjs` (meant to be the one SDK seam) also renders terminal progress bars
-(`cursorTo`/`clearLine`), ships an unused `bucketPolicy`, and exposes test-only
+here 2026-07-02; `bucketPolicy` point retired 2026-07-02._ `s3.mjs` (meant to be the one SDK
+seam) also renders terminal progress bars (`cursorTo`/`clearLine`) and exposes test-only
 `deleteObject`/`emptyBucket`. Lift progress into a small stderr-progress module (`snapshot`
-and `restore` hand-roll their own — three copies → one), move the test-only ops to a test
-helper, drop `bucketPolicy` until `setup` needs it. The interface narrows to the seam it
-guards. (The operational side of `emptyBucket` — uncalled, destructive, one-delete-per-request
+and `restore` hand-roll their own — three copies → one) and move the test-only ops to a test
+helper; the interface narrows to the seam it guards. (`bucketPolicy`, once flagged here as
+unused-droppable, is now consumed by the `aws` onboarding command via
+[src/lib/onboarding.mjs](../src/lib/onboarding.mjs) — if s3.mjs is narrowed it migrates, not
+drops. The operational side of `emptyBucket` — uncalled, destructive, one-delete-per-request
 — stays tracked in [engine-robustness.md](engine-robustness.md).)
 
 ### `compareSnapshots` returns structured diff, not display strings. _(Speculative — parked until a second consumer exists.)_

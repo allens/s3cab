@@ -99,7 +99,7 @@ part of this ADR's consequences.
 - Every doc/help reference to `s3cab bucket`, `s3cab aws`, and `s3cab setup` needs updating —
   ADRs 0026/0030/0031/0033/0034, [docs/specs/auth.md](../specs/auth.md),
   [docs/specs/backup.md](../specs/backup.md), [docs/integration-testing.md](../integration-testing.md),
-  [guide/bucket.md](../../guide/bucket.md) (rename to `guide/aws.md`), README.md,
+  `guide/bucket.md` (renamed — now [guide/aws.md](../../guide/aws.md)), README.md,
   [CONTEXT.md](../../CONTEXT.md), and [src/help.mjs](../../src/help.mjs)'s `help auth` topic.
 - No change to the underlying behavior of any of the three jobs — this is a pure rename/regroup,
   not a redesign of what bucket-provisioning, profile-pointing, or set lifecycle management do.

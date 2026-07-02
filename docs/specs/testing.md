@@ -6,10 +6,9 @@
 real bucket + OIDC CI are live and the gated suites run green on same-repo PRs — automatically,
 with no approval click (the required-reviewer Environment was removed; see "Where real S3
 runs"). See Provisioning for the as-built layout;
-[docs/integration-testing.md](../docs/integration-testing.md) is the how-to.
-Still pending: the non-AWS R2 canary, and (deliberately) the coverage floors stay put — the
-gate runs credential-free in the `lint` job, so the gated suites skip *there* and don't move
-the measured numbers.
+[docs/integration-testing.md](../integration-testing.md) is the how-to.
+Still pending: the non-AWS R2 canary. (Coverage thresholds are gone entirely — coverage is
+judged by review, [ADR-0020](../adr/0020-coverage-review-not-gate.md).)
 
 The trigger was PR #44 (restore + adoption): the full data lifecycle now exists end-to-end
 — hash → snapshot → backup → restore — and **every seam a test strategy targets is built and
@@ -71,7 +70,7 @@ tests, for four reasons:
    exists to hide.
 4. **Zero-dep.** Mocking `s3.mjs` needs only `node:test`'s `mock.module` / `mock.fn`. Mocking
    the SDK ergonomically pulls in `aws-sdk-client-mock` — a dependency against
-   [ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) (the high bar for dependencies).
+   [ADR-0005](../adr/0005-builtins-over-dependencies.md) (the high bar for dependencies).
 
 **Not dogma — the boundary follows what's under test:**
 
@@ -85,14 +84,19 @@ Each layer gets the mechanism that fakes the least.
 
 ### Gated suites that exist today
 
-- `src/lib/remote.test.mjs` — `remote snapshot listing`, `uploadSnapshot`,
-  `listRemoteNamespaces`. (`getObject`'s verified download is exercised offline by the
+The `test:s3` script names them:
+
+- `src/lib/remote.test.mjs` — remote snapshot listing, `downloadRemoteSnapshots`,
+  `uploadSnapshot`. (`getObject`'s verified download is exercised offline by the
   mocked-seam tests in `src/lib/objects.test.mjs`, and end-to-end by the restore round-trip
   below.)
+- `src/lib/set-marker.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT claim,
+  listing, config publish).
+- `src/commands/setup.test.mjs` — `setup`'s collision check and `--inherit` against a real
+  bucket.
 - `src/commands/restore.test.mjs` — the **`backup → restore` round-trip** (set up → backup →
   wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`). The
-  single most valuable integration test; **has never actually run** (no bucket wired yet) —
-  treat it as a draft until it goes green once.
+  single most valuable integration test.
 
 All tear down via `deleteObject` in a `finally`; content is unique per run so the shared
 `objects/` store stays isolated and cleanup is exact.
@@ -150,13 +154,13 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 
 - **MinIO — rejected.** The server is AGPL-licensed (open), but we're wary of building CI on a
   dependency whose open edition's long-term direction feels uncertain to us — the caution
-  behind [ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md) (no lock-in). No criticism of the project intended; a
+  behind [ADR-0002](../adr/0002-no-lock-in-hard-constraint.md) (no lock-in). No criticism of the project intended; a
   contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
 - **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
   container, far too much surface to bolt onto CI for one service
-  ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) /
-  [ADR-0006](../docs/adr/0006-minimal-code.md) / CLAUDE.md convention #7 — built-ins over deps,
+  ([ADR-0005](../adr/0005-builtins-over-dependencies.md) /
+  [ADR-0006](../adr/0006-minimal-code.md) / CLAUDE.md convention #7 — built-ins over deps,
   minimal code, don't over-engineer).
 - **Why no emulator at all:** the only genuine advantage an emulator has over real S3 is
   *no credentials* (so it could run on fork CI / for a contributor with no AWS account). Cost
@@ -175,7 +179,7 @@ intelligent-tiering, SSE, and the integrity-checksum trailer when a custom endpo
 layers guard it, covering different failure modes:
 
 - **Always-on header assertion (no bucket, every PR, incl. forks) — ✅ built**
-  ([src/lib/s3.test.mjs](../src/lib/s3.test.mjs)): captures the *outgoing request* (via a
+  ([src/lib/s3.test.mjs](../../src/lib/s3.test.mjs)): captures the *outgoing request* (via a
   custom `requestHandler`, no network) and asserts a custom-endpoint upload carries **no**
   `x-amz-checksum-*` / CRC trailer, **no** SSE, **no** storage-class — with the AWS path
   asserted to still carry all three. The capture matters because "upload succeeds against a
@@ -206,7 +210,7 @@ rationale below is the as-built record. Live AWS resources: bucket **`s3cab-ci-t
 role **`s3cab-ci`** (trust scoped to `repo:allens/s3cab:pull_request`), with `AWS_ROLE_ARN`
 (secret) + `S3CAB_TEST_BUCKET` (var) held at **repo** scope (no longer on a GitHub
 Environment — that was deleted with the approval gate). Source of truth: the
-[`ci/aws/`](../ci/aws/) artifacts + [docs/integration-testing.md](../docs/integration-testing.md).
+[`ci/aws/`](../../ci/aws/) artifacts + [docs/integration-testing.md](../integration-testing.md).
 **Still pending:** the non-AWS R2 canary (below).
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
@@ -235,26 +239,19 @@ Environment — that was deleted with the approval gate). Source of truth: the
 - **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
   key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
   per-PR job.
-- **Local setup help:** ✅ — [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs)
+- **Local setup help:** ✅ — [`scripts/setup-test-bucket.mjs`](../../scripts/setup-test-bucket.mjs)
   stands up the bucket + lifecycle; `npm run test:s3` (a `node --test --env-file-if-exists`
   one-liner) runs the gated suites locally, with credentials read from the developer's
   `~/.aws` profile — the tests relocate only `S3CAB_HOME`, not `HOME`, so the SDK resolves
-  them normally; and [docs/integration-testing.md](../docs/integration-testing.md) is the
+  them normally; and [docs/integration-testing.md](../integration-testing.md) is the
   generic, cross-platform walkthrough (local dev + the full GitHub Actions OIDC setup) so
   anyone can replicate it for their own account.
 - **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`
   (today's e2e only covers the always-run, no-S3 paths).
 
-## Coverage floors — re-baseline after wiring
-
-Today's global thresholds (lines 80 / branches 68 / functions 70; `*.test.mjs` + `scripts/`
-excluded) read low **because** the S3 modules are gated off without a bucket. Once the gated
-suites actually execute in CI, re-measure and **raise the floors** to lock in the gained
-coverage (they're a floor to bump, not a target — CLAUDE.md "Known gaps").
-
 ## Related
 
 Design specs: [backup.md](backup.md), [auth.md](auth.md),
 [s3-provider-compatibility.md](s3-provider-compatibility.md). The short posture also lives in
-[ADR-0019](../docs/adr/0019-s3-test-strategy.md), which pins it and points here for the full
+[ADR-0019](../adr/0019-s3-test-strategy.md), which pins it and points here for the full
 reasoning.
