@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname } from "node:path";
+import { dirname, sep } from "node:path";
 import { listProfiles } from "../lib/aws-profiles.mjs";
 import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
@@ -59,11 +59,14 @@ function resolveScope(setName) {
 }
 
 /**
- * Abbreviate a leading home directory to `~` so paths read legibly.
+ * Abbreviate a leading home directory to `~` so paths read legibly. Matches on a
+ * separator boundary (`~/.s3cab`, not the whole home dir alone), so a sibling
+ * whose name merely starts with the home path (`/home/alex` under `/home/al`)
+ * isn't mangled to `~ex/…`.
  * @param {string} path
  */
 const tildeify = (path) =>
-  path.startsWith(homedir()) ? "~" + path.slice(homedir().length) : path;
+  path.startsWith(homedir() + sep) ? "~" + path.slice(homedir().length) : path;
 
 /**
  * Show what profile/endpoint is set *at this scope* (the value written here, not
