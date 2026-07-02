@@ -7,43 +7,27 @@ import { resolveSet } from "./sets.mjs";
 
 /** @import { BackupSet } from "./sets.mjs" */
 
-// s3cab's layered environment-file loading. This is the single source of truth
-// for *what configuration applies* to an operation — the set's bucket, region,
-// endpoint, profile — distinct from *how credentials are obtained* (the standard
-// AWS chain in src/lib/auth.mjs). The model is specified in docs/design/auth.md.
+// s3cab's layered environment-file loading — *what configuration applies* (the
+// set's bucket, region, endpoint, profile), distinct from *how credentials are
+// obtained* (the standard AWS chain in src/lib/auth.mjs). The layer model —
+// set > user > shell, a file value always beating the shell, never the cwd
+// `.env`, never `~/.aws/*` — is specified in docs/design/auth.md; this module
+// implements it. Files are parsed with the built-in `util.parseEnv` (no dotenv
+// dep, ADR-0005), so the per-key precedence is enforced by *us*, independent of
+// any one loader's fixed override semantics.
 //
-// s3cab reads its own env files into process.env before any AWS client is
-// built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a
-// profile, or a custom endpoint be configured per-user or per-backup-set, and
-// binds each set's bucket (S3CAB_BUCKET, set env only). The layers, highest
-// precedence first:
-//
-//   set   ~/.s3cab/sets/<set>/env  per-backup-set — which bucket this set backs
-//                                  up to (S3CAB_BUCKET, written by `setup`) + any
-//                                  per-set auth override
-//   user  ~/.s3cab/env            per-user defaults (auth for the common
-//                                  single-bucket case lives here)
-//   shell process.env             the real environment (lowest — files win)
-//
-// Files are authoritative over the shell: a value you put in a file always wins.
-// Parsed with the built-in `util.parseEnv` — no dotenv dep (ADR-0005) — so the per-key
-// precedence above is enforced by *us*, independent of any one loader's fixed
-// override semantics.
-//
-// Two doors apply these layers (ADR-0022):
-//   loadEnv()       applies the *user* layer. The CLI entry point (s3cab.mjs)
-//                   calls it once before dispatching any command, and a library
-//                   consumer calls it once before using the API — so the user
-//                   layer is always already in process.env. Commands don't call it.
-//   loadSet(name)   resolves a set *and* applies its *set* layer on top. Every
-//                   command that takes a set argument routes through it.
-// Because the user layer is loaded up front, `loadSet` only adds the set layer —
-// precedence (set > user) still holds because user went on first. The old
-// "load env before any S3 op" precondition is thereby satisfied by construction,
-// not enforced per command. `loadEnv` also drops an ambient `__S3CAB_ENV_LOADED`
-// breadcrumb on process.env that `s3.mjs`'s `client()` asserts — a development
-// tripwire catching a lib consumer who forgot to call `loadEnv`, not load-bearing
-// for correct use (ADR-0022).
+// Two doors apply the layers (ADR-0022):
+//   loadEnv()       applies the *user* layer (~/.s3cab/env). The CLI entry point
+//                   (s3cab.mjs) calls it once before dispatching, and a library
+//                   consumer calls it once up front — commands never call it.
+//   loadSet(name)   resolves a set *and* applies its *set* layer
+//                   (~/.s3cab/sets/<set>/env) on top. Every command that takes
+//                   a set argument routes through it.
+// Because the user layer went on first, `loadSet` only adds the set layer and
+// precedence (set > user) holds by construction — no per-command "load env
+// before S3" guard. `loadEnv` also drops the `__S3CAB_ENV_LOADED` breadcrumb
+// that `s3.mjs`'s `client()` asserts — a development tripwire catching a lib
+// consumer who forgot the call, not load-bearing for correct use (ADR-0022).
 
 /**
  * The per-user env file, `~/.s3cab/env` — the one place this path is spelled, so
