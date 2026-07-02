@@ -19,14 +19,14 @@ import { resolveSet } from "./sets.mjs";
 // precedence first:
 //
 //   set   ~/.s3cab/sets/<set>/env  per-backup-set — which bucket this set backs
-//                                  up to (S3CAB_BUCKET, written by `sets`) + any
+//                                  up to (S3CAB_BUCKET, written by `setup`) + any
 //                                  per-set auth override
 //   user  ~/.s3cab/env            per-user defaults (auth for the common
 //                                  single-bucket case lives here)
 //   shell process.env             the real environment (lowest — files win)
 //
 // Files are authoritative over the shell: a value you put in a file always wins.
-// Parsed with the built-in `util.parseEnv` — no dotenv dep (#5) — so the per-key
+// Parsed with the built-in `util.parseEnv` — no dotenv dep (ADR-0005) — so the per-key
 // precedence above is enforced by *us*, independent of any one loader's fixed
 // override semantics.
 //
@@ -79,7 +79,7 @@ const appliedEnvFiles = new Set();
  * call (e.g. `backup` → `loadSet`, then its `snapshot` → `loadSet` again).
  *
  * A missing/empty file (`{}`) is *not* recorded as applied — there was nothing to
- * apply, so a file created later in the same process (e.g. by a future `sets`)
+ * apply, so a file created later in the same process (e.g. by `setup`)
  * still loads on a subsequent call instead of being skipped forever.
  * @param {string} path
  */

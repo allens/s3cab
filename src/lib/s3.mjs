@@ -44,8 +44,8 @@ let _client;
  * which gates the AWS-only behaviours (region redirects, storage class, SSE).
  *
  * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
- * rather than inventing new surface (#5/#6); a friendlier per-destination
- * endpoint UX belongs to the `sets` command. Read from `process.env` at call
+ * rather than inventing new surface (ADR-0005/0006); a friendlier per-destination
+ * endpoint UX belongs to the `setup` command. Read from `process.env` at call
  * time, after env is loaded (enforced centrally in `client()` — ADR-0022).
  * @returns {string | undefined}
  */
