@@ -55,6 +55,8 @@ Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so th
 
 The **`profile` command** is the discoverable door for populating the auth knob that matters: `s3cab profile --profile <name>` writes `AWS_PROFILE` to the user layer, `s3cab profile --profile <name> <set>` to a set override, `s3cab profile [<set>]` shows the current value at that scope, and `--unset` removes it. It writes only s3cab's *own* env files (never `~/.aws`) and validates the name read-only against the shared config (advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). Everything else in these files (region, endpoint, keys for S3-compatible providers) stays hand-edited.
 
+The user scope is labelled **"the default"** (query-noun "Default AWS profile"), not "all backups" — per-set profiles override it, so a set with its own profile does *not* use it. The **show** path (`s3cab profile [<set>]`) prints a legible `noun: value` status line and runs the same `~/.aws` cross-check as the set path, so *looking* also flags a profile that isn't in the config (`Not in your AWS config — no credentials to use.` + the `aws configure --profile <name>` fix) — closing the asymmetry where only the set path warned.
+
 > **History:** the layering once had a fourth, per-bucket layer (`~/.s3cab/env.<bucket>`,
 > "how to authenticate to that bucket"). It was dropped in
 > [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md): auth is no longer treated as a
@@ -82,10 +84,12 @@ This allows all of the following to work with no `s3cab` special-casing:
 
 ### Step 2: If standard resolution fails, stop with a clear auth error
 
-`s3cab` stops and instructs the user to do one of the following:
-
-* provide credentials via an s3cab env file / environment variables,
-* use an existing AWS profile (running `aws sso login` first for SSO profiles).
+`s3cab` stops with a **configuration-aware** error (see [Authentication
+error](#authentication-error) for the exact branches): when no profile is set it
+advises providing credentials or pointing at a profile; when a profile *is* set
+it diagnoses why it yielded nothing (missing from `~/.aws`, or present but
+producing no credentials) instead of telling the user to set a profile they
+already have.
 
 ## Security Model
 
@@ -109,7 +113,7 @@ This allows all of the following to work with no `s3cab` special-casing:
 The credential chain's own message is embedded (the chain reports a *missing*
 setup and a *misconfigured* one — a typo'd profile, a broken
 `credential_process` — through the same error type, so s3cab shows the specific
-reason rather than trying to classify):
+reason rather than trying to classify), under a common frame:
 
 ```text
 No AWS credentials found.
@@ -119,15 +123,29 @@ s3cab tried:
   2. The standard AWS SDK credential chain, which reported:
      <the chain's own error message>
 
-To continue, do one of the following:
-  - point s3cab at an AWS profile:
-      s3cab profile --profile <name>
-    (for AWS IAM Identity Center, run `aws sso login` first —
-    s3cab picks the session up automatically)
-  - or set AWS_* variables directly in ~/.s3cab/env
+<configuration-aware guidance — see below>
 
 Run 's3cab help auth' for details.
 ```
+
+The **guidance** block is *configuration-aware* (`credentialGuidance` in
+`src/lib/auth.mjs`): the common onboarding trap is being told to "set a profile"
+when one is already set (`AWS_PROFILE=x` in `~/.s3cab/env`) — it just isn't in
+`~/.aws`, so it resolves nothing. When a profile is set, `resolveCredentials`
+runs the same read-only `~/.aws` cross-check the `profile` command uses
+(`listProfiles`, [ADR-0031](../adr/0031-aws-profile-config-door.md)) and picks
+one of three messages:
+
+| State | Guidance |
+| --- | --- |
+| No `AWS_PROFILE` set | The original advice: point s3cab at a profile (`s3cab profile --profile <name>`, `aws sso login` first for SSO), or set `AWS_*` in `~/.s3cab/env`. |
+| Set, but **absent** from `~/.aws` | The missing "aha": *profile 'x' isn't in your AWS config — that's why there are no credentials.* Create it (`aws configure --profile x`, or `aws configure sso`) or point elsewhere. |
+| Set and **present** (or `~/.aws` unreadable) | It produced nothing: sign in if SSO (`aws sso login --profile x`), else check the profile's keys. |
+
+This is the **resolve-time** ("found nothing") path only; the request-time
+rejections below are separate and already handled. The `~/.aws` lookup is async,
+so `resolveCredentials` performs it and hands the result to the (sync) error
+factory. Wording follows [ADR-0030](../adr/0030-error-message-guidelines.md).
 
 ### Request-time rejections (credentials resolve, the server rejects)
 

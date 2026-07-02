@@ -28,10 +28,6 @@ a flag, and a structured diff that survives to the CLI edge.
   `renamed` key — it's implied by the arrow style only.
 - **Colors** (plain ANSI per #5): green added / red deleted / yellow modified transforms
   compare output readability for zero deps.
-- **A `doctor`/`info` command**: show which env files were found and applied, the resolved
-  bucket/endpoint/region, which credential source won, and try a cheap S3 call. Auth
-  misconfiguration is the #1 support question for any S3 tool, and the layered env model is
-  invisible today without `S3CAB_DEBUG`.
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say
   "unknown topic" and list the valid ones.

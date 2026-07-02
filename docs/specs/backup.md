@@ -147,7 +147,10 @@ connectivity.) The three modes:
   no directories (they come from the remote). For machine retirement/replacement or DR only.
 - **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
   directories and re-publish the config; the bucket is fixed at creation (re-binding to a
-  different bucket — migration — isn't supported yet).
+  different bucket — migration — isn't supported yet). **Remote-first**, mirroring create:
+  push the config *then* commit the local write, so a credentials failure mid-update leaves
+  local no further ahead than the cloud. The guarantee is convergence (re-running `setup`
+  reconciles), not strict transactional atomicity.
 
 Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
 OneDrive-synced directory, where both hold the same content so the interleaving is benign):
