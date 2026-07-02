@@ -190,10 +190,14 @@ async function update(name, directories, options) {
   const dirs = directories.length
     ? resolveDirectories(directories)
     : existing.dirs;
-  const set = directories.length ? writeSet(name, { dirs }) : existing;
 
+  // Remote-first (mirroring `create`): push the config, *then* commit local. If
+  // the push fails (e.g. expired credentials mid-update), local stays untouched,
+  // so there's no local-ahead-of-cloud drift — re-running `setup` converges.
+  // `readSetExclude` reads exclude.txt, which `writeSet` doesn't touch, so it's
+  // the same content either side of the reorder.
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
-  return set;
+  return directories.length ? writeSet(name, { dirs }) : existing;
 }
 
 /**
