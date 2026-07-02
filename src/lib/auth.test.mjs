@@ -11,6 +11,7 @@ import {
   isClockSkew,
   isExpiredCredentials,
   isInvalidCredentials,
+  noCredentialsError,
 } from "./auth.mjs";
 
 /** An error carrying the AWS-style `name` the SDK sets from the service code. */
@@ -142,5 +143,60 @@ describe("invalidCredentialsError / badSignatureError / clockSkewError", () => {
       // Defers the per-source depth to the help topic.
       assert.match(error.message, /s3cab help auth/);
     }
+  });
+});
+
+describe("noCredentialsError (configuration-aware guidance)", () => {
+  const cause = new Error("Could not load credentials from any providers");
+
+  it("advises pointing s3cab at a profile when none is set", () => {
+    const error = noCredentialsError(cause);
+    assert.equal(error.cause, cause); // kept for the debug path
+    assert.match(error.message, /^No AWS credentials found\./);
+    // The chain's own reason is embedded.
+    assert.match(
+      error.message,
+      /Could not load credentials from any providers/,
+    );
+    // The original "point s3cab at a profile" advice.
+    assert.match(error.message, /s3cab profile --profile <name>/);
+    // It does NOT wrongly tell a user a profile is missing when none was set.
+    assert.doesNotMatch(error.message, /isn't in your AWS config/);
+  });
+
+  it("names the missing profile and how to create it when it isn't in ~/.aws", () => {
+    // AWS_PROFILE=s3cab-test, but ~/.aws only has other profiles — the "aha".
+    const error = noCredentialsError(cause, {
+      profile: "s3cab-test",
+      knownProfiles: ["default", "work"],
+    });
+    assert.match(
+      error.message,
+      /profile 's3cab-test', but it isn't in your AWS\s+config/,
+    );
+    // The exact, copy-pasteable fix, naming the profile.
+    assert.match(error.message, /aws configure --profile s3cab-test/);
+    // And the escape hatch to point elsewhere.
+    assert.match(error.message, /s3cab profile --profile <name>/);
+    // Not the "set a profile" advice (that would send them in a circle).
+    assert.doesNotMatch(error.message, /or set AWS_\* variables directly/);
+  });
+
+  it("advises SSO sign-in / key check when the profile exists but yields nothing", () => {
+    const error = noCredentialsError(cause, {
+      profile: "s3cab-test",
+      knownProfiles: ["default", "s3cab-test"],
+    });
+    assert.match(error.message, /profile 's3cab-test', but it produced no/);
+    assert.match(error.message, /aws sso login --profile s3cab-test/);
+    assert.match(error.message, /check the profile's access keys/);
+  });
+
+  it("treats an unreadable ~/.aws (undefined) as present, not missing", () => {
+    // listProfiles() returns undefined when it can't read the config — don't
+    // claim the profile is absent; fall to the "produced no credentials" branch.
+    const error = noCredentialsError(cause, { profile: "s3cab-test" });
+    assert.match(error.message, /produced no credentials/);
+    assert.doesNotMatch(error.message, /isn't in your AWS config/);
   });
 });

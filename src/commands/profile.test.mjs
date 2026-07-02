@@ -73,7 +73,10 @@ describe("profile --profile", () => {
     await profile(undefined, { profile: "work" });
 
     assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "work");
-    assert.match(io.out(), /Set AWS profile 'work' for all backups/);
+    assert.match(
+      io.out(),
+      /Set AWS profile 'work' for the default \(all backups\)/,
+    );
     assert.equal(io.warn(), ""); // a known profile warns nothing
   });
 
@@ -160,13 +163,14 @@ describe("profile (show)", () => {
 
     await profile(undefined, {});
 
-    assert.match(io.out(), /No AWS profile set for all backups/);
+    assert.match(io.out(), /No default AWS profile set/);
     assert.match(io.out(), /s3cab profile --profile <name>/); // constructive fix
   });
 
-  it("reports the profile and endpoint set at a scope", async (t) => {
+  it("reports the profile (name:value) and endpoint set at the default scope", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
+    useAwsConfig(dir.path); // 'work' exists → healthy, no diagnostic line
     mkdirSync(dirname(userEnvPath()), { recursive: true });
     writeFileSync(
       userEnvPath(),
@@ -176,8 +180,61 @@ describe("profile (show)", () => {
 
     await profile(undefined, {});
 
-    assert.match(io.out(), /profile: work/);
-    assert.match(io.out(), /endpoint: https:\/\/example\.r2/);
+    // The legible query-noun form, and no broken-profile diagnostic.
+    assert.match(io.out(), /Default AWS profile: work/);
+    assert.match(
+      io.out(),
+      /AWS endpoint for the default \(all backups\): https:\/\/example\.r2/,
+    );
+    assert.doesNotMatch(io.out(), /Not in your AWS config/);
+  });
+
+  it("shows a set's own profile with the set-named query noun", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path); // 'work' exists → healthy
+    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
+    writeFileSync(readSet("photos").envPath, "AWS_PROFILE=work\n", {
+      flag: "a",
+    });
+    const io = capture(t);
+
+    await profile("photos", {});
+
+    assert.match(io.out(), /AWS profile for set 'photos': work/);
+    assert.doesNotMatch(io.out(), /Not in your AWS config/);
+  });
+
+  it("flags a profile that isn't in the AWS config when looking (default scope)", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path); // only 'work' and 'default' exist
+    mkdirSync(dirname(userEnvPath()), { recursive: true });
+    writeFileSync(userEnvPath(), "AWS_PROFILE=s3cab-test\n");
+    const io = capture(t);
+
+    await profile(undefined, {});
+
+    assert.match(io.out(), /Default AWS profile: s3cab-test/);
+    assert.match(io.out(), /Not in your AWS config — no credentials to use/);
+    assert.match(io.out(), /aws configure --profile s3cab-test/);
+  });
+
+  it("flags a broken profile at a set scope too", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
+    writeFileSync(readSet("photos").envPath, "AWS_PROFILE=s3cab-test\n", {
+      flag: "a",
+    });
+    const io = capture(t);
+
+    await profile("photos", {});
+
+    assert.match(io.out(), /AWS profile for set 'photos': s3cab-test/);
+    assert.match(io.out(), /Not in your AWS config — no credentials to use/);
+    assert.match(io.out(), /aws configure --profile s3cab-test/);
   });
 
   it("reports a set with no override falls back to the user default", async (t) => {

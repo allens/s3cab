@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, sep } from "node:path";
 import { listProfiles } from "../lib/aws-profiles.mjs";
 import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
@@ -19,12 +20,16 @@ import { readSet } from "../lib/sets.mjs";
 
 /**
  * The env file a command invocation targets, plus how to name that scope in
- * messages. A discriminated union: the set scope always carries the set `name`
- * (used to build set-scoped suggestions), the user scope never does — so an
- * `isSet: true` scope without a `name` can't be constructed, and `tsc` enforces
- * the coupling rather than a runtime guard.
- * @typedef {{ path: string, label: string, isSet: false }
- *   | { path: string, label: string, isSet: true, name: string }} Scope
+ * messages. Two naming forms (the design's query-noun/action-phrase split):
+ * `noun` heads a status line ("Default AWS profile: work"), `phrase` fills an
+ * action sentence ("Cleared the AWS profile for the default (all backups)").
+ * The user scope is "the default" — per-set profiles override it (env layering,
+ * ADR-0022/0025) — not "all backups", which overclaims. A discriminated union:
+ * the set scope always carries the set `name` (used to build set-scoped
+ * suggestions), the user scope never does — so an `isSet: true` scope without a
+ * `name` can't be constructed, and `tsc` enforces the coupling.
+ * @typedef {{ path: string, noun: string, phrase: string, isSet: false }
+ *   | { path: string, noun: string, phrase: string, isSet: true, name: string }} Scope
  */
 
 /**
@@ -36,43 +41,75 @@ import { readSet } from "../lib/sets.mjs";
  */
 function resolveScope(setName) {
   if (setName === undefined) {
-    return { path: userEnvPath(), label: "all backups", isSet: false };
+    return {
+      path: userEnvPath(),
+      noun: "Default AWS profile",
+      phrase: "the default (all backups)",
+      isSet: false,
+    };
   }
   const set = readSet(setName);
   return {
     path: set.envPath,
-    label: `set '${set.name}'`,
+    noun: `AWS profile for set '${set.name}'`,
+    phrase: `set '${set.name}'`,
     isSet: true,
     name: set.name,
   };
 }
 
 /**
+ * Abbreviate a leading home directory to `~` so paths read legibly. Matches on a
+ * separator boundary (`~/.s3cab`, not the whole home dir alone), so a sibling
+ * whose name merely starts with the home path (`/home/alex` under `/home/al`)
+ * isn't mangled to `~ex/…`.
+ * @param {string} path
+ */
+const tildeify = (path) =>
+  path.startsWith(homedir() + sep) ? "~" + path.slice(homedir().length) : path;
+
+/**
  * Show what profile/endpoint is set *at this scope* (the value written here, not
  * the post-layering effective value — the always-on notice from `client()` shows
- * that at use-time). A set with nothing of its own falls back to the user
- * default, so its "none" message says so.
+ * that at use-time), as legible `noun: value` status lines. A set with nothing of
+ * its own falls back to the user default, so its "none" message says so. When a
+ * profile *is* set, it runs the same `~/.aws` cross-check `profile --profile`
+ * warns on, so *looking* also flags a broken profile — closing the asymmetry
+ * where the set path warned but the show path stayed silent. Async for that
+ * lookup; best-effort (`listProfiles` → `undefined` means "couldn't read", so
+ * skip the diagnostic rather than wrongly claim it's absent).
  * @param {Scope} scope
- * @returns {string}
+ * @returns {Promise<string>}
  */
-function describeScope(scope) {
-  const { path, label } = scope;
+async function describeScope(scope) {
+  const { path, noun, phrase } = scope;
   const values = parseEnvFile(path);
   const profile = values.AWS_PROFILE;
   const endpoint = values.AWS_ENDPOINT_URL_S3 ?? values.AWS_ENDPOINT_URL;
   if (!profile && !endpoint) {
     return scope.isSet
-      ? `No AWS profile set for ${label} — it uses the user default.\n` +
+      ? `No AWS profile set for ${phrase} — it uses the user default.\n` +
           `Give this set its own with:\n` +
           `  s3cab profile --profile <name> ${scope.name}`
-      : `No AWS profile set for ${label}.\n` +
+      : `No default AWS profile set.\n` +
           `Point s3cab at one of your AWS profiles with:\n` +
           `  s3cab profile --profile <name>`;
   }
-  const parts = [];
-  if (profile) parts.push(`profile: ${profile}`);
-  if (endpoint) parts.push(`endpoint: ${endpoint}`);
-  return `AWS for ${label} — ${parts.join(", ")} (${path})`;
+  const lines = [];
+  if (profile) {
+    lines.push(`${noun}: ${profile}   (${tildeify(path)})`);
+    const known = await listProfiles();
+    if (known && !known.includes(profile)) {
+      lines.push(
+        `Not in your AWS config — no credentials to use.`,
+        `To fix it:  aws configure --profile ${profile}`,
+      );
+    }
+  }
+  if (endpoint) {
+    lines.push(`AWS endpoint for ${phrase}: ${endpoint}   (${tildeify(path)})`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -125,13 +162,13 @@ export async function profile(setName, options = {}) {
     // machine — but unsetting a never-set profile is a harmless no-op, so only
     // the write paths below need the directory.
     removeEnvKey(scope.path, "AWS_PROFILE");
-    process.stdout.write(`Cleared the AWS profile for ${scope.label}.\n`);
+    process.stdout.write(`Cleared the AWS profile for ${scope.phrase}.\n`);
     return undefined;
   }
 
   // Get mode: no --profile (and not --unset) → report the current setting.
   if (profile === undefined) {
-    process.stdout.write(describeScope(scope) + "\n");
+    process.stdout.write((await describeScope(scope)) + "\n");
     return undefined;
   }
 
@@ -146,7 +183,7 @@ export async function profile(setName, options = {}) {
   mkdirSync(dirname(scope.path), { recursive: true });
   updateEnvFile(scope.path, { AWS_PROFILE: name });
   process.stdout.write(
-    `Set AWS profile '${name}' for ${scope.label} (${scope.path}).\n`,
+    `Set AWS profile '${name}' for ${scope.phrase} (${tildeify(scope.path)}).\n`,
   );
   return undefined;
 }
