@@ -1,9 +1,10 @@
 # Cloud cleanup & the parked cloud-destination work
 
-Provisional ideas left over after the `bucket` onboarding command shipped (its built parts went
+Provisional ideas left over after the bucket-onboarding command (now `s3cab aws`) shipped
+(its built parts went
 to [ADR-0032](../docs/adr/0032-generative-onboarding-not-active-provisioning.md) /
 [0033](../docs/adr/0033-bucket-onboarding-security-model.md) /
-[0034](../docs/adr/0034-bucket-command-shape.md) and [guide/bucket.md](../guide/bucket.md)).
+[0034](../docs/adr/0034-bucket-command-shape.md) and [guide/aws.md](../guide/aws.md)).
 Nothing here is of record — it is the backlog the onboarding design surfaced.
 
 ## The cleanup command (the big one)

@@ -2,8 +2,7 @@
 
 ## Status
 
-Designed (2026-06-12), **implementation in progress**. Slices 1–3 and the restore half of
-slice 4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), the set-management
+Designed (2026-06-12), **implementation in progress**. Slices 1–4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), the set-management
 command (now split into `setup` + `list`, [ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)),
 and the set env layer in auth; slice 2 moved the local engine onto sets —
 `snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every member dir with the set's
@@ -49,7 +48,7 @@ landed model.
 
 Define s3cab's unit of backup (the **backup set**), its on-disk configuration, the
 remote repository format, and the behaviour of the `setup`/`list`/`backup` commands. Format
-decisions are commitments: per [ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md) (no lock-in), the stored layouts —
+decisions are commitments: per [ADR-0002](../adr/0002-no-lock-in-hard-constraint.md) (no lock-in), the stored layouts —
 local *and* remote — are the contract a hand-recoverer or replacement tool relies on.
 
 Guiding instinct throughout: **simple, obvious, accessible, discoverable.** Every config
@@ -380,7 +379,7 @@ command is a thin coordination of lower-level pieces that are independently usef
 writes removed; `tree` = the snapshot's walk without the hashing. The composition
 *medium* is the flat **hash-per-line stream** the `hashes` plumbing already emits: line
 streams compose with each other and with ordinary Unix tools, which extends the
-no-lock-in principle ([ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md)) from recovery to *administration* — see below.
+no-lock-in principle ([ADR-0002](../adr/0002-no-lock-in-hard-constraint.md)) from recovery to *administration* — see below.
 
 ## `verify` and `cleanup` — two differences of the same two sets
 
@@ -481,7 +480,7 @@ commands → shared-machinery wiring.
    several-sets error body.
 4. **Set env layer** — `loadEnv({ set })` replaces the never-wired dir layer in
    `auth.mjs`; update its tests, this repo's auth docs (docs/specs/auth.md layer table +
-   History note, [ADR-0015](../docs/adr/0015-standard-aws-credential-chain.md)).
+   History note, [ADR-0015](../adr/0015-standard-aws-credential-chain.md)).
 5. **e2e + docs** — setup→sets round-trip in `test/e2e.test.mjs`; README status update
    (`setup`/`sets` become working local commands).
 

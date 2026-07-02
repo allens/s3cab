@@ -62,5 +62,5 @@ found" *at setup*. It was **rejected**, and this ADR stands, for two reasons:
 
 The real problem — a confusing, self-contradictory credential *error* — is fixed by making the
 failure **configuration-aware** (name the configured profile as the suspect), not by deferring
-the work. That design is in
-[proposals/auth-onboarding-ux.md](../../proposals/auth-onboarding-ux.md).
+the work. That design has since been built (PR #140) and is specified in
+[docs/specs/auth.md](../specs/auth.md) (the "Authentication error" section).

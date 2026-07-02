@@ -3,9 +3,8 @@
 ## Status
 
 Research / design note. Records how S3-compatible providers handle authentication and what
-s3cab must do to be genuinely provider-agnostic. The **refinement checklist** below is meant
-to be applied *after* the in-flight AWS-focused auth reimplementation lands — start from the
-hard provider (AWS), then generalize.
+s3cab must do to be genuinely provider-agnostic. The **refinement checklist** below has since
+been applied — items 1, 2, and 4 are done; provider-aware onboarding (item 3) stays deferred.
 
 Companion to [auth.md](auth.md), which specifies the AWS credential-resolution model in
 detail. This note is the *cross-provider* lens on the same surface.
@@ -70,21 +69,21 @@ Match the auth model to what the ecosystem offers:
 
 This answered what was then an open question ("undecided whether s3cab keeps a bespoke SSO flow
 or leans on the standard chain"), now settled in
-[ADR-0015](../docs/adr/0015-standard-aws-credential-chain.md): the bespoke SSO flow was pure
+[ADR-0015](../adr/0015-standard-aws-credential-chain.md): the bespoke SSO flow was pure
 AWS-CLI-replacement convenience, independent of provider-agnostic support. Tier 1 won; Tier 2
 was removed.
 
 ## Finding 3 — Refinement checklist (apply *after* the AWS auth work lands)
 
 Concrete code touch-points to provider-neutralize, recorded now so they aren't lost. All in
-[../src/lib/s3.mjs](../src/lib/s3.mjs) unless noted.
+[../../src/lib/s3.mjs](../../src/lib/s3.mjs) unless noted.
 
 1. **Make the custom endpoint first-class.** ✅ **Done.** `client()`
-   ([../src/lib/s3.mjs](../src/lib/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
+   ([../../src/lib/s3.mjs](../../src/lib/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
    (honouring SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`) and passes it as
    `endpoint`; its presence is the single "not AWS" signal driving the gating below. We did
-   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md) / [ADR-0006](../docs/adr/0006-minimal-code.md)); a
-   friendlier per-destination endpoint UX belongs to the `setup` command (a stub today).
+   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var ([ADR-0005](../adr/0005-builtins-over-dependencies.md) / [ADR-0006](../adr/0006-minimal-code.md)); a
+   friendlier per-destination endpoint UX belongs to the `setup` command.
 
 2. **Gate AWS-only upload options.** ✅ **Done.** `putFile` now omits
    `StorageClass: INTELLIGENT_TIERING` and `ServerSideEncryption: AES256` when a custom
@@ -92,8 +91,9 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    only on AWS. The portable `x-amz-meta-*` object metadata is kept in all cases.
 
 3. **`bucketPolicy` is AWS-only.** It emits `arn:aws:s3:::` ARNs and AWS IAM JSON, meaningless
-   off AWS. Now carries an AWS-only doc note; still unused (only `setup`, a stub, would call
-   it). Provider-aware bucket creation/policy is deferred to when `setup` is actually built.
+   off AWS. Carries an AWS-only doc note; emitted by the `aws` onboarding command
+   ([../../src/lib/onboarding.mjs](../../src/lib/onboarding.mjs)). Provider-aware onboarding
+   is deferred.
 
 4. **Gate the default integrity checksum off-AWS.** ✅ **Done.** Recent AWS SDK v3
    (since v3.730) computes a data-integrity checksum whenever the operation supports one —
@@ -106,9 +106,9 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    default stands (free wire integrity). s3cab already SHA-256s every file, so the trailer
    adds nothing off-AWS.
 
-## Verification (for the future code work, not now)
+## Verification
 
-- Existing tests stay green: `node --test` across [../test/](../test/) and `src/**/*.test.mjs`.
+- Existing tests stay green: `node --test` across [../../test/](../../test/) and `src/**/*.test.mjs`.
 - Commands that never touch S3 (`list`, `tree`) keep working with **no** credentials
   configured (the lazy-`client()` guarantee must survive the endpoint change).
 - Exercise the object path against a **non-AWS** target — easiest is a local **MinIO**
@@ -116,7 +116,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   Confirm `hashes` (list) and the upload path succeed **with the storage-class/SSE options
   correctly omitted** — i.e. an upload that would fail today against R2/B2 now succeeds.
 - **Checksum gating now has automated coverage** (Finding 3 item 4). ✅
-  [../src/lib/s3.test.mjs](../src/lib/s3.test.mjs) captures the *outgoing request* (via a
+  [../../src/lib/s3.test.mjs](../../src/lib/s3.test.mjs) captures the *outgoing request* (via a
   custom `requestHandler`, no bucket / no network) and asserts that a custom-endpoint upload
   carries no `x-amz-checksum-*` / CRC trailer — and, in the same request, no SSE and no
   storage-class — with the AWS path (no endpoint) asserted to still carry all three. This is
@@ -127,6 +127,5 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 
 ## Out of scope
 
-- Building `setup` / `backup` / `restore` (still stubs).
 - Provider-aware bucket creation and IAM policy in `setup`.
 - A friendlier per-destination endpoint/credential UX.
