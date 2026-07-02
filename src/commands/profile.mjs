@@ -8,7 +8,7 @@ import { ParseArgsError } from "../lib/error.mjs";
 import { readSet } from "../lib/sets.mjs";
 
 // `s3cab profile` — the discoverable, safe door for pointing s3cab at an AWS
-// profile (docs/specs/auth.md). It writes `AWS_PROFILE` into one of s3cab's own env
+// profile (docs/design/auth.md). It writes `AWS_PROFILE` into one of s3cab's own env
 // files: the user-wide `~/.s3cab/env` (the default for every backup) or a named
 // set's `env` (a per-set override, e.g. a set that backs up to a different AWS
 // account). It never touches `~/.aws` to *write*; profile validation only *reads*

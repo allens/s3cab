@@ -49,7 +49,7 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-// S3 test strategy (docs/specs/testing.md): the S3-touching code is exercised
+// S3 test strategy (docs/design/testing.md): the S3-touching code is exercised
 // against a real test bucket, gated on `S3CAB_TEST_BUCKET` (+ ambient AWS
 // credentials) and skipped with a message when unset — so local/offline/fork
 // runs stay green and real coverage runs only where the bucket is wired. The

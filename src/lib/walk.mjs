@@ -23,7 +23,7 @@ import { readLines } from "./read-lines.mjs";
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
- * `exclude.txt` patterns applied relative to each (docs/specs/backup.md). The shared
+ * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
  * core behind both the `tree` and `snapshot` commands.
  * @param {BackupSet} set - Resolved backup set
  * @returns {WalkResult} The kept file paths and the records of what was skipped

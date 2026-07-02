@@ -13,7 +13,7 @@
  *   S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
  *
  * Region is read from AWS_REGION / AWS_DEFAULT_REGION, defaulting to us-east-1 (the
- * CI reference region). See docs/specs/testing.md "Provisioning" for the why.
+ * CI reference region). See docs/design/testing.md "Provisioning" for the why.
  *
  * Equivalent AWS CLI (the documented reference form):
  *   aws s3api create-bucket --bucket <bucket> --region us-east-1

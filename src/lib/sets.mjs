@@ -5,7 +5,7 @@ import { isENOENT, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 
-// The backup-set store (docs/specs/backup.md): one directory per set under
+// The backup-set store (docs/design/backup.md): one directory per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
 // `env` (the bound bucket and any per-set auth overrides — a layer in env.mjs's
@@ -41,7 +41,7 @@ const setEnvPath = (name) => join(setDir(name), "env");
 const setDirsPath = (name) => join(setDir(name), "dirs.txt");
 /**
  * The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` — where this set's
- * snapshots live (docs/specs/backup.md).
+ * snapshots live (docs/design/backup.md).
  * @param {string} name
  */
 const setSnapshotsDir = (name) => join(setDir(name), "snapshots");

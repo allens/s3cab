@@ -7,13 +7,13 @@ import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
 
-// The `restore` command (docs/specs/backup.md): pull a set's files back from the
+// The `restore` command (docs/design/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
 // *content* lives solely in the bucket's `objects/<sha256>` store — so there is
 // no `--remote` flag (like `status`).
 
 /**
- * Restore a set's files from a remote backup (docs/specs/backup.md). Reads the
+ * Restore a set's files from a remote backup (docs/design/backup.md). Reads the
  * chosen remote snapshot (latest, or `--snapshot <name>`) and writes each file
  * back to the **original absolute path** it was captured from, **never touching
  * an existing file** (it is reported skipped) unless `--overwrite` is given — so

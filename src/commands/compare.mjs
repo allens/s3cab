@@ -5,7 +5,7 @@ import { loadSet } from "../lib/env.mjs";
 
 /**
  * Show what changed between two of a backup set's snapshots, from an older
- * (`since`) to a newer (`until`) one (docs/specs/backup.md).
+ * (`since`) to a newer (`until`) one (docs/design/backup.md).
  *
  * `compare` is **local-only** — there is no `--remote` mode
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)):

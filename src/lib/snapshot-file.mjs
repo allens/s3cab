@@ -35,7 +35,7 @@ import { secondsSince } from "./format.mjs";
 // A snapshot file opens with two header comment lines (written by `snapshotHeader`):
 //   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = the set name (ADR-0024)
 //   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a snapshot file is self-describing even found alone (docs/specs/backup.md).
+// so a snapshot file is self-describing even found alone (docs/design/backup.md).
 // `writeSnapshot` is the sole writer of all of this: the header, the `#EXCLUDED`
 // rows (pattern-matched entries via `excludedLine`), the `#SKIPPED` rows
 // (by-design-unsupported entries via `skippedLine`), and the `#ERROR` rows (via
@@ -72,7 +72,7 @@ const ERROR = "#ERROR";
  * A parsed snapshot: the file `entries`, paths that failed hashing (`errors`,
  * mapped to the recorded reason), paths skipped by design (`skipped`, mapped to
  * the skip reason — e.g. unsupported file type), plus the `#SNAPSHOT`/`#DIR`
- * headers that make it self-describing (docs/specs/backup.md). `dirs` are the
+ * headers that make it self-describing (docs/design/backup.md). `dirs` are the
  * member directories captured at snapshot time; `identity` is the set name
  * (ADR-0024).
  * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string }} Snapshot
@@ -86,7 +86,7 @@ const ERROR = "#ERROR";
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
  * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
- * for re-running within a minute (docs/specs/backup.md). The target is checked up
+ * for re-running within a minute (docs/design/backup.md). The target is checked up
  * front, before any walking/hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
@@ -453,7 +453,7 @@ function formatLine(col1, col2, col3, col4) {
  * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
  * snapshot's datetime and identity, then one `#DIR` line per member directory —
  * the preamble that makes a snapshot self-describing even found alone
- * (docs/specs/backup.md). Module-private: `writeSnapshot` is its only caller;
+ * (docs/design/backup.md). Module-private: `writeSnapshot` is its only caller;
  * the `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
  * `parseSnapshotStream` that reads them back.
  * @param {object} header
