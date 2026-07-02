@@ -7,7 +7,7 @@ set-mutation verb and listing moved to `list`. (Design decided via a `/grilling`
 2026-06-27; implemented in #122.)
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
-inherit a backup set, [docs/specs/backup.md](../specs/backup.md)), `aws` (point s3cab at an AWS
+inherit a backup set, [docs/design/backup.md](../design/backup.md)), `aws` (point s3cab at an AWS
 profile, [0031](0031-aws-profile-config-door.md)), and `bucket` (print the steps to provision an
 S3 bucket + identity, [0032](0032-generative-onboarding-not-active-provisioning.md)/
 [0033](0033-bucket-onboarding-security-model.md)/[0034](0034-bucket-command-shape.md)). Working
@@ -97,8 +97,8 @@ part of this ADR's consequences.
 - `src/commands.mjs`'s registry loses the `setup` entry and gains the merged `sets` entry's
   args/options (today's `setup` entry's shape, plus the existing no-args listing).
 - Every doc/help reference to `s3cab bucket`, `s3cab aws`, and `s3cab setup` needs updating —
-  ADRs 0026/0030/0031/0033/0034, [docs/specs/auth.md](../specs/auth.md),
-  [docs/specs/backup.md](../specs/backup.md), [docs/integration-testing.md](../integration-testing.md),
+  ADRs 0026/0030/0031/0033/0034, [docs/design/auth.md](../design/auth.md),
+  [docs/design/backup.md](../design/backup.md), [docs/integration-testing.md](../integration-testing.md),
   `guide/bucket.md` (renamed — now [guide/aws.md](../../guide/aws.md)), README.md,
   [CONTEXT.md](../../CONTEXT.md), and [src/help.mjs](../../src/help.mjs)'s `help auth` topic.
 - No change to the underlying behavior of any of the three jobs — this is a pure rename/regroup,

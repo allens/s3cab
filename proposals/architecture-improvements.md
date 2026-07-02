@@ -10,7 +10,7 @@ skill is costly to run, so nothing it finds is left only in chat or in the ephem
 open candidates, standing rejections, and a run log all live here. Each new run **verifies
 this file against the source first** (candidates go stale; some land, some rot) rather than
 re-deriving from scratch. When a candidate lands, its lasting knowledge moves to an
-[ADR](../docs/adr/) or [docs/specs/](../docs/specs/) and the entry is deleted (the proposals
+[ADR](../docs/adr/) or [docs/design/](../docs/design/) and the entry is deleted (the proposals
 convention); when one is rejected with a load-bearing reason, it moves to the rejected section
 below so no future run re-suggests it.
 

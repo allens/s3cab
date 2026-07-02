@@ -2,7 +2,7 @@
 
 **Status:** accepted
 
-Three tiers, settled deliberately. Full reasoning: [docs/specs/testing.md](../specs/testing.md).
+Three tiers, settled deliberately. Full reasoning: [docs/design/testing.md](../design/testing.md).
 
 1. **Pure diff/cache logic** (`uploadCandidates`, the objects cache) → ordinary **unit tests**,
    no bucket.

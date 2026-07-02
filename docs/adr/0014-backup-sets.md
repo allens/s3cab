@@ -11,7 +11,7 @@
 A **backup set** is a named list of directories, configured at `~/.s3cab/sets/<name>/`. Its
 **name** is its whole identity ([0024](0024-set-name-is-the-whole-identity.md)) — originally an
 identity `user@machine:set` pinned at creation. It — not a single directory — is the unit the
-porcelain operates on. Full design: [docs/specs/backup.md](../specs/backup.md).
+porcelain operates on. Full design: [docs/design/backup.md](../design/backup.md).
 
 ## Why
 

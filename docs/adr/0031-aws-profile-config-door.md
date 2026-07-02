@@ -32,7 +32,7 @@ Surveying everything s3cab's env can carry:
 - **Region / endpoint** collapse away: region lives in the profile for a profile
   user, and the only users who need region/endpoint are long-lived-key users on
   non-AWS providers (R2/B2/MinIO) — who are *already* hand-editing `~/.s3cab/env`
-  to place their secret keys (we refuse keys via flags, [auth spec](../specs/auth.md)
+  to place their secret keys (we refuse keys via flags, [auth spec](../design/auth.md)
   Non-Goals), so adding region/endpoint on the next line is free.
 - **A "default bucket" is a phantom.** Comments once claimed env could carry a
   user-level default bucket, but no code ever read one — only a *set's*

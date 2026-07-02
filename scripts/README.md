@@ -26,7 +26,7 @@ node scripts/dd.mjs
 ## setup-test-bucket.mjs
 
 Provisions the S3 integration-test bucket: creates it (idempotently) and applies
-the ~1-day auto-expiry lifecycle rule the [testing strategy](../docs/specs/testing.md)
+the ~1-day auto-expiry lifecycle rule the [testing strategy](../docs/design/testing.md)
 mandates. Uses the AWS SDK s3cab already depends on, so it's cross-platform and
 needs no AWS CLI — credentials come from the standard AWS chain (ambient `AWS_*`,
 an SSO session, etc.). Region is `AWS_REGION` / `AWS_DEFAULT_REGION`, default

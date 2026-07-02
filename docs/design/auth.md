@@ -1,10 +1,10 @@
-# `s3cab` Authentication and Credential Resolution Spec
+# `s3cab` Authentication and Credential Resolution Design
 
 ## Status
 
 Implemented (see `src/lib/auth.mjs`).
 
-> **History:** earlier revisions of this spec also defined a bespoke `s3cab login`
+> **History:** earlier revisions of this design also defined a bespoke `s3cab login`
 > (IAM Identity Center / SSO device-authorization flow), an app-managed session
 > cache at `~/.s3cab/auth.json`, and a `credential-process` helper command built
 > on it. All three were **removed** in 2026-06. Rationale: the only user they

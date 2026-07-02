@@ -5,7 +5,7 @@
 set **name** is the whole identity, the remote layout flattened to `snapshots/<set>/`, the
 `setup` collision check + `--inherit` succession + the `sets/<set>/` marker (`dirs.txt` /
 `exclude.txt` / `info`) all landed. The full design is in
-[docs/specs/backup.md](../specs/backup.md).
+[docs/design/backup.md](../design/backup.md).
 
 A backup set's **name** (a user-chosen `[a-z0-9-]+` label, e.g. `work-laptop`) is its *entire*
 identity: it is at once the local handle, the local directory name, and the remote namespace.

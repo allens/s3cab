@@ -1,9 +1,9 @@
 # Copilot instructions for s3cab
 
 s3cab is a content-addressable S3 backup CLI. The authoritative design philosophy,
-architecture, and contributor conventions live in [CLAUDE.md](../CLAUDE.md) and the specs
-under `docs/specs/` — read those for the _why_. This file is the short brief for Copilot (code
-completion **and** code review).
+architecture, and contributor conventions live in [CLAUDE.md](../CLAUDE.md) and the design
+docs under `docs/design/` — read those for the _why_. This file is the short brief for Copilot
+(code completion **and** code review).
 
 ## When reviewing a pull request, prioritise — in order:
 
@@ -37,4 +37,4 @@ completion **and** code review).
 - Real-AWS round-trip tests are gated on `S3CAB_TEST_BUCKET` and skipped (with a message)
   when unset — so a low coverage number on `s3.mjs` / `remote.mjs` / `restore.mjs` in an
   offline run is **expected**, not a missing test.
-- Mock at the `s3.mjs` seam, **never** the AWS SDK directly (see `docs/specs/testing.md`).
+- Mock at the `s3.mjs` seam, **never** the AWS SDK directly (see `docs/design/testing.md`).

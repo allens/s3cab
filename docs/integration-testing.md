@@ -10,7 +10,7 @@ your machine), then **[continuous integration](#continuous-integration-github-ac
 (run them in GitHub Actions with short-lived OIDC credentials). Everything works on
 **Windows, macOS and Linux** — where a command differs by shell, both forms are given.
 
-> The strategy and the *why* live in [docs/specs/testing.md](specs/testing.md).
+> The strategy and the *why* live in [docs/design/testing.md](design/testing.md).
 
 ---
 
@@ -91,7 +91,7 @@ For CI, avoid long-lived keys entirely: GitHub Actions presents a signed **OIDC*
 that AWS exchanges for a short-lived credential. This is the setup s3cab itself uses; its
 security model (real S3 runs automatically on **same-repo** PRs — which only collaborators
 can open — while fork PRs get no credentials and skip) is in
-[docs/specs/testing.md](specs/testing.md).
+[docs/design/testing.md](design/testing.md).
 
 > Creating the IAM policy and role needs an **administrator** session — `PowerUserAccess`
 > (and similar) cannot write IAM.

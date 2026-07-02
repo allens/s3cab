@@ -114,7 +114,7 @@ bucket-less-set message in [0030](0030-error-message-guidelines.md)) now read `s
 ### Implementation notes (2026-06-28)
 
 Two presentation/behaviour calls left open above were settled while building it (see
-[docs/specs/backup.md](../specs/backup.md) for the resulting CLI surface):
+[docs/design/backup.md](../design/backup.md) for the resulting CLI surface):
 
 1. **`list` does use an overview/detail split — but on *relevance*, not volume.** No-arg `list` shows
    every set *compactly* (`name:` + snapshot times only); naming a set switches to a *detail* view

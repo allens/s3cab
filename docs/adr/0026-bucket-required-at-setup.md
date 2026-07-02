@@ -3,7 +3,7 @@
 **Status:** accepted (2026-06-21) — implemented; **reaffirmed 2026-07-02** (the lazy-claim
 alternative was reconsidered and rejected — see the note at the end). Part of the 2026-06-20 redesign with
 [0024](0024-set-name-is-the-whole-identity.md) and [0025](0025-drop-per-bucket-env-layer.md);
-full design in [docs/specs/backup.md](../specs/backup.md). `setup` requires `--bucket` and
+full design in [docs/design/backup.md](../design/backup.md). `setup` requires `--bucket` and
 always touches S3 when creating (it pulled forward with the
 [0024](0024-set-name-is-the-whole-identity.md) collision check, which can't run without a
 bucket); the code cleanup it unlocks then landed — `resolveRemoteSet` folded into `resolveSet`,
@@ -63,4 +63,4 @@ found" *at setup*. It was **rejected**, and this ADR stands, for two reasons:
 The real problem — a confusing, self-contradictory credential *error* — is fixed by making the
 failure **configuration-aware** (name the configured profile as the suspect), not by deferring
 the work. That design has since been built (PR #140) and is specified in
-[docs/specs/auth.md](../specs/auth.md) (the "Authentication error" section).
+[docs/design/auth.md](../design/auth.md) (the "Authentication error" section).

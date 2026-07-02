@@ -175,7 +175,7 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 s3cab targets non-AWS S3 providers as first-class (see
 [s3-provider-compatibility.md](s3-provider-compatibility.md)); `putFile` already omits
 intelligent-tiering, SSE, and the integrity-checksum trailer when a custom endpoint is set
-(that spec's Finding 3). The gating is the **most likely thing to silently regress**. Two
+(that note's Finding 3). The gating is the **most likely thing to silently regress**. Two
 layers guard it, covering different failure modes:
 
 - **Always-on header assertion (no bucket, every PR, incl. forks) — ✅ built**
@@ -185,7 +185,7 @@ layers guard it, covering different failure modes:
   asserted to still carry all three. The capture matters because "upload succeeds against a
   provider" doesn't prove it (a trailer-tolerant provider passes vacuously). To make the two
   gates assertable without a live client, `s3.mjs` exposes `clientConfig()` (checksum mode)
-  and `putObjectParams()` (SSE/storage-class). Closes that spec's Finding 3.4; guards **our**
+  and `putObjectParams()` (SSE/storage-class). Closes that note's Finding 3.4; guards **our**
   regressions for free.
 - **Periodic / manual real non-AWS canary:** a small handful of real round-trips (object
   put/list/get, or a backup→restore) against **one** real non-AWS provider, to prove the
@@ -209,7 +209,7 @@ live resource names/values are recorded in [`ci/aws/README.md`](../../ci/aws/REA
 [docs/integration-testing.md](../integration-testing.md) is the generic walkthrough — IAM
 verbs, lifecycle, credential resolution (`useTempHome` relocates only `S3CAB_HOME`, so
 `~/.aws` stays visible), and `npm run test:s3` all live there, not here. What *is*
-spec-level:
+design-level:
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
   the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
@@ -228,7 +228,7 @@ spec-level:
 
 ## Related
 
-Design specs: [backup.md](backup.md), [auth.md](auth.md),
+Design docs: [backup.md](backup.md), [auth.md](auth.md),
 [s3-provider-compatibility.md](s3-provider-compatibility.md). The short posture also lives in
 [ADR-0019](../adr/0019-s3-test-strategy.md), which pins it and points here for the full
 reasoning.

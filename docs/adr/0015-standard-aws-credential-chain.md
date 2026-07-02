@@ -4,7 +4,7 @@
 
 Credential resolution is `resolveCredentials` in [src/lib/auth.mjs](../../src/lib/auth.mjs):
 s3cab's layered env files → the standard AWS SDK credential chain → an actionable error.
-s3cab never writes `~/.aws/*`. Full model and history: [docs/specs/auth.md](../specs/auth.md).
+s3cab never writes `~/.aws/*`. Full model and history: [docs/design/auth.md](../design/auth.md).
 
 ## The decisions
 

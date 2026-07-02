@@ -21,7 +21,7 @@ superseded reports go stale fast and git history keeps them.
 An idea leaves this directory one of two ways, and either way the entry is deleted:
 
 - **Implemented** — its lasting knowledge moves to its real home first (a decision to an
-  [ADR](../docs/adr/), a subsystem design to [docs/specs/](../docs/specs/), user docs to
+  [ADR](../docs/adr/), a subsystem design to [docs/design/](../docs/design/), user docs to
   [guide/](../guide/)), then the proposal is removed.
 - **Abandoned** — just removed.
 

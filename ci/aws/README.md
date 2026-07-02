@@ -1,7 +1,7 @@
 # CI AWS resources (s3cab integration tests)
 
 The JSON artifacts in this directory provision the real-AWS resources behind the
-gated S3 integration suite (see [../../docs/specs/testing.md](../../docs/specs/testing.md) for
+gated S3 integration suite (see [../../docs/design/testing.md](../../docs/design/testing.md) for
 the strategy). They are applied with the AWS CLI following the full, cross-platform
 walkthrough in **[../../docs/integration-testing.md](../../docs/integration-testing.md)**
 — that guide is generic (anyone can follow it for their own fork/account); this file
