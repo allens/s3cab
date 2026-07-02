@@ -286,7 +286,7 @@ export function resolveSet(name) {
 }
 
 /**
- * Format sets as the human-readable listing the `sets` command prints — also
+ * Format sets as the human-readable listing the `list` command prints — also
  * the body of resolveSet's several-sets error, so the error shows exactly what
  * the command would.
  * @param {SetSummary[]} sets
@@ -307,7 +307,7 @@ export function formatSets(sets) {
 /**
  * Create or update a set: write `dirs.txt` when dirs are given, and bind the
  * bucket when given. Member dirs are stored as passed — resolving/validating
- * them is the `sets` command's job. The set's identity is just its `name`
+ * them is the `setup` command's job. The set's identity is just its `name`
  * (ADR-0024), so there is nothing to pin: creating and updating run the same path.
  * @param {string} name - A valid set name (see `validateSetName`)
  * @param {object} [pieces]
