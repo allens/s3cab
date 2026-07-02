@@ -3,7 +3,7 @@
 The ubiquitous language of **s3cab** (**S3 C**ontent **A**ddressable **B**ackup): a
 content-addressable backup tool that stores whole files by their hash and tracks them in
 plain-text snapshots. This is a glossary, nothing else — design decisions live in
-[docs/adr/](docs/adr/), designs in [docs/specs/](docs/specs/), and user-facing prose in
+[docs/adr/](docs/adr/), designs in [docs/design/](docs/design/), and user-facing prose in
 [README.md](README.md).
 
 ## Language
@@ -54,6 +54,15 @@ One S3 bucket holding the whole backup: the `objects/` object store plus the `sn
 tree. **One bucket is exactly one repository** — the layout is fixed by convention, not an
 arbitrary prefix.
 _Avoid_: repo (the git sense), archive, vault.
+
+**Format spec**:
+The user-facing contract for everything s3cab stores — the repository layout, the
+snapshot-file grammar, and the local `~/.s3cab/` surface — written down in
+[guide/format.md](guide/format.md). The only document called a "spec": recovery must stay
+possible from the stored files alone, and the written spec eases it and keeps the project
+honest (a human-readable mirror of the true format). Contributor design docs in
+[docs/design/](docs/design/) are **designs**, not specs.
+_Avoid_: spec (for a design doc), format documentation (it is a contract, not a description).
 
 ### Snapshots & sets
 

@@ -1,4 +1,4 @@
-# `s3cab` Backup Sets and Remote Repository Format Spec
+# `s3cab` Backup Sets and Remote Repository Design
 
 ## Status
 
@@ -33,7 +33,7 @@ identity, flattened `snapshots/<set>/`, the `setup` collision check + `--inherit
 [ADR-0026](../adr/0026-bucket-required-at-setup.md). The detail sections below describe that
 landed model.
 
-> **History:** the first cut of this spec (same day) namespaced remote snapshots by a
+> **History:** the first cut of this design (same day) namespaced remote snapshots by a
 > per-directory stored label, keeping the local engine per-directory. It was superseded
 > within hours by the **backup set** model below, because a set name solves the identity
 > problem outright: directories become the *contents* of a set rather than its identity,
@@ -49,7 +49,9 @@ landed model.
 Define s3cab's unit of backup (the **backup set**), its on-disk configuration, the
 remote repository format, and the behaviour of the `setup`/`list`/`backup` commands. Format
 decisions are commitments: per [ADR-0002](../adr/0002-no-lock-in-hard-constraint.md) (no lock-in), the stored layouts —
-local *and* remote — are the contract a hand-recoverer or replacement tool relies on.
+local *and* remote — are the contract a hand-recoverer or replacement tool relies on,
+written down as the **format spec**, [guide/format.md](../../guide/format.md). This design
+doc carries the *why* behind that contract, and the command behaviour on top of it.
 
 Guiding instinct throughout: **simple, obvious, accessible, discoverable.** Every config
 artifact is a self-evident plain-text file a user can find by listing a directory and
@@ -84,6 +86,9 @@ the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` 
   always learn what a namespace is by opening one snapshot.
 
 ### On disk: one directory per set
+
+(The layout is contract — stated in the [format spec](../../guide/format.md); the small
+diagram is repeated here because the design points below lean on it.)
 
 ```
 ~/.s3cab/
@@ -228,66 +233,40 @@ file.)
 
 ## Snapshot files
 
-**One snapshot per set per run** — all member directories in a single TSV (the existing
-line format is already multi-root-safe: paths are absolute). This buys cross-directory
-move/dedup detection in `compare` and makes the snapshot-last invariant a **set-level**
-atomicity guarantee. The header records the set name and the member dirs as captured at
-snapshot time, so the file is self-describing even when found alone in a bucket:
+The file grammar — the `#SNAPSHOT`/`#DIR` header, the TSV rows, the metadata-row types —
+is the format spec's to state ([guide/format.md](../../guide/format.md)). The decisions
+behind it:
 
-```
-#SNAPSHOT   2026-06-12T09:15   photos
-#DIR        C:\Users\me\Photos
-#DIR        D:\Pics
-3b8e…c0a1   4915200   2026-06-01T12:00:00.000Z   C:\Users\me\Photos\beach.jpg
-…
-```
+**One snapshot per set per run** — all member directories in a single TSV (the line
+format is multi-root-safe: paths are absolute). This buys cross-directory move/dedup
+detection in `compare` and makes the snapshot-last invariant a **set-level** atomicity
+guarantee; the header naming the set and its member dirs as captured at snapshot time is
+what makes the file self-describing even found alone in a bucket.
 
-### Scope: regular files only (decided 2026-06)
+**Scope: regular files only (decided 2026-06).** A deliberate product-scope decision, not
+an accident of implementation: s3cab is **not a system backup tool** (commercial tools, OS
+built-ins, and git all serve that need). It exists for a user to back up their documents,
+pictures, and video efficiently, where what matters is that **the content is recoverable**.
+Content, size, and mtime are the contract; everything else is out of scope, stated to
+users in the format spec.
 
-Snapshots record **regular files and nothing else** — no symlinks/junctions, no
-hardlink identity, no empty directories, no permissions/ACLs. This is a deliberate
-product-scope decision, not an accident of implementation: s3cab is **not a system
-backup tool** (commercial tools, OS built-ins, and git all serve that need). It exists
-for a user to back up their documents, pictures, and video efficiently, where the thing
-that matters is that **the content is recoverable**. File content, size, and mtime are
-the contract; everything else is out of scope and documented to users as such.
-
-### Snapshot names: collisions error, snapshots never overwrite
-
-Snapshot names stay minute-precision local timestamps. A second snapshot of the same set
-in the same minute is an **error**, not an overwrite — unlikely in real use, and an
-accidental double-run (a scheduler firing twice) must not destroy a snapshot. The same
-rule holds remotely: `backup` uploads snapshots with the no-clobber conditional PUT, so
-an existing remote name is an error. Snapshots are immutable everywhere. One pragmatic
-exception: under `S3CAB_DEBUG` the *local* writer may overwrite — re-running within a
-minute while debugging is otherwise maddening.
+**Snapshot names: collisions error, snapshots never overwrite.** Names stay
+minute-precision local timestamps. A second snapshot of the same set in the same minute is
+an **error**, not an overwrite — unlikely in real use, and an accidental double-run (a
+scheduler firing twice) must not destroy a snapshot. Remotely the same rule is enforced by
+the no-clobber conditional PUT. One pragmatic exception: under `S3CAB_DEBUG` the *local*
+writer may overwrite — re-running within a minute while debugging is otherwise maddening.
 
 ## Remote repository layout
+
+The layout itself — `objects/<sha256>`, `snapshots/<set>/`, `sets/<set>/` and what each
+holds — is the format spec's to state ([guide/format.md](../../guide/format.md)). The
+decisions behind its shape:
 
 One repository is one bucket, holding **multiple sets** (from any number of users and
 machines). `objects/` is shared — content-addressing dedups across everything in the
 bucket. Each set name is a path level under `snapshots/` (its snapshots) and `sets/` (its
-config + ownership marker), so browsing groups by set:
-
-```
-s3://my-backup-bucket/
-  objects/<sha256>                  # every file, stored once, by content hash
-  snapshots/<set>/<name>.tsv.zst    # this set's snapshots
-  sets/<set>/                       # this set's config + claim marker
-    info                            # OWNER (machine) + CREATED — the "first person wins" marker
-    dirs.txt                        # pushed for disaster recovery
-    exclude.txt
-```
-
-```
-  snapshots/
-    photos/
-      2026-06-12T0915.tsv.zst
-    docs/…
-  sets/
-    photos/{info, dirs.txt, exclude.txt}
-    docs/…
-```
+config + ownership marker), so browsing groups by set.
 
 Snapshots are **directory-per-set** (`snapshots/<set>/…`), not a flat
 `snapshots/<set>-<timestamp>` — a `-`-bearing key can't be split back into (set, timestamp)
@@ -303,21 +282,23 @@ credentials); the bucket name is not stored (redundant once in the bucket).
 
 **Remote snapshot files are byte-identical local snapshot files** — the `.tsv.zst` uploaded as-is.
 One format everywhere; the upload is trivially verifiable; the recovery story is
-identical to the local one (`zstd -d`, read the TSV).
+identical to the local one.
 
 ### Non-goal: client-side encryption (decided 2026-06)
 
 s3cab will **not** encrypt objects client-side. Encrypted objects are exactly the
 opaque blobs the no-lock-in principle forbids, and encryption breaks content-addressed
 dedup. The documented answer is server-side encryption (already sent on AWS), bucket
-access policy, and provider trust — stated openly in user docs so it reads as a
+access policy, and provider trust — stated openly in the format spec so it reads as a
 decision, not a gap.
 
 ### Format invariant: objects first, snapshot last
 
 **A snapshot's presence under `snapshots/` guarantees every object it references is
-already present under `objects/`.** `backup` uploads all missing objects first and the
-snapshot last, so the guarantee holds inductively from an empty bucket. Consequences:
+already present under `objects/`** — a repository-format guarantee, stated to users in the
+format spec, not a private implementation detail. `backup` uploads all missing objects
+first and the snapshot last, so the guarantee holds inductively from an empty bucket.
+Consequences the design leans on:
 
 - Any snapshot found in a bucket is trustworthy for `restore` and hand-recovery, and —
   because a snapshot spans its whole set — it certifies a **complete backup run of the
@@ -326,9 +307,6 @@ snapshot last, so the guarantee holds inductively from an empty bucket. Conseque
   yet). Orphans are harmless: content-addressed, picked up by the retry (which skips
   re-uploading them), costing only their storage.
 - `verify` polices the invariant after the fact (below).
-
-This is a **repository-format guarantee**, documented to users, not a private
-implementation detail.
 
 ## How `backup` computes the upload set
 
@@ -350,7 +328,7 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
    appends every hash it uploads to the cache; refresh any time with `hashes -f`.
    `--skip-cache` skips this cache lookup entirely (when in doubt about sync) and falls
    through to the conditional PUT below. (The flag is named `--skip-cache`, not the
-   `--force` this spec first used: it only skips the cache and never overwrites, unlike
+   `--force` this design first used: it only skips the cache and never overwrites, unlike
    `upload --force`.)
 4. Upload the remaining candidates with the conditional-PUT / no-clobber skip as the
    safety net — it silently no-ops objects that exist but were in neither the latest
@@ -406,8 +384,8 @@ decided at implementation.)
 
 `cleanup` deletes orphaned objects. It is deliberately heavy (reads every snapshot,
 lists all of `objects/`) and deliberately rare — the everyday commands never delete
-anything. Rules, several of which are **repository-format contract**, not implementation
-choice:
+anything. Rules, several of which are **repository-format contract** (stated in the
+[format spec](../../guide/format.md)), not implementation choice:
 
 - **Dry run by default.** `cleanup` *reports* the orphans and the space they hold; an
   explicit flag (e.g. `--delete`) is required to remove anything.
@@ -456,7 +434,8 @@ time) — recorded as an open item.
 - **auth.md update** — the dir env layer becomes the set layer when implemented.
 - **Doc updates at implementation** — README "How it works" (local layout moves to
   `~/.s3cab/sets/`), guide/exclude.md (per-set file), help topics; plus the
-  versioning/ransomware recommendation and the encryption non-goal statement.
+  versioning/ransomware recommendation. (The encryption non-goal statement is done —
+  it lives in the format spec.)
 
 ## Implementation plan
 
@@ -479,7 +458,7 @@ commands → shared-machinery wiring.
 3. **`sets`** — new registry entry + command; its output formatter is shared with the
    several-sets error body.
 4. **Set env layer** — `loadEnv({ set })` replaces the never-wired dir layer in
-   `auth.mjs`; update its tests, this repo's auth docs (docs/specs/auth.md layer table +
+   `auth.mjs`; update its tests, this repo's auth docs (docs/design/auth.md layer table +
    History note, [ADR-0015](../adr/0015-standard-aws-credential-chain.md)).
 5. **e2e + docs** — setup→sets round-trip in `test/e2e.test.mjs`; README status update
    (`setup`/`sets` become working local commands).

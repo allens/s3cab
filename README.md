@@ -118,7 +118,9 @@ unique within a bucket: claimed first-come, and taken over on a new machine with
 references is safely in `objects/`, so any snapshot file you find is complete and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
-look up its hash in a snapshot and download `objects/<that-hash>`.
+look up its hash in a snapshot and download `objects/<that-hash>`. The full contract —
+the repository layout, the snapshot-file grammar, and a recover-by-hand walkthrough — is
+written down in [guide/format.md](guide/format.md), **the format spec**.
 
 The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is to produce
@@ -233,7 +235,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  20
 
 To inspect a compressed snapshot by hand, decompress it with any zstd tool
 (`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
-story — no s3cab required.
+story — no s3cab required. (The complete stored format is specified in
+[guide/format.md](guide/format.md).)
 
 Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
 set's directories; run `s3cab help exclude` for a quick reference, or see

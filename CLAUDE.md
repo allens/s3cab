@@ -10,19 +10,24 @@ purpose-built homes — see the map below.
 | --- | --- | --- |
 | **Domain vocabulary** (the ubiquitous language) | [CONTEXT.md](CONTEXT.md) | Glossary only — canonical term + definition + `_Avoid_` synonyms. |
 | **Architecture / design decisions** (the *why*, "don't re-litigate") | [docs/adr/](docs/adr/) | One numbered ADR per decision; [docs/adr/README.md](docs/adr/README.md) indexes them. |
-| **Fuller designs & specs** | [docs/specs/](docs/specs/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. |
+| **Subsystem designs** | [docs/design/](docs/design/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. (Renamed from `specs/` 2026-07-02: "spec" is reserved for the format spec below.) |
 | **Other contributor how-tos** | [docs/](docs/) | Beside `docs/adr/` — e.g. [docs/integration-testing.md](docs/integration-testing.md) (setting up the gated S3 suite), [docs/releasing.md](docs/releasing.md) (checking + cutting a release). Doesn't ship. |
-| **User-facing docs** | [README.md](README.md), [guide/](guide/) | What it is, install/usage, user reference (`guide/exclude.md`, `guide/compare.md`). `guide/` ships in the npm tarball. |
+| **User-facing docs** | [README.md](README.md), [guide/](guide/) | What it is, install/usage, user reference (`guide/exclude.md`, `guide/compare.md`) — and **the format spec**, [guide/format.md](guide/format.md): the stored-format recovery contract, the no-lock-in pillar ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)) as a document. `guide/` ships in the npm tarball, so the spec travels inside every install. |
 | **Ideas we might do** (rough → detailed; deleted when done/abandoned) | [proposals/](proposals/) | A bucket of provisional ideas — important stuff down to pipe dreams, *not* of record. Grouped into theme-based "epic" files (`output-ux.md`, `performance.md`, …), with [misc.md](proposals/misc.md) for the unsorted and [bugs.md](proposals/bugs.md) the interim defect tracker (→ GitHub Issues, gone by release). See [proposals/README.md](proposals/README.md). |
 | **How to work here** (AI/contributor rules) | this file | Working conventions, coding conventions, architecture orientation, known gaps. |
 
 The top-level split is by **audience**: everything contributor-facing and internal lives
-under [docs/](docs/) — `adr/` = pinned *decisions* ("don't re-litigate"), `specs/` =
+under [docs/](docs/) — `adr/` = pinned *decisions* ("don't re-litigate"), `design/` =
 subsystem *designs* (the fuller *what/how*, which evolves), and the loose `docs/*.md` =
-*how-tos* (task recipes) — while user-facing prose is README + `guide/`. A spec and an ADR
-differ in *kind* (a design vs. a single pinned decision), which is why they are sibling
+*how-tos* (task recipes) — while user-facing prose is README + `guide/`. A design doc and an
+ADR differ in *kind* (a design vs. a single pinned decision), which is why they are sibling
 directories; both are contributor docs, which is why both sit under `docs/` rather than one
-floating at the root. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
+floating at the root. **The word "spec" is reserved** (2026-07-02) for the *format spec*,
+[guide/format.md](guide/format.md) — the recovery-grade contract for everything s3cab stores.
+It lives on the *user* side because the stored format is a user-facing promise
+([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)): recovery must be possible from the
+files alone, and writing the contract down both eases that and keeps the project honest — a
+human-readable mirror of the true format. Evolving design docs are *designs*, not specs. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
 single-purpose file; the [proposals/](proposals/) ideas bucket sits outside `docs/` on
 purpose — it is provisional and *not* of record, the opposite of what `docs/` holds.)
 
@@ -62,7 +67,7 @@ lie about behaviour undermine the whole premise.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable
    from the code.** Don't restate `package.json` scripts or build/test/lint commands. The
    split: vocabulary → CONTEXT.md; the non-obvious *why* of a decision → an ADR; fuller
-   design → docs/specs/; the user *contract* → README/guide/; how to work in the repo → this file.
+   design → docs/design/; the user *contract* → README/guide/; how to work in the repo → this file.
    Developer setup, if wanted, belongs in the README, not here.
 
 **Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
@@ -431,7 +436,7 @@ own doc comment.
   `loadEnv`/`loadSet` in [src/lib/env.mjs](src/lib/env.mjs) — the **user** layer loaded once at
   the entry point, the **set** layer added by the `loadSet` door each set command routes through
   ([ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md)) — both specified in
-  [docs/specs/auth.md](docs/specs/auth.md).
+  [docs/design/auth.md](docs/design/auth.md).
 - **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, not a library, and
   the entry point runs dispatch as a top-level side-effect (unsafe to `import`). The
   per-command functions in `src/commands/` are already cleanly exported, so a side-effect-free
@@ -456,7 +461,7 @@ For how the structure is reasoned about and named, see
 Pre-release housekeeping and open decisions surfaced from the code:
 
 - **`verify` flow not built yet** — design + the five-slice implementation plan are settled in
-  [docs/specs/backup.md](docs/specs/backup.md) (read it for the slice detail; not re-narrated
+  [docs/design/backup.md](docs/design/backup.md) (read it for the slice detail; not re-narrated
   here). **Slices 1–4 are built:** the set store ([src/lib/sets.mjs](src/lib/sets.mjs)), the
   local engine on sets (`snapshot`/`list`/`compare`/`tree` over `[<set>]`, one snapshot into
   `~/.s3cab/sets/<set>/snapshots/`), the cloud half ([src/lib/remote.mjs](src/lib/remote.mjs)
@@ -473,7 +478,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
   --inherit` instead pulls a set's remote manifests down so a fresh machine's
   `compare`/`list`/`restore` work on full history.
 - **Local-config/remote-structure model** (ADR-0024/0025/0026, fully landed; detail in
-  `docs/specs/backup.md`): the set **name** is the whole identity (no `user@machine`), the
+  `docs/design/backup.md`): the set **name** is the whole identity (no `user@machine`), the
   remote namespace is `snapshots/<set>/`, and `setup` requires `--bucket` and claims the name
   "first person wins" via the remote `sets/<set>/` marker
   ([src/lib/set-marker.mjs](src/lib/set-marker.mjs)), with `--inherit` for machine succession.
