@@ -10,7 +10,7 @@ purpose-built homes — see the map below.
 | --- | --- | --- |
 | **Domain vocabulary** (the ubiquitous language) | [CONTEXT.md](CONTEXT.md) | Glossary only — canonical term + definition + `_Avoid_` synonyms. |
 | **Architecture / design decisions** (the *why*, "don't re-litigate") | [docs/adr/](docs/adr/) | One numbered ADR per decision; [docs/adr/README.md](docs/adr/README.md) indexes them. |
-| **Subsystem designs** | [docs/design/](docs/design/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. (Renamed from `specs/` 2026-07-02: "spec" is reserved for the format spec below.) |
+| **Subsystem designs** | [docs/design/](docs/design/) | `auth.md`, `backup.md`, `testing.md`, `s3-provider-compatibility.md`. |
 | **Other contributor how-tos** | [docs/](docs/) | Beside `docs/adr/` — e.g. [docs/integration-testing.md](docs/integration-testing.md) (setting up the gated S3 suite), [docs/releasing.md](docs/releasing.md) (checking + cutting a release). Doesn't ship. |
 | **User-facing docs** | [README.md](README.md), [guide/](guide/) | What it is, install/usage, user reference (`guide/exclude.md`, `guide/compare.md`) — and **the format spec**, [guide/format.md](guide/format.md): the stored-format recovery contract, the no-lock-in pillar ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)) as a document. `guide/` ships in the npm tarball, so the spec travels inside every install. |
 | **Ideas we might do** (rough → detailed; deleted when done/abandoned) | [proposals/](proposals/) | A bucket of provisional ideas — important stuff down to pipe dreams, *not* of record. Grouped into theme-based "epic" files (`output-ux.md`, `performance.md`, …), with [misc.md](proposals/misc.md) for the unsorted and [bugs.md](proposals/bugs.md) the interim defect tracker (→ GitHub Issues, gone by release). See [proposals/README.md](proposals/README.md). |
@@ -18,16 +18,13 @@ purpose-built homes — see the map below.
 
 The top-level split is by **audience**: everything contributor-facing and internal lives
 under [docs/](docs/) — `adr/` = pinned *decisions* ("don't re-litigate"), `design/` =
-subsystem *designs* (the fuller *what/how*, which evolves), and the loose `docs/*.md` =
-*how-tos* (task recipes) — while user-facing prose is README + `guide/`. A design doc and an
-ADR differ in *kind* (a design vs. a single pinned decision), which is why they are sibling
-directories; both are contributor docs, which is why both sit under `docs/` rather than one
-floating at the root. **The word "spec" is reserved** (2026-07-02) for the *format spec*,
-[guide/format.md](guide/format.md) — the recovery-grade contract for everything s3cab stores.
-It lives on the *user* side because the stored format is a user-facing promise
-([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)): recovery must be possible from the
-files alone, and writing the contract down both eases that and keeps the project honest — a
-human-readable mirror of the true format. Evolving design docs are *designs*, not specs. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
+subsystem *designs* (the fuller *what/how*, which evolves; a design and an ADR differ in
+*kind*, hence sibling directories), and the loose `docs/*.md` = *how-tos* (task recipes) —
+while user-facing prose is README + `guide/`. **The word "spec" is reserved** for the
+*format spec*, [guide/format.md](guide/format.md) — the recovery-grade contract for
+everything s3cab stores, kept on the *user* side because the stored format is a user-facing
+promise ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)); design docs are
+*designs*, not specs. ([CONTEXT.md](CONTEXT.md) vocabulary stays at the root as a
 single-purpose file; the [proposals/](proposals/) ideas bucket sits outside `docs/` on
 purpose — it is provisional and *not* of record, the opposite of what `docs/` holds.)
 
@@ -59,27 +56,25 @@ lie about behaviour undermine the whole premise.
    always **distinguish what is built today from what is planned/target** (the README's
    S3/backup descriptions are the target; the code in `src/` is what works now). With that
    line drawn, design docs are *allowed* to lead the code — a settled-but-unimplemented
-   redesign can land in an ADR (`Status: proposed`), CONTEXT.md, or a spec banner, as long as
-   a reader can't mistake it for live behaviour. (Earlier this rule said "never aspirational
-   or stale"; that was too strict for a pre-1.0 project that redesigns in the open — softened
-   2026-06-20.) Flag drift you notice — stale comments, `package.json` paths to non-existent
-   files, etc.; the "Known gaps & cleanup items" section is the running list.
+   redesign can land in an ADR (`Status: proposed`), CONTEXT.md, or a design-doc banner, as
+   long as a reader can't mistake it for live behaviour. Flag drift you notice — stale
+   comments, `package.json` paths to non-existent files, etc.; the "Known gaps & cleanup
+   items" section is the running list.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable
    from the code.** Don't restate `package.json` scripts or build/test/lint commands. The
    split: vocabulary → CONTEXT.md; the non-obvious *why* of a decision → an ADR; fuller
    design → docs/design/; the user *contract* → README/guide/; how to work in the repo → this file.
    Developer setup, if wanted, belongs in the README, not here.
 
-**Within the user-facing half, placement is decided by a doctrine (settled 2026-06):**
+**Within the user-facing half, placement is decided by a doctrine:**
 the website/repo docs (README, `guide/` — eventually a proper website) carry everything
-someone needs *before trying s3cab* plus the advanced depth (e.g. the repository/snapshot-file
-format); the built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
+someone needs *before trying s3cab* plus the advanced depth (e.g. the format spec); the
+built-in CLI help topics (`s3cab help <topic>`, `helpTopics` in
 `src/help.mjs`) carry only what a user needs *mid-task in a terminal*. The placement test:
 *"would someone need this mid-task, without reaching for a browser?"* Exclude-pattern
 rules pass (you're editing `exclude.txt` in a shell); the repository format fails (reading
-it is a sit-down activity — and per [ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)
-the format is self-evident from the stored files themselves; its docs just save the recoverer
-time, so online-only is fine). Each help topic ends with a link to its fuller online guide;
+it is a sit-down activity — it lives in [guide/format.md](guide/format.md), never in a help
+topic). Each help topic ends with a link to its fuller online guide;
 the overlap this leaves (e.g. the glob token table appears in both `helpTopics.exclude` and
 `guide/exclude.md`) is accepted — small, and both copies change together with the matcher —
 rather than papered over with generation/sync machinery
@@ -174,61 +169,37 @@ rather than assuming it is fixed forever.
    *through* the PR). In any main-tree edit (doc-only commits included), stage only the files _you_
    changed (`git add <path>`, never `-A`/`.`) so you don't sweep up another session's in-flight
    work, and still commit only on an explicit go-ahead (#1).
-   - **We deliberately do _not_ share `node_modules`.** A fresh worktree is gitignored-empty,
-     so code work runs `npm install` first (tens of seconds from the warm cache; doc-only
-     changes skip it). A junctioned/shared `node_modules` was **rejected**: it re-introduces a
+   - **No shared `node_modules`.** A junctioned/shared copy was rejected: it re-introduces a
      shared mutable resource, and a fallback `rm -rf <worktree>` can recurse *through* the
-     junction and delete the **main** checkout's `node_modules`. The seconds saved aren't worth
-     the footgun (#7); a task that changes dependencies does its own install.
-   - **Mechanics.** Worktrees live where the harness puts them — **`.claude/worktrees/<name>`**,
-     nested in the repo (`EnterWorktree`/`ExitWorktree` in-session, or `isolation: "worktree"`
-     when spawning an agent). The one downside of a nested tree — the main checkout's tools
-     wandering in — is neutralised by **excluding `.claude/worktrees/`** in `.gitignore`, the
-     `.vscode` `search.exclude`/`files.watcherExclude`, and eslint `ignores`.
-   - **Accept the harness's branch name** — `EnterWorktree(name: "feat/x")` creates branch
-     `worktree-feat+x`. Don't rename it: that orphans it from `ExitWorktree(remove)`'s
-     auto-cleanup. The PR *title* is clean regardless and the branch is deleted on merge.
-   - **Teardown is `ExitWorktree(remove)`** — it deletes the worktree directory *and* its
-     branch (a new worktree branches fresh from `origin/main`, so a stale local `main` blocks
-     nothing — a bare `git fetch` is enough when you want refreshed refs). **Review the work on
-     the GitHub PR; don't open the worktree directory in the IDE** — an open file there gives
-     Windows a lock that can block removal; if it's locked, close it and retry.
-   - **Run bare commands — don't prepend `cd`, and don't use `git -C <cwd>`.** `EnterWorktree`
-     sets the session cwd to the worktree and the Bash tool persists it, so bare `git …` /
-     `npm test …` already run there. A leading `cd <path> && …` *and* `git -C <the-cwd-path> …`
-     both defeat the path-free allowlist (`Bash(git commit *)` never matches a `git -C …`
-     command), so they re-prompt on every call — and `git -C …` *also* slips past the path-free
-     **deny** guards (`Bash(git reset --hard *)` won't match it), bypassing the
+     junction into the **main** checkout's `node_modules`. Code work runs `npm install` first
+     (seconds from the warm cache; doc-only changes skip it).
+   - **Mechanics.** Worktrees live at **`.claude/worktrees/<name>`**
+     (`EnterWorktree`/`ExitWorktree` in-session, or `isolation: "worktree"` for agents); the
+     path is excluded in `.gitignore`, the `.vscode` search/watcher excludes, and eslint
+     `ignores`. **Accept the harness's branch name** (`worktree-feat+x`) — renaming orphans it
+     from `ExitWorktree(remove)`'s auto-cleanup; the PR *title* is clean regardless.
+   - **Teardown is `ExitWorktree(remove)`** — deletes the directory *and* its branch (a new
+     worktree branches fresh from `origin/main`, so a stale local `main` blocks nothing).
+     **Review the work on the GitHub PR; don't open the worktree directory in the IDE** — an
+     open file there gives Windows a lock that can block removal.
+   - **Run bare commands — don't prepend `cd`, and don't use `git -C <cwd>`.** The session cwd
+     already *is* the worktree. Both forms defeat the path-free allowlist (re-prompting every
+     call), and `git -C …` *also* slips past the path-free **deny** guards, bypassing the
      destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
-     checkout; when cwd is already the target, run bare.
-10. **Request a Copilot code review once, at PR create** — pass `--reviewer "@copilot"` to
-    `gh pr create` (so the request rides inside the single "commit, create pr" step, no manual
-    follow-up). This create-time request is the **only** one you make: Copilot does **not**
-    auto-review on push, so **never** re-request it after pushing — any further review passes are
-    the user's to trigger manually. The sole fallback use of `gh pr edit --add-reviewer "@copilot"`
-    is when the create flag failed to attach the bot at all. The `@copilot` special value needs a recent `gh` (the
-    [March 2026 CLI feature](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/));
-    it replaced a hand-rolled GraphQL hook once the CLI gained native support. It's the
-    complement to the `/review` skill and the coverage-by-review rule #8, driven by
-    [.github/copilot-instructions.md](.github/copilot-instructions.md). Copilot review must be
-    enabled on the repo; if it isn't (or the PR is on a fork), the request silently no-ops — so
-    **verify the bot actually landed**, since these CLI paths have historically returned success
-    while attaching nobody. Don't verify with `gh pr view --json reviewRequests` — it does *not*
-    surface the Copilot bot (prints `[]` even when attached); confirm via the web Reviewers panel
-    or the GraphQL `reviewRequests` query (`requestedReviewer ... on Bot { login }` →
-    `copilot-pull-request-reviewer`). When the review lands, bring its comments back to the user
-    to discuss (#1) — don't auto-action them.
-11. **The permission-prompt fix is settled — do NOT re-litigate it.** After ~20 sessions of
-    constant Bash prompts (every prior attempt failed by working the wrong layer), the fix
-    (applied 2026-06-27) is the documented "run all Bash without prompts except a few blocked"
-    pattern: a **bare `"Bash"` entry in `permissions.allow`** plus **`"defaultMode":
-    "acceptEdits"`** — both nested **under `permissions`**, not at the file's top level. This is
+     checkout.
+10. **Request a Copilot code review at PR create** — pass `--reviewer "@copilot"` to
+    `gh pr create`. Best-effort: that create-time request is the only one you make (don't
+    re-request after pushes), and when a review lands, bring its comments back to the user to
+    discuss (#1) — don't auto-action them.
+11. **The permission-prompt fix is settled — do NOT re-litigate it.** The fix is the "run all
+    Bash without prompts except a few blocked" pattern: a **bare `"Bash"` entry in
+    `permissions.allow`** plus **`"defaultMode": "acceptEdits"`** — both nested **under
+    `permissions`**, not at the file's top level — in the committed
+    [.claude/settings.json](.claude/settings.json), so **every machine inherits it**. This is
     safe, **not** `bypassPermissions`: the `deny` list and the PreToolUse hooks still guard
     everything (deny-first precedence runs before allow) — `block-redundant-git-c.sh` blocks the
     `git -C <cwd>` deny-bypass (#9), and `block-destructive-rm.sh` catches recursive/force `rm`
-    in any flag ordering. It lives in the committed
-    [.claude/settings.json](.claude/settings.json) so **every machine inherits it**. **The
-    behavioral rule: never "solve" recurring prompts by adding specific allow entries or
+    in any flag ordering. **Never "solve" recurring prompts by adding specific allow entries or
     re-running `fewer-permissions`** — that is the failed layer that never converges (it only
     appends dead one-shot rules). If prompts persist, `defaultMode` applies on *next session
     start* (restart once), or the command genuinely hit a `deny` rule (a real safety block —
@@ -257,13 +228,6 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `SnapshotEntries`), then bare `{Foo}` in annotations — cleaner than repeating the inline
   form at each use, and the modern TS-supported style (TS 5.5+). An unused `@import` name is
   flagged by the type check, so they don't rot.
-- **Import order is author-managed; no tool enforces or rewrites it.** A
-  `source.organizeImports`-on-save action was removed from `.vscode/settings.json` (2026-06):
-  it silently reordered/removed imports on save, but only for contributors who had the VS
-  Code setting — an unenforced asymmetry that churned diffs. Dead imports are already caught
-  by `no-unused-vars` (in `js/recommended`) in CI; the only thing organizeImports added was
-  *sorting*, which isn't worth an ESLint import-ordering plugin (cosmetic, against
-  [ADR-0006](docs/adr/0006-minimal-code.md) / convention #7).
 - **Don't bury `await` in a larger expression — give it its own line and a name.** A "buried"
   await is one nested inside a bigger expression rather than standing alone; the two smells are
   **member/index access on an awaited result** (`(await read(…)).entries`, `(await xs())[0]`)
@@ -276,41 +240,30 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   cases as violations — decline those.) No linter enforces this (rejected as too
   false-positive-prone, against [ADR-0006](docs/adr/0006-minimal-code.md) / #7); self-check by
   grepping the diff for `(await …).` / `(await …)[` and a `&& `/`|| ` immediately before `await`.
-- **The whole-project type check (`tsc -p jsconfig.json`) is kept clean** and runnable via
-  the `typecheck` script, and covers `scripts/` too (it was once excluded as untyped
-  scratch, but excluded files just get squiggles from VS Code's inferred project instead —
-  cheaper to keep them typed; they need no extra deps, only JSDoc). One non-obvious bit
-  makes the check possible: `jsconfig.json` maps `events`/`punycode`/`string_decoder` back
-  to the builtin type declarations — transitive deps install npm shims of those Node
-  builtins, which would otherwise shadow them at type-resolution time and drag their
-  untyped CJS internals into the check (see the comment in jsconfig.json).
+- **The whole-project type check (`tsc -p jsconfig.json`, the `typecheck` script) is kept
+  clean**, and covers `scripts/` too (JSDoc only, no extra deps). One non-obvious bit makes
+  the check possible: `jsconfig.json` maps `events`/`punycode`/`string_decoder` back to the
+  builtin type declarations — transitive deps install npm shims that would otherwise shadow
+  them; the full mechanism is the comment in jsconfig.json.
 - **Test layout convention:** unit tests are **co-located** with their source as
-  `*.test.mjs`; [test/](test/) holds cross-cutting tests (`e2e.test.mjs`), shared
-  `fixtures/`, and shared `helpers/`. See [test/README.md](test/README.md). The runner is
-  pointed at an **explicit glob** — `node --test --experimental-test-module-mocks
-  "src/**/*.test.mjs" "test/**/*.test.mjs"` (the `test` script; the flag is for
-  `objects.test.mjs`'s `mock.module` — see
-  [ADR-0019](docs/adr/0019-s3-test-strategy.md)) — *not* default discovery, which would also
-  run every `.mjs` under `test/`. That's what lets `test/helpers/` hold shared, importable
-  helpers (e.g. [test/helpers/temp-home.mjs](test/helpers/temp-home.mjs)) without them
-  executing as phantom empty tests. So a cross-cutting test helper goes in `test/helpers/`;
-  scratch still goes in [scripts/](scripts/).
+  `*.test.mjs`; [test/](test/) holds cross-cutting tests, shared `fixtures/`, and shared
+  `helpers/` — the full layout and the explicit-glob rationale live in
+  [test/README.md](test/README.md). (The `--experimental-test-module-mocks` flag on the
+  `test` scripts exists for `objects.test.mjs`'s `mock.module` —
+  [ADR-0019](docs/adr/0019-s3-test-strategy.md).) Scratch goes in [scripts/](scripts/).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
   test files across worker processes in parallel; collapsing to a single process loses
   that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
   debugging shared state — just not a speedup.
 - **Watch for per-file overhead in the walk/snapshot hot path — small costs mount up over
-  thousands of files.** A second `lstat`/`stat`/read on each file is invisible on one file and
+  thousands of files.** A second `lstat`/`stat`/read per file is invisible on one file and
   dominant on tens of thousands. The fix is to **thread the data you already have through the
-  pipeline** — the `Dirent` from `readdirSync(…, { withFileTypes: true })` already carries the
-  file type, and `prop` already takes one `stat` it reads `isFile`/`size`/`mtime` off — *not* a
-  hidden module-level cache. A cache keyed on "the last path" is invisible to the type checker,
-  makes a pure function order-dependent, and silently rots into dead code the day the redundant
-  call it guarded goes away. (Worked example: `prop.mjs`'s `_lstatCache`, added when multiple
-  `prop` calls hit each file, became dead once the pipeline settled to one `prop` per file —
-  removed after a static-call-graph check. Keep the saving *in the interface*, where the
-  compiler can see it rot.)
+  pipeline** (the `Dirent` already carries the file type; `prop` already takes one `stat`) —
+  *not* a hidden module-level cache, which is invisible to the type checker, makes a pure
+  function order-dependent, and silently rots into dead code (worked example: `prop.mjs`'s
+  `_lstatCache` went dead once the pipeline settled to one `prop` per file — keep the saving
+  *in the interface*, where the compiler can see it rot).
 - **Two UX references govern user-facing design — treat them as the bibles.** Command *shape*
   (commands, flags vs. positional args, naming, output) follows the **Command Line Interface
   Guidelines** (clig.dev), distilled into the **`cli-design` skill**
@@ -461,19 +414,15 @@ For how the structure is reasoned about and named, see
 Pre-release housekeeping and open decisions surfaced from the code:
 
 - **`verify` flow not built yet** — design + the five-slice implementation plan are settled in
-  [docs/design/backup.md](docs/design/backup.md) (read it for the slice detail; not re-narrated
-  here). **Slices 1–4 are built:** the set store ([src/lib/sets.mjs](src/lib/sets.mjs)), the
-  local engine on sets (`snapshot`/`list`/`compare`/`tree` over `[<set>]`, one snapshot into
-  `~/.s3cab/sets/<set>/snapshots/`), the cloud half ([src/lib/remote.mjs](src/lib/remote.mjs)
-  with `backup`/`status`/`list --remote`), and the `restore` / `restore --output` path.
-  Remaining: `verify` is still an inline registry stub — promote it to its own `src/commands/`
-  file as it gains a body (rest of slice 5); and `upload` still owes its **`--if-modified-from
-  <snapshot>` skip** — the snapshot-aware "only upload what changed" *hashing* optimization
-  (snapshot-time machinery via `prop`'s `lookup`, distinct from `backup`'s upload-set diff; see
-  the TODO in [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
-  `node:sqlite`-backed cache was spiked for this and **rejected** — the in-memory `Map` from the
-  previous snapshot wins on build and lookup; see
-  [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs). `compare` is
+  [docs/design/backup.md](docs/design/backup.md); slices 1–4 are built (status detail there,
+  not re-narrated here). Remaining: `verify` is still an inline registry stub — promote it to
+  its own `src/commands/` file as it gains a body (rest of slice 5); and `upload` still owes
+  its **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
+  *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
+  `backup`'s upload-set diff; see the TODO in
+  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
+  `node:sqlite`-backed cache was spiked for this and **rejected** — the in-memory `Map` wins;
+  see [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs). `compare` is
   local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)); `setup
   --inherit` instead pulls a set's remote manifests down so a fresh machine's
   `compare`/`list`/`restore` work on full history.
@@ -499,16 +448,11 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
   whether keeping the latest snapshot uncompressed for transparency is a real feature.
 - **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
-  job, alongside lint/format): `npm run typecheck` plus a `node --test
-  --experimental-test-coverage` run (`test:coverage:report`) that **prints** the coverage
-  table as advisory debug output — it no longer enforces thresholds (see
-  [ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). **Footnote on why demoting cost
-  nothing:** the prior threshold gate was a silent no-op — `node --test` only collects
-  coverage when `--experimental-test-coverage` precedes the glob positionals, but the
-  `npm run test -- …` pattern appended it *after*, so the gate (and the `test:coverage` lcov
-  script) ran the suite, collected **zero** coverage, and exited 0 against the thresholds.
-  Both scripts were rebuilt standalone (flags first). Don't reintroduce the
-  `npm run test -- --experimental-test-coverage` shape — it measures nothing.
+  job): `npm run typecheck` plus a `test:coverage:report` run that **prints** the coverage
+  table as advisory output ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). One
+  standing trap: the coverage flags must **precede** the glob positionals — the
+  `npm run test -- --experimental-test-coverage` shape collects nothing and exits 0, so
+  don't reintroduce it (package.json can't carry a comment saying so; this is the warning).
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (see
   [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
 - **Concurrency guard** for snapshots is only the temp-file check (its existence doubles
