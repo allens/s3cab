@@ -19,12 +19,6 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   known lock-file TODO in `snapshot.mjs`. **Note (2026-06-26): a SIGINT handler is the wrong tool
   for this** — it only catches Ctrl+C, not a crash/SIGTERM/power-loss, so the robust startup-sweep
   layer has to exist regardless and then covers the Ctrl+C case too.
-- **Narrow the S3 SDK boundary to the SDK** (architecture-deepening candidate C). `s3.mjs`
-  (meant to be the one SDK seam) also renders terminal progress bars (`cursorTo`/`clearLine`),
-  ships an unused `bucketPolicy`, and exposes test-only `deleteObject`/`emptyBucket`. Lift
-  progress into a small stderr-progress module (`snapshot` and `restore` hand-roll their own —
-  three copies → one), move the test-only ops to a test helper, drop `bucketPolicy` until
-  `setup` needs it. The interface narrows to the seam it guards.
 - **Metadata privacy.** `upload` attaches hostname, username, and the full local path to every
   object — useful provenance, but it's PII sitting in object metadata, and the local path
   reveals structure the content-addressed layout otherwise hides. Make it opt-in/opt-out and

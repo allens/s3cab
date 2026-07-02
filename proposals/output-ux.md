@@ -15,13 +15,9 @@ a flag, and a structured diff that survives to the CLI edge.
   `First snapshot: 1,234 files (4.2 GB)` instead.
 - **Return structured data from `compare`,** not preformatted strings with embedded
   `→`/`→→`/`==` microsyntax. Presentation belongs in the CLI layer; the JSON output is
-  currently neither human-friendly nor machine-friendly.
-- **Keep `compare`'s diff structured to the edge** (architecture-deepening candidate D).
-  `diff()` already returns a structured `DiffResult`, but `compareSnapshots` then flattens it
-  to display strings (the arrow strings, `relativeToRoot`) before returning — so the structure
-  is lost at *that* seam, and `--remote` must thread through presentation. Remaining work: have
-  `compareSnapshots` return the structured result and move the arrow-string building into a
-  `presentDiff()` the command calls, keeping the structure to the CLI edge.
+  currently neither human-friendly nor machine-friendly. The seam work is
+  [architecture-improvements.md](architecture-improvements.md)'s "`compareSnapshots` returns
+  structured diff" — this epic's work is what makes that seam real.
 - **Document or replace the arrow microsyntax** — `→` vs `→→` vs `==` in results is explained
   nowhere user-facing; in human output, words ("renamed", "moved", "duplicate of") may serve
   the audience better. Related: README promises "renamed" detection but `CompareResult` has no

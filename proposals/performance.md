@@ -16,5 +16,3 @@ of files). Watch for per-file overhead — small costs mount up.
 - **Re-measure the 5 MB slurp/stream hash boundary** in `prop.mjs` during any perf pass. Files
   ≥ 5 MB stream through a hash; smaller ones slurp via one-shot `crypto.hash`. The cutoff was
   chosen empirically but predates the one-shot path, so the optimum may have moved.
-- **`compare` at the end of `snapshot` re-reads and re-decompresses** the snapshot file it just
-  wrote — fine today, noted for a perf pass.

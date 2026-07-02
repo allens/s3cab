@@ -359,6 +359,15 @@ only applies them. See [docs/agents/triage-labels.md](docs/agents/triage-labels.
 Single-context: root [CONTEXT.md](CONTEXT.md) glossary + [docs/adr/](docs/adr/) decision log.
 See [docs/agents/domain.md](docs/agents/domain.md).
 
+### Architecture reviews
+
+`/improve-codebase-architecture` reads and updates
+[proposals/architecture-improvements.md](proposals/architecture-improvements.md) — the durable
+capture of every run (open candidates, standing rejections, run log). Verify its open
+candidates against the source before exploring (don't re-derive), record new rejections there,
+and replace [proposals/architecture-review.html](proposals/architecture-review.html) (latest
+only — each run's report overwrites it).
+
 ---
 
 ## What this project is
