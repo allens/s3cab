@@ -205,47 +205,24 @@ generally; just wrong for *this* workload).
 ## Provisioning (as-built)
 
 **Built in PR #50 (2026-06-15); approval Environment removed for auto-run 2026-06-17.** The
-rationale below is the as-built record. Live AWS resources: bucket **`s3cab-ci-test`**
-(`us-east-1`, 1-day expiry lifecycle), IAM policy **`s3cab-ci-test-access`** attached to OIDC
-role **`s3cab-ci`** (trust scoped to `repo:allens/s3cab:pull_request`), with `AWS_ROLE_ARN`
-(secret) + `S3CAB_TEST_BUCKET` (var) held at **repo** scope (no longer on a GitHub
-Environment — that was deleted with the approval gate). Source of truth: the
-[`ci/aws/`](../../ci/aws/) artifacts + [docs/integration-testing.md](../integration-testing.md).
-**Still pending:** the non-AWS R2 canary (below).
+live resource names/values are recorded in [`ci/aws/README.md`](../../ci/aws/README.md), and
+[docs/integration-testing.md](../integration-testing.md) is the generic walkthrough — IAM
+verbs, lifecycle, credential resolution (`useTempHome` relocates only `S3CAB_HOME`, so
+`~/.aws` stays visible), and `npm run test:s3` all live there, not here. What *is*
+spec-level:
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
   the US-based GitHub-hosted runners; egress to a non-AWS runner is unavoidable but rounds to
-  nothing at test-object volume). Local dev in whatever region is nearest the developer — it's
-  read from env (below), so it never matters to the code, and inter-region cost differences
-  are noise.
+  nothing at test-object volume). Local dev in whatever region is nearest the developer —
+  inter-region cost differences are noise.
 - **Region/bucket are read from the environment, never hardcoded:** tests take the region
   from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET`, so the `us-east-1` CI run and a
   `eu-west-*` local run are the *same* code path.
-- **What the bucket/role must allow:** IAM `Get/Put/List` **plus `Delete`** (teardown). On
-  AWS, `putFile` sends SSE AES256 + intelligent-tiering; off a custom endpoint it drops those
-  (`customEndpoint()` in `src/lib/s3.mjs`), so a plain bucket is fine.
-- **Credentials resolve from your AWS config, not s3cab's own env:** the gated tests call
-  `useTempHome`, which relocates only `S3CAB_HOME` and leaves the OS `HOME` alone, so a
-  `~/.aws` profile / SSO session stays visible. CI authenticates via OIDC; a **local** run
-  uses your `~/.aws` profile — no raw `AWS_*` env vars needed (though setting them works too).
-- **CI creds mechanism:** **OIDC role** via `aws-actions/configure-aws-credentials` (no
-  long-lived secrets — matches the repo's existing OIDC posture). The credentialed S3 job
-  runs automatically on same-repo PRs; the trust policy's `:pull_request` scope (not an
-  approval Environment) is what keeps it reachable only from trusted-collaborator runs.
-- **Lifecycle:** ✅ a rule expires objects after 1 day (+ aborts incomplete multipart uploads
-  after 1 day), to sweep orphans from any crashed mid-run test.
 - **Which OS runs S3 tests:** one (**ubuntu**) — the S3 code doesn't branch on platform; the
   3-OS matrix exists for the platform-branching code (globs, separator normalization).
-- **Non-AWS canary:** a *second*, separate gated set of credentials (R2 token → access
-  key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence above — not the
-  per-PR job.
-- **Local setup help:** ✅ — [`scripts/setup-test-bucket.mjs`](../../scripts/setup-test-bucket.mjs)
-  stands up the bucket + lifecycle; `npm run test:s3` (a `node --test --env-file-if-exists`
-  one-liner) runs the gated suites locally, with credentials read from the developer's
-  `~/.aws` profile — the tests relocate only `S3CAB_HOME`, not `HOME`, so the SDK resolves
-  them normally; and [docs/integration-testing.md](../integration-testing.md) is the
-  generic, cross-platform walkthrough (local dev + the full GitHub Actions OIDC setup) so
-  anyone can replicate it for their own account.
+- **Non-AWS canary (the still-pending piece):** a *second*, separate gated set of credentials
+  (R2 token → access key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence
+  above — not the per-PR job.
 - **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`
   (today's e2e only covers the always-run, no-S3 paths).
 
