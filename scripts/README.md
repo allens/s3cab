@@ -7,12 +7,11 @@ the automated test suite — run them by hand with `node` when needed.
 
 Benchmarks zstd compression levels (with and without long-distance matching) on
 a snapshot file, reporting compressed size plus compress/decompress time and
-printing recommendations. This is the experiment behind the zstd choice recorded
-in [../CLAUDE.md](../CLAUDE.md) (design principle #3 — "embrace modern open tech").
+printing recommendations. This is the experiment behind the zstd choice
+([ADR-0003](../docs/adr/0003-modern-open-tech-only.md) — modern open tech).
 
 ```sh
-node scripts/zstd-bench.mjs [path/to/snapshot.tsv]
-# defaults to .s3cab/snapshots/.snapshot.tsv
+node scripts/zstd-bench.mjs path/to/snapshot.tsv
 ```
 
 ## dd.mjs

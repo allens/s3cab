@@ -7,7 +7,7 @@ import {
   lstatSync,
 } from "node:fs";
 import { unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { formatByteValue } from "../src/lib/format.mjs";
@@ -220,9 +220,14 @@ async function testCompression(inputPath, config) {
   }
 }
 
-// Main execution
-const inputPath =
-  process.argv[2] || resolve(".s3cab", "snapshots", ".snapshot.tsv");
+// Main execution — the old default (.s3cab/snapshots/.snapshot.tsv) died with
+// the in-repo snapshot layout; snapshots now live under ~/.s3cab/sets/<set>/,
+// so the path must be given.
+const inputPath = process.argv[2];
+if (!inputPath) {
+  console.error("Usage: node scripts/zstd-bench.mjs <path/to/snapshot.tsv>");
+  process.exit(1);
+}
 
 testZstdOptions(inputPath).catch((error) => {
   console.error("Error:", error);
