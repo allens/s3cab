@@ -201,7 +201,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       setup(name, directories, options),
   },
 
-  // ── Backup & restore (docs/specs/backup.md) — verify still to come ─────
+  // ── Backup & restore (docs/design/backup.md) — verify still to come ─────
   backup: {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",

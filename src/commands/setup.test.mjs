@@ -15,7 +15,7 @@ import { readSet } from "../lib/sets.mjs";
 import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the setup command (docs/specs/backup.md, ADR-0036). The offline block
+// Tests for the setup command (docs/design/backup.md, ADR-0036). The offline block
 // covers the pre-S3 create/update/inherit validation (which fires before any
 // network touch); the create / collision / inherit behaviour touches the bucket,
 // so it lives in the gated real-bucket block below (mirroring remote.test.mjs /

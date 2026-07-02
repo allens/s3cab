@@ -24,7 +24,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // unit-tested in lib/restore.test.mjs. This file covers the restore command
 // itself end-to-end.
 
-// The backup → restore round trip against a real bucket (docs/specs/backup.md slice
+// The backup → restore round trip against a real bucket (docs/design/backup.md slice
 // 4). Gated on S3CAB_TEST_BUCKET (+ ambient AWS credentials) like the other S3
 // suites: restore inherently needs the cloud (the object content lives only in
 // `objects/`), so there is no offline form of this test. Credentials must come

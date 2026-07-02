@@ -21,7 +21,7 @@ import { walkSet } from "../lib/walk.mjs";
 /**
  * Take a snapshot of a backup set: walk every member directory and write a
  * single snapshot into the set's snapshot store, then report what changed
- * since the previous one (docs/specs/backup.md).
+ * since the previous one (docs/design/backup.md).
  * @param {string} [setName] - Backup set to snapshot (default: the only set)
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
@@ -50,7 +50,7 @@ export async function snapshot(setName, options = {}) {
 
   // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
   // one #DIR line per member directory, so the file is self-describing even when
-  // found alone in a bucket (docs/specs/backup.md). Hashing is handed in as
+  // found alone in a bucket (docs/design/backup.md). Hashing is handed in as
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the previous-snapshot
   // lookup, so an unchanged file reuses its stored hash.

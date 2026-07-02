@@ -7,7 +7,7 @@ import { writeSet } from "../lib/sets.mjs";
 import { list } from "./list.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the list command (docs/specs/backup.md, ADR-0036). All offline: the
+// Tests for the list command (docs/design/backup.md, ADR-0036). All offline: the
 // local-snapshot paths (every set compactly, a named set in detail, --latest)
 // need no network. The --remote path lists S3 and is covered by the gated suites
 // that exercise the cloud round-trip. The set store keeps no module state, so

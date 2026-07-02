@@ -4,7 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-// Tests for the layered env loading in env.mjs (see docs/specs/auth.md). loadEnv
+// Tests for the layered env loading in env.mjs (see docs/design/auth.md). loadEnv
 // reads s3cabDir() and mutates process.env, and applies each file at most once
 // per run — so each test (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh*
 // copy of the module so the once-per-run guard starts empty, and (c) has

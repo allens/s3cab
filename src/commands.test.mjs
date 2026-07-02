@@ -59,7 +59,7 @@ describe("commands registry", () => {
 
   it("the removed Tier 2 auth commands stay removed", () => {
     // `login` / `credential-process` were deliberately deleted (see the History
-    // note in docs/specs/auth.md) — interactive sign-in is the AWS CLI's job.
+    // note in docs/design/auth.md) — interactive sign-in is the AWS CLI's job.
     assert.ok(!("login" in commands));
     assert.ok(!("credential-process" in commands));
   });

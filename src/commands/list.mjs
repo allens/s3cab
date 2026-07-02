@@ -6,7 +6,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * List backup sets and their snapshots (docs/specs/backup.md, ADR-0036) — the
+ * List backup sets and their snapshots (docs/design/backup.md, ADR-0036) — the
  * read half of the old `sets` command. Three shapes:
  *
  * - **`list`** (no set): every set compactly — `name:` then its snapshot times —
@@ -22,7 +22,7 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  *   carries the set's own auth, so listing it per-set across every set would be N
  *   round-trips with N env layers; one set keeps it cheap and the credentials
  *   unambiguous (a deliberate narrowing of ADR-0036's "compose over the grouped
- *   form", see docs/specs/backup.md).
+ *   form", see docs/design/backup.md).
  *
  * `--latest` narrows the snapshot list to just the newest. Like the old `sets`
  * listing and `hashes`, the formatted listing *is* the result, so it goes to

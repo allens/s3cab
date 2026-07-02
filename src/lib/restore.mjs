@@ -109,7 +109,7 @@ export function selectEntries(paths, filters) {
  * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
  * under `<output>/<member-root-basename>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
- * taken (docs/specs/backup.md). The member roots are the snapshot's `#DIR` headers.
+ * taken (docs/design/backup.md). The member roots are the snapshot's `#DIR` headers.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split on both `/` and `\`, and matched by exact

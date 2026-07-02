@@ -106,7 +106,7 @@ export function clientConfig() {
           // SHA-256s every file, so the wire checksum adds nothing here. Switching to
           // the required-only mode still sends a checksum for the few operations that
           // mandate one. On AWS the default stands (free integrity).
-          // (docs/specs/s3-provider-compatibility.md)
+          // (docs/design/s3-provider-compatibility.md)
           requestChecksumCalculation: "WHEN_REQUIRED",
           responseChecksumValidation: "WHEN_REQUIRED",
         }
@@ -123,7 +123,7 @@ export function clientConfig() {
  * call this, so those commands never trigger it.
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
- * actionable error — see docs/specs/auth.md).
+ * actionable error — see docs/design/auth.md).
  *
  * It also carries the one development tripwire for the "env loaded before any S3
  * op" invariant (ADR-0022): every S3 op routes through here, so a single `assert`

@@ -23,7 +23,7 @@ import {
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * The set-mutation verb (docs/specs/backup.md, ADR-0036) — create / update /
+ * The set-mutation verb (docs/design/backup.md, ADR-0036) — create / update /
  * inherit a backup set. Listing what you have is `list`'s job now (ADR-0036
  * split this command on the read/write seam); `setup` only *writes*. A set's
  * name is its whole identity (ADR-0024) — local handle, local directory, and remote

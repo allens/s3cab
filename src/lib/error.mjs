@@ -116,7 +116,7 @@ export const isENOENT = (error) =>
 /**
  * Throw the standard "not built yet" error for a stub command in the registry,
  * keeping the message in one place. Today `verify` is the sole caller — the last
- * unbuilt slice (docs/specs/backup.md).
+ * unbuilt slice (docs/design/backup.md).
  * @param {string} name - The unbuilt feature, e.g. `verify`
  * @returns {never}
  */

@@ -3,7 +3,7 @@ import { parseKnownFiles } from "@smithy/shared-ini-file-loader";
 // Reading the user's AWS shared config — strictly read-only, so the `aws`
 // command can validate a profile name at config time and catch a typo then
 // rather than as a surprise on the next cloud op. s3cab never *writes* ~/.aws
-// (docs/specs/auth.md, Design Principle 3); reading it to validate is allowed.
+// (docs/design/auth.md, Design Principle 3); reading it to validate is allowed.
 //
 // Uses the canonical AWS-family parser, which handles the `[profile X]` (config)
 // vs `[X]` (credentials) section-name asymmetry, merges both files, and honours

@@ -10,7 +10,7 @@ import { resolveSet } from "./sets.mjs";
 // s3cab's layered environment-file loading. This is the single source of truth
 // for *what configuration applies* to an operation — the set's bucket, region,
 // endpoint, profile — distinct from *how credentials are obtained* (the standard
-// AWS chain in src/lib/auth.mjs). The model is specified in docs/specs/auth.md.
+// AWS chain in src/lib/auth.mjs). The model is specified in docs/design/auth.md.
 //
 // s3cab reads its own env files into process.env before any AWS client is
 // built — never the cwd `.env`, and never `~/.aws/*`. This lets AWS_* vars, a

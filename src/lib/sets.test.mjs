@@ -16,7 +16,7 @@ import {
 import { ValidationError } from "./error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the backup-set store (docs/specs/backup.md). The store derives every
+// Tests for the backup-set store (docs/design/backup.md). The store derives every
 // path from s3cabDir() at call time and keeps no module state, so each test
 // just points S3CAB_HOME at a temp dir (useTempHome) — no fresh-import dance
 // needed, unlike auth.mjs.
@@ -264,7 +264,7 @@ describe("readSet bucket guarantee", () => {
 });
 
 describe("formatSets", () => {
-  it("renders the listing shown in docs/specs/backup.md", () => {
+  it("renders the listing shown in docs/design/backup.md", () => {
     const text = formatSets([
       {
         name: "photos",
