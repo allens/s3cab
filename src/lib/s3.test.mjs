@@ -243,12 +243,14 @@ describe("authNotice", () => {
     );
   });
 
-  it("is silent (undefined) for default AWS credentials with no profile", () => {
-    assert.equal(authNotice({}), undefined);
+  it("falls back to a generic line for default AWS credentials with no profile", () => {
+    // Never silent: something must print before the first network request so a
+    // slow first S3 call doesn't look hung (clig.dev responsiveness).
+    assert.equal(authNotice({}), "Contacting the cloud…");
   });
 
   it("treats an empty profile as none", () => {
-    assert.equal(authNotice({ profile: "" }), undefined);
+    assert.equal(authNotice({ profile: "" }), "Contacting the cloud…");
   });
 });
 

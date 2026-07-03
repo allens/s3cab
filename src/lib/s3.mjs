@@ -55,16 +55,18 @@ const customEndpoint = () =>
 /**
  * The one-line notice s3cab prints (to stderr, once) when it first authenticates
  * to the cloud — so "which account/endpoint am I about to touch?" never needs
- * guessing. Reports the effective `AWS_PROFILE` and/or custom endpoint; returns
- * `undefined` when there's nothing distinctive to say (default AWS credentials,
- * no profile, no custom endpoint), where silence is correct. An empty profile
- * (`AWS_PROFILE=`) counts as none.
+ * guessing, and so a network-bound command never sits silent before its first
+ * request (print *before* the network call — clig.dev responsiveness). Reports
+ * the effective `AWS_PROFILE` and/or custom endpoint; when there's nothing
+ * distinctive to say (default AWS credentials, no profile, no custom endpoint)
+ * it falls back to a generic contacting-the-cloud line rather than silence. An
+ * empty profile (`AWS_PROFILE=`) counts as none.
  *
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*
  * value (after env layering); the `profile` command set it (see commands/profile.mjs).
  * @param {{ profile?: string, endpoint?: string }} config
- * @returns {string | undefined}
+ * @returns {string}
  */
 export function authNotice({ profile, endpoint }) {
   if (profile && endpoint) {
@@ -72,7 +74,7 @@ export function authNotice({ profile, endpoint }) {
   }
   if (profile) return `Using AWS profile: ${profile}`;
   if (endpoint) return `Using S3 endpoint: ${endpoint}`;
-  return undefined;
+  return "Contacting the cloud…";
 }
 
 /**
@@ -140,14 +142,16 @@ function client() {
       "entry point; a direct caller (test/library) must call it first.",
   );
   if (_client) return _client;
-  // Confirm which identity/endpoint we're about to use — printed here (not per
-  // op) so it fires exactly once, on the first S3 touch, and never for the
-  // offline commands that never build a client. stderr: diagnostic, not data.
-  const notice = authNotice({
-    profile: process.env.AWS_PROFILE,
-    endpoint: customEndpoint(),
-  });
-  if (notice) console.warn(notice);
+  // Confirm which identity/endpoint we're about to use (or at minimum that the
+  // cloud is about to be touched) — printed here (not per op) so it fires
+  // exactly once, on the first S3 touch, and never for the offline commands
+  // that never build a client. stderr: diagnostic, not data.
+  console.warn(
+    authNotice({
+      profile: process.env.AWS_PROFILE,
+      endpoint: customEndpoint(),
+    }),
+  );
   _client = new S3Client(clientConfig());
   // Added at the outermost (initialize) step so it only fires once the SDK's own
   // retries are exhausted, and covers every request path — direct sends, the
