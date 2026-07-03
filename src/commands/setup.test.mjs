@@ -11,7 +11,7 @@ import {
   readSetConfig,
   remoteSetPrefix,
 } from "../lib/set-marker.mjs";
-import { readSet } from "../lib/sets.mjs";
+import { readSet, readSetExclude, starterExclude } from "../lib/sets.mjs";
 import { setup } from "./setup.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -192,6 +192,11 @@ describe("setup (real bucket)", { skip }, () => {
       assert.match(String(info?.created), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
       const config = await readSetConfig(bucket, name);
       assert.deepEqual(config.dirs, [realpathSync.native(content)]);
+
+      // A new set is born with the starter exclude file, locally and in the
+      // published remote config (seeded before the push, so the two match).
+      assert.equal(readSetExclude(name), starterExclude);
+      assert.equal(config.exclude, starterExclude);
     } finally {
       await cleanupSet(bucket, name);
     }
@@ -240,6 +245,8 @@ describe("setup (real bucket)", { skip }, () => {
       assert.deepEqual(inherited?.dirs, [realpathSync.native(content)]);
       // The local set really exists on machine B.
       assert.deepEqual(readSet(name).dirs, [realpathSync.native(content)]);
+      // Machine A's starter exclude came over with the remote config.
+      assert.equal(readSetExclude(name), starterExclude);
 
       // CREATED is preserved across the inherit (only OWNER is re-stamped).
       const after = await readRemoteInfo(bucket, name);
