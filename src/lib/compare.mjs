@@ -41,7 +41,9 @@ function relativeToRoot(dirs, path) {
     const escapes =
       rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
     if (rel && !escapes) {
-      if (best === undefined || rel.length < best.length) best = rel;
+      if (best === undefined || rel.length < best.length) {
+        best = rel;
+      }
     }
   }
   return best ?? path;
@@ -115,7 +117,9 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   // `entries`, so `diff` never sees it. Report those paths under their own
   // category, and pull any out of `deleted`: a path present in the older
   // snapshot that errored in the newer one is not a deletion, just unreadable.
-  for (const path of untilSnapshot.errors.keys()) deleted.delete(path);
+  for (const path of untilSnapshot.errors.keys()) {
+    deleted.delete(path);
+  }
 
   return {
     added: Array.from(added.entries()).map(([path, previousPaths]) => {
@@ -219,7 +223,9 @@ export function diff(previousSnapshot, currentSnapshot) {
     const currentProps = currentOnly.get(path);
     if (currentProps) {
       currentOnly.delete(path);
-      if (currentProps.hash !== hash) modified.add(path);
+      if (currentProps.hash !== hash) {
+        modified.add(path);
+      }
     } else {
       deleted.add(path);
     }

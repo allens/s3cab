@@ -73,8 +73,12 @@ export function authNotice({ profile, endpoint }) {
   if (profile && endpoint) {
     return `Using AWS profile: ${profile}, endpoint: ${endpoint}`;
   }
-  if (profile) return `Using AWS profile: ${profile}`;
-  if (endpoint) return `Using S3 endpoint: ${endpoint}`;
+  if (profile) {
+    return `Using AWS profile: ${profile}`;
+  }
+  if (endpoint) {
+    return `Using S3 endpoint: ${endpoint}`;
+  }
   return "Contacting the cloud…";
 }
 
@@ -142,7 +146,9 @@ function client() {
     "S3 operation reached before env was loaded — loadEnv() runs at the CLI " +
       "entry point; a direct caller (test/library) must call it first.",
   );
-  if (_client) return _client;
+  if (_client) {
+    return _client;
+  }
   // Confirm which identity/endpoint we're about to use (or at minimum that the
   // cloud is about to be touched) — printed here (not per op) so it fires
   // exactly once, on the first S3 touch, and never for the offline commands
@@ -562,7 +568,9 @@ export async function deleteObject(uri) {
  */
 export async function emptyBucket(bucketName) {
   for await (const { Key } of listObjects(`s3://${bucketName}`)) {
-    if (!Key) continue;
+    if (!Key) {
+      continue;
+    }
     await client().send(new DeleteObjectCommand({ Bucket: bucketName, Key }));
     // Progress, not a result → stderr.
     console.warn(`Deleted: ${Key}`);

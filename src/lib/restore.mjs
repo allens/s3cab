@@ -93,7 +93,9 @@ export function selectEntries(paths, filters) {
     .map(normalize)
     .map((n) => n.replace(/\/+$/, ""))
     .filter(Boolean);
-  if (needles.length === 0) return [...paths];
+  if (needles.length === 0) {
+    return [...paths];
+  }
 
   const selected = [];
   for (const path of paths) {

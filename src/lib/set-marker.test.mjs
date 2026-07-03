@@ -26,7 +26,9 @@ const skip = TEST_BUCKET
 // The gated suite calls the S3 ops directly (no CLI entry point), so trip the
 // env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials supply
 // the real creds; this just sets the flag (once, at module scope).
-if (TEST_BUCKET) loadEnv();
+if (TEST_BUCKET) {
+  loadEnv();
+}
 
 /**
  * @param {string} bucket

@@ -78,7 +78,9 @@ export function claimRemoteSet(bucket, set, info) {
  */
 export async function readRemoteInfo(bucket, set) {
   const text = await getData(fileUri(bucket, set, "info"));
-  if (text === undefined) return undefined;
+  if (text === undefined) {
+    return undefined;
+  }
   const env = parseEnv(text);
   return { owner: env.OWNER ?? "", created: env.CREATED ?? "" };
 }
@@ -158,9 +160,13 @@ export async function listRemoteSets(bucket) {
   for await (const { Key } of listObjects(`s3://${bucket}/${SETS_PREFIX}`)) {
     const rest = Key?.slice(SETS_PREFIX.length) ?? "";
     const cut = rest.indexOf("/");
-    if (cut === -1) continue;
+    if (cut === -1) {
+      continue;
+    }
     const name = rest.slice(0, cut);
-    if (/^[a-z0-9-]+$/.test(name)) names.add(name);
+    if (/^[a-z0-9-]+$/.test(name)) {
+      names.add(name);
+    }
   }
   return [...names].sort();
 }

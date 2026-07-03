@@ -49,7 +49,9 @@ const skip = TEST_BUCKET
 // trip the env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials
 // supply the real creds; this just sets the flag. At module scope so it runs
 // before the file-level beforeEach snapshots process.env (afterEach then keeps it).
-if (TEST_BUCKET) loadEnv();
+if (TEST_BUCKET) {
+  loadEnv();
+}
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -60,7 +62,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (!(key in savedEnv)) delete process.env[key];
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
   }
   Object.assign(process.env, savedEnv);
 });
