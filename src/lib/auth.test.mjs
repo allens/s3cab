@@ -159,7 +159,7 @@ describe("noCredentialsError (configuration-aware guidance)", () => {
       /Could not load credentials from any providers/,
     );
     // The original "point s3cab at a profile" advice.
-    assert.match(error.message, /s3cab profile --profile <name>/);
+    assert.match(error.message, /s3cab auth --profile <name>/);
     // It does NOT wrongly tell a user a profile is missing when none was set.
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
   });
@@ -177,7 +177,7 @@ describe("noCredentialsError (configuration-aware guidance)", () => {
     // The exact, copy-pasteable fix, naming the profile.
     assert.match(error.message, /aws configure --profile s3cab-test/);
     // And the escape hatch to point elsewhere.
-    assert.match(error.message, /s3cab profile --profile <name>/);
+    assert.match(error.message, /s3cab auth --profile <name>/);
     // Not the "set a profile" advice (that would send them in a circle).
     assert.doesNotMatch(error.message, /or set AWS_\* variables directly/);
   });

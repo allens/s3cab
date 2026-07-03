@@ -214,11 +214,13 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /--since/);
   });
 
-  it("help auth prints the credential-resolution topic on stdout", () => {
+  it("help auth prints the auth command's help, credential guide included", () => {
+    // The auth topic folded into the command (ADR-0041); the error messages'
+    // "Run 's3cab help auth'" pointers must keep landing on the guide.
     const { status, stdout } = run("help", "auth");
 
     assert.strictEqual(status, 0);
-    assert.match(stdout, /Authentication/);
+    assert.match(stdout, /Usage: s3cab auth/);
     assert.match(stdout, /standard AWS SDK credential chain/);
   });
 
