@@ -6,6 +6,7 @@ import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { fileProps } from "../lib/file-props.mjs";
 import { secondsSince } from "../lib/format.mjs";
+import { createProgress } from "../lib/progress.mjs";
 import {
   listSnapshotNames,
   readSnapshot,
@@ -85,49 +86,30 @@ export async function snapshot(setName, options = {}) {
 }
 
 /**
+ * Wrap a stream of file paths in a stderr progress counter — the percentage of
+ * `total` walked so far, with elapsed time — redrawn only when the percentage
+ * changes. The in-place animation and TTY gate live in `lib/progress.mjs`; this
+ * owns only the counting and the percentage rendering.
  * @param {string} label
  * @param {number} total
  */
 function withProgress(label, total) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
-    using progress = createProgress(label, total);
+    using progress = createProgress(process.stderr);
+    const start = Temporal.Now.instant();
+    let current = 0;
+    let previousPercent = "";
     for await (const path of paths) {
-      progress.next();
-      yield path;
-    }
-  };
-}
-
-/**
- * @param {string} label
- * @param {number} total
- */
-function createProgress(label, total) {
-  const start = Temporal.Now.instant();
-
-  let current = 0;
-  let previousPercent = "";
-
-  return {
-    next: () => {
       current++;
-
       const percent =
         (Math.floor((current / total) * 10000) / 100).toFixed(2) + "%";
-
-      if (percent === previousPercent) {
-        return;
+      if (percent !== previousPercent) {
+        previousPercent = percent;
+        progress.update(`${label}: ${percent} in ${secondsSince(start)}`);
       }
-      previousPercent = percent;
-
-      process.stderr.write(
-        `\r${label}: ${percent} in ${secondsSince(start)}`.padEnd(80),
-      );
-    },
-    [Symbol.dispose]: () => {
-      process.stderr.write("\n");
-    },
+      yield path;
+    }
   };
 }
 

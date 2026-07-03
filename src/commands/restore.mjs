@@ -4,7 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { isInteractive } from "../lib/style.mjs";
+import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
@@ -115,48 +115,37 @@ export async function restore(setName, paths = [], options = {}) {
   /** @type {string[]} */
   const skipped = [];
 
-  // On a terminal the counter overwrites itself in place (`\r`); redirected,
-  // each update is its own plain line — no carriage returns in a log
-  // (lib/style.mjs). Track whether an in-place line was drawn so the closing
-  // newline runs in a `finally` — even if a download throws mid-loop the
-  // terminal cursor is left on a fresh line, so the error message that follows
-  // isn't tacked onto the half-written progress line.
-  const interactive = isInteractive(stderr);
-  let progressed = false;
-  try {
-    let done = 0;
-    for (const step of plan) {
-      if (step.action === "skip") {
-        skipped.push(step.dest);
+  // On a terminal the counter overwrites itself in place; redirected, each
+  // update is its own plain line (`logLines`) — the TTY gate, the in-place
+  // redraw, and the closing newline (drawn only when there was one, even if a
+  // download throws mid-loop) all live in lib/progress.mjs. `using` runs that
+  // teardown on any scope exit, so an error mid-loop still leaves the cursor on
+  // a fresh line before its message prints.
+  using progress = createProgress(stderr, { logLines: true });
+  let done = 0;
+  for (const step of plan) {
+    if (step.action === "skip") {
+      skipped.push(step.dest);
+    } else {
+      mkdirSync(dirname(step.dest), { recursive: true });
+      if (step.action === "copy") {
+        await copyFile(/** @type {string} */ (step.from), step.dest);
       } else {
-        mkdirSync(dirname(step.dest), { recursive: true });
-        if (step.action === "copy") {
-          await copyFile(/** @type {string} */ (step.from), step.dest);
-        } else {
-          await getObject(
-            set.bucket,
-            /** @type {string} */ (step.hash),
-            step.dest,
-          );
-        }
-        const when = new Date(/** @type {string} */ (step.mtime));
-        await utimes(step.dest, when, when);
-        restored.push(step.dest);
+        await getObject(
+          set.bucket,
+          /** @type {string} */ (step.hash),
+          step.dest,
+        );
       }
-
-      done++;
-      if (done % 50 === 0 || done === plan.length) {
-        const line = `Restoring ${done}/${plan.length}...`;
-        if (interactive) {
-          stderr.write(`\r${line}`);
-          progressed = true;
-        } else {
-          stderr.write(`${line}\n`);
-        }
-      }
+      const when = new Date(/** @type {string} */ (step.mtime));
+      await utimes(step.dest, when, when);
+      restored.push(step.dest);
     }
-  } finally {
-    if (progressed) stderr.write("\n");
+
+    done++;
+    if (done % 50 === 0 || done === plan.length) {
+      progress.update(`Restoring ${done}/${plan.length}...`);
+    }
   }
 
   return { set: set.name, snapshot: name, restored, skipped };
