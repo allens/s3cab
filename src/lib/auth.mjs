@@ -35,7 +35,7 @@ const credentialGuidance = (profile, knownProfiles) => {
   if (!profile) {
     return `To continue, do one of the following:
   - point s3cab at an AWS profile:
-      s3cab profile --profile <name>
+      s3cab auth --profile <name>
     (for AWS IAM Identity Center, run \`aws sso login\` first —
     s3cab picks the session up automatically)
   - or set AWS_* variables directly in ~/.s3cab/env`;
@@ -49,7 +49,7 @@ To continue, do one of the following:
       aws configure --profile ${profile}
     (for AWS IAM Identity Center, run \`aws configure sso\` instead)
   - or point s3cab at a different profile:
-      s3cab profile --profile <name>`;
+      s3cab auth --profile <name>`;
   }
   return `s3cab is set to use AWS profile '${profile}', but it produced no credentials.
 

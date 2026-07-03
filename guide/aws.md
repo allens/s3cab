@@ -71,7 +71,7 @@ attach the policy to_ differs.
 
 The simplest path if you don't use SSO. The command prints commands to create an
 IAM user, attach the policy to it, mint an access key, and point s3cab at it with
-`aws configure` + `s3cab profile --profile s3cab`.
+`aws configure` + `s3cab auth --profile s3cab`.
 
 > AWS now steers even basic users toward IAM Identity Center over standalone IAM
 > users. The IAM-user path is kept because it is the least moving parts when you
@@ -83,7 +83,7 @@ For accounts that sign in through IAM Identity Center (there is no long-lived
 access key to mint). Two tiers are printed:
 
 - **Reuse your existing sign-in** (the common case): attach the policy to the
-  permission set you already use, `aws sso login`, then `s3cab profile --profile
+  permission set you already use, `aws sso login`, then `s3cab auth --profile
   <your-sso-profile>`.
 - **A dedicated s3cab-only permission set** (advanced, optional): tighter scope
   at the cost of more setup. It is shown console-first, with a `<placeholder>`

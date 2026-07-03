@@ -116,6 +116,31 @@ describe("usage", () => {
       assert.match(text, new RegExp(`^  ${name}\\s`, "m"));
     }
   });
+
+  it("style.heading decorates section headings only, not their content", () => {
+    // The dispatcher passes { heading: bold } when stdout is an interactive
+    // terminal (lib/style.mjs); usage() itself never decides — plain default.
+    const marked = usage(fakeRegistry, "go", {
+      heading: (text) => `<${text}>`,
+    });
+
+    assert.match(marked, /^<Examples:>$/m);
+    assert.match(marked, /^<Arguments:>$/m);
+    assert.match(marked, /^<Options:>$/m);
+    assert.match(marked, /^<Description:>$/m);
+    assert.doesNotMatch(marked, /<Usage/); // the synopsis line stays plain
+    assert.doesNotMatch(marked, /<\s*s3cab go now/); // example lines stay plain
+
+    // Top-level group headings decorate too; command rows don't.
+    const top = usage(fakeRegistry, undefined, {
+      heading: (text) => `<${text}>`,
+    });
+    assert.match(top, /^<Commands:>$/m);
+    assert.doesNotMatch(top, /< {2}go/);
+
+    // No style → byte-identical plain output.
+    assert.equal(usage(fakeRegistry, "go"), usage(fakeRegistry, "go", {}));
+  });
 });
 
 describe("synopsis", () => {
@@ -185,8 +210,11 @@ describe("helpTopics", () => {
     assert.match(exclude, /guide\/exclude\.md/); // links the full online guide
   });
 
-  it("auth topic documents the two-step resolution and no s3cab sign-in flow", () => {
-    const auth = helpTopics.auth ?? "";
+  it("auth is a command description now, not a topic (ADR-0041)", () => {
+    // The former auth topic folded into the `auth` command's registry
+    // description; `help auth` reaches it via the `help <command>` routing.
+    assert.equal(helpTopics.auth, undefined);
+    const auth = commands.auth?.description ?? "";
 
     assert.match(auth, /env files/);
     assert.match(auth, /standard AWS SDK credential chain/);

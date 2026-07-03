@@ -39,7 +39,7 @@ describe("awsIamPlan", () => {
     assert.match(out, /aws iam create-user --user-name s3cab/);
     assert.match(out, /aws iam put-user-policy --user-name s3cab/);
     assert.match(out, /aws iam create-access-key --user-name s3cab/);
-    assert.match(out, /s3cab profile --profile s3cab/);
+    assert.match(out, /s3cab auth --profile s3cab/);
   });
 
   it("emits the explicit-verb policy, never the s3:*Object wildcard", () => {
@@ -72,7 +72,7 @@ describe("awsIamPlan", () => {
   });
 
   it("omits the profile flag entirely when none is given", () => {
-    assert.doesNotMatch(plan(), / --profile (?!s3cab)/); // only the final `s3cab profile --profile s3cab` mentions a profile
+    assert.doesNotMatch(plan(), / --profile (?!s3cab)/); // only the final `s3cab auth --profile s3cab` mentions a profile
   });
 
   it("points SSO users at --sso", () => {
