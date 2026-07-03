@@ -28,6 +28,7 @@ import {
   resolveCredentials,
 } from "./auth.mjs";
 import { formatByteValue } from "./format.mjs";
+import { isInteractive } from "./style.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
@@ -307,6 +308,11 @@ export const formatUploadProgress = ({
 
 /** @param {import("@aws-sdk/lib-storage").Progress} progress */
 const httpUploadProgressHandler = (progress) => {
+  // The in-place bar is animation: interactive terminals only (lib/style.mjs).
+  // Non-interactive runs get one summary line per file from putFile instead,
+  // so redirected/CI logs carry no cursor escape codes.
+  if (!isInteractive(process.stderr)) return;
+
   const { message, fill } = formatUploadProgress(progress);
 
   // Progress is not the command's result, so it goes to stderr (stream discipline).
@@ -405,15 +411,22 @@ export async function putFile(path, uri, options = {}) {
       Error.isError(error) &&
       error.name === "PreconditionFailed"
     ) {
-      process.stderr.write("\n");
+      // Close the half-drawn bar; without a TTY no bar was drawn (and the
+      // "already existed" outcome needs no log line).
+      if (isInteractive(process.stderr)) process.stderr.write("\n");
       return false;
     } else {
       throw error;
     }
   }
 
-  // Close off the in-place progress line (which was written to stderr).
-  process.stderr.write("\n");
+  if (isInteractive(process.stderr)) {
+    // Close off the in-place progress line (which was written to stderr).
+    process.stderr.write("\n");
+  } else {
+    // No bar was drawn — leave one summary line as the log evidence.
+    console.warn(`Uploaded ${uri} (${formatByteValue(size)})`);
+  }
   return true;
 }
 

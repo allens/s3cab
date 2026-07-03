@@ -9,9 +9,15 @@ import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 import { loadEnv } from "./lib/env.mjs";
 import { isInputError, isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
+import { bold, styleEnabled } from "./lib/style.mjs";
 
 const start = Temporal.Now.instant();
 const debug = Boolean(process.env.S3CAB_DEBUG);
+
+// Bold section headings on an interactive stdout only (lib/style.mjs): piped
+// `s3cab --help | less` output stays escape-free (clig.dev). Error-path usage
+// goes to stderr and stays plain.
+const helpStyle = styleEnabled(process.stdout) ? { heading: bold } : undefined;
 
 const [execPath, jsPath, commandName, ...args] = process.argv;
 
@@ -34,7 +40,7 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  console.log(helpTopics[args[0] ?? ""] ?? usage(commands, args[0]));
+  console.log(helpTopics[args[0] ?? ""] ?? usage(commands, args[0], helpStyle));
   process.exit(0);
 }
 
@@ -48,7 +54,7 @@ if (!command) {
 
 // Per-command help: `s3cab <command> --help`.
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(usage(commands, commandName));
+  console.log(usage(commands, commandName, helpStyle));
   process.exit(0);
 }
 
