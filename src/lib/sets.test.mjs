@@ -37,9 +37,12 @@ afterEach(() => {
 });
 
 describe("starterExclude", () => {
+  // Mirrors the runtime parsing (lib/read-lines.mjs): trim first, then drop
+  // `#` comments — so an indented comment counts as a comment here too.
   const active = starterExclude
     .split("\n")
-    .filter((line) => line.trim() && !line.startsWith("#"));
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
 
   it("activates only never-wanted junk: dependency trees and OS noise", () => {
     // The active set is a contract: a backup tool must not silently skip

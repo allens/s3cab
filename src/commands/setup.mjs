@@ -160,25 +160,29 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
-  seedStarterExclude(name);
+  seedStarterExclude(set);
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
   return set;
 }
 
 /**
- * Give a set with no exclude.txt the starter file (sets.mjs `starterExclude`),
+ * Give a newborn set the starter exclude file (sets.mjs `starterExclude`),
  * telling the user where it landed — the file's header is the `help exclude`
  * discovery hook, so the notice is what makes it findable. Guarded on absence,
  * so a hand-written file (or one racing in from elsewhere) is never clobbered.
- * Runs before `pushSetConfig` in both callers, so the remote copy matches.
- * @param {string} name
+ * Create-only, before its `pushSetConfig`, so the published remote config
+ * matches — the starter is a birth gift for *new* sets; `inherit` reproduces
+ * an existing set exactly as it was (exclude-less if it was exclude-less),
+ * never silently narrowing what an established set backs up.
+ * @param {BackupSet} set
  */
-function seedStarterExclude(name) {
-  if (readSetExclude(name) !== undefined) return;
-  writeSetExclude(name, starterExclude);
+function seedStarterExclude(set) {
+  if (readSetExclude(set.name) !== undefined) return;
+  writeSetExclude(set.name, starterExclude);
+  // The real resolved path (honours an S3CAB_HOME override), not a ~ template.
   console.warn(
     `Wrote a starter exclude file (skips node_modules and OS noise):\n` +
-      `  ~/.s3cab/sets/${name}/exclude.txt\n` +
+      `  ${set.excludePath}\n` +
       `Edit it to skip more — see 's3cab help exclude' for the pattern syntax.`,
   );
 }
@@ -269,13 +273,10 @@ async function inherit(name, directories, creating, options) {
 
   const { dirs, exclude } = await readSetConfig(bucket, name);
   const set = writeSet(name, { dirs, bucket });
-  // The remote's exclude file wins (it's the set's real config); a set that
-  // never had one gets the starter, like create.
-  if (exclude !== undefined) {
-    writeSetExclude(name, exclude);
-  } else {
-    seedStarterExclude(name);
-  }
+  // The remote config is reproduced exactly — including *no* exclude file for
+  // a legacy set that never had one. No starter here: silently activating
+  // excludes on adoption would narrow what an established set backs up.
+  if (exclude !== undefined) writeSetExclude(name, exclude);
 
   // Pull the set's snapshot manifests down so the new machine lands with full
   // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
