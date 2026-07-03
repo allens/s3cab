@@ -4,9 +4,11 @@
 // bespoke CLI-shell glue tied to the registry shape, not a reusable primitive.
 
 // Help topics shown by `s3cab help <topic>` — conceptual docs that aren't tied
-// to one command. Kept as plain strings (this module deliberately imports no
-// command/auth code) so the entry point that imports it doesn't transitively
-// pull the AWS SDK in for every invocation. The auth text mirrors the
+// to one command. Kept as plain strings — this module deliberately imports no
+// command/auth code, so rendering help never *requires* the AWS SDK. (Today the
+// entry point still loads the SDK on every invocation anyway, via the static
+// command registry; making dispatch lazy is deliberately deferred — see
+// proposals/performance.md.) The auth text mirrors the
 // resolution order implemented in `src/lib/auth.mjs` (docs/design/auth.md); the
 // exclude text mirrors the matcher in `src/commands/tree.mjs` (guide/exclude.md).
 //
@@ -214,12 +216,22 @@ export function usage(commands, commandName) {
   const lines = [];
 
   if (command && commandName) {
-    const { args, options, summary, description } = command;
+    const { args, options, summary, description, examples } = command;
 
     lines.push(synopsis(commands, commandName), "");
 
     if (summary) {
       lines.push(summary, "");
+    }
+
+    // Examples lead (right after the one-line summary, before the arg/option
+    // tables) — users reach for examples over reference tables (clig.dev).
+    if (examples?.length) {
+      lines.push("Examples:");
+      for (const example of examples) {
+        lines.push(`  ${example}`);
+      }
+      lines.push("");
     }
 
     if (args) {

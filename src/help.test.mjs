@@ -11,6 +11,7 @@ import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 const fakeRegistry = {
   go: {
     summary: "Do the thing",
+    examples: ["s3cab go now", "s3cab go now --fast"],
     args: {
       target: { required: true, description: "What to do it to" },
       extra: { description: "Optional extra" },
@@ -82,6 +83,20 @@ describe("usage", () => {
     assert.match(text, /-f, --fast\s+Do it quickly/);
     assert.match(text, /--mode\s+How to do it/); // short-less option renders too
     assert.match(text, /Longer prose about doing the thing\./);
+  });
+
+  it("renders examples after the summary, before the argument table", () => {
+    // Examples lead (clig.dev): summary, then Examples, then the reference tables.
+    const text = usage(fakeRegistry, "go");
+
+    assert.match(
+      text,
+      /Do the thing\n\nExamples:\n {2}s3cab go now\n {2}s3cab go now --fast\n\nArguments:/,
+    );
+  });
+
+  it("omits the Examples section when a command declares none", () => {
+    assert.doesNotMatch(usage(fakeRegistry, "later"), /Examples:/);
   });
 
   it("every command's help offers -h/--help, even with no declared options", () => {
