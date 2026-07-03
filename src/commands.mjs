@@ -292,9 +292,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       },
     },
     options: {
-      file: {
+      output: {
         type: "string",
-        short: "f",
+        short: "o",
         description:
           "Write the hashes to this file (one per line) instead of stdout",
       },
