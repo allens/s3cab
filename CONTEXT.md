@@ -130,7 +130,7 @@ _Avoid_: ls, show; sets (the retired command name).
 **AWS profile**:
 A named profile in the user's AWS shared config (`~/.aws/config` / `~/.aws/credentials`).
 s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the **profile**
-command (`s3cab profile --profile <name>`), user-wide or scoped to a set. A pointer to AWS
+command (`s3cab auth --profile <name>`), user-wide or scoped to a set. A pointer to AWS
 credentials, never credential material itself, and **not** a backup set (the thing the
 **Backup set** entry warns against calling a "profile").
 _Avoid_: account, login, credentials (the profile names them; it is not them).

@@ -210,8 +210,11 @@ describe("helpTopics", () => {
     assert.match(exclude, /guide\/exclude\.md/); // links the full online guide
   });
 
-  it("auth topic documents the two-step resolution and no s3cab sign-in flow", () => {
-    const auth = helpTopics.auth ?? "";
+  it("auth is a command description now, not a topic (ADR-0041)", () => {
+    // The former auth topic folded into the `auth` command's registry
+    // description; `help auth` reaches it via the `help <command>` routing.
+    assert.equal(helpTopics.auth, undefined);
+    const auth = commands.auth?.description ?? "";
 
     assert.match(auth, /env files/);
     assert.match(auth, /standard AWS SDK credential chain/);

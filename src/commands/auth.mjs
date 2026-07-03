@@ -7,8 +7,9 @@ import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { readSet } from "../lib/sets.mjs";
 
-// `s3cab profile` — the discoverable, safe door for pointing s3cab at an AWS
-// profile (docs/design/auth.md). It writes `AWS_PROFILE` into one of s3cab's own env
+// `s3cab auth` (né `profile`, renamed by ADR-0041) — the discoverable, safe door
+// for pointing s3cab at an AWS profile (docs/design/auth.md). It writes
+// `AWS_PROFILE` into one of s3cab's own env
 // files: the user-wide `~/.s3cab/env` (the default for every backup) or a named
 // set's `env` (a per-set override, e.g. a set that backs up to a different AWS
 // account). It never touches `~/.aws` to *write*; profile validation only *reads*
@@ -90,10 +91,10 @@ async function describeScope(scope) {
     return scope.isSet
       ? `No AWS profile set for ${phrase} — it uses the user default.\n` +
           `Give this set its own with:\n` +
-          `  s3cab profile --profile <name> ${scope.name}`
+          `  s3cab auth --profile <name> ${scope.name}`
       : `No default AWS profile set.\n` +
           `Point s3cab at one of your AWS profiles with:\n` +
-          `  s3cab profile --profile <name>`;
+          `  s3cab auth --profile <name>`;
   }
   const lines = [];
   if (profile) {
@@ -134,13 +135,14 @@ async function warnIfUnknownProfile(name) {
 }
 
 /**
- * Set, clear, or show the AWS profile s3cab uses, at the user or a per-set scope.
+ * Set, clear, or show the AWS profile s3cab signs in with, at the user or a
+ * per-set scope.
  *
- * - `profile --profile <name> [<set>]` — write `AWS_PROFILE` (validated against
+ * - `auth --profile <name> [<set>]` — write `AWS_PROFILE` (validated against
  *   `~/.aws`, warn-not-block on a miss).
- * - `profile --unset [<set>]` — remove the `AWS_PROFILE` line (distinct from
+ * - `auth --unset [<set>]` — remove the `AWS_PROFILE` line (distinct from
  *   writing an empty value, which would be a meaningful-empty override).
- * - `profile [<set>]` — show the current setting at that scope.
+ * - `auth [<set>]` — show the current setting at that scope.
  *
  * @param {string} [setName] - A backup set to scope to; omit for the user-wide default
  * @param {object} [options]
@@ -148,7 +150,7 @@ async function warnIfUnknownProfile(name) {
  * @param {boolean} [options.unset] - Remove the configured profile
  * @returns {Promise<undefined>}
  */
-export async function profile(setName, options = {}) {
+export async function auth(setName, options = {}) {
   const { profile, unset } = options;
 
   if (profile !== undefined && unset) {
