@@ -160,6 +160,19 @@ describe("argDescription", () => {
 });
 
 describe("helpTopics", () => {
+  it("no topic shares a command's name", () => {
+    // `help <name>` checks topics before commands, so a topic named after a
+    // command would shadow that command's help. Command-specific depth belongs
+    // in the command's registry `description` (the aws topic was folded there);
+    // topics are only for cross-cutting guides with no command to host them.
+    for (const topic of Object.keys(helpTopics)) {
+      assert.ok(
+        !(topic in commands),
+        `help topic '${topic}' collides with the '${topic}' command`,
+      );
+    }
+  });
+
   it("exclude topic carries the matching contract from guide/exclude.md", () => {
     // Mirrors the matcher in src/commands/tree.mjs — if the glob rules change
     // there, this topic and guide/exclude.md must change with them.

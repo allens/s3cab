@@ -87,10 +87,7 @@ export const commands = {
   },
   compare: {
     summary: "Show what changed between two snapshots",
-    examples: [
-      "s3cab compare",
-      "s3cab compare photos --since 2025-11-11T0830",
-    ],
+    examples: ["s3cab compare", "s3cab compare photos --since 2025-11-11T0830"],
     description: `The report compares file content (SHA-256 hashes), never timestamps.
 'old.txt → new.txt' is a rename, '→→' a move to another directory, and
 'new.txt == old.txt' a copy of content that already existed.
@@ -133,6 +130,22 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       "s3cab aws my-backups",
       "s3cab aws my-backups --region eu-west-1 --profile admin",
     ],
+    description: `It only PRINTS the steps — it never touches your account and needs no
+credentials to run, so you can read the whole plan first. The printed recipe
+stands up the bucket (versioning ON as your safety net) and a least-privilege
+identity that can never permanently destroy backup history.
+
+Choosing an identity:
+  (default)  a dedicated AWS IAM user — simplest if you don't use SSO
+  --sso      reuse your AWS IAM Identity Center (SSO) sign-in
+  (auto)     a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi, …) is
+             detected from a custom endpoint (AWS_ENDPOINT_URL_S3 or
+             AWS_ENDPOINT_URL) and you get provider-neutral steps
+
+Then create a backup set in it:
+  s3cab setup <name> <directory>... --bucket <bucket>
+
+Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
     args: {
       bucket: {
         required: true,
