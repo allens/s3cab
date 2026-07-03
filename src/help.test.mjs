@@ -11,6 +11,7 @@ import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 const fakeRegistry = {
   go: {
     summary: "Do the thing",
+    examples: ["s3cab go now", "s3cab go now --fast"],
     args: {
       target: { required: true, description: "What to do it to" },
       extra: { description: "Optional extra" },
@@ -84,6 +85,20 @@ describe("usage", () => {
     assert.match(text, /Longer prose about doing the thing\./);
   });
 
+  it("renders examples after the summary, before the argument table", () => {
+    // Examples lead (clig.dev): summary, then Examples, then the reference tables.
+    const text = usage(fakeRegistry, "go");
+
+    assert.match(
+      text,
+      /Do the thing\n\nExamples:\n {2}s3cab go now\n {2}s3cab go now --fast\n\nArguments:/,
+    );
+  });
+
+  it("omits the Examples section when a command declares none", () => {
+    assert.doesNotMatch(usage(fakeRegistry, "later"), /Examples:/);
+  });
+
   it("every command's help offers -h/--help, even with no declared options", () => {
     // The dispatcher answers -h/--help for every command, so usage() must
     // advertise it whether or not the command declares options of its own.
@@ -145,6 +160,19 @@ describe("argDescription", () => {
 });
 
 describe("helpTopics", () => {
+  it("no topic shares a command's name", () => {
+    // `help <name>` checks topics before commands, so a topic named after a
+    // command would shadow that command's help. Command-specific depth belongs
+    // in the command's registry `description` (the aws topic was folded there);
+    // topics are only for cross-cutting guides with no command to host them.
+    for (const topic of Object.keys(helpTopics)) {
+      assert.ok(
+        !(topic in commands),
+        `help topic '${topic}' collides with the '${topic}' command`,
+      );
+    }
+  });
+
   it("exclude topic carries the matching contract from guide/exclude.md", () => {
     // Mirrors the matcher in src/commands/tree.mjs — if the glob rules change
     // there, this topic and guide/exclude.md must change with them.

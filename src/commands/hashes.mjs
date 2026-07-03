@@ -10,7 +10,7 @@ import { listObjectHashes } from "../lib/objects.mjs";
  * the hashes already in the store, used as a lookup so `backup` can skip
  * re-uploading objects that already exist remotely (it seeds the per-bucket
  * objects cache — `objects.mjs`). Output is therefore a flat hash-per-line
- * list — written to `--file` if given, else to stdout — deliberately *not* the
+ * list — written to `--output` if given, else to stdout — deliberately *not* the
  * JSON the other commands return (a lookup file wants one bare hash per line), so
  * this command writes its own output and returns nothing.
  *
@@ -20,7 +20,7 @@ import { listObjectHashes } from "../lib/objects.mjs";
  *
  * @param {string} [bucket] - The repository's S3 bucket name.
  * @param {object} [options]
- * @param {string} [options.file] - Write the hashes here instead of to stdout.
+ * @param {string} [options.output] - Write the hashes here instead of to stdout.
  * @returns {Promise<undefined>} Output is streamed, not returned.
  */
 export async function hashes(bucket, options = {}) {
@@ -31,10 +31,10 @@ export async function hashes(bucket, options = {}) {
 
   const text = all.map((hash) => hash + "\n").join("");
 
-  if (options.file) {
-    await writeFile(options.file, text);
+  if (options.output) {
+    await writeFile(options.output, text);
     // A confirmation is progress, not the result, so it goes to stderr.
-    console.warn(`Wrote ${all.length} object hashes to ${options.file}`);
+    console.warn(`Wrote ${all.length} object hashes to ${options.output}`);
   } else {
     process.stdout.write(text);
   }

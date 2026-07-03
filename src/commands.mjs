@@ -37,6 +37,7 @@ import { notImplemented } from "./lib/error.mjs";
  * @property {(options: ParsedOptions, positionals?: string[]) => CommandResult | Promise<CommandResult>} exec
  * @property {string} summary
  * @property {string} [description]
+ * @property {string[]} [examples] - Example invocations, one per line, shown right after the summary in `--help` (lead with examples — clig.dev)
  * @property {boolean} [planned] - Scaffolded but not yet implemented (awaiting the S3 milestone)
  * @property {string} [group] - Top-level help section heading; sticks for the commands that follow, so only the first command of each section sets it
  */
@@ -63,6 +64,7 @@ export const commands = {
   },
   list: {
     summary: "List backup sets and their snapshots",
+    examples: ["s3cab list", "s3cab list photos --remote"],
     args: {
       set: {
         description:
@@ -85,6 +87,7 @@ export const commands = {
   },
   compare: {
     summary: "Show what changed between two snapshots",
+    examples: ["s3cab compare", "s3cab compare photos --since 2025-11-11T0830"],
     description: `The report compares file content (SHA-256 hashes), never timestamps.
 'old.txt → new.txt' is a rename, '→→' a move to another directory, and
 'new.txt == old.txt' a copy of content that already existed.
@@ -123,6 +126,26 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   aws: {
     group: "Setup",
     summary: "Show the steps to set up an S3 bucket for backups",
+    examples: [
+      "s3cab aws my-backups",
+      "s3cab aws my-backups --region eu-west-1 --profile admin",
+    ],
+    description: `It only PRINTS the steps — it never touches your account and needs no
+credentials to run, so you can read the whole plan first. The printed recipe
+stands up the bucket (versioning ON as your safety net) and a least-privilege
+identity that can never permanently destroy backup history.
+
+Choosing an identity:
+  (default)  a dedicated AWS IAM user — simplest if you don't use SSO
+  --sso      reuse your AWS IAM Identity Center (SSO) sign-in
+  (auto)     a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi, …) is
+             detected from a custom endpoint (AWS_ENDPOINT_URL_S3 or
+             AWS_ENDPOINT_URL) and you get provider-neutral steps
+
+Then create a backup set in it:
+  s3cab setup <name> <directory>... --bucket <bucket>
+
+Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
     args: {
       bucket: {
         required: true,
@@ -151,6 +174,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   profile: {
     summary: "Set, clear, or show the AWS profile s3cab uses",
+    examples: ["s3cab profile --profile s3cab-backup", "s3cab profile"],
     args: {
       set: {
         description:
@@ -173,6 +197,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   setup: {
     summary: "Create, update, or inherit a backup set",
+    examples: [
+      "s3cab setup photos C:\\Users\\me\\Photos --bucket my-backups",
+      "s3cab setup photos --inherit --bucket my-backups",
+    ],
     args: {
       set: {
         required: true,
@@ -205,6 +233,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   backup: {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",
+    examples: ["s3cab backup", "s3cab backup photos"],
     args: {
       set: { description: "The backup set to back up (default: the only set)" },
     },
@@ -225,13 +254,17 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   restore: {
     summary: "Restore files from a backup",
+    examples: [
+      "s3cab restore photos",
+      "s3cab restore photos C:\\Users\\me\\Photos\\beach.jpg",
+      "s3cab restore photos --output D:\\recovered",
+    ],
     args: {
-      set: { description: "The backup set to restore (default: the only set)" },
+      set: { required: true, description: "The backup set to restore" },
       path: {
         variadic: true,
         description:
-          "Specific files or directories to restore (default: everything). " +
-          "Name the set first when filtering.",
+          "Specific files or directories to restore (default: everything)",
       },
     },
     options: {
@@ -272,9 +305,9 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       },
     },
     options: {
-      file: {
+      output: {
         type: "string",
-        short: "f",
+        short: "o",
         description:
           "Write the hashes to this file (one per line) instead of stdout",
       },
