@@ -9,6 +9,7 @@ import {
   readSet,
   resolveSet,
   sanitizeNamePart,
+  starterExclude,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -33,6 +34,36 @@ afterEach(() => {
     if (!(key in savedEnv)) delete process.env[key];
   }
   Object.assign(process.env, savedEnv);
+});
+
+describe("starterExclude", () => {
+  const active = starterExclude
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("#"));
+
+  it("activates only never-wanted junk: dependency trees and OS noise", () => {
+    // The active set is a contract: a backup tool must not silently skip
+    // anything a user might mean to keep. Arguable patterns stay commented.
+    assert.deepEqual(active, [
+      "**/node_modules/",
+      "**/.DS_Store",
+      "**/Thumbs.db",
+      "$RECYCLE.BIN/",
+      "System Volume Information/",
+    ]);
+  });
+
+  it("keeps the arguable patterns commented out, not active", () => {
+    for (const pattern of ["**/.git/", "**/*.tmp", "**/*.log"]) {
+      assert.ok(starterExclude.includes(`# ${pattern}`), pattern);
+      assert.ok(!active.includes(pattern), pattern);
+    }
+  });
+
+  it("header points at the help topic and the online guide (discovery hook)", () => {
+    assert.match(starterExclude, /'s3cab help exclude'/);
+    assert.match(starterExclude, /guide\/exclude\.md/);
+  });
 });
 
 describe("sanitizeNamePart", () => {

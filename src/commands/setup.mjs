@@ -14,6 +14,7 @@ import {
 import {
   listSets,
   readSetExclude,
+  starterExclude,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -159,8 +160,27 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
+  seedStarterExclude(name);
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
   return set;
+}
+
+/**
+ * Give a set with no exclude.txt the starter file (sets.mjs `starterExclude`),
+ * telling the user where it landed — the file's header is the `help exclude`
+ * discovery hook, so the notice is what makes it findable. Guarded on absence,
+ * so a hand-written file (or one racing in from elsewhere) is never clobbered.
+ * Runs before `pushSetConfig` in both callers, so the remote copy matches.
+ * @param {string} name
+ */
+function seedStarterExclude(name) {
+  if (readSetExclude(name) !== undefined) return;
+  writeSetExclude(name, starterExclude);
+  console.warn(
+    `Wrote a starter exclude file (skips node_modules and OS noise):\n` +
+      `  ~/.s3cab/sets/${name}/exclude.txt\n` +
+      `Edit it to skip more — see 's3cab help exclude' for the pattern syntax.`,
+  );
 }
 
 /**
@@ -249,7 +269,13 @@ async function inherit(name, directories, creating, options) {
 
   const { dirs, exclude } = await readSetConfig(bucket, name);
   const set = writeSet(name, { dirs, bucket });
-  if (exclude !== undefined) writeSetExclude(name, exclude);
+  // The remote's exclude file wins (it's the set's real config); a set that
+  // never had one gets the starter, like create.
+  if (exclude !== undefined) {
+    writeSetExclude(name, exclude);
+  } else {
+    seedStarterExclude(name);
+  }
 
   // Pull the set's snapshot manifests down so the new machine lands with full
   // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
