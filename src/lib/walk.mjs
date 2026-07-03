@@ -74,10 +74,12 @@ export function walkDirs(dirs, patterns) {
     );
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
+      files.push(path);
+      // Redraw every 500 files (after the push, so the count reflects files
+      // actually found — never a misleading "Found 0 files..." first line).
       if (files.length % 500 === 0) {
         progress.update(`Found ${files.length} files...`);
       }
-      files.push(path);
     }
   }
 
