@@ -64,12 +64,18 @@ export async function setup(name, directories = [], options = {}) {
   validateSetName(name);
   // Validate when --bucket is *given at all* (even ""), so an explicit empty
   // value fails fast rather than being treated as "not given".
-  if (options.bucket !== undefined) validateBucketName(options.bucket);
+  if (options.bucket !== undefined) {
+    validateBucketName(options.bucket);
+  }
 
   const creating = !listSets().includes(name);
 
-  if (options.inherit) return inherit(name, directories, creating, options);
-  if (creating) return create(name, directories, options);
+  if (options.inherit) {
+    return inherit(name, directories, creating, options);
+  }
+  if (creating) {
+    return create(name, directories, options);
+  }
   return update(name, directories, options);
 }
 
@@ -113,8 +119,12 @@ const collisionError = (name, bucket, info) => {
   // Only the fields actually present — a corrupted/partial marker (empty OWNER
   // or CREATED) must not print "(owner: , created )".
   const parts = [];
-  if (info?.owner) parts.push(`owner: ${info.owner}`);
-  if (info?.created) parts.push(`created ${info.created}`);
+  if (info?.owner) {
+    parts.push(`owner: ${info.owner}`);
+  }
+  if (info?.created) {
+    parts.push(`created ${info.created}`);
+  }
   const detail = parts.length ? ` (${parts.join(", ")})` : "";
   return new Error(
     `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n` +
@@ -177,7 +187,9 @@ async function create(name, directories, options) {
  * @param {BackupSet} set
  */
 function seedStarterExclude(set) {
-  if (readSetExclude(set.name) !== undefined) return;
+  if (readSetExclude(set.name) !== undefined) {
+    return;
+  }
   writeSetExclude(set.name, starterExclude);
   // The real resolved path (honours an S3CAB_HOME override), not a ~ template.
   console.warn(
@@ -276,7 +288,9 @@ async function inherit(name, directories, creating, options) {
   // The remote config is reproduced exactly — including *no* exclude file for
   // a legacy set that never had one. No starter here: silently activating
   // excludes on adoption would narrow what an established set backs up.
-  if (exclude !== undefined) writeSetExclude(name, exclude);
+  if (exclude !== undefined) {
+    writeSetExclude(name, exclude);
+  }
 
   // Pull the set's snapshot manifests down so the new machine lands with full
   // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).

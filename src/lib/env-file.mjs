@@ -30,7 +30,9 @@ function readText(path) {
   try {
     return readFileSync(path, "utf8");
   } catch (error) {
-    if (isENOENT(error)) return "";
+    if (isENOENT(error)) {
+      return "";
+    }
     throw error;
   }
 }
@@ -53,7 +55,9 @@ export function updateEnvFile(path, updates) {
     if (existing.test(text)) {
       text = text.replaceAll(existing, line);
     } else {
-      if (text && !text.endsWith("\n")) text += "\n";
+      if (text && !text.endsWith("\n")) {
+        text += "\n";
+      }
       text += line + "\n";
     }
   }
@@ -72,10 +76,14 @@ export function updateEnvFile(path, updates) {
  */
 export function removeEnvKey(path, key) {
   const text = readText(path);
-  if (text === "") return;
+  if (text === "") {
+    return;
+  }
   const matches = new RegExp(`^${escapeRegExp(key)}=`);
   const lines = text.split("\n");
   const kept = lines.filter((line) => !matches.test(line));
-  if (kept.length === lines.length) return; // key absent — nothing to write
+  if (kept.length === lines.length) {
+    return;
+  } // key absent — nothing to write
   writeFileSync(path, kept.join("\n"));
 }

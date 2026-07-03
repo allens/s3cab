@@ -92,7 +92,9 @@ export function synopsis(commands, commandName) {
  * @returns {string | undefined}
  */
 export function argDescription(command, argName) {
-  if (!argName) return undefined;
+  if (!argName) {
+    return undefined;
+  }
   return (
     command.args?.[argName]?.description ??
     command.options?.[argName]?.description

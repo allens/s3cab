@@ -216,7 +216,9 @@ describe("writeSnapshot", () => {
       excluded: [{ fileType: "File", reason: "*.tmp", path: skipped }],
       getProps: async (p) => {
         // A file the walk can't hash becomes an #ERROR row, not an entry.
-        if (p === bad) throw new Error("EACCES: permission denied");
+        if (p === bad) {
+          throw new Error("EACCES: permission denied");
+        }
         return props(p);
       },
     });

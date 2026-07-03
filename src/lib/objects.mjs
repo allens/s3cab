@@ -125,7 +125,9 @@ export async function* listObjectHashes(bucket) {
     // would otherwise slice to an empty hash — a blank line from `hashes`, a
     // blank cache entry.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
-    if (hash) yield hash;
+    if (hash) {
+      yield hash;
+    }
   }
 }
 
@@ -160,7 +162,9 @@ export function knownObjects(bucket) {
   try {
     text = readFileSync(objectsCachePath(bucket), "utf8");
   } catch (error) {
-    if (isENOENT(error)) return new Set();
+    if (isENOENT(error)) {
+      return new Set();
+    }
     throw error;
   }
   return new Set(
@@ -182,7 +186,9 @@ export function knownObjects(bucket) {
  */
 export function recordObjects(bucket, hashes) {
   const text = [...hashes].map((hash) => hash + "\n").join("");
-  if (!text) return;
+  if (!text) {
+    return;
+  }
   const path = objectsCachePath(bucket);
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, text);

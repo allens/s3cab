@@ -155,7 +155,9 @@ export const isExpiredCredentials = (error) =>
  * @param {unknown} cause
  */
 const rawAwsError = (cause) => {
-  if (!Error.isError(cause)) return String(cause).trim();
+  if (!Error.isError(cause)) {
+    return String(cause).trim();
+  }
   const code = cause.name && cause.name !== "Error" ? `${cause.name}: ` : "";
   return `${code}${cause.message}`.trim().replaceAll("\n", "\n     ");
 };

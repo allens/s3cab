@@ -27,7 +27,9 @@ export async function hashes(bucket, options = {}) {
   requireArg(bucket, "bucket");
 
   const all = [];
-  for await (const hash of listObjectHashes(bucket)) all.push(hash);
+  for await (const hash of listObjectHashes(bucket)) {
+    all.push(hash);
+  }
 
   const text = all.map((hash) => hash + "\n").join("");
 

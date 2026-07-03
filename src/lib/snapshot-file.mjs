@@ -362,7 +362,9 @@ export async function parseSnapshotStream(input) {
   const rl = createInterface({ input, crlfDelay: Infinity });
 
   for await (const line of rl) {
-    if (line.trim() === "") continue;
+    if (line.trim() === "") {
+      continue;
+    }
     const parts = line.split("\t");
     const path = parts.pop();
     const [hash, size, mtime] = parts.map((s) => s.trim());
@@ -373,10 +375,15 @@ export async function parseSnapshotStream(input) {
       // <TAB>identity`, `#ERROR<TAB><TAB>reason<TAB>path` and
       // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path` (reason in col3, the `mtime`
       // slot). `#EXCLUDED` and any other comment line are ignored on read.
-      if (hash === DIR && path) dirs.push(path);
-      else if (hash === SNAPSHOT && path) identity = path;
-      else if (hash === ERROR && path) errors.set(path, mtime ?? "");
-      else if (hash === SKIPPED && path) skipped.set(path, mtime ?? "");
+      if (hash === DIR && path) {
+        dirs.push(path);
+      } else if (hash === SNAPSHOT && path) {
+        identity = path;
+      } else if (hash === ERROR && path) {
+        errors.set(path, mtime ?? "");
+      } else if (hash === SKIPPED && path) {
+        skipped.set(path, mtime ?? "");
+      }
       continue;
     }
 
@@ -464,7 +471,9 @@ function formatLine(col1, col2, col3, col4) {
  */
 function snapshotHeader({ datetime, identity, dirs }) {
   let out = formatLine(SNAPSHOT, "", datetime, identity);
-  for (const dir of dirs) out += formatLine(DIR, "", "", dir);
+  for (const dir of dirs) {
+    out += formatLine(DIR, "", "", dir);
+  }
   return out;
 }
 

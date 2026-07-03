@@ -44,7 +44,9 @@ export function createProgress(stream, { logLines = false } = {}) {
         cursorTo(stream, 0);
         clearLine(stream, 1); // clear to line end so a shorter update leaves no stale tail
         stream.write(text);
-        if (cursor !== undefined) cursorTo(stream, cursor);
+        if (cursor !== undefined) {
+          cursorTo(stream, cursor);
+        }
         drawn = true;
       } else if (logLines) {
         stream.write(`${text}\n`);
@@ -53,7 +55,9 @@ export function createProgress(stream, { logLines = false } = {}) {
     [Symbol.dispose]() {
       // Close the in-place line — only if one was drawn, so an instant operation
       // (no updates) or a non-interactive run leaves no stray newline.
-      if (interactive && drawn) stream.write("\n");
+      if (interactive && drawn) {
+        stream.write("\n");
+      }
     },
   };
 }

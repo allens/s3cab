@@ -82,4 +82,10 @@ export default defineConfig([
     rules: { "local/one-export-per-command": "error" },
   },
   eslintConfigPrettier,
+  // House rule: every control block is braced — no braceless `if`/`else` (or
+  // `for`/`while`), even single-line. `curly` enforces it (auto-fixable) and
+  // doesn't conflict with Prettier — Prettier only formats braces, it never
+  // adds or removes them. Placed *after* eslint-config-prettier, which disables
+  // `curly` by default; in flat config the later block wins, so this re-asserts it.
+  { rules: { curly: ["error", "all"] } },
 ]);
