@@ -24,14 +24,15 @@ if (commandName === "--version" || commandName === "-v") {
 }
 
 // Top-level help: no command given, or an explicit help request. `help <topic>`
-// (e.g. `help auth`) prints that topic; otherwise the command list.
+// (e.g. `help auth`) prints that topic; `help <command>` prints that command's
+// help (usage() falls back to the command list for anything unrecognized).
 if (
   !commandName ||
   commandName === "help" ||
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  console.log(helpTopics[args[0] ?? ""] ?? usage(commands));
+  console.log(helpTopics[args[0] ?? ""] ?? usage(commands, args[0]));
   process.exit(0);
 }
 

@@ -206,6 +206,14 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /--since/);
   });
 
+  it("help <command> shows that command's usage on stdout", () => {
+    const { status, stdout } = run("help", "compare");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Usage: s3cab compare/);
+    assert.match(stdout, /--since/);
+  });
+
   it("help auth prints the credential-resolution topic on stdout", () => {
     const { status, stdout } = run("help", "auth");
 
