@@ -61,6 +61,7 @@ ADR as a live constraint.
 - [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
 - [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
 - [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
+- [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 
 ### Build, release & tooling
