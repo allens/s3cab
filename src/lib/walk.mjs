@@ -3,7 +3,9 @@ import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { secondsSince } from "./format.mjs";
+import { createProgress } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
+import { isInteractive } from "./style.mjs";
 
 /**
  * @import { Dirent } from "node:fs"
@@ -55,6 +57,11 @@ export function walkDirs(dirs, patterns) {
   const excluded = [];
   /** @type {ExclusionRecord[]} */
   const skipped = [];
+  // The running "Found N files..." count is in-place animation (terminal only;
+  // the TTY gate and the closing newline live in lib/progress.mjs). Off a
+  // terminal the periodic redraws stay silent and only the final summary line
+  // below is logged — no carriage returns in a redirected log.
+  using progress = createProgress(stderr);
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
     console.warn("Finding files in", `'${dir}'`);
@@ -67,14 +74,23 @@ export function walkDirs(dirs, patterns) {
     );
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
-      if (files.length % 500 === 0) {
-        stderr.write(`\rFound ${files.length} files...`);
-      }
       files.push(path);
+      // Redraw every 500 files (after the push, so the count reflects files
+      // actually found — never a misleading "Found 0 files..." first line).
+      if (files.length % 500 === 0) {
+        progress.update(`Found ${files.length} files...`);
+      }
     }
   }
 
-  stderr.write(secondsSince(start) + "\n");
+  // The final tally (the true total, not the last multiple of 500) with elapsed
+  // time: redrawn in place on a terminal, or logged as one clean line otherwise.
+  const summary = `Found ${files.length} files in ${secondsSince(start)}`;
+  if (isInteractive(stderr)) {
+    progress.update(summary);
+  } else {
+    console.warn(summary);
+  }
 
   // A file reached by more than one root means the set's member directories
   // overlap (one nested under another) — name the offender so the user can fix
