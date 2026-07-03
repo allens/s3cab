@@ -49,6 +49,13 @@ pointing at it is gone, which is why pruning old snapshots is the precondition f
 object storage.
 _Avoid_: garbage, dangling, unreachable (the precise term is orphan).
 
+**Grace window**:
+The 7-day immunity every stored object has from deletion, measured from its upload time:
+a young object may be an in-flight backup's upload, not yet referenced by its snapshot,
+so no tool may treat it as an orphan. A repository-format contract, stated in the format
+spec.
+_Avoid_: TTL, retention period (retention is about snapshots; the grace window is about objects).
+
 **Repository**:
 One S3 bucket holding the whole backup: the `objects/` object store plus the `snapshots/`
 tree. **One bucket is exactly one repository** — the layout is fixed by convention, not an
@@ -119,6 +126,13 @@ anything: every object a set's snapshots reference must exist in the object stor
 recorded size. Set-scoped — it answers "is this backup restorable?" per named set (every
 set when none is named) — and it never writes to the remote.
 _Avoid_: check, fsck, audit, scrub, validate.
+
+**Cleanup**:
+The porcelain verb that reclaims storage by deleting orphaned objects. It operates on the
+*bucket* (an object is deletable only when no snapshot from any set references it) and
+reports by default — deleting takes an explicit flag. The only command that removes
+objects, and the only one needing delete credentials.
+_Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
 The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <directory>... --bucket <b>`

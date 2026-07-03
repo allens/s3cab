@@ -227,10 +227,13 @@ basename is detected up front and errors with guidance (rare, actionable).
 
 `s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
 *primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
-`cleanup`'s job (the command's output says so, and reminds the user to refresh any
-objects cache). Retention *policy* (keep the last 12 monthlies, …) comes later, on top
-of this primitive. (Local snapshots need no command: the files are the API — delete the
-file.)
+`cleanup`'s job (the command's output says so). It never touches `objects/`, so the
+objects cache stays true and needs no refresh — that duty is `cleanup`'s alone (settled
+2026-07-03, dropping this design's earlier "refresh reminder"). On a TTY it confirms
+with a y/N prompt naming the snapshot and set — the same confirmation pattern as
+`cleanup --delete`; non-interactive runs proceed on the explicit flag. Retention
+*policy* (keep the last 12 monthlies, …) comes later, on top of this primitive. (Local
+snapshots need no command: the files are the API — delete the file.)
 
 ## Snapshot files
 
@@ -340,8 +343,10 @@ Cache staleness is **asymmetric**, and the design leans on that: an object *miss
 from the cache but present remotely is harmless (one redundant conditional PUT, which
 no-ops). An object *present* in the cache but deleted remotely would let `backup` skip
 a needed upload and break the invariant — but objects are only ever deleted by
-`delete` + `cleanup`, which are manual, rare, and documented to refresh the cache
-(`verify` catches any slip).
+`cleanup` (not `delete`, which removes a snapshot and never touches `objects/`), which
+is manual, rare, and rewrites this machine's cache from post-delete ground truth
+itself; other machines' caches are beyond its reach, so its report tells them to run
+`verify` — whose cache rewrite heals exactly this — before their next backup.
 
 The diff trusts the invariant (latest remote snapshot ⇒ its objects exist). Ground-truth
 checking is deliberately **not** `backup`'s job — it belongs to the admin pair below.
@@ -389,20 +394,53 @@ s3cab. (*Referenced* is a lib function only, **not** a plumbing command — deci
 `cleanup`, are internal. A CLI face is one registry entry away the day someone wants the
 stream.)
 
-### `cleanup` (object garbage collection)
+### `cleanup` (object garbage collection) — settled 2026-07-03
 
-`cleanup` deletes orphaned objects. It is deliberately heavy (reads every snapshot,
-lists all of `objects/`) and deliberately rare — the everyday commands never delete
-anything. Rules, several of which are **repository-format contract** (stated in the
-[format spec](../../guide/format.md)), not implementation choice:
+`cleanup <bucket>` deletes orphaned objects. It is deliberately heavy (reads every
+snapshot, lists all of `objects/`) and deliberately rare — the everyday commands never
+delete anything. Rules, several of which are **repository-format contract** (stated in
+the [format spec](../../guide/format.md)), not implementation choice:
 
-- **Dry run by default.** `cleanup` *reports* the orphans and the space they hold; an
-  explicit flag (e.g. `--delete`) is required to remove anything.
-- **Grace window (format contract):** cleanup must never delete an object whose
-  `LastModified` is younger than a generous threshold (e.g. 7 days). Under
-  snapshot-last, an in-flight backup's uploaded-but-not-yet-referenced objects are
-  indistinguishable from orphans; the grace window is what makes concurrent backups
-  safe without locks. Any tool that deletes from `objects/` must honour it.
+- **The operand is the bucket, not a set.** Cleanup sits *beyond* sets: orphanhood is a
+  repository-level fact, and — decisively — the per-set env layer deliberately carries
+  the least-privilege everyday identity, exactly the credentials cleanup must *not* run
+  under. Taking the bucket directly (the `hashes`/`upload` pattern) resolves credentials
+  through user env / shell / standard chain, where the elevated identity lives. Consumer
+  vocabulary governs the *name* ([ADR-0012](../adr/0012-consumer-vocabulary-naming.md));
+  the operand follows the domain.
+- **Dry run by default; `--delete` is single-pass.** Bare `cleanup <bucket>` *reports*
+  the orphans and the space they hold. `--delete` computes once, prints the same report,
+  confirms with y/N on a TTY (non-interactive runs proceed on the explicit flag), and
+  deletes from memory — no second enumeration. These y/N confirmations (here and on
+  `delete`) are **s3cab's first interactive prompts** — deliberate: the destructive pair
+  earns them, and they follow clig.dev's rules — TTY-gated, never blocking a script, and
+  never *required* (the explicit flag is the non-interactive answer). (A persisted
+  **runlist** — dry-run saves
+  the orphan list, a later run executes it — was considered and **rejected**: a new
+  backup can re-reference an old orphan via the conditional-PUT skip, so a stale list
+  deletes live data. A revalidation based on snapshot immutability — re-read only
+  snapshots newer than the list — is sound but unnecessary once the prompt makes
+  check-then-do a single pass.)
+- **Grace window: 7 days, fixed (format contract):** cleanup must never delete an object
+  whose `LastModified` is younger than 7 days (the [format spec](../../guide/format.md)
+  states the rule). Under snapshot-last, an in-flight backup's
+  uploaded-but-not-yet-referenced objects are indistinguishable from orphans; the grace
+  window is what makes concurrent backups safe without locks. Any tool that deletes from
+  `objects/` must honour it. No tuning knob: a `--grace` foot-gun buys nothing, and
+  loosening a fixed floor later is additive.
+- **Damage interlock:** an **unreadable snapshot aborts both modes** — its references
+  are unknown, so every object only it references would masquerade as an orphan (the
+  report's numbers would be lies). **Missing objects** (verify's core finding) are
+  reported, and `--delete` **refuses**: the repository is already losing data — triage
+  with `verify` first, then clean up. No `--force` override until a real need appears.
+  (Conflicting-size rows only warn; orphanhood is hash-level.)
+- **The objects cache:** deleting objects is the one operation that *poisons* local
+  caches (a cached-but-absent entry makes a later `backup` skip a needed upload).
+  `--delete` therefore **rewrites this machine's per-bucket cache** from
+  stored − deleted (atomic temp + rename; the ground truth is already in memory —
+  `verify`'s pattern), and the report warns that **other machines** backing up to this
+  bucket should run `s3cab verify` before their next backup — their caches are beyond
+  cleanup's reach, and verify's LIST-driven rewrite heals exactly this.
 - **Known residual race (documented, accepted):** an *old* orphan (from a long-ago
   crashed backup) that a concurrently-running backup is relying on via the
   conditional-PUT skip can be deleted between the skip and the snapshot upload. The
@@ -567,9 +605,11 @@ manifest sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair
 
-`verify` (completeness + size cross-check), `delete` (snapshot removal + cache-refresh
-reminder), `cleanup` (dry-run default, `--delete`, grace window, the documented race
-warnings), and the versioning/ransomware + encryption-non-goal doc notes.
+`verify` (completeness + size cross-check, [ADR-0042](../adr/0042-verify-set-scoped-all-sets-default.md)),
+`delete` (snapshot removal, y/N confirm), `cleanup` (`<bucket>` operand, dry-run
+default, single-pass `--delete` + y/N, 7-day grace window, damage interlock, local
+cache rewrite, the documented race warnings), and the versioning/ransomware +
+encryption-non-goal doc notes.
 
 **Why this order:** slices 1–2 keep the tool fully working locally at every point;
 3 delivers the README's promise; 4 makes it trustworthy (a backup you can't restore
