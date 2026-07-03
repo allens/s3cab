@@ -3,6 +3,7 @@ import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { loadSet } from "../lib/env.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
@@ -34,18 +35,19 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * different drive layout, or another OS entirely — and is the only mode that
  * accepts non-absolute-on-this-platform paths.
  *
- * The set must have an existing remote backup. Because the
- * set is always the first positional, filtering by `paths…` requires naming the
- * set explicitly (`s3cab restore photos C:\…\beach.jpg`); the sole-set default
- * applies only when no positionals are given.
+ * The set must have an existing remote backup. Unlike the everyday commands,
+ * `<set>` is required — no sole-set default (ADR-0040): restore is the rare,
+ * carefully considered command, and requiring the name removes the set-or-path
+ * ambiguity a leading optional positional would create.
  *
- * @param {string} [setName] - Backup set to restore (default: the only set)
+ * @param {string} [setName] - Backup set to restore (required)
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
  * @param {{ snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options]
  * @returns {Promise<{ set: string, snapshot: string, restored: string[], skipped: string[] }>}
  *   `restored` = paths written; `skipped` = existing paths left untouched (rerun with --overwrite to replace).
  */
 export async function restore(setName, paths = [], options = {}) {
+  requireArg(setName, "set");
   const set = loadSet(setName);
 
   // One listing picks the source and validates `--snapshot` against what's

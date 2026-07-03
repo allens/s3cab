@@ -61,12 +61,13 @@ them back**. You create a set once, then the commands act on it:
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
-| `s3cab restore [<set>] [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
+| `s3cab restore <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
 A set's configuration is plain files you can open and edit (`~/.s3cab/sets/<set>/`). When
 you have only one set you can leave the name out — plain `s3cab snapshot` just works.
+(`restore` is the deliberate exception: it always takes the set name.)
 
 The everyday use is **getting specific files back**: pass `paths…` to restore just part of a
 set, and `--snapshot <name>` to pull an _older_ version instead of the latest. By default

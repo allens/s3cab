@@ -247,12 +247,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       "s3cab restore photos --output D:\\recovered",
     ],
     args: {
-      set: { description: "The backup set to restore (default: the only set)" },
+      set: { required: true, description: "The backup set to restore" },
       path: {
         variadic: true,
         description:
-          "Specific files or directories to restore (default: everything). " +
-          "Name the set first when filtering.",
+          "Specific files or directories to restore (default: everything)",
       },
     },
     options: {

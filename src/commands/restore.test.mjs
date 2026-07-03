@@ -24,6 +24,16 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // unit-tested in lib/restore.test.mjs. This file covers the restore command
 // itself end-to-end.
 
+// Ungated (no S3): argument validation happens before any set or cloud access.
+describe("restore arguments", () => {
+  it("requires the set name — no sole-set default (ADR-0040)", async () => {
+    await assert.rejects(restore(undefined), {
+      code: "ERR_PARSE_ARGS",
+      message: "Missing required argument: <set>",
+    });
+  });
+});
+
 // The backup → restore round trip against a real bucket (docs/design/backup.md slice
 // 4). Gated on S3CAB_TEST_BUCKET (+ ambient AWS credentials) like the other S3
 // suites: restore inherently needs the cloud (the object content lives only in
