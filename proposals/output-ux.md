@@ -1,29 +1,18 @@
 # Output & compare UX
 
-Epic: make s3cab's output consumer-friendly — human-readable by default, machine output behind
-a flag, and a structured diff that survives to the CLI edge.
+Epic: make s3cab's output consumer-friendly. The headline item — human-readable output by
+default, `--json` for machines, and the compare-diff/formatting work that feeds it —
+graduated to its own file, [human-first-output.md](human-first-output.md); this file keeps
+the surrounding output/UX niceties.
 
-- **Human-readable output by default; `--json` for machines.** The single biggest
-  consumer-audience win. The README quick start already *shows* the desired UX (`Added:` /
-  `Moved:` sections); make it real, keep JSON behind a flag (and that also resolves the doc
-  drift below). Stream discipline already separates results from progress, so this is purely
-  the stdout formatter.
-- **Summary counts**: end every snapshot/compare with
-  `3 added, 1 moved, 2 modified, 0 deleted` (and "No changes." when clean).
-- **First-snapshot experience.** The first ever snapshot diffs against empty and dumps every
-  file as "added" — potentially a 100k-line JSON splash. Say
-  `First snapshot: 1,234 files (4.2 GB)` instead.
-- **Return structured data from `compare`,** not preformatted strings with embedded
-  `→`/`→→`/`==` microsyntax. Presentation belongs in the CLI layer; the JSON output is
-  currently neither human-friendly nor machine-friendly. The seam work is
-  [architecture-improvements.md](architecture-improvements.md)'s "`compareSnapshots` returns
-  structured diff" — this epic's work is what makes that seam real.
-- **Document or replace the arrow microsyntax** — `→` vs `→→` vs `==` in results is explained
-  nowhere user-facing; in human output, words ("renamed", "moved", "duplicate of") may serve
-  the audience better. Related: README promises "renamed" detection but `CompareResult` has no
-  `renamed` key — it's implied by the arrow style only.
-- **Colors** (plain ANSI per #5): green added / red deleted / yellow modified transforms
-  compare output readability for zero deps.
+- **Gate progress rendering on a TTY** (clig.dev: no animations when the stream isn't a
+  terminal). No `isTTY` check exists anywhere in `src/`: the upload progress line
+  (`httpUploadProgressHandler` in [s3.mjs](../src/lib/s3.mjs)) uses `readline`
+  `clearLine`/`cursorTo`, which write `^[[1K^[[1G` escape codes even when stderr is
+  redirected (verified), and `restore`'s `\r`-based counter has the same issue. Fix: when
+  `process.stderr.isTTY` is false, fall back to plain line-per-update output (or silence);
+  the same gate is where `NO_COLOR` handling lands when colors arrive
+  ([human-first-output.md](human-first-output.md)).
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say
   "unknown topic" and list the valid ones.
@@ -70,8 +59,6 @@ a flag, and a structured diff that survives to the CLI edge.
   a header comment line without breaking the TSV format.
 - **Friendlier failure for "no snapshots found"** — suggest running `s3cab snapshot` rather
   than a bare error.
-- **Exit-code doctrine**: document the codes (0/1/127 today); decide whether `compare` should
-  signal "differences found" diff-style (probably not, for a consumer tool — but decide).
-- **`tree`'s stdout is a JSON array** (the dispatcher JSON-serializes every command result) —
-  fine for machines, but a line-per-path mode (like `hashes`) would suit
-  `s3cab tree > files.txt`. Falls out of the human-output work above.
+- **Exit-code doctrine**: document the codes (0/1/2/127 today); decide whether `compare`
+  should signal "differences found" diff-style (probably not, for a consumer tool — but
+  decide).

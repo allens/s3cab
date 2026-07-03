@@ -3,6 +3,14 @@
 Epic: speed and memory on large trees (a photo/video archive is tens to hundreds of thousands
 of files). Watch for per-file overhead — small costs mount up.
 
+- **Lazy-load the AWS SDK at dispatch** (backburner — deliberately deferred in favour of the
+  simpler, more predictable static esbuild bundling). The entry point statically imports the
+  whole command registry, which pulls the SDK on every invocation, even `--version`. Measured
+  2026-07-03 (Windows): raw source ~510ms, esbuild bundle ~290ms, SEA `s3cab.exe` ~275ms warm
+  (~1.6s on the first-ever run — antivirus scanning the 104 MB binary, one-time), bare
+  `node -e ""` ~190ms — so both shipped forms pay only ~90–100ms for s3cab+SDK; a lazy
+  `await import` at dispatch could reclaim most of that, at the cost of complicating the
+  bundle. Revisit only if startup ever feels sluggish in the shipped form.
 - **Parallel hashing.** `createPropsGenerator` hashes one file at a time; SHA-256 is I/O-bound
   but a small concurrency pool (even 4–8 in-flight `prop()`s, no worker threads needed) should
   speed cold snapshots substantially on SSDs.
