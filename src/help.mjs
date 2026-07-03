@@ -108,9 +108,14 @@ export function argDescription(command, argName) {
  * explicit help request, `console.error` (stderr) when shown as part of an error.
  * @param {Record<string, import("./commands.mjs").Command>} commands - The command registry
  * @param {string} [commandName] - Command to describe; omit for top-level help
+ * @param {{ heading?: (text: string) => string }} [style] - Section-heading
+ *   decorator (e.g. lib/style.mjs `bold`); omitted → plain text. The caller
+ *   decides per the target stream (`styleEnabled`), since usage() returns a
+ *   string without knowing where it will be printed.
  * @returns {string}
  */
-export function usage(commands, commandName) {
+export function usage(commands, commandName, style) {
+  const heading = style?.heading ?? ((/** @type {string} */ text) => text);
   const command = commandName ? commands[commandName] : undefined;
   const lines = [];
 
@@ -126,7 +131,7 @@ export function usage(commands, commandName) {
     // Examples lead (right after the one-line summary, before the arg/option
     // tables) — users reach for examples over reference tables (clig.dev).
     if (examples?.length) {
-      lines.push("Examples:");
+      lines.push(heading("Examples:"));
       for (const example of examples) {
         lines.push(`  ${example}`);
       }
@@ -134,14 +139,14 @@ export function usage(commands, commandName) {
     }
 
     if (args) {
-      lines.push("Arguments:");
+      lines.push(heading("Arguments:"));
       for (const [name, arg] of Object.entries(args)) {
         lines.push(`  ${displayArg(name, arg)}`.padEnd(24) + arg.description);
       }
       lines.push("");
     }
 
-    lines.push("Options:");
+    lines.push(heading("Options:"));
     for (const [name, { short, description = "" }] of Object.entries(
       options ?? {},
     )) {
@@ -151,7 +156,7 @@ export function usage(commands, commandName) {
     lines.push(`  -h, --help`.padEnd(24) + "Show this help", "");
 
     if (description) {
-      lines.push("Description:", description, "");
+      lines.push(heading("Description:"), description, "");
     }
   } else {
     // Align summaries past the widest command name (+ 2-space indent + gutter).
@@ -173,10 +178,10 @@ export function usage(commands, commandName) {
     /** @type {string | undefined} */
     let group;
     for (const [name, command] of Object.entries(commands)) {
-      const heading = command.group ?? group ?? "Commands";
-      if (heading !== group) {
-        lines.push("", `${heading}:`);
-        group = heading;
+      const section = command.group ?? group ?? "Commands";
+      if (section !== group) {
+        lines.push("", heading(`${section}:`));
+        group = section;
       }
       lines.push(
         `  ${name}`.padEnd(nameColumn) +

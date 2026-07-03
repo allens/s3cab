@@ -4,6 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
+import { isInteractive } from "../lib/style.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
@@ -114,10 +115,13 @@ export async function restore(setName, paths = [], options = {}) {
   /** @type {string[]} */
   const skipped = [];
 
-  // Track whether a progress line was drawn so the closing newline runs in a
-  // `finally` — even if a download throws mid-loop the terminal cursor is left
-  // on a fresh line, so the error message that follows isn't tacked onto the
-  // half-written progress line.
+  // On a terminal the counter overwrites itself in place (`\r`); redirected,
+  // each update is its own plain line — no carriage returns in a log
+  // (lib/style.mjs). Track whether an in-place line was drawn so the closing
+  // newline runs in a `finally` — even if a download throws mid-loop the
+  // terminal cursor is left on a fresh line, so the error message that follows
+  // isn't tacked onto the half-written progress line.
+  const interactive = isInteractive(stderr);
   let progressed = false;
   try {
     let done = 0;
@@ -142,8 +146,13 @@ export async function restore(setName, paths = [], options = {}) {
 
       done++;
       if (done % 50 === 0 || done === plan.length) {
-        stderr.write(`\rRestoring ${done}/${plan.length}...`);
-        progressed = true;
+        const line = `Restoring ${done}/${plan.length}...`;
+        if (interactive) {
+          stderr.write(`\r${line}`);
+          progressed = true;
+        } else {
+          stderr.write(`${line}\n`);
+        }
       }
     }
   } finally {
