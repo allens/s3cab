@@ -9,7 +9,7 @@ import { validateBucketName } from "../lib/sets.mjs";
 // is a rare, one-time, per-bucket bootstrap, so it is a separate top-level command,
 // not part of `setup` (a per-set operation) or `profile` (the "point at an existing
 // profile" door, ADR-0031) — though it composes with both: its final step is
-// `s3cab profile --profile <name>`, then `s3cab setup`.
+// `s3cab auth --profile <name>`, then `s3cab setup`.
 //
 // The identity step is the only fork: the default emits the IAM-user recipe;
 // `--sso` emits the AWS IAM Identity Center recipe; a custom endpoint

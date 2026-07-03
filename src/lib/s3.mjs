@@ -64,7 +64,7 @@ const customEndpoint = () =>
  *
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*
- * value (after env layering); the `profile` command set it (see commands/profile.mjs).
+ * value (after env layering); the `auth` command set it (see commands/auth.mjs).
  * @param {{ profile?: string, endpoint?: string }} config
  * @returns {string}
  */

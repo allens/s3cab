@@ -31,7 +31,7 @@ This design must:
 
 2. **Treat s3cab's env files as an explicit user signal.** If s3cab's layered env files (Step 0) exist, the `AWS_*` variables they set are loaded into the environment and allowed to win in normal SDK precedence.
 
-3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK uses them directly. **Reading** them is permitted: `s3cab profile --profile <name>` validates the name against the profiles defined there (read-only, advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). What's forbidden is *writing* shared AWS config; the `profile` command writes only s3cab's own env files.
+3. **Do not automatically edit AWS shared config files.** `s3cab` must not create or rewrite `~/.aws/config` or `~/.aws/credentials`. If the user already has profiles or `credential_process`, the AWS SDK uses them directly. **Reading** them is permitted: `s3cab auth --profile <name>` validates the name against the profiles defined there (read-only, advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). What's forbidden is *writing* shared AWS config; the `auth` command writes only s3cab's own env files.
 
 4. **Interactive sign-in is not s3cab's job.** SSO / IAM Identity Center users sign in with `aws sso login` (or any tool that feeds the standard chain); s3cab picks the session up via Step 1. s3cab implements no login flow and stores no tokens of its own.
 
@@ -53,9 +53,9 @@ The layers, **highest precedence first** (a file value always wins over the shel
 
 Files are parsed with the built-in `util.parseEnv` (no dotenv dependency), so the per-key precedence above is enforced by s3cab rather than by any one loader's fixed override semantics.
 
-The **`profile` command** is the discoverable door for populating the auth knob that matters: `s3cab profile --profile <name>` writes `AWS_PROFILE` to the user layer, `s3cab profile --profile <name> <set>` to a set override, `s3cab profile [<set>]` shows the current value at that scope, and `--unset` removes it. It writes only s3cab's *own* env files (never `~/.aws`) and validates the name read-only against the shared config (advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). Everything else in these files (region, endpoint, keys for S3-compatible providers) stays hand-edited.
+The **`auth` command** (né `profile`, ADR-0041) is the discoverable door for populating the auth knob that matters: `s3cab auth --profile <name>` writes `AWS_PROFILE` to the user layer, `s3cab auth --profile <name> <set>` to a set override, `s3cab auth [<set>]` shows the current value at that scope, and `--unset` removes it. It writes only s3cab's *own* env files (never `~/.aws`) and validates the name read-only against the shared config (advisory — see [ADR-0031](../adr/0031-aws-profile-config-door.md)). Everything else in these files (region, endpoint, keys for S3-compatible providers) stays hand-edited.
 
-The user scope is labelled **"the default"** (query-noun "Default AWS profile"), not "all backups" — per-set profiles override it, so a set with its own profile does *not* use it. The **show** path (`s3cab profile [<set>]`) prints a legible `noun: value` status line and runs the same `~/.aws` cross-check as the set path, so *looking* also flags a profile that isn't in the config (`Not in your AWS config — no credentials to use.` + the `aws configure --profile <name>` fix) — closing the asymmetry where only the set path warned.
+The user scope is labelled **"the default"** (query-noun "Default AWS profile"), not "all backups" — per-set profiles override it, so a set with its own profile does *not* use it. The **show** path (`s3cab auth [<set>]`) prints a legible `noun: value` status line and runs the same `~/.aws` cross-check as the set path, so *looking* also flags a profile that isn't in the config (`Not in your AWS config — no credentials to use.` + the `aws configure --profile <name>` fix) — closing the asymmetry where only the set path warned.
 
 > **History:** the layering once had a fourth, per-bucket layer (`~/.s3cab/env.<bucket>`,
 > "how to authenticate to that bucket"). It was dropped in
@@ -104,7 +104,7 @@ already have.
 `s3cab` must **not**:
 
 * implement an interactive sign-in flow or cache login sessions/tokens (see History above — tried and removed);
-* accept raw AWS access keys (secrets) via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources. (A *profile name* is not a secret: `s3cab profile --profile <name>` takes one by flag — it is a pointer to a profile, never credential material.)
+* accept raw AWS access keys (secrets) via CLI flags, because that leaks into shell history and process lists and is weaker practice than using supported SDK credential sources. (A *profile name* is not a secret: `s3cab auth --profile <name>` takes one by flag — it is a pointer to a profile, never credential material.)
 * invent a custom AWS credential file format that competes with AWS profiles, shared config, or standard environment-variable handling;
 * write `~/.aws/config` or `~/.aws/credentials` automatically. Shared AWS config remains user-managed.
 
@@ -132,13 +132,13 @@ The **guidance** block is *configuration-aware* (`credentialGuidance` in
 `src/lib/auth.mjs`): the common onboarding trap is being told to "set a profile"
 when one is already set (`AWS_PROFILE=x` in `~/.s3cab/env`) — it just isn't in
 `~/.aws`, so it resolves nothing. When a profile is set, `resolveCredentials`
-runs the same read-only `~/.aws` cross-check the `profile` command uses
+runs the same read-only `~/.aws` cross-check the `auth` command uses
 (`listProfiles`, [ADR-0031](../adr/0031-aws-profile-config-door.md)) and picks
 one of three messages:
 
 | State | Guidance |
 | --- | --- |
-| No `AWS_PROFILE` set | The original advice: point s3cab at a profile (`s3cab profile --profile <name>`, `aws sso login` first for SSO), or set `AWS_*` in `~/.s3cab/env`. |
+| No `AWS_PROFILE` set | The original advice: point s3cab at a profile (`s3cab auth --profile <name>`, `aws sso login` first for SSO), or set `AWS_*` in `~/.s3cab/env`. |
 | Set, but **absent** from `~/.aws` | The missing "aha": *profile 'x' isn't in your AWS config — that's why there are no credentials.* Create it (`aws configure --profile x`, or `aws configure sso`) or point elsewhere. |
 | Set and **present** (or `~/.aws` unreadable) | It produced nothing: sign in if SSO (`aws sso login --profile x`), else check the profile's keys. |
 
