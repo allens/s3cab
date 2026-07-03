@@ -113,6 +113,13 @@ replaced, or recovered after loss — machine **succession** (`s3cab setup <set>
 a way to run two live machines off one set.
 _Avoid_: adopt, clone, migrate, take-over.
 
+**Verify**:
+The porcelain verb that checks backups are complete and undamaged without downloading
+anything: every object a set's snapshots reference must exist in the object store, at its
+recorded size. Set-scoped — it answers "is this backup restorable?" per named set (every
+set when none is named) — and it never writes to the remote.
+_Avoid_: check, fsck, audit, scrub, validate.
+
 **Setup** (the command):
 The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <directory>... --bucket <b>`
 creates or updates a set, and `--inherit` adopts an existing remote set onto this machine. A

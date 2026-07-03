@@ -120,7 +120,8 @@ diagram is repeated here because the design points below lean on it.)
 Porcelain is **set-first**: `snapshot`, `list`, `compare`, `backup`, `restore`,
 `status`, `verify`, and `tree` all take `[<set>]`, which **defaults to the only set**
 when exactly one exists — so after setup, plain `s3cab backup` just works. When several
-sets exist and none is named, the error lists them. `tree [<set>]` becomes "exactly what
+sets exist and none is named, the error lists them. (`verify` is the one exception:
+variadic `[<set>...]`, and with no argument it checks *every* set — see its section.) `tree [<set>]` becomes "exactly what
 a snapshot of this set would include", sharpening its diagnostic role. The file/bucket
 diagnostics (`prop`, `hashes`, `upload`) are unchanged.
 
@@ -361,12 +362,17 @@ no-lock-in principle ([ADR-0002](../adr/0002-no-lock-in-hard-constraint.md)) fro
 
 ## `verify` and `cleanup` — two differences of the same two sets
 
-Both admin commands compose the same two bucket-wide enumerations:
+Both admin commands compose the same two enumerations:
 
-- **stored** — the hashes under `objects/` (exactly what the `hashes` command lists);
-- **referenced** — the union of hashes in **every snapshot under `snapshots/`** (all
-  sets, all users, all machines — objects are shared bucket-wide, so the *bucket*, not
-  the set, is always the domain for both commands).
+- **stored** — the hashes under `objects/` (exactly what the `hashes` command lists),
+  always bucket-wide: one LIST returns every key *and its size* far cheaper than per-key
+  existence checks ever could, so even a single-set check enumerates the whole store;
+- **referenced** — the union of hashes in snapshots under `snapshots/`. For `cleanup`
+  this **must** span every set, all users, all machines (objects are shared bucket-wide;
+  deleting on less than the whole truth would eat another set's data). For `verify` it is
+  **per set** — each set is checked against its own references (decided 2026-07-03,
+  reversing an earlier bucket-wide lean: verify answers "is *this backup* restorable?");
+  the no-argument default verifies every set, which recovers the full union.
 
 Then they are opposite set-differences:
 
@@ -377,8 +383,11 @@ Then they are opposite set-differences:
 
 Because both inputs are hash-per-line streams, the whole computation is reproducible by
 hand with `sort` and `comm` — even s3cab's heaviest maintenance operation needs no
-s3cab. (Whether *referenced* gets its own plumbing command alongside `hashes` is
-decided at implementation.)
+s3cab. (*Referenced* is a lib function only, **not** a plumbing command — decided
+2026-07-03: the hand-recovery contract is already met by the snapshot files themselves
+(`zstdcat snapshots/*/*.tsv.zst | cut -f1 | sort -u`), and its two callers, `verify` and
+`cleanup`, are internal. A CLI face is one registry entry away the day someone wants the
+stream.)
 
 ### `cleanup` (object garbage collection)
 
@@ -414,12 +423,61 @@ anything. Rules, several of which are **repository-format contract** (stated in 
   `delete`/`cleanup` create delete markers, so true reclamation needs a lifecycle rule.
   Revisit when cleanup is built.
 
-**`verify` (decided):** the completeness check above plus a **size cross-check** against
-the LIST metadata — list-requests only, no egress, safe to run routinely. A
-download-everything `--deep` mode was considered and **rejected as impractical** (the
-egress cost and time on a real backup rule it out). The practical route to "undamaged"
-is server-side stored checksums (`GetObjectAttributes` against a checksum set at upload
-time) — recorded as an open item.
+### `verify` (settled 2026-07-03)
+
+The completeness check above plus a **size cross-check** against the LIST metadata —
+list-requests only, no egress, safe to run routinely. A download-everything `--deep` mode
+was considered and **rejected as impractical** (the egress cost and time on a real backup
+rule it out). The practical route to "undamaged" is server-side stored checksums
+(`GetObjectAttributes` against a checksum set at upload time) — recorded as an open item.
+
+`verify [<set>...]` is **set-scoped and variadic**: it answers "is this backup
+restorable?" for each set you name, and with no argument checks **every** set in the
+bucket — a deliberate, documented exception to the "default = the only set" porcelain
+rule, right for a read-only checker because the expensive enumeration is shared: one run
+pays one `objects/` LIST however many sets it covers (the LIST is necessarily
+bucket-wide, per the shared-domain note above, so one-set-per-run invocations would just
+repeat it). Findings are reported per set.
+
+**Four finding classes**, all computed from the two enumerations already in hand (zero
+extra requests):
+
+1. **Missing object** — a referenced hash absent from `objects/`: the broken
+   snapshot-last invariant, the core check.
+2. **Size mismatch** — `objects/<hash>` exists but its LIST `Size` ≠ the size the
+   snapshot rows record: a truncated/corrupted/overwritten object. (Objects are stored
+   raw, so the two sizes are directly comparable.)
+3. **Conflicting rows** — the same hash recorded with *different sizes*: content fixes
+   size, so a snapshot file itself is corrupt. Detected free while building the
+   referenced union, and what makes class 2 well-defined (which size is "expected").
+4. **Unreadable snapshot** — a snapshot that fails to decompress or parse is a
+   *finding*, and verify **continues** (dying on the first damage would hide the rest;
+   the report notes that an unreadable snapshot's references went unchecked). An S3
+   *request* failure (network/auth/throttle) is an ordinary operational error and aborts.
+
+**Report and exit:** the JSON result (ADR-0010 house style) carries per-set reports —
+snapshots and referenced objects checked, plus that set's finding arrays (hash, expected
+vs stored size, referencing snapshot(s), one example path) — and the stored-object
+total. The **orphan count** (the opposite difference) appears **only in an all-sets
+run**: with every set's references in hand it is exact and free; with a subset named it
+isn't computable and is omitted. It is *not* a finding, never affects the exit code, and
+is phrased as normal state (crash orphans are expected) — the discovery hook toward
+`cleanup`. **Exit 1 when any named set has findings** (0 = verified clean; 2 stays bad
+input), so `s3cab verify || alert` is the cron idiom — no dedicated exit code until a
+script actually needs to distinguish "damaged" from "check failed".
+
+**Remote read-only, one local side effect:** verify never writes to the bucket — it
+runs on List+Get credentials alone. Locally it **rewrites the per-bucket objects cache**
+from the completed LIST (atomic temp + rename; never after a partial LIST): the LIST is
+authoritative ground truth verify has already paid for, so the rewrite warms the next
+backup and — more importantly — heals a *poisoned* cache, the cached-but-absent entry
+being the one local fault that silently causes future missing objects. Safe in both
+directions by the staleness asymmetry: every hash written provably exists, and a
+concurrent backup's lost append costs at most a redundant no-op PUT later.
+
+**Ordering invariant:** read the snapshots **before** LISTing `objects/`. In that order
+a backup finishing mid-run only adds unreferenced objects (a benign bump to the orphan
+count); the reverse order would report its freshly-uploaded objects as missing.
 
 ## Open items (deferred, recorded here so they aren't lost)
 
