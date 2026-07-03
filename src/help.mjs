@@ -11,9 +11,10 @@
 // command/auth code, so rendering help never *requires* the AWS SDK. (Today the
 // entry point still loads the SDK on every invocation anyway, via the static
 // command registry; making dispatch lazy is deliberately deferred — see
-// proposals/performance.md.) The auth text mirrors the
-// resolution order implemented in `src/lib/auth.mjs` (docs/design/auth.md); the
-// exclude text mirrors the matcher in `src/commands/tree.mjs` (guide/exclude.md).
+// proposals/performance.md.) The exclude text mirrors the matcher in
+// `src/commands/tree.mjs` (guide/exclude.md). The former auth topic lives on as
+// the `auth` command's registry description (ADR-0041) — `help auth` still
+// reaches it via the `help <command>` routing.
 //
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
 // its place here only if a user needs it mid-task in a terminal; each topic
@@ -22,80 +23,6 @@
 // URLs before release.
 /** @type {Record<string, string>} */
 export const helpTopics = {
-  auth: `Authentication
-
-s3cab resolves credentials in this order:
-
-1. s3cab loads its own env files first, if present. These set AWS_*
-   variables — a profile, region, endpoint, or keys (set a profile easily
-   with 's3cab profile --profile <name>'). Highest precedence first (a file
-   always beats the shell):
-     ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
-                              overrides (written by 's3cab setup'; applies as
-                              the set-based commands arrive with backup)
-     ~/.s3cab/env             per-user defaults - the base layer under the set,
-                              where auth lives for the common single-bucket case
-   s3cab does NOT read a .env from the current directory.
-
-2. s3cab then uses the standard AWS SDK credential chain.
-   This includes existing AWS_PROFILE, shared AWS profiles (including
-   SSO sessions from 'aws sso login'), shared credential_process
-   profiles, and AWS_* environment variables.
-
-3. If nothing is configured, s3cab stops with an error explaining
-   these options.
-
-Supported options:
-  - Quickest: 's3cab profile --profile <name>' points s3cab at an AWS profile
-    (writes AWS_PROFILE to ~/.s3cab/env; add a set name to scope it to one set)
-  - Existing AWS profile / AWS_PROFILE (for AWS IAM Identity Center,
-    run 'aws sso login' first — s3cab picks the session up)
-  - Existing shared AWS credential_process setup
-  - s3cab env files / AWS_* environment variables
-
-Notes:
-  - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
-  - env files are supported for compatibility, including some S3-compatible providers.
-  - For AWS, temporary credentials from profile-based setups are preferred
-    over long-lived keys.
-
-When the server rejects your credentials:
-
-s3cab names the cause and shows the raw error. By cause:
-
-  Expired credentials
-    - AWS IAM Identity Center (SSO): run 'aws sso login' again
-    - temporary credentials (AWS_SESSION_TOKEN): request a fresh set
-    - a named profile: renew it (and set AWS_PROFILE)
-
-  Invalid / rejected credentials
-    Replace the credentials s3cab is using, by their source:
-    - env vars / env file: re-check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-      and AWS_SESSION_TOKEN in ~/.s3cab/env (or ~/.s3cab/sets/<set>/env if
-      you scoped them to a set; no stray quotes or spaces)
-    - a profile: renew it, and confirm AWS_PROFILE names the right one
-    - SSO: run 'aws sso login' again
-
-  Signature mismatch
-    Almost always a wrong secret, region, or endpoint:
-    - confirm AWS_SECRET_ACCESS_KEY is correct and complete
-    - confirm AWS_REGION matches the bucket's region
-    - non-AWS providers: confirm the endpoint (AWS_ENDPOINT_URL_S3) matches
-      your provider — a wrong endpoint/region is the classic Cloudflare R2 /
-      Backblaze B2 trap
-
-  Permission denied (signed in, but not allowed)
-    - on AWS, run 's3cab aws <bucket>' for the exact least-privilege policy
-    - on another provider, grant the token list + read/write on the bucket
-
-  Clock out of sync
-    S3 rejects requests whose time drifts too far. Sync your clock:
-    - Windows: Settings > Time & language > Date & time > Sync now
-    - macOS:   sudo sntp -sS time.apple.com
-    - Linux:   sudo timedatectl set-ntp true
-
-Full guide: https://github.com/allens/s3cab#authentication`,
-
   exclude: `Excluding files
 
 Files and directories to skip are listed in a backup set's exclude file,
