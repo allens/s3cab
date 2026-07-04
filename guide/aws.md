@@ -44,6 +44,13 @@ reclaims pruned space sooner. In a content-addressable store this costs almost
 nothing in steady state — stored objects are immutable, so noncurrent versions
 only ever arise from deletes.
 
+Those deletes are what `s3cab delete` (removing a snapshot) and `s3cab cleanup
+--delete` (reclaiming unreferenced objects) issue. On a versioned bucket both are
+soft deletes — they write delete markers and the bytes live on as noncurrent
+versions — so **reclaimed space does not drop immediately**; the lifecycle above
+frees it once the window elapses. That deferral is the safety net (a mistaken
+`cleanup` is recoverable within the window), not a bug.
+
 ## The security model
 
 The everyday identity and the bucket together give a backup tool the property it
