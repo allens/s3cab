@@ -23,7 +23,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (!(key in savedEnv)) delete process.env[key];
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
   }
   Object.assign(process.env, savedEnv);
 });

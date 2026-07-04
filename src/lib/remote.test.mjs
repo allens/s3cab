@@ -45,7 +45,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (!(key in savedEnv)) delete process.env[key];
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
   }
   Object.assign(process.env, savedEnv);
 });
@@ -65,7 +67,9 @@ const skip = TEST_BUCKET
 // trip the env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials
 // supply the real creds; this just sets the flag. At module scope so it runs
 // before the file-level beforeEach snapshots process.env (afterEach then keeps it).
-if (TEST_BUCKET) loadEnv();
+if (TEST_BUCKET) {
+  loadEnv();
+}
 
 describe("remoteSnapshotsPrefix", () => {
   it("places a set's snapshots under snapshots/<set>/", () => {
@@ -292,7 +296,9 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       for (const hash of hashes) {
         const keys = [];
         for await (const o of listObjects(`s3://${bucket}/objects/${hash}`)) {
-          if (o.Key) keys.push(o.Key);
+          if (o.Key) {
+            keys.push(o.Key);
+          }
         }
         assert.ok(keys.includes(`objects/${hash}`), `object ${hash} missing`);
       }

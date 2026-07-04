@@ -60,7 +60,9 @@ function readTextFile(path) {
   try {
     return readFileSync(path, "utf8");
   } catch (error) {
-    if (isENOENT(error)) return undefined;
+    if (isENOENT(error)) {
+      return undefined;
+    }
     throw error;
   }
 }
@@ -148,7 +150,9 @@ export const sanitizeNamePart = (part) =>
  */
 export function validateSetName(name) {
   const suggestion = sanitizeNamePart(name);
-  if (suggestion === name && name.length > 0) return;
+  if (suggestion === name && name.length > 0) {
+    return;
+  }
   throw new ValidationError(
     `Invalid set name: ${name}\n` +
       `Set names use lowercase letters, digits, and hyphens only (a-z, 0-9, -).` +
@@ -203,7 +207,9 @@ export function listSets() {
   try {
     entries = readdirSync(setsRoot(), { withFileTypes: true });
   } catch (error) {
-    if (isENOENT(error)) return [];
+    if (isENOENT(error)) {
+      return [];
+    }
     throw error;
   }
   return entries
@@ -313,11 +319,17 @@ export const NO_SETS_MESSAGE =
  * @returns {BackupSet}
  */
 export function resolveSet(name) {
-  if (name) return readSet(name);
+  if (name) {
+    return readSet(name);
+  }
   const names = listSets();
   const [only] = names;
-  if (names.length === 1 && only) return readSet(only);
-  if (names.length === 0) throw new Error(NO_SETS_MESSAGE);
+  if (names.length === 1 && only) {
+    return readSet(only);
+  }
+  if (names.length === 0) {
+    throw new Error(NO_SETS_MESSAGE);
+  }
   throw new Error(
     `Several backup sets exist — name one:\n\n${formatSets(names.map(readSet))}`,
   );
@@ -360,7 +372,9 @@ export function writeSet(name, { dirs, bucket } = {}) {
     writeFileSync(setDirsPath(name), dirs.join("\n") + "\n");
   }
 
-  if (bucket) updateEnvFile(setEnvPath(name), { S3CAB_BUCKET: bucket });
+  if (bucket) {
+    updateEnvFile(setEnvPath(name), { S3CAB_BUCKET: bucket });
+  }
 
   return readSet(name);
 }

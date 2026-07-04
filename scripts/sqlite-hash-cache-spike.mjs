@@ -61,7 +61,9 @@ function buildMap() {
   let hits = 0;
   for (const { path, size, mtime } of records) {
     const row = map.get(path);
-    if (row && row.size === size && row.mtime === mtime) hits++;
+    if (row && row.size === size && row.mtime === mtime) {
+      hits++;
+    }
   }
   const lookup = performance.now() - t1;
   return { build, lookup, hits };
@@ -119,14 +121,18 @@ function buildSqlite(file) {
   // One transaction for the bulk load — without this each insert is its own
   // fsync'd transaction and the load is ~100x slower (worth recording).
   cache.db.exec("BEGIN");
-  for (const r of records) cache.put(r);
+  for (const r of records) {
+    cache.put(r);
+  }
   cache.db.exec("COMMIT");
   const build = performance.now() - t0;
 
   const t1 = performance.now();
   let hits = 0;
   for (const { path, size, mtime } of records) {
-    if (cache.cachedHash(path, size, mtime)) hits++;
+    if (cache.cachedHash(path, size, mtime)) {
+      hits++;
+    }
   }
   const lookup = performance.now() - t1;
   return { cache, build, lookup, hits };
@@ -157,7 +163,9 @@ console.log(`  file  : ${(dbBytes / 1_000_000).toFixed(1)} MB on disk\n`);
 cache.close();
 const reopened = new HashCache(dbFile);
 const sample = records[Math.floor(N / 2)];
-if (!sample) throw new Error("spike needs at least one record");
+if (!sample) {
+  throw new Error("spike needs at least one record");
+}
 const roundTrip = reopened.cachedHash(sample.path, sample.size, sample.mtime);
 console.log(
   "persistence: reopened .db and read back a row →",

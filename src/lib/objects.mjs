@@ -143,7 +143,9 @@ export async function* listStoredObjects(bucket) {
  * @returns {AsyncGenerator<string>}
  */
 export async function* listObjectHashes(bucket) {
-  for await (const { hash } of listStoredObjects(bucket)) yield hash;
+  for await (const { hash } of listStoredObjects(bucket)) {
+    yield hash;
+  }
 }
 
 /**
@@ -177,7 +179,9 @@ export function knownObjects(bucket) {
   try {
     text = readFileSync(objectsCachePath(bucket), "utf8");
   } catch (error) {
-    if (isENOENT(error)) return new Set();
+    if (isENOENT(error)) {
+      return new Set();
+    }
     throw error;
   }
   return new Set(
@@ -199,7 +203,9 @@ export function knownObjects(bucket) {
  */
 export function recordObjects(bucket, hashes) {
   const text = [...hashes].map((hash) => hash + "\n").join("");
-  if (!text) return;
+  if (!text) {
+    return;
+  }
   const path = objectsCachePath(bucket);
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, text);

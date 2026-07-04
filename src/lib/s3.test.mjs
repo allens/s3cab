@@ -82,8 +82,11 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const v of ENDPOINT_VARS) {
-    if (savedEnv[v] === undefined) delete process.env[v];
-    else process.env[v] = savedEnv[v];
+    if (savedEnv[v] === undefined) {
+      delete process.env[v];
+    } else {
+      process.env[v] = savedEnv[v];
+    }
   }
 });
 

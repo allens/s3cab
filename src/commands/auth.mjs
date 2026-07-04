@@ -121,7 +121,9 @@ async function describeScope(scope) {
  */
 async function warnIfUnknownProfile(name) {
   const profiles = await listProfiles();
-  if (!profiles || profiles.includes(name)) return;
+  if (!profiles || profiles.includes(name)) {
+    return;
+  }
   const available = profiles.length
     ? `Profiles found in your AWS config: ${profiles.join(", ")}.`
     : `No profiles are configured in your AWS config.`;

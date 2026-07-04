@@ -31,7 +31,9 @@ mock.module("./s3.mjs", {
   exports: {
     createS3ReadStream: () => Readable.from(streamedBytes),
     listObjects: async function* () {
-      for (const object of listedObjects) yield object;
+      for (const object of listedObjects) {
+        yield object;
+      }
     },
     putFile: async () => true,
   },
@@ -55,7 +57,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (!(key in savedEnv)) delete process.env[key];
+    if (!(key in savedEnv)) {
+      delete process.env[key];
+    }
   }
   Object.assign(process.env, savedEnv);
 });
@@ -150,7 +154,9 @@ describe("listObjectHashes", () => {
       { Key: "objects/bbb" },
     ];
     const out = [];
-    for await (const hash of listObjectHashes("my-bucket")) out.push(hash);
+    for await (const hash of listObjectHashes("my-bucket")) {
+      out.push(hash);
+    }
     assert.deepEqual(out, ["aaa", "bbb"]);
   });
 });

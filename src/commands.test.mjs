@@ -28,18 +28,20 @@ describe("commands registry", () => {
           `${name}.${key} description`,
         );
         assert.ok(arg.description.length > 0, `${name}.${key} description`);
-        if (arg.required !== undefined)
+        if (arg.required !== undefined) {
           assert.equal(
             typeof arg.required,
             "boolean",
             `${name}.${key} required`,
           );
-        if (arg.variadic !== undefined)
+        }
+        if (arg.variadic !== undefined) {
           assert.equal(
             typeof arg.variadic,
             "boolean",
             `${name}.${key} variadic`,
           );
+        }
       }
     }
   });

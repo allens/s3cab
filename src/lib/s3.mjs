@@ -12,7 +12,6 @@ import { Upload } from "@aws-sdk/lib-storage";
 import assert from "node:assert";
 import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { clearLine, cursorTo } from "node:readline";
 import { PassThrough, Readable } from "node:stream";
 import {
   accessDeniedError,
@@ -28,6 +27,7 @@ import {
   resolveCredentials,
 } from "./auth.mjs";
 import { formatByteValue } from "./format.mjs";
+import { createProgress } from "./progress.mjs";
 import { isInteractive } from "./style.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
@@ -73,8 +73,12 @@ export function authNotice({ profile, endpoint }) {
   if (profile && endpoint) {
     return `Using AWS profile: ${profile}, endpoint: ${endpoint}`;
   }
-  if (profile) return `Using AWS profile: ${profile}`;
-  if (endpoint) return `Using S3 endpoint: ${endpoint}`;
+  if (profile) {
+    return `Using AWS profile: ${profile}`;
+  }
+  if (endpoint) {
+    return `Using S3 endpoint: ${endpoint}`;
+  }
   return "Contacting the cloud…";
 }
 
@@ -142,7 +146,9 @@ function client() {
     "S3 operation reached before env was loaded — loadEnv() runs at the CLI " +
       "entry point; a direct caller (test/library) must call it first.",
   );
-  if (_client) return _client;
+  if (_client) {
+    return _client;
+  }
   // Confirm which identity/endpoint we're about to use (or at minimum that the
   // cloud is about to be touched) — printed here (not per op) so it fires
   // exactly once, on the first S3 touch, and never for the offline commands
@@ -306,22 +312,6 @@ export const formatUploadProgress = ({
   return { message: `${bar} s3://${Bucket}/${Key}: uploaded ${sizes} `, fill };
 };
 
-/** @param {import("@aws-sdk/lib-storage").Progress} progress */
-const httpUploadProgressHandler = (progress) => {
-  // The in-place bar is animation: interactive terminals only (lib/style.mjs).
-  // Non-interactive runs get one summary line per file from putFile instead,
-  // so redirected/CI logs carry no cursor escape codes.
-  if (!isInteractive(process.stderr)) return;
-
-  const { message, fill } = formatUploadProgress(progress);
-
-  // Progress is not the command's result, so it goes to stderr (stream discipline).
-  clearLine(process.stderr, -1);
-  cursorTo(process.stderr, 0);
-  process.stderr.write(message);
-  cursorTo(process.stderr, fill);
-};
-
 /**
  * The AWS-only PutObject params (`ServerSideEncryption` + `StorageClass`),
  * omitted off-AWS. These are AWS-isms that S3-compatible providers (R2/B2/Spaces)
@@ -401,7 +391,15 @@ export async function putFile(path, uri, options = {}) {
     partSize,
   });
 
-  upload.on("httpUploadProgress", httpUploadProgressHandler);
+  // The in-place byte bar (interactive only; the TTY gate and the closing
+  // newline — drawn only if a bar was — live in lib/progress.mjs). `cursor: fill`
+  // rests the terminal cursor inside the bar. Progress is not the command's
+  // result, so it goes to stderr (stream discipline).
+  using progress = createProgress(process.stderr);
+  upload.on("httpUploadProgress", (event) => {
+    const { message, fill } = formatUploadProgress(event);
+    progress.update(message, { cursor: fill });
+  });
 
   try {
     await upload.done();
@@ -411,19 +409,14 @@ export async function putFile(path, uri, options = {}) {
       Error.isError(error) &&
       error.name === "PreconditionFailed"
     ) {
-      // Close the half-drawn bar; without a TTY no bar was drawn (and the
-      // "already existed" outcome needs no log line).
-      if (isInteractive(process.stderr)) process.stderr.write("\n");
+      // Already present — no upload, no summary line (`using` closes any bar).
       return false;
     } else {
       throw error;
     }
   }
 
-  if (isInteractive(process.stderr)) {
-    // Close off the in-place progress line (which was written to stderr).
-    process.stderr.write("\n");
-  } else {
+  if (!isInteractive(process.stderr)) {
     // No bar was drawn — leave one summary line as the log evidence.
     console.warn(`Uploaded ${uri} (${formatByteValue(size)})`);
   }
@@ -575,7 +568,9 @@ export async function deleteObject(uri) {
  */
 export async function emptyBucket(bucketName) {
   for await (const { Key } of listObjects(`s3://${bucketName}`)) {
-    if (!Key) continue;
+    if (!Key) {
+      continue;
+    }
     await client().send(new DeleteObjectCommand({ Bucket: bucketName, Key }));
     // Progress, not a result → stderr.
     console.warn(`Deleted: ${Key}`);

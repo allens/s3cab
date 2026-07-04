@@ -5,18 +5,6 @@ default, `--json` for machines, and the compare-diff/formatting work that feeds 
 graduated to its own file, [human-first-output.md](human-first-output.md); this file keeps
 the surrounding output/UX niceties.
 
-- **Gate progress rendering on a TTY** (clig.dev: no animations when the stream isn't a
-  terminal). No `isTTY` check exists anywhere in `src/`: the upload progress line
-  (`httpUploadProgressHandler` in [s3.mjs](../src/lib/s3.mjs)) uses `readline`
-  `clearLine`/`cursorTo`, which write `^[[1K^[[1G` escape codes even when stderr is
-  redirected (verified), and `restore`'s `\r`-based counter has the same issue. Fix: when
-  `process.stderr.isTTY` is false, fall back to plain line-per-update output (or silence);
-  the same gate is where `NO_COLOR` handling lands when colors arrive
-  ([human-first-output.md](human-first-output.md)). **Bold help headings ride this too**
-  (clig.dev: bold section heads make help scannable; no escape chars when piped): wrap
-  `Usage:`/`Examples:`/`Arguments:`/`Options:` and the top-level group headings in ANSI bold
-  behind the one shared gate — decided 2026-07-03, deliberately bundled here rather than
-  built ad hoc, so the gate is written once.
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say
   "unknown topic" and list the valid ones.
@@ -34,7 +22,7 @@ the surrounding output/UX niceties.
     renders as the symbol (`B`, `kB`, …, `PB`) — *not* the symbol itself (`unit: "kB"` is
     invalid). Decimal SI (matches Finder / pretty-bytes; `Intl` has no binary unit anyway).
     Accepted edge: `999999 → "1,000kB"` (no roll-up to MB) — rare, not worth the extra logic.
-    Live caller: the S3 upload-progress line ([s3.mjs](../src/lib/s3.mjs), `httpUploadProgressHandler`),
+    Live caller: the S3 upload-progress line ([s3.mjs](../src/lib/s3.mjs), `formatUploadProgress`),
     plus the `S3CAB_DEBUG` heap readout.
     - **How the byte progress was lost** (don't repeat it): the upload-progress *plumbing* never
       went away — `@aws-sdk/lib-storage`'s `Upload` + its `httpUploadProgress` event (a plain

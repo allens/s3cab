@@ -117,6 +117,8 @@ function formatDetail(set, snapshots, remote) {
  * @returns {string}
  */
 function indentSnapshots(names) {
-  if (names.length === 0) return "  (none yet)";
+  if (names.length === 0) {
+    return "  (none yet)";
+  }
   return names.map((name) => `  ${name}`).join("\n");
 }

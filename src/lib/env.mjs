@@ -47,7 +47,9 @@ export function parseEnvFile(path) {
   try {
     return parseEnv(readFileSync(path, "utf8"));
   } catch (error) {
-    if (isENOENT(error)) return {};
+    if (isENOENT(error)) {
+      return {};
+    }
     throw error;
   }
 }
@@ -68,9 +70,13 @@ const appliedEnvFiles = new Set();
  * @param {string} path
  */
 function applyEnvLayer(path) {
-  if (appliedEnvFiles.has(path)) return;
+  if (appliedEnvFiles.has(path)) {
+    return;
+  }
   const values = parseEnvFile(path);
-  if (Object.keys(values).length === 0) return;
+  if (Object.keys(values).length === 0) {
+    return;
+  }
   appliedEnvFiles.add(path);
   Object.assign(process.env, values);
 }

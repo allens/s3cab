@@ -48,7 +48,9 @@ export async function listRemoteSnapshots(bucket, set) {
   const prefix = remoteSnapshotsPrefix(set);
   const names = [];
   for await (const { Key } of listObjects(`s3://${bucket}/${prefix}`)) {
-    if (Key) names.push(Key.slice(prefix.length));
+    if (Key) {
+      names.push(Key.slice(prefix.length));
+    }
   }
   return snapshotNames(names);
 }
@@ -73,7 +75,9 @@ export async function listRemoteSnapshots(bucket, set) {
  */
 export async function readLatestRemoteSnapshot(bucket, set) {
   const [name] = await listRemoteSnapshots(bucket, set);
-  if (!name) return { name: undefined, lookup: new Map() };
+  if (!name) {
+    return { name: undefined, lookup: new Map() };
+  }
   const snapshot = await readRemoteSnapshot(bucket, set, name);
   return { name, lookup: snapshot.entries };
 }
@@ -220,7 +224,9 @@ async function readSetReferenced(bucket, set, names) {
  */
 export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   const names = await listRemoteSnapshots(bucket, set);
-  if (names.length === 0) return 0;
+  if (names.length === 0) {
+    return 0;
+  }
 
   await mkdir(snapshotDir, { recursive: true });
   const prefix = remoteSnapshotsPrefix(set);
@@ -257,12 +263,16 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
 export function uploadCandidates(target, remote) {
   /** @type {Set<string>} */
   const have = new Set();
-  for (const { hash } of remote.values()) have.add(hash);
+  for (const { hash } of remote.values()) {
+    have.add(hash);
+  }
 
   /** @type {Set<string>} */
   const candidates = new Set();
   for (const { hash } of target.values()) {
-    if (!have.has(hash)) candidates.add(hash);
+    if (!have.has(hash)) {
+      candidates.add(hash);
+    }
   }
   return candidates;
 }
@@ -324,9 +334,13 @@ export async function uploadSnapshot({
   const present = [];
   for (const hash of candidates) {
     const path = pathByHash.get(hash);
-    if (!path) continue; // unreachable: every candidate came from `target`
+    if (!path) {
+      continue;
+    } // unreachable: every candidate came from `target`
     const didUpload = await putObject(bucket, hash, path);
-    if (didUpload) uploaded++;
+    if (didUpload) {
+      uploaded++;
+    }
     present.push(hash); // exists now (uploaded, or the PUT found it) → cache it
   }
   // Record every object now known present so a later backup skips it. Done
