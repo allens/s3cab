@@ -38,3 +38,31 @@ Design notes:
   a TTY, honouring `NO_COLOR` (see the TTY-gating item in [output-ux.md](output-ux.md)).
 - **`tree`'s stdout is a JSON array** — fine for machines, but a line-per-path mode (like
   `hashes`) suits `s3cab tree > files.txt`. Falls out of the human-output work.
+
+## Implementation starting points (added 2026-07-04 — orientation, not new design)
+
+Where the work lands, for whoever picks this up cold (written right after slice 5, while the
+command shapes are fresh):
+
+- **The one seam is the dispatcher.** [src/s3cab.mjs](../src/s3cab.mjs) ends every command by
+  `JSON.stringify`-ing the returned result to stdout (the `if (result !== undefined)` block).
+  Human-first = commands keep returning structured data, and a **formatter** turns it into text
+  on stdout by default; `--json` restores today's `JSON.stringify` path. A command that prints
+  its own text already returns `undefined` so the dispatcher leaves stdout alone — exactly what
+  [src/commands/list.mjs](../src/commands/list.mjs) does today, the pattern to generalize.
+- **`--json` is a global flag**, handled once in the dispatcher (like `--help`/`--version`), so
+  every command gets it uniformly and the registry needn't repeat it.
+- **Commands returning a value today (all need a formatter):** `snapshot`, `compare`, `status`,
+  `backup`, `restore`, `verify`, `delete`, `cleanup`, `tree`, `prop`. `list` already formats;
+  `hashes`/`upload` are plumbing (line/summary output). The slice-5 trio returns rich objects
+  (`verify` per-set reports, `cleanup` orphan/reclaim counts, `delete` a small record) — easy
+  first candidates.
+- **Keep the JSON serializer intact behind the flag** (ADR-0010: `JSON.stringify` never
+  truncates, one uniform serializer). The formatter is *additive* — it precedes the JSON path,
+  never replaces it.
+- **Suggested first slice:** add the global `--json` flag + the dispatcher fork (formatter vs
+  JSON), then do `compare` (highest value, and it needs the "return structured data, not
+  arrow-microsyntax strings" refactor the notes above call for — the
+  [architecture-improvements.md](architecture-improvements.md) "structured diff" seam). The
+  rest follow one command at a time; a shared `--json` test asserts each command's machine
+  output stays stable.
