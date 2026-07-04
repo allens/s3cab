@@ -225,7 +225,13 @@ export function recordObjects(bucket, hashes) {
  * Atomic (temp file + rename), so a crash never leaves a half-written cache —
  * and the caller must pass the hashes from a **complete** LIST only, never a
  * partial one (a truncated rewrite would drop live entries, re-poisoning what it
- * exists to heal).
+ * exists to heal). A failed write/rename best-effort removes the temp file, like
+ * `getObject`. Building the whole file in memory is deliberate (matching
+ * `recordObjects`): the caller already holds every hash resident — the string is
+ * a smaller second copy of data that must fit anyway. s3cab assumes an ordinary
+ * desktop with no unusual memory limits and uses RAM to its advantage where that
+ * keeps the code simple — a real saving in complexity over streaming here, not
+ * gratuitous.
  * @param {string} bucket
  * @param {Iterable<string>} hashes
  * @returns {Promise<void>}
@@ -235,6 +241,12 @@ export async function writeObjectsCache(bucket, hashes) {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.s3cab-tmp`;
   const text = [...hashes].map((hash) => hash + "\n").join("");
-  await writeFile(tmpPath, text);
-  await rename(tmpPath, path);
+  try {
+    await writeFile(tmpPath, text);
+    await rename(tmpPath, path);
+  } catch (error) {
+    // Never leave the partial temp file behind (best-effort).
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }

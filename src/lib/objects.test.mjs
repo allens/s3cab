@@ -130,6 +130,22 @@ describe("objects cache", () => {
     assert.ok(!existsSync(objectsCachePath("my-bucket") + ".s3cab-tmp"));
   });
 
+  it("writeObjectsCache cleans up the temp file when the write fails", async () => {
+    await using dir = await mkTmpDir();
+    const home = useTempHome(dir.path);
+    // Make the rename fail: a directory sits where the cache file should go, so
+    // the temp write succeeds but rename-over-a-directory throws.
+    const cachePath = objectsCachePath("my-bucket");
+    mkdirSync(join(home, ".s3cab"), { recursive: true });
+    mkdirSync(cachePath, { recursive: true });
+
+    await assert.rejects(() => writeObjectsCache("my-bucket", ["h1"]));
+    assert.ok(
+      !existsSync(cachePath + ".s3cab-tmp"),
+      "the temp file must be cleaned up on failure",
+    );
+  });
+
   it("places the cache at ~/.s3cab/objects.<bucket>", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
