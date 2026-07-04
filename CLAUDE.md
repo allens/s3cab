@@ -413,11 +413,12 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **`verify` flow not built yet** — design + the five-slice implementation plan are settled in
-  [docs/design/backup.md](docs/design/backup.md); slices 1–4 are built (status detail there,
-  not re-narrated here). Remaining: `verify` is still an inline registry stub — promote it to
-  its own `src/commands/` file as it gains a body (rest of slice 5); and `upload` still owes
-  its **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
+- **Slice 5 admin pair — `delete`/`cleanup` not built yet** — design + the five-slice plan are
+  settled in [docs/design/backup.md](docs/design/backup.md); slices 1–4 and slice-5 `verify` are
+  built (status detail there, not re-narrated here). Remaining slice-5 work: `delete` (remove one
+  remote snapshot, y/N confirm) and `cleanup` (`<bucket>` operand, dry-run default, single-pass
+  `--delete`, 7-day grace window, damage interlock, local cache rewrite). Separately, `upload`
+  still owes its **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
   *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
   `backup`'s upload-set diff; see the TODO in
   [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A

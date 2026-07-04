@@ -64,7 +64,7 @@ ADR as a live constraint.
 - [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 - [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide
-- [0042](0042-verify-set-scoped-all-sets-default.md) — `verify` is set-scoped, variadic, defaults to all sets; rewrites the objects cache
+- [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set; rewrites the objects cache
 
 ### Build, release & tooling
 

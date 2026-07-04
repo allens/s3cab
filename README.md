@@ -16,8 +16,9 @@ job s3cab is built around. Restoring an _entire_ dataset after a disaster works 
 the rare backstop — the day-to-day use is recovering one file, or one old version.
 
 > ⚠️ **Pre-release, under active development.** Snapshotting, comparing, backing up to S3,
-> and restoring all work today; `verify` is the one command still to come — see
-> [Status](#status). Expect things to change.
+> restoring, and verifying a backup all work today; the maintenance commands that _remove_
+> old backups (`delete`/`cleanup`) are still to come — see [Status](#status). Expect things
+> to change.
 
 ## Why s3cab?
 
@@ -62,6 +63,7 @@ them back**. You create a set once, then the commands act on it:
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
 | `s3cab restore <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
+| `s3cab verify <bucket>`       | Check a repository's backups are complete and undamaged — every referenced file is stored, at the right size (findings reported per set). |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
 
@@ -88,16 +90,20 @@ and `upload`, also work already — advanced building blocks covered under
 
 ### Coming next
 
-Backing up and restoring already work (see [Status](#status)); this remaining command is
-**not yet functional** (it exits with a "not yet implemented" message):
+Every everyday command — snapshot, compare, backup, restore, and now **verify** — works
+today (see [Status](#status)). Still to come are the maintenance commands that _remove_ old
+backups, so a backup history doesn't grow forever:
 
-| Command                | Will do                                        |
-| ---------------------- | ---------------------------------------------- |
-| `s3cab verify [<set>]` | Check that a backup is complete and undamaged. |
+| Command                          | Will do                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `s3cab delete <set> --snapshot`  | Remove a single snapshot from the cloud (the retention primitive).      |
+| `s3cab cleanup <bucket>`         | Reclaim storage held by objects no snapshot references (garbage collect). |
 
-(`list --remote` and `restore --output` already work. `compare` is local-only by design —
-adopting a set on a new machine pulls its snapshot history down, so a plain local `compare`
-covers the cloud copy too.)
+They're designed (see [docs/design/backup.md](docs/design/backup.md)) but not yet in the CLI.
+
+(`list --remote`, `restore --output`, and `verify` already work. `compare` is local-only by
+design — adopting a set on a new machine pulls its snapshot history down, so a plain local
+`compare` covers the cloud copy too.)
 
 ### Cloud repositories
 
