@@ -114,9 +114,10 @@ export const isENOENT = (error) =>
   /** @type {NodeJS.ErrnoException} */ (error)?.code === "ENOENT";
 
 /**
- * Throw the standard "not built yet" error for a stub command in the registry,
- * keeping the message in one place. Today `verify` is the sole caller — the last
- * unbuilt slice (docs/design/backup.md).
+ * Throw the standard "not built yet" error for a `planned` stub command in the
+ * registry, keeping the message in one place. No command uses it right now (the
+ * last stub, `verify`, is built) — kept as the convention's factory for the next
+ * scaffolded-but-unbuilt command, and exercised by error.test.mjs.
  * @param {string} name - The unbuilt feature, e.g. `verify`
  * @returns {never}
  */

@@ -12,7 +12,7 @@ import { status } from "./commands/status.mjs";
 import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
-import { notImplemented } from "./lib/error.mjs";
+import { verify } from "./commands/verify.mjs";
 
 /** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
@@ -299,7 +299,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       setup(name, directories, options),
   },
 
-  // ── Backup & restore (docs/design/backup.md) — verify still to come ─────
+  // ── Backup & restore (docs/design/backup.md) ───────────────────────────
   backup: {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",
@@ -356,12 +356,15 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     exec: (options, [set, ...paths] = []) => restore(set, paths, options),
   },
   verify: {
-    summary: "Check that a backup is complete and undamaged",
-    planned: true,
+    summary: "Check that a repository's backups are complete and undamaged",
+    examples: ["s3cab verify my-backups"],
     args: {
-      set: { description: "The backup set to check (default: the only set)" },
+      bucket: {
+        required: true,
+        description: "The repository's S3 bucket to check",
+      },
     },
-    exec: () => notImplemented("verify"),
+    exec: (_options, [bucket] = []) => verify(bucket),
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────

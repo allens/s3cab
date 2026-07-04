@@ -4,13 +4,14 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { loadEnv } from "./env.mjs";
-import { deleteObject, listObjects } from "./s3.mjs";
+import { deleteObject, listObjects, putData } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import {
   downloadRemoteSnapshots,
   listRemoteSnapshots,
   readLatestRemoteSnapshot,
+  referencedObjects,
   remoteSnapshotsPrefix,
   uploadCandidates,
   uploadSnapshot,
@@ -187,6 +188,68 @@ describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
       );
+    }
+  });
+});
+
+describe("referencedObjects (real bucket)", { skip }, () => {
+  it("unions a set's snapshot hashes and flags an unreadable snapshot", async () => {
+    await using dir = await mkTmpDir();
+    // useTempHome isolates the objects cache uploadSnapshot writes; AWS
+    // credentials therefore come from the environment (see uploadSnapshot test).
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const set = `ref-${Date.now()}`;
+    const name = "2025-03-10T0800";
+
+    const contentDir = resolve(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const fileA = join(contentDir, "a.txt");
+    writeFileSync(fileA, `refobj ${set}`);
+
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    await writeSnapshot(snapshotDir, name, [fileA]);
+    const { entries } = await readSnapshot(snapshotDir, name);
+    const [props] = [...entries.values()];
+    assert.ok(props, "the seeded snapshot has one entry");
+    const { hash, size } = props;
+    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
+
+    // A second, garbage snapshot object under a valid-looking name: it lists but
+    // fails to decompress, so it must be recorded unreadable (not abort the run).
+    const badName = "2025-03-10T0900";
+    const badKey = `${remoteSnapshotsPrefix(set)}${badName}.tsv.zst`;
+
+    try {
+      await uploadSnapshot({ bucket, set, snapshotDir, name });
+      await putData(`s3://${bucket}/${badKey}`, "not a zstd stream");
+
+      // Bucket-wide, grouped by set: pick out the set this test wrote (the shared
+      // test bucket may hold other sets from concurrent runs).
+      const bySet = await referencedObjects(bucket);
+      const result = bySet.get(set);
+      assert.ok(result, "the test's set is present in the enumeration");
+      const { referenced, snapshotsChecked, unreadable } = result;
+
+      assert.equal(snapshotsChecked, 1);
+      assert.deepEqual(
+        unreadable.map((u) => u.snapshot),
+        [badName],
+      );
+      const entry = referenced.get(hash);
+      assert.ok(entry, "the referenced hash is present");
+      assert.deepEqual([...entry.sizes], [size]);
+      assert.deepEqual([...entry.snapshots], [name]);
+      assert.ok(entry.examplePath.endsWith("a.txt"));
+    } finally {
+      for (const h of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${h}`);
+      }
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+      );
+      await deleteObject(`s3://${bucket}/${badKey}`);
     }
   });
 });

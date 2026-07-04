@@ -25,14 +25,14 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // only because objects.mjs imports them (a mock module exports exactly these) —
 // no test in this file calls them.
 let streamedBytes = Buffer.alloc(0);
-/** @type {string[]} */
-let listedKeys = [];
+/** @type {import("@aws-sdk/client-s3")._Object[]} */
+let listedObjects = [];
 mock.module("./s3.mjs", {
   exports: {
     createS3ReadStream: () => Readable.from(streamedBytes),
     listObjects: async function* () {
-      for (const Key of listedKeys) {
-        yield { Key };
+      for (const object of listedObjects) {
+        yield object;
       }
     },
     putFile: async () => true,
@@ -42,8 +42,10 @@ const {
   getObject,
   knownObjects,
   listObjectHashes,
+  listStoredObjects,
   objectsCachePath,
   recordObjects,
+  writeObjectsCache,
 } = await import("./objects.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -111,6 +113,39 @@ describe("objects cache", () => {
     assert.deepEqual(knownObjects("my-bucket"), new Set());
   });
 
+  it("writeObjectsCache replaces the cache, shrinking it", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    // A rewrite (verify's heal path) must drop entries an append never would —
+    // the cached-but-absent poison the cache rewrite exists to cure.
+    recordObjects("my-bucket", ["h1", "h2", "stale"]);
+    await writeObjectsCache("my-bucket", ["h1", "h2"]);
+    assert.deepEqual(knownObjects("my-bucket"), new Set(["h1", "h2"]));
+  });
+
+  it("writeObjectsCache leaves no temp file behind", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    await writeObjectsCache("my-bucket", ["h1"]);
+    assert.ok(!existsSync(objectsCachePath("my-bucket") + ".s3cab-tmp"));
+  });
+
+  it("writeObjectsCache cleans up the temp file when the write fails", async () => {
+    await using dir = await mkTmpDir();
+    const home = useTempHome(dir.path);
+    // Make the rename fail: a directory sits where the cache file should go, so
+    // the temp write succeeds but rename-over-a-directory throws.
+    const cachePath = objectsCachePath("my-bucket");
+    mkdirSync(join(home, ".s3cab"), { recursive: true });
+    mkdirSync(cachePath, { recursive: true });
+
+    await assert.rejects(() => writeObjectsCache("my-bucket", ["h1"]));
+    assert.ok(
+      !existsSync(cachePath + ".s3cab-tmp"),
+      "the temp file must be cleaned up on failure",
+    );
+  });
+
   it("places the cache at ~/.s3cab/objects.<bucket>", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
@@ -129,12 +164,43 @@ describe("listObjectHashes", () => {
   it("strips the objects/ prefix and skips a zero-byte folder marker", async () => {
     // `objects/` is the console-created folder-marker key; it must not surface
     // as an empty hash (a blank line / blank cache entry).
-    listedKeys = ["objects/", "objects/aaa", "objects/bbb"];
+    listedObjects = [
+      { Key: "objects/" },
+      { Key: "objects/aaa" },
+      { Key: "objects/bbb" },
+    ];
     const out = [];
     for await (const hash of listObjectHashes("my-bucket")) {
       out.push(hash);
     }
     assert.deepEqual(out, ["aaa", "bbb"]);
+  });
+});
+
+describe("listStoredObjects", () => {
+  it("yields each object's hash and LIST size, skipping the folder marker", async () => {
+    listedObjects = [
+      { Key: "objects/", Size: 0 },
+      { Key: "objects/aaa", Size: 10 },
+      { Key: "objects/bbb", Size: 2048 },
+    ];
+    const out = [];
+    for await (const object of listStoredObjects("my-bucket")) {
+      out.push(object);
+    }
+    assert.deepEqual(out, [
+      { hash: "aaa", size: 10 },
+      { hash: "bbb", size: 2048 },
+    ]);
+  });
+
+  it("defaults a missing Size to 0", async () => {
+    listedObjects = [{ Key: "objects/aaa" }];
+    const out = [];
+    for await (const object of listStoredObjects("my-bucket")) {
+      out.push(object);
+    }
+    assert.deepEqual(out, [{ hash: "aaa", size: 0 }]);
   });
 });
 
