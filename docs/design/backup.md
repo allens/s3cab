@@ -20,10 +20,14 @@ added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and ma
 succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --output`
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
-Slice 5's **`verify` is now built** (`src/commands/verify.mjs` over `referencedObjects` in
+**Slice 5 is complete** — `verify` (`src/commands/verify.mjs` over `referencedObjects` in
 `remote.mjs`, `listStoredObjects`/`writeObjectsCache` in `objects.mjs`, and the pure diff in
-`src/lib/verify.mjs`); remaining target: the rest of slice 5 (`delete`/`cleanup`).
-(`compare --remote` was *dropped*,
+`src/lib/verify.mjs`), `delete` (`src/commands/delete.mjs` over `deleteRemoteSnapshot`, with
+`src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
+`deleteStoredObject`, reusing `verifySet` for the damage side and the same enumerations as
+`verify` for the opposite `stored − referenced` difference). Remaining are the
+versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
+(both deferred, tracked in "Open items"). (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
 stays local-only, and `setup --inherit` instead syncs the set's manifests down so local
 `compare` works on a fresh machine.)
@@ -228,7 +232,7 @@ positional `paths…` filter what is restored. Restored files get their snapshot
 under `output\<root-basename>\` — shallow and human-readable. Two roots sharing a
 basename is detected up front and errors with guidance (rare, actionable).
 
-### `delete` — remove one remote snapshot
+### `delete` — remove one remote snapshot (**built**)
 
 `s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
 *primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
@@ -400,7 +404,7 @@ s3cab. (*Referenced* is a lib function only, **not** a plumbing command — deci
 `cleanup`, are internal. A CLI face is one registry entry away the day someone wants the
 stream.)
 
-### `cleanup` (object garbage collection) — settled 2026-07-03
+### `cleanup` (object garbage collection) — settled 2026-07-03 (**built**)
 
 `cleanup <bucket>` deletes orphaned objects. It is deliberately heavy (reads every
 snapshot, lists all of `objects/`) and deliberately rare — the everyday commands never
@@ -616,11 +620,13 @@ manifest sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair
 
-`verify` (completeness + size cross-check, `<bucket>` operand, [ADR-0042](../adr/0042-verify-bucket-operand.md))
-— **built**; then `delete` (snapshot removal, y/N confirm), `cleanup` (`<bucket>` operand, dry-run
-default, single-pass `--delete` + y/N, 7-day grace window, damage interlock, local
-cache rewrite, the documented race warnings), and the versioning/ransomware +
-encryption-non-goal doc notes.
+All three admin commands are **built**: `verify` (completeness + size cross-check, `<bucket>`
+operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `delete` (snapshot removal,
+TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, dry-run default, single-pass
+`--delete` + y/N, 7-day grace window, damage interlock, local cache rewrite, the documented
+race warnings). The encryption-non-goal note is done (in the format spec); the
+versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
+remain (deferred — see "Open items").
 
 **Why this order:** slices 1–2 keep the tool fully working locally at every point;
 3 delivers the README's promise; 4 makes it trustworthy (a backup you can't restore

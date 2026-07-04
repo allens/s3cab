@@ -413,11 +413,16 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **Slice 5 admin pair — `delete`/`cleanup` not built yet** — design + the five-slice plan are
-  settled in [docs/design/backup.md](docs/design/backup.md); slices 1–4 and slice-5 `verify` are
-  built (status detail there, not re-narrated here). Remaining slice-5 work: `delete` (remove one
-  remote snapshot, y/N confirm) and `cleanup` (`<bucket>` operand, dry-run default, single-pass
-  `--delete`, 7-day grace window, damage interlock, local cache rewrite). Separately, `upload`
+- **Backup/restore/admin all built — retention policy + two doc notes remain** — the
+  five-slice plan in [docs/design/backup.md](docs/design/backup.md) is **complete**: slices 1–4
+  plus slice-5's `verify`/`delete`/`cleanup` are built (status detail there, not re-narrated
+  here). Still open from slice 5: **retention-policy automation** (keep-last/daily/weekly/monthly
+  on top of `delete`/`cleanup` — deferred until real usage shows the shapes), the
+  **versioning/ransomware user-doc note**, and the **everyday-vs-elevated delete-rights policy
+  split** — the design wants everyday backup creds to *lack* delete rights (cleanup runs
+  elevated), but `bucketPolicy` in [src/lib/s3.mjs](src/lib/s3.mjs) currently grants
+  `s3:DeleteObject` to the everyday identity (soft-delete only, ADR-0033), which is also what
+  lets `delete` run under per-set creds; reconcile via the `aws` policy helper. Separately, `upload`
   still owes its **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
   *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
   `backup`'s upload-set diff; see the TODO in
