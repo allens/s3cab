@@ -27,7 +27,11 @@ export async function promptYesNo(
   { input = process.stdin, output = process.stderr } = {},
 ) {
   output.write(`${question} [y/N] `);
-  const rl = createInterface({ input });
+  // `terminal: false` keeps readline in cooked mode: it never echoes or writes to
+  // any stream itself (the terminal handles the visible keystroke echo natively),
+  // so stdout stays data-only even on a TTY — we've already written the prompt to
+  // `output` (stderr) above.
+  const rl = createInterface({ input, terminal: false });
   try {
     // The line iterator resolves on the first line *or completes on EOF* (a
     // closed stdin), where `rl.question` would hang waiting for input that never

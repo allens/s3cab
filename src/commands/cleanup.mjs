@@ -103,11 +103,25 @@ export async function cleanup(bucket, options = {}) {
       referencedAll.add(hash);
     }
   }
-  const missing = reports.reduce((n, r) => n + r.missingObjects.length, 0);
-  const damaged = reports.reduce(
-    (n, r) => n + r.conflictingRows.length + r.sizeMismatches.length,
-    0,
-  );
+  // Count distinct *hashes*, not per-set findings: an object missing (or damaged)
+  // that several sets reference must count once, or the reported number lies.
+  /** @type {Set<string>} */
+  const missingHashes = new Set();
+  /** @type {Set<string>} */
+  const damagedHashes = new Set();
+  for (const report of reports) {
+    for (const f of report.missingObjects) {
+      missingHashes.add(f.hash);
+    }
+    for (const f of report.conflictingRows) {
+      damagedHashes.add(f.hash);
+    }
+    for (const f of report.sizeMismatches) {
+      damagedHashes.add(f.hash);
+    }
+  }
+  const missing = missingHashes.size;
+  const damaged = damagedHashes.size;
   if (damaged > 0) {
     // Not an orphanhood concern (that's hash-level) — just flag it and point at verify.
     console.warn(

@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
+/** @import { ReferencedResult } from "../lib/verify.mjs" */
+
 // Offline tests for `cleanup`: the S3 reads/writes (referencedObjects,
 // listStoredObjects, deleteStoredObject, writeObjectsCache) and the prompt are
 // faked at the lib seam; the object ages are staged as Dates so the 7-day grace
 // window is exercised without waiting. verifySet (the reused damage diff) runs
 // for real — it's pure. Mocks first, then a dynamic import.
 
-/** @type {Map<string, import("../lib/verify.mjs").ReferencedResult>} */
+/** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
 /** @type {{ hash: string, size: number, lastModified?: Date }[]} */
 let storedObjects = [];
@@ -136,6 +138,17 @@ describe("cleanup command", () => {
     const [firstWrite] = cacheWrites;
     assert.ok(firstWrite);
     assert.deepEqual(firstWrite.sort(), ["kept", "new-orphan"]);
+  });
+
+  it("counts a missing hash referenced by several sets once", async () => {
+    // The same object referenced-but-absent in two sets is one missing object,
+    // not two — the report counts distinct hashes.
+    referencedBySet.set("photos", ref(["shared-missing"]));
+    referencedBySet.set("docs", ref(["shared-missing"]));
+    storedObjects = []; // referenced by both sets, stored by neither
+
+    const result = await cleanup("b");
+    assert.equal(result.missingObjects, 1);
   });
 
   it("--delete refuses when referenced objects are missing", async () => {
