@@ -5,7 +5,7 @@ import {
   mkdirSync,
   readFileSync,
 } from "node:fs";
-import { rename, unlink } from "node:fs/promises";
+import { rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -112,21 +112,38 @@ export async function getObject(bucket, hash, destPath) {
 }
 
 /**
+ * Yield every stored object as `{ hash, size }` — the bare SHA-256 of each key
+ * under `objects/` (prefix stripped) with its LIST `Size`. The one enumeration
+ * of the object store, from which both the hash-only listing (`listObjectHashes`)
+ * and `verify`'s size cross-check draw: a LIST already returns each key *and* its
+ * size, so `verify` gets sizes for free, with no per-object HEAD (docs/design/backup.md).
+ * @param {string} bucket - The repository's S3 bucket
+ * @yields {{ hash: string, size: number }} An object's hash and stored size
+ * @returns {AsyncGenerator<{ hash: string, size: number }>}
+ */
+export async function* listStoredObjects(bucket) {
+  for await (const { Key, Size } of listObjects(
+    `s3://${bucket}/${OBJECTS_PREFIX}`,
+  )) {
+    // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
+    // would otherwise slice to an empty hash — a blank line from `hashes`, a
+    // blank cache entry.
+    const hash = Key?.slice(OBJECTS_PREFIX.length);
+    if (hash) yield { hash, size: Size ?? 0 };
+  }
+}
+
+/**
  * Yield every stored object's hash — the bare SHA-256 of each key under
  * `objects/`, with the prefix stripped. The store's listing, behind which the
- * `hashes` plumbing command and the per-bucket cache seed both sit.
+ * `hashes` plumbing command and the per-bucket cache seed both sit. A thin
+ * hash-only view of {@link listStoredObjects} (callers that don't need sizes).
  * @param {string} bucket - The repository's S3 bucket
  * @yields {string} An object hash
  * @returns {AsyncGenerator<string>}
  */
 export async function* listObjectHashes(bucket) {
-  for await (const { Key } of listObjects(`s3://${bucket}/${OBJECTS_PREFIX}`)) {
-    // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
-    // would otherwise slice to an empty hash — a blank line from `hashes`, a
-    // blank cache entry.
-    const hash = Key?.slice(OBJECTS_PREFIX.length);
-    if (hash) yield hash;
-  }
+  for await (const { hash } of listStoredObjects(bucket)) yield hash;
 }
 
 /**
@@ -186,4 +203,30 @@ export function recordObjects(bucket, hashes) {
   const path = objectsCachePath(bucket);
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, text);
+}
+
+/**
+ * **Replace** the per-bucket objects cache with exactly these hashes — the one
+ * write that *shrinks* the cache, where `recordObjects` only ever appends. Used
+ * by `verify` (and, later, `cleanup`) to rewrite the cache from a completed
+ * `objects/` LIST it has already paid for: the LIST is authoritative ground
+ * truth, so this both warms the next backup and **heals a poisoned cache** — a
+ * cached-but-absent entry, the one local fault that silently makes a later
+ * backup skip a needed upload (docs/design/backup.md, [ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)).
+ *
+ * Atomic (temp file + rename), so a crash never leaves a half-written cache —
+ * and the caller must pass the hashes from a **complete** LIST only, never a
+ * partial one (a truncated rewrite would drop live entries, re-poisoning what it
+ * exists to heal).
+ * @param {string} bucket
+ * @param {Iterable<string>} hashes
+ * @returns {Promise<void>}
+ */
+export async function writeObjectsCache(bucket, hashes) {
+  const path = objectsCachePath(bucket);
+  mkdirSync(dirname(path), { recursive: true });
+  const tmpPath = `${path}.s3cab-tmp`;
+  const text = [...hashes].map((hash) => hash + "\n").join("");
+  await writeFile(tmpPath, text);
+  await rename(tmpPath, path);
 }

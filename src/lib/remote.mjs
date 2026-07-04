@@ -10,8 +10,10 @@ import {
   readSnapshot,
   snapshotNames,
 } from "./snapshot-file.mjs";
+import { isCorruptSnapshotError } from "./verify.mjs";
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
+/** @import { ReferencedResult } from "./verify.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (docs/design/backup.md): a
 // set's snapshots live under `snapshots/<set>/<name>.tsv.zst`, keyed by the set's
@@ -93,6 +95,106 @@ export async function readRemoteSnapshot(bucket, set, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
   const input = createS3ReadStream(uri).pipe(createZstdDecompress());
   return parseSnapshotStream(input);
+}
+
+/**
+ * Enumerate a **bucket's** referenced objects, grouped by set — for each set
+ * with snapshots under `snapshots/`, the union of object hashes across its
+ * snapshots, each carrying the size(s) and snapshot(s) that reference it and one
+ * example path. `verify`'s first input (its other is the bucket's stored
+ * objects). The operand is the **bucket**, symmetric with `cleanup`
+ * ([ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)): one repository is
+ * checked in one run under one credential. A lib function with no plumbing
+ * command of its own (hand recovery already reads the hashes straight out of the
+ * snapshot files with `zstdcat` + `cut`). The per-set grouping is what lets
+ * `verify` report findings against the set they belong to.
+ *
+ * The `snapshots/` **LIST** is an ordinary request — a failure aborts. Reading
+ * each snapshot body is where damage shows up: a decompress/parse failure
+ * (`isCorruptSnapshotError`) is recorded as an **unreadable** finding under its
+ * set and the run continues (dying on the first would hide the rest); any other
+ * error — an operational S3/credential failure — is rethrown. A hash recorded
+ * with different sizes across rows is not resolved here: both sizes are kept
+ * (`sizes` is a Set), leaving `verifySet` to flag the conflict.
+ *
+ * The caller must invoke this **before** LISTing `objects/` (the ordering
+ * invariant): in that order a backup finishing mid-run only adds unreferenced
+ * objects (a benign orphan bump), where the reverse would report its
+ * freshly-uploaded objects as missing (docs/design/backup.md).
+ * @param {string} bucket - The repository's S3 bucket
+ * @returns {Promise<Map<string, ReferencedResult>>} referenced enumeration per set name
+ */
+export async function referencedObjects(bucket) {
+  // Group every snapshot key under `snapshots/` by its set — the path segment
+  // after the prefix (`snapshots/<set>/<name>.tsv.zst`). The set name is a canonical
+  // `[a-z0-9-]+` segment (ADR-0024), so this split is unambiguous.
+  /** @type {Map<string, string[]>} */
+  const filesBySet = new Map();
+  for await (const { Key } of listObjects(`s3://${bucket}/${SNAPSHOTS_PREFIX}`)) {
+    if (!Key) continue;
+    const rest = Key.slice(SNAPSHOTS_PREFIX.length);
+    const slash = rest.indexOf("/");
+    if (slash <= 0) continue; // the `snapshots/` folder marker, or a stray key
+    const set = rest.slice(0, slash);
+    const file = rest.slice(slash + 1);
+    if (!file) continue; // a `snapshots/<set>/` folder marker
+    let files = filesBySet.get(set);
+    if (!files) filesBySet.set(set, (files = []));
+    files.push(file);
+  }
+
+  /** @type {Map<string, ReferencedResult>} */
+  const bySet = new Map();
+  for (const [set, files] of filesBySet) {
+    const names = snapshotNames(files); // valid snapshot names, newest first
+    if (names.length === 0) continue; // a set folder with no real snapshots
+    bySet.set(set, await readSetReferenced(bucket, set, names));
+  }
+  return bySet;
+}
+
+/**
+ * Accumulate one set's referenced objects from its snapshot `names` — the
+ * per-set inner loop of {@link referencedObjects}. An unreadable snapshot
+ * (`isCorruptSnapshotError`) becomes a finding and the loop continues; any other
+ * error is rethrown (aborts). Module-private: only `referencedObjects` calls it.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
+ * @param {string[]} names - The set's snapshot names, newest first
+ * @returns {Promise<ReferencedResult>}
+ */
+async function readSetReferenced(bucket, set, names) {
+  /** @type {ReferencedResult["referenced"]} */
+  const referenced = new Map();
+  /** @type {ReferencedResult["unreadable"]} */
+  const unreadable = [];
+  let snapshotsChecked = 0;
+
+  for (const name of names) {
+    /** @type {Snapshot} */
+    let snapshot;
+    try {
+      snapshot = await readRemoteSnapshot(bucket, set, name);
+    } catch (error) {
+      if (!isCorruptSnapshotError(error)) throw error;
+      const reason = Error.isError(error) ? error.message : String(error);
+      unreadable.push({ snapshot: name, reason });
+      continue;
+    }
+    snapshotsChecked++;
+
+    for (const [path, { hash, size }] of snapshot.entries) {
+      let entry = referenced.get(hash);
+      if (!entry) {
+        entry = { sizes: new Set(), snapshots: new Set(), examplePath: path };
+        referenced.set(hash, entry);
+      }
+      entry.sizes.add(size);
+      entry.snapshots.add(name);
+    }
+  }
+
+  return { referenced, snapshotsChecked, unreadable };
 }
 
 /**

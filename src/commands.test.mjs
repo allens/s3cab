@@ -44,11 +44,14 @@ describe("commands registry", () => {
     }
   });
 
-  it("planned stubs throw the shared not-implemented error", () => {
-    const planned = Object.entries(commands).filter(([, c]) => c.planned);
-
-    assert.ok(planned.length > 0, "expected some planned stubs pre-milestone");
-    for (const [name, command] of planned) {
+  it("any planned stub throws the shared not-implemented error", () => {
+    // The registry has no planned stubs today (verify was the last, now built),
+    // but the convention stands: a `planned` command must throw `notImplemented`
+    // so help can render it "(not yet available)" and running it fails cleanly.
+    // (The rendering itself is covered by help.test.mjs's fixture; the
+    // notImplemented factory by error.test.mjs.)
+    for (const [name, command] of Object.entries(commands)) {
+      if (!command.planned) continue;
       assert.throws(
         () => command.exec({}, []),
         /Not yet implemented/,

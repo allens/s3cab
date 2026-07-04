@@ -136,6 +136,30 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /bucket: my-bucket/);
   });
 
+  it("verify is a real command (no longer a planned stub)", () => {
+    // verify was the last registry stub; --help must now render its usage, not
+    // the "(not yet available)" marker.
+    const { status, stdout } = run("verify", "--help");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Usage: s3cab verify/);
+    assert.match(stdout, /<bucket>/); // the bucket operand (ADR-0042)
+    assert.doesNotMatch(stdout, /not yet available/);
+  });
+
+  it("verify without a bucket is a usage error, before any S3 touch", async () => {
+    // verify's operand is the bucket (ADR-0042); omitting it must fail fast with
+    // the missing-argument usage error (exit 2), never reaching S3.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(home, "verify");
+
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /Missing required argument: <bucket>/);
+  });
+
   it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
     // Creating a set now requires a bucket and touches S3 (the collision claim,
     // ADR-0024/0026); the full create → backup → list cloud round-trip is
