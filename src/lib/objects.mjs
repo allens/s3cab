@@ -11,7 +11,12 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { isENOENT } from "./error.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
-import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
+import {
+  createS3ReadStream,
+  deleteObject,
+  listObjects,
+  putFile,
+} from "./s3.mjs";
 
 // The content-addressed object store: the `objects/<sha256>` half of an s3cab
 // repository's fixed layout (design #1, docs/design/backup.md). Every file's content
@@ -112,17 +117,21 @@ export async function getObject(bucket, hash, destPath) {
 }
 
 /**
- * Yield every stored object as `{ hash, size }` — the bare SHA-256 of each key
- * under `objects/` (prefix stripped) with its LIST `Size`. The one enumeration
- * of the object store, from which both the hash-only listing (`listObjectHashes`)
- * and `verify`'s size cross-check draw: a LIST already returns each key *and* its
- * size, so `verify` gets sizes for free, with no per-object HEAD (docs/design/backup.md).
+ * Yield every stored object as `{ hash, size, lastModified }` — the bare SHA-256
+ * of each key under `objects/` (prefix stripped) with its LIST `Size` and
+ * `LastModified`. The one enumeration of the object store, from which the
+ * hash-only listing (`listObjectHashes`), `verify`'s size cross-check, and
+ * `cleanup`'s orphan GC all draw: a LIST already returns each key with its size
+ * *and* age, so `verify` gets sizes and `cleanup` gets the grace-window age for
+ * free, with no per-object HEAD (docs/design/backup.md). `lastModified` is absent
+ * only if S3 omits it (it never does for a real object); `cleanup` treats absent
+ * as too-new-to-delete.
  * @param {string} bucket - The repository's S3 bucket
- * @yields {{ hash: string, size: number }} An object's hash and stored size
- * @returns {AsyncGenerator<{ hash: string, size: number }>}
+ * @yields {{ hash: string, size: number, lastModified?: Date }} A stored object's hash, size, and age
+ * @returns {AsyncGenerator<{ hash: string, size: number, lastModified?: Date }>}
  */
 export async function* listStoredObjects(bucket) {
-  for await (const { Key, Size } of listObjects(
+  for await (const { Key, Size, LastModified } of listObjects(
     `s3://${bucket}/${OBJECTS_PREFIX}`,
   )) {
     // Skip a zero-byte `objects/` folder marker (an S3-console artifact): it
@@ -130,9 +139,25 @@ export async function* listStoredObjects(bucket) {
     // blank cache entry.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
     if (hash) {
-      yield { hash, size: Size ?? 0 };
+      yield { hash, size: Size ?? 0, lastModified: LastModified };
     }
   }
+}
+
+/**
+ * Delete one stored object — `objects/<hash>` — the reclamation `cleanup`
+ * performs (docs/design/backup.md). The **only** operation that removes from
+ * `objects/`; every everyday command leaves it alone. Composes the generic
+ * `deleteObject` over this module's key layout, so callers never spell the key.
+ * On a versioned bucket this is a soft delete (a delete marker), the
+ * ransomware-safety model (ADR-0033) — permanent reclamation needs a lifecycle
+ * rule, which `cleanup`'s docs recommend.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} hash - The object's SHA-256, its key under `objects/`
+ * @returns {Promise<void>}
+ */
+export async function deleteStoredObject(bucket, hash) {
+  await deleteObject(objectUri(bucket, hash));
 }
 
 /**

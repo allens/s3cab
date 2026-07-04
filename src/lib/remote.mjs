@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { knownObjects, putObject, recordObjects } from "./objects.mjs";
-import { createS3ReadStream, listObjects, putFile } from "./s3.mjs";
+import {
+  createS3ReadStream,
+  deleteObject,
+  listObjects,
+  putFile,
+} from "./s3.mjs";
 import {
   parseSnapshotStream,
   readSnapshot,
@@ -53,6 +58,25 @@ export async function listRemoteSnapshots(bucket, set) {
     }
   }
   return snapshotNames(names);
+}
+
+/**
+ * Delete one of a set's remote snapshots — `snapshots/<set>/<name>.tsv.zst` — the
+ * remote half of the `delete` retention primitive (docs/design/backup.md). It
+ * removes **only** the snapshot object; the content it referenced stays under
+ * `objects/` (reclaiming what nothing references any more is `cleanup`'s job), so
+ * this never touches `objects/` and the objects cache stays true. Composes the
+ * generic `deleteObject` over this module's key layout, so callers never spell
+ * the key. On a versioned bucket `DeleteObject` writes a delete marker (soft
+ * delete) rather than destroying history — the ransomware-safety model (ADR-0033).
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
+ * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @returns {Promise<void>}
+ */
+export async function deleteRemoteSnapshot(bucket, set, name) {
+  const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
+  await deleteObject(uri);
 }
 
 /**

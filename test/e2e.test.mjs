@@ -160,6 +160,38 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Missing required argument: <bucket>/);
   });
 
+  it("delete without a set is a usage error, before any S3 touch", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(home, "delete");
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /Missing required argument: <set>/);
+  });
+
+  it("delete without --snapshot is a usage error, before any S3 touch", async () => {
+    // The snapshot check runs before the set is resolved, so this fails fast even
+    // with no set on disk.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(home, "delete", "photos");
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /Missing required argument: --snapshot/);
+  });
+
+  it("cleanup without a bucket is a usage error, before any S3 touch", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(home, "cleanup");
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /Missing required argument: <bucket>/);
+  });
+
   it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
     // Creating a set now requires a bucket and touches S3 (the collision claim,
     // ADR-0024/0026); the full create → backup → list cloud round-trip is
