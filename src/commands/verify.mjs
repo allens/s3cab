@@ -9,8 +9,8 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * Check that the backups in a bucket are complete and undamaged (docs/design/backup.md,
  * [ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)): every object a
  * snapshot references must exist under `objects/` at its recorded size. List
- * requests only — no egress — so it is safe to run routinely (`s3cab verify || alert`
- * is the cron idiom).
+ * requests only — no egress — so it is safe to run routinely
+ * (`s3cab verify <bucket> || alert` is the cron idiom).
  *
  * The **operand is the bucket**, symmetric with `cleanup`: one repository is
  * checked in one run, under one credential resolved through the standard chain
@@ -34,10 +34,12 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * `process.exitCode`, so the JSON report still prints); a clean run returns 0.
  *
  * @param {string} [bucket] - The repository's S3 bucket to check
- * @returns {Promise<{ bucket: string, sets: SetReport[], storedObjects: number, orphanObjects: number }>}
+ * @returns {Promise<{ bucket: string, sets: SetReport[], storedObjects: number, orphanObjects: number, orphanObjectsExact: boolean }>}
  *   Per-set reports, the total stored-object count, and the orphan count (stored
- *   objects no snapshot references — exact, since every snapshot in the bucket was
- *   read; a hint toward `cleanup`, never a finding).
+ *   objects no snapshot references — a hint toward `cleanup`, never a finding).
+ *   `orphanObjectsExact` is true only when every snapshot was readable; an
+ *   unreadable snapshot's references are unknown, so the count is then an **upper
+ *   bound** (objects it alone referenced masquerade as orphans).
  */
 export async function verify(bucket) {
   requireArg(bucket, "bucket");
@@ -60,25 +62,42 @@ export async function verify(bucket) {
   const referencedAll = new Set();
   for (const [set, referenced] of referencedBySet) {
     reports.push(verifySet(set, referenced, stored));
-    for (const hash of referenced.referenced.keys()) referencedAll.add(hash);
+    for (const hash of referenced.referenced.keys()) {
+      referencedAll.add(hash);
+    }
   }
   reports.sort((a, b) => a.set.localeCompare(b.set));
 
   // Heal/warm this machine's per-bucket cache from the completed LIST above.
   await writeObjectsCache(bucket, stored.keys());
 
-  // Orphans (stored − referenced) are exact: verify read every snapshot in the
-  // bucket. Not a finding — crash orphans are expected — but the hook toward
-  // `cleanup`, which reclaims them.
+  // Orphans (stored − referenced): storage no snapshot references. Not a finding
+  // — crash orphans are expected — but the hook toward `cleanup`, which reclaims
+  // them. Exact only when every snapshot was readable: an unreadable snapshot's
+  // references are unknown, so objects it alone referenced count here as orphans,
+  // making the number an upper bound.
   let orphanObjects = 0;
   for (const hash of stored.keys()) {
-    if (!referencedAll.has(hash)) orphanObjects++;
+    if (!referencedAll.has(hash)) {
+      orphanObjects++;
+    }
   }
+  const orphanObjectsExact = reports.every(
+    (report) => report.unreadableSnapshots.length === 0,
+  );
 
   // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than
   // throw, so the JSON report still serializes to stdout (the entry point prints
   // a returned result even when the exit code is nonzero).
-  if (reports.some(setHasFindings)) process.exitCode = 1;
+  if (reports.some(setHasFindings)) {
+    process.exitCode = 1;
+  }
 
-  return { bucket, sets: reports, storedObjects: stored.size, orphanObjects };
+  return {
+    bucket,
+    sets: reports,
+    storedObjects: stored.size,
+    orphanObjects,
+    orphanObjectsExact,
+  };
 }

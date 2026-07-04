@@ -24,7 +24,9 @@ mock.module("../lib/remote.mjs", {
 mock.module("../lib/objects.mjs", {
   exports: {
     listStoredObjects: async function* () {
-      for (const object of storedObjects) yield object;
+      for (const object of storedObjects) {
+        yield object;
+      }
     },
     writeObjectsCache: async (
       /** @type {string} */ bucket,
@@ -38,10 +40,12 @@ mock.module("../lib/objects.mjs", {
 const { verify } = await import("./verify.mjs");
 
 /**
- * A ReferencedResult from `{ hash: [size, [snapshot(s)]] }`.
+ * A ReferencedResult from `{ hash: [size, [snapshot(s)]] }`, plus optional
+ * unreadable-snapshot findings.
  * @param {Record<string, [number, string[]]>} spec
+ * @param {{ snapshot: string, reason: string }[]} [unreadable]
  */
-const ref = (spec) => ({
+const ref = (spec, unreadable = []) => ({
   referenced: new Map(
     Object.entries(spec).map(([hash, [size, snapshots]]) => [
       hash,
@@ -53,7 +57,7 @@ const ref = (spec) => ({
     ]),
   ),
   snapshotsChecked: 1,
-  unreadable: [],
+  unreadable,
 });
 
 /** @type {number | string | null | undefined} */
@@ -87,9 +91,29 @@ describe("verify command", () => {
     assert.deepEqual(report.missingObjects, []);
     assert.equal(result.storedObjects, 1);
     assert.equal(result.orphanObjects, 0);
+    assert.equal(result.orphanObjectsExact, true);
     // The cache is rewritten from the completed LIST.
     assert.deepEqual(cacheWrites, [{ bucket: "my-backups", hashes: ["aaa"] }]);
     assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("marks the orphan count inexact when a snapshot is unreadable", async () => {
+    // An unreadable snapshot's references are unknown, so `mystery` might be
+    // referenced by it — the orphan count is an upper bound, and the flag says so.
+    referencedBySet.set(
+      "photos",
+      ref({ aaa: [10, ["s1"]] }, [{ snapshot: "s0", reason: "boom" }]),
+    );
+    storedObjects = [
+      { hash: "aaa", size: 10 },
+      { hash: "mystery", size: 1 },
+    ];
+
+    const result = await verify("my-backups");
+
+    assert.equal(result.orphanObjects, 1); // upper bound
+    assert.equal(result.orphanObjectsExact, false);
+    assert.equal(process.exitCode, 1); // an unreadable snapshot is a finding
   });
 
   it("sets exit code 1 when any set has a missing object", async () => {
@@ -125,6 +149,7 @@ describe("verify command", () => {
     );
     assert.equal(result.storedObjects, 3);
     assert.equal(result.orphanObjects, 1); // only "orphan"
+    assert.equal(result.orphanObjectsExact, true);
     assert.equal(process.exitCode, savedExitCode); // clean → untouched
   });
 });

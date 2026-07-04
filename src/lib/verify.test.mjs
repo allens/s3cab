@@ -118,7 +118,12 @@ describe("verifySet", () => {
   });
 
   it("still reports a conflicting hash as missing when the object is absent", () => {
-    const referenced = ref({ aaa: [[10, 20], ["s1", "s2"]] });
+    const referenced = ref({
+      aaa: [
+        [10, 20],
+        ["s1", "s2"],
+      ],
+    });
     const report = verifySet("photos", referenced, new Map());
 
     assert.equal(report.conflictingRows.length, 1);

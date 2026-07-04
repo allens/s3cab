@@ -504,13 +504,16 @@ extra requests):
 **Report and exit:** the JSON result (ADR-0010 house style) carries the bucket, per-set
 reports — snapshots and referenced objects checked, plus that set's finding arrays (hash,
 expected vs stored size, referencing snapshot(s), one example path) — and the
-stored-object total. The **orphan count** (the opposite difference) is **always reported
-and exact**: a bucket run reads *every* snapshot in it, so stored − referenced is precise.
-It is *not* a finding, never affects the exit code, and is phrased as normal state (crash
-orphans are expected) — the discovery hook toward `cleanup`. **Exit 1 when any set has
-findings** (0 = verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is
-the cron idiom — no dedicated exit code until a script actually needs to distinguish
-"damaged" from "check failed".
+stored-object total. The **orphan count** (the opposite difference) is always reported,
+alongside an `orphanObjectsExact` flag. It is *exact* when every snapshot was readable — a
+bucket run reads them all, so stored − referenced is precise — but an **upper bound** when
+any snapshot is *unreadable*: that snapshot's references are unknown, so objects it alone
+referenced masquerade as orphans (the flag is then false). Either way it is *not* a
+finding, never affects the exit code, and is phrased as normal state (crash orphans are
+expected) — the discovery hook toward `cleanup`. **Exit 1 when any set has findings** (0 =
+verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is the cron idiom —
+no dedicated exit code until a script actually needs to distinguish "damaged" from "check
+failed".
 
 **Remote read-only, one local side effect:** verify never writes to the bucket — it
 runs on List+Get credentials alone. Locally it **rewrites the per-bucket objects cache**

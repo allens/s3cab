@@ -129,7 +129,9 @@ export async function* listStoredObjects(bucket) {
     // would otherwise slice to an empty hash — a blank line from `hashes`, a
     // blank cache entry.
     const hash = Key?.slice(OBJECTS_PREFIX.length);
-    if (hash) yield { hash, size: Size ?? 0 };
+    if (hash) {
+      yield { hash, size: Size ?? 0 };
+    }
   }
 }
 

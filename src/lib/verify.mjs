@@ -43,7 +43,9 @@
  * @returns {boolean}
  */
 export function isCorruptSnapshotError(error) {
-  if (!Error.isError(error)) return false;
+  if (!Error.isError(error)) {
+    return false;
+  }
   const code = /** @type {NodeJS.ErrnoException} */ (error).code;
   return (
     error.name === "AssertionError" ||
@@ -95,18 +97,15 @@ export function verifySet(name, referencedResult, stored) {
   for (const [hash, entry] of referenced) {
     const snapshots = [...entry.snapshots].sort();
     const examplePath = entry.examplePath;
-    const sizes = [...entry.sizes];
-    // Every referenced entry has ≥1 recorded size (`referencedObjects` adds one
-    // as it creates the entry), so the `?? 0` fallback never fires.
+    // Sorted ascending, so a conflicting hash reports a deterministic size (the
+    // smallest recorded), not one picked by Set-insertion order. Every referenced
+    // entry has ≥1 size (`referencedObjects` adds one as it creates the entry),
+    // so the `?? 0` fallback never fires.
+    const sizes = [...entry.sizes].sort((a, b) => a - b);
     const recordedSize = sizes[0] ?? 0;
 
     if (sizes.length > 1) {
-      conflictingRows.push({
-        hash,
-        sizes: [...sizes].sort((a, b) => a - b),
-        snapshots,
-        examplePath,
-      });
+      conflictingRows.push({ hash, sizes, snapshots, examplePath });
     }
 
     const storedSize = stored.get(hash);

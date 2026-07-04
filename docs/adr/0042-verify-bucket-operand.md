@@ -48,9 +48,12 @@ catch. So one run = one bucket LIST, always.
   Bucket operand, set-level report — the earlier "verify photos shouldn't fail over
   bob-documents" worry was about the operand, not the report, and is answered by keeping
   the report per-set.
-- **The orphan count (stored − referenced) is always reported and exact** — a single
-  bucket run reads *every* snapshot in it, so the difference is precise (a hint toward
-  `cleanup`, never a finding, never affecting the exit code).
+- **The orphan count (stored − referenced) is always reported, with an exactness flag.**
+  A bucket run reads *every* snapshot, so the difference is precise — *unless* a snapshot
+  is unreadable, whose references are then unknown and make the count an upper bound
+  (objects it alone referenced look orphaned). The result carries `orphanObjectsExact`
+  accordingly. Either way it is a hint toward `cleanup`, never a finding, never affecting
+  the exit code.
 - **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad input) —
   `s3cab verify <bucket> || alert` is the cron idiom. No dedicated exit code until a
   script actually needs "damaged" vs "check failed".

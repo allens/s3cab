@@ -169,7 +169,9 @@ describe("listStoredObjects", () => {
       { Key: "objects/bbb", Size: 2048 },
     ];
     const out = [];
-    for await (const object of listStoredObjects("my-bucket")) out.push(object);
+    for await (const object of listStoredObjects("my-bucket")) {
+      out.push(object);
+    }
     assert.deepEqual(out, [
       { hash: "aaa", size: 10 },
       { hash: "bbb", size: 2048 },
@@ -179,7 +181,9 @@ describe("listStoredObjects", () => {
   it("defaults a missing Size to 0", async () => {
     listedObjects = [{ Key: "objects/aaa" }];
     const out = [];
-    for await (const object of listStoredObjects("my-bucket")) out.push(object);
+    for await (const object of listStoredObjects("my-bucket")) {
+      out.push(object);
+    }
     assert.deepEqual(out, [{ hash: "aaa", size: 0 }]);
   });
 });

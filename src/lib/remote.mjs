@@ -134,16 +134,26 @@ export async function referencedObjects(bucket) {
   // `[a-z0-9-]+` segment (ADR-0024), so this split is unambiguous.
   /** @type {Map<string, string[]>} */
   const filesBySet = new Map();
-  for await (const { Key } of listObjects(`s3://${bucket}/${SNAPSHOTS_PREFIX}`)) {
-    if (!Key) continue;
+  for await (const { Key } of listObjects(
+    `s3://${bucket}/${SNAPSHOTS_PREFIX}`,
+  )) {
+    if (!Key) {
+      continue;
+    }
     const rest = Key.slice(SNAPSHOTS_PREFIX.length);
     const slash = rest.indexOf("/");
-    if (slash <= 0) continue; // the `snapshots/` folder marker, or a stray key
+    if (slash <= 0) {
+      continue;
+    } // the `snapshots/` folder marker, or a stray key
     const set = rest.slice(0, slash);
     const file = rest.slice(slash + 1);
-    if (!file) continue; // a `snapshots/<set>/` folder marker
+    if (!file) {
+      continue;
+    } // a `snapshots/<set>/` folder marker
     let files = filesBySet.get(set);
-    if (!files) filesBySet.set(set, (files = []));
+    if (!files) {
+      filesBySet.set(set, (files = []));
+    }
     files.push(file);
   }
 
@@ -151,7 +161,9 @@ export async function referencedObjects(bucket) {
   const bySet = new Map();
   for (const [set, files] of filesBySet) {
     const names = snapshotNames(files); // valid snapshot names, newest first
-    if (names.length === 0) continue; // a set folder with no real snapshots
+    if (names.length === 0) {
+      continue;
+    } // a set folder with no real snapshots
     bySet.set(set, await readSetReferenced(bucket, set, names));
   }
   return bySet;
@@ -180,7 +192,9 @@ async function readSetReferenced(bucket, set, names) {
     try {
       snapshot = await readRemoteSnapshot(bucket, set, name);
     } catch (error) {
-      if (!isCorruptSnapshotError(error)) throw error;
+      if (!isCorruptSnapshotError(error)) {
+        throw error;
+      }
       const reason = Error.isError(error) ? error.message : String(error);
       unreadable.push({ snapshot: name, reason });
       continue;

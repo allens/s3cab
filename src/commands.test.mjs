@@ -53,7 +53,9 @@ describe("commands registry", () => {
     // (The rendering itself is covered by help.test.mjs's fixture; the
     // notImplemented factory by error.test.mjs.)
     for (const [name, command] of Object.entries(commands)) {
-      if (!command.planned) continue;
+      if (!command.planned) {
+        continue;
+      }
       assert.throws(
         () => command.exec({}, []),
         /Not yet implemented/,
