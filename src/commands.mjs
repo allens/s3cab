@@ -1,7 +1,9 @@
 import { auth } from "./commands/auth.mjs";
 import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
+import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
+import { deleteSnapshot } from "./commands/delete.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
 import { prop } from "./commands/prop.mjs";
@@ -365,6 +367,42 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (_options, [bucket] = []) => verify(bucket),
+  },
+  delete: {
+    summary: "Delete one snapshot from a backup",
+    examples: ["s3cab delete photos --snapshot 2026-06-12T0915"],
+    args: {
+      set: {
+        required: true,
+        description: "The backup set the snapshot belongs to",
+      },
+    },
+    options: {
+      snapshot: {
+        type: "string",
+        short: "s",
+        description: "Which snapshot to delete (required)",
+      },
+    },
+    exec: (options, [set] = []) => deleteSnapshot(set, options),
+  },
+  cleanup: {
+    summary: "Reclaim storage held by objects no snapshot references",
+    examples: ["s3cab cleanup my-backups", "s3cab cleanup my-backups --delete"],
+    args: {
+      bucket: {
+        required: true,
+        description: "The repository's S3 bucket to clean up",
+      },
+    },
+    options: {
+      delete: {
+        type: "boolean",
+        description:
+          "Actually delete the orphaned objects (default: a dry run that only reports)",
+      },
+    },
+    exec: (options, [bucket] = []) => cleanup(bucket, options),
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────

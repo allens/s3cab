@@ -8,6 +8,7 @@ import { deleteObject, listObjects, putData } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import {
+  deleteRemoteSnapshot,
   downloadRemoteSnapshots,
   listRemoteSnapshots,
   readLatestRemoteSnapshot,
@@ -316,6 +317,58 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       await deleteObject(
         `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
       );
+    }
+  });
+});
+
+describe("deleteRemoteSnapshot (real bucket)", { skip }, () => {
+  it("removes just the snapshot, leaving its objects in place", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const bucket = /** @type {string} */ (TEST_BUCKET);
+    const set = `del-${Date.now()}`;
+    const name = "2025-04-01T1200";
+
+    const contentDir = resolve(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const fileA = join(contentDir, "a.txt");
+    writeFileSync(fileA, `delete-me ${set}`);
+
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    await writeSnapshot(snapshotDir, name, [fileA]);
+    const { entries } = await readSnapshot(snapshotDir, name);
+    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
+
+    try {
+      await uploadSnapshot({ bucket, set, snapshotDir, name });
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), [name]);
+
+      await deleteRemoteSnapshot(bucket, set, name);
+
+      // The snapshot is gone…
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), []);
+      // …but the objects it referenced remain (delete never touches objects/).
+      for (const hash of hashes) {
+        const keys = [];
+        for await (const o of listObjects(`s3://${bucket}/objects/${hash}`)) {
+          if (o.Key) {
+            keys.push(o.Key);
+          }
+        }
+        assert.ok(
+          keys.includes(`objects/${hash}`),
+          `object ${hash} was removed`,
+        );
+      }
+    } finally {
+      for (const hash of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+      // Best-effort: the snapshot should already be gone from the test body.
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+      ).catch(() => {});
     }
   });
 });
