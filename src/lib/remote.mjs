@@ -128,9 +128,10 @@ export async function readRemoteSnapshot(bucket, set, name) {
 /**
  * Enumerate a **bucket's** referenced objects, grouped by set — for each set
  * with snapshots under `snapshots/`, the union of object hashes across its
- * snapshots, each carrying the size(s) and snapshot(s) that reference it and one
- * example path. `verify`'s first input (its other is the bucket's stored
- * objects). The operand is the **bucket**, symmetric with `cleanup`
+ * snapshots, each carrying every path that references it, that path's recorded
+ * size and the snapshot(s) it appears in. `verify`'s first input (its other is
+ * the bucket's stored objects). The operand is the **bucket**, symmetric with
+ * `cleanup`
  * ([ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)): one repository is
  * checked in one run under one credential. A lib function with no plumbing
  * command of its own (hand recovery already reads the hashes straight out of the
@@ -141,9 +142,10 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * each snapshot body is where damage shows up: a decompress/parse failure
  * (`isCorruptSnapshotError`) is recorded as an **unreadable** finding under its
  * set and the run continues (dying on the first would hide the rest); any other
- * error — an operational S3/credential failure — is rethrown. A hash recorded
- * with different sizes across rows is not resolved here: both sizes are kept
- * (`sizes` is a Set), leaving `verifySet` to flag the conflict.
+ * error — an operational S3/credential failure — is rethrown. Sizes are recorded
+ * **per path** (first row seen wins for a given path), so a hash whose paths
+ * disagree on size — a torn manifest — leaves `verifySet` to flag the exact
+ * file(s) against storage, not an abstract conflict.
  *
  * The caller must invoke this **before** LISTing `objects/` (the ordering
  * invariant): in that order a backup finishing mid-run only adds unreferenced
@@ -228,11 +230,15 @@ async function readSetReferenced(bucket, set, names) {
     for (const [path, { hash, size }] of snapshot.entries) {
       let entry = referenced.get(hash);
       if (!entry) {
-        entry = { sizes: new Set(), snapshots: new Set(), examplePath: path };
+        entry = { paths: new Map() };
         referenced.set(hash, entry);
       }
-      entry.sizes.add(size);
-      entry.snapshots.add(name);
+      let ref = entry.paths.get(path);
+      if (!ref) {
+        ref = { size, snapshots: new Set() };
+        entry.paths.set(path, ref);
+      }
+      ref.snapshots.add(name);
     }
   }
 

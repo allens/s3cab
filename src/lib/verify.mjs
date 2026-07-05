@@ -1,22 +1,32 @@
 // The pure core of the `verify` command (docs/design/backup.md,
 // [ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)): given a
-// set's *referenced* objects (the union of hashes across its snapshots, each with
-// the size(s) and snapshot(s) that reference it) and the bucket's *stored* objects
-// (hash → size from one `objects/` LIST), compute the four finding classes as two
-// opposite set-differences' first half. No S3, no filesystem — the S3 reads live
-// in remote.mjs (`referencedObjects`, snapshots) and objects.mjs (`listStoredObjects`,
-// the LIST); this module is the diff, kept pure so the finding classes are
-// unit-testable without a bucket.
+// set's *referenced* objects (the union of hashes across its snapshots, each
+// carrying every path that references it, that path's recorded size and the
+// snapshot(s) it appears in) and the bucket's *stored* objects (hash → size from
+// one `objects/` LIST), compute the set's **per-path problems** — the
+// referenced − stored difference, expressed one row per broken file. No S3, no
+// filesystem — the S3 reads live in remote.mjs (`referencedObjects`, snapshots)
+// and objects.mjs (`listStoredObjects`, the LIST); this module is the diff, kept
+// pure so the problem model is unit-testable without a bucket.
 
 /**
- * One object referenced by a set's snapshots: the `size`(s) its rows record (a
- * Set, so a hash recorded with *different* sizes across rows — a corrupt snapshot
- * — is caught for free), the `snapshots` that reference it, and one `examplePath`
- * for the report.
+ * One referenced path within a set: the `size` its snapshot rows record and the
+ * `snapshots` that reference the content under this path. Recorded per path (not
+ * per hash) so the problem model is file-centric — a hash under many paths yields
+ * many entries — and so a recorded-size mismatch is naturally attributed to the
+ * exact file(s) whose size disagrees with storage.
+ * @typedef {Object} PathReference
+ * @property {number} size - The size the snapshot rows record for this path (content fixes size, so it is stable per path)
+ * @property {Set<string>} snapshots - Names of the snapshots that reference it under this path
+ */
+
+/**
+ * One object referenced by a set's snapshots: the `paths` it was stored under,
+ * each with its recorded size and referencing snapshots. Content-addressed dedup
+ * means one hash can back many paths; verify reports against the *paths*, so all
+ * of them are retained (cheap — usually one path per content).
  * @typedef {Object} ReferencedObject
- * @property {Set<number>} sizes - Distinct sizes the snapshot rows record for this hash (>1 = conflicting rows)
- * @property {Set<string>} snapshots - Names of the snapshots that reference it
- * @property {string} examplePath - One path this content was stored under (first seen)
+ * @property {Map<string, PathReference>} paths - Each path referencing this content
  */
 
 /**
@@ -54,31 +64,24 @@ export function isCorruptSnapshotError(error) {
 }
 
 /**
- * Sort a finding array by hash — deterministic report output (and stable tests),
- * independent of snapshot/LIST encounter order.
- * @template {{ hash: string }} T
- * @param {T[]} findings
- * @returns {T[]}
- */
-const byHash = (findings) =>
-  findings.sort((a, b) => a.hash.localeCompare(b.hash));
-
-/**
  * Verify one set against the bucket's stored objects — the completeness check
  * plus the size cross-check, computed entirely from the two enumerations already
  * in hand (zero extra requests, docs/design/backup.md). Produces the set's report:
- * counts plus the four finding-class arrays. The bucket is the same for every set
- * in a run (verify's operand), so it is carried on the top-level result, not here.
+ * counts plus a flat **per-path `problems`** list. The bucket is the same for
+ * every set in a run (verify's operand), so it is carried on the top-level
+ * result, not here.
  *
- * Per referenced hash, in order of severity so a hash is reported once:
- *  1. **Conflicting rows** (`sizes.size > 1`): the snapshot files disagree on its
- *     size — content fixes size, so a snapshot is corrupt. Reported independent of
- *     the stored side, and it is what makes the size cross-check well-defined
- *     (an ambiguous "expected" size is *not* also flagged as a mismatch).
- *  2. **Missing object**: not in `stored` — the broken objects-first/snapshot-last
- *     invariant, the core check.
- *  3. **Size mismatch**: stored, but the LIST `Size` ≠ the (unambiguous) recorded
- *     size — a truncated/overwritten object.
+ * The check is file-centric: each referenced *path* is measured against the one
+ * actual stored object for its content (docs/design/backup.md, ADR-0042).
+ *  - **missing** — the content's hash is absent from `stored` (the broken
+ *    objects-first/snapshot-last invariant): every path referencing it is a
+ *    problem, since none can be restored.
+ *  - **wrong-size** — the object is stored, but this path's recorded size ≠ the
+ *    stored LIST size (a truncated/overwritten upload, or a torn manifest row).
+ *    Recorded per path, so a hash whose paths disagree on size (the old
+ *    "conflicting rows" case) surfaces as a wrong-size problem on exactly the
+ *    file(s) that disagree with storage — no separate category, no ambiguous
+ *    skip. When both apply the object is missing, so wrong-size is moot.
  * @param {string} name - The set's name
  * @param {ReferencedResult} referencedResult - This set's referenced enumeration
  * @param {Map<string, number>} stored - Bucket's stored objects (hash → LIST size)
@@ -87,76 +90,66 @@ const byHash = (findings) =>
 export function verifySet(name, referencedResult, stored) {
   const { referenced, snapshotsChecked, unreadable } = referencedResult;
 
-  /** @type {SetReport["missingObjects"]} */
-  const missingObjects = [];
-  /** @type {SetReport["sizeMismatches"]} */
-  const sizeMismatches = [];
-  /** @type {SetReport["conflictingRows"]} */
-  const conflictingRows = [];
+  /** @type {SetReport["problems"]} */
+  const problems = [];
 
   for (const [hash, entry] of referenced) {
-    const snapshots = [...entry.snapshots].sort();
-    const examplePath = entry.examplePath;
-    // Sorted ascending, so a conflicting hash reports a deterministic size (the
-    // smallest recorded), not one picked by Set-insertion order. Every referenced
-    // entry has ≥1 size (`referencedObjects` adds one as it creates the entry),
-    // so the `?? 0` fallback never fires.
-    const sizes = [...entry.sizes].sort((a, b) => a - b);
-    const recordedSize = sizes[0] ?? 0;
-
-    if (sizes.length > 1) {
-      conflictingRows.push({ hash, sizes, snapshots, examplePath });
-    }
-
     const storedSize = stored.get(hash);
-    if (storedSize === undefined) {
-      missingObjects.push({ hash, size: recordedSize, snapshots, examplePath });
-    } else if (sizes.length === 1 && recordedSize !== storedSize) {
-      // Only when the recorded size is unambiguous — a conflicting hash is
-      // already a finding, and "expected" would be undefined.
-      sizeMismatches.push({
-        hash,
-        expectedSize: recordedSize,
-        storedSize,
-        snapshots,
-        examplePath,
-      });
+    for (const [path, { size, snapshots }] of entry.paths) {
+      const snaps = [...snapshots].sort();
+      if (storedSize === undefined) {
+        problems.push({ path, problem: "missing", snapshots: snaps });
+      } else if (size !== storedSize) {
+        problems.push({
+          path,
+          problem: "wrong-size",
+          snapshots: snaps,
+          recordedSize: size,
+          storedSize,
+        });
+      }
     }
   }
+
+  // Deterministic report output (and stable tests), independent of snapshot/LIST
+  // encounter order: sort by path, then problem kind to break the rare tie of one
+  // path reported twice (it can't be — a path has one hash — but keep it total).
+  problems.sort(
+    (a, b) =>
+      a.path.localeCompare(b.path) || a.problem.localeCompare(b.problem),
+  );
 
   return {
     set: name,
     snapshotsChecked,
     referencedObjects: referenced.size,
-    missingObjects: byHash(missingObjects),
-    sizeMismatches: byHash(sizeMismatches),
-    conflictingRows: byHash(conflictingRows),
+    problems,
     unreadableSnapshots: unreadable,
   };
 }
 
 /**
- * A single set's verify report: how much was checked, plus the four finding-class
- * arrays. Empty arrays across the board mean the set verified clean.
+ * A single set's verify report: how much was checked, plus a flat per-path
+ * `problems` list and any `unreadableSnapshots`. Empty across both means the set
+ * verified clean. `problems` is one row per broken *file* (not per object): a
+ * missing blob referenced by five paths yields five rows — the user thinks in
+ * files, and hashes never surface (docs/design/backup.md, ADR-0042).
+ * `unreadableSnapshots` stays separate because it is not file-shaped — a corrupt
+ * manifest has no file list to annotate, only a lost restore point.
  * @typedef {Object} SetReport
  * @property {string} set
  * @property {number} snapshotsChecked - Snapshots read successfully
  * @property {number} referencedObjects - Distinct object hashes referenced
- * @property {{ hash: string, size: number, snapshots: string[], examplePath: string }[]} missingObjects
- * @property {{ hash: string, expectedSize: number, storedSize: number, snapshots: string[], examplePath: string }[]} sizeMismatches
- * @property {{ hash: string, sizes: number[], snapshots: string[], examplePath: string }[]} conflictingRows
+ * @property {{ path: string, problem: "missing" | "wrong-size", snapshots: string[], recordedSize?: number, storedSize?: number }[]} problems
  * @property {{ snapshot: string, reason: string }[]} unreadableSnapshots
  */
 
 /**
  * Whether a set's report carries any finding — what drives verify's exit code
- * (any finding in any named set → exit 1, ADR-0042). All four classes count: a
- * clean set has empty arrays across the board.
+ * (any finding in any named set → exit 1, ADR-0042). Both a per-path problem and
+ * an unreadable snapshot count; a clean set has neither.
  * @param {SetReport} report
  * @returns {boolean}
  */
 export const setHasFindings = (report) =>
-  report.missingObjects.length > 0 ||
-  report.sizeMismatches.length > 0 ||
-  report.conflictingRows.length > 0 ||
-  report.unreadableSnapshots.length > 0;
+  report.problems.length > 0 || report.unreadableSnapshots.length > 0;

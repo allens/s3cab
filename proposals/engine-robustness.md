@@ -23,7 +23,13 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   object — useful provenance, but it's PII sitting in object metadata, and the local path
   reveals structure the content-addressed layout otherwise hides. Make it opt-in/opt-out and
   document it.
-- **`verify` finding model: drop the ambiguous-size skip and `conflictingRows`.** verify's
+- **✅ DONE (2026-07-05) — `verify` finding model: drop the ambiguous-size skip and
+  `conflictingRows`.** Landed: verify now returns a flat per-path `problems` list (`missing` /
+  `wrong-size`), each file's recorded size checked directly against the one stored object, so a
+  size conflict surfaces as a wrong-size problem on the exact file that disagrees with storage.
+  ADR-0042 and `docs/design/backup.md` amended. Kept here (not deleted) as the anchor for the
+  `human-first-output.md` slice-3 dependency. Original write-up follows.
+  verify's
   size check deliberately *skips* any hash whose recorded size is ambiguous (two different sizes
   recorded for the same content across rows), reporting it instead under a separate
   `conflictingRows` category (see `src/lib/verify.mjs`, ADR-0042). But conflicting rows can only

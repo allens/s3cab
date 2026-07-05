@@ -56,7 +56,8 @@ mock.module("../lib/prompt.mjs", {
 const { cleanup } = await import("./cleanup.mjs");
 
 /**
- * A ReferencedResult referencing exactly `hashes`, from one snapshot.
+ * A ReferencedResult referencing exactly `hashes` (each recorded at size 1),
+ * from one snapshot.
  * @param {string[]} hashes
  * @param {{ snapshot: string, reason: string }[]} [unreadable]
  */
@@ -64,11 +65,7 @@ const ref = (hashes, unreadable = []) => ({
   referenced: new Map(
     hashes.map((hash) => [
       hash,
-      {
-        sizes: new Set([1]),
-        snapshots: new Set(["s1"]),
-        examplePath: `/${hash}`,
-      },
+      { paths: new Map([[`/${hash}`, { size: 1, snapshots: new Set(["s1"]) }]]) },
     ]),
   ),
   snapshotsChecked: 1,
@@ -149,6 +146,31 @@ describe("cleanup command", () => {
 
     const result = await cleanup("b");
     assert.equal(result.missingObjects, 1);
+  });
+
+  it("warns about an object stored at the wrong size, but does not count it missing or orphaned", async () => {
+    // "kept" is recorded at size 1 (the ref helper) but stored at 999 — damaged,
+    // not missing (it exists) and not orphaned (it's referenced). Cleanup only
+    // flags it and points at verify for the per-file detail.
+    referencedBySet.set("photos", ref(["kept"]));
+    storedObjects = [{ hash: "kept", size: 999, lastModified: daysAgo(30) }];
+
+    /** @type {string[]} */
+    const warnings = [];
+    const warn = mock.method(console, "warn", (/** @type {string} */ m) =>
+      warnings.push(m),
+    );
+    try {
+      const result = await cleanup("b");
+      assert.equal(result.missingObjects, 0);
+      assert.equal(result.orphanObjects, 0);
+      assert.ok(
+        warnings.some((w) => /wrong size/.test(w)),
+        "warns about the wrong-size object",
+      );
+    } finally {
+      warn.mock.restore();
+    }
   });
 
   it("--delete refuses when referenced objects are missing", async () => {

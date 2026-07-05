@@ -6,23 +6,24 @@ import {
   verifySet,
 } from "./verify.mjs";
 
-// Pure unit tests for verify's diff core — the four finding classes and the
+// Pure unit tests for verify's diff core — the per-path `problems` model and the
 // error classifier — with no S3 (the S3 reads are integration-tested via
 // remote.test.mjs / the gated bucket). See docs/design/backup.md.
 
 /**
- * Build a ReferencedResult from a compact spec: `{ hash: [size(s), [snapshot(s)], examplePath?] }`.
- * @param {Record<string, [number | number[], string[], string?]>} spec
+ * Build a ReferencedResult from a compact spec: each hash maps to its list of
+ * referencing paths `{ path, size, snapshots }`.
+ * @param {Record<string, { path: string, size: number, snapshots: string[] }[]>} spec
  * @param {{ snapshotsChecked?: number, unreadable?: { snapshot: string, reason: string }[] }} [meta]
  */
 function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
   const referenced = new Map();
-  for (const [hash, [sizes, snapshots, examplePath]] of Object.entries(spec)) {
-    referenced.set(hash, {
-      sizes: new Set(Array.isArray(sizes) ? sizes : [sizes]),
-      snapshots: new Set(snapshots),
-      examplePath: examplePath ?? `/data/${hash}`,
-    });
+  for (const [hash, paths] of Object.entries(spec)) {
+    const pathMap = new Map();
+    for (const { path, size, snapshots } of paths) {
+      pathMap.set(path, { size, snapshots: new Set(snapshots) });
+    }
+    referenced.set(hash, { paths: pathMap });
   }
   return { referenced, snapshotsChecked, unreadable };
 }
@@ -49,10 +50,10 @@ describe("isCorruptSnapshotError", () => {
 });
 
 describe("verifySet", () => {
-  it("reports no findings when every referenced object is stored at its size", () => {
+  it("reports no problems when every referenced path is stored at its size", () => {
     const referenced = ref({
-      aaa: [10, ["2026-06-12T0915"]],
-      bbb: [20, ["2026-06-12T0915", "2026-06-11T0915"]],
+      aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
+      bbb: [{ path: "/b.txt", size: 20, snapshots: ["s1", "s0"] }],
     });
     const stored = new Map([
       ["aaa", 10],
@@ -65,95 +66,115 @@ describe("verifySet", () => {
     assert.equal(report.set, "photos");
     assert.equal(report.snapshotsChecked, 1);
     assert.equal(report.referencedObjects, 2);
-    assert.deepEqual(report.missingObjects, []);
-    assert.deepEqual(report.sizeMismatches, []);
-    assert.deepEqual(report.conflictingRows, []);
+    assert.deepEqual(report.problems, []);
     assert.deepEqual(report.unreadableSnapshots, []);
     assert.equal(setHasFindings(report), false);
   });
 
-  it("flags a referenced hash absent from the store as missing", () => {
-    const referenced = ref({ aaa: [10, ["s1"], "/data/a.txt"] });
-    const report = verifySet("photos", referenced, new Map());
-
-    assert.deepEqual(report.missingObjects, [
-      { hash: "aaa", size: 10, snapshots: ["s1"], examplePath: "/data/a.txt" },
-    ]);
-    assert.equal(setHasFindings(report), true);
-  });
-
-  it("flags a stored object whose size differs from the snapshot's", () => {
-    const referenced = ref({ aaa: [10, ["s1"], "/data/a.txt"] });
-    const stored = new Map([["aaa", 7]]);
-    const report = verifySet("photos", referenced, stored);
-
-    assert.deepEqual(report.sizeMismatches, [
-      {
-        hash: "aaa",
-        expectedSize: 10,
-        storedSize: 7,
-        snapshots: ["s1"],
-        examplePath: "/data/a.txt",
-      },
-    ]);
-    assert.deepEqual(report.missingObjects, []);
-  });
-
-  it("flags a hash recorded with different sizes, and does not double-report it as a mismatch", () => {
-    // Same content hash, two sizes across snapshots — a corrupt snapshot file.
-    const referenced = ref({ aaa: [[10, 20], ["s1", "s2"], "/data/a.txt"] });
-    const stored = new Map([["aaa", 10]]);
-    const report = verifySet("photos", referenced, stored);
-
-    assert.deepEqual(report.conflictingRows, [
-      {
-        hash: "aaa",
-        sizes: [10, 20],
-        snapshots: ["s1", "s2"],
-        examplePath: "/data/a.txt",
-      },
-    ]);
-    // Conflicting makes "expected" ambiguous, so it is NOT also a size mismatch.
-    assert.deepEqual(report.sizeMismatches, []);
-  });
-
-  it("still reports a conflicting hash as missing when the object is absent", () => {
+  it("reports every path of a hash absent from the store as missing", () => {
+    // A missing blob referenced by two files yields two `missing` rows — all
+    // affected files, no object grouping.
     const referenced = ref({
       aaa: [
-        [10, 20],
-        ["s1", "s2"],
+        { path: "/a.txt", size: 10, snapshots: ["s1"] },
+        { path: "/copy/a.txt", size: 10, snapshots: ["s1", "s2"] },
       ],
     });
     const report = verifySet("photos", referenced, new Map());
 
-    assert.equal(report.conflictingRows.length, 1);
-    assert.equal(report.missingObjects.length, 1);
+    assert.deepEqual(report.problems, [
+      { path: "/a.txt", problem: "missing", snapshots: ["s1"] },
+      { path: "/copy/a.txt", problem: "missing", snapshots: ["s1", "s2"] },
+    ]);
+    assert.equal(setHasFindings(report), true);
+  });
+
+  it("flags a stored object whose size differs from the recorded size as wrong-size", () => {
+    const referenced = ref({
+      aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
+    });
+    const stored = new Map([["aaa", 7]]);
+    const report = verifySet("photos", referenced, stored);
+
+    assert.deepEqual(report.problems, [
+      {
+        path: "/a.txt",
+        problem: "wrong-size",
+        snapshots: ["s1"],
+        recordedSize: 10,
+        storedSize: 7,
+      },
+    ]);
+  });
+
+  it("attributes a size conflict to the exact file that disagrees with storage", () => {
+    // Same content under two paths, recorded at different sizes — a torn
+    // manifest (the old "conflicting rows" case). The stored object has one real
+    // size; only the file whose recorded size differs is a wrong-size problem.
+    const referenced = ref({
+      aaa: [
+        { path: "/right.txt", size: 10, snapshots: ["s1"] },
+        { path: "/wrong.txt", size: 20, snapshots: ["s2"] },
+      ],
+    });
+    const stored = new Map([["aaa", 10]]);
+    const report = verifySet("photos", referenced, stored);
+
+    assert.deepEqual(report.problems, [
+      {
+        path: "/wrong.txt",
+        problem: "wrong-size",
+        snapshots: ["s2"],
+        recordedSize: 20,
+        storedSize: 10,
+      },
+    ]);
+  });
+
+  it("reports every path as missing when a size-conflicting hash's object is absent", () => {
+    // Object gone → the size conflict is moot; both files are simply missing.
+    const referenced = ref({
+      aaa: [
+        { path: "/right.txt", size: 10, snapshots: ["s1"] },
+        { path: "/wrong.txt", size: 20, snapshots: ["s2"] },
+      ],
+    });
+    const report = verifySet("photos", referenced, new Map());
+
+    assert.deepEqual(
+      report.problems.map((p) => [p.path, p.problem]),
+      [
+        ["/right.txt", "missing"],
+        ["/wrong.txt", "missing"],
+      ],
+    );
   });
 
   it("passes unreadable snapshots through and counts them as findings", () => {
     const referenced = ref(
-      { aaa: [10, ["s1"]] },
+      { aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }] },
       { snapshotsChecked: 1, unreadable: [{ snapshot: "s0", reason: "boom" }] },
     );
     const stored = new Map([["aaa", 10]]);
     const report = verifySet("photos", referenced, stored);
 
+    assert.deepEqual(report.problems, []);
     assert.deepEqual(report.unreadableSnapshots, [
       { snapshot: "s0", reason: "boom" },
     ]);
     assert.equal(setHasFindings(report), true);
   });
 
-  it("sorts findings by hash for deterministic output", () => {
+  it("sorts problems by path for deterministic output", () => {
     const referenced = ref({
-      ccc: [1, ["s1"]],
-      aaa: [1, ["s1"]],
-      bbb: [1, ["s1"]],
+      h1: [{ path: "/c", size: 1, snapshots: ["s1"] }],
+      h2: [{ path: "/a", size: 1, snapshots: ["s1"] }],
+      h3: [{ path: "/b", size: 1, snapshots: ["s1"] }],
     });
     const report = verifySet("photos", referenced, new Map());
     assert.deepEqual(
-      report.missingObjects.map((f) => f.hash),
-      ["aaa", "bbb", "ccc"],
+      report.problems.map((p) => p.path),
+      ["/a", "/b", "/c"],
     );
   });
 });

@@ -40,8 +40,8 @@ mock.module("../lib/objects.mjs", {
 const { verify } = await import("./verify.mjs");
 
 /**
- * A ReferencedResult from `{ hash: [size, [snapshot(s)]] }`, plus optional
- * unreadable-snapshot findings.
+ * A ReferencedResult from `{ hash: [size, [snapshot(s)]] }` — one path per hash,
+ * `/data/<hash>` — plus optional unreadable-snapshot findings.
  * @param {Record<string, [number, string[]]>} spec
  * @param {{ snapshot: string, reason: string }[]} [unreadable]
  */
@@ -50,9 +50,9 @@ const ref = (spec, unreadable = []) => ({
     Object.entries(spec).map(([hash, [size, snapshots]]) => [
       hash,
       {
-        sizes: new Set([size]),
-        snapshots: new Set(snapshots),
-        examplePath: `/data/${hash}`,
+        paths: new Map([
+          [`/data/${hash}`, { size, snapshots: new Set(snapshots) }],
+        ]),
       },
     ]),
   ),
@@ -88,7 +88,7 @@ describe("verify command", () => {
     const [report] = result.sets;
     assert.ok(report);
     assert.equal(report.set, "photos");
-    assert.deepEqual(report.missingObjects, []);
+    assert.deepEqual(report.problems, []);
     assert.equal(result.storedObjects, 1);
     assert.equal(result.orphanObjects, 0);
     assert.equal(result.orphanObjectsExact, true);
@@ -124,10 +124,9 @@ describe("verify command", () => {
 
     const [report] = result.sets;
     assert.ok(report);
-    assert.deepEqual(
-      report.missingObjects.map((f) => f.hash),
-      ["gone"],
-    );
+    assert.deepEqual(report.problems, [
+      { path: "/data/gone", problem: "missing", snapshots: ["s1"] },
+    ]);
     assert.equal(process.exitCode, 1);
   });
 

@@ -19,13 +19,14 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * repository" is the honest unit. Findings are still reported **per set**, since
  * `referencedObjects` groups the bucket's snapshots by the set that owns them.
  *
- * The four finding classes (`verifySet`) — missing objects (the broken
- * objects-first/snapshot-last invariant), size mismatches, conflicting rows, and
- * unreadable snapshots — are computed from two enumerations with zero extra
- * requests: the bucket's *referenced* objects (`referencedObjects`, per set) and
- * its *stored* objects (one `listStoredObjects` LIST). **Read the snapshots before
- * the LIST** (the ordering invariant): a backup landing mid-run then only bumps
- * the orphan count, never fakes a missing object.
+ * Findings are a flat **per-path `problems`** list per set (`verifySet`) — each
+ * referenced file that is `missing` (its content absent from `objects/`, the
+ * broken invariant) or `wrong-size` (stored, but at a size ≠ the one recorded) —
+ * plus any `unreadableSnapshots`. Both are computed from two enumerations with
+ * zero extra requests: the bucket's *referenced* objects (`referencedObjects`,
+ * per set) and its *stored* objects (one `listStoredObjects` LIST). **Read the
+ * snapshots before the LIST** (the ordering invariant): a backup landing mid-run
+ * then only bumps the orphan count, never fakes a missing object.
  *
  * **One local side effect:** verify rewrites this machine's per-bucket objects
  * cache from the completed LIST (`writeObjectsCache`) — authoritative ground truth

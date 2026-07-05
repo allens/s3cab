@@ -8,9 +8,6 @@ import {
 import { promptYesNo } from "../lib/prompt.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
-import { verifySet } from "../lib/verify.mjs";
-
-/** @import { SetReport } from "../lib/verify.mjs" */
 
 // An object younger than this is never deleted (docs/design/backup.md, stated to
 // users in the format spec). Under objects-first/snapshot-last, an in-flight
@@ -72,17 +69,12 @@ export async function cleanup(bucket, options = {}) {
     stored.set(hash, { size, lastModified });
   }
 
-  // The damage side is verify's diff, reused (the same two enumerations): run it
-  // per set to find unreadable snapshots and missing/damaged objects.
-  const storedSizes = new Map([...stored].map(([h, v]) => [h, v.size]));
-  /** @type {SetReport[]} */
-  const reports = [...referencedBySet].map(([set, referenced]) =>
-    verifySet(set, referenced, storedSizes),
-  );
-
-  // Interlock #1 (both modes): an unreadable snapshot makes the orphan set a lie.
-  const unreadable = reports.flatMap((r) =>
-    r.unreadableSnapshots.map((u) => `${r.set}/${u.snapshot}`),
+  // Interlock #1 (both modes): an unreadable snapshot makes the orphan set a lie
+  // (its references are unknown). Read straight off the referenced enumeration —
+  // cleanup works at hash level (whole objects reclaimed), so it needs none of
+  // verify's per-path problem model; the same two enumerations answer both.
+  const unreadable = [...referencedBySet].flatMap(([set, r]) =>
+    r.unreadable.map((u) => `${set}/${u.snapshot}`),
   );
   if (unreadable.length > 0) {
     throw new Error(
@@ -94,38 +86,37 @@ export async function cleanup(bucket, options = {}) {
     );
   }
 
-  // The referenced union (bucket-wide — cleanup must span every set), and the
-  // missing/damaged tallies from the reused diff.
-  /** @type {Set<string>} */
-  const referencedAll = new Set();
+  // The referenced union (bucket-wide — cleanup must span every set), each hash
+  // with one recorded size for the damage cross-check. Distinct *hashes*, not
+  // paths: an object missing/damaged that several files or sets reference is one
+  // lost object, so it must count once or the reported number lies.
+  /** @type {Map<string, number>} */
+  const referencedAll = new Map();
   for (const { referenced } of referencedBySet.values()) {
-    for (const hash of referenced.keys()) {
-      referencedAll.add(hash);
+    for (const [hash, { paths }] of referenced) {
+      if (referencedAll.has(hash)) {
+        continue;
+      }
+      const [first] = paths.values(); // every entry has ≥1 path
+      referencedAll.set(hash, first ? first.size : 0);
     }
   }
-  // Count distinct *hashes*, not per-set findings: an object missing (or damaged)
-  // that several sets reference must count once, or the reported number lies.
-  /** @type {Set<string>} */
-  const missingHashes = new Set();
-  /** @type {Set<string>} */
-  const damagedHashes = new Set();
-  for (const report of reports) {
-    for (const f of report.missingObjects) {
-      missingHashes.add(f.hash);
-    }
-    for (const f of report.conflictingRows) {
-      damagedHashes.add(f.hash);
-    }
-    for (const f of report.sizeMismatches) {
-      damagedHashes.add(f.hash);
+  // Missing = a referenced hash absent from the store (the broken invariant);
+  // damaged = stored, but at a size disagreeing with what a snapshot recorded.
+  let missing = 0;
+  let damaged = 0;
+  for (const [hash, recordedSize] of referencedAll) {
+    const storedSize = stored.get(hash)?.size;
+    if (storedSize === undefined) {
+      missing++;
+    } else if (storedSize !== recordedSize) {
+      damaged++;
     }
   }
-  const missing = missingHashes.size;
-  const damaged = damagedHashes.size;
   if (damaged > 0) {
     // Not an orphanhood concern (that's hash-level) — just flag it and point at verify.
     console.warn(
-      `Note: ${damaged} integrity issue(s) (wrong sizes / conflicting rows). ` +
+      `Note: ${damaged} object(s) stored at the wrong size. ` +
         `Run 's3cab verify ${bucket}' for detail.`,
     );
   }
