@@ -188,8 +188,11 @@ rather than assuming it is fixed forever.
      destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
      checkout.
 10. **Request a Copilot code review at PR create** — pass `--reviewer "@copilot"` to
-    `gh pr create`. Best-effort: that create-time request is the only one you make (don't
-    re-request after pushes), and when a review lands, bring its comments back to the user to
+    `gh pr create`. That one create-time request **always works; fire it once and move on** —
+    do **not** verify it, re-request it (`gh pr edit --add-reviewer`), or re-run after pushes.
+    `gh pr view --json reviewRequests` reads **empty even on success** (Copilot's request
+    doesn't surface there), so treating that empty array as failure is a false alarm that only
+    leads to a forbidden re-request. When a review lands, bring its comments back to the user to
     discuss (#1) — don't auto-action them.
 11. **The permission-prompt fix is settled — do NOT re-litigate it.** The fix is the "run all
     Bash without prompts except a few blocked" pattern: a **bare `"Bash"` entry in
@@ -245,6 +248,11 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   the check possible: `jsconfig.json` maps `events`/`punycode`/`string_decoder` back to the
   builtin type declarations — transitive deps install npm shims that would otherwise shadow
   them; the full mechanism is the comment in jsconfig.json.
+- **Before committing code, run _both_ halves of CI's `lint` job locally — `format:check`
+  (Prettier) *and* `lint` (eslint).** eslint passing alone is **not** enough: the job also runs
+  `prettier --check .`, so hand-written edits that aren't Prettier-formatted fail CI every time
+  (a recurring trip-up). Run `npm run format` to fix, then re-check. (Same spirit as keeping
+  `typecheck` clean — the pre-commit gate is format + lint + typecheck + test, mirroring CI.)
 - **Test layout convention:** unit tests are **co-located** with their source as
   `*.test.mjs`; [test/](test/) holds cross-cutting tests, shared `fixtures/`, and shared
   `helpers/` — the full layout and the explicit-glob rationale live in
