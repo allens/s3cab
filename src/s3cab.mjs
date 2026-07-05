@@ -61,7 +61,10 @@ if (args.includes("--help") || args.includes("-h")) {
 try {
   const { values: options, positionals } = parseArgs({
     args,
-    options: { ...command.options },
+    // `--json` is a global flag, owned by the dispatcher (like --help/--version):
+    // merged into every command's parse here, then stripped before `exec` below
+    // so no command ever sees it (ADR-0043).
+    options: { ...command.options, json: { type: "boolean" } },
     allowPositionals: true,
     allowNegative: true,
   });
@@ -76,13 +79,22 @@ try {
   // surfaces through the error handler below.
   loadEnv();
 
-  const result = await command.exec({ ...options, debug }, positionals);
+  const { json, ...execOptions } = options;
+  const result = await command.exec({ ...execOptions, debug }, positionals);
 
-  // Serialize to stdout as JSON. JSON.stringify never truncates (unlike
-  // console.log on a large array/object), and stdout keeps results separate
-  // from the progress/warnings on stderr (see Stream discipline).
+  // Human-readable text is the stdout default; `--json` emits today's raw
+  // structure (ADR-0043 inverts ADR-0010's JSON-everything default). Both paths
+  // never truncate — JSON.stringify doesn't, and a renderer returns a whole
+  // string — keeping results on stdout, separate from progress/warnings on
+  // stderr. During the render-layer migration a command with no `render` yet
+  // falls back to JSON; the final slice deletes that fallback and makes `render`
+  // required. Colour gates on the stdout TTY (`styleEnabled`).
   if (result !== undefined) {
-    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    const output =
+      json || !command.render
+        ? JSON.stringify(result, null, 2)
+        : command.render(result, { color: styleEnabled(process.stdout) });
+    process.stdout.write(output + "\n");
   }
 } catch (error) {
   // Two independent axes (see lib/error.mjs): print the usage help only for a
