@@ -143,9 +143,10 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * (`isCorruptSnapshotError`) is recorded as an **unreadable** finding under its
  * set and the run continues (dying on the first would hide the rest); any other
  * error — an operational S3/credential failure — is rethrown. Sizes are recorded
- * **per path** (first row seen wins for a given path), so a hash whose paths
- * disagree on size — a torn manifest — leaves `verifySet` to flag the exact
- * file(s) against storage, not an abstract conflict.
+ * **per path** (a Set — every distinct size a snapshot row records for that path,
+ * normally one), so a hash whose paths disagree — or a torn path recorded at two
+ * sizes across snapshots — leaves `verifySet` to flag the exact file(s) against
+ * storage, with no recorded size able to hide.
  *
  * The caller must invoke this **before** LISTing `objects/` (the ordering
  * invariant): in that order a backup finishing mid-run only adds unreferenced
@@ -235,9 +236,10 @@ async function readSetReferenced(bucket, set, names) {
       }
       let ref = entry.paths.get(path);
       if (!ref) {
-        ref = { size, snapshots: new Set() };
+        ref = { sizes: new Set(), snapshots: new Set() };
         entry.paths.set(path, ref);
       }
+      ref.sizes.add(size);
       ref.snapshots.add(name);
     }
   }

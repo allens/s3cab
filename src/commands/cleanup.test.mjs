@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // Offline tests for `cleanup`: the S3 reads/writes (referencedObjects,
 // listStoredObjects, deleteStoredObject, writeObjectsCache) and the prompt are
 // faked at the lib seam; the object ages are staged as Dates so the 7-day grace
-// window is exercised without waiting. verifySet (the reused damage diff) runs
-// for real — it's pure. Mocks first, then a dynamic import.
+// window is exercised without waiting. cleanup computes its missing/damaged/orphan
+// tallies directly from the two enumerations (hash level). Mocks first, then a
+// dynamic import.
 
 /** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
@@ -65,7 +66,11 @@ const ref = (hashes, unreadable = []) => ({
   referenced: new Map(
     hashes.map((hash) => [
       hash,
-      { paths: new Map([[`/${hash}`, { size: 1, snapshots: new Set(["s1"]) }]]) },
+      {
+        paths: new Map([
+          [`/${hash}`, { sizes: new Set([1]), snapshots: new Set(["s1"]) }],
+        ]),
+      },
     ]),
   ),
   snapshotsChecked: 1,
@@ -167,6 +172,44 @@ describe("cleanup command", () => {
       assert.ok(
         warnings.some((w) => /wrong size/.test(w)),
         "warns about the wrong-size object",
+      );
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("flags a hash damaged when any of its paths disagrees on size (torn manifest)", async () => {
+    // One hash under two paths recorded at different sizes; stored matches only
+    // the first path. cleanup must still flag it — it checks every path's size,
+    // not just the first (or a torn manifest's wrong size would go unwarned).
+    referencedBySet.set("photos", {
+      referenced: new Map([
+        [
+          "h",
+          {
+            paths: new Map([
+              ["/a", { sizes: new Set([1]), snapshots: new Set(["s1"]) }],
+              ["/b", { sizes: new Set([2]), snapshots: new Set(["s1"]) }],
+            ]),
+          },
+        ],
+      ]),
+      snapshotsChecked: 1,
+      unreadable: [],
+    });
+    storedObjects = [{ hash: "h", size: 1, lastModified: daysAgo(30) }];
+
+    /** @type {string[]} */
+    const warnings = [];
+    const warn = mock.method(console, "warn", (/** @type {string} */ m) =>
+      warnings.push(m),
+    );
+    try {
+      const result = await cleanup("b");
+      assert.equal(result.missingObjects, 0);
+      assert.ok(
+        warnings.some((w) => /wrong size/.test(w)),
+        "warns about the torn-manifest hash",
       );
     } finally {
       warn.mock.restore();

@@ -51,7 +51,10 @@ const ref = (spec, unreadable = []) => ({
       hash,
       {
         paths: new Map([
-          [`/data/${hash}`, { size, snapshots: new Set(snapshots) }],
+          [
+            `/data/${hash}`,
+            { sizes: new Set([size]), snapshots: new Set(snapshots) },
+          ],
         ]),
       },
     ]),

@@ -244,7 +244,7 @@ describe("referencedObjects (real bucket)", { skip }, () => {
       assert.ok(first, "the content has a referencing path");
       const [path, pathRef] = first;
       assert.ok(path.endsWith("a.txt"));
-      assert.equal(pathRef.size, size);
+      assert.deepEqual([...pathRef.sizes], [size]);
       assert.deepEqual([...pathRef.snapshots], [name]);
     } finally {
       for (const h of hashes) {

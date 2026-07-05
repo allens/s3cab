@@ -86,31 +86,34 @@ export async function cleanup(bucket, options = {}) {
     );
   }
 
-  // The referenced union (bucket-wide — cleanup must span every set), each hash
-  // with one recorded size for the damage cross-check. Distinct *hashes*, not
-  // paths: an object missing/damaged that several files or sets reference is one
-  // lost object, so it must count once or the reported number lies.
-  /** @type {Map<string, number>} */
-  const referencedAll = new Map();
+  // The referenced union (bucket-wide — cleanup must span every set), plus the
+  // missing/damaged tallies. Distinct *hashes*, not paths: an object
+  // missing/damaged that several files or sets reference is one lost object, so
+  // it must count once or the reported number lies. Missing = a referenced hash
+  // absent from the store (the broken invariant); damaged = stored, but *any*
+  // recorded path size disagrees with the stored LIST size (a torn manifest can
+  // record different sizes across paths/snapshots — `verify` has the per-file
+  // detail).
+  /** @type {Set<string>} */
+  const referencedAll = new Set();
+  let missing = 0;
+  let damaged = 0;
   for (const { referenced } of referencedBySet.values()) {
     for (const [hash, { paths }] of referenced) {
       if (referencedAll.has(hash)) {
         continue;
       }
-      const [first] = paths.values(); // every entry has ≥1 path
-      referencedAll.set(hash, first ? first.size : 0);
-    }
-  }
-  // Missing = a referenced hash absent from the store (the broken invariant);
-  // damaged = stored, but at a size disagreeing with what a snapshot recorded.
-  let missing = 0;
-  let damaged = 0;
-  for (const [hash, recordedSize] of referencedAll) {
-    const storedSize = stored.get(hash)?.size;
-    if (storedSize === undefined) {
-      missing++;
-    } else if (storedSize !== recordedSize) {
-      damaged++;
+      referencedAll.add(hash);
+      const storedSize = stored.get(hash)?.size;
+      if (storedSize === undefined) {
+        missing++;
+      } else if (
+        [...paths.values()].some((p) =>
+          [...p.sizes].some((size) => size !== storedSize),
+        )
+      ) {
+        damaged++;
+      }
     }
   }
   if (damaged > 0) {

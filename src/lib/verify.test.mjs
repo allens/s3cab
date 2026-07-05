@@ -12,8 +12,9 @@ import {
 
 /**
  * Build a ReferencedResult from a compact spec: each hash maps to its list of
- * referencing paths `{ path, size, snapshots }`.
- * @param {Record<string, { path: string, size: number, snapshots: string[] }[]>} spec
+ * referencing paths `{ path, size, snapshots }`. `size` may be an array to record
+ * a single path at several sizes (a torn manifest).
+ * @param {Record<string, { path: string, size: number | number[], snapshots: string[] }[]>} spec
  * @param {{ snapshotsChecked?: number, unreadable?: { snapshot: string, reason: string }[] }} [meta]
  */
 function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
@@ -21,7 +22,10 @@ function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
   for (const [hash, paths] of Object.entries(spec)) {
     const pathMap = new Map();
     for (const { path, size, snapshots } of paths) {
-      pathMap.set(path, { size, snapshots: new Set(snapshots) });
+      pathMap.set(path, {
+        sizes: new Set(Array.isArray(size) ? size : [size]),
+        snapshots: new Set(snapshots),
+      });
     }
     referenced.set(hash, { paths: pathMap });
   }
@@ -148,6 +152,43 @@ describe("verifySet", () => {
         ["/wrong.txt", "missing"],
       ],
     );
+  });
+
+  it("flags a torn same-path size — one path recorded at two sizes — against storage", () => {
+    // The same path recorded at two sizes across snapshots (content fixes size,
+    // so this is a torn manifest). Only the recorded size that disagrees with the
+    // one stored object is a problem; the matching one is not.
+    const referenced = ref({
+      aaa: [{ path: "/a.txt", size: [10, 20], snapshots: ["s1", "s2"] }],
+    });
+    const stored = new Map([["aaa", 10]]);
+    const report = verifySet("photos", referenced, stored);
+
+    assert.deepEqual(report.problems, [
+      {
+        path: "/a.txt",
+        problem: "wrong-size",
+        snapshots: ["s1", "s2"],
+        recordedSize: 20,
+        storedSize: 10,
+      },
+    ]);
+  });
+
+  it("orders two problems for the same path deterministically (a file that changed hash)", () => {
+    // One path under two content hashes across snapshots, both missing — two rows
+    // share (path, problem), so the sort must tie-break (here on snapshots) rather
+    // than fall back to hash-encounter order.
+    const referenced = ref({
+      h2: [{ path: "/a", size: 5, snapshots: ["s2"] }],
+      h1: [{ path: "/a", size: 5, snapshots: ["s1"] }],
+    });
+    const report = verifySet("photos", referenced, new Map());
+
+    assert.deepEqual(report.problems, [
+      { path: "/a", problem: "missing", snapshots: ["s1"] },
+      { path: "/a", problem: "missing", snapshots: ["s2"] },
+    ]);
   });
 
   it("passes unreadable snapshots through and counts them as findings", () => {

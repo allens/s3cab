@@ -10,13 +10,16 @@
 // pure so the problem model is unit-testable without a bucket.
 
 /**
- * One referenced path within a set: the `size` its snapshot rows record and the
+ * One referenced path within a set: the `sizes` its snapshot rows record and the
  * `snapshots` that reference the content under this path. Recorded per path (not
  * per hash) so the problem model is file-centric — a hash under many paths yields
- * many entries — and so a recorded-size mismatch is naturally attributed to the
- * exact file(s) whose size disagrees with storage.
+ * many entries — and so a recorded-size mismatch is attributed to the exact
+ * file(s) whose size disagrees with storage. `sizes` is a Set because content
+ * fixes size — so a healthy path records exactly one — but a *torn* manifest can
+ * record the same path at two sizes across snapshots; keeping both lets that hide
+ * nowhere (each is checked against the one stored object).
  * @typedef {Object} PathReference
- * @property {number} size - The size the snapshot rows record for this path (content fixes size, so it is stable per path)
+ * @property {Set<number>} sizes - The distinct sizes the snapshot rows record for this path (normally one)
  * @property {Set<string>} snapshots - Names of the snapshots that reference it under this path
  */
 
@@ -95,28 +98,39 @@ export function verifySet(name, referencedResult, stored) {
 
   for (const [hash, entry] of referenced) {
     const storedSize = stored.get(hash);
-    for (const [path, { size, snapshots }] of entry.paths) {
+    for (const [path, { sizes, snapshots }] of entry.paths) {
       const snaps = [...snapshots].sort();
       if (storedSize === undefined) {
         problems.push({ path, problem: "missing", snapshots: snaps });
-      } else if (size !== storedSize) {
-        problems.push({
-          path,
-          problem: "wrong-size",
-          snapshots: snaps,
-          recordedSize: size,
-          storedSize,
-        });
+        continue;
+      }
+      // Every recorded size for this path is checked against the one stored
+      // object; a torn manifest that recorded two sizes yields a row per bad one.
+      for (const size of sizes) {
+        if (size !== storedSize) {
+          problems.push({
+            path,
+            problem: "wrong-size",
+            snapshots: snaps,
+            recordedSize: size,
+            storedSize,
+          });
+        }
       }
     }
   }
 
   // Deterministic report output (and stable tests), independent of snapshot/LIST
-  // encounter order: sort by path, then problem kind to break the rare tie of one
-  // path reported twice (it can't be — a path has one hash — but keep it total).
+  // encounter order. The sort is *total*: the same path can legitimately appear
+  // more than once — under different content hashes across snapshots (a file that
+  // changed), or a torn path at two sizes — so tie-break past (path, problem) on
+  // recorded size and then referencing snapshots.
   problems.sort(
     (a, b) =>
-      a.path.localeCompare(b.path) || a.problem.localeCompare(b.problem),
+      a.path.localeCompare(b.path) ||
+      a.problem.localeCompare(b.problem) ||
+      (a.recordedSize ?? -1) - (b.recordedSize ?? -1) ||
+      a.snapshots.join(",").localeCompare(b.snapshots.join(",")),
   );
 
   return {
