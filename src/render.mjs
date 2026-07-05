@@ -23,6 +23,11 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
+/** @import { BackupResult } from "./commands/backup.mjs" */
+/** @import { UploadResult } from "./commands/upload.mjs" */
+/** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { DeleteResult } from "./commands/delete.mjs" */
+/** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /**
  * @import {
  *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError,
@@ -503,6 +508,129 @@ function problemDetail(p) {
     return `(in ${plural(p.snapshots.length, "snapshot")} ${p.snapshots.join(", ")})`;
   }
   return `(recorded ${count(p.recordedSize ?? 0)} bytes, stored ${count(p.storedSize ?? 0)})`;
+}
+
+/**
+ * Confirm a `backup` (ADR-0043) — which set and snapshot went up, and how much
+ * new content transferred. `candidates` is the objects this backup considered
+ * (new since the last one); `uploaded` those actually sent — the rest the store
+ * already held (dedup, or a resumed backup). Zero candidates is the up-to-date
+ * case; when every candidate uploaded, the "already stored" aside is dropped.
+ * @param {BackupResult} result
+ * @returns {string}
+ */
+export function renderBackup({ set, snapshot, candidates, uploaded }) {
+  const head = `Backed up '${set}' (snapshot ${snapshot})`;
+  if (candidates === 0) {
+    return `${head} — already up to date, nothing new to upload.`;
+  }
+  const objects = plural(candidates, "object");
+  const detail =
+    uploaded === candidates
+      ? `uploaded ${count(uploaded)} ${objects}`
+      : `uploaded ${count(uploaded)} of ${count(candidates)} ${objects} ` +
+        `(${count(candidates - uploaded)} already stored)`;
+  return `${head}: ${detail}.`;
+}
+
+/**
+ * Confirm an `upload` (ADR-0043) — the plumbing single-file put. Reports the
+ * object key (the content address, never truncated) and human size, and whether
+ * the bytes were transferred or the store already held them (a content-addressed
+ * store never re-puts identical content).
+ * @param {UploadResult} result
+ * @returns {string}
+ */
+export function renderUpload({ key, size, uploaded }) {
+  const human = formatByteValue(size);
+  return uploaded
+    ? `Uploaded ${key} (${human}).`
+    : `${key} already stored (${human}).`;
+}
+
+/**
+ * Confirm a `restore` (ADR-0043) — how many files were written from which
+ * snapshot, then the existing files left untouched (the full list, never
+ * truncated: each is a file the user asked for and didn't get, so name them all
+ * and point at --overwrite). An empty selection that wrote and skipped nothing
+ * says so plainly rather than emitting blank output.
+ * @param {RestoreResult} result
+ * @returns {string}
+ */
+export function renderRestore({ set, snapshot, restored, skipped }) {
+  const sections = [];
+  // The count line carries the set/snapshot context, so it leads whenever
+  // anything happened — including the wrote-nothing-but-skipped case (every
+  // requested file already existed), where "Restored 0 files" keeps that context
+  // above the skipped list rather than starting cold on "Skipped …".
+  if (restored.length || skipped.length) {
+    sections.push(
+      `Restored ${count(restored.length)} ${plural(restored.length, "file")} ` +
+        `from '${set}' (snapshot ${snapshot}).`,
+    );
+  }
+  if (skipped.length) {
+    const heading =
+      `Skipped ${count(skipped.length)} existing ` +
+      `${plural(skipped.length, "file")} (rerun with --overwrite to replace):`;
+    sections.push([heading, ...skipped.map((path) => `  ${path}`)].join("\n"));
+  }
+  if (sections.length === 0) {
+    return `Nothing to restore from '${set}' (snapshot ${snapshot}).`;
+  }
+  return sections.join("\n\n");
+}
+
+/**
+ * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshot
+ * was removed. The reclaim-with-cleanup hint and the cancel notice are stderr
+ * guidance the command already emitted (kept there, not folded in); this is only
+ * the result line. `deleted: false` means the user declined the confirmation.
+ * @param {DeleteResult} result
+ * @returns {string}
+ */
+export function renderDelete({ set, snapshot, deleted }) {
+  return deleted
+    ? `Snapshot '${snapshot}' deleted from set '${set}'.`
+    : `Snapshot '${snapshot}' kept — deletion cancelled.`;
+}
+
+/**
+ * Confirm a `cleanup` (ADR-0043) — the run's counts, which are the command's
+ * *result* (moved here from stderr, where only next-step guidance now remains). A
+ * `--delete` run that reclaimed reports what it removed; every other run (dry run,
+ * declined, or nothing to do) reports the inventory — stored total, orphans and
+ * the space they hold, plus the grace-protected and (integrity-fault) missing
+ * tallies when non-zero.
+ * @param {CleanupResult} result
+ * @returns {string}
+ */
+export function renderCleanup(result) {
+  const {
+    bucket,
+    storedObjects,
+    orphanObjects,
+    reclaimableBytes,
+    withinGrace,
+    missingObjects,
+    deleted,
+  } = result;
+  if (deleted > 0) {
+    return (
+      `${bucket}: deleted ${count(deleted)} orphaned ` +
+      `${plural(deleted, "object")}, reclaimed ${formatByteValue(reclaimableBytes)}.`
+    );
+  }
+  let line =
+    `${bucket}: ${count(storedObjects)} ${plural(storedObjects, "object")} stored, ` +
+    `${count(orphanObjects)} orphaned (${formatByteValue(reclaimableBytes)} reclaimable)`;
+  if (withinGrace) {
+    line += `, ${count(withinGrace)} too new to touch (7-day grace)`;
+  }
+  if (missingObjects) {
+    line += `, ${count(missingObjects)} missing (referenced but absent)`;
+  }
+  return line;
 }
 
 /** @param {{ size: number }[]} entries */

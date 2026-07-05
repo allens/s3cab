@@ -220,3 +220,14 @@ Migration uses a **temporary** optional-`render` + JSON fallback, deleted in the
 - `hashes --output` fate (slice 3).
 - Exact confirmation wording for the action commands (decided against real output, per slice).
 - Colour shades / exact palette — confirm when first rendered (slice 2).
+- **Gated-S3 e2e for the action confirmations** (backup/upload/restore/delete/cleanup) —
+  _parked, decide at slice-5 close-out._ Slice 4 gave them renderer *unit* tests
+  (`render.test.mjs`) but no end-to-end test, because reaching their result needs a live bucket
+  (they all make real S3 calls), so a cheap offline e2e can only hit their usage-error paths. The
+  only untested bit is the *wiring* (dispatcher routes each result through the right renderer to
+  stdout; `--json` still emits the structure) — and slice-5's typecheck-required `render` closes
+  the "unwired" gap for free. Options to weigh: (A) a gated setup→backup→restore→delete→cleanup
+  round-trip asserting human stdout + `--json` (high fidelity, gate-only, slow); (B) skip, leaning
+  on the typecheck gate; (C) make `s3cab.mjs` dispatch unit-testable (`import.meta.main` guard) so
+  the render-vs-JSON branch tests offline. Worth is low-to-moderate (mostly future-regression
+  insurance on plumbing already covered by `remote`/`objects` gated tests).

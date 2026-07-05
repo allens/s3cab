@@ -45,12 +45,19 @@ const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * should run `verify` before their next backup and that cleanup must not run
  * while a backup is (a documented, accepted race — see the design).
  *
+ * @typedef {Object} CleanupResult
+ * @property {string} bucket - The repository bucket cleaned up
+ * @property {number} storedObjects - Objects present in the store
+ * @property {number} referencedObjects - Distinct objects any snapshot references
+ * @property {number} orphanObjects - Deletable orphans (unreferenced, past grace)
+ * @property {number} reclaimableBytes - Bytes those orphans hold
+ * @property {number} withinGrace - Orphan-looking objects too new to touch (7-day grace)
+ * @property {number} missingObjects - Referenced objects absent from the store (an integrity fault)
+ * @property {number} deleted - How many were actually removed (0 on a dry run or a declined confirmation)
+ *
  * @param {string} [bucket] - The repository's S3 bucket to clean up (required)
  * @param {{ delete?: boolean }} [options] - `--delete` reclaims; default is a dry run
- * @returns {Promise<{ bucket: string, storedObjects: number, referencedObjects: number, orphanObjects: number, reclaimableBytes: number, withinGrace: number, missingObjects: number, deleted: number }>}
- *   Counts for the run; `orphanObjects` = deletable orphans (past grace),
- *   `withinGrace` = orphan-looking but too new to touch, `deleted` = how many were
- *   actually removed (0 on a dry run or a declined confirmation).
+ * @returns {Promise<CleanupResult>}
  */
 export async function cleanup(bucket, options = {}) {
   requireArg(bucket, "bucket");
@@ -155,14 +162,9 @@ export async function cleanup(bucket, options = {}) {
     deleted: 0,
   };
 
-  // Human summary to stderr (the JSON result is the data, on stdout).
-  console.warn(
-    `${bucket}: ${stored.size} stored, ${orphanHashes.length} orphaned ` +
-      `(${formatByteValue(reclaimableBytes)} reclaimable)` +
-      (withinGrace ? `, ${withinGrace} too new to touch (7-day grace)` : "") +
-      (missing ? `, ${missing} MISSING (referenced but absent)` : ""),
-  );
-
+  // The counts report (stored/orphaned/reclaimable + the grace/missing tallies)
+  // is the command's *result* — it renders to stdout via renderCleanup (ADR-0043),
+  // so it isn't restated here. stderr carries only next-step guidance.
   if (!doDelete) {
     console.warn(
       orphanHashes.length > 0
@@ -214,9 +216,10 @@ export async function cleanup(bucket, options = {}) {
     [...stored.keys()].filter((hash) => !deleted.has(hash)),
   );
 
+  // What was reclaimed is the result (→ renderCleanup on stdout); stderr keeps the
+  // cross-machine guidance the counts can't convey.
   console.warn(
-    `Deleted ${orphanHashes.length} object(s), reclaimed ${formatByteValue(reclaimableBytes)}.\n` +
-      `Other machines backing up to this bucket should run 's3cab verify ${bucket}' ` +
+    `Other machines backing up to this bucket should run 's3cab verify ${bucket}' ` +
       `before their next backup (their local caches may now be stale).\n` +
       `Don't run cleanup while a backup is running.`,
   );

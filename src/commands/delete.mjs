@@ -23,10 +23,14 @@ import { isInteractive } from "../lib/style.mjs";
  * error (and the prompt names a real target) rather than a silent no-op
  * (`DeleteObject` is idempotent).
  *
+ * @typedef {Object} DeleteResult
+ * @property {string} set - The set the snapshot belonged to
+ * @property {string} snapshot - The snapshot named for deletion
+ * @property {boolean} deleted - False only when the user declined the confirmation
+ *
  * @param {string} [setName] - The backup set the snapshot belongs to (required)
  * @param {{ snapshot?: string }} [options] - `snapshot` = the name to delete (required)
- * @returns {Promise<{ set: string, snapshot: string, deleted: boolean }>}
- *   `deleted` is false only when the user declined the confirmation.
+ * @returns {Promise<DeleteResult>}
  */
 export async function deleteSnapshot(setName, options = {}) {
   requireArg(setName, "set");

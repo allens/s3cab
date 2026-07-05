@@ -29,11 +29,17 @@ import { prop } from "./prop.mjs";
  * rest of the `backup` milestone, but it's load-bearing for that flow, so don't
  * lose it.
  *
+ * @typedef {Object} UploadResult
+ * @property {string} hash - The file's SHA-256 (its content address)
+ * @property {number} size - The file's size in bytes
+ * @property {string} key - The object-store key it maps to (`objects/<sha256>`)
+ * @property {boolean} uploaded - True when transferred; false when the object was already stored
+ *
  * @param {string} [bucket] - The repository's S3 bucket name.
  * @param {string} [file] - The file to upload.
  * @param {object} [options]
  * @param {boolean} [options.force] - Re-upload even if the object already exists.
- * @returns {Promise<{ hash: string, size: number, key: string, uploaded: boolean }>}
+ * @returns {Promise<UploadResult>}
  */
 export async function upload(bucket, file, options = {}) {
   requireArg(bucket, "bucket");
