@@ -7,11 +7,12 @@ import { writeSet } from "../lib/sets.mjs";
 import { list } from "./list.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Tests for the list command (docs/design/backup.md, ADR-0036). All offline: the
-// local-snapshot paths (every set compactly, a named set in detail, --latest)
-// need no network. The --remote path lists S3 and is covered by the gated suites
-// that exercise the cloud round-trip. The set store keeps no module state, so
-// each test points S3CAB_HOME at a temp dir.
+// Tests for the list command (docs/design/backup.md, ADR-0036, ADR-0043). All
+// offline: the local-snapshot paths (every set, a named set, --latest) need no
+// network. list returns *data* now (the render layer turns it into text —
+// render.test.mjs pins that), so these assert the returned shape. The --remote
+// path lists S3 and is covered by the gated suites. The set store keeps no module
+// state, so each test points S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -45,42 +46,17 @@ function seedSet(name, dirs, bucket, snapshots) {
   }
 }
 
-/**
- * Capture stdout + console.warn for one test (t.mock auto-restores).
- * @param {import("node:test").TestContext} t
- */
-function capture(t) {
-  /** @type {string[]} */
-  const out = [];
-  /** @type {string[]} */
-  const warn = [];
-  t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
-    out.push(String(chunk));
-    return true;
-  });
-  t.mock.method(console, "warn", (/** @type {unknown[]} */ ...args) => {
-    warn.push(args.join(" "));
-  });
-  return { out: () => out.join(""), warn: () => warn.join("\n") };
-}
-
 describe("list", () => {
-  it("warns (on stderr) when there are no sets yet, leaving stdout empty", async (t) => {
+  it("returns an empty summary when there are no sets yet", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    const io = capture(t);
 
     const result = await list();
 
-    assert.equal(result, undefined);
-    assert.equal(io.out(), "");
-    assert.match(
-      io.warn(),
-      /No backup sets yet[\s\S]*s3cab setup <set> <directory>\.\.\. --bucket <bucket>/,
-    );
+    assert.deepEqual(result, { mode: "summary", sets: [] });
   });
 
-  it("lists every set compactly (name + snapshot times), newest first", async (t) => {
+  it("returns every set with its snapshot times, newest first", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("photos", ["/data/photos"], "my-bucket", [
@@ -88,68 +64,62 @@ describe("list", () => {
       "2026-06-12T0915",
     ]);
     seedSet("docs", ["/data/docs"], "my-bucket", ["2026-05-12T0946"]);
-    const io = capture(t);
 
-    await list();
-    const out = io.out();
+    const result = await list();
 
-    // Compact form: a `name:` heading then indented times — no bucket/directories.
-    assert.match(out, /docs:\n {2}2026-05-12T0946/);
-    assert.match(
-      out,
-      /photos:\n {2}2026-06-12T0915\n {2}2026-06-11T0915/, // newest first
-    );
-    assert.doesNotMatch(out, /s3:\/\//); // the compact form omits the bucket
-    assert.doesNotMatch(out, /\/data\/photos/); // …and the directories
+    assert.equal(result.mode, "summary");
+    assert(result.mode === "summary");
+    // Sorted by set name (listSets order); snapshots newest first.
+    assert.deepEqual(result.sets, [
+      { name: "docs", snapshots: ["2026-05-12T0946"] },
+      { name: "photos", snapshots: ["2026-06-12T0915", "2026-06-11T0915"] },
+    ]);
   });
 
-  it("shows '(none yet)' for a set with no snapshots", async (t) => {
+  it("returns an empty snapshot list for a set with no snapshots", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("empty", ["/data/empty"], "my-bucket", []);
-    const io = capture(t);
 
-    await list();
+    const result = await list();
 
-    assert.match(io.out(), /empty:\n {2}\(none yet\)/);
+    assert(result.mode === "summary");
+    assert.deepEqual(result.sets, [{ name: "empty", snapshots: [] }]);
   });
 
-  it("with --latest shows only each set's most recent snapshot", async (t) => {
+  it("with --latest narrows each set to its most recent snapshot", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("photos", ["/data/photos"], "my-bucket", [
       "2026-06-11T0915",
       "2026-06-12T0915",
     ]);
-    const io = capture(t);
 
-    await list(undefined, { latest: true });
-    const out = io.out();
+    const result = await list(undefined, { latest: true });
 
-    assert.match(out, /photos:\n {2}2026-06-12T0915/);
-    assert.doesNotMatch(out, /2026-06-11T0915/); // the older one is dropped
+    assert(result.mode === "summary");
+    assert.deepEqual(result.sets, [
+      { name: "photos", snapshots: ["2026-06-12T0915"] },
+    ]);
   });
 
-  it("a named set shows its full config (target, directories, exclude file) above its snapshots", async (t) => {
+  it("returns a named set in detail — its config and snapshots", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("docs", ["/data/docs"], "my-bucket", ["2026-05-12T0946"]);
     seedSet("photos", ["/data/photos"], "other-bucket", ["2026-06-12T0915"]);
-    const io = capture(t);
 
-    await list("docs");
-    const out = io.out();
+    const result = await list("docs");
 
-    // Labeled detail view: name, bucket, dirs (with the dirs.txt path), the
-    // exclude file path, then the snapshot. The config paths let a terminal open
-    // the files; assert each is the named set's absolute path.
-    assert.match(out, /name: docs/);
-    assert.match(out, /bucket: my-bucket/);
-    assert.match(out, /dirs \(.*docs.dirs\.txt\):\n {2}\/data\/docs/);
-    assert.match(out, /exclude file: .*docs.exclude\.txt/);
-    assert.match(out, /snapshots:\n {2}2026-05-12T0946/);
-    // Only the named set — the other set is absent.
-    assert.doesNotMatch(out, /photos|other-bucket/);
+    assert(result.mode === "detail");
+    assert.equal(result.remote, false);
+    assert.equal(result.set.name, "docs");
+    assert.equal(result.set.bucket, "my-bucket");
+    assert.deepEqual(result.set.dirs, ["/data/docs"]);
+    // The config paths the detail view surfaces are the named set's own.
+    assert.match(result.set.dirsPath, /docs.dirs\.txt$/);
+    assert.match(result.set.excludePath, /docs.exclude\.txt$/);
+    assert.deepEqual(result.snapshots, ["2026-05-12T0946"]);
   });
 
   it("rejects an unknown named set", async () => {

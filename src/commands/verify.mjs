@@ -32,7 +32,7 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * cache from the completed LIST (`writeObjectsCache`) — authoritative ground truth
  * it already paid for, which warms the next backup and heals a poisoned cache. It
  * never writes to the bucket. **Exit 1** when any set has findings (via
- * `process.exitCode`, so the JSON report still prints); a clean run returns 0.
+ * `process.exitCode`, so the report still prints); a clean run returns 0.
  *
  * **Orphans are not verify's concern.** Objects no snapshot references
  * (`stored − referenced`) are a *reclamation* matter, never an integrity one —
@@ -71,8 +71,8 @@ export async function verify(bucket) {
   await writeObjectsCache(bucket, stored.keys());
 
   // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than
-  // throw, so the JSON report still serializes to stdout (the entry point prints
-  // a returned result even when the exit code is nonzero).
+  // throw, so the report still prints to stdout (the entry point renders a
+  // returned result even when the exit code is nonzero).
   if (reports.some(setHasFindings)) {
     process.exitCode = 1;
   }

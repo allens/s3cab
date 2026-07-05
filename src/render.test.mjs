@@ -2,10 +2,19 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { describe, it } from "node:test";
-import { renderCompareResult, renderSetup } from "./render.mjs";
+import {
+  renderCompareResult,
+  renderLines,
+  renderList,
+  renderProp,
+  renderSetup,
+  renderStatus,
+  renderVerify,
+} from "./render.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { CompareResult } from "./lib/compare.mjs" */
+/** @import { SetReport } from "./lib/verify.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so
 // the header's `~` shortening is exercised, platform-correct.
@@ -253,5 +262,259 @@ describe("renderCompareResult", () => {
       result({ modified: [{ path: under("..stuff", "file.txt"), size: 1 }] }),
     );
     assert.match(text, new RegExp(`\\.\\.stuff\\${sep}file\\.txt`));
+  });
+});
+
+describe("renderList", () => {
+  it("lists every set compactly (name + snapshot times, newest first)", () => {
+    const text = renderList({
+      mode: "summary",
+      sets: [
+        { name: "photos", snapshots: ["2026-06-12T0915", "2026-06-11T0915"] },
+        { name: "docs", snapshots: ["2026-05-12T0946"] },
+      ],
+    });
+
+    assert.equal(
+      text,
+      "photos:\n  2026-06-12T0915\n  2026-06-11T0915\n" + "docs:\n  2026-05-12T0946",
+    );
+  });
+
+  it("shows '(none yet)' for a set with no snapshots", () => {
+    const text = renderList({
+      mode: "summary",
+      sets: [{ name: "empty", snapshots: [] }],
+    });
+    assert.equal(text, "empty:\n  (none yet)");
+  });
+
+  it("guides toward creating a set when there are none", () => {
+    const text = renderList({ mode: "summary", sets: [] });
+    assert.match(text, /No backup sets yet/);
+    assert.match(text, /s3cab setup/);
+  });
+
+  it("shows a named set's full config (bucket, dirs with path, exclude file) above its snapshots", () => {
+    const detailSet = {
+      ...set("docs", "my-bucket", ["/data/docs"]),
+      dirsPath: "/home/me/.s3cab/sets/docs/dirs.txt",
+      excludePath: "/home/me/.s3cab/sets/docs/exclude.txt",
+    };
+    const text = renderList({
+      mode: "detail",
+      set: detailSet,
+      snapshots: ["2026-05-12T0946"],
+      remote: false,
+    });
+
+    assert.match(text, /^name: docs\n/);
+    assert.match(text, /bucket: my-bucket/);
+    assert.match(text, /dirs \(.*docs\/dirs\.txt\):\n {2}\/data\/docs/);
+    assert.match(text, /exclude file: .*docs\/exclude\.txt/);
+    assert.match(text, /\nsnapshots:\n {2}2026-05-12T0946$/);
+  });
+
+  it("labels the detail snapshots 'remote snapshots' for --remote", () => {
+    const detailSet = {
+      ...set("docs", "my-bucket", []),
+      dirsPath: "/d.txt",
+      excludePath: "/e.txt",
+    };
+    const text = renderList({
+      mode: "detail",
+      set: detailSet,
+      snapshots: [],
+      remote: true,
+    });
+    // No local dirs → "(none)"; remote heading; no snapshots yet → "(none yet)".
+    assert.match(text, /dirs \(\/d\.txt\):\n {2}\(none\)/);
+    assert.match(text, /\nremote snapshots:\n {2}\(none yet\)$/);
+  });
+});
+
+describe("renderLines (tree/hashes)", () => {
+  it("renders one entry per line", () => {
+    assert.equal(renderLines(["a/x.txt", "a/y.txt"]), "a/x.txt\na/y.txt");
+  });
+
+  it("renders an empty list as the empty string (a greppable stream)", () => {
+    // tree of an empty set / a store with no objects: the honest, redirectable
+    // answer is no lines — a placeholder would corrupt `> file` / a pipe.
+    assert.equal(renderLines([]), "");
+  });
+});
+
+describe("renderProp", () => {
+  const props = {
+    hash: "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a",
+    size: 1_500_000,
+    mtime: "2025-01-15T10:30:00.000Z",
+    hashDuration: 0.01,
+  };
+
+  it("renders hash, size (bytes + human), and modified time, aligned", () => {
+    // `renderProp` reads S3CAB_DEBUG ambiently, so pin it off for the default view.
+    delete process.env.S3CAB_DEBUG;
+    const text = renderProp(props);
+
+    assert.match(text, /^hash {6}c0535e4b/);
+    assert.match(text, /\nsize {6}1,500,000 bytes \(1\.5MB\)/);
+    assert.match(text, /\nmodified {2}2025-01-15T10:30:00\.000Z$/);
+    // The internal hash timing is not shown in the default human view.
+    assert.doesNotMatch(text, /hashed|0\.01/);
+  });
+
+  it("surfaces the hash timing as a `hashed` row under S3CAB_DEBUG", () => {
+    process.env.S3CAB_DEBUG = "1";
+    try {
+      assert.match(renderProp(props), /\nhashed {4}0\.01s$/);
+    } finally {
+      delete process.env.S3CAB_DEBUG;
+    }
+  });
+});
+
+describe("renderStatus", () => {
+  it("reports the upload count against latest local and remote snapshots", () => {
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      backedUp: "2026-07-01T0900",
+      toUpload: 12,
+    });
+    assert.match(text, /^photos\n/);
+    assert.match(text, /\n {2}latest snapshot {3}2026-07-04T1000\n/);
+    assert.match(text, /\n {2}backed up {9}2026-07-01T0900\n/);
+    assert.match(text, /\n {2}12 objects to upload$/);
+  });
+
+  it("collapses to 'up to date' at zero and 'never' when never backed up", () => {
+    const text = renderStatus({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      backedUp: null,
+      toUpload: 0,
+    });
+    assert.match(text, /\n {2}backed up {9}never\n/);
+    assert.match(text, /\n {2}up to date$/);
+  });
+});
+
+/**
+ * A `SetReport` with sensible empties, overlaid by `over`.
+ * @param {Partial<SetReport> & { set: string }} over
+ * @returns {SetReport}
+ */
+const report = (over) => ({
+  snapshotsChecked: 1,
+  referencedObjects: 0,
+  problems: [],
+  unreadableSnapshots: [],
+  ...over,
+});
+
+describe("renderVerify", () => {
+  it("headlines a clean run green and prints no per-set blocks", () => {
+    const text = renderVerify(
+      {
+        bucket: "photos-bucket",
+        sets: [
+          report({ set: "docs", referencedObjects: 40 }),
+          report({ set: "music", referencedObjects: 4002 }),
+        ],
+      },
+      { color: false },
+    );
+    // 2 sets, 4,042 referenced objects checked — all verified.
+    assert.equal(text, "photos-bucket: 2 sets, 4,042 objects checked — all verified ✓");
+  });
+
+  it("maps each problem 1:1 to a file line and headlines the finding count", () => {
+    const text = renderVerify(
+      {
+        bucket: "photos-bucket",
+        sets: [
+          report({ set: "docs", referencedObjects: 40 }),
+          report({
+            set: "music",
+            referencedObjects: 4002,
+            problems: [
+              {
+                path: "invoices/2024/jan.pdf",
+                problem: "missing",
+                snapshots: ["2026-06-01", "2026-06-15"],
+              },
+              {
+                path: "reports/q1.xlsx",
+                problem: "wrong-size",
+                snapshots: ["2026-06-01"],
+                recordedSize: 24_102,
+                storedSize: 24_000,
+              },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+
+    // Headline: 1 of the 2 sets has findings.
+    assert.match(text, /^photos-bucket: 2 sets, 4,042 objects checked — 1 set with findings ✗\n/);
+    // Only the finding set gets a block, with a file count.
+    assert.match(text, /\n {2}music {3}2 files with problems\n/);
+    assert.doesNotMatch(text, /docs/);
+    // missing → which snapshots reference it; wrong-size → recorded vs stored.
+    assert.match(
+      text,
+      /invoices\/2024\/jan\.pdf {3}missing {6}\(in snapshots 2026-06-01, 2026-06-15\)/,
+    );
+    assert.match(
+      text,
+      /reports\/q1\.xlsx {9}wrong size {3}\(recorded 24,102 bytes, stored 24,000\)/,
+    );
+  });
+
+  it("reports an unreadable snapshot as its own finding line", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "music",
+            referencedObjects: 10,
+            unreadableSnapshots: [
+              { snapshot: "2026-05-01T0800", reason: "unexpected end of file" },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.match(text, /\n {2}music {3}could not fully check\n/);
+    assert.match(
+      text,
+      /snapshot 2026-05-01T0800 could not be read \(unexpected end of file\)/,
+    );
+  });
+
+  it("emits no ANSI without colour, and colours the verdict + set name with it", () => {
+    const data = {
+      bucket: "b",
+      sets: [
+        report({
+          set: "docs",
+          problems: [{ path: "x", problem: "missing", snapshots: ["s"] }],
+        }),
+      ],
+    };
+    const ESC = "\x1b";
+
+    assert.ok(!renderVerify(data, { color: false }).includes(ESC));
+
+    const coloured = renderVerify(data, { color: true });
+    // Verdict is red+bold (31/1); the finding set name is red (31).
+    assert.ok(coloured.includes(`${ESC}[31m`));
+    assert.ok(coloured.includes(`${ESC}[1m`));
   });
 });

@@ -19,10 +19,14 @@ import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
  * the conditional PUT may transfer fewer in practice (an optimization `backup`
  * applies, not part of this estimate).
  *
+ * @typedef {Object} StatusReport
+ * @property {string} set - The set reported on
+ * @property {string} snapshot - Latest local snapshot (the upload target)
+ * @property {string | null} backedUp - Latest remote snapshot (null if never backed up)
+ * @property {number} toUpload - Objects a backup would upload
+ *
  * @param {string} [setName] - Backup set to report on (default: the only set)
- * @returns {Promise<{ set: string, snapshot: string, backedUp: string | null, toUpload: number }>}
- *   `snapshot` = latest local snapshot (the upload target); `backedUp` = latest
- *   remote snapshot (null if never backed up); `toUpload` = objects a backup would upload.
+ * @returns {Promise<StatusReport>}
  */
 export async function status(setName) {
   const set = loadSet(setName);

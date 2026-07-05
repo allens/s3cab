@@ -14,9 +14,15 @@
 import { homedir } from "node:os";
 import { dirname, relative, sep } from "node:path";
 import { formatByteValue } from "./lib/format.mjs";
+import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
+import { setHasFindings } from "./lib/verify.mjs";
 import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
+/** @import { ListResult } from "./commands/list.mjs" */
+/** @import { StatusReport } from "./commands/status.mjs" */
+/** @import { Props } from "./lib/snapshot-file.mjs" */
+/** @import { SetReport } from "./lib/verify.mjs" */
 /**
  * @import {
  *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError,
@@ -283,6 +289,215 @@ function summaryLine(result, renamedCount, movedCount) {
     line += `, ${errors.length} ${plural(errors.length, "error")}`;
   }
   return line;
+}
+
+/**
+ * Render `list` (ADR-0043) — the read half of the old `sets` command, in one of
+ * two mode-tagged shapes. **`detail`** (a named set, or `--remote`) shows the
+ * set's config — name, bucket, member directories with the `dirs.txt` path, the
+ * exclude-file path — then its snapshots; the config paths teach where to edit a
+ * set ("the files are the API", ADR-0002). **`summary`** (all sets) lists each
+ * set's name then its snapshot times, collapsing to the "create one" guidance
+ * when there are no sets yet (a legitimate result on stdout, not a stderr
+ * warning — ADR-0043).
+ * @param {ListResult} result
+ * @returns {string}
+ */
+export function renderList(result) {
+  if (result.mode === "detail") {
+    const { set, snapshots, remote } = result;
+    return [
+      `name: ${set.name}`,
+      `bucket: ${set.bucket}`,
+      `dirs (${set.dirsPath}):`,
+      ...(set.dirs.length ? set.dirs.map((dir) => `  ${dir}`) : ["  (none)"]),
+      `exclude file: ${set.excludePath}`,
+      `${remote ? "remote snapshots" : "snapshots"}:`,
+      indentSnapshots(snapshots),
+    ].join("\n");
+  }
+  if (result.sets.length === 0) {
+    return NO_SETS_MESSAGE;
+  }
+  return result.sets
+    .map((s) => `${s.name}:\n${indentSnapshots(s.snapshots)}`)
+    .join("\n");
+}
+
+/**
+ * Snapshot names as indented lines, or a `(none yet)` placeholder when there are
+ * none — so an empty set reads clearly rather than as a blank gap.
+ * @param {string[]} names
+ * @returns {string}
+ */
+function indentSnapshots(names) {
+  if (names.length === 0) {
+    return "  (none yet)";
+  }
+  return names.map((name) => `  ${name}`).join("\n");
+}
+
+/**
+ * Render a flat line stream — the shared renderer the plumbing list commands
+ * (`tree`'s file paths, `hashes`' object hashes) both point at, since both return
+ * a `string[]` whose human form *is* one entry per line. This is the composition
+ * medium (docs/design/backup.md): `s3cab tree > files.txt`, `s3cab hashes <bucket>
+ * | …`. An empty list renders to the empty string — the honest, greppable answer
+ * for a set with no files or a store with no objects (Unix `find`/`ls` behave the
+ * same); a placeholder would corrupt the redirected/piped stream.
+ * @param {string[]} lines
+ * @returns {string}
+ */
+export function renderLines(lines) {
+  return lines.join("\n");
+}
+
+/**
+ * Render `prop` — one file's content properties as an aligned label/value block.
+ * The size shows both the exact byte count and its human form. `hashDuration`
+ * (an internal timing, in seconds) is a property of the *run*, not the file, so
+ * the human view omits it — except under `S3CAB_DEBUG`, where a `hashed` row
+ * surfaces it for diagnostics; `--json` always keeps it. `S3CAB_DEBUG` is read
+ * ambiently here rather than threaded through `RenderContext`: unlike `color` (a
+ * value the dispatcher *resolves* from the TTY and possibly flags), it has one
+ * input — the env var — so putting it in every renderer's signature earns nothing.
+ * @param {Props} props
+ * @returns {string}
+ */
+export function renderProp(props) {
+  /**
+   * @param {string} label
+   * @param {string} value
+   */
+  const row = (label, value) => `${label.padEnd(8)}  ${value}`;
+  const rows = [
+    row("hash", props.hash),
+    row("size", `${count(props.size)} bytes (${formatByteValue(props.size)})`),
+    row("modified", props.mtime),
+  ];
+  if (process.env.S3CAB_DEBUG && props.hashDuration !== undefined) {
+    rows.push(row("hashed", `${props.hashDuration}s`));
+  }
+  return rows.join("\n");
+}
+
+/**
+ * Render `status` — what is backed up and what a backup would upload
+ * (docs/design/backup.md). A short record: the set, its latest local snapshot (the
+ * upload target), the latest remote snapshot (or `never`), and the object count a
+ * backup would upload — collapsing to `up to date` at zero.
+ * @param {StatusReport} report
+ * @returns {string}
+ */
+export function renderStatus({ set, snapshot, backedUp, toUpload }) {
+  const upload =
+    toUpload === 0
+      ? "up to date"
+      : `${count(toUpload)} ${plural(toUpload, "object")} to upload`;
+  return [
+    set,
+    `  latest snapshot   ${snapshot}`,
+    `  backed up         ${backedUp ?? "never"}`,
+    `  ${upload}`,
+  ].join("\n");
+}
+
+/**
+ * Render `verify` (ADR-0042, ADR-0043) — file-centric integrity findings whose
+ * headline mirrors the exit code: green `all verified ✓` (exit 0) vs red `N sets
+ * with findings ✗` (exit 1). The scale figure is the *referenced* objects checked
+ * (not the stored total — orphans are `cleanup`'s concern now). Only sets with
+ * findings get a block; each `problems` row maps 1:1 to a line (hashes never
+ * surface — the user thinks in files). Paths print as stored (absolute): verify
+ * spans many sets with different roots and no single common base, so there is
+ * nothing to shorten against, and re-canonicalizing per path is exactly what the
+ * compare renderer is warned off (CLAUDE.md).
+ * @param {{ bucket: string, sets: SetReport[] }} result
+ * @param {RenderContext} [context]
+ * @returns {string}
+ */
+export function renderVerify(result, { color = false } = {}) {
+  const { bucket, sets } = result;
+  /** Apply a colouriser only when colour is enabled. @param {(t: string) => string} c */
+  const paint = (c) => (/** @type {string} */ text) => (color ? c(text) : text);
+
+  const findingSets = sets.filter(setHasFindings);
+  const objectsChecked = sets.reduce((n, s) => n + s.referencedObjects, 0);
+
+  const verdict = findingSets.length
+    ? paint((t) => bold(red(t)))(
+        `${findingSets.length} ${plural(findingSets.length, "set")} with findings ✗`,
+      )
+    : paint((t) => bold(green(t)))("all verified ✓");
+
+  const head =
+    `${bucket}: ${count(sets.length)} ${plural(sets.length, "set")}, ` +
+    `${count(objectsChecked)} ${plural(objectsChecked, "object")} checked — ${verdict}`;
+
+  if (findingSets.length === 0) {
+    return head;
+  }
+  const blocks = findingSets.map((set) => setFindings(set, paint));
+  return [head, ...blocks].join("\n\n");
+}
+
+/**
+ * One set's verify findings: a heading naming the set (red) and summarizing what
+ * is wrong, then a line per broken file (path / problem / detail, column-aligned
+ * within the set) and a line per snapshot that could not be read.
+ * @param {SetReport} report
+ * @param {(colourise: (t: string) => string) => (t: string) => string} paint
+ * @returns {string}
+ */
+function setFindings(report, paint) {
+  const { set, problems, unreadableSnapshots } = report;
+
+  const phrase = [];
+  if (problems.length) {
+    phrase.push(`${problems.length} ${plural(problems.length, "file")} with problems`);
+  }
+  if (unreadableSnapshots.length) {
+    phrase.push("could not fully check");
+  }
+  const heading = `  ${paint(red)(set)}   ${phrase.join("; ")}`;
+
+  const lines = [];
+  if (problems.length) {
+    const pathWidth = Math.max(...problems.map((p) => p.path.length));
+    const labelWidth = Math.max(
+      ...problems.map((p) => problemLabel(p.problem).length),
+    );
+    for (const p of problems) {
+      const label = problemLabel(p.problem).padEnd(labelWidth);
+      lines.push(`    ${p.path.padEnd(pathWidth)}   ${label}   ${problemDetail(p)}`);
+    }
+  }
+  for (const u of unreadableSnapshots) {
+    lines.push(`    snapshot ${u.snapshot} could not be read (${u.reason})`);
+  }
+  return [heading, ...lines].join("\n");
+}
+
+/**
+ * The two-word human label for a problem kind (the stored `wrong-size` reads as
+ * `wrong size`).
+ * @param {SetReport["problems"][number]["problem"]} problem
+ * @returns {string}
+ */
+const problemLabel = (problem) => (problem === "missing" ? "missing" : "wrong size");
+
+/**
+ * The parenthetical detail for a problem row: which snapshots reference a
+ * `missing` file (it can't be restored), or the recorded-vs-stored byte counts
+ * for a `wrong-size` one (a truncated/overwritten upload or a torn manifest).
+ * @param {SetReport["problems"][number]} p
+ * @returns {string}
+ */
+function problemDetail(p) {
+  if (p.problem === "missing") {
+    return `(in ${plural(p.snapshots.length, "snapshot")} ${p.snapshots.join(", ")})`;
+  }
+  return `(recorded ${count(p.recordedSize ?? 0)} bytes, stored ${count(p.storedSize ?? 0)})`;
 }
 
 /** @param {{ size: number }[]} entries */
