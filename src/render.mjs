@@ -362,8 +362,10 @@ export function renderLines(lines) {
  * human text — `aws`'s onboarding recipe (a prescriptive `aws`-CLI plan) and
  * `auth`'s status/confirmation lines. ADR-0043 deliberately does *not* structure
  * these: their result is prose, not data to shape, so an identity function is the
- * honest end-state (the single-string sibling of `renderLines`). `--json` still
- * emits the same string — a machine consumer of a recipe wants the recipe.
+ * honest end-state (the single-string sibling of `renderLines`). Under `--json`
+ * the dispatcher `JSON.stringify`s this text into a quoted, escaped string
+ * literal — the same content, machine-wrapped; a consumer of a recipe still
+ * wants the recipe.
  * @param {string} text
  * @returns {string}
  */
