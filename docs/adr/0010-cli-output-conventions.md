@@ -6,6 +6,12 @@ Three linked conventions for how commands emit output.
 
 ## Results are serialized with `JSON.stringify`, never `console.log`
 
+> **Default inverted by [0043](0043-human-first-output.md) (2026-07-04):** this section now
+> describes the **machine** path. Human-readable text is the stdout **default**; the
+> `JSON.stringify` serializer moves **behind `--json`**, where this rationale holds unchanged
+> (never truncates, one uniform serializer). The never-truncate principle *also* carries over
+> to the new human output. Read 0043 before treating "JSON to stdout by default" as live.
+
 `console.log` routes large structures through `util.inspect`, which **truncates**
 (`… N more items`) — fatal for a backup tool whose whole job is "show me everything that
 changed". One uniform serializer also means no bespoke per-command printer to maintain

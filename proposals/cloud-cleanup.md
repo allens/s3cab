@@ -24,6 +24,14 @@ referencing it is pruned. So `objects/` grows monotonically until old snapshots 
 Snapshots are therefore "append-only in everyday use, pruned during retention" — the same
 category as objects. Retention *policy* (keep-last-N, time-based, GFS) is its own future design.
 
+**The non-destructive (preview/dry-run) mode owns orphan *reporting*.** Moved here from `verify`
+(which shouldn't carry a reclamation concern — see [engine-robustness.md](engine-robustness.md)):
+a dry run that lists/counts orphans (`stored − referenced`) without deleting. This is where the
+**unreadable-snapshot** caveat is load-bearing — an object a snapshot we couldn't read might still
+reference must **never** be swept — so the "exact vs upper-bound" distinction is a hard safety
+gate here, not the advisory hint it was in verify. So cleanup absorbs both `orphanObjects` and
+`orphanObjectsExact`.
+
 Cleanup runs on the **everyday key** (all soft-deletes; versioning backstops even a buggy sweep
 — recoverable for the lifecycle window, which also cushions the classic mark-while-uploading
 race — see [ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md)). Space comes back

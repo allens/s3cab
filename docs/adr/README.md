@@ -38,7 +38,7 @@ ADR as a live constraint.
 
 ### Architecture & CLI
 
-- [0010](0010-cli-output-conventions.md) — CLI output: JSON.stringify, stream discipline, env-gated debug
+- [0010](0010-cli-output-conventions.md) — CLI output: JSON.stringify, stream discipline, env-gated debug *(stdout default inverted by 0043 — JSON now behind `--json`)*
 - [0011](0011-validation-in-command-functions.md) — Argument validation lives in the command functions
 - [0012](0012-consumer-vocabulary-naming.md) — Consumer-vocabulary command and flag naming
 - [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout *(namespace shape partly superseded by 0024)*
@@ -64,7 +64,8 @@ ADR as a live constraint.
 - [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 - [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide
-- [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set; rewrites the objects cache
+- [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set; rewrites the objects cache *(finding-model correction pending — see proposals/engine-robustness.md)*
+- [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(proposed; inverts 0010's stdout default)*
 
 ### Build, release & tooling
 

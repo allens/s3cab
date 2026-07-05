@@ -8,6 +8,17 @@ implementation — see History) — **implemented** (`src/commands/verify.mjs`, 
 the full design (finding classes, report, ordering invariant) is in
 [docs/design/backup.md](../design/backup.md).
 
+> **Known finding-model correction pending (2026-07-04):** the size check skips *ambiguous*
+> recorded sizes and reports them under a separate `conflictingRows` category — which lets a
+> genuinely wrong recorded size go unreported as a mismatch. It is to be replaced by a per-file
+> recorded-vs-stored size check (dropping the ambiguous-skip and `conflictingRows`). **Also
+> pending:** orphan reporting (`orphanObjects` / `orphanObjectsExact` — the "orphan count is
+> always reported" decision below) **moves out of verify to `cleanup`'s non-destructive mode**;
+> orphans are a reclamation concern, not an integrity one, and the move removes the upper-bound
+> flag from verify entirely. See
+> [proposals/engine-robustness.md](../../proposals/engine-robustness.md); this ADR and
+> `docs/design/backup.md` get amended when the fixes land.
+
 ## Context
 
 `verify` checks that backups are complete and undamaged: every object a snapshot
