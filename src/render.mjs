@@ -166,7 +166,18 @@ function commonAncestor(dirs) {
   while (i < first.length && parts.every((other) => other[i] === first[i])) {
     i++;
   }
-  return first.slice(0, i).join(sep) || undefined;
+  // No shared leading segment (e.g. different Windows drives) → no base; the
+  // caller shows absolute paths.
+  if (i === 0) {
+    return undefined;
+  }
+  const base = first.slice(0, i).join(sep);
+  // A base that is exactly a root/drive component isn't a usable directory for
+  // `path.relative`: `""` (POSIX root) and `"C:"` (a bare drive — *cwd*-relative,
+  // not the drive root) both need the separator re-appended to become the real
+  // root (`/`, `C:\`). An exotic cross-UNC-share base degrades to near-absolute
+  // — not worth hand-parsing UNC (minimal-code pillar).
+  return base === "" || /^[A-Za-z]:$/.test(base) ? base + sep : base;
 }
 
 /**
@@ -199,7 +210,8 @@ function addedSection(added, shorten, paint) {
 
 /**
  * A `from → to` section — shared by Renamed and Moved (same shape, different
- * label; the split is by directory, {@link partitionMoved}).
+ * label; the rename/move split by directory happens in the caller, via
+ * `Object.groupBy`).
  * @param {string} label
  * @param {MovedEntry[]} entries
  * @param {(text: string) => string} colour

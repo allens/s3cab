@@ -229,6 +229,23 @@ describe("renderCompareResult", () => {
     assert.match(text, new RegExp(`rootB\\${sep}y\\.txt`));
   });
 
+  it("shortens correctly when roots share only the drive / filesystem root", () => {
+    // The common ancestor lands exactly on the root (POSIX `/`, Windows `C:\`).
+    // A naive segment-join base ("" or a bare "C:") makes path.relative emit
+    // wrong `..` escapes; the base must be re-formed into the real root.
+    const rootA = resolve(sep, "aaa");
+    const rootB = resolve(sep, "bbb");
+    const text = renderCompareResult(
+      result({
+        dirs: [rootA, rootB],
+        modified: [{ path: join(rootA, "x.txt"), size: 1 }],
+      }),
+    );
+
+    assert.match(text, new RegExp(`(^| )aaa\\${sep}x\\.txt`));
+    assert.doesNotMatch(text, /\.\./); // no parent-escape garbage
+  });
+
   it("keeps a top segment starting with '..' relative, not an escape", () => {
     // `..stuff` under the root is a real directory name, not a parent escape —
     // it must display relative (this is the case compare.test.mjs delegates here).
