@@ -28,7 +28,8 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   `wrong-size`), each file's recorded size checked directly against the one stored object, so a
   size conflict surfaces as a wrong-size problem on the exact file that disagrees with storage.
   ADR-0042 and `docs/design/backup.md` amended. Kept here (not deleted) as the anchor for the
-  `human-first-output.md` slice-3 dependency. Original write-up follows.
+  human-first-output ([ADR-0043](../docs/adr/0043-human-first-output.md)) slice-3 dependency.
+  Original write-up follows.
   verify's
   size check deliberately *skips* any hash whose recorded size is ambiguous (two different sizes
   recorded for the same content across rows), reporting it instead under a separate
@@ -42,7 +43,7 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   then surfaces naturally as per-file **wrong size** findings (the file(s) whose recorded size ≠
   stored). This removes the ambiguous-skip special case *and* the `conflictingRows` category, and
   is fully consistent with the file-centric verify output in
-  [human-first-output.md](human-first-output.md). Residual: a conflicting hash whose object is
+  [ADR-0043](../docs/adr/0043-human-first-output.md). Residual: a conflicting hash whose object is
   *missing* is just "missing" (the conflict is moot). **A serious correctness flaw in a
   freshly-shipped feature** — record accurately and fix; when it lands, amend ADR-0042 and
   `docs/design/backup.md`. **Sequencing:** land this *before* the human-first-output epic's verify

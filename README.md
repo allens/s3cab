@@ -182,19 +182,18 @@ the session up automatically through the standard chain.
 Generating new snapshot: 2025-11-11T0830
 
 # ...add, move, or edit some files, then snapshot again —
-# s3cab reports what changed since last time (as JSON):
+# s3cab reports what changed since last time:
 > s3cab snapshot
 Generating new snapshot: 2025-11-12T0915
-{
-  "added": [
-    "2025\\new.jpg"
-  ],
-  "moved": [
-    "2024\\IMG_001.jpg →→ 2024\\sorted\\IMG_001.jpg"
-  ],
-  "modified": [],
-  "deleted": []
-}
+photos: ~/Pictures  2025-11-11T0830 → 2025-11-12T0915
+
+Added (1)
+  2025/new.jpg
+
+Moved (1)
+  2024/IMG_001.jpg → 2024/sorted/IMG_001.jpg
+
+1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812 KB changed
 
 # List your backup sets and their snapshots:
 > s3cab list
@@ -206,8 +205,9 @@ photos:
 > s3cab compare --since 2025-11-11T0830
 ```
 
-How to read the report — the four categories and the `→→` / `==` notations — is
-covered in [guide/compare.md](guide/compare.md).
+How to read the report — the sections and the `(duplicate of …)` note — is
+covered in [guide/compare.md](guide/compare.md). Add `--json` to any command for
+machine-readable output ([guide/output.md](guide/output.md)).
 
 ## How it works
 

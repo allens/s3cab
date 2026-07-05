@@ -1,9 +1,10 @@
 # Output & compare UX
 
 Epic: make s3cab's output consumer-friendly. The headline item — human-readable output by
-default, `--json` for machines, and the compare-diff/formatting work that feeds it —
-graduated to its own file, [human-first-output.md](human-first-output.md); this file keeps
-the surrounding output/UX niceties.
+default, `--json` for machines, and the compare-diff/formatting work that feeds it — graduated
+to its own build spec, now **implemented** and deleted; the decision lives in
+[ADR-0043](../docs/adr/0043-human-first-output.md). This file keeps the surrounding output/UX
+niceties.
 
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say

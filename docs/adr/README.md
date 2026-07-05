@@ -65,7 +65,7 @@ ADR as a live constraint.
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 - [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set; rewrites the objects cache *(finding-model correction pending — see proposals/engine-robustness.md)*
-- [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(proposed; inverts 0010's stdout default)*
+- [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
 
 ### Build, release & tooling
 

@@ -495,7 +495,7 @@ report answers "is *this backup* restorable?" per set even though you named a bu
 **unreadable snapshots**, all computed from the two enumerations already in hand (zero
 extra requests). The check runs per referenced *path* (a hash under many paths yields many
 rows) so the model is 1:1 with what a user restores; **hashes never surface**, and the
-`--json` and human views share the one shape (ADR-0042, `human-first-output.md`). Two
+`--json` and human views share the one shape (ADR-0042, ADR-0043). Two
 problem kinds:
 
 1. **`missing`** — the file's content hash is absent from `objects/`: the broken
