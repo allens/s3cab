@@ -240,9 +240,12 @@ describe("referencedObjects (real bucket)", { skip }, () => {
       );
       const entry = referenced.get(hash);
       assert.ok(entry, "the referenced hash is present");
-      assert.deepEqual([...entry.sizes], [size]);
-      assert.deepEqual([...entry.snapshots], [name]);
-      assert.ok(entry.examplePath.endsWith("a.txt"));
+      const [first] = [...entry.paths]; // one path backs this content
+      assert.ok(first, "the content has a referencing path");
+      const [path, pathRef] = first;
+      assert.ok(path.endsWith("a.txt"));
+      assert.deepEqual([...pathRef.sizes], [size]);
+      assert.deepEqual([...pathRef.snapshots], [name]);
     } finally {
       for (const h of hashes) {
         await deleteObject(`s3://${bucket}/objects/${h}`);

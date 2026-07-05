@@ -19,13 +19,14 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * repository" is the honest unit. Findings are still reported **per set**, since
  * `referencedObjects` groups the bucket's snapshots by the set that owns them.
  *
- * The four finding classes (`verifySet`) — missing objects (the broken
- * objects-first/snapshot-last invariant), size mismatches, conflicting rows, and
- * unreadable snapshots — are computed from two enumerations with zero extra
- * requests: the bucket's *referenced* objects (`referencedObjects`, per set) and
- * its *stored* objects (one `listStoredObjects` LIST). **Read the snapshots before
- * the LIST** (the ordering invariant): a backup landing mid-run then only bumps
- * the orphan count, never fakes a missing object.
+ * Findings are a flat **per-path `problems`** list per set (`verifySet`) — each
+ * referenced file that is `missing` (its content absent from `objects/`, the
+ * broken invariant) or `wrong-size` (stored, but at a size ≠ the one recorded) —
+ * plus any `unreadableSnapshots`. Both are computed from two enumerations with
+ * zero extra requests: the bucket's *referenced* objects (`referencedObjects`,
+ * per set) and its *stored* objects (one `listStoredObjects` LIST). **Read the
+ * snapshots before the LIST** (the ordering invariant): a backup landing mid-run
+ * then only bumps the orphan count, never fakes a missing object.
  *
  * **One local side effect:** verify rewrites this machine's per-bucket objects
  * cache from the completed LIST (`writeObjectsCache`) — authoritative ground truth
@@ -33,58 +34,41 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * never writes to the bucket. **Exit 1** when any set has findings (via
  * `process.exitCode`, so the JSON report still prints); a clean run returns 0.
  *
+ * **Orphans are not verify's concern.** Objects no snapshot references
+ * (`stored − referenced`) are a *reclamation* matter, never an integrity one —
+ * they can't threaten restorability — so they moved to `cleanup`'s
+ * non-destructive mode, where the unreadable-snapshot caveat is a real safety
+ * gate rather than an advisory flag (ADR-0042,
+ * [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md)). verify's result
+ * is therefore just `{ bucket, sets }`.
+ *
  * @param {string} [bucket] - The repository's S3 bucket to check
- * @returns {Promise<{ bucket: string, sets: SetReport[], storedObjects: number, orphanObjects: number, orphanObjectsExact: boolean }>}
- *   Per-set reports, the total stored-object count, and the orphan count (stored
- *   objects no snapshot references — a hint toward `cleanup`, never a finding).
- *   `orphanObjectsExact` is true only when every snapshot was readable; an
- *   unreadable snapshot's references are unknown, so the count is then an **upper
- *   bound** (objects it alone referenced masquerade as orphans).
+ * @returns {Promise<{ bucket: string, sets: SetReport[] }>}
+ *   Per-set reports (the flat per-path `problems` list plus any unreadable
+ *   snapshots), sorted by set name.
  */
 export async function verify(bucket) {
   requireArg(bucket, "bucket");
 
   // Ordering invariant: read every snapshot (across all sets) BEFORE the objects
-  // LIST, so a backup finishing mid-run only bumps the orphan count.
+  // LIST, so a backup finishing mid-run only adds unreferenced objects, never
+  // fakes a missing one.
   const referencedBySet = await referencedObjects(bucket);
 
-  // One bucket-wide LIST → stored hash → size, and the complete hash set for the
-  // cache rewrite and the orphan count.
+  // One bucket-wide LIST → stored hash → size, the complete hash set feeding both
+  // the per-set diff and the cache rewrite.
   /** @type {Map<string, number>} */
   const stored = new Map();
   for await (const { hash, size } of listStoredObjects(bucket)) {
     stored.set(hash, size);
   }
 
-  /** @type {SetReport[]} */
-  const reports = [];
-  /** @type {Set<string>} */
-  const referencedAll = new Set();
-  for (const [set, referenced] of referencedBySet) {
-    reports.push(verifySet(set, referenced, stored));
-    for (const hash of referenced.referenced.keys()) {
-      referencedAll.add(hash);
-    }
-  }
-  reports.sort((a, b) => a.set.localeCompare(b.set));
+  const reports = [...referencedBySet]
+    .map(([set, referenced]) => verifySet(set, referenced, stored))
+    .sort((a, b) => a.set.localeCompare(b.set));
 
   // Heal/warm this machine's per-bucket cache from the completed LIST above.
   await writeObjectsCache(bucket, stored.keys());
-
-  // Orphans (stored − referenced): storage no snapshot references. Not a finding
-  // — crash orphans are expected — but the hook toward `cleanup`, which reclaims
-  // them. Exact only when every snapshot was readable: an unreadable snapshot's
-  // references are unknown, so objects it alone referenced count here as orphans,
-  // making the number an upper bound.
-  let orphanObjects = 0;
-  for (const hash of stored.keys()) {
-    if (!referencedAll.has(hash)) {
-      orphanObjects++;
-    }
-  }
-  const orphanObjectsExact = reports.every(
-    (report) => report.unreadableSnapshots.length === 0,
-  );
 
   // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than
   // throw, so the JSON report still serializes to stdout (the entry point prints
@@ -93,11 +77,5 @@ export async function verify(bucket) {
     process.exitCode = 1;
   }
 
-  return {
-    bucket,
-    sets: reports,
-    storedObjects: stored.size,
-    orphanObjects,
-    orphanObjectsExact,
-  };
+  return { bucket, sets: reports };
 }

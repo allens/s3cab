@@ -24,8 +24,9 @@ used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<ba
 `remote.mjs`, `listStoredObjects`/`writeObjectsCache` in `objects.mjs`, and the pure diff in
 `src/lib/verify.mjs`), `delete` (`src/commands/delete.mjs` over `deleteRemoteSnapshot`, with
 `src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
-`deleteStoredObject`, reusing `verifySet` for the damage side and the same enumerations as
-`verify` for the opposite `stored − referenced` difference). Remaining are the
+`deleteStoredObject`, computing missing/damaged/orphan tallies directly from the same two
+enumerations as `verify` — the opposite `stored − referenced` difference; it works at hash
+level, so it needs none of verify's per-path problem model). Remaining are the
 versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
 (both deferred, tracked in "Open items"). (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
@@ -443,7 +444,7 @@ the [format spec](../../guide/format.md)), not implementation choice:
   report's numbers would be lies). **Missing objects** (verify's core finding) are
   reported, and `--delete` **refuses**: the repository is already losing data — triage
   with `verify` first, then clean up. No `--force` override until a real need appears.
-  (Conflicting-size rows only warn; orphanhood is hash-level.)
+  (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.)
 - **The objects cache:** deleting objects is the one operation that *poisons* local
   caches (a cached-but-absent entry makes a later `backup` skip a needed upload).
   `--delete` therefore **rewrites this machine's per-bucket cache** from
@@ -489,35 +490,42 @@ GETs — while an all-sets default over sets in different buckets snags on the a
 set**: `referencedObjects` groups the bucket's snapshots by the set that owns them, so the
 report answers "is *this backup* restorable?" per set even though you named a bucket.
 
-**Four finding classes**, all computed from the two enumerations already in hand (zero
-extra requests):
+**Findings are file-centric** — a flat, per-set **`problems`** list plus any
+**unreadable snapshots**, all computed from the two enumerations already in hand (zero
+extra requests). The check runs per referenced *path* (a hash under many paths yields many
+rows) so the model is 1:1 with what a user restores; **hashes never surface**, and the
+`--json` and human views share the one shape (ADR-0042, `human-first-output.md`). Two
+problem kinds:
 
-1. **Missing object** — a referenced hash absent from `objects/`: the broken
-   snapshot-last invariant, the core check.
-2. **Size mismatch** — `objects/<hash>` exists but its LIST `Size` ≠ the size the
-   snapshot rows record: a truncated/corrupted/overwritten object. (Objects are stored
-   raw, so the two sizes are directly comparable.)
-3. **Conflicting rows** — the same hash recorded with *different sizes*: content fixes
-   size, so a snapshot file itself is corrupt. Detected free while building the
-   referenced union, and what makes class 2 well-defined (which size is "expected").
-4. **Unreadable snapshot** — a snapshot that fails to decompress or parse is a
-   *finding*, and verify **continues** (dying on the first damage would hide the rest;
-   the report notes that an unreadable snapshot's references went unchecked). An S3
-   *request* failure (network/auth/throttle) is an ordinary operational error and aborts.
+1. **`missing`** — the file's content hash is absent from `objects/`: the broken
+   objects-first/snapshot-last invariant, the serious one (that file can't be restored).
+   Every path referencing a missing hash is a row — all affected files, no grouping.
+2. **`wrong-size`** — the object is stored, but this file's recorded size ≠ the stored
+   LIST `Size`: a truncated/overwritten object, or a torn manifest row. Checked **per
+   file against the one real stored size** — so two files that share content but record
+   different sizes (the old "conflicting rows") surface as a wrong-size problem on exactly
+   the file(s) that disagree with storage. No ambiguous-size skip, no separate conflict
+   category: a genuinely wrong recorded size can no longer hide. (Objects are stored raw,
+   so recorded and stored sizes are directly comparable; both sizes ride the row.)
 
-**Report and exit:** the JSON result (ADR-0010 house style) carries the bucket, per-set
-reports — snapshots and referenced objects checked, plus that set's finding arrays (hash,
-expected vs stored size, referencing snapshot(s), one example path) — and the
-stored-object total. The **orphan count** (the opposite difference) is always reported,
-alongside an `orphanObjectsExact` flag. It is *exact* when every snapshot was readable — a
-bucket run reads them all, so stored − referenced is precise — but an **upper bound** when
-any snapshot is *unreadable*: that snapshot's references are unknown, so objects it alone
-referenced masquerade as orphans (the flag is then false). Either way it is *not* a
-finding, never affects the exit code, and is phrased as normal state (crash orphans are
-expected) — the discovery hook toward `cleanup`. **Exit 1 when any set has findings** (0 =
-verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is the cron idiom —
-no dedicated exit code until a script actually needs to distinguish "damaged" from "check
-failed".
+**Unreadable snapshots** stay *outside* `problems` (they aren't file-shaped — a corrupt
+manifest has no file list to annotate, only a lost restore point). A snapshot that fails
+to decompress or parse is a *finding*, and verify **continues** (dying on the first damage
+would hide the rest); an S3 *request* failure (network/auth/throttle) is an ordinary
+operational error and aborts.
+
+**Report and exit:** the JSON result (ADR-0010 house style) is `{ bucket, sets }` — for each
+set, snapshots and referenced objects checked, that set's `problems` list (path, problem
+kind, referencing snapshot(s), and recorded/stored sizes for a wrong-size), and its
+unreadable snapshots. **Orphans are not reported here.** Objects no snapshot references
+(`stored − referenced`) are a *reclamation* concern, not an *integrity* one — they can't
+threaten restorability — so orphan reporting lives in `cleanup`'s non-destructive mode
+(above), where the unreadable-snapshot caveat is a hard safety gate rather than the
+advisory `orphanObjectsExact` upper-bound flag it once was in verify. That move is why
+verify's result no longer carries a stored-object total or an orphan count (ADR-0042,
+`cloud-cleanup.md`). **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad
+input), so `s3cab verify <bucket> || alert` is the cron idiom — no dedicated exit code until
+a script actually needs to distinguish "damaged" from "check failed".
 
 **Remote read-only, one local side effect:** verify never writes to the bucket — it
 runs on List+Get credentials alone. Locally it **rewrites the per-bucket objects cache**
@@ -529,8 +537,9 @@ directions by the staleness asymmetry: every hash written provably exists, and a
 concurrent backup's lost append costs at most a redundant no-op PUT later.
 
 **Ordering invariant:** read the snapshots **before** LISTing `objects/`. In that order
-a backup finishing mid-run only adds unreferenced objects (a benign bump to the orphan
-count); the reverse order would report its freshly-uploaded objects as missing.
+a backup finishing mid-run only adds unreferenced objects (harmless — verify ignores
+unreferenced storage); the reverse order would report its freshly-uploaded objects as
+missing.
 
 ## Open items (deferred, recorded here so they aren't lost)
 

@@ -23,7 +23,13 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   object — useful provenance, but it's PII sitting in object metadata, and the local path
   reveals structure the content-addressed layout otherwise hides. Make it opt-in/opt-out and
   document it.
-- **`verify` finding model: drop the ambiguous-size skip and `conflictingRows`.** verify's
+- **✅ DONE (2026-07-05) — `verify` finding model: drop the ambiguous-size skip and
+  `conflictingRows`.** Landed: verify now returns a flat per-path `problems` list (`missing` /
+  `wrong-size`), each file's recorded size checked directly against the one stored object, so a
+  size conflict surfaces as a wrong-size problem on the exact file that disagrees with storage.
+  ADR-0042 and `docs/design/backup.md` amended. Kept here (not deleted) as the anchor for the
+  `human-first-output.md` slice-3 dependency. Original write-up follows.
+  verify's
   size check deliberately *skips* any hash whose recorded size is ambiguous (two different sizes
   recorded for the same content across rows), reporting it instead under a separate
   `conflictingRows` category (see `src/lib/verify.mjs`, ADR-0042). But conflicting rows can only
@@ -41,7 +47,12 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   freshly-shipped feature** — record accurately and fix; when it lands, amend ADR-0042 and
   `docs/design/backup.md`. **Sequencing:** land this *before* the human-first-output epic's verify
   renderer slice (slice 3), so the file-centric renderer is built once against the corrected model.
-- **`verify`: move orphaned-object reporting to `cleanup`.** verify currently reports
+- **✅ DONE (2026-07-05) — `verify`: move orphaned-object reporting to `cleanup`.** Landed:
+  verify no longer computes orphans (`orphanObjects` / `orphanObjectsExact` gone), its result is
+  now `{ bucket, sets }`, and `cleanup`'s non-destructive mode owns the orphan count with the
+  unreadable-snapshot caveat as a hard safety gate. ADR-0042 and `docs/design/backup.md` amended.
+  Original write-up follows.
+  verify previously reported
   `orphanObjects` (stored − referenced) plus an `orphanObjectsExact` flag (ADR-0042). Orphans are
   a *cleanup* concern (reclaiming wasted space), **not** an *integrity* one — they never threaten
   restorability — so carrying them over-complicates verify, and is the **sole** reason

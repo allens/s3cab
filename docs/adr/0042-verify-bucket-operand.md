@@ -8,16 +8,23 @@ implementation — see History) — **implemented** (`src/commands/verify.mjs`, 
 the full design (finding classes, report, ordering invariant) is in
 [docs/design/backup.md](../design/backup.md).
 
-> **Known finding-model correction pending (2026-07-04):** the size check skips *ambiguous*
-> recorded sizes and reports them under a separate `conflictingRows` category — which lets a
-> genuinely wrong recorded size go unreported as a mismatch. It is to be replaced by a per-file
-> recorded-vs-stored size check (dropping the ambiguous-skip and `conflictingRows`). **Also
-> pending:** orphan reporting (`orphanObjects` / `orphanObjectsExact` — the "orphan count is
-> always reported" decision below) **moves out of verify to `cleanup`'s non-destructive mode**;
-> orphans are a reclamation concern, not an integrity one, and the move removes the upper-bound
-> flag from verify entirely. See
-> [proposals/engine-robustness.md](../../proposals/engine-robustness.md); this ADR and
-> `docs/design/backup.md` get amended when the fixes land.
+> **Finding model corrected (2026-07-05):** the original per-hash finding classes were
+> replaced by a flat **per-path `problems`** list — one row per referenced *file* that is
+> `missing` (content absent) or `wrong-size` (its recorded size checked directly against the
+> one stored object), grouped by set. This dropped the old ambiguous-size skip and the
+> separate `conflictingRows` category: a size conflict between two files sharing content now
+> surfaces as a wrong-size problem on the exact file that disagrees with storage, so a
+> genuinely wrong recorded size can no longer hide. Hashes never appear in the output — the
+> user thinks in files. (Details in [docs/design/backup.md](../design/backup.md).)
+>
+> **Orphan reporting removed (2026-07-05):** orphan reporting (`orphanObjects` /
+> `orphanObjectsExact` — the "orphan count is always reported" decision below, now struck)
+> **moved out of verify to `cleanup`'s non-destructive mode**. Orphans are a reclamation
+> concern, not an integrity one — they can't threaten restorability — so verify no longer
+> computes them, and the upper-bound exactness flag is gone with them; in `cleanup` the
+> unreadable-snapshot caveat is a real safety gate (never delete what a snapshot you couldn't
+> read might reference), not an advisory hint. **verify's result is now just `{ bucket, sets }`.**
+> See [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
 
 ## Context
 
@@ -59,12 +66,12 @@ catch. So one run = one bucket LIST, always.
   Bucket operand, set-level report — the earlier "verify photos shouldn't fail over
   bob-documents" worry was about the operand, not the report, and is answered by keeping
   the report per-set.
-- **The orphan count (stored − referenced) is always reported, with an exactness flag.**
-  A bucket run reads *every* snapshot, so the difference is precise — *unless* a snapshot
-  is unreadable, whose references are then unknown and make the count an upper bound
-  (objects it alone referenced look orphaned). The result carries `orphanObjectsExact`
-  accordingly. Either way it is a hint toward `cleanup`, never a finding, never affecting
-  the exit code.
+- ~~**The orphan count (stored − referenced) is always reported, with an exactness flag.**~~
+  **Superseded 2026-07-05 (see the banner):** orphan reporting moved to `cleanup`'s
+  non-destructive mode. Orphans are a reclamation concern, not an integrity one, so verify no
+  longer computes `stored − referenced` or carries the `orphanObjectsExact` upper-bound flag;
+  its result is `{ bucket, sets }`. In `cleanup` the unreadable-snapshot caveat is a hard
+  safety gate (never sweep what an unreadable snapshot might reference), not a hint.
 - **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad input) —
   `s3cab verify <bucket> || alert` is the cron idiom. No dedicated exit code until a
   script actually needs "damaged" vs "check failed".
