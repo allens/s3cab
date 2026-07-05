@@ -264,6 +264,18 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   function order-dependent, and silently rots into dead code (worked example: `prop.mjs`'s
   `_lstatCache` went dead once the pipeline settled to one `prop` per file — keep the saving
   *in the interface*, where the compiler can see it rot).
+- **`realpathSync.native` is the one reliable path canonicalizer — capture it once, at the
+  low-frequency edges, then trust the fast string functions.** Node's pure-string path
+  functions (`resolve`/`normalize`/`join`) can return subtly *different* strings for the same
+  real file (case, `..` handling, symlinks), which silently breaks anything that **keys on the
+  path** — snapshot lookups are path-keyed, so a mismatched key reads as a different file.
+  `realpathSync.native` is the sure-fire truly-normalized form — **but it hits the filesystem
+  and is slow: one call is fine, a call *per file in a loop* is deadly.** So realpath at the
+  handful of capture points (a set's member dirs in `setup`'s `resolveDirectories`; the walk
+  root in `walk.mjs` — once per root, never per entry), and once the canonical path is captured
+  there, rely on the fast pure-string `path` functions downstream (e.g. the compare renderer
+  shortens already-canonical paths with plain `relative`/`split` — it must **not** reintroduce a
+  per-path `realpathSync`).
 - **Two UX references govern user-facing design — treat them as the bibles.** Command *shape*
   (commands, flags vs. positional args, naming, output) follows the **Command Line Interface
   Guidelines** (clig.dev), distilled into the **`cli-design` skill**
