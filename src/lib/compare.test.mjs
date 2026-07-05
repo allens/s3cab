@@ -1,20 +1,28 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
 import { stringifySnapshot, withSnapshotFile } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { compareSnapshots } from "./compare.mjs";
 
+/** @import { CompareResult } from "./compare.mjs" */
+
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 // These exercise the storage core `compareSnapshots(snapshotDir, dirs, …)`
 // directly — the snapshots are written into the temp dir and the temp dir is
-// the (single) member root, so displayed paths come out relative to it, just
-// as `compare`'s set wrapper would render them. The set-resolution wiring is
-// covered in e2e.
+// the (single) member root, so a path stored `resolve(dir.path, name)` recovers
+// its original relative name against the root.
+//
+// `compareSnapshots` now returns *structured, absolute-path* data (ADR-0043) —
+// the string microsyntax (`==`, `→`, `→→`) and the relative shortening moved to
+// the renderer (`renderCompareResult`, tested in render.test.mjs). To keep these
+// classification tests readable, `summarize` projects the structured result back
+// to a compact relative form: it's a test-only view of *what was classified how*,
+// not the renderer (which decides display, colour, and rename-vs-move wording).
 //
 // listSnapshotNames() only reports datestamped `.tsv.zst` snapshots, so tests
 // that lean on the default since/until resolution use real-looking names —
@@ -22,6 +30,30 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 const OLDEST = "2023-12-31T0101";
 const PREVIOUS = "2024-01-01T0101";
 const CURRENT = "2024-01-02T0101";
+
+/**
+ * Project a structured {@link CompareResult} into compact relative strings for
+ * assertions: `path`, `path == dup1,dup2` for a duplicated add, `from → to` for
+ * a move, and `path (reason)` for an error — all relative to `base`.
+ * @param {CompareResult} result
+ * @param {string} base
+ */
+function summarize(result, base) {
+  const r = (/** @type {string} */ p) => relative(base, p);
+  return {
+    added: result.added.map((a) =>
+      a.duplicates.length
+        ? `${r(a.path)} == ${a.duplicates.map(r).join(",")}`
+        : r(a.path),
+    ),
+    moved: result.moved.map((m) => `${r(m.path)} → ${r(m.to)}`),
+    modified: result.modified.map((m) => r(m.path)),
+    deleted: result.deleted.map((d) => r(d.path)),
+    errors: result.errors.map((e) => `${r(e.path)} (${e.reason})`),
+  };
+}
+
+const EMPTY = { added: [], moved: [], modified: [], deleted: [], errors: [] };
 
 describe("compare", () => {
   it("shows added file (first snapshot compares against an empty baseline)", async () => {
@@ -33,13 +65,46 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file1.txt"],
-      moved: [],
-      modified: [],
-      deleted: [],
-      errors: [],
     });
+  });
+
+  it("carries metadata (setName, dirs, since/until) and absolute paths + sizes", async () => {
+    // The structured shape (ADR-0043): the renderer's header + self-describing
+    // --json. A first snapshot has `since: null` (empty baseline); paths are
+    // absolute and each entry carries its size.
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, CURRENT, [new File(["12345"], "file1.txt")]);
+
+    const result = await compareSnapshots(dir.path, [dir.path], {
+      setName: "photos",
+    });
+
+    assert.equal(result.setName, "photos");
+    assert.deepStrictEqual(result.dirs, [dir.path]);
+    assert.equal(result.since, null); // first snapshot
+    assert.equal(result.until, CURRENT);
+    assert.deepStrictEqual(result.added, [
+      { path: resolve(dir.path, "file1.txt"), size: 5, duplicates: [] },
+    ]);
+  });
+
+  it("populates since with the predecessor for a non-first comparison", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, PREVIOUS, [new File(["a"], "f.txt")]);
+    await writeSnapshot(dir.path, CURRENT, [
+      new File(["a"], "f.txt"),
+      new File(["b"], "g.txt"),
+    ]);
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.equal(result.since, PREVIOUS);
+    assert.equal(result.until, CURRENT);
   });
 
   it("compares latest against its predecessor by default", async () => {
@@ -63,12 +128,9 @@ describe("compare", () => {
     // No options: latest vs the snapshot immediately before it — were the
     // baseline OLDEST instead, fileB would show as added too.
     const latestResult = await compareSnapshots(dir.path, [dir.path]);
-    assert.deepStrictEqual(latestResult, {
+    assert.deepStrictEqual(summarize(latestResult, dir.path), {
+      ...EMPTY,
       added: ["fileC.txt"],
-      moved: [],
-      modified: [],
-      deleted: [],
-      errors: [],
     });
 
     // Explicit until: the default baseline is *its* predecessor, not the
@@ -76,12 +138,9 @@ describe("compare", () => {
     const previousResult = await compareSnapshots(dir.path, [dir.path], {
       until: PREVIOUS,
     });
-    assert.deepStrictEqual(previousResult, {
+    assert.deepStrictEqual(summarize(previousResult, dir.path), {
+      ...EMPTY,
       added: ["fileB.txt"],
-      moved: [],
-      modified: [],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -101,12 +160,9 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      moved: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       modified: ["file1.txt"],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -128,12 +184,9 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      moved: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       modified: ["file.A", "file.B"],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -151,12 +204,9 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      moved: [],
-      modified: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       deleted: ["file2.txt"],
-      errors: [],
     });
   });
 
@@ -169,7 +219,7 @@ describe("compare", () => {
     // snapshots, "copied then edited" and "renamed away then recreated" are
     // indistinguishable, and modified-plus-copy is the reading that is
     // verifiably true from the data either way (git's rename detection draws
-    // the same line). The == annotation refers to the previous snapshot:
+    // the same line). The duplicate annotation refers to the previous snapshot:
     // app.log.1 holds what app.log *used to* contain.
     await writeSnapshot(dir.path, PREVIOUS, [new File(["old"], "app.log")]);
 
@@ -180,12 +230,10 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["app.log.1 == app.log"],
-      moved: [],
       modified: ["app.log"],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -205,12 +253,9 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      modified: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       moved: ["oldname.txt → newname.txt"],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -230,12 +275,9 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      modified: [],
-      deleted: [],
-      errors: [],
-      moved: [`olddir${sep}file1.txt →→ newdir${sep}file1.txt`],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      moved: [`olddir${sep}file1.txt → newdir${sep}file1.txt`],
     });
   });
 
@@ -259,12 +301,9 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      modified: [],
-      deleted: [],
-      errors: [],
-      moved: [`olddir${sep}file1.txt →→ newdir${sep}file1.txt`],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      moved: [`olddir${sep}file1.txt → newdir${sep}file1.txt`],
     });
   });
 
@@ -287,11 +326,9 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file.Y == file.A"],
-      modified: [],
-      deleted: [],
-      errors: [],
       moved: ["file.B → file.X"],
     });
   });
@@ -318,11 +355,9 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file.Y == file.A,file.B", "file.Z == file.A,file.B"],
-      modified: [],
-      deleted: [],
-      errors: [],
       moved: ["file.C → file.X"],
     });
   });
@@ -348,16 +383,13 @@ describe("compare", () => {
       until: "current",
     });
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: [
         "file.X == file.A,file.B",
         "file.Y == file.A,file.B",
         "file.Z == file.A,file.B",
       ],
-      modified: [],
-      deleted: [],
-      errors: [],
-      moved: [],
     });
   });
 
@@ -375,11 +407,9 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file.C == file.B"],
-      modified: [],
-      deleted: [],
-      errors: [],
       moved: ["file.A → file.B"],
     });
   });
@@ -401,14 +431,11 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      modified: [],
-      deleted: [],
-      errors: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       moved: [
-        `olddir${sep}x.txt →→ newdir${sep}x.txt`,
-        `olddir${sep}y.txt →→ newdir${sep}y.txt`,
+        `olddir${sep}x.txt → newdir${sep}x.txt`,
+        `olddir${sep}y.txt → newdir${sep}y.txt`,
       ],
     });
   });
@@ -428,11 +455,8 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      modified: [],
-      deleted: [],
-      errors: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       moved: [
         `dir1${sep}old.txt → dir1${sep}new.txt`,
         `dir2${sep}old.txt → dir2${sep}new.txt`,
@@ -468,11 +492,8 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      moved: [],
-      modified: [],
-      deleted: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       errors: ["file1.txt (EACCES: permission denied)"],
     });
   });
@@ -497,11 +518,8 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result, {
-      added: [],
-      moved: [],
-      modified: [],
-      deleted: [],
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       errors: ["new.bin (EISDIR: is a directory)"],
     });
   });
@@ -554,12 +572,9 @@ describe("compare", () => {
       until: "debug",
     });
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file2.txt"],
-      moved: [],
-      modified: [],
-      deleted: [],
-      errors: [],
     });
   });
 
@@ -579,21 +594,19 @@ describe("compare", () => {
       until: CURRENT + ".tsv.zst",
     });
 
-    assert.deepStrictEqual(result, {
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
       added: ["file2.txt"],
-      moved: [],
-      modified: [],
-      deleted: [],
-      errors: [],
     });
   });
 
-  it("keeps a relative display for a top segment that starts with '..'", async () => {
+  it("returns absolute paths, leaving relative shortening to the renderer", async () => {
     await using dir = await mkTmpDir();
 
-    // A directory literally named `..stuff` produces a relative path beginning
-    // with `..` that is NOT a parent escape — it must still display relative,
-    // not fall back to the absolute path.
+    // A directory literally named `..stuff` (a top segment starting with `..`)
+    // is not a parent escape. The absolute path is what compareSnapshots
+    // returns; the renderer shortens it against the common ancestor (that
+    // shortening — including this `..stuff` case — is pinned in render.test.mjs).
     await writeSnapshot(dir.path, PREVIOUS, []);
     await writeSnapshot(dir.path, CURRENT, [
       new File(["x"], "..stuff/file.txt"),
@@ -601,15 +614,19 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
-    assert.deepStrictEqual(result.added, [join("..stuff", "file.txt")]);
+    assert.deepStrictEqual(
+      result.added.map((a) => a.path),
+      [resolve(dir.path, "..stuff", "file.txt")],
+    );
   });
 
-  it("displays each path relative to its own member root (multi-root)", async () => {
+  it("stores absolute paths spanning multiple member roots", async () => {
     await using dir = await mkTmpDir();
 
     // Two member roots; a snapshot spanning both stores absolute paths. The
-    // report shortens each against the root that contains it. (Absolute so the
-    // stored keys aren't re-resolved against the temp dir.)
+    // report keeps them absolute (the renderer shortens against the common
+    // ancestor of the roots — render.test.mjs). (Absolute so the stored keys
+    // aren't re-resolved against the temp dir.)
     const rootA = resolve(dir.path, "rootA");
     const rootB = resolve(dir.path, "rootB");
     mkdirSync(join(rootA, "sub"), { recursive: true });
@@ -624,10 +641,10 @@ describe("compare", () => {
 
     const result = await compareSnapshots(dir.path, [rootA, rootB]);
 
-    assert.deepStrictEqual(result.added.sort(), [
-      join("sub", "x.txt"),
-      "y.txt",
-    ]);
+    assert.deepStrictEqual(
+      result.added.map((a) => a.path).sort(),
+      [fileA, fileB].sort(),
+    );
     assert.deepStrictEqual(result.moved, []);
   });
 
