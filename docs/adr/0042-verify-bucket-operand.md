@@ -17,12 +17,14 @@ the full design (finding classes, report, ordering invariant) is in
 > genuinely wrong recorded size can no longer hide. Hashes never appear in the output — the
 > user thinks in files. (Details in [docs/design/backup.md](../design/backup.md).)
 >
-> **Still pending (2026-07-04):** orphan reporting (`orphanObjects` / `orphanObjectsExact` —
-> the "orphan count is always reported" decision below) **moves out of verify to `cleanup`'s
-> non-destructive mode**; orphans are a reclamation concern, not an integrity one, and the
-> move removes the upper-bound flag from verify entirely, simplifying its result to
-> `{ bucket, sets }`. See [proposals/engine-robustness.md](../../proposals/engine-robustness.md);
-> this ADR and `docs/design/backup.md` get amended when it lands.
+> **Orphan reporting removed (2026-07-05):** orphan reporting (`orphanObjects` /
+> `orphanObjectsExact` — the "orphan count is always reported" decision below, now struck)
+> **moved out of verify to `cleanup`'s non-destructive mode**. Orphans are a reclamation
+> concern, not an integrity one — they can't threaten restorability — so verify no longer
+> computes them, and the upper-bound exactness flag is gone with them; in `cleanup` the
+> unreadable-snapshot caveat is a real safety gate (never delete what a snapshot you couldn't
+> read might reference), not an advisory hint. **verify's result is now just `{ bucket, sets }`.**
+> See [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
 
 ## Context
 
@@ -64,12 +66,12 @@ catch. So one run = one bucket LIST, always.
   Bucket operand, set-level report — the earlier "verify photos shouldn't fail over
   bob-documents" worry was about the operand, not the report, and is answered by keeping
   the report per-set.
-- **The orphan count (stored − referenced) is always reported, with an exactness flag.**
-  A bucket run reads *every* snapshot, so the difference is precise — *unless* a snapshot
-  is unreadable, whose references are then unknown and make the count an upper bound
-  (objects it alone referenced look orphaned). The result carries `orphanObjectsExact`
-  accordingly. Either way it is a hint toward `cleanup`, never a finding, never affecting
-  the exit code.
+- ~~**The orphan count (stored − referenced) is always reported, with an exactness flag.**~~
+  **Superseded 2026-07-05 (see the banner):** orphan reporting moved to `cleanup`'s
+  non-destructive mode. Orphans are a reclamation concern, not an integrity one, so verify no
+  longer computes `stored − referenced` or carries the `orphanObjectsExact` upper-bound flag;
+  its result is `{ bucket, sets }`. In `cleanup` the unreadable-snapshot caveat is a hard
+  safety gate (never sweep what an unreadable snapshot might reference), not a hint.
 - **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad input) —
   `s3cab verify <bucket> || alert` is the cron idiom. No dedicated exit code until a
   script actually needs "damaged" vs "check failed".

@@ -514,20 +514,18 @@ to decompress or parse is a *finding*, and verify **continues** (dying on the fi
 would hide the rest); an S3 *request* failure (network/auth/throttle) is an ordinary
 operational error and aborts.
 
-**Report and exit:** the JSON result (ADR-0010 house style) carries the bucket, per-set
-reports — snapshots and referenced objects checked, that set's `problems` list (path,
-problem kind, referencing snapshot(s), and recorded/stored sizes for a wrong-size), and
-its unreadable snapshots — and the stored-object total. The **orphan count** (the opposite
-difference) is always reported,
-alongside an `orphanObjectsExact` flag. It is *exact* when every snapshot was readable — a
-bucket run reads them all, so stored − referenced is precise — but an **upper bound** when
-any snapshot is *unreadable*: that snapshot's references are unknown, so objects it alone
-referenced masquerade as orphans (the flag is then false). Either way it is *not* a
-finding, never affects the exit code, and is phrased as normal state (crash orphans are
-expected) — the discovery hook toward `cleanup`. **Exit 1 when any set has findings** (0 =
-verified clean; 2 stays bad input), so `s3cab verify <bucket> || alert` is the cron idiom —
-no dedicated exit code until a script actually needs to distinguish "damaged" from "check
-failed".
+**Report and exit:** the JSON result (ADR-0010 house style) is `{ bucket, sets }` — for each
+set, snapshots and referenced objects checked, that set's `problems` list (path, problem
+kind, referencing snapshot(s), and recorded/stored sizes for a wrong-size), and its
+unreadable snapshots. **Orphans are not reported here.** Objects no snapshot references
+(`stored − referenced`) are a *reclamation* concern, not an *integrity* one — they can't
+threaten restorability — so orphan reporting lives in `cleanup`'s non-destructive mode
+(above), where the unreadable-snapshot caveat is a hard safety gate rather than the
+advisory `orphanObjectsExact` upper-bound flag it once was in verify. That move is why
+verify's result no longer carries a stored-object total or an orphan count (ADR-0042,
+`cloud-cleanup.md`). **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad
+input), so `s3cab verify <bucket> || alert` is the cron idiom — no dedicated exit code until
+a script actually needs to distinguish "damaged" from "check failed".
 
 **Remote read-only, one local side effect:** verify never writes to the bucket — it
 runs on List+Get credentials alone. Locally it **rewrites the per-bucket objects cache**
@@ -539,8 +537,9 @@ directions by the staleness asymmetry: every hash written provably exists, and a
 concurrent backup's lost append costs at most a redundant no-op PUT later.
 
 **Ordering invariant:** read the snapshots **before** LISTing `objects/`. In that order
-a backup finishing mid-run only adds unreferenced objects (a benign bump to the orphan
-count); the reverse order would report its freshly-uploaded objects as missing.
+a backup finishing mid-run only adds unreferenced objects (harmless — verify ignores
+unreferenced storage); the reverse order would report its freshly-uploaded objects as
+missing.
 
 ## Open items (deferred, recorded here so they aren't lost)
 

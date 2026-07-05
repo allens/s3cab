@@ -47,7 +47,12 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   freshly-shipped feature** — record accurately and fix; when it lands, amend ADR-0042 and
   `docs/design/backup.md`. **Sequencing:** land this *before* the human-first-output epic's verify
   renderer slice (slice 3), so the file-centric renderer is built once against the corrected model.
-- **`verify`: move orphaned-object reporting to `cleanup`.** verify currently reports
+- **✅ DONE (2026-07-05) — `verify`: move orphaned-object reporting to `cleanup`.** Landed:
+  verify no longer computes orphans (`orphanObjects` / `orphanObjectsExact` gone), its result is
+  now `{ bucket, sets }`, and `cleanup`'s non-destructive mode owns the orphan count with the
+  unreadable-snapshot caveat as a hard safety gate. ADR-0042 and `docs/design/backup.md` amended.
+  Original write-up follows.
+  verify previously reported
   `orphanObjects` (stored − referenced) plus an `orphanObjectsExact` flag (ADR-0042). Orphans are
   a *cleanup* concern (reclaiming wasted space), **not** an *integrity* one — they never threaten
   restorability — so carrying them over-complicates verify, and is the **sole** reason
