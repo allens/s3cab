@@ -454,7 +454,9 @@ function setFindings(report, paint) {
 
   const phrase = [];
   if (problems.length) {
-    phrase.push(`${problems.length} ${plural(problems.length, "file")} with problems`);
+    phrase.push(
+      `${problems.length} ${plural(problems.length, "file")} with problems`,
+    );
   }
   if (unreadableSnapshots.length) {
     phrase.push("could not fully check");
@@ -469,7 +471,9 @@ function setFindings(report, paint) {
     );
     for (const p of problems) {
       const label = problemLabel(p.problem).padEnd(labelWidth);
-      lines.push(`    ${p.path.padEnd(pathWidth)}   ${label}   ${problemDetail(p)}`);
+      lines.push(
+        `    ${p.path.padEnd(pathWidth)}   ${label}   ${problemDetail(p)}`,
+      );
     }
   }
   for (const u of unreadableSnapshots) {
@@ -484,7 +488,8 @@ function setFindings(report, paint) {
  * @param {SetReport["problems"][number]["problem"]} problem
  * @returns {string}
  */
-const problemLabel = (problem) => (problem === "missing" ? "missing" : "wrong size");
+const problemLabel = (problem) =>
+  problem === "missing" ? "missing" : "wrong size";
 
 /**
  * The parenthetical detail for a problem row: which snapshots reference a

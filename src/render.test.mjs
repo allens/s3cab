@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import {
   renderCompareResult,
   renderLines,
@@ -277,7 +277,8 @@ describe("renderList", () => {
 
     assert.equal(
       text,
-      "photos:\n  2026-06-12T0915\n  2026-06-11T0915\n" + "docs:\n  2026-05-12T0946",
+      "photos:\n  2026-06-12T0915\n  2026-06-11T0915\n" +
+        "docs:\n  2026-05-12T0946",
     );
   });
 
@@ -353,8 +354,19 @@ describe("renderProp", () => {
     hashDuration: 0.01,
   };
 
+  // `renderProp` reads S3CAB_DEBUG ambiently; each test pins it, and this
+  // restores the prior value so the suite stays order-independent when the
+  // environment already sets it.
+  const originalDebug = process.env.S3CAB_DEBUG;
+  afterEach(() => {
+    if (originalDebug === undefined) {
+      delete process.env.S3CAB_DEBUG;
+    } else {
+      process.env.S3CAB_DEBUG = originalDebug;
+    }
+  });
+
   it("renders hash, size (bytes + human), and modified time, aligned", () => {
-    // `renderProp` reads S3CAB_DEBUG ambiently, so pin it off for the default view.
     delete process.env.S3CAB_DEBUG;
     const text = renderProp(props);
 
@@ -367,11 +379,7 @@ describe("renderProp", () => {
 
   it("surfaces the hash timing as a `hashed` row under S3CAB_DEBUG", () => {
     process.env.S3CAB_DEBUG = "1";
-    try {
-      assert.match(renderProp(props), /\nhashed {4}0\.01s$/);
-    } finally {
-      delete process.env.S3CAB_DEBUG;
-    }
+    assert.match(renderProp(props), /\nhashed {4}0\.01s$/);
   });
 });
 
@@ -427,7 +435,10 @@ describe("renderVerify", () => {
       { color: false },
     );
     // 2 sets, 4,042 referenced objects checked — all verified.
-    assert.equal(text, "photos-bucket: 2 sets, 4,042 objects checked — all verified ✓");
+    assert.equal(
+      text,
+      "photos-bucket: 2 sets, 4,042 objects checked — all verified ✓",
+    );
   });
 
   it("maps each problem 1:1 to a file line and headlines the finding count", () => {
@@ -460,7 +471,10 @@ describe("renderVerify", () => {
     );
 
     // Headline: 1 of the 2 sets has findings.
-    assert.match(text, /^photos-bucket: 2 sets, 4,042 objects checked — 1 set with findings ✗\n/);
+    assert.match(
+      text,
+      /^photos-bucket: 2 sets, 4,042 objects checked — 1 set with findings ✗\n/,
+    );
     // Only the finding set gets a block, with a file count.
     assert.match(text, /\n {2}music {3}2 files with problems\n/);
     assert.doesNotMatch(text, /docs/);
