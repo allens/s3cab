@@ -13,6 +13,7 @@ import {
   renderRestore,
   renderSetup,
   renderStatus,
+  renderText,
   renderUpload,
   renderVerify,
 } from "./render.mjs";
@@ -86,6 +87,16 @@ describe("renderSetup", () => {
     assert.match(text, /Set 'photos' → bucket 'my-backups'/);
     assert.match(text, /no directories yet/);
     assert.match(text, /s3cab setup photos <directory>\.\.\./);
+  });
+});
+
+describe("renderText", () => {
+  it("passes an already-finished string straight through (aws/auth)", () => {
+    // The degenerate renderer: the result *is* the prose (ADR-0043 does not
+    // structure aws's recipe or auth's status), so it is returned verbatim.
+    const recipe = "1. Create the bucket:\n   aws s3api create-bucket ...";
+    assert.equal(renderText(recipe), recipe);
+    assert.equal(renderText(""), ""); // and an empty string stays empty
   });
 });
 

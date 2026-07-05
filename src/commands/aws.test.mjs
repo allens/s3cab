@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { aws } from "./aws.mjs";
 
-// Tests for the `aws` command: the *routing* (which recipe it prints) and
+// Tests for the `aws` command: the *routing* (which recipe it returns) and
 // argument validation. The recipe text itself is asserted in
 // src/lib/onboarding.test.mjs; here we only check the command picks the right one
-// from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment, and prints it.
+// from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment. The command
+// returns the recipe as text now (ADR-0043); the dispatcher prints it.
 
 const ENV_VARS = [
   "AWS_ENDPOINT_URL_S3",
@@ -34,64 +35,47 @@ afterEach(() => {
   }
 });
 
-/**
- * Run `aws` capturing what it writes to stdout (t.mock auto-restores).
- * @param {import("node:test").TestContext} t
- * @param {string | undefined} name
- * @param {object} [options]
- */
-function run(t, name, options) {
-  /** @type {string[]} */
-  const out = [];
-  t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
-    out.push(String(chunk));
-    return true;
-  });
-  aws(name, options);
-  return out.join("");
-}
-
 describe("aws routing", () => {
-  it("prints the IAM-user recipe by default", (t) => {
-    const out = run(t, "my-backups");
-    assert.match(out, /aws iam create-user/);
+  it("returns the IAM-user recipe by default", () => {
+    assert.match(aws("my-backups"), /aws iam create-user/);
   });
 
-  it("prints the SSO recipe with --sso", (t) => {
-    const out = run(t, "my-backups", { sso: true });
+  it("returns the SSO recipe with --sso", () => {
+    const out = aws("my-backups", { sso: true });
     assert.match(out, /aws sso login/);
     assert.doesNotMatch(out, /aws iam create-user/);
   });
 
-  it("auto-selects the non-AWS recipe when an endpoint is set", (t) => {
+  it("auto-selects the non-AWS recipe when an endpoint is set", () => {
     process.env.AWS_ENDPOINT_URL_S3 = "https://acct.r2.cloudflarestorage.com";
-    const out = run(t, "my-backups");
+    const out = aws("my-backups");
     assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/acct\.r2/);
     assert.doesNotMatch(out, /aws iam/);
   });
 
-  it("lets the endpoint win over --sso (there is no SSO off AWS)", (t) => {
+  it("lets the endpoint win over --sso (there is no SSO off AWS)", () => {
     process.env.AWS_ENDPOINT_URL = "https://s3.example.test";
-    const out = run(t, "my-backups", { sso: true });
+    const out = aws("my-backups", { sso: true });
     assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/s3\.example\.test/);
     assert.doesNotMatch(out, /aws sso login/);
   });
 });
 
 describe("aws region resolution", () => {
-  it("uses --region for the create-bucket command", (t) => {
-    const out = run(t, "my-backups", { region: "eu-west-1" });
-    assert.match(out, /LocationConstraint=eu-west-1/);
+  it("uses --region for the create-bucket command", () => {
+    assert.match(
+      aws("my-backups", { region: "eu-west-1" }),
+      /LocationConstraint=eu-west-1/,
+    );
   });
 
-  it("falls back to $AWS_REGION when --region is absent", (t) => {
+  it("falls back to $AWS_REGION when --region is absent", () => {
     process.env.AWS_REGION = "ap-southeast-2";
-    const out = run(t, "my-backups");
-    assert.match(out, /LocationConstraint=ap-southeast-2/);
+    assert.match(aws("my-backups"), /LocationConstraint=ap-southeast-2/);
   });
 
-  it("defaults to us-east-1 (no LocationConstraint) when nothing is set", (t) => {
-    const out = run(t, "my-backups");
+  it("defaults to us-east-1 (no LocationConstraint) when nothing is set", () => {
+    const out = aws("my-backups");
     assert.match(out, /--region us-east-1/);
     assert.doesNotMatch(out, /LocationConstraint/);
   });

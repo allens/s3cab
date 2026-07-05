@@ -47,22 +47,18 @@ function useAwsConfig(
 }
 
 /**
- * Capture stdout + console.warn for one test (t.mock auto-restores).
+ * Capture console.warn for one test (t.mock auto-restores). `auth`'s *result* is
+ * its return value now (ADR-0043) — tests assert on that directly; only the
+ * profile-typo notice still goes to stderr via `console.warn`.
  * @param {import("node:test").TestContext} t
  */
-function capture(t) {
-  /** @type {string[]} */
-  const out = [];
+function captureWarn(t) {
   /** @type {string[]} */
   const warn = [];
-  t.mock.method(process.stdout, "write", (/** @type {unknown} */ chunk) => {
-    out.push(String(chunk));
-    return true;
-  });
   t.mock.method(console, "warn", (/** @type {unknown[]} */ ...args) => {
     warn.push(args.join(" "));
   });
-  return { out: () => out.join(""), warn: () => warn.join("\n") };
+  return () => warn.join("\n");
 }
 
 describe("auth --profile", () => {
@@ -70,29 +66,26 @@ describe("auth --profile", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path);
-    const io = capture(t);
+    const warn = captureWarn(t);
 
-    await auth(undefined, { profile: "work" });
+    const out = await auth(undefined, { profile: "work" });
 
     assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "work");
-    assert.match(
-      io.out(),
-      /Set AWS profile 'work' for the default \(all backups\)/,
-    );
-    assert.equal(io.warn(), ""); // a known profile warns nothing
+    assert.match(out, /Set AWS profile 'work' for the default \(all backups\)/);
+    assert.equal(warn(), ""); // a known profile warns nothing
   });
 
   it("warns but still writes when the profile is unknown", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path); // only 'work' and 'default' exist
-    const io = capture(t);
+    const warn = captureWarn(t);
 
     await auth(undefined, { profile: "bert" });
 
     assert.equal(parseEnvFile(userEnvPath()).AWS_PROFILE, "bert"); // written anyway
-    assert.match(io.warn(), /AWS profile 'bert' isn't in your AWS config/);
-    assert.match(io.warn(), /default, work/); // available profiles, sorted
+    assert.match(warn(), /AWS profile 'bert' isn't in your AWS config/);
+    assert.match(warn(), /default, work/); // available profiles, sorted
   });
 
   it("writes AWS_PROFILE to a named set's env, preserving its bucket", async (t) => {
@@ -100,7 +93,7 @@ describe("auth --profile", () => {
     useTempHome(dir.path);
     useAwsConfig(dir.path);
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    capture(t);
+    captureWarn(t);
 
     await auth("photos", { profile: "work" });
 
@@ -146,11 +139,12 @@ describe("auth --unset", () => {
     useTempHome(dir.path);
     useAwsConfig(dir.path);
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    capture(t);
+    captureWarn(t);
     await auth("photos", { profile: "work" });
 
-    await auth("photos", { unset: true });
+    const out = await auth("photos", { unset: true });
 
+    assert.match(out, /Cleared the AWS profile for set 'photos'\./);
     const env = parseEnv(readFileSync(readSet("photos").envPath, "utf8"));
     assert.equal(env.AWS_PROFILE, undefined); // gone
     assert.equal(env.S3CAB_BUCKET, "my-bucket"); // preserved
@@ -158,18 +152,17 @@ describe("auth --unset", () => {
 });
 
 describe("auth (show)", () => {
-  it("reports nothing set for the default scope", async (t) => {
+  it("reports nothing set for the default scope", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    const io = capture(t);
 
-    await auth(undefined, {});
+    const out = await auth(undefined, {});
 
-    assert.match(io.out(), /No default AWS profile set/);
-    assert.match(io.out(), /s3cab auth --profile <name>/); // constructive fix
+    assert.match(out, /No default AWS profile set/);
+    assert.match(out, /s3cab auth --profile <name>/); // constructive fix
   });
 
-  it("reports the profile (name:value) and endpoint set at the default scope", async (t) => {
+  it("reports the profile (name:value) and endpoint set at the default scope", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path); // 'work' exists → healthy, no diagnostic line
@@ -178,20 +171,19 @@ describe("auth (show)", () => {
       userEnvPath(),
       "AWS_PROFILE=work\nAWS_ENDPOINT_URL=https://example.r2\n",
     );
-    const io = capture(t);
 
-    await auth(undefined, {});
+    const out = await auth(undefined, {});
 
     // The legible query-noun form, and no broken-profile diagnostic.
-    assert.match(io.out(), /Default AWS profile: work/);
+    assert.match(out, /Default AWS profile: work/);
     assert.match(
-      io.out(),
+      out,
       /AWS endpoint for the default \(all backups\): https:\/\/example\.r2/,
     );
-    assert.doesNotMatch(io.out(), /Not in your AWS config/);
+    assert.doesNotMatch(out, /Not in your AWS config/);
   });
 
-  it("shows a set's own profile with the set-named query noun", async (t) => {
+  it("shows a set's own profile with the set-named query noun", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path); // 'work' exists → healthy
@@ -199,30 +191,28 @@ describe("auth (show)", () => {
     writeFileSync(readSet("photos").envPath, "AWS_PROFILE=work\n", {
       flag: "a",
     });
-    const io = capture(t);
 
-    await auth("photos", {});
+    const out = await auth("photos", {});
 
-    assert.match(io.out(), /AWS profile for set 'photos': work/);
-    assert.doesNotMatch(io.out(), /Not in your AWS config/);
+    assert.match(out, /AWS profile for set 'photos': work/);
+    assert.doesNotMatch(out, /Not in your AWS config/);
   });
 
-  it("flags a profile that isn't in the AWS config when looking (default scope)", async (t) => {
+  it("flags a profile that isn't in the AWS config when looking (default scope)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path); // only 'work' and 'default' exist
     mkdirSync(dirname(userEnvPath()), { recursive: true });
     writeFileSync(userEnvPath(), "AWS_PROFILE=s3cab-test\n");
-    const io = capture(t);
 
-    await auth(undefined, {});
+    const out = await auth(undefined, {});
 
-    assert.match(io.out(), /Default AWS profile: s3cab-test/);
-    assert.match(io.out(), /Not in your AWS config — no credentials to use/);
-    assert.match(io.out(), /aws configure --profile s3cab-test/);
+    assert.match(out, /Default AWS profile: s3cab-test/);
+    assert.match(out, /Not in your AWS config — no credentials to use/);
+    assert.match(out, /aws configure --profile s3cab-test/);
   });
 
-  it("flags a broken profile at a set scope too", async (t) => {
+  it("flags a broken profile at a set scope too", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     useAwsConfig(dir.path);
@@ -230,24 +220,22 @@ describe("auth (show)", () => {
     writeFileSync(readSet("photos").envPath, "AWS_PROFILE=s3cab-test\n", {
       flag: "a",
     });
-    const io = capture(t);
 
-    await auth("photos", {});
+    const out = await auth("photos", {});
 
-    assert.match(io.out(), /AWS profile for set 'photos': s3cab-test/);
-    assert.match(io.out(), /Not in your AWS config — no credentials to use/);
-    assert.match(io.out(), /aws configure --profile s3cab-test/);
+    assert.match(out, /AWS profile for set 'photos': s3cab-test/);
+    assert.match(out, /Not in your AWS config — no credentials to use/);
+    assert.match(out, /aws configure --profile s3cab-test/);
   });
 
-  it("reports a set with no override falls back to the user default", async (t) => {
+  it("reports a set with no override falls back to the user default", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     writeSet("photos", { dirs: ["/data/photos"], bucket: "my-bucket" });
-    const io = capture(t);
 
-    await auth("photos", {});
+    const out = await auth("photos", {});
 
-    assert.match(io.out(), /uses the user default/);
-    assert.match(io.out(), /s3cab auth --profile <name> photos/); // set-scoped fix
+    assert.match(out, /uses the user default/);
+    assert.match(out, /s3cab auth --profile <name> photos/); // set-scoped fix
   });
 });

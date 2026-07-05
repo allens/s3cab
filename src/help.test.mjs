@@ -22,11 +22,13 @@ const fakeRegistry = {
     },
     description: "Longer prose about doing the thing.",
     exec: () => undefined,
+    render: String,
   },
   later: {
     summary: "Not built",
     planned: true,
     exec: () => undefined,
+    render: String,
   },
 };
 
@@ -49,9 +51,19 @@ describe("usage", () => {
   it("groups commands under headings, sticky until the next group", () => {
     /** @type {Record<string, import("./commands.mjs").Command>} */
     const grouped = {
-      a: { group: "First", summary: "A", exec: () => undefined },
-      b: { summary: "B", exec: () => undefined }, // inherits "First"
-      c: { group: "Second", summary: "C", exec: () => undefined },
+      a: {
+        group: "First",
+        summary: "A",
+        exec: () => undefined,
+        render: String,
+      },
+      b: { summary: "B", exec: () => undefined, render: String }, // inherits "First"
+      c: {
+        group: "Second",
+        summary: "C",
+        exec: () => undefined,
+        render: String,
+      },
     };
     const text = usage(grouped);
 
@@ -69,6 +81,17 @@ describe("usage", () => {
       text,
       new RegExp(`topics: ${Object.keys(helpTopics).join(", ")}`),
     );
+  });
+
+  it("top-level help has a Global options section listing --json/--version/--help", () => {
+    // The dispatcher-owned flags (ADR-0043 for --json) get their own section
+    // rather than being buried in footer prose.
+    const text = usage(fakeRegistry);
+
+    assert.match(text, /Global options:/);
+    assert.match(text, /--json\s+Print machine-readable JSON/);
+    assert.match(text, /-v, --version\s+Print the version/);
+    assert.match(text, /-h, --help\s+Show this help/);
   });
 
   it("falls back to the top-level list for an unknown command", () => {

@@ -26,6 +26,7 @@ import {
   renderRestore,
   renderSetup,
   renderStatus,
+  renderText,
   renderUpload,
   renderVerify,
 } from "./render.mjs";
@@ -53,7 +54,7 @@ import {
  * @property {Record<string, CommandArg>} [args]
  * @property {Record<string, CommandOption>} [options]
  * @property {(options: ParsedOptions, positionals?: string[]) => CommandResult | Promise<CommandResult>} exec
- * @property {(result: any, context: RenderContext) => string} [render] - Renders this command's result as human-readable text for stdout (ADR-0043). Optional *during* the render-layer migration (the dispatcher falls back to JSON when absent); becomes required once every command has one.
+ * @property {(result: any, context: RenderContext) => string} render - Renders this command's result as human-readable text for stdout (ADR-0043). Required for every command — `tsc` enforces the invariant, so there is no generic dispatcher fallback (a generic object-dumper is just the JSON `--json` already emits).
  * @property {string} summary
  * @property {string} [description]
  * @property {string[]} [examples] - Example invocations, one per line, shown right after the summary in `--help` (lead with examples — clig.dev)
@@ -194,6 +195,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
       },
     },
     exec: (options, [name] = []) => aws(name, options),
+    render: renderText,
   },
   auth: {
     summary: "Set, clear, or show how s3cab signs in to your cloud",
@@ -287,6 +289,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [set] = []) => auth(set, options),
+    render: renderText,
   },
   setup: {
     summary: "Create, update, or inherit a backup set",

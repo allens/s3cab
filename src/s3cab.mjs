@@ -82,18 +82,18 @@ try {
   const { json, ...execOptions } = options;
   const result = await command.exec({ ...execOptions, debug }, positionals);
 
-  // Human-readable text is the stdout default; `--json` emits today's raw
-  // structure (ADR-0043 inverts ADR-0010's JSON-everything default). Both paths
-  // never truncate — JSON.stringify doesn't, and a renderer returns a whole
-  // string — keeping results on stdout, separate from progress/warnings on
-  // stderr. During the render-layer migration a command with no `render` yet
-  // falls back to JSON; the final slice deletes that fallback and makes `render`
-  // required. Colour gates on the stdout TTY (`styleEnabled`).
+  // Human-readable text is the stdout default; `--json` emits the raw structure
+  // (ADR-0043 inverts ADR-0010's JSON-everything default). Both paths never
+  // truncate — JSON.stringify doesn't, and a renderer returns a whole string —
+  // keeping results on stdout, separate from progress/warnings on stderr. Every
+  // command has a `render` now (required in the registry, tsc-enforced), so there
+  // is no fallback. Colour gates on the stdout TTY (`styleEnabled`). The
+  // defined-result guard stays: a command's declared return type still admits
+  // `undefined`, and calling a renderer on it would throw.
   if (result !== undefined) {
-    const output =
-      json || !command.render
-        ? JSON.stringify(result, null, 2)
-        : command.render(result, { color: styleEnabled(process.stdout) });
+    const output = json
+      ? JSON.stringify(result, null, 2)
+      : command.render(result, { color: styleEnabled(process.stdout) });
     // A renderer can return "" — an empty `tree`/`hashes` stream. Emit nothing
     // then, not a lone "\n": the empty→empty-string contract must survive a
     // redirect/pipe (a stray newline would corrupt it, and read as one line to

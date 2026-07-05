@@ -358,6 +358,18 @@ export function renderLines(lines) {
 }
 
 /**
+ * The degenerate renderer for commands whose result already *is* the finished
+ * human text — `aws`'s onboarding recipe (a prescriptive `aws`-CLI plan) and
+ * `auth`'s status/confirmation lines. ADR-0043 deliberately does *not* structure
+ * these: their result is prose, not data to shape, so an identity function is the
+ * honest end-state (the single-string sibling of `renderLines`). `--json` still
+ * emits the same string — a machine consumer of a recipe wants the recipe.
+ * @param {string} text
+ * @returns {string}
+ */
+export const renderText = (text) => text;
+
+/**
  * Render `prop` — one file's content properties as an aligned label/value block.
  * The size shows both the exact byte count and its human form. `hashDuration`
  * (an internal timing, in seconds) is a property of the *run*, not the file, so
