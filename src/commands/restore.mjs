@@ -41,11 +41,16 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * carefully considered command, and requiring the name removes the set-or-path
  * ambiguity a leading optional positional would create.
  *
+ * @typedef {Object} RestoreResult
+ * @property {string} set - The set restored
+ * @property {string} snapshot - The snapshot restored from
+ * @property {string[]} restored - Paths written
+ * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
+ *
  * @param {string} [setName] - Backup set to restore (required)
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
  * @param {{ snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options]
- * @returns {Promise<{ set: string, snapshot: string, restored: string[], skipped: string[] }>}
- *   `restored` = paths written; `skipped` = existing paths left untouched (rerun with --overwrite to replace).
+ * @returns {Promise<RestoreResult>}
  */
 export async function restore(setName, paths = [], options = {}) {
   requireArg(setName, "set");

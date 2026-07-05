@@ -3,12 +3,17 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import {
+  renderBackup,
+  renderCleanup,
   renderCompareResult,
+  renderDelete,
   renderLines,
   renderList,
   renderProp,
+  renderRestore,
   renderSetup,
   renderStatus,
+  renderUpload,
   renderVerify,
 } from "./render.mjs";
 
@@ -530,5 +535,185 @@ describe("renderVerify", () => {
     // Verdict is red+bold (31/1); the finding set name is red (31).
     assert.ok(coloured.includes(`${ESC}[31m`));
     assert.ok(coloured.includes(`${ESC}[1m`));
+  });
+});
+
+describe("renderBackup", () => {
+  it("reports uploads against the candidate set, with an already-stored aside", () => {
+    const text = renderBackup({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      candidates: 120,
+      uploaded: 3,
+    });
+    assert.equal(
+      text,
+      "Backed up 'photos' (snapshot 2026-07-04T1000): " +
+        "uploaded 3 of 120 objects (117 already stored).",
+    );
+  });
+
+  it("drops the aside when every candidate uploaded", () => {
+    const text = renderBackup({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      candidates: 3,
+      uploaded: 3,
+    });
+    assert.equal(
+      text,
+      "Backed up 'photos' (snapshot 2026-07-04T1000): uploaded 3 objects.",
+    );
+  });
+
+  it("reports the up-to-date case when nothing was new to upload", () => {
+    const text = renderBackup({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      candidates: 0,
+      uploaded: 0,
+    });
+    assert.match(text, /already up to date, nothing new to upload\.$/);
+  });
+});
+
+describe("renderUpload", () => {
+  const key =
+    "objects/c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a";
+
+  it("confirms a transferred object with its full key and human size", () => {
+    const text = renderUpload({
+      hash: "c0535e4b",
+      size: 1_500_000,
+      key,
+      uploaded: true,
+    });
+    assert.equal(text, `Uploaded ${key} (1.5MB).`);
+    // Never truncated (ADR-0043) — the whole content address is shown.
+    assert.match(text, /ad9e51a/);
+  });
+
+  it("reports an already-stored object rather than a re-upload", () => {
+    const text = renderUpload({
+      hash: "c0535e4b",
+      size: 200,
+      key,
+      uploaded: false,
+    });
+    assert.equal(text, `${key} already stored (200B).`);
+  });
+});
+
+describe("renderRestore", () => {
+  it("summarizes the written files by set and snapshot", () => {
+    const text = renderRestore({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      restored: ["/home/me/a.jpg", "/home/me/b.jpg"],
+      skipped: [],
+    });
+    assert.equal(
+      text,
+      "Restored 2 files from 'photos' (snapshot 2026-07-04T1000).",
+    );
+  });
+
+  it("lists every skipped existing file in full, pointing at --overwrite", () => {
+    const text = renderRestore({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      restored: ["/home/me/a.jpg"],
+      skipped: ["/home/me/b.jpg", "/home/me/c.jpg"],
+    });
+    assert.match(
+      text,
+      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nSkipped 2 existing files \(rerun with --overwrite to replace\):\n {2}\/home\/me\/b\.jpg\n {2}\/home\/me\/c\.jpg$/,
+    );
+  });
+
+  it("reports an empty selection plainly instead of blank output", () => {
+    const text = renderRestore({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      restored: [],
+      skipped: [],
+    });
+    assert.equal(
+      text,
+      "Nothing to restore from 'photos' (snapshot 2026-07-04T1000).",
+    );
+  });
+});
+
+describe("renderDelete", () => {
+  it("records a deleted snapshot", () => {
+    assert.equal(
+      renderDelete({
+        set: "photos",
+        snapshot: "2026-06-12T0915",
+        deleted: true,
+      }),
+      "Snapshot '2026-06-12T0915' deleted from set 'photos'.",
+    );
+  });
+
+  it("records a declined deletion as kept", () => {
+    assert.equal(
+      renderDelete({
+        set: "photos",
+        snapshot: "2026-06-12T0915",
+        deleted: false,
+      }),
+      "Snapshot '2026-06-12T0915' kept — deletion cancelled.",
+    );
+  });
+});
+
+describe("renderCleanup", () => {
+  /** @param {Partial<import("./commands/cleanup.mjs").CleanupResult>} over */
+  const cleanupResult = (over) => ({
+    bucket: "my-backups",
+    storedObjects: 1024,
+    referencedObjects: 980,
+    orphanObjects: 44,
+    reclaimableBytes: 2_300_000,
+    withinGrace: 0,
+    missingObjects: 0,
+    deleted: 0,
+    ...over,
+  });
+
+  it("reports the inventory for a dry run (nothing deleted)", () => {
+    const text = renderCleanup(cleanupResult({}));
+    assert.equal(
+      text,
+      "my-backups: 1,024 objects stored, 44 orphaned (2.3MB reclaimable)",
+    );
+  });
+
+  it("appends the grace and missing tallies only when non-zero", () => {
+    const text = renderCleanup(
+      cleanupResult({ withinGrace: 12, missingObjects: 3 }),
+    );
+    assert.match(text, /, 12 too new to touch \(7-day grace\)/);
+    assert.match(text, /, 3 missing \(referenced but absent\)$/);
+  });
+
+  it("reports what a --delete run reclaimed", () => {
+    const text = renderCleanup(
+      cleanupResult({
+        orphanObjects: 44,
+        reclaimableBytes: 2_300_000,
+        deleted: 44,
+      }),
+    );
+    assert.equal(
+      text,
+      "my-backups: deleted 44 orphaned objects, reclaimed 2.3MB.",
+    );
   });
 });

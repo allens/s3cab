@@ -15,11 +15,15 @@ import { snapshot } from "./snapshot.mjs";
  * (re-checking the cloud via the conditional PUT instead) for when its sync is
  * in doubt.
  *
+ * @typedef {Object} BackupResult
+ * @property {string} set - The set backed up
+ * @property {string} snapshot - The snapshot that was uploaded (fresh or `--snapshot`)
+ * @property {number} candidates - Objects considered for upload (new since the last backup)
+ * @property {number} uploaded - Those actually transferred (the rest were already in the store)
+ *
  * @param {string} [setName] - Backup set to back up (default: the only set)
  * @param {{ snapshot?: string, "skip-cache"?: boolean, debug?: boolean }} [options]
- * @returns {Promise<{ set: string, snapshot: string, candidates: number, uploaded: number }>}
- *   `candidates` = objects considered for upload; `uploaded` = those actually
- *   transferred (the rest already in the store).
+ * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
   // Resolve the set and apply its env layer (its bucket's auth) on top of the

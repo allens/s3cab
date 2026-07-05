@@ -16,12 +16,17 @@ import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
 import {
+  renderBackup,
+  renderCleanup,
   renderCompareResult,
+  renderDelete,
   renderLines,
   renderList,
   renderProp,
+  renderRestore,
   renderSetup,
   renderStatus,
+  renderUpload,
   renderVerify,
 } from "./render.mjs";
 
@@ -340,6 +345,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [set] = []) => backup(set, options),
+    render: renderBackup,
   },
   restore: {
     summary: "Restore files from a backup",
@@ -373,6 +379,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [set, ...paths] = []) => restore(set, paths, options),
+    render: renderRestore,
   },
   verify: {
     summary: "Check that a repository's backups are complete and undamaged",
@@ -403,6 +410,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [set] = []) => deleteSnapshot(set, options),
+    render: renderDelete,
   },
   cleanup: {
     summary: "Reclaim storage held by objects no snapshot references",
@@ -421,6 +429,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [bucket] = []) => cleanup(bucket, options),
+    render: renderCleanup,
   },
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
@@ -453,6 +462,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [bucket, file] = []) => upload(bucket, file, options),
+    render: renderUpload,
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
