@@ -15,7 +15,15 @@ import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
-import { renderCompareResult, renderSetup } from "./render.mjs";
+import {
+  renderCompareResult,
+  renderLines,
+  renderList,
+  renderProp,
+  renderSetup,
+  renderStatus,
+  renderVerify,
+} from "./render.mjs";
 
 /** @import { RenderContext } from "./render.mjs" */
 
@@ -91,6 +99,7 @@ export const commands = {
       },
     },
     exec: (options, [set] = []) => list(set, options),
+    render: renderList,
   },
   compare: {
     summary: "Show what changed between two snapshots",
@@ -127,6 +136,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       },
     },
     exec: (_options, [set] = []) => status(set),
+    render: renderStatus,
   },
 
   // ── Setup: provision the cloud, point at credentials, define a set ─────
@@ -374,6 +384,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (_options, [bucket] = []) => verify(bucket),
+    render: renderVerify,
   },
   delete: {
     summary: "Delete one snapshot from a backup",
@@ -422,15 +433,8 @@ Full guide: https://github.com/allens/s3cab#authentication`,
         description: "The repository's S3 bucket name",
       },
     },
-    options: {
-      output: {
-        type: "string",
-        short: "o",
-        description:
-          "Write the hashes to this file (one per line) instead of stdout",
-      },
-    },
-    exec: (options, [bucket] = []) => hashes(bucket, options),
+    exec: (_options, [bucket] = []) => hashes(bucket),
+    render: renderLines,
   },
   upload: {
     summary: "Upload a single file to a repository's object store",
@@ -456,6 +460,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       set: { description: "The backup set to list (default: the only set)" },
     },
     exec: (_options, [set] = []) => tree(set),
+    render: renderLines,
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",
@@ -470,5 +475,6 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [file] = []) => prop(file, options),
+    render: renderProp,
   },
 };

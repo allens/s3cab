@@ -98,6 +98,21 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /beta\.txt/);
   });
 
+  it("an empty tree stream prints nothing — no stray newline", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const data = join(dir.path, "data");
+    mkdirSync(home);
+    mkdirSync(data); // no files → an empty stream
+
+    seedSet(home, "files", [data]);
+    const { status, stdout } = runWithHome(home, "tree", "files");
+
+    assert.strictEqual(status, 0);
+    // Truly empty (0 bytes), not a lone "\n" that would corrupt a redirect/pipe.
+    assert.strictEqual(stdout, "");
+  });
+
   it("snapshot → list round-trip on a set", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");

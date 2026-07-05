@@ -178,7 +178,7 @@ export async function* listObjectHashes(bucket) {
 /**
  * The per-bucket objects cache file, `~/.s3cab/objects.<bucket>` — a local
  * hash-per-line list of objects already known to exist under the bucket's
- * `objects/`, in exactly the format `s3cab hashes -f` writes (it *is* that
+ * `objects/`, in exactly the format `s3cab hashes <bucket>` writes (it *is* that
  * command's output put to work — composability, docs/design/backup.md). The bucket
  * name is interpolated into the filename, so it is guarded as a single path
  * segment (`assertPathSegment`) — keeping a hostile bucket name from traversing
@@ -223,7 +223,7 @@ export function knownObjects(bucket) {
  * Record hashes in the per-bucket objects cache, creating it (and `~/.s3cab`)
  * if absent — every object `backup` uploads is recorded here so a later backup
  * skips it (docs/design/backup.md step 3). Append-only and newline-terminated,
- * matching the `hashes -f` format; duplicates are harmless (`knownObjects`
+ * matching the `s3cab hashes <bucket>` output format; duplicates are harmless (`knownObjects`
  * dedups via a Set), so this never has to read-modify-write.
  * @param {string} bucket
  * @param {Iterable<string>} hashes

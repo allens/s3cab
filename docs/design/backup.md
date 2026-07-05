@@ -334,12 +334,13 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 2. Candidates = hashes in the target snapshot **not** in the latest remote snapshot.
    (First backup of a set: no remote snapshot, everything is a candidate.)
 3. Drop candidates found in the **per-bucket objects cache**: a local hash-per-line
-   file in exactly the format `hashes -f` writes (it *is* that command's output put to
-   work — composability again). The point is request arithmetic: per-object existence
-   checks (HEAD, or the conditional PUT itself) cost one request *each*, which at
-   millions of objects mounts up badly, while LIST pages 1,000 keys per request — so
-   the listing is fetched rarely, cached locally, and consulted for free. `backup`
-   appends every hash it uploads to the cache; refresh any time with `hashes -f`.
+   file in exactly the format the `hashes` command emits (its stdout stream *is* that
+   format put to work — composability again). The point is request arithmetic:
+   per-object existence checks (HEAD, or the conditional PUT itself) cost one request
+   *each*, which at millions of objects mounts up badly, while LIST pages 1,000 keys per
+   request — so the listing is fetched rarely, cached locally, and consulted for free.
+   `backup` appends every hash it uploads to the cache; refresh any time with
+   `s3cab hashes <bucket> > <cache>`.
    `--skip-cache` skips this cache lookup entirely (when in doubt about sync) and falls
    through to the conditional PUT below. (The flag is named `--skip-cache`, not the
    `--force` this design first used: it only skips the cache and never overwrites, unlike

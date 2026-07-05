@@ -94,7 +94,14 @@ try {
       json || !command.render
         ? JSON.stringify(result, null, 2)
         : command.render(result, { color: styleEnabled(process.stdout) });
-    process.stdout.write(output + "\n");
+    // A renderer can return "" — an empty `tree`/`hashes` stream. Emit nothing
+    // then, not a lone "\n": the empty→empty-string contract must survive a
+    // redirect/pipe (a stray newline would corrupt it, and read as one line to
+    // `wc -l`). ADR-0043. JSON output is never empty, so this only trims the
+    // empty-stream case.
+    if (output) {
+      process.stdout.write(output + "\n");
+    }
   }
 } catch (error) {
   // Two independent axes (see lib/error.mjs): print the usage help only for a

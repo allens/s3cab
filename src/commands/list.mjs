@@ -1,39 +1,63 @@
 import { loadSet } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
-import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
+import { listSets, readSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
+ * One set's line in the compact summary: its name and its snapshot times
+ * (newest first, narrowed to one by `--latest`).
+ * @typedef {Object} SetSnapshots
+ * @property {string} name
+ * @property {string[]} snapshots
+ */
+/**
+ * The all-sets compact view — every set with its snapshot times. `sets` is `[]`
+ * when none exist yet (the renderer then shows the "create one" guidance); this
+ * command never prints, so an empty result is data, not a stderr warning.
+ * @typedef {Object} ListSummary
+ * @property {"summary"} mode
+ * @property {SetSnapshots[]} sets
+ */
+/**
+ * The single-set detail view — the whole `BackupSet` (config + derived paths) and
+ * its snapshots, local or (with `--remote`) the set's cloud backups.
+ * @typedef {Object} ListDetail
+ * @property {"detail"} mode
+ * @property {BackupSet} set
+ * @property {string[]} snapshots
+ * @property {boolean} remote
+ */
+/** @typedef {ListSummary | ListDetail} ListResult */
+
+/**
  * List backup sets and their snapshots (docs/design/backup.md, ADR-0036) — the
- * read half of the old `sets` command. Three shapes:
+ * read half of the old `sets` command. Returns data for the render layer
+ * (ADR-0043) in one of two shapes, mode-tagged so its renderer can branch:
  *
- * - **`list`** (no set): every set compactly — `name:` then its snapshot times —
- *   so a single-set user still gets `s3cab list` → their snapshots, now under a
- *   heading. Local and offline.
- * - **`list <set>`**: that set in detail — name, bucket, member directories (with the
- *   `dirs.txt` path), and its exclude file (with the `exclude.txt` path), then its
- *   snapshots. The config paths teach where to edit a set ("the files are the
+ * - **`list`** (no set): a **`summary`** of every set — its name and snapshot
+ *   times — so a single-set user still gets `s3cab list` → their snapshots, now
+ *   under a heading. Local and offline.
+ * - **`list <set>`**: a **`detail`** view of that set — name, bucket, member
+ *   directories (with the `dirs.txt` path) and exclude file (with its path), then
+ *   its snapshots. The config paths teach where to edit a set ("the files are the
  *   API", ADR-0002).
- * - **`list --remote [<set>]`**: the set's cloud backups under `snapshots/<set>/`,
- *   shown in the detail view. Unlike the local all-sets form, `--remote` resolves
- *   a **single** set (the one named, or the only set) — it is a network call and
- *   carries the set's own auth, so listing it per-set across every set would be N
- *   round-trips with N env layers; one set keeps it cheap and the credentials
- *   unambiguous (a deliberate narrowing of ADR-0036's "compose over the grouped
- *   form", see docs/design/backup.md).
+ * - **`list --remote [<set>]`**: the same `detail` shape, but its snapshots are the
+ *   set's cloud backups under `snapshots/<set>/`. Unlike the local all-sets form,
+ *   `--remote` resolves a **single** set (the one named, or the only set) — it is a
+ *   network call carrying the set's own auth, so listing per-set across every set
+ *   would be N round-trips with N env layers; one set keeps it cheap and the
+ *   credentials unambiguous (a deliberate narrowing of ADR-0036's "compose over the
+ *   grouped form", see docs/design/backup.md).
  *
- * `--latest` narrows the snapshot list to just the newest. Like the old `sets`
- * listing and `hashes`, the formatted listing *is* the result, so it goes to
- * stdout directly and the function returns `undefined` (a deliberate exception to
- * the dispatcher's JSON serialization). Async only because the `--remote` path
- * lists S3.
+ * `--latest` narrows the snapshot list to just the newest. Async only because the
+ * `--remote` path lists S3.
  * @param {string} [setName] - A single set to show in detail; omit (local only) for all sets
  * @param {object} [options]
  * @param {boolean} [options.latest] - Show only the most recent snapshot
  * @param {boolean} [options.remote] - List the set's cloud backups instead of local snapshots
- * @returns {Promise<undefined>}
+ * @returns {Promise<ListResult>}
  */
 export async function list(setName, options = {}) {
   // --remote is single-set (sole-set default): one network call, one set's auth.
@@ -42,39 +66,33 @@ export async function list(setName, options = {}) {
   if (options.remote) {
     const set = loadSet(setName);
     const snapshots = await snapshotsFor(set, options);
-    process.stdout.write(formatDetail(set, snapshots, true) + "\n");
-    return undefined;
+    return { mode: "detail", set, snapshots, remote: true };
   }
 
   // A named set → the detail view. Local, so no env/credentials are needed.
   if (setName !== undefined) {
     const set = readSet(setName);
     const snapshots = await snapshotsFor(set, options);
-    process.stdout.write(formatDetail(set, snapshots, false) + "\n");
-    return undefined;
+    return { mode: "detail", set, snapshots, remote: false };
   }
 
   // No set named → every set, compact (name + snapshot times).
-  const names = listSets();
-  if (names.length === 0) {
-    console.warn(NO_SETS_MESSAGE);
-    return undefined;
-  }
-
-  const blocks = names.map((name) => {
+  const sets = listSets().map((name) => {
     const set = readSet(name);
     const snapshots = listSnapshotNames(set.snapshotsDir, {});
-    const shown = options.latest ? snapshots.slice(0, 1) : snapshots;
-    return `${name}:\n` + indentSnapshots(shown);
+    return {
+      name,
+      snapshots: options.latest ? snapshots.slice(0, 1) : snapshots,
+    };
   });
-  process.stdout.write(blocks.join("\n") + "\n");
-  return undefined;
+  return { mode: "summary", sets };
 }
 
 /**
  * One set's snapshot names to display: local by default or the set's cloud
  * backups with `--remote`, narrowed to just the newest with `--latest`. Always
- * an array (a one-element array for `--latest`) so the block formats uniformly.
+ * an array (a one-element array for `--latest`) so the detail view formats
+ * uniformly.
  * @param {BackupSet} set
  * @param {{ latest?: boolean, remote?: boolean }} options
  * @returns {Promise<string[]>} Snapshot names, newest first
@@ -84,41 +102,4 @@ async function snapshotsFor(set, { latest, remote }) {
     ? await listRemoteSnapshots(set.bucket, set.name)
     : listSnapshotNames(set.snapshotsDir, {});
   return latest ? names.slice(0, 1) : names;
-}
-
-/**
- * The detail view for one set: its config (bucket, member directories, exclude file)
- * then its snapshots. The `dirs.txt`/`exclude.txt` paths are shown — absolute and
- * platform-native (from `node:path`, rooted at `homedir()`) — so the listing
- * doubles as "where do I edit this set": a capable terminal opens the path in the
- * default editor, and at worst it copy-pastes. ("The files are the API",
- * [0002](../../docs/adr/0002-no-lock-in-hard-constraint.md).)
- * @param {BackupSet} set
- * @param {string[]} snapshots - Snapshot names to list, newest first
- * @param {boolean} remote - Whether these are the set's cloud backups
- * @returns {string}
- */
-function formatDetail(set, snapshots, remote) {
-  return [
-    `name: ${set.name}`,
-    `bucket: ${set.bucket}`,
-    `dirs (${set.dirsPath}):`,
-    ...(set.dirs.length ? set.dirs.map((dir) => `  ${dir}`) : ["  (none)"]),
-    `exclude file: ${set.excludePath}`,
-    `${remote ? "remote snapshots" : "snapshots"}:`,
-    indentSnapshots(snapshots),
-  ].join("\n");
-}
-
-/**
- * Render snapshot names as indented lines, or a `(none yet)` placeholder when
- * there are none — so an empty set reads clearly rather than as a blank gap.
- * @param {string[]} names
- * @returns {string}
- */
-function indentSnapshots(names) {
-  if (names.length === 0) {
-    return "  (none yet)";
-  }
-  return names.map((name) => `  ${name}`).join("\n");
 }
