@@ -108,11 +108,13 @@ describe("cli (e2e)", () => {
 
     seedSet(home, "files", [data]);
 
-    // First snapshot of the sole set (no name needed): everything is added.
+    // First snapshot of the sole set (no name needed). Human output is the
+    // default now (ADR-0043): a first snapshot collapses to a one-line count
+    // (every file is "added" against an empty baseline), rendered end-to-end
+    // through the dispatcher.
     const snap = runWithHome(home, "snapshot");
     assert.strictEqual(snap.status, 0, snap.stderr);
-    const result = JSON.parse(snap.stdout);
-    assert.deepStrictEqual(result.added, ["alpha.txt"]);
+    assert.match(snap.stdout, /First snapshot: 1 file/);
 
     // The snapshot is now listed under the set (compact: `files:` then the time).
     const listed = runWithHome(home, "list");
@@ -120,12 +122,11 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /files:\n\s+\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
-  it("accepts the global --json flag on any command and strips it before exec", async () => {
-    // --json is dispatcher-owned (ADR-0043): merged into every command's parse,
-    // so it's never an "unknown option", and stripped before exec, so the
-    // command still runs. snapshot has no renderer yet (its human view is a
-    // later slice), so both modes emit JSON — this pins the plumbing, not the
-    // format: exit 0, and stdout is the parseable structure.
+  it("the global --json flag emits the structured result and is stripped before exec", async () => {
+    // --json is dispatcher-owned (ADR-0043): merged into every command's parse
+    // (never an "unknown option"), and stripped before exec (the command still
+    // runs). It emits today's structured value — for a compare/snapshot result
+    // that's the absolute-path CompareResult, not the human collapse line.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     const data = join(dir.path, "data");
@@ -137,7 +138,10 @@ describe("cli (e2e)", () => {
     const snap = runWithHome(home, "snapshot", "--json");
     assert.strictEqual(snap.status, 0, snap.stderr);
     const result = JSON.parse(snap.stdout);
-    assert.deepStrictEqual(result.added, ["alpha.txt"]);
+    assert.equal(result.since, null); // first snapshot
+    assert.equal(result.added.length, 1);
+    assert.match(result.added[0].path, /alpha\.txt$/);
+    assert.equal(result.added[0].size, 1); // "a"
   });
 
   it("list <set> shows the set's backup target in detail", async () => {

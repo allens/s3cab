@@ -1,16 +1,57 @@
-import { basename, dirname, isAbsolute, relative, sep } from "node:path";
+import { basename, dirname } from "node:path";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
 /**
+ * One added file. `duplicates` are the *existing* paths whose content this file
+ * copies — `[]` means genuinely new; non-empty means a copy of content already
+ * stored elsewhere (the renderer says "(duplicate of …)").
+ * @typedef {Object} AddedEntry
+ * @property {string} path - Absolute path of the added file
+ * @property {number} size
+ * @property {string[]} duplicates - Absolute paths this file duplicates
+ */
+/**
+ * One moved/renamed file. `path` is the old location, `to` the new one; the
+ * renderer derives "renamed" vs "moved" from whether the directory changed.
+ * @typedef {Object} MovedEntry
+ * @property {string} path - Absolute old location
+ * @property {number} size
+ * @property {string} to - Absolute new location
+ */
+/**
+ * A path + its size — the uniform shape for `modified`/`deleted` (uniform
+ * `{ path, … }` objects everywhere let the renderer share one loop, and future
+ * fields don't break the contract).
+ * @typedef {Object} PathSize
+ * @property {string} path
+ * @property {number} size
+ */
+/**
+ * A file the newer snapshot couldn't hash: the absolute path and the recorded
+ * error message.
+ * @typedef {Object} CompareError
+ * @property {string} path
+ * @property {string} reason
+ */
+/**
+ * Structured diff between two snapshots — **absolute paths throughout**
+ * (ADR-0043). Path shortening is presentation, so it lives in the renderer
+ * (`renderCompareResult`, which shortens against the common ancestor of `dirs`);
+ * `--json` gets the unambiguous absolute paths. `since` is `null` for a first
+ * snapshot (empty baseline). `setName`/`dirs`/`since`/`until` are metadata: the
+ * renderer's header and self-describing `--json`.
  * @typedef {Object} CompareResult
- * @property {string[]} added
- * @property {string[]} moved
- * @property {string[]} modified
- * @property {string[]} deleted
- * @property {string[]} errors - Files the newer snapshot couldn't hash, each as
- *   `path (reason)` where reason is the recorded error message
+ * @property {string} [setName]
+ * @property {string[]} dirs
+ * @property {string | null} since
+ * @property {string} until
+ * @property {AddedEntry[]} added
+ * @property {MovedEntry[]} moved
+ * @property {PathSize[]} modified
+ * @property {PathSize[]} deleted
+ * @property {CompareError[]} errors
  */
 
 /**
@@ -19,35 +60,6 @@ import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
  * @param {string} [name]
  */
 const normalizeName = (name) => name?.replace(/\.tsv(\.zst)?$/, "");
-
-/**
- * Display a snapshot's absolute path relative to its containing member
- * directory — so a set's report reads `2025\beach.jpg`, not the full path. A
- * single-root set is unchanged from the per-directory days; with several roots
- * each path is shortened against whichever one contains it (the shortest
- * relative wins when roots nest). A path under no root falls back to absolute.
- * @param {string[]} dirs - The set's member directories
- * @param {string} path - An absolute snapshot path
- */
-function relativeToRoot(dirs, path) {
-  /** @type {string | undefined} */
-  let best;
-  for (const root of dirs) {
-    const rel = relative(root, path);
-    // Inside the root unless `rel` escapes it: a leading `..` *segment* (exactly
-    // `..`, or `..` + separator), or an absolute path. A prefix check alone
-    // would wrongly reject an in-root name that merely starts with `..`
-    // (e.g. `..foo/file.txt`).
-    const escapes =
-      rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
-    if (rel && !escapes) {
-      if (best === undefined || rel.length < best.length) {
-        best = rel;
-      }
-    }
-  }
-  return best ?? path;
-}
 
 /**
  * Diff two snapshots from a snapshot directory, displaying paths relative to
@@ -121,27 +133,38 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
+  // Size is looked up from the snapshot entries rather than threaded through
+  // `diff` (which is content/path-only): the current file for added/moved/
+  // modified (its size in `until`), the vanished file for deleted (its size in
+  // `since`). Same content ⇒ same size, so a move reads either side equally.
+  const untilEntries = untilSnapshot.entries;
   return {
-    added: Array.from(added.entries()).map(([path, previousPaths]) => {
-      let text = relativeToRoot(dirs, path);
-      if (previousPaths && previousPaths.size) {
-        text += " == ";
-        text += Array.from(previousPaths, (path) => relativeToRoot(dirs, path));
-      }
-      return text;
-    }),
-    moved: Array.from(moved.entries()).map(([oldPath, newPath]) => {
-      let text = relativeToRoot(dirs, oldPath);
-      text += dirname(oldPath) === dirname(newPath) ? " → " : " →→ ";
-      text += relativeToRoot(dirs, newPath);
-      return text;
-    }),
-    modified: Array.from(modified, (path) => relativeToRoot(dirs, path)),
-    deleted: Array.from(deleted, (path) => relativeToRoot(dirs, path)),
-    errors: Array.from(
-      untilSnapshot.errors,
-      ([path, reason]) => `${relativeToRoot(dirs, path)} (${reason})`,
-    ),
+    setName: options.setName,
+    dirs,
+    since: since ?? null,
+    until,
+    added: Array.from(added, ([path, duplicates]) => ({
+      path,
+      size: untilEntries.get(path)?.size ?? 0,
+      duplicates: Array.from(duplicates),
+    })),
+    moved: Array.from(moved, ([path, to]) => ({
+      path,
+      size: untilEntries.get(to)?.size ?? 0,
+      to,
+    })),
+    modified: Array.from(modified, (path) => ({
+      path,
+      size: untilEntries.get(path)?.size ?? 0,
+    })),
+    deleted: Array.from(deleted, (path) => ({
+      path,
+      size: sinceEntries.get(path)?.size ?? 0,
+    })),
+    errors: Array.from(untilSnapshot.errors, ([path, reason]) => ({
+      path,
+      reason,
+    })),
   };
 }
 

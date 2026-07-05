@@ -15,7 +15,7 @@ import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
-import { renderSetup } from "./render.mjs";
+import { renderCompareResult, renderSetup } from "./render.mjs";
 
 /** @import { RenderContext } from "./render.mjs" */
 
@@ -67,6 +67,7 @@ export const commands = {
       },
     },
     exec: (options, [set] = []) => snapshot(set, options),
+    render: renderCompareResult,
   },
   list: {
     summary: "List backup sets and their snapshots",
@@ -116,6 +117,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       },
     },
     exec: (options, [set] = []) => compare(set, options),
+    render: renderCompareResult,
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",

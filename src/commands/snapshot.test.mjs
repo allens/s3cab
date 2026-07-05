@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import { join, normalize, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { writeSet } from "../lib/sets.mjs";
 import { snapshot } from "./snapshot.mjs";
@@ -109,14 +109,31 @@ describe("snapshot", () => {
       rehash: false,
     });
 
-    assert.deepStrictEqual(added, [normalize("./added.txt")]);
-    assert.deepStrictEqual(modified, [normalize("./modify.txt")]);
-    assert.deepStrictEqual(deleted, [normalize("./delete.txt")]);
+    // `snapshot` returns the structured, absolute-path CompareResult now
+    // (ADR-0043); project each entry back to a path relative to the member root
+    // for readable assertions (the arrow/rename-vs-move wording is the
+    // renderer's job — render.test.mjs).
+    const rel = (/** @type {string} */ p) => relative(workDir(), p);
 
-    assert.deepStrictEqual(moved, [
-      `${normalize("./move.txt")} →→ ${normalize("./dir/move.txt")}`,
-      `${normalize("./rename.txt")} → ${normalize("./renamed.txt")}`,
-    ]);
+    assert.deepStrictEqual(
+      added.map((a) => rel(a.path)),
+      [normalize("added.txt")],
+    );
+    assert.deepStrictEqual(
+      modified.map((m) => rel(m.path)),
+      [normalize("modify.txt")],
+    );
+    assert.deepStrictEqual(
+      deleted.map((d) => rel(d.path)),
+      [normalize("delete.txt")],
+    );
+    assert.deepStrictEqual(
+      moved.map((m) => `${rel(m.path)} → ${rel(m.to)}`),
+      [
+        `${normalize("move.txt")} → ${normalize("dir/move.txt")}`,
+        `${normalize("rename.txt")} → ${normalize("renamed.txt")}`,
+      ],
+    );
   });
 
   it("writes the set identity and a #DIR line per member directory", async (t) => {
