@@ -120,6 +120,26 @@ describe("cli (e2e)", () => {
     assert.match(listed.stdout, /files:\n\s+\d{4}-\d{2}-\d{2}T\d{4}/);
   });
 
+  it("accepts the global --json flag on any command and strips it before exec", async () => {
+    // --json is dispatcher-owned (ADR-0043): merged into every command's parse,
+    // so it's never an "unknown option", and stripped before exec, so the
+    // command still runs. snapshot has no renderer yet (its human view is a
+    // later slice), so both modes emit JSON — this pins the plumbing, not the
+    // format: exit 0, and stdout is the parseable structure.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    const data = join(dir.path, "data");
+    mkdirSync(home);
+    mkdirSync(data);
+    writeFileSync(join(data, "alpha.txt"), "a");
+    seedSet(home, "files", [data]);
+
+    const snap = runWithHome(home, "snapshot", "--json");
+    assert.strictEqual(snap.status, 0, snap.stderr);
+    const result = JSON.parse(snap.stdout);
+    assert.deepStrictEqual(result.added, ["alpha.txt"]);
+  });
+
   it("list <set> shows the set's backup target in detail", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");

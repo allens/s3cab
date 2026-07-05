@@ -15,6 +15,9 @@ import { sep } from "node:path";
 import { tree } from "./commands/tree.mjs";
 import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
+import { renderSetup } from "./render.mjs";
+
+/** @import { RenderContext } from "./render.mjs" */
 
 /** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
@@ -37,6 +40,7 @@ import { verify } from "./commands/verify.mjs";
  * @property {Record<string, CommandArg>} [args]
  * @property {Record<string, CommandOption>} [options]
  * @property {(options: ParsedOptions, positionals?: string[]) => CommandResult | Promise<CommandResult>} exec
+ * @property {(result: any, context: RenderContext) => string} [render] - Renders this command's result as human-readable text for stdout (ADR-0043). Optional *during* the render-layer migration (the dispatcher falls back to JSON when absent); becomes required once every command has one.
  * @property {string} summary
  * @property {string} [description]
  * @property {string[]} [examples] - Example invocations, one per line, shown right after the summary in `--help` (lead with examples — clig.dev)
@@ -299,6 +303,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     },
     exec: (options, [name, ...directories] = []) =>
       setup(name, directories, options),
+    render: renderSetup,
   },
 
   // ── Backup & restore (docs/design/backup.md) ───────────────────────────
