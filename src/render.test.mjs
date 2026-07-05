@@ -20,6 +20,7 @@ import {
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { CompareResult } from "./lib/compare.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
+/** @import { CleanupResult } from "./commands/cleanup.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so
 // the header's `~` shortening is exercised, platform-correct.
@@ -635,6 +636,25 @@ describe("renderRestore", () => {
     );
   });
 
+  it("keeps the set/snapshot context when everything requested was skipped", () => {
+    // restored empty but skipped non-empty (the files existed, no --overwrite):
+    // still lead with the count line so the snapshot context isn't lost.
+    const text = renderRestore({
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      restored: [],
+      skipped: ["/home/me/b.jpg"],
+    });
+    assert.match(
+      text,
+      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nSkipped 1 existing file \(rerun with --overwrite to replace\):\n {2}\/home\/me\/b\.jpg$/,
+    );
+  });
+
   it("reports an empty selection plainly instead of blank output", () => {
     const text = renderRestore({
       set: "photos",
@@ -674,7 +694,7 @@ describe("renderDelete", () => {
 });
 
 describe("renderCleanup", () => {
-  /** @param {Partial<import("./commands/cleanup.mjs").CleanupResult>} over */
+  /** @param {Partial<CleanupResult>} over */
   const cleanupResult = (over) => ({
     bucket: "my-backups",
     storedObjects: 1024,

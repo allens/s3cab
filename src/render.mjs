@@ -559,7 +559,11 @@ export function renderUpload({ key, size, uploaded }) {
  */
 export function renderRestore({ set, snapshot, restored, skipped }) {
   const sections = [];
-  if (restored.length) {
+  // The count line carries the set/snapshot context, so it leads whenever
+  // anything happened — including the wrote-nothing-but-skipped case (every
+  // requested file already existed), where "Restored 0 files" keeps that context
+  // above the skipped list rather than starting cold on "Skipped …".
+  if (restored.length || skipped.length) {
     sections.push(
       `Restored ${count(restored.length)} ${plural(restored.length, "file")} ` +
         `from '${set}' (snapshot ${snapshot}).`,
