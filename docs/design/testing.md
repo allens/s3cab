@@ -224,7 +224,14 @@ design-level:
   (R2 token → access key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence
   above — not the per-PR job.
 - **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`
-  (today's e2e only covers the always-run, no-S3 paths).
+  (today's e2e only covers the always-run, no-S3 paths). **Deliberately not built for the
+  human-first-output action confirmations** (backup/upload/restore/delete/cleanup renderers,
+  ADR-0043): the only untested bit was the *wiring* (dispatcher → the right renderer → stdout),
+  and `render` is now a **required, `tsc`-enforced** registry field — an unwired renderer won't
+  compile — so the compiler closes that gap. Their result-shaping is already covered by the
+  gated `remote`/`objects` round-trips and the offline renderer unit tests (`render.test.mjs`).
+  A live round-trip asserting human + `--json` stdout stays a low-to-moderate-value future
+  option, not a gap.
 
 ## Related
 

@@ -17,17 +17,17 @@ import { validateBucketName } from "../lib/sets.mjs";
 // plan text itself lives in src/lib/onboarding.mjs (pure, so it is unit-testable).
 
 /**
- * Print the steps to set up an S3 bucket as an s3cab backup destination.
+ * Build the steps to set up an S3 bucket as an s3cab backup destination.
  * Purely local/offline — it reads `process.env` for region/endpoint defaults
- * but calls no AWS API. All output goes to stdout (ADR-0010): the plan *is* the
- * result.
+ * but calls no AWS API. The plan *is* the result (ADR-0043): it returns the
+ * finished recipe as text; the dispatcher writes it to stdout (via `renderText`).
  *
  * @param {string} [name] - The bucket name to set up
  * @param {object} [options]
  * @param {string} [options.region] - The bucket's AWS region (defaults to $AWS_REGION / $AWS_DEFAULT_REGION / us-east-1)
  * @param {string} [options.profile] - An admin AWS profile to interpolate into the printed `aws` commands
  * @param {boolean} [options.sso] - Emit the AWS IAM Identity Center (SSO) recipe instead of the IAM-user one
- * @returns {undefined}
+ * @returns {string} The onboarding recipe, ready for the render layer.
  */
 export function aws(name, options = {}) {
   requireArg(name, "bucket");
@@ -55,6 +55,5 @@ export function aws(name, options = {}) {
       ? awsSsoPlan({ bucket: name, region, profile })
       : awsIamPlan({ bucket: name, region, profile });
 
-  process.stdout.write(plan + "\n");
-  return undefined;
+  return plan;
 }

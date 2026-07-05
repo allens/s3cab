@@ -192,11 +192,20 @@ export function usage(commands, commandName, style) {
       );
     }
 
+    // Global options — the flags the dispatcher answers for every command (and
+    // at the top level), so they get their own section rather than being buried
+    // in prose. Padded to 24 like the per-command Options table. `--json`
+    // (ADR-0043) turns any command's result into machine-readable JSON.
     lines.push(
       "",
-      "Run 's3cab <command> --help' for a command's options.",
+      heading("Global options:"),
+      "  --json".padEnd(24) +
+        "Print machine-readable JSON instead of text (shape may change)",
+      "  -v, --version".padEnd(24) + "Print the version and exit",
+      "  -h, --help".padEnd(24) +
+        "Show this help; 's3cab <command> --help' for a command",
+      "",
       `Run 's3cab help <topic>' for a guide (topics: ${Object.keys(helpTopics).join(", ")}).`,
-      "Run 's3cab --version' to print the version.",
       "Set the S3CAB_DEBUG environment variable for verbose debug output.",
       "",
       "Full documentation: https://github.com/allens/s3cab",

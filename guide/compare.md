@@ -14,60 +14,74 @@ extension may be included or left off. Naming a snapshot that doesn't exist is
 an error — a typo never silently becomes an empty snapshot (which would have
 read as "everything added" or "everything deleted").
 
-The report is printed as JSON. (`s3cab snapshot` prints the same report after
-taking a snapshot, showing what changed since the previous one.)
+The report is grouped into sections, one per kind of change, each headed with a
+count; empty sections are left out. A closing line totals every category and the
+bytes that changed. (`s3cab snapshot` prints the same report after taking a
+snapshot, showing what changed since the previous one.)
 
-```json
-{
-  "added": [
-    "2025\\new.jpg"
-  ],
-  "moved": [
-    "2024\\IMG_001.jpg →→ 2024\\sorted\\IMG_001.jpg"
-  ],
-  "modified": [
-    "diary.txt"
-  ],
-  "deleted": [
-    "old notes.txt"
-  ],
-  "errors": []
-}
+```console
+> s3cab compare photos --since 2026-11-11T0830
+photos: ~/Pictures  2026-11-11T0830 → 2026-11-12T0915
+
+Added (2)
+  2025/new.jpg
+  brand-logo.png  (duplicate of logo.png)
+
+Renamed (1)
+  notes.txt → diary.txt
+
+Moved (1)
+  2024/IMG_001.jpg → 2024/sorted/IMG_001.jpg
+
+Modified (1)
+  report.pdf
+
+Deleted (1)
+  old notes.txt
+
+2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 5.3 MB changed
 ```
 
-Paths are relative to the compared directory. (In JSON, a Windows `\` path
-separator is written doubled, as `\\`.)
+The header names the set and, after it, the common parent directory the listed
+paths are shortened against (`~` is your home directory). For the machine-readable
+form — the same report as a JSON structure with absolute paths — pass `--json`
+(see [output formats](output.md)).
 
-## The five categories
+A first snapshot has nothing to compare against, so instead of listing your whole
+tree as "added" it collapses to a one-line count: `First snapshot: 1,234 files
+(4.2 GB)`.
+
+## The sections
 
 Files are compared by their **content** (SHA-256 hash), never by timestamps —
 touching a file without changing it does not show up.
 
-| Category   | Meaning                                                  |
+| Section    | Meaning                                                  |
 | ---------- | -------------------------------------------------------- |
-| `added`    | a path that wasn't in the older snapshot                 |
-| `moved`    | content that left one path and reappeared at another     |
-| `modified` | the same path with different content                     |
-| `deleted`  | a path that is gone from the newer snapshot              |
-| `errors`   | a path the newer snapshot couldn't read (e.g. no access) |
+| `Added`    | a path that wasn't in the older snapshot                 |
+| `Renamed`  | content that moved to a new name in the same directory   |
+| `Moved`    | content that moved to a different directory              |
+| `Modified` | the same path with different content                     |
+| `Deleted`  | a path that is gone from the newer snapshot              |
+| `Errors`   | a path the newer snapshot couldn't read (e.g. no access) |
 
-### `==` notes on added files
+`Renamed` and `Moved` are the same underlying event — content that left one path
+and reappeared at another — split apart because they read differently to a
+person; both are shown as `old → new`.
 
-`new.txt == old.txt` means the new file's content is identical to what
-`old.txt` held in the *older* snapshot — a copy, not new data. When every file
+### `(duplicate of …)` notes on added files
+
+`brand-logo.png  (duplicate of logo.png)` means the added file's content is
+identical to a file that already existed — a copy, not new data. When every file
 that previously held that content was itself moved, the note points at the
 moved-to location instead, so a copy is never mistaken for brand-new content.
-
-### One arrow or two
-
-`a.txt → b.txt` is a rename within the same directory;
-`dir1/a.txt →→ dir2/a.txt` moved across directories.
 
 ## Why a "rotated" file shows as modified, not moved
 
 After `mv app.log app.log.1` plus a fresh `app.log` — or, more commonly,
 copying `report.docx` to `report backup.docx` and then editing the original —
-the report reads: `app.log` modified, `app.log.1` added `== app.log`.
+the report reads: `app.log` modified, and `app.log.1` added
+`(duplicate of app.log)`.
 
 From two snapshots alone, "copied then edited" and "renamed away then
 recreated" are indistinguishable. s3cab reports only what it can verify: the
@@ -80,19 +94,12 @@ same line.)
 
 A file the snapshot couldn't hash (for example, permission denied) is recorded
 in the snapshot file as an `#ERROR` row carrying the error message, and reported
-under the `errors` category. It is **not** mistaken for `deleted` — the file is
+under the `Errors` section. It is **not** mistaken for `Deleted` — the file is
 still on disk, just unreadable — nor dropped from the report. Each entry is the
-path followed by the reason in parentheses, `path (reason)`; the same reason is
-also kept in the snapshot file itself and printed in the snapshot run's output.
+path followed by the reason in parentheses; the same reason is also kept in the
+snapshot file itself and printed in the snapshot run's output.
 
-```json
-{
-  "added": [],
-  "moved": [],
-  "modified": [],
-  "deleted": [],
-  "errors": [
-    "secret\\vault.kdbx (EACCES: permission denied)"
-  ]
-}
+```console
+Errors (1)
+  secret/vault.kdbx  (EACCES: permission denied)
 ```

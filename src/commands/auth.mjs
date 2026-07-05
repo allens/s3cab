@@ -150,7 +150,7 @@ async function warnIfUnknownProfile(name) {
  * @param {object} [options]
  * @param {string} [options.profile] - The AWS profile name to set
  * @param {boolean} [options.unset] - Remove the configured profile
- * @returns {Promise<undefined>}
+ * @returns {Promise<string>} The status/confirmation text, for the render layer.
  */
 export async function auth(setName, options = {}) {
   const { profile, unset } = options;
@@ -166,14 +166,12 @@ export async function auth(setName, options = {}) {
     // machine — but unsetting a never-set profile is a harmless no-op, so only
     // the write paths below need the directory.
     removeEnvKey(scope.path, "AWS_PROFILE");
-    process.stdout.write(`Cleared the AWS profile for ${scope.phrase}.\n`);
-    return undefined;
+    return `Cleared the AWS profile for ${scope.phrase}.`;
   }
 
   // Get mode: no --profile (and not --unset) → report the current setting.
   if (profile === undefined) {
-    process.stdout.write((await describeScope(scope)) + "\n");
-    return undefined;
+    return describeScope(scope);
   }
 
   const name = profile.trim();
@@ -186,8 +184,5 @@ export async function auth(setName, options = {}) {
   // The user's ~/.s3cab may not exist yet on a fresh machine; a set's does.
   mkdirSync(dirname(scope.path), { recursive: true });
   updateEnvFile(scope.path, { AWS_PROFILE: name });
-  process.stdout.write(
-    `Set AWS profile '${name}' for ${scope.phrase} (${tildeify(scope.path)}).\n`,
-  );
-  return undefined;
+  return `Set AWS profile '${name}' for ${scope.phrase} (${tildeify(scope.path)}).`;
 }

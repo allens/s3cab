@@ -1,12 +1,13 @@
 # Human-first output; `--json` for machines; a central render layer
 
-**Status:** proposed (settled 2026-07-04 in a grilling session; not yet built).
+**Status:** accepted (settled 2026-07-04 in a grilling session); implemented 2026-07-05.
 **Inverts the stdout default of [0010](0010-cli-output-conventions.md)** — the
 `JSON.stringify`-everything default there is superseded by this ADR; that serializer now
-lives behind `--json`. The detailed build spec (the `CompareResult` shape, `verify`'s
-layout, the slice plan, per-command output) is
-[proposals/human-first-output.md](../../proposals/human-first-output.md); this ADR records
-only the decision and its *why*.
+lives behind `--json`. The build was sliced through `proposals/human-first-output.md`
+(the `CompareResult` shape, `verify`'s layout, the slice plan, per-command output), now
+deleted as done — the render layer lives in [src/render.mjs](../../src/render.mjs) and
+`--json` is documented in [guide/output.md](../../guide/output.md). This ADR records only
+the decision and its *why*.
 
 ## Context
 
@@ -67,9 +68,9 @@ yet, there is no frozen JSON contract to protect — so the inversion is free to
   diff"). The relative-path shortening moves *into* the renderer (a common-ancestor-of-`dirs`
   base), because path shortening is presentation; the domain data is the absolute path snapshots
   already store. Colours (green/cyan/yellow/red) land in `style.mjs`.
-- Migration is sliced with a **temporary** optional-`render` + JSON fallback that the final
-  slice deletes (flipping `render` to required). `verify`'s output becomes file-centric (list
-  the affected files, hash hidden), which depends on a pending correction to `verify`'s finding
-  model (`proposals/engine-robustness.md`) landing first — see the slice plan in the proposal.
-- Two docs follow when this builds: [guide/](../../guide/) documents `--json`; this ADR's
-  `Status` flips to `accepted … implemented`.
+- Migration ran through a **temporary** optional-`render` + JSON fallback that the final
+  slice deleted (flipping `render` to required, `tsc`-enforced). `verify`'s output became
+  file-centric (list the affected files, hash hidden), built on the corrected `verify` finding
+  model (`proposals/engine-robustness.md`) that landed first.
+- The two follow-on docs are done: [guide/output.md](../../guide/output.md) documents `--json`,
+  and this ADR's `Status` is now `accepted … implemented`.

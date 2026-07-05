@@ -311,6 +311,14 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `throw new Error`. Foreign SDK/Node errors we can't subclass are matched by `code`/`name`
   instead. A subclass nobody catches by type is unused identity, against convention #7 — don't
   reach for one until a catch site actually reads it.
+- **A command whose result already _is_ its final output text returns that string and points
+  `render` at the shared `renderText` passthrough — don't invent structured data or a bespoke
+  renderer for output that is inherently prose** (a recipe, a confirmation/status line). The
+  identity renderer is the honest degenerate case of the render layer
+  ([ADR-0043](docs/adr/0043-human-first-output.md)); with `render` now required, forcing a
+  structured `--json` shape onto prose just to satisfy the pattern is the over-engineering #7
+  forbids. (Worked example: `aws`'s onboarding recipe and `auth`'s status/confirmation lines,
+  in [src/commands/aws.mjs](src/commands/aws.mjs) / [src/commands/auth.mjs](src/commands/auth.mjs).)
 
 ---
 
