@@ -382,15 +382,19 @@ export async function uploadSnapshot({
     const { entries: baseline } = await readSnapshot(snapshotDir, since);
     candidates = uploadCandidates(target, baseline);
   } else {
-    // First backup — no local baseline. LIST the store once and diff against
-    // what's already there. Announce it: a large store can take a moment.
+    // First backup — no local baseline. LIST the store once and remove any
+    // already-stored hash from the target's. Seeding from the target (bounded by
+    // this snapshot) and deleting as we scan keeps peak memory scaled to the
+    // snapshot, not the whole (possibly huge) bucket. Announce it: a large store
+    // can take a moment.
     console.warn("Scanning existing objects…");
-    /** @type {Set<string>} */
-    const stored = new Set();
-    for await (const hash of listObjectHashes(bucket)) {
-      stored.add(hash);
+    candidates = new Set();
+    for (const { hash } of target.values()) {
+      candidates.add(hash);
     }
-    candidates = candidatesNotIn(target, stored);
+    for await (const hash of listObjectHashes(bucket)) {
+      candidates.delete(hash);
+    }
   }
 
   // A local path for each candidate hash (first path wins; identical content

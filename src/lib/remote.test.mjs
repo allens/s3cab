@@ -340,7 +340,7 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
       for (const name of [first, second]) {
         await deleteObject(
           `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
-        ).catch(() => {});
+        );
       }
     }
   });
