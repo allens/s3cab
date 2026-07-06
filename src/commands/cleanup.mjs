@@ -1,10 +1,6 @@
 import { requireArg } from "../lib/error.mjs";
 import { formatByteValue } from "../lib/format.mjs";
-import {
-  deleteStoredObject,
-  listStoredObjects,
-  writeObjectsCache,
-} from "../lib/objects.mjs";
+import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
@@ -40,10 +36,9 @@ const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * (the repository is already losing data; don't compound it). The **7-day grace
  * window** protects objects too young to be sure aren't an in-flight backup's.
  *
- * `--delete` **rewrites this machine's objects cache** from `stored − deleted`
- * (the ground truth is already in memory), and warns that **other machines**
- * should run `verify` before their next backup and that cleanup must not run
- * while a backup is (a documented, accepted race — see the design).
+ * `--delete` warns that cleanup must not run while a backup is (a documented,
+ * accepted race — see the design). It reclaims only orphans (`stored −
+ * referenced` across every set), so a valid snapshot's objects are never touched.
  *
  * @typedef {Object} CleanupResult
  * @property {string} bucket - The repository bucket cleaned up
@@ -207,22 +202,9 @@ export async function cleanup(bucket, options = {}) {
     await deleteStoredObject(bucket, hash);
   }
 
-  // Rewrite THIS machine's cache from stored − deleted — the ground truth is in
-  // memory, so no re-LIST. (A cached-but-absent entry is the one fault that makes
-  // a later backup skip a needed upload, so the cache must shrink with the store.)
-  const deleted = new Set(orphanHashes);
-  await writeObjectsCache(
-    bucket,
-    [...stored.keys()].filter((hash) => !deleted.has(hash)),
-  );
-
   // What was reclaimed is the result (→ renderCleanup on stdout); stderr keeps the
-  // cross-machine guidance the counts can't convey.
-  console.warn(
-    `Other machines backing up to this bucket should run 's3cab verify ${bucket}' ` +
-      `before their next backup (their local caches may now be stale).\n` +
-      `Don't run cleanup while a backup is running.`,
-  );
+  // one race the counts can't convey (docs/design/backup.md).
+  console.warn("Don't run cleanup while a backup is running.");
 
   report.deleted = orphanHashes.length;
   return report;

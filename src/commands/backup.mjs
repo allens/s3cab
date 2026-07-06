@@ -11,9 +11,11 @@ import { snapshot } from "./snapshot.mjs";
  * snapshot already carries every hash) and never walks the filesystem.
  *
  * Every set is bound to a bucket at setup (ADR-0026), so `backup` just reads it
- * off the resolved set. `--skip-cache` bypasses the per-bucket objects cache
- * (re-checking the cloud via the conditional PUT instead) for when its sync is
- * in doubt.
+ * off the resolved set. As the porcelain, `backup` resolves the change-detection
+ * baseline and hands it to the plumbing uploader: the set's **previous local
+ * snapshot** (single-owner model — the local history is authoritative), or, on a
+ * first backup with no previous snapshot, nothing — the uploader then LISTs the
+ * store. The conditional PUT backstops either way (docs/design/backup.md).
  *
  * @typedef {Object} BackupResult
  * @property {string} set - The set backed up
@@ -22,7 +24,7 @@ import { snapshot } from "./snapshot.mjs";
  * @property {number} uploaded - Those actually transferred (the rest were already in the store)
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
- * @param {{ snapshot?: string, "skip-cache"?: boolean, debug?: boolean }} [options]
+ * @param {{ snapshot?: string, debug?: boolean }} [options]
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
@@ -44,12 +46,17 @@ export async function backup(setName, options = {}) {
     }
   }
 
+  // The change-detection baseline: the immediately-preceding local snapshot
+  // (names are timestamps and sorted newest-first, so the first name below the
+  // target is its predecessor). Undefined on a first backup → the uploader LISTs.
+  const since = listSnapshotNames(snapshotDir).find((n) => n < name);
+
   const { candidates, uploaded } = await uploadSnapshot({
     bucket: set.bucket,
     set: set.name,
     snapshotDir,
     name,
-    skipCache: options["skip-cache"],
+    since,
   });
 
   return { set: set.name, snapshot: name, candidates, uploaded };

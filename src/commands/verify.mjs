@@ -1,5 +1,5 @@
 import { requireArg } from "../lib/error.mjs";
-import { listStoredObjects, writeObjectsCache } from "../lib/objects.mjs";
+import { listStoredObjects } from "../lib/objects.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
 import { setHasFindings, verifySet } from "../lib/verify.mjs";
 
@@ -28,11 +28,10 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * snapshots before the LIST** (the ordering invariant): a backup landing mid-run
  * then only bumps the orphan count, never fakes a missing object.
  *
- * **One local side effect:** verify rewrites this machine's per-bucket objects
- * cache from the completed LIST (`writeObjectsCache`) — authoritative ground truth
- * it already paid for, which warms the next backup and heals a poisoned cache. It
- * never writes to the bucket. **Exit 1** when any set has findings (via
- * `process.exitCode`, so the report still prints); a clean run returns 0.
+ * **No side effects — read-only:** verify runs on List+Get credentials alone; it
+ * never writes to the bucket and keeps no local state. **Exit 1** when any set
+ * has findings (via `process.exitCode`, so the report still prints); a clean run
+ * returns 0.
  *
  * **Orphans are not verify's concern.** Objects no snapshot references
  * (`stored − referenced`) are a *reclamation* matter, never an integrity one —
@@ -55,8 +54,8 @@ export async function verify(bucket) {
   // fakes a missing one.
   const referencedBySet = await referencedObjects(bucket);
 
-  // One bucket-wide LIST → stored hash → size, the complete hash set feeding both
-  // the per-set diff and the cache rewrite.
+  // One bucket-wide LIST → stored hash → size, the complete hash set feeding the
+  // per-set diff.
   /** @type {Map<string, number>} */
   const stored = new Map();
   for await (const { hash, size } of listStoredObjects(bucket)) {
@@ -66,9 +65,6 @@ export async function verify(bucket) {
   const reports = [...referencedBySet]
     .map(([set, referenced]) => verifySet(set, referenced, stored))
     .sort((a, b) => a.set.localeCompare(b.set));
-
-  // Heal/warm this machine's per-bucket cache from the completed LIST above.
-  await writeObjectsCache(bucket, stored.keys());
 
   // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than
   // throw, so the report still prints to stdout (the entry point renders a

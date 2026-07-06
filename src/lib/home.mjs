@@ -2,9 +2,8 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 /**
- * The directory where s3cab keeps all its local state — sets, snapshots, env
- * files, and the per-bucket objects cache. Defaults to `~/.s3cab`, but an explicit
- * **`S3CAB_HOME`** overrides it.
+ * The directory where s3cab keeps all its local state — sets, snapshots, and env
+ * files. Defaults to `~/.s3cab`, but an explicit **`S3CAB_HOME`** overrides it.
  *
  * The override exists so a process can relocate s3cab's home *without* moving the
  * whole OS `HOME`. That matters most for tests: the integration suites need to

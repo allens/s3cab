@@ -3,7 +3,7 @@ import { mkdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
-import { knownObjects, putObject, recordObjects } from "./objects.mjs";
+import { listObjectHashes, putObject } from "./objects.mjs";
 import {
   createS3ReadStream,
   deleteObject,
@@ -65,7 +65,7 @@ export async function listRemoteSnapshots(bucket, set) {
  * remote half of the `delete` retention primitive (docs/design/backup.md). It
  * removes **only** the snapshot object; the content it referenced stays under
  * `objects/` (reclaiming what nothing references any more is `cleanup`'s job), so
- * this never touches `objects/` and the objects cache stays true. Composes the
+ * this never touches `objects/`. Composes the
  * generic `deleteObject` over this module's key layout, so callers never spell
  * the key. On a versioned bucket `DeleteObject` writes a delete marker (soft
  * delete) rather than destroying history — the ransomware-safety model (ADR-0033).
@@ -80,16 +80,17 @@ export async function deleteRemoteSnapshot(bucket, set, name) {
 }
 
 /**
- * Read a set's latest remote snapshot into a lookup for diffing — where the
- * `backup`/`status` upload diff starts (docs/design/backup.md "How `backup` computes
- * the upload set", step 1). Lists the set's remote snapshots, reads the newest,
- * and returns its entries; a set with no remote snapshot yet (before its first
- * backup) yields an **empty lookup**, so every target hash becomes a candidate.
+ * Read a set's latest remote snapshot into a lookup for diffing — where
+ * `status`'s "what would a backup upload" diff starts (docs/design/backup.md).
+ * Lists the set's remote snapshots, reads the newest, and returns its entries; a
+ * set with no remote snapshot yet (before its first backup) yields an **empty
+ * lookup**, so every target hash becomes a candidate.
  *
  * Returns just the lookup the diff needs, not the whole `Snapshot`: the
- * empty-when-none rule and the `.entries` extraction then live here once instead
- * of being re-coded by each caller (`backup` and `status`, which must agree).
- * `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
+ * empty-when-none rule and the `.entries` extraction live here once. `status`
+ * uses it for its read-only remote comparison; `backup` itself diffs against the
+ * **local** previous snapshot (single-owner model — see `uploadSnapshot`), not
+ * this. `restore`, which also needs the `#DIR` headers, calls `readRemoteSnapshot`
  * directly.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
@@ -293,26 +294,17 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
 }
 
 /**
- * The object hashes a backup would need to upload: those whose content
- * (SHA-256) is in the target snapshot but not in the latest already-backed-up
- * one. The pure set-difference the upload set starts from (docs/design/backup.md,
- * "How `backup` computes the upload set", step 2) — keyed on content, so a file
- * that merely moved or was renamed since the last backup is *not* re-uploaded
- * (design #1), and a hash under several paths counts once. For a set's first
- * backup, `remote` is empty and every hash is a candidate. The objects cache
- * and the conditional-PUT safety net (steps 3–4) narrow this further; this is
- * the diff alone.
+ * Target hashes not present in a `have` set — the content-keyed set-difference
+ * both upload-set baselines reduce to. `have` is a baseline snapshot's hashes
+ * (`uploadCandidates`, the everyday diff) or the object store's stored hashes (a
+ * first backup's on-demand LIST, `uploadSnapshot`). Keyed on content, so a file
+ * that merely moved or was renamed is *not* re-uploaded (design #1), and a hash
+ * under several paths counts once. Module-private: the two callers below.
  * @param {SnapshotEntries} target - The snapshot being backed up
- * @param {SnapshotEntries} remote - The latest remote snapshot (empty for a first backup)
+ * @param {Set<string>} have - Hashes already present (so skip)
  * @returns {Set<string>} Candidate object hashes to upload
  */
-export function uploadCandidates(target, remote) {
-  /** @type {Set<string>} */
-  const have = new Set();
-  for (const { hash } of remote.values()) {
-    have.add(hash);
-  }
-
+function candidatesNotIn(target, have) {
   /** @type {Set<string>} */
   const candidates = new Set();
   for (const { hash } of target.values()) {
@@ -324,6 +316,27 @@ export function uploadCandidates(target, remote) {
 }
 
 /**
+ * The object hashes a backup would need to upload: those whose content
+ * (SHA-256) is in the target snapshot but not in the `baseline` one — the pure
+ * set-difference the upload set starts from (docs/design/backup.md). The baseline
+ * is the local previous snapshot for `backup`, or the latest remote snapshot for
+ * `status`'s read-only estimate; for a first backup `baseline` is empty and every
+ * hash is a candidate. The conditional-PUT safety net narrows this further at
+ * write time; this is the diff alone.
+ * @param {SnapshotEntries} target - The snapshot being backed up
+ * @param {SnapshotEntries} baseline - The snapshot to diff against (empty for a first backup)
+ * @returns {Set<string>} Candidate object hashes to upload
+ */
+export function uploadCandidates(target, baseline) {
+  /** @type {Set<string>} */
+  const have = new Set();
+  for (const { hash } of baseline.values()) {
+    have.add(hash);
+  }
+  return candidatesNotIn(target, have);
+}
+
+/**
  * Upload a local snapshot to the bucket: every object it references that isn't
  * already stored, then the snapshot **last** — the objects-first/snapshot-last
  * invariant that makes a snapshot's mere presence proof its objects exist
@@ -331,19 +344,23 @@ export function uploadCandidates(target, remote) {
  * snapshot; it never hashes (the snapshot already carries every hash) and never
  * walks the filesystem.
  *
- * The upload set is `uploadCandidates` (target − the latest remote snapshot)
- * minus the per-bucket objects cache (unless `skipCache`), with the conditional
- * PUT (`noClobber`) as the safety net for anything the cache and latest
- * snapshot both missed — it silently no-ops objects already present. The
- * snapshot is uploaded no-clobber too, but here a name that already exists
- * remotely is an **error**, never an overwrite (snapshots are immutable,
- * docs/design/backup.md).
+ * The upload set is the target's hashes minus a **baseline** (docs/design/backup.md):
+ * with `since`, the set's previous **local** snapshot — the single-owner model
+ * makes local history authoritative, and its objects were stored when it was, so
+ * they can be skipped with no network read. With no `since` (a first backup),
+ * there is no local baseline, so the object store is **LISTed once** and the
+ * target diffed against what is already there. Either way the conditional PUT
+ * (`noClobber`) is the correctness backstop — it silently no-ops any object the
+ * baseline missed, so correctness never rides on the baseline. The snapshot is
+ * uploaded no-clobber too, but here a name that already exists remotely is an
+ * **error**, never an overwrite (snapshots are immutable, docs/design/backup.md).
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
  * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
- * @param {boolean} [args.skipCache] - Skip the objects-cache lookup (still conditional-PUTs every candidate)
+ * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
+ *   name); omit for a first backup, which LISTs the store instead
  * @returns {Promise<{ name: string, candidates: number, uploaded: number }>}
  *   `candidates` = objects considered for upload; `uploaded` = those actually
  *   transferred (the rest were no-ops the conditional PUT found already present).
@@ -353,16 +370,27 @@ export async function uploadSnapshot({
   set,
   snapshotDir,
   name,
-  skipCache = false,
+  since,
 }) {
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
-  const { lookup: remote } = await readLatestRemoteSnapshot(bucket, set);
-
-  let candidates = uploadCandidates(target, remote);
-  if (!skipCache) {
-    const cached = knownObjects(bucket);
-    candidates = new Set([...candidates].filter((hash) => !cached.has(hash)));
+  /** @type {Set<string>} */
+  let candidates;
+  if (since) {
+    // Diff against the previous local snapshot: its objects are already stored
+    // (uploaded when it was), so skip them. No network read.
+    const { entries: baseline } = await readSnapshot(snapshotDir, since);
+    candidates = uploadCandidates(target, baseline);
+  } else {
+    // First backup — no local baseline. LIST the store once and diff against
+    // what's already there. Announce it: a large store can take a moment.
+    console.warn("Scanning existing objects…");
+    /** @type {Set<string>} */
+    const stored = new Set();
+    for await (const hash of listObjectHashes(bucket)) {
+      stored.add(hash);
+    }
+    candidates = candidatesNotIn(target, stored);
   }
 
   // A local path for each candidate hash (first path wins; identical content
@@ -376,8 +404,6 @@ export async function uploadSnapshot({
   }
 
   let uploaded = 0;
-  /** @type {string[]} */
-  const present = [];
   for (const hash of candidates) {
     const path = pathByHash.get(hash);
     if (!path) {
@@ -387,13 +413,7 @@ export async function uploadSnapshot({
     if (didUpload) {
       uploaded++;
     }
-    present.push(hash); // exists now (uploaded, or the PUT found it) → cache it
   }
-  // Record every object now known present so a later backup skips it. Done
-  // before the snapshot: even if the snapshot PUT then fails, the cache stays
-  // correct (its entries really do exist) — the staleness asymmetry only
-  // forbids the reverse (cached but absent).
-  recordObjects(bucket, present);
 
   // The snapshot, last. No-clobber, and a duplicate remote name is an error.
   const snapshotKey = `${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
