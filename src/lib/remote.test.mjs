@@ -145,7 +145,7 @@ describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
     assert.equal(pulled, 0);
   });
 
-  it("pulls each manifest down byte-identically (the adoption sync, ADR-0027)", async () => {
+  it("pulls each snapshot file down byte-identically (the adoption sync, ADR-0027)", async () => {
     await using dir = await mkTmpDir();
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const set = `dl-${Date.now()}`;

@@ -249,12 +249,12 @@ async function readSetReferenced(bucket, set, names) {
 }
 
 /**
- * Pull a set's remote snapshot manifests down into `snapshotDir` — the
+ * Pull a set's remote snapshot files down into `snapshotDir` — the
  * adoption-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
  * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
  * file (atomic temp + rename, like `getObject`), touching **no** `objects/`. A
- * remote manifest is byte-identical to its local form
+ * remote snapshot file is byte-identical to its local form
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
  * correct and avoids needless decompress-then-recompress.
  *
@@ -262,12 +262,12 @@ async function readSetReferenced(bucket, set, names) {
  * calls it so a fresh machine lands with full local history, instead of growing a
  * remote-reading variant of every browse command (ADR-0027). It streams
  * (bounded memory) and writes each file atomically, so a mid-pull failure leaves
- * no partial manifest behind — only fewer of them, in a fresh set the user can
+ * no partial snapshot file behind — only fewer of them, in a fresh set the user can
  * delete and re-inherit.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} snapshotDir - The set's local snapshots dir to write into
- * @returns {Promise<number>} How many manifests were pulled
+ * @returns {Promise<number>} How many snapshot files were pulled
  */
 export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   const names = await listRemoteSnapshots(bucket, set);

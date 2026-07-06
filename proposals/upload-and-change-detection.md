@@ -11,12 +11,16 @@ This came out of revisiting the stale `--if-modified-from` TODO in
 ("load-bearing for `backup`") was false — `backup` shipped as `snapshot()` + `uploadSnapshot()`
 and never routes through `upload`. Pulling that thread led to the reshape below.
 
-> **Progress (2026-07-06):** **Slice 1 — the change-detection simplification — is built**
-> (behind the existing `backup`, no command-surface change): the objects cache is dropped, the
-> baseline is the local previous snapshot with an on-demand `LIST` fallback, and `verify`/`cleanup`
-> lost their cache duties. Recorded as [ADR-0045](../docs/adr/0045-change-detection-local-baseline-list-fallback.md).
-> **Still open:** the command-surface slices ([ADR-0044](../docs/adr/0044-upload-unified-command-surface.md))
-> — unify `upload` (`--file`/`--snapshot`/`--since`), recompose `backup`, retire `backup --snapshot`.
+> **Progress (2026-07-06):** **both slices built.** **Slice 1 — the change-detection
+> simplification** ([ADR-0045](../docs/adr/0045-change-detection-local-baseline-list-fallback.md)):
+> the objects cache is dropped, the baseline is the local previous snapshot with an on-demand
+> `LIST` fallback, and `verify`/`cleanup` lost their cache duties. **Slice 2 — the command-surface
+> reshape** ([ADR-0044](../docs/adr/0044-upload-unified-command-surface.md)): `upload` is unified
+> and set-scoped (`--file`/`--snapshot`/`--since`/`--bucket`), `backup` = `snapshot()` + `upload()`,
+> and `backup --snapshot` retired. **Remaining are deferrals only** (see Open points): the
+> snapshot-file opt-out flag (#7, defer) and per-provider verification of conditional-write-on-multipart
+> off AWS. Once those are dispositioned this file can be deleted (its multipart findings are worth
+> preserving somewhere first).
 
 > **Provenance note (per the global "stick to the user's words" rule):** the brief below is
 > the user's design. Lines tagged **_[CN]_** ("Claude's note") are my framing/suggestions, not
@@ -203,7 +207,7 @@ Sources: [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/use
 
 - **Manifest opt-out flag** — needed now? (defer, #7). Name if so.
 - **Off-AWS conditional-write-on-multipart** — verify before relying on the backstop there.
-- **`cli-design` pass** on the whole `upload`/`backup` surface before coding.
-- **Slice ordering** — broken into PRs. **Slice 1 (drop cache → local baseline + LIST) is
-  landed** (ADR-0045); remaining: unify `upload` → recompose `backup` / retire `--snapshot`
-  (ADR-0044). Pre-1.0, so bold refactor is fine (#7 / version gate).
+- **`cli-design` pass** on the whole `upload`/`backup` surface before coding. **Done** (ADR-0044).
+- **Slice ordering** — both slices landed. Slice 1 (drop cache → local baseline + LIST, ADR-0045)
+  then slice 2 (unify `upload` → recompose `backup` / retire `--snapshot`, ADR-0044). Nothing
+  further in this epic beyond the two deferrals above.

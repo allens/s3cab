@@ -165,10 +165,10 @@ describe("cleanup command", () => {
     }
   });
 
-  it("flags a hash damaged when any of its paths disagrees on size (torn manifest)", async () => {
+  it("flags a hash damaged when any of its paths disagrees on size (torn snapshot file)", async () => {
     // One hash under two paths recorded at different sizes; stored matches only
     // the first path. cleanup must still flag it — it checks every path's size,
-    // not just the first (or a torn manifest's wrong size would go unwarned).
+    // not just the first (or a torn snapshot file's wrong size would go unwarned).
     referencedBySet.set("photos", {
       referenced: new Map([
         [
@@ -196,7 +196,7 @@ describe("cleanup command", () => {
       assert.equal(result.missingObjects, 0);
       assert.ok(
         warnings.some((w) => /wrong size/.test(w)),
-        "warns about the torn-manifest hash",
+        "warns about the torn-snapshot-file hash",
       );
     } finally {
       warn.mock.restore();

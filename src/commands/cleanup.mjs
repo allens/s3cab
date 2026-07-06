@@ -93,7 +93,7 @@ export async function cleanup(bucket, options = {}) {
   // missing/damaged that several files or sets reference is one lost object, so
   // it must count once or the reported number lies. Missing = a referenced hash
   // absent from the store (the broken invariant); damaged = stored, but *any*
-  // recorded path size disagrees with the stored LIST size (a torn manifest can
+  // recorded path size disagrees with the stored LIST size (a torn snapshot file can
   // record different sizes across paths/snapshots — `verify` has the per-file
   // detail).
   /** @type {Set<string>} */

@@ -13,7 +13,7 @@ import {
 /**
  * Build a ReferencedResult from a compact spec: each hash maps to its list of
  * referencing paths `{ path, size, snapshots }`. `size` may be an array to record
- * a single path at several sizes (a torn manifest).
+ * a single path at several sizes (a torn snapshot file).
  * @param {Record<string, { path: string, size: number | number[], snapshots: string[] }[]>} spec
  * @param {{ snapshotsChecked?: number, unreadable?: { snapshot: string, reason: string }[] }} [meta]
  */
@@ -113,7 +113,7 @@ describe("verifySet", () => {
 
   it("attributes a size conflict to the exact file that disagrees with storage", () => {
     // Same content under two paths, recorded at different sizes — a torn
-    // manifest (the old "conflicting rows" case). The stored object has one real
+    // snapshot file (the old "conflicting rows" case). The stored object has one real
     // size; only the file whose recorded size differs is a wrong-size problem.
     const referenced = ref({
       aaa: [
@@ -156,7 +156,7 @@ describe("verifySet", () => {
 
   it("flags a torn same-path size — one path recorded at two sizes — against storage", () => {
     // The same path recorded at two sizes across snapshots (content fixes size,
-    // so this is a torn manifest). Only the recorded size that disagrees with the
+    // so this is a torn snapshot file). Only the recorded size that disagrees with the
     // one stored object is a problem; the matching one is not.
     const referenced = ref({
       aaa: [{ path: "/a.txt", size: [10, 20], snapshots: ["s1", "s2"] }],

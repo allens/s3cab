@@ -12,7 +12,7 @@ import { loadSet } from "../lib/env.mjs";
  * local snapshots are a superset of remote ones, so any two remote snapshots
  * already exist locally and a remote diff could only reproduce a local one. A
  * fresh machine gets full history because `sets --inherit` pulls the set's
- * remote manifests down.
+ * remote snapshot files down.
  * @param {string} [setName] - Backup set whose snapshots to compare (default: the only set)
  * @param {object} [options]
  * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)

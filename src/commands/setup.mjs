@@ -292,7 +292,7 @@ async function inherit(name, directories, creating, options) {
     writeSetExclude(name, exclude);
   }
 
-  // Pull the set's snapshot manifests down so the new machine lands with full
+  // Pull the set's snapshot files down so the new machine lands with full
   // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
   console.warn(`Inheriting '${name}' from bucket '${bucket}'…`);
   const pulled = await downloadRemoteSnapshots(bucket, name, set.snapshotsDir);

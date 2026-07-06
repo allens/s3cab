@@ -221,7 +221,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   porcelain/plumbing/`lib` layering: if anything else — a sibling command *or* a test — needs
   something from a command file that isn't the command, that thing is a `lib/` primitive that
   hasn't moved yet, so extract it to `lib/`. Porcelain still *composes* a plumbing command
-  through that one export (`backup` calls `snapshot()`; `upload` and `snapshot` call `prop()`);
+  through that one export (`backup` calls `snapshot()` and `upload()`; `upload` and `snapshot` call `prop()`);
   what the rule bans is reaching past the command for a co-resident helper. A symbol used only
   inside its own command file just stops being `export`ed (it doesn't move to `lib/` without a
   second caller — #7); cross-module types travel by `@typedef`/`@import`, not `export`. Enforced
@@ -450,14 +450,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   split** — the design wants everyday backup creds to *lack* delete rights (cleanup runs
   elevated), but `bucketPolicy` in [src/lib/s3.mjs](src/lib/s3.mjs) currently grants
   `s3:DeleteObject` to the everyday identity (soft-delete only, ADR-0033), which is also what
-  lets `delete` run under per-set creds; reconcile via the `aws` policy helper. Separately, `upload`
-  still owes its **`--if-modified-from <snapshot>` skip** — the snapshot-aware "only upload what changed"
-  *hashing* optimization (snapshot-time machinery via `prop`'s `lookup`, distinct from
-  `backup`'s upload-set diff; see the TODO in
-  [src/commands/upload.mjs](src/commands/upload.mjs); load-bearing, don't lose it). A
-  `node:sqlite`-backed cache was spiked for this and **rejected** — the in-memory `Map` wins;
-  see [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs). `compare` is
-  local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)); `setup
+  lets `delete` run under per-set creds; reconcile via the `aws` policy helper. (The
+  `upload`/change-detection reshape the old `--if-modified-from` TODO belonged to is **done** —
+  ADR-0044/0045: `upload` is unified and set-scoped, `backup` = `snapshot()` + `upload()` with a
+  `--since` baseline, and `backup --snapshot` retired; the "load-bearing for backup" premise was
+  wrong. A `node:sqlite` hash cache was spiked for it and **rejected** — the in-memory `Map`
+  wins; see [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs).) `compare`
+  is local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)); `setup
   --inherit` instead pulls a set's remote manifests down so a fresh machine's
   `compare`/`list`/`restore` work on full history.
 - **Local-config/remote-structure model** (ADR-0024/0025/0026, fully landed; detail in

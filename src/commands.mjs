@@ -334,14 +334,6 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     args: {
       set: { description: "The backup set to back up (default: the only set)" },
     },
-    options: {
-      snapshot: {
-        type: "string",
-        short: "s",
-        description:
-          "Back up this existing snapshot instead of taking a new one",
-      },
-    },
     exec: (options, [set] = []) => backup(set, options),
     render: renderBackup,
   },
@@ -444,22 +436,48 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     render: renderLines,
   },
   upload: {
-    summary: "Upload a single file to a repository's object store",
+    summary: "Upload a file or a snapshot's objects to a set's store",
+    examples: [
+      "s3cab upload photos --file C:\\Users\\me\\big.iso",
+      "s3cab upload photos --snapshot 2026-06-12T0915",
+      "s3cab upload --bucket my-backups --file big.iso",
+    ],
     args: {
-      bucket: {
-        required: true,
-        description: "The repository's S3 bucket name",
+      set: {
+        description:
+          "The backup set to upload into (supplies the bucket; required unless --bucket)",
       },
-      file: { required: true, description: "The file to upload" },
     },
     options: {
+      file: {
+        type: "string",
+        description: "Upload this single file as one object",
+      },
+      snapshot: {
+        type: "string",
+        short: "s",
+        description:
+          "Upload every object this snapshot references, then its snapshot file",
+      },
+      since: {
+        type: "string",
+        description:
+          "Skip objects already in this baseline snapshot (snapshot mode; default: scan the store)",
+      },
+      bucket: {
+        type: "string",
+        short: "b",
+        description:
+          "Upload a --file straight into this bucket, with no set (ambient credentials)",
+      },
       force: {
         type: "boolean",
         short: "f",
-        description: "Re-upload even if the object already exists",
+        description:
+          "Re-upload even if the object already exists (--file only)",
       },
     },
-    exec: (options, [bucket, file] = []) => upload(bucket, file, options),
+    exec: (options, [set] = []) => upload(set, options),
     render: renderUpload,
   },
   tree: {

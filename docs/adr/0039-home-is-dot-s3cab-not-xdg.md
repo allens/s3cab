@@ -9,7 +9,7 @@ pins the choice so it isn't re-litigated.
 clig.dev recommends the XDG base-directory spec for per-user paths (`~/.config/<tool>` for
 config, `~/.local/share/<tool>` for data); Windows' native convention is
 `%APPDATA%`/`%LOCALAPPDATA%`. s3cab instead keeps *everything* — env files, sets, snapshot
-manifests, the objects cache — under one `~/.s3cab` directory, identical on every OS.
+files, the objects cache — under one `~/.s3cab` directory, identical on every OS.
 
 ## Decision
 
