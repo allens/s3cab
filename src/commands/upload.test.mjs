@@ -90,6 +90,16 @@ describe("upload validation", () => {
     assert.deepEqual(loadSetCalls, []); // never even resolves a set
   });
 
+  it("rejects --file and --snapshot together (mutually exclusive modes)", async () => {
+    await assert.rejects(
+      upload("photos", { file: "f", snapshot: "2026-01-01T0900" }),
+      /Pass either --file or --snapshot, not both/,
+    );
+    // The conflict is caught before either mode runs.
+    assert.deepEqual(putObjectCalls, []);
+    assert.deepEqual(uploadSnapshotCalls, []);
+  });
+
   it("rejects --bucket without --file", async () => {
     await assert.rejects(
       upload(undefined, { bucket: "b", snapshot: "2026-01-01T0900" }),

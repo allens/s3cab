@@ -74,6 +74,14 @@ export async function upload(setName, options = {}) {
       argName: "set",
     });
   }
+  if (file && snapshotName) {
+    // The two modes are mutually exclusive (ADR-0044 §2). Without this, `if
+    // (file)` below would win and silently ignore `--snapshot`/`--since` —
+    // uploading the wrong thing rather than failing fast.
+    throw new ParseArgsError(
+      "Pass either --file or --snapshot, not both — they are different upload modes.",
+    );
+  }
   if (bucket && !file) {
     throw new ParseArgsError(
       "--bucket uploads a single file into a raw bucket — add --file <path>.",
