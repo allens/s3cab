@@ -5,7 +5,8 @@ implemented** — the build is sliced in
 [proposals/upload-and-change-detection.md](../../proposals/upload-and-change-detection.md).
 This ADR records only the *command-surface* decision and its *why*; the companion
 **change-detection** decision (drop the persistent objects cache; local-snapshot baseline +
-on-demand `LIST` + conditional-PUT backstop) will get its own ADR when that engine slice lands.
+on-demand `LIST` + conditional-PUT backstop) is [ADR-0045](0045-change-detection-local-baseline-list-fallback.md),
+whose engine slice is **built** ahead of this command-surface reshape.
 Sits in the [0035](0035-aws-profile-sets-command-rationalization.md)/[0036](0036-setup-mutates-list-shows-drop-sets.md)
 command-shape lineage; governed by the `cli-design` skill.
 
@@ -55,7 +56,7 @@ predictable**; porcelain is allowed to be **smart**.
    `backup`): `--since <snapshot>` gives the diff baseline; with no `--since`, snapshot mode does
    an on-demand objects `LIST`. Deterministic rule, not state-dependent "auto." Single-file mode
    does neither (a whole-store `LIST` to check one object is absurd). Engine detail →
-   the companion ADR.
+   [ADR-0045](0045-change-detection-local-baseline-list-fallback.md).
 
 5. **`--force` is single-file-only.** Valid with `--file` (overwrite an object — the repair hatch
    for a corrupt/truncated remote object, since s3cab trusts the hash on write and verifies only
@@ -83,5 +84,6 @@ predictable**; porcelain is allowed to be **smart**.
   `backup` merely composes.
 - `--snapshot` as a *target* selector on `upload` does not clash with the retired `backup
   --snapshot` (different command) and is an easy muscle-memory migration.
-- Removing the objects cache (companion ADR) also removes `--skip-cache`, which only ever existed
-  because it was once `--force` and clashed with `upload --force` — a surface simplification.
+- Removing the objects cache ([ADR-0045](0045-change-detection-local-baseline-list-fallback.md))
+  also removes `--skip-cache`, which only ever existed because it was once `--force` and
+  clashed with `upload --force` — a surface simplification.
