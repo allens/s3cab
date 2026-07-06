@@ -253,12 +253,18 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `prettier --check .`, so hand-written edits that aren't Prettier-formatted fail CI every time
   (a recurring trip-up). Run `npm run format` to fix, then re-check. (Same spirit as keeping
   `typecheck` clean — the pre-commit gate is format + lint + typecheck + test, mirroring CI.)
-- **Test layout convention:** unit tests are **co-located** with their source as
-  `*.test.mjs`; [test/](test/) holds cross-cutting tests, shared `fixtures/`, and shared
-  `helpers/` — the full layout and the explicit-glob rationale live in
-  [test/README.md](test/README.md). (The `--experimental-test-module-mocks` flag on the
-  `test` scripts exists for `objects.test.mjs`'s `mock.module` —
-  [ADR-0019](docs/adr/0019-s3-test-strategy.md).) Scratch goes in [scripts/](scripts/).
+- **Test layout convention** ([ADR-0046](docs/adr/0046-test-layout-colocated-tier-suffix.md)):
+  tests are **co-located**, with the tier in the filename — unit as `*.test.mjs`, real-bucket
+  integration as `*.integration.test.mjs` (gated; `test:integration` is the glob
+  `src/**/*.integration.test.mjs`, so new suites auto-enrol) — while the subprocess e2e suite
+  and the shared `fixtures/`/`helpers/` (incl. the gated-suite harness `helpers/integration.mjs`)
+  live in [test/](test/). A module's *absent* test file is honest "tested elsewhere / too thin"
+  signal, not a gap; VS Code file nesting keeps the tree lean. A second test file for one module
+  takes a dotted aspect (`setup.remote-first.test.mjs`), never a hyphen. Full layout +
+  explicit-glob rationale: [test/README.md](test/README.md). (The
+  `--experimental-test-module-mocks` flag on the `test` scripts exists for `objects.test.mjs`'s
+  `mock.module` — [ADR-0019](docs/adr/0019-s3-test-strategy.md).) Scratch goes in
+  [scripts/](scripts/).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured 2026-06-13: ~1.8× slower, 12s vs 7s). Node's default per-file isolation runs
   test files across worker processes in parallel; collapsing to a single process loses

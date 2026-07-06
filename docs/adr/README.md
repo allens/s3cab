@@ -76,6 +76,7 @@ ADR as a live constraint.
 - [0018](0018-dependabot-not-renovate.md) — Dependency updates via Dependabot, not Renovate
 - [0019](0019-s3-test-strategy.md) — S3 test strategy: mock at s3.mjs, real-AWS gated, no emulator
 - [0020](0020-coverage-review-not-gate.md) — Test coverage is judged by review, not a CI gate
+- [0046](0046-test-layout-colocated-tier-suffix.md) — Test layout: co-located; integration is a `*.integration.test.mjs` suffix; e2e is the subprocess suite in `test/`
 - [0021](0021-lf-line-endings-prettier-code-only.md) — LF line endings; Prettier code only
 
 ## Map from old "design principle #N" references

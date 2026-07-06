@@ -50,6 +50,34 @@ round-trips; mocks for failure paths and for offline / no-credential (fork) cove
 cover *different failure spaces* — real S3 can't fail on command; mocks can't catch AWS
 changing under us.
 
+### Unit vs integration vs e2e — the two axes
+
+The tier names get muddled because people define them by vibe. Two orthogonal axes pin them
+down: **(A) what interface do you drive** — an internal function, or the end-user CLI as a
+subprocess — and **(B) are external deps real or faked.**
+
+- **Unit** — drive an internal function; deps faked or absent; in-process. The co-located
+  `*.test.mjs` files. (This *includes* the mocked-`s3.mjs`-seam tests: still in-process, still
+  driving a function — the mock is a technique, not a separate location, so they share the
+  unmarked `.test.mjs` name.)
+- **Integration** — drive an internal API with a **real** external dep (real S3). The
+  co-located `*.integration.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
+- **E2E** — drive the **end-user entry point** (the CLI, `spawn`ed) through the whole stack;
+  deps real or stubbed. `test/e2e.test.mjs`.
+
+The integration-vs-e2e line that always feels fuzzy is decided by **axis A, not B**:
+integration drives *your* API with a real dependency behind it; e2e drives *the user's*
+interface. "Real dependency" alone does **not** make a test e2e —
+`remote.integration.test.mjs` hits real S3 but calls `listRemoteSnapshots()` directly, so it
+is integration; and a stubbed dependency does not stop a test being e2e if it drives the
+binary (`e2e.test.mjs`'s `hashes` case points at a dead endpoint yet is still e2e).
+
+This maps straight onto the filenames
+([ADR-0046](../adr/0046-test-layout-colocated-tier-suffix.md)): unit and integration
+**co-locate** with their module (integration marked by the `.integration` suffix) because each
+*belongs to* one module; e2e is the one suite that belongs to no module, so it alone lives in
+`test/`.
+
 ### Which boundary to mock at — `s3.mjs`, not the AWS SDK
 
 The AWS SDK is a *real* boundary, not the wire — `client.send()` returns parsed JS objects,
@@ -82,23 +110,48 @@ tests, for four reasons:
 
 Each layer gets the mechanism that fakes the least.
 
+### Mock, not dependency injection
+
+Mocking the seam and *injecting* the seam both fake at `s3.mjs`; the question is mechanism. We
+mock (`mock.module`) rather than thread an `s3` client through the command → lib → SDK call
+chain, for a specific reason: s3cab has **one** backend. DI's payoff is multiple real
+implementations or per-call config; with a single backend, injecting exists *only* to enable
+the test double — an infrastructure parameter smeared through a layered CLI's signatures,
+against [ADR-0006](../adr/0006-minimal-code.md), and it muddies the one-export command seam
+([ADR-0023](../adr/0023-porcelain-plumbing-lib-layers.md)). Module-mock targets the same
+boundary at zero production cost.
+
+Two liabilities are worth naming: the mock rests on `--experimental-test-module-mocks` (an
+unstable flag), and it carries a load-bearing import-ordering rule (register the mock *before*
+the dynamic import of the module under test). Neither has bitten hard, and DI is the fallback
+if the flag ever destabilizes — but the thing that would genuinely *flip* the decision is a
+**second store**. The model is storage-agnostic (`objects/<sha256>` is how git's object store
+works on disk), so a filesystem backend would make a `Store` interface justified on its own
+merits — and then tests run against a **real** `FsStore` in a temp dir: mock-free, flag-free,
+and the injection is no longer test scaffolding but the architecture. Until such a store has
+product value, that abstraction is speculative (0006 / convention #7), so the module-mock
+stays. (Recorded in [ADR-0019](../adr/0019-s3-test-strategy.md).)
+
 ### Gated suites that exist today
 
-The `test:s3` script names them:
+`test:integration` runs the glob `src/**/*.integration.test.mjs`, so a new suite auto-enrols by name —
+no hand-maintained list ([ADR-0046](../adr/0046-test-layout-colocated-tier-suffix.md)):
 
-- `src/lib/remote.test.mjs` — remote snapshot listing, `downloadRemoteSnapshots`,
-  `uploadSnapshot`. (`getObject`'s verified download is exercised offline by the
-  mocked-seam tests in `src/lib/objects.test.mjs`, and end-to-end by the restore round-trip
-  below.)
-- `src/lib/set-marker.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT claim,
-  listing, config publish).
-- `src/commands/setup.test.mjs` — `setup`'s collision check and `--inherit` against a real
-  bucket.
-- `src/commands/restore.test.mjs` — the **`backup → restore` round-trip** (set up → backup →
-  wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`). The
-  single most valuable integration test.
+- `src/lib/remote.integration.test.mjs` — remote snapshot listing, `downloadRemoteSnapshots`,
+  `uploadSnapshot`, `referencedObjects`, `deleteRemoteSnapshot`. (`getObject`'s verified
+  download is exercised offline by the mocked-seam tests in `src/lib/objects.test.mjs`, and
+  end-to-end by the restore round-trip below.)
+- `src/lib/set-marker.integration.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT
+  claim, listing, config publish).
+- `src/commands/setup.integration.test.mjs` — `setup`'s create / collision / `--inherit`
+  against a real bucket.
+- `src/commands/restore.integration.test.mjs` — the **`backup → restore` round-trip** (set up
+  → backup → wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`).
+  The single most valuable integration test.
 
-All tear down via `deleteObject` in a `finally`; content is unique per run so the shared
+All tear down via `deleteObject` in a `finally` (a set's marker files via the shared
+`cleanupSetMarker` in [`test/helpers/integration.mjs`](../../test/helpers/integration.mjs),
+which also holds the `S3CAB_TEST_BUCKET`/`skip` gate); content is unique per run so the shared
 `objects/` store stays isolated and cleanup is exact.
 
 ## Where real S3 runs (the security model)
@@ -208,7 +261,7 @@ generally; just wrong for *this* workload).
 live resource names/values are recorded in [`ci/aws/README.md`](../../ci/aws/README.md), and
 [docs/integration-testing.md](../integration-testing.md) is the generic walkthrough — IAM
 verbs, lifecycle, credential resolution (`useTempHome` relocates only `S3CAB_HOME`, so
-`~/.aws` stays visible), and `npm run test:s3` all live there, not here. What *is*
+`~/.aws` stays visible), and `npm run test:integration` all live there, not here. What *is*
 design-level:
 
 - **Regions:** CI bucket in **`us-east-1`** (a lowest-cost reference region, and closest to
