@@ -214,12 +214,14 @@ carrying that set's auth, unlike the offline all-sets default.
 ### `backup` — porcelain semantics
 
 `s3cab backup [<set>]` means "back up my stuff now": take a fresh snapshot of the set,
-then upload it. `--snapshot <name>` skips the snapshotting and uploads that existing
-snapshot instead. Internally `backup` coordinates `snapshot()` and a lower-level
-snapshot-uploader (given an existing snapshot + bucket: compute upload set, upload
-objects, upload snapshot). The uploader function is the library surface regardless;
-whether it also gets its own registry entry (Advanced group) is decided at
-implementation.
+then upload it — `snapshot()` + `upload()`, always both (ADR-0044). `backup` is pure
+porcelain composition: its one piece of smarts is resolving the change-detection baseline
+(the previous local snapshot, or nothing on a first backup) and handing it to `upload`
+explicitly as `--since`. Uploading an *existing* snapshot without taking a fresh one is now
+the plumbing command directly — `upload <set> --snapshot <name>` — so `backup --snapshot`
+retired (ADR-0044); the objects-first/snapshot-last invariant and the conditional-PUT
+backstop live in `upload`'s snapshot mode (over the `uploadSnapshot` lib), and `backup`
+just composes.
 
 ### `restore` — put files back, never destructively by default
 
@@ -330,7 +332,7 @@ never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 `backup`'s concern.) The change-detection model
 ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) makes the
 upload set scale with change size, not repo size. `backup` (porcelain) picks the
-baseline and hands it to the `uploadSnapshot` plumbing:
+baseline and hands it to the `upload` plumbing (which composes the `uploadSnapshot` lib):
 
 1. **Baseline = the set's previous *local* snapshot.** The set-ownership model makes local
    history authoritative: a set is owned by exactly one machine (the `sets/<name>/` marker;
@@ -374,7 +376,7 @@ have no second mode to point at.
 
 A deliberate design property, worth preserving as commands are added: every high-level
 command is a thin coordination of lower-level pieces that are independently useful —
-`backup` = `snapshot` + the snapshot-uploader; `status` = the uploader's diff with the
+`backup` = `snapshot` + `upload`; `status` = the uploader's diff with the
 writes removed; `tree` = the snapshot's walk without the hashing. The composition
 *medium* is the flat **hash-per-line stream** the `hashes` plumbing already emits: line
 streams compose with each other and with ordinary Unix tools, which extends the

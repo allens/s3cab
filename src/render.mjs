@@ -534,7 +534,24 @@ function problemDetail(p) {
  * @returns {string}
  */
 export function renderBackup({ set, snapshot, candidates, uploaded }) {
-  const head = `Backed up '${set}' (snapshot ${snapshot})`;
+  return objectUploadLine(
+    `Backed up '${set}' (snapshot ${snapshot})`,
+    candidates,
+    uploaded,
+  );
+}
+
+/**
+ * The shared "how much content went up" line for the object-set uploads —
+ * `backup` and `upload --snapshot`, which report the same candidates/uploaded
+ * counts under different headlines (ADR-0044). Zero candidates is the up-to-date
+ * case; when every candidate uploaded, the "already stored" aside is dropped.
+ * @param {string} head - The headline naming what was uploaded
+ * @param {number} candidates - Objects considered for upload (new since the baseline)
+ * @param {number} uploaded - Those actually transferred (the rest were already stored)
+ * @returns {string}
+ */
+function objectUploadLine(head, candidates, uploaded) {
   if (candidates === 0) {
     return `${head} — already up to date, nothing new to upload.`;
   }
@@ -548,14 +565,25 @@ export function renderBackup({ set, snapshot, candidates, uploaded }) {
 }
 
 /**
- * Confirm an `upload` (ADR-0043) — the plumbing single-file put. Reports the
- * object key (the content address, never truncated) and human size, and whether
- * the bytes were transferred or the store already held them (a content-addressed
- * store never re-puts identical content).
+ * Confirm an `upload` (ADR-0043) — the plumbing put, in one of two shapes
+ * (ADR-0044). **`file`**: the single-object put, reporting the object key (the
+ * content address, never truncated) and human size, and whether the bytes were
+ * transferred or the store already held them (a content-addressed store never
+ * re-puts identical content). **`snapshot`**: a whole snapshot's objects, sharing
+ * `backup`'s content-uploaded line under an upload-framed headline.
  * @param {UploadResult} result
  * @returns {string}
  */
-export function renderUpload({ key, size, uploaded }) {
+export function renderUpload(result) {
+  if (result.mode === "snapshot") {
+    const { set, snapshot, candidates, uploaded } = result;
+    return objectUploadLine(
+      `Uploaded snapshot '${snapshot}' to '${set}'`,
+      candidates,
+      uploaded,
+    );
+  }
+  const { key, size, uploaded } = result;
   const human = formatByteValue(size);
   return uploaded
     ? `Uploaded ${key} (${human}).`

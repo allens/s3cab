@@ -135,16 +135,21 @@ own maintenance by hand (it's the same enumeration `verify`/`cleanup` diff):
 > s3cab hashes my-backup-bucket > have.txt    # …or redirect to a file
 ```
 
-Its write counterpart, `upload`, puts a single file into the store at `objects/<sha256>`.
-Content already in the store is skipped automatically — identical bytes always map to the
-same key — unless you `--force` a re-upload:
+Its write counterpart, `upload`, is set-scoped and does the same two jobs `backup` composes
+(ADR-0044): put **a single file** into the store at `objects/<sha256>`, or upload **a whole
+snapshot's** objects then its snapshot file. Content already in the store is skipped
+automatically — identical bytes always map to the same key — unless you `--force` a
+single-file re-upload:
 
 ```console
-> s3cab upload my-backup-bucket C:\Users\me\Photos\beach.jpg
+> s3cab upload photos --file C:\Users\me\Photos\beach.jpg   # one object into the set's bucket
+> s3cab upload photos --snapshot 2026-06-12T0915            # that snapshot's objects, snapshot file last
+> s3cab upload --bucket my-backup-bucket --file beach.jpg   # raw bucket, no set (ambient credentials)
 ```
 
-(`<bucket>` is a plain S3 bucket name — one repository is one bucket. Like `hashes`,
-`upload` is plumbing: a lower-level building block beside the snapshot-driven `backup`.)
+(Like `hashes`, `upload` is plumbing: a lower-level building block beside the snapshot-driven
+`backup`, which is just `snapshot` + `upload`. A set supplies its own bucket; `--bucket` is the
+raw escape hatch for seeding a file into a bucket that isn't one of your sets.)
 
 ### Authentication
 

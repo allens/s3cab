@@ -595,6 +595,7 @@ describe("renderUpload", () => {
 
   it("confirms a transferred object with its full key and human size", () => {
     const text = renderUpload({
+      mode: "file",
       hash: "c0535e4b",
       size: 1_500_000,
       key,
@@ -607,12 +608,39 @@ describe("renderUpload", () => {
 
   it("reports an already-stored object rather than a re-upload", () => {
     const text = renderUpload({
+      mode: "file",
       hash: "c0535e4b",
       size: 200,
       key,
       uploaded: false,
     });
     assert.equal(text, `${key} already stored (200B).`);
+  });
+
+  it("reports a snapshot upload's content line under an upload headline", () => {
+    const text = renderUpload({
+      mode: "snapshot",
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      candidates: 120,
+      uploaded: 3,
+    });
+    assert.equal(
+      text,
+      "Uploaded snapshot '2026-07-04T1000' to 'photos': " +
+        "uploaded 3 of 120 objects (117 already stored).",
+    );
+  });
+
+  it("reports the up-to-date case for a snapshot upload with nothing new", () => {
+    const text = renderUpload({
+      mode: "snapshot",
+      set: "photos",
+      snapshot: "2026-07-04T1000",
+      candidates: 0,
+      uploaded: 0,
+    });
+    assert.match(text, /already up to date, nothing new to upload\.$/);
   });
 });
 

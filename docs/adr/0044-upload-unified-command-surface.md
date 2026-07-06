@@ -1,8 +1,8 @@
 # Unify `upload`; `backup` = snapshot + upload; retire `backup --snapshot`
 
-**Status:** proposed (settled 2026-07-06 in a grilling + `cli-design` session); **not yet
-implemented** — the build is sliced in
-[proposals/upload-and-change-detection.md](../../proposals/upload-and-change-detection.md).
+**Status:** accepted (settled 2026-07-06 in a grilling + `cli-design` session); **implemented**
+— the command-surface slice landed on top of the change-detection engine
+([proposals/upload-and-change-detection.md](../../proposals/upload-and-change-detection.md)).
 This ADR records only the *command-surface* decision and its *why*; the companion
 **change-detection** decision (drop the persistent objects cache; local-snapshot baseline +
 on-demand `LIST` + conditional-PUT backstop) is [ADR-0045](0045-change-detection-local-baseline-list-fallback.md),

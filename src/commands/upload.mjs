@@ -1,57 +1,127 @@
-import { requireArg } from "../lib/error.mjs";
+import { loadSet } from "../lib/env.mjs";
+import { ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
+import { uploadSnapshot } from "../lib/remote.mjs";
 import { prop } from "./prop.mjs";
 
 /**
- * Upload one file to a repository's content-addressed object store.
+ * Get objects into a repository's content-addressed store — the plumbing counterpart
+ * of the snapshot-driven `backup` porcelain (ADR-0044). One command, two granularities,
+ * chosen by mutually-exclusive target flags (never a second positional, cli-design pass):
  *
- * A low-level plumbing command (cf. git porcelain vs plumbing, like its `hashes`
- * sibling): it hashes the file and PUTs it at `objects/<sha256>`, the fixed layout
- * `hashes` reads and `backup` populates. The higher-level snapshot-driven
- * `backup` is what ordinary users run; this uploads a single file by hand.
+ * - **Single object** — `upload <set> --file <path>` (or `upload --bucket <b> --file <path>`):
+ *   hash the file, one conditional PUT into `objects/<sha256>`. No `LIST`, no baseline.
+ *   The set form resolves the set's bucket *and* env layer (`loadSet`, ADR-0022); the
+ *   `--bucket` form is the raw escape hatch — one object into a bucket that isn't one of
+ *   your sets, on ambient / user-env credentials only (no set layer). `--force` overwrites
+ *   an already-stored object (the repair hatch: s3cab trusts the hash on write and verifies
+ *   only on read, so this is how a known-good copy replaces a corrupt/truncated one).
  *
- * Because the object key *is* the content hash, identical bytes always map to the
- * same key, so an object already in the store needn't be re-PUT — a
- * content-addressed store never has to overwrite an existing object with the same
- * content. So this skips the upload when the object already exists (the object
- * store's conditional PUT), unless `--force` overwrites it.
+ * - **A snapshot's objects** — `upload <set> --snapshot <name>`: upload every object the
+ *   snapshot references, then the snapshot file **last** (the objects-first/snapshot-last
+ *   invariant, owned here so `backup` merely composes). `--since <baseline>` skips objects
+ *   already in that baseline snapshot; with no `--since`, snapshot mode `LIST`s the store once.
+ *   `upload` performs **no** snapshot lookup — not "latest" nor "previous"; resolving which
+ *   snapshot to upload or diff against is `backup`'s (porcelain) job. `--force`/`--bucket` are
+ *   rejected here (force must never touch the immutable snapshot file; a snapshot always needs a set).
  *
- * The object store (`src/lib/objects.mjs`) sits over the `src/lib/s3.mjs` SDK
- * boundary, whose lazily-constructed client means this command costs nothing
- * (and needs no AWS creds) until run.
+ * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
+ * snapshot — is `snapshot`-time machinery via `prop`'s `lookup`, not `upload`'s concern; the
+ * old `--if-modified-from` TODO here was resolved into the `--since` baseline above, ADR-0044.)
  *
- * TODO (important, not yet wired): a `--if-modified-from <snapshot>` option.
- * Given a previous snapshot, skip the upload when this file is *unchanged* since
- * it (same size + mtime) — and skip even the hashing, by passing the snapshot
- * through to `prop()`'s existing `lookup` (which reuses the stored hash for an
- * unchanged file). This is the snapshot-aware skip that `backup` is built on:
- * back up only what changed since the last backed-up snapshot. Deferred with the
- * rest of the `backup` milestone, but it's load-bearing for that flow, so don't
- * lose it.
- *
- * @typedef {Object} UploadResult
+ * @typedef {Object} FileUploadResult
+ * @property {"file"} mode - Single-object upload
  * @property {string} hash - The file's SHA-256 (its content address)
  * @property {number} size - The file's size in bytes
  * @property {string} key - The object-store key it maps to (`objects/<sha256>`)
  * @property {boolean} uploaded - True when transferred; false when the object was already stored
  *
- * @param {string} [bucket] - The repository's S3 bucket name.
- * @param {string} [file] - The file to upload.
+ * @typedef {Object} SnapshotUploadResult
+ * @property {"snapshot"} mode - Whole-snapshot upload
+ * @property {string} set - The set whose snapshot went up
+ * @property {string} snapshot - The snapshot name that was uploaded
+ * @property {number} candidates - Objects considered for upload (not in the baseline)
+ * @property {number} uploaded - Those actually transferred (the rest were already stored)
+ *
+ * @typedef {FileUploadResult | SnapshotUploadResult} UploadResult
+ *
+ * @param {string} [setName] - The backup set to upload into (required unless `--bucket`
+ *   is given; no sole-set default — plumbing names its target explicitly, ADR-0044 §2)
  * @param {object} [options]
- * @param {boolean} [options.force] - Re-upload even if the object already exists.
+ * @param {string} [options.file] - Upload this single file as one object
+ * @param {string} [options.snapshot] - Upload this snapshot's objects, then its snapshot file
+ * @param {string} [options.bucket] - Raw bucket for a `--file` upload with no set (ambient creds)
+ * @param {string} [options.since] - Baseline snapshot to skip against (snapshot mode only)
+ * @param {boolean} [options.force] - Re-upload even if the object already exists (`--file` only)
  * @returns {Promise<UploadResult>}
  */
-export async function upload(bucket, file, options = {}) {
-  requireArg(bucket, "bucket");
-  requireArg(file, "file");
+export async function upload(setName, options = {}) {
+  const { file, snapshot: snapshotName, bucket, since, force } = options;
 
-  // prop() does the file validation (rejects non-regular files) and the streaming
-  // SHA-256 hash; reuse it rather than re-deriving either here (#6).
-  const { hash, size } = await prop(file);
+  // ── Fail-fast validation (ADR-0044 §7, ADR-0011): flag conflicts before any
+  // work. These are usage errors (ParseArgsError → exit 2, prints the synopsis),
+  // matching how `auth`/`setup` reject conflicting/missing options. ──────────
+  // Exactly one target: an explicit `<set>` xor the raw `--bucket` hatch. Unlike
+  // the porcelain (`backup`, which defaults to the sole set), this plumbing never
+  // guesses its target — explicitness is the contract (ADR-0044 §2, ADR-0023).
+  if (bucket && setName) {
+    throw new ParseArgsError(
+      "Pass either a set or --bucket, not both — a set already carries its bucket.",
+    );
+  }
+  if (!bucket && !setName) {
+    throw new ParseArgsError("Missing required argument: <set>", {
+      argName: "set",
+    });
+  }
+  if (bucket && !file) {
+    throw new ParseArgsError(
+      "--bucket uploads a single file into a raw bucket — add --file <path>.",
+    );
+  }
+  if (force && !file) {
+    throw new ParseArgsError("--force applies only to --file uploads.");
+  }
+  if (since && !snapshotName) {
+    throw new ParseArgsError("--since applies only to --snapshot uploads.");
+  }
 
-  const uploaded = await putObject(bucket, hash, file, {
-    force: options.force,
-  });
+  // ── Single-object mode ──────────────────────────────────────────────────
+  if (file) {
+    // Raw bucket → ambient/user-env credentials, no set layer. Otherwise the set
+    // supplies the bucket and applies its env layer (loadSet, ADR-0022).
+    const targetBucket = bucket ?? loadSet(setName).bucket;
 
-  return { hash, size, key: objectKey(hash), uploaded };
+    // prop() does the file validation (rejects non-regular files) and the
+    // streaming SHA-256; reuse it rather than re-deriving either here (#6).
+    const { hash, size } = await prop(file);
+    const uploaded = await putObject(targetBucket, hash, file, { force });
+    return { mode: "file", hash, size, key: objectKey(hash), uploaded };
+  }
+
+  // ── Snapshot mode ───────────────────────────────────────────────────────
+  if (snapshotName) {
+    const set = loadSet(setName);
+    // uploadSnapshot reads the target first, so a missing --snapshot fails fast
+    // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
+    const { candidates, uploaded } = await uploadSnapshot({
+      bucket: set.bucket,
+      set: set.name,
+      snapshotDir: set.snapshotsDir,
+      name: snapshotName,
+      since,
+    });
+    return {
+      mode: "snapshot",
+      set: set.name,
+      snapshot: snapshotName,
+      candidates,
+      uploaded,
+    };
+  }
+
+  // Neither target flag — nothing to upload.
+  throw new ParseArgsError(
+    "Specify what to upload: --file <path> or --snapshot <name>.",
+  );
 }
