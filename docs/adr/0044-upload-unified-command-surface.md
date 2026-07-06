@@ -37,7 +37,7 @@ predictable**; porcelain is allowed to be **smart**.
    ([clig.dev](https://clig.dev): prefer flags to positionals; avoid mixed-kind positionals):
    - `upload <set> --file <path>` — one object (hash + one conditional PUT). No `LIST`, no baseline.
    - `upload <set> --snapshot <name>` — that snapshot's objects (name **required**), then the
-     manifest **last** (objects-first/manifest-last invariant).
+     snapshot file **last** (objects-first/snapshot-last invariant).
    - `upload <set>` with **neither** flag → a **usage error** ("specify `--file` or
      `--snapshot`"). `upload` performs **no snapshot lookup** — not the "latest" target, nor the
      "previous" baseline. Which snapshot to upload (or diff against) is porcelain smarts that live
@@ -61,7 +61,7 @@ predictable**; porcelain is allowed to be **smart**.
 5. **`--force` is single-file-only.** Valid with `--file` (overwrite an object — the repair hatch
    for a corrupt/truncated remote object, since s3cab trusts the hash on write and verifies only
    on read); **rejected in snapshot mode**, where it would tangle with the baseline layer and
-   must never override the manifest's immutability (a duplicate snapshot name is a hard error,
+   must never override the snapshot file's immutability (a duplicate snapshot name is a hard error,
    never an overwrite).
 
 6. **`backup [set]` = `snapshot()` + `upload()`, always both.** It resolves the baseline and hands
@@ -80,7 +80,7 @@ predictable**; porcelain is allowed to be **smart**.
 - **Breaking** (retires `backup --snapshot`, reshapes `upload`) — acceptable pre-1.0 (free rein,
   CLAUDE.md #7). Help topics, `guide/`, README, and the `--if-modified-from` TODO + the CLAUDE.md
   "Known gaps" note all update with the build.
-- The objects-first/manifest-last invariant stays in **one** place (`upload`'s snapshot mode);
+- The objects-first/snapshot-last invariant stays in **one** place (`upload`'s snapshot mode);
   `backup` merely composes.
 - `--snapshot` as a *target* selector on `upload` does not clash with the retired `backup
   --snapshot` (different command) and is an easy muscle-memory migration.

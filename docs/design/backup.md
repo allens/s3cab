@@ -30,7 +30,7 @@ level, so it needs none of verify's per-path problem model). Remaining are the
 versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
 (both deferred, tracked in "Open items"). (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
-stays local-only, and `setup --inherit` instead syncs the set's manifests down so local
+stays local-only, and `setup --inherit` instead syncs the set's snapshot files down so local
 `compare` works on a fresh machine.)
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
@@ -509,7 +509,7 @@ problem kinds:
    objects-first/snapshot-last invariant, the serious one (that file can't be restored).
    Every path referencing a missing hash is a row — all affected files, no grouping.
 2. **`wrong-size`** — the object is stored, but this file's recorded size ≠ the stored
-   LIST `Size`: a truncated/overwritten object, or a torn manifest row. Checked **per
+   LIST `Size`: a truncated/overwritten object, or a torn snapshot-file row. Checked **per
    file against the one real stored size** — so two files that share content but record
    different sizes (the old "conflicting rows") surface as a wrong-size problem on exactly
    the file(s) that disagree with storage. No ambiguous-size skip, no separate conflict
@@ -517,7 +517,7 @@ problem kinds:
    so recorded and stored sizes are directly comparable; both sizes ride the row.)
 
 **Unreadable snapshots** stay *outside* `problems` (they aren't file-shaped — a corrupt
-manifest has no file list to annotate, only a lost restore point). A snapshot that fails
+snapshot file has no file list to annotate, only a lost restore point). A snapshot that fails
 to decompress or parse is a *finding*, and verify **continues** (dying on the first damage
 would hide the rest); an S3 *request* failure (network/auth/throttle) is an ordinary
 operational error and aborts.
@@ -629,10 +629,10 @@ first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-2
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
 retired with it). **`compare --remote` is dropped, not deferred** (PR #89,
 [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
-local-only, and `setup --inherit` instead pulls the set's remote manifests down (verbatim
+local-only, and `setup --inherit` instead pulls the set's remote snapshot files down (verbatim
 `.tsv.zst` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
 full history. (The `--remote` flag + `notImplemented()` stub were removed and the inherit-time
-manifest sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
+snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair
 

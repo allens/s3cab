@@ -15,7 +15,7 @@
  * per hash) so the problem model is file-centric — a hash under many paths yields
  * many entries — and so a recorded-size mismatch is attributed to the exact
  * file(s) whose size disagrees with storage. `sizes` is a Set because content
- * fixes size — so a healthy path records exactly one — but a *torn* manifest can
+ * fixes size — so a healthy path records exactly one — but a *torn* snapshot file can
  * record the same path at two sizes across snapshots; keeping both lets that hide
  * nowhere (each is checked against the one stored object).
  * @typedef {Object} PathReference
@@ -80,7 +80,7 @@ export function isCorruptSnapshotError(error) {
  *    objects-first/snapshot-last invariant): every path referencing it is a
  *    problem, since none can be restored.
  *  - **wrong-size** — the object is stored, but this path's recorded size ≠ the
- *    stored LIST size (a truncated/overwritten upload, or a torn manifest row).
+ *    stored LIST size (a truncated/overwritten upload, or a torn snapshot-file row).
  *    Recorded per path, so a hash whose paths disagree on size (the old
  *    "conflicting rows" case) surfaces as a wrong-size problem on exactly the
  *    file(s) that disagree with storage — no separate category, no ambiguous
@@ -105,7 +105,7 @@ export function verifySet(name, referencedResult, stored) {
         continue;
       }
       // Every recorded size for this path is checked against the one stored
-      // object; a torn manifest that recorded two sizes yields a row per bad one.
+      // object; a torn snapshot file that recorded two sizes yields a row per bad one.
       for (const size of sizes) {
         if (size !== storedSize) {
           problems.push({
@@ -149,7 +149,7 @@ export function verifySet(name, referencedResult, stored) {
  * missing blob referenced by five paths yields five rows — the user thinks in
  * files, and hashes never surface (docs/design/backup.md, ADR-0042).
  * `unreadableSnapshots` stays separate because it is not file-shaped — a corrupt
- * manifest has no file list to annotate, only a lost restore point.
+ * snapshot file has no file list to annotate, only a lost restore point.
  * @typedef {Object} SetReport
  * @property {string} set
  * @property {number} snapshotsChecked - Snapshots read successfully

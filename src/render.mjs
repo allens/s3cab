@@ -513,7 +513,7 @@ const problemLabel = (problem) =>
 /**
  * The parenthetical detail for a problem row: which snapshots reference a
  * `missing` file (it can't be restored), or the recorded-vs-stored byte counts
- * for a `wrong-size` one (a truncated/overwritten upload or a torn manifest).
+ * for a `wrong-size` one (a truncated/overwritten upload or a torn snapshot file).
  * @param {SetReport["problems"][number]} p
  * @returns {string}
  */
