@@ -28,7 +28,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --test --experimental-test-module-mocks \"src/**/*.test.mjs\" \"test/**/*.test.mjs\"",
-    "test:s3": "node --test --env-file-if-exists=.env.test src/lib/remote.test.mjs src/lib/set-marker.test.mjs src/commands/restore.test.mjs src/commands/setup.test.mjs",
+    "test:integration": "node --test --env-file-if-exists=.env.test \"src/**/*.integration.test.mjs\"",
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info \"src/**/*.test.mjs\" \"test/**/*.test.mjs\"",
