@@ -46,15 +46,17 @@ bucket. Two modes, told apart by whether `--file` is present:
     belongs to a set and its manifest goes to `snapshots/<set>/`, so `--bucket` never applies
     there.
 
-- **Snapshot's objects** — `upload <set> [<snapshot>]`
-  Upload every object referenced by `<snapshot>` (**optional; defaults to the latest local
-  snapshot**), then upload the **snapshot manifest last** — preserving the
-  objects-first/manifest-last invariant. Errors if a *named* snapshot is absent.
+- **Snapshot's objects** — `upload <set> [--snapshot <name>]`
+  Upload every object referenced by the snapshot (**`--snapshot` optional; defaults to the latest
+  local snapshot**), then upload the **snapshot manifest last** — preserving the
+  objects-first/manifest-last invariant. Errors if a *named* snapshot is absent. (`--snapshot` is
+  a target *flag*, not a positional — the `cli-design` pass chose flags over a second mixed-kind
+  positional; see [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md).)
   - A **manifest opt-out** ("upload the objects but not the snapshot file") is a *possible*
     flag. **_[CN]_** Defer it until a use appears (#7); name TBD (`--no-manifest` /
     `--objects-only`). Orphan objects with no manifest are the *safe* direction (wasted space,
     not corruption), so it's harmless if we do add it.
-  - **`--force` is rejected here** — `upload <set> <snapshot> --force` errors ("`--force`
+  - **`--force` is rejected here** — `upload <set> --snapshot <name> --force` errors ("`--force`
     applies only to `--file` uploads"). Two reasons: (1) it would tangle with the baseline layer
     (does it bypass just the conditional PUT, or `--since`/`LIST` too?), whereas single-file mode
     has no baseline so force means one unambiguous thing; (2) snapshot mode also writes the
@@ -72,9 +74,10 @@ is smart. **_[CN]_** This is just ADR-0023 (porcelain/plumbing) applied.
 Deciding what *not* to re-upload is a baseline question. `upload` gets its baseline one of two
 ways, by a **fixed deterministic rule** (not state-dependent "auto"):
 
-- `upload <set> <snapshot> --since <baseline-snapshot>` → skip objects already in
+- `upload <set> --snapshot <name> --since <baseline-snapshot>` → skip objects already in
   `<baseline-snapshot>`. No `LIST`.
-- `upload <set> <snapshot>` (no `--since`) → **`LIST` the store** and use that as the baseline.
+- `upload <set> [--snapshot <name>]` (no `--since`) → **`LIST` the store** and use that as the
+  baseline.
 - `upload <set> --file …` (single-object mode) → **neither**: just the one conditional PUT.
   `LIST`ing the whole store to check a single file would be silly; `--since` doesn't apply here.
 
@@ -129,8 +132,8 @@ bites (#7); don't build the escape hatch speculatively.
 snapshots and uploads — no mode to skip either.
 
 - **`backup --snapshot <name>` retires.** "Upload an existing snapshot without taking a fresh
-  one" is now just `upload <set> <name>`. The flag existed only because plumbing wasn't exposed;
-  now it is.
+  one" is now just `upload <set> --snapshot <name>`. The flag existed only because plumbing wasn't
+  exposed; now it is.
 - `backup` does the smart baseline choice and hands `upload` explicit params: on a normal run it
   passes `--since <previous-snapshot>` (resolved via the existing
   [`listSnapshotNames(dir, { latest: true })`](../src/lib/snapshot-file.mjs)); on a first backup
@@ -175,10 +178,11 @@ Sources: [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/use
 - **The `--if-modified-from` TODO** in [`src/commands/upload.mjs`](../src/commands/upload.mjs)
   and the matching **CLAUDE.md "Known gaps"** note — resolved/rewritten (becomes `--since`, and
   the "load-bearing for backup" premise was wrong).
-- **New ADR(s)** likely warranted: (a) *drop the persistent objects cache; change detection =
-  local-snapshot baseline + on-demand `LIST` + conditional-PUT backstop*; (b) *the `upload`
-  unification and retirement of `backup --snapshot`* (a command-surface decision → run the
-  `cli-design` skill).
+- **ADRs:** (b) the command-surface decision — `upload` unification + retirement of
+  `backup --snapshot` — is **done**: [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md)
+  (from the `cli-design` pass). Still to write: (a) the *change-detection* decision — *drop the
+  persistent objects cache; baseline = local snapshot + on-demand `LIST` + conditional-PUT
+  backstop* — write it when the engine slice (session 1) lands.
 - **Code to remove with the cache:** `knownObjects` / `recordObjects` / `writeObjectsCache` /
   `objectsCachePath` in [`src/lib/objects.mjs`](../src/lib/objects.mjs), the `--skip-cache` flag,
   and the cache wiring in [`src/lib/remote.mjs`](../src/lib/remote.mjs)'s `uploadSnapshot`. Keep

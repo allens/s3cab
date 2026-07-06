@@ -66,6 +66,7 @@ ADR as a live constraint.
 - [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set; rewrites the objects cache *(finding-model correction pending — see proposals/engine-robustness.md)*
 - [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
+- [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(proposed; build in proposals/upload-and-change-detection.md)*
 
 ### Build, release & tooling
 
