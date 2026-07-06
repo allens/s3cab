@@ -2,19 +2,17 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 // Offline tests for verify's command orchestration — the glue on top of the pure
-// diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) and the cache
-// rewrite (`writeObjectsCache`) are faked at the lib seam so the per-set report,
-// the { bucket, sets } shape, and the exit-code side effect are locked down
-// without a bucket. The real S3 path is covered by remote.test.mjs's gated
-// `referencedObjects` test; the pure diff by verify.test.mjs. Module-mock ordering
-// (objects.test.mjs) applies: mocks first, then a dynamic import of the command.
+// diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) are faked at
+// the lib seam so the per-set report, the { bucket, sets } shape, and the
+// exit-code side effect are locked down without a bucket. The real S3 path is
+// covered by remote.test.mjs's gated `referencedObjects` test; the pure diff by
+// verify.test.mjs. Module-mock ordering (objects.test.mjs) applies: mocks first,
+// then a dynamic import of the command.
 
 /** @type {Map<string, import("../lib/verify.mjs").ReferencedResult>} referenced per set */
 let referencedBySet = new Map();
 /** @type {{ hash: string, size: number }[]} */
 let storedObjects = [];
-/** @type {{ bucket: string, hashes: string[] }[]} */
-let cacheWrites = [];
 
 mock.module("../lib/remote.mjs", {
   exports: {
@@ -27,12 +25,6 @@ mock.module("../lib/objects.mjs", {
       for (const object of storedObjects) {
         yield object;
       }
-    },
-    writeObjectsCache: async (
-      /** @type {string} */ bucket,
-      /** @type {Iterable<string>} */ hashes,
-    ) => {
-      cacheWrites.push({ bucket, hashes: [...hashes] });
     },
   },
 });
@@ -69,7 +61,6 @@ beforeEach(() => {
   savedExitCode = process.exitCode;
   referencedBySet = new Map();
   storedObjects = [];
-  cacheWrites = [];
 });
 afterEach(() => {
   process.exitCode = savedExitCode; // never leak a set exit code to the runner
@@ -80,7 +71,7 @@ describe("verify command", () => {
     await assert.rejects(() => verify(), /Missing required argument: <bucket>/);
   });
 
-  it("reports a clean bucket, rewrites its cache, and leaves the exit code untouched", async () => {
+  it("reports a clean bucket and leaves the exit code untouched", async () => {
     referencedBySet.set("photos", ref({ aaa: [10, ["s1"]] }));
     storedObjects = [{ hash: "aaa", size: 10 }];
 
@@ -92,8 +83,6 @@ describe("verify command", () => {
     assert.ok(report);
     assert.equal(report.set, "photos");
     assert.deepEqual(report.problems, []);
-    // The cache is rewritten from the completed LIST.
-    assert.deepEqual(cacheWrites, [{ bucket: "my-backups", hashes: ["aaa"] }]);
     assert.equal(process.exitCode, savedExitCode);
   });
 

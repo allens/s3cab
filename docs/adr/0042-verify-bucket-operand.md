@@ -75,13 +75,11 @@ catch. So one run = one bucket LIST, always.
 - **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad input) —
   `s3cab verify <bucket> || alert` is the cron idiom. No dedicated exit code until a
   script actually needs "damaged" vs "check failed".
-- **Remote read-only, one local side effect:** verify never writes to the bucket (it runs
-  on List+Get credentials), but it **rewrites the per-bucket objects cache** from the
-  completed LIST (atomic temp + rename; never from a partial LIST). The LIST is
-  authoritative ground truth already paid for: the rewrite warms the next backup and
-  auto-heals a *poisoned* cache — the cached-but-absent entry that silently causes future
-  missing objects — instead of telling a consumer to delete a cache file. Safe both ways
-  by the staleness asymmetry.
+- **Remote read-only** — verify never writes to the bucket; it runs on List+Get credentials.
+  (It originally *also* rewrote a per-bucket objects cache from the completed LIST, to warm
+  the next backup and heal a poisoned cache. That cache was **dropped** by
+  [ADR-0045](0045-change-detection-local-baseline-list-fallback.md), so verify now keeps no
+  local state at all — its whole result is the per-set findings report.)
 
 ## Consequences
 

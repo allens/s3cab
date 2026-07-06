@@ -341,11 +341,6 @@ Full guide: https://github.com/allens/s3cab#authentication`,
         description:
           "Back up this existing snapshot instead of taking a new one",
       },
-      "skip-cache": {
-        type: "boolean",
-        description:
-          "Skip the local objects cache and re-check the cloud directly",
-      },
     },
     exec: (options, [set] = []) => backup(set, options),
     render: renderBackup,

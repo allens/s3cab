@@ -12,7 +12,7 @@ the `snapshots/` remote half and the cloud porcelain: the remote repository engi
 (`src/lib/remote.mjs` — remote-snapshot listing/read, the upload-set diff
 `uploadCandidates`, the snapshot-last `uploadSnapshot`), plus `backup`, `status`, and
 `list --remote`. The `objects/<sha256>` half of the remote layout — `putObject` / verified
-`getObject` / `listObjectHashes` and the per-bucket objects cache — is owned by
+`getObject` / `listObjectHashes` — is owned by
 `src/lib/objects.mjs` (extracted 2026-06-17 from where it had been scattered across
 `remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
 `objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
@@ -21,7 +21,7 @@ succession (`setup --inherit`, via the remote `sets/<set>/` marker). `restore --
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
 **Slice 5 is complete** — `verify` (`src/commands/verify.mjs` over `referencedObjects` in
-`remote.mjs`, `listStoredObjects`/`writeObjectsCache` in `objects.mjs`, and the pure diff in
+`remote.mjs`, `listStoredObjects` in `objects.mjs`, and the pure diff in
 `src/lib/verify.mjs`), `delete` (`src/commands/delete.mjs` over `deleteRemoteSnapshot`, with
 `src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
 `deleteStoredObject`, computing missing/damaged/orphan tallies directly from the same two
@@ -46,8 +46,10 @@ landed model.
 > within hours by the **backup set** model below, because a set name solves the identity
 > problem outright: directories become the *contents* of a set rather than its identity,
 > so renaming a machine or moving a directory edits a config file instead of forking the
-> backup history. Decisions that survived unchanged: byte-identical snapshots, the
-> snapshot-last invariant, and the diff-vs-latest-remote upload set. A second reshape
+> backup history. Decisions that survived unchanged: byte-identical snapshots and the
+> snapshot-last invariant. (The upload set's baseline was later changed too — from
+> diff-vs-latest-*remote* to diff-vs-**local**-previous plus the dropped objects cache —
+> [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md).) A second reshape
 > (2026-06-20) then made the set **name** the whole identity — dropping the `user@machine`
 > component the sections below once carried — flattened the remote to `snapshots/<set>/`, and
 > required a bucket at `setup`.
@@ -237,9 +239,7 @@ basename is detected up front and errors with guidance (rare, actionable).
 
 `s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
 *primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
-`cleanup`'s job (the command's output says so). It never touches `objects/`, so the
-objects cache stays true and needs no refresh — that duty is `cleanup`'s alone (settled
-2026-07-03, dropping this design's earlier "refresh reminder"). On a TTY it confirms
+`cleanup`'s job (the command's output says so). It never touches `objects/`. On a TTY it confirms
 with a y/N prompt naming the snapshot and set — the same confirmation pattern as
 `cleanup --delete`; non-interactive runs proceed on the explicit flag. Retention
 *policy* (keep the last 12 monthlies, …) comes later, on top of this primitive. (Local
@@ -327,44 +327,48 @@ Consequences the design leans on:
 `backup` operates on a snapshot file, so **all hashes are already known — `backup`
 never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
 `--if-modified-from` TODO — is `snapshot`-time machinery via `prop`'s `lookup`, not
-`backup`'s concern.) The upload set scales with change size, not repo size:
+`backup`'s concern.) The change-detection model
+([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) makes the
+upload set scale with change size, not repo size. `backup` (porcelain) picks the
+baseline and hands it to the `uploadSnapshot` plumbing:
 
-1. Fetch **this set's latest remote snapshot** (one LIST of
-   `snapshots/<set>/`, one GET of a small file).
-2. Candidates = hashes in the target snapshot **not** in the latest remote snapshot.
-   (First backup of a set: no remote snapshot, everything is a candidate.)
-3. Drop candidates found in the **per-bucket objects cache**: a local hash-per-line
-   file in exactly the format the `hashes` command emits (its stdout stream *is* that
-   format put to work — composability again). The point is request arithmetic:
-   per-object existence checks (HEAD, or the conditional PUT itself) cost one request
-   *each*, which at millions of objects mounts up badly, while LIST pages 1,000 keys per
-   request — so the listing is fetched rarely, cached locally, and consulted for free.
-   `backup` appends every hash it uploads to the cache; refresh any time with
-   `s3cab hashes <bucket> > <cache>`.
-   `--skip-cache` skips this cache lookup entirely (when in doubt about sync) and falls
-   through to the conditional PUT below. (The flag is named `--skip-cache`, not the
-   `--force` this design first used: it only skips the cache and never overwrites, unlike
-   `upload --force`.)
-4. Upload the remaining candidates with the conditional-PUT / no-clobber skip as the
-   safety net — it silently no-ops objects that exist but were in neither the latest
-   snapshot nor the cache (older snapshots, other sets/users/machines, a stale cache).
+1. **Baseline = the set's previous *local* snapshot.** The set-ownership model makes local
+   history authoritative: a set is owned by exactly one machine (the `sets/<name>/` marker;
+   `--inherit` *re-stamps* the owner, it never shares), so there is no other machine whose
+   uploads the local history wouldn't already know about. Its objects were stored when it
+   was uploaded (the snapshot-last invariant), so anything it references can be skipped with
+   **no network read**.
+2. Candidates = hashes in the target snapshot **not** in that baseline (content-keyed, so a
+   file that only moved or was renamed is not re-uploaded).
+3. **First backup (no previous local snapshot):** there is no baseline, so **LIST the
+   object store once** (`objects/`) and diff the target against what is already there.
+   Announced with `Scanning existing objects…` on stderr, since a large store can take a
+   moment. This is the batch existence-check — one paged LIST (1,000 keys/request) instead
+   of a per-object HEAD — done exactly when there is nothing local to diff against.
+4. Upload the candidates with the **conditional-PUT / no-clobber** skip as the correctness
+   backstop — it silently no-ops any object already present that the baseline missed (older
+   snapshots, other sets/users in the shared bucket). **Correctness never rides on the
+   baseline**; the baseline is purely a round-trip optimization.
 5. Upload the snapshot (the invariant's last step).
 
-Cache staleness is **asymmetric**, and the design leans on that: an object *missing*
-from the cache but present remotely is harmless (one redundant conditional PUT, which
-no-ops). An object *present* in the cache but deleted remotely would let `backup` skip
-a needed upload and break the invariant — but objects are only ever deleted by
-`cleanup` (not `delete`, which removes a snapshot and never touches `objects/`), which
-is manual, rare, and rewrites this machine's cache from post-delete ground truth
-itself; other machines' caches are beyond its reach, so its report tells them to run
-`verify` — whose cache rewrite heals exactly this — before their next backup.
+**Why the local previous snapshot, and not a persistent objects cache?** An earlier design
+narrowed the set with a **per-bucket objects cache** (`~/.s3cab/objects.<bucket>`) on top of
+the diff-vs-latest-*remote* snapshot. That cache was **dropped**
+([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)): it never changed
+*what* uploaded (the conditional PUT already prevents any wasted upload), only saved
+round-trips; yet it was the one component that could be **poisoned** — a cached-but-absent
+entry silently skips a needed upload — which is why `verify`/`cleanup` used to carry
+cache-healing machinery. The single-owner model makes the local previous snapshot the
+authoritative baseline with none of that risk, and its one real benefit (batch-checking many
+objects at once) survives as the stateless first-backup LIST above.
 
-The diff trusts the invariant (latest remote snapshot ⇒ its objects exist). Ground-truth
-checking is deliberately **not** `backup`'s job — it belongs to the admin pair below.
-**`status`** is steps 1–2 run read-only ("what would a backup upload"), sharing the
-machinery. It is **remote-only — there is no `--remote` flag** (decided at
-implementation): `status` always compares the set's latest *local* snapshot against its
-latest *remote* snapshot, so the flag would have no second mode to point at.
+The diff trusts the invariant (a prior snapshot ⇒ its objects exist). Ground-truth checking
+is deliberately **not** `backup`'s job — it belongs to the admin pair below. **`status`** is
+the read-only "what would a backup upload" estimate; it compares the set's latest *local*
+snapshot against its latest *remote* snapshot (a property of the two snapshots that reads the
+same on any machine, hence remote rather than the local baseline `backup` uses). It is
+**remote-only — there is no `--remote` flag** (decided at implementation): the flag would
+have no second mode to point at.
 
 ## Composability: porcelain composes plumbing
 
@@ -446,13 +450,14 @@ the [format spec](../../guide/format.md)), not implementation choice:
   reported, and `--delete` **refuses**: the repository is already losing data — triage
   with `verify` first, then clean up. No `--force` override until a real need appears.
   (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.)
-- **The objects cache:** deleting objects is the one operation that *poisons* local
-  caches (a cached-but-absent entry makes a later `backup` skip a needed upload).
-  `--delete` therefore **rewrites this machine's per-bucket cache** from
-  stored − deleted (atomic temp + rename; the ground truth is already in memory —
-  `verify`'s pattern), and the report warns that **other machines** backing up to this
-  bucket should run `s3cab verify` before their next backup — their caches are beyond
-  cleanup's reach, and verify's LIST-driven rewrite heals exactly this.
+- **No local state to reconcile:** cleanup reclaims only orphans (`stored − referenced`
+  across every set), so a valid snapshot's objects are never deleted — and with the
+  per-bucket objects cache gone
+  ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)), there is no
+  local presence-cache left to poison or heal. Every machine's next `backup` re-derives what
+  to skip from its own local snapshots (and, on a first backup, a fresh LIST), so cleanup
+  needs no cross-machine "run verify first" reminder. `--delete`'s only stderr note is the
+  race below.
 - **Known residual race (documented, accepted):** an *old* orphan (from a long-ago
   crashed backup) that a concurrently-running backup is relying on via the
   conditional-PUT skip can be deleted between the skip and the snapshot upload. The
@@ -528,14 +533,12 @@ verify's result no longer carries a stored-object total or an orphan count (ADR-
 input), so `s3cab verify <bucket> || alert` is the cron idiom — no dedicated exit code until
 a script actually needs to distinguish "damaged" from "check failed".
 
-**Remote read-only, one local side effect:** verify never writes to the bucket — it
-runs on List+Get credentials alone. Locally it **rewrites the per-bucket objects cache**
-from the completed LIST (atomic temp + rename; never after a partial LIST): the LIST is
-authoritative ground truth verify has already paid for, so the rewrite warms the next
-backup and — more importantly — heals a *poisoned* cache, the cached-but-absent entry
-being the one local fault that silently causes future missing objects. Safe in both
-directions by the staleness asymmetry: every hash written provably exists, and a
-concurrent backup's lost append costs at most a redundant no-op PUT later.
+**Remote read-only, no side effects:** verify never writes to the bucket — it runs on
+List+Get credentials alone — and keeps no local state. (It used to rewrite a per-bucket
+objects cache from the completed LIST; that cache was dropped with the change-detection
+simplification, so there is nothing local left to heal —
+[ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md).) Its whole
+result is the per-set findings report.
 
 **Ordering invariant:** read the snapshots **before** LISTing `objects/`. In that order
 a backup finishing mid-run only adds unreferenced objects (harmless — verify ignores
@@ -599,7 +602,8 @@ against a real bucket** (`S3CAB_TEST_BUCKET`, skipped with a message when unset)
 than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit
 tests. (Standing up the test bucket + CI credentials is a separate task.) Built
 bottom-up: remote-snapshot listing for a namespace → the snapshot-diff function
-(`uploadCandidates`) → the per-bucket objects cache (read/append/`--skip-cache`) → the
+(`uploadCandidates`) → the per-bucket objects cache (read/append/`--skip-cache`; **later
+removed** — [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) → the
 uploader loop (conditional PUTs, snapshot-last) → `backup` porcelain (snapshot + upload)
 → `status` (read-only diff, remote-only — no `--remote` flag) → `list --remote`. Plus
 fail-fast bucket-name validation in `setup` (a plain single-segment name, not an `s3://`

@@ -11,6 +11,13 @@ This came out of revisiting the stale `--if-modified-from` TODO in
 ("load-bearing for `backup`") was false — `backup` shipped as `snapshot()` + `uploadSnapshot()`
 and never routes through `upload`. Pulling that thread led to the reshape below.
 
+> **Progress (2026-07-06):** **Slice 1 — the change-detection simplification — is built**
+> (behind the existing `backup`, no command-surface change): the objects cache is dropped, the
+> baseline is the local previous snapshot with an on-demand `LIST` fallback, and `verify`/`cleanup`
+> lost their cache duties. Recorded as [ADR-0045](../docs/adr/0045-change-detection-local-baseline-list-fallback.md).
+> **Still open:** the command-surface slices ([ADR-0044](../docs/adr/0044-upload-unified-command-surface.md))
+> — unify `upload` (`--file`/`--snapshot`/`--since`), recompose `backup`, retire `backup --snapshot`.
+
 > **Provenance note (per the global "stick to the user's words" rule):** the brief below is
 > the user's design. Lines tagged **_[CN]_** ("Claude's note") are my framing/suggestions, not
 > part of the brief — kept visibly separate so they can be taken or dropped independently.
@@ -182,21 +189,21 @@ Sources: [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/use
 - **The `--if-modified-from` TODO** in [`src/commands/upload.mjs`](../src/commands/upload.mjs)
   and the matching **CLAUDE.md "Known gaps"** note — resolved/rewritten (becomes `--since`, and
   the "load-bearing for backup" premise was wrong).
-- **ADRs:** (b) the command-surface decision — `upload` unification + retirement of
-  `backup --snapshot` — is **done**: [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md)
-  (from the `cli-design` pass). Still to write: (a) the *change-detection* decision — *drop the
-  persistent objects cache; baseline = local snapshot + on-demand `LIST` + conditional-PUT
-  backstop* — write it when the engine slice (session 1) lands.
-- **Code to remove with the cache:** `knownObjects` / `recordObjects` / `writeObjectsCache` /
+- **ADRs:** both written. (b) the command-surface decision — `upload` unification + retirement
+  of `backup --snapshot` — [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md) (from
+  the `cli-design` pass); (a) the *change-detection* decision — drop the persistent objects
+  cache; baseline = local snapshot + on-demand `LIST` + conditional-PUT backstop —
+  [ADR-0045](../docs/adr/0045-change-detection-local-baseline-list-fallback.md), **built**.
+- **Code removed with the cache (done):** `knownObjects` / `recordObjects` / `writeObjectsCache` /
   `objectsCachePath` in [`src/lib/objects.mjs`](../src/lib/objects.mjs), the `--skip-cache` flag,
-  and the cache wiring in [`src/lib/remote.mjs`](../src/lib/remote.mjs)'s `uploadSnapshot`. Keep
-  `verify`/`cleanup`'s `LIST`-based integrity roles; they just no longer heal a cache.
+  and the cache wiring in [`src/lib/remote.mjs`](../src/lib/remote.mjs)'s `uploadSnapshot`.
+  `verify`/`cleanup` keep their `LIST`-based integrity roles; they no longer heal a cache.
 
 ## Open points
 
 - **Manifest opt-out flag** — needed now? (defer, #7). Name if so.
 - **Off-AWS conditional-write-on-multipart** — verify before relying on the backstop there.
 - **`cli-design` pass** on the whole `upload`/`backup` surface before coding.
-- **Slice ordering** — this is a sizeable reshape; likely wants breaking into PRs (e.g. drop
-  cache → unify `upload` → recompose `backup` / retire `--snapshot`). Pre-1.0, so bold refactor
-  is fine (#7 / version gate).
+- **Slice ordering** — broken into PRs. **Slice 1 (drop cache → local baseline + LIST) is
+  landed** (ADR-0045); remaining: unify `upload` → recompose `backup` / retire `--snapshot`
+  (ADR-0044). Pre-1.0, so bold refactor is fine (#7 / version gate).

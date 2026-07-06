@@ -17,7 +17,6 @@ import {
   uploadCandidates,
   uploadSnapshot,
 } from "./remote.mjs";
-import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /**
  * Build a snapshot lookup from a path→hash map — only the hash matters to
@@ -33,10 +32,9 @@ const lookup = (pathToHash) =>
     ]),
   );
 
-// The gated uploadSnapshot tests below write the per-bucket objects cache; each
-// points S3CAB_HOME at a temp dir (useTempHome) to isolate it, mirroring
-// sets.test.mjs. HOME is left alone so they can still resolve AWS credentials
-// from ~/.aws.
+// The gated tests below work entirely off an explicit temp `snapshotDir`, so they
+// keep no s3cab home; they resolve AWS credentials from the ambient chain (CI/OIDC
+// or a local ~/.aws profile).
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /** @type {NodeJS.ProcessEnv} */
@@ -149,9 +147,6 @@ describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
 
   it("pulls each manifest down byte-identically (the adoption sync, ADR-0027)", async () => {
     await using dir = await mkTmpDir();
-    // useTempHome isolates the objects cache uploadSnapshot writes; AWS
-    // credentials must therefore come from the environment (see uploadSnapshot test).
-    useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const set = `dl-${Date.now()}`;
     const name = "2025-02-20T0900";
@@ -196,9 +191,6 @@ describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
 describe("referencedObjects (real bucket)", { skip }, () => {
   it("unions a set's snapshot hashes and flags an unreadable snapshot", async () => {
     await using dir = await mkTmpDir();
-    // useTempHome isolates the objects cache uploadSnapshot writes; AWS
-    // credentials therefore come from the environment (see uploadSnapshot test).
-    useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const set = `ref-${Date.now()}`;
     const name = "2025-03-10T0800";
@@ -259,45 +251,61 @@ describe("referencedObjects (real bucket)", { skip }, () => {
 });
 
 describe("uploadSnapshot (real bucket)", { skip }, () => {
-  it("uploads objects then the snapshot, and refuses to overwrite an existing one", async () => {
+  it("first backup LISTs the store; a --since backup diffs against the local previous snapshot", async () => {
     await using dir = await mkTmpDir();
-    // useTempHome isolates the objects cache this writes; AWS credentials must
-    // therefore come from the *environment* (CI/OIDC), since it redirects HOME
-    // away from any ~/.aws config.
-    useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const set = `upload-${Date.now()}`;
-    const name = "2025-01-15T1030";
+    const first = "2025-01-15T1030";
+    const second = "2025-01-15T1130";
 
     const contentDir = resolve(dir.path, "content");
     mkdirSync(contentDir, { recursive: true });
     const fileA = join(contentDir, "a.txt");
     const fileB = join(contentDir, "b.txt");
+    const fileC = join(contentDir, "c.txt");
     // Unique content → unique hashes, so the shared objects/ store stays
     // isolated from other runs and teardown deletes exactly what we made.
     writeFileSync(fileA, `alpha ${set}`);
     writeFileSync(fileB, `beta ${set}`);
+    writeFileSync(fileC, `gamma ${set}`);
 
     const snapshotDir = join(dir.path, "snapshots");
     mkdirSync(snapshotDir, { recursive: true });
-    await writeSnapshot(snapshotDir, name, [fileA, fileB]);
+    // First snapshot: a.txt + b.txt. Second: a.txt (unchanged) + c.txt (new).
+    await writeSnapshot(snapshotDir, first, [fileA, fileB]);
+    await writeSnapshot(snapshotDir, second, [fileA, fileC]);
 
-    const { entries: target } = await readSnapshot(snapshotDir, name);
-    const hashes = [...new Set([...target.values()].map((p) => p.hash))];
+    const { entries: firstEntries } = await readSnapshot(snapshotDir, first);
+    const { entries: secondEntries } = await readSnapshot(snapshotDir, second);
+    const firstHashes = [
+      ...new Set([...firstEntries.values()].map((p) => p.hash)),
+    ];
+    const secondHashes = [
+      ...new Set([...secondEntries.values()].map((p) => p.hash)),
+    ];
+    // c.txt is the only content the second snapshot adds over the first.
+    const newHashes = secondHashes.filter((h) => !firstHashes.includes(h));
+    assert.equal(
+      newHashes.length,
+      1,
+      "the second snapshot adds one new object",
+    );
+    const allHashes = [...new Set([...firstHashes, ...secondHashes])];
 
     try {
-      const result = await uploadSnapshot({
+      // First backup: no --since → LIST the (empty) store, upload both objects.
+      const firstResult = await uploadSnapshot({
         bucket,
         set,
         snapshotDir,
-        name,
+        name: first,
       });
-      assert.equal(result.candidates, hashes.length);
-      assert.equal(result.uploaded, hashes.length);
+      assert.equal(firstResult.candidates, firstHashes.length);
+      assert.equal(firstResult.uploaded, firstHashes.length);
 
       // The snapshot is present (uploaded last) and its objects exist.
-      assert.deepEqual(await listRemoteSnapshots(bucket, set), [name]);
-      for (const hash of hashes) {
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), [first]);
+      for (const hash of firstHashes) {
         const keys = [];
         for await (const o of listObjects(`s3://${bucket}/objects/${hash}`)) {
           if (o.Key) {
@@ -307,19 +315,33 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
         assert.ok(keys.includes(`objects/${hash}`), `object ${hash} missing`);
       }
 
-      // Re-backing-up the same name uploads nothing (all objects now in the
-      // latest remote snapshot) and errors on the immutable snapshot.
+      // Second backup with --since first: only c.txt is new (a.txt is in the
+      // baseline snapshot), so exactly one object is a candidate and uploaded.
+      const secondResult = await uploadSnapshot({
+        bucket,
+        set,
+        snapshotDir,
+        name: second,
+        since: first,
+      });
+      assert.equal(secondResult.candidates, 1);
+      assert.equal(secondResult.uploaded, 1);
+
+      // Re-uploading the same name (first-backup path) uploads nothing — its
+      // objects are all in the store — and errors on the immutable snapshot.
       await assert.rejects(
-        () => uploadSnapshot({ bucket, set, snapshotDir, name }),
+        () => uploadSnapshot({ bucket, set, snapshotDir, name: first }),
         /already backed up/,
       );
     } finally {
-      for (const hash of hashes) {
+      for (const hash of allHashes) {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
-      await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
-      );
+      for (const name of [first, second]) {
+        await deleteObject(
+          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+        );
+      }
     }
   });
 });
@@ -327,7 +349,6 @@ describe("uploadSnapshot (real bucket)", { skip }, () => {
 describe("deleteRemoteSnapshot (real bucket)", { skip }, () => {
   it("removes just the snapshot, leaving its objects in place", async () => {
     await using dir = await mkTmpDir();
-    useTempHome(dir.path);
     const bucket = /** @type {string} */ (TEST_BUCKET);
     const set = `del-${Date.now()}`;
     const name = "2025-04-01T1200";

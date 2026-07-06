@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 /** @import { ReferencedResult } from "../lib/verify.mjs" */
 
 // Offline tests for `cleanup`: the S3 reads/writes (referencedObjects,
-// listStoredObjects, deleteStoredObject, writeObjectsCache) and the prompt are
-// faked at the lib seam; the object ages are staged as Dates so the 7-day grace
-// window is exercised without waiting. cleanup computes its missing/damaged/orphan
-// tallies directly from the two enumerations (hash level). Mocks first, then a
-// dynamic import.
+// listStoredObjects, deleteStoredObject) and the prompt are faked at the lib
+// seam; the object ages are staged as Dates so the 7-day grace window is
+// exercised without waiting. cleanup computes its missing/damaged/orphan tallies
+// directly from the two enumerations (hash level). Mocks first, then a dynamic
+// import.
 
 /** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
@@ -16,8 +16,6 @@ let referencedBySet = new Map();
 let storedObjects = [];
 /** @type {string[]} */
 let deleteCalls = [];
-/** @type {string[][]} */
-let cacheWrites = [];
 let promptAnswer = false;
 let promptCalls = 0;
 
@@ -36,12 +34,6 @@ mock.module("../lib/objects.mjs", {
       /** @type {string} */ hash,
     ) => {
       deleteCalls.push(hash);
-    },
-    writeObjectsCache: async (
-      /** @type {string} */ _bucket,
-      /** @type {Iterable<string>} */ hashes,
-    ) => {
-      cacheWrites.push([...hashes]);
     },
   },
 });
@@ -89,7 +81,6 @@ beforeEach(() => {
   referencedBySet = new Map();
   storedObjects = [];
   deleteCalls = [];
-  cacheWrites = [];
   promptAnswer = false;
   promptCalls = 0;
 });
@@ -120,10 +111,9 @@ describe("cleanup command", () => {
     assert.equal(result.withinGrace, 1); // new-orphan protected
     assert.equal(result.deleted, 0);
     assert.deepEqual(deleteCalls, []);
-    assert.deepEqual(cacheWrites, []); // dry run never rewrites the cache
   });
 
-  it("--delete removes past-grace orphans and rewrites the cache from stored − deleted", async () => {
+  it("--delete removes past-grace orphans, leaving referenced and grace-protected objects", async () => {
     referencedBySet.set("photos", ref(["kept"]));
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
@@ -133,13 +123,10 @@ describe("cleanup command", () => {
 
     const result = await cleanup("b", { delete: true });
 
+    // Only the past-grace orphan goes; kept (referenced) and new-orphan (within
+    // grace) stay.
     assert.deepEqual(deleteCalls, ["old-orphan"]);
     assert.equal(result.deleted, 1);
-    // Cache rewritten to everything still stored (kept + the grace-protected new-orphan).
-    assert.equal(cacheWrites.length, 1);
-    const [firstWrite] = cacheWrites;
-    assert.ok(firstWrite);
-    assert.deepEqual(firstWrite.sort(), ["kept", "new-orphan"]);
   });
 
   it("counts a missing hash referenced by several sets once", async () => {
@@ -251,6 +238,5 @@ describe("cleanup command", () => {
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
     assert.equal(result.deleted, 0);
-    assert.deepEqual(cacheWrites, []); // declined → no cache rewrite
   });
 });

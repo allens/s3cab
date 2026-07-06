@@ -9,9 +9,8 @@ import { isInteractive } from "../lib/style.mjs";
  * `s3cab delete <set> --snapshot <name>` deletes just that snapshot object from
  * `snapshots/<set>/`; the file content it referenced stays under `objects/`.
  * Reclaiming objects nothing references any more is `cleanup`'s job (the output
- * says so), so `delete` never touches `objects/` and the objects cache stays
- * true — no refresh needed. (Local snapshots need no command: the files are the
- * API — delete the file.)
+ * says so), so `delete` never touches `objects/`. (Local snapshots need no
+ * command: the files are the API — delete the file.)
  *
  * The set name is **required** — no sole-set default, matching `restore`
  * ([ADR-0040](../../docs/adr/0040-restore-requires-set-name.md)): a destructive

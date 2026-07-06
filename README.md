@@ -126,13 +126,13 @@ the repository layout, the snapshot-file grammar, and a recover-by-hand walkthro
 written down in [guide/format.md](guide/format.md), **the format spec**.
 
 The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
-advanced/diagnostic command — most people never run it directly; its real job is to produce
-a lookup file (the per-bucket objects cache) so `backup` can skip re-uploading files already
-stored:
+advanced/diagnostic command — most people never run it directly; its real job is composition:
+the flat hash-per-line stream pipes into ordinary shell tools, so you can reproduce s3cab's
+own maintenance by hand (it's the same enumeration `verify`/`cleanup` diff):
 
 ```console
 > s3cab hashes my-backup-bucket               # one sha256 per line, to stdout
-> s3cab hashes my-backup-bucket -f have.txt   # …or written to a file
+> s3cab hashes my-backup-bucket > have.txt    # …or redirect to a file
 ```
 
 Its write counterpart, `upload`, puts a single file into the store at `objects/<sha256>`.
