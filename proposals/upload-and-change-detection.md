@@ -46,12 +46,15 @@ bucket. Two modes, told apart by whether `--file` is present:
     belongs to a set and its manifest goes to `snapshots/<set>/`, so `--bucket` never applies
     there.
 
-- **Snapshot's objects** — `upload <set> [--snapshot <name>]`
-  Upload every object referenced by the snapshot (**`--snapshot` optional; defaults to the latest
-  local snapshot**), then upload the **snapshot manifest last** — preserving the
-  objects-first/manifest-last invariant. Errors if a *named* snapshot is absent. (`--snapshot` is
-  a target *flag*, not a positional — the `cli-design` pass chose flags over a second mixed-kind
-  positional; see [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md).)
+- **Snapshot's objects** — `upload <set> --snapshot <name>`
+  Upload every object referenced by the snapshot (**`--snapshot` required — no latest default**),
+  then upload the **snapshot manifest last** — preserving the objects-first/manifest-last
+  invariant. Errors if the named snapshot is absent. `--snapshot` is a target *flag*, not a
+  positional (the `cli-design` pass chose flags over a second mixed-kind positional). **`upload`
+  performs no snapshot lookup** — not the "latest" target, nor the "previous" baseline: `upload
+  <set>` with neither `--file` nor `--snapshot` is a usage error, and resolving which snapshot to
+  use is `backup`'s (porcelain) job, not the plumbing's. See
+  [ADR-0044](../docs/adr/0044-upload-unified-command-surface.md).
   - A **manifest opt-out** ("upload the objects but not the snapshot file") is a *possible*
     flag. **_[CN]_** Defer it until a use appears (#7); name TBD (`--no-manifest` /
     `--objects-only`). Orphan objects with no manifest are the *safe* direction (wasted space,
@@ -65,9 +68,10 @@ bucket. Two modes, told apart by whether `--file` is present:
     entirely. Wholesale "re-push an entire snapshot's objects regardless" is niche repair
     territory that belongs with `verify`/`cleanup`, not `upload` (#7).
 
-Predictable-by-design: `upload` never goes hunting for "which snapshot is latest/previous" as a
-*baseline* — that smart choice belongs to `backup` (porcelain). Plumbing is explicit; porcelain
-is smart. **_[CN]_** This is just ADR-0023 (porcelain/plumbing) applied.
+Predictable-by-design: `upload` never goes hunting for "which snapshot is latest/previous" — for
+*either* the target (what to upload) *or* the baseline (what to skip). Both are named explicitly,
+and resolving them is `backup`'s (porcelain) job. Plumbing is explicit; porcelain is smart.
+**_[CN]_** This is just ADR-0023 (porcelain/plumbing) applied.
 
 ## Change detection — the baseline
 
@@ -76,7 +80,7 @@ ways, by a **fixed deterministic rule** (not state-dependent "auto"):
 
 - `upload <set> --snapshot <name> --since <baseline-snapshot>` → skip objects already in
   `<baseline-snapshot>`. No `LIST`.
-- `upload <set> [--snapshot <name>]` (no `--since`) → **`LIST` the store** and use that as the
+- `upload <set> --snapshot <name>` (no `--since`) → **`LIST` the store** and use that as the
   baseline.
 - `upload <set> --file …` (single-object mode) → **neither**: just the one conditional PUT.
   `LIST`ing the whole store to check a single file would be silly; `--since` doesn't apply here.

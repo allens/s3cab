@@ -35,10 +35,15 @@ predictable**; porcelain is allowed to be **smart**.
    and asymmetric with the single-file target — in favour of flags
    ([clig.dev](https://clig.dev): prefer flags to positionals; avoid mixed-kind positionals):
    - `upload <set> --file <path>` — one object (hash + one conditional PUT). No `LIST`, no baseline.
-   - `upload <set> --snapshot <name>` — that snapshot's objects, then the manifest **last**
-     (objects-first/manifest-last invariant).
-   - `upload <set>` — neither flag → the **latest** local snapshot. Right default over a
-     required flag.
+   - `upload <set> --snapshot <name>` — that snapshot's objects (name **required**), then the
+     manifest **last** (objects-first/manifest-last invariant).
+   - `upload <set>` with **neither** flag → a **usage error** ("specify `--file` or
+     `--snapshot`"). `upload` performs **no snapshot lookup** — not the "latest" target, nor the
+     "previous" baseline. Which snapshot to upload (or diff against) is porcelain smarts that live
+     in `backup` (point 6); plumbing is explicit by nature (cf. git's `hash-object` /
+     `write-tree`). clig's "right defaults beat required flags" applies to the user-facing
+     *porcelain* (`backup`, which just works with no args), not to this advanced plumbing, where
+     explicitness is the contract.
 
 3. **`--bucket <bucket>` is the raw single-file escape hatch** — `upload --bucket <b> --file <p>`
    PUTs one object with no set (ambient / user-env credentials only). It carries forward today's
