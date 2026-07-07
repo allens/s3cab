@@ -64,10 +64,10 @@ AWS_PROFILE=your-profile   # the ~/.aws profile to use; omit for the default
 
 ```sh
 aws sso login          # only if your profile is SSO and the session has expired
-npm run test:s3
+npm run test:integration
 ```
 
-`test:s3` loads `.env.test` and runs the gated suites. Because the tests relocate only
+`test:integration` loads `.env.test` and runs the gated suites. Because the tests relocate only
 s3cab's own home (via `S3CAB_HOME`) and leave `HOME` alone, the AWS SDK resolves
 credentials from your `~/.aws` profile exactly as the real app would — so **any** identity
 works, no credential juggling:

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // This whole file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the object store's listing logic and — crucially —
 // `getObject`'s integrity check run here with zero AWS, on every push. The
-// real-bucket happy path is covered separately by restore.test.mjs's gated
+// real-bucket happy path is covered separately by restore.integration.test.mjs's gated
 // round-trip (restore fetches every object through `getObject`).
 //
 // Module mocking has a load-bearing ordering rule (verified): a static `import`

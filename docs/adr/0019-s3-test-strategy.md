@@ -20,6 +20,15 @@ single SDK boundary the architecture already draws ([0013](0013-one-repository-o
 The one place tests legitimately drop to the request layer is asserting `s3.mjs`'s **own**
 request shaping (non-AWS checksum/SSE/storage-class gating).
 
+We swap `s3.mjs` with `mock.module` rather than **injecting** an `s3` client through the
+call chain: DI would thread an infrastructure parameter through a layered, **single-backend**
+CLI purely to enable a test double — added lines against [0006](0006-minimal-code.md), and it
+pollutes the one-export command seam. The escape hatch is a real *second* store (e.g. a
+filesystem backend): that would make a `Store` interface justified on its own merits, tests
+would run against a real implementation, and the mock would retire — but until such a store
+exists that abstraction is speculative (0006 / convention #7). Full reasoning in
+[docs/design/testing.md](../design/testing.md).
+
 ## Considered options
 
 - **An emulator (MinIO / LocalStack)** — rejected (see the spec).

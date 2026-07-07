@@ -15,3 +15,4 @@ future "platform / release" epic).
   `NUL`…) — a photo/video archive will eventually hit one.
 - **Distribution**: winget / scoop / Homebrew manifests once released; a real Windows
   code-signing cert eventually (same class of trust problem as the macOS notarization gap).
+- **Use nodejs test runner tags** https://nodejs.org/docs/latest/api/test.html#test-tags
