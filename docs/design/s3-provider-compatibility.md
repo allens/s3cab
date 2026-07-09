@@ -106,6 +106,29 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    default stands (free wire integrity). s3cab already SHA-256s every file, so the trailer
    adds nothing off-AWS.
 
+5. **Verify the conditional-write backstop off-AWS.** Change detection leans on the
+   conditional PUT (`If-None-Match: *`) as its *correctness* backstop
+   ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) — the baseline is
+   only a round-trip optimization, so a store already holding an object must reject a re-PUT.
+   What's verified, and the open risk:
+   - **AWS S3 — works, including multipart.** `If-None-Match: *` is supported on
+     `CompleteMultipartUpload` (general-purpose buckets, Nov 2024; `PutObject`, Aug 2024), and
+     the SDK's `lib-storage` `Upload` forwards it (blanket `{ ...this.params }` spread into the
+     completion call). So the `IfNoneMatch` on our multipart path is *not* dead code.
+   - **But the conditional is evaluated only at completion** — after every part has already
+     uploaded. Relying on it alone for a large already-present object would burn the whole
+     transfer, which is exactly why `putFile` ([../../src/lib/s3.mjs](../../src/lib/s3.mjs))
+     keeps a **HEAD preflight for files ≥ 8 MB** before starting a multipart upload. Keep that
+     preflight.
+   - **Open risk — off-AWS providers.** Whether R2 / B2 / MinIO / Wasabi honour conditional
+     writes on multipart is **unverified**. Because the conditional PUT is the correctness
+     backstop, its reliability off-AWS must be confirmed per provider before s3cab leans on it
+     there. Sources:
+     [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html) ·
+     [enforcement, Nov 2024](https://aws.amazon.com/about-aws/whats-new/2024/11/amazon-s3-enforcement-conditional-write-operations-general-purpose-buckets/) ·
+     [CompleteMultipartUpload API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html) ·
+     [lib-storage Upload.ts](https://github.com/aws/aws-sdk-js-v3/blob/main/lib/lib-storage/src/Upload.ts).
+
 ## Verification
 
 - Existing tests stay green: `node --test` across [../../test/](../../test/) and `src/**/*.test.mjs`.
@@ -124,6 +147,10 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   succeeds against a provider", which a trailer-tolerant provider would pass vacuously).
 - **AWS regression:** with no custom endpoint, confirm `StorageClass` / SSE / region-redirect
   still apply exactly as before.
+- **Conditional-write backstop off-AWS** (Finding 3 item 5): against the same non-AWS target,
+  confirm a re-PUT of an already-stored object is rejected (`If-None-Match: *`) — for both the
+  single-PUT path and a **multipart** (≥ 8 MB) object. A provider that silently overwrites
+  would make the correctness backstop a no-op there.
 
 ## Out of scope
 

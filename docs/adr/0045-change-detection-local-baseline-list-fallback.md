@@ -4,9 +4,8 @@
 `backup`/`uploadSnapshot`, behind the existing `backup`). The **companion** to
 [ADR-0044](0044-upload-unified-command-surface.md): 0044 records the *command-surface*
 reshape (unify `upload`, retire `backup --snapshot`); this records the *change-detection*
-engine. Both were sliced from
-[proposals/upload-and-change-detection.md](../../proposals/upload-and-change-detection.md);
-this is the first (engine) slice, and lands with **no** command-surface change. The full
+engine. Both were sliced from a shared upload/change-detection proposal (since retired, its
+work done); this is the first (engine) slice, and lands with **no** command-surface change. The full
 behaviour lives in [docs/design/backup.md](../design/backup.md) ("How `backup` computes the
 upload set").
 
