@@ -27,6 +27,7 @@ An idea leaves this directory one of two ways, and either way the entry is delet
 
 Git history preserves anything deleted, so nothing is truly lost.
 
-> This is really a lightweight, in-repo backlog / issue tracker. Longer term it may move to
-> **GitHub Issues** (which the repo already uses as its tracker — see
-> [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md)); kept as files for now.
+> This is really a lightweight, in-repo backlog / issue tracker. Longer term it may
+> consolidate onto **GitHub Issues** (the planned post-release tracker); the engineering
+> skills currently use local markdown files — see
+> [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md). Kept as files here for now.
