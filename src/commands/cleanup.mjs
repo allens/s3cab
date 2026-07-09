@@ -1,17 +1,10 @@
+import { planCleanup } from "../lib/cleanup.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
-
-// An object younger than this is never deleted (docs/design/backup.md, stated to
-// users in the format spec). Under objects-first/snapshot-last, an in-flight
-// backup's uploaded-but-not-yet-referenced objects are indistinguishable from
-// orphans, so the grace window is what makes concurrent backups safe without a
-// lock. Fixed — no `--grace` knob (a foot-gun that buys nothing, and loosening a
-// fixed floor later is additive).
-const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Reclaim storage held by orphaned objects — `objects/<hash>` entries no snapshot
@@ -71,53 +64,28 @@ export async function cleanup(bucket, options = {}) {
     stored.set(hash, { size, lastModified });
   }
 
+  // The whole diff — orphans (with the grace window), the delete-list, and the
+  // missing/damaged/unreadable tallies — is one pure computation over the two
+  // enumerations (planCleanup, cleanup.mjs; the read-only twin of verifySet).
+  // Everything below is the command's job: turn the plan's data into aborts,
+  // warnings, a prompt, and the deletes.
+  const plan = planCleanup(referencedBySet, stored);
+  const { orphanHashes, missing, damaged, reclaimableBytes } = plan;
+
   // Interlock #1 (both modes): an unreadable snapshot makes the orphan set a lie
-  // (its references are unknown). Read straight off the referenced enumeration —
-  // cleanup works at hash level (whole objects reclaimed), so it needs none of
-  // verify's per-path problem model; the same two enumerations answer both.
-  const unreadable = [...referencedBySet].flatMap(([set, r]) =>
-    r.unreadable.map((u) => `${set}/${u.snapshot}`),
-  );
-  if (unreadable.length > 0) {
+  // (its references are unknown), so abort before reporting numbers that would be
+  // wrong. Triage with verify first.
+  if (plan.unreadable.length > 0) {
+    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
     throw new Error(
-      `Can't compute orphans safely: ${unreadable.length} snapshot(s) won't read, ` +
+      `Can't compute orphans safely: ${where.length} snapshot(s) won't read, ` +
         `so their references are unknown and every object they alone reference ` +
         `would look orphaned.\n` +
-        `Unreadable: ${unreadable.join(", ")}\n` +
+        `Unreadable: ${where.join(", ")}\n` +
         `Triage first: s3cab verify ${bucket}`,
     );
   }
 
-  // The referenced union (bucket-wide — cleanup must span every set), plus the
-  // missing/damaged tallies. Distinct *hashes*, not paths: an object
-  // missing/damaged that several files or sets reference is one lost object, so
-  // it must count once or the reported number lies. Missing = a referenced hash
-  // absent from the store (the broken invariant); damaged = stored, but *any*
-  // recorded path size disagrees with the stored LIST size (a torn snapshot file can
-  // record different sizes across paths/snapshots — `verify` has the per-file
-  // detail).
-  /** @type {Set<string>} */
-  const referencedAll = new Set();
-  let missing = 0;
-  let damaged = 0;
-  for (const { referenced } of referencedBySet.values()) {
-    for (const [hash, { paths }] of referenced) {
-      if (referencedAll.has(hash)) {
-        continue;
-      }
-      referencedAll.add(hash);
-      const storedSize = stored.get(hash)?.size;
-      if (storedSize === undefined) {
-        missing++;
-      } else if (
-        [...paths.values()].some((p) =>
-          [...p.sizes].some((size) => size !== storedSize),
-        )
-      ) {
-        damaged++;
-      }
-    }
-  }
   if (damaged > 0) {
     // Not an orphanhood concern (that's hash-level) — just flag it and point at verify.
     console.warn(
@@ -126,33 +94,13 @@ export async function cleanup(bucket, options = {}) {
     );
   }
 
-  // Orphans: stored − referenced, honoring the grace window. An object with no
-  // LastModified is treated as brand new (protected) — the safe direction.
-  const now = Date.now();
-  /** @type {string[]} */
-  const orphanHashes = [];
-  let reclaimableBytes = 0;
-  let withinGrace = 0;
-  for (const [hash, { size, lastModified }] of stored) {
-    if (referencedAll.has(hash)) {
-      continue;
-    }
-    const ageMs = now - (lastModified ? lastModified.getTime() : now);
-    if (ageMs < GRACE_MS) {
-      withinGrace++;
-      continue;
-    }
-    orphanHashes.push(hash);
-    reclaimableBytes += size;
-  }
-
   const report = {
     bucket,
-    storedObjects: stored.size,
-    referencedObjects: referencedAll.size,
+    storedObjects: plan.storedObjects,
+    referencedObjects: plan.referencedObjects,
     orphanObjects: orphanHashes.length,
     reclaimableBytes,
-    withinGrace,
+    withinGrace: plan.withinGrace,
     missingObjects: missing,
     deleted: 0,
   };

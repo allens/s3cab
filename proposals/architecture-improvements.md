@@ -28,43 +28,6 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-### Add `rewriteObjects` — the objects cache's missing third verb. _(Strong — slice-5 prep.)_
-
-_Surfaced 2026-07-03, from the settled verify/cleanup design._ The per-bucket objects cache
-([src/lib/objects.mjs](../src/lib/objects.mjs):143–189) exposes read-all (`knownObjects`)
-and append (`recordObjects`, a bare `appendFileSync`). But
-[ADR-0042](../docs/adr/0042-verify-set-scoped-all-sets-default.md) requires `verify` to
-**rewrite** the cache from a completed LIST (atomic temp + rename, never from a partial
-LIST), and cleanup's `--delete` (docs/design/backup.md) rewrites it from stored − deleted.
-No such verb exists — both upcoming commands would otherwise grow the write-and-rename dance
-inline in the command layer, each re-spelling the `objects.<bucket>` path. Add
-`rewriteObjects(bucket, hashes)` (temp + `rename`, the pattern `getObject` already uses):
-the cache becomes one deep concept — three verbs, one owner, one path literal, one atomicity
-guarantee, beside the staleness-asymmetry comment that already explains it. Directly
-unit-testable (rewrite A→B, assert `knownObjects` sees exactly B).
-
-### Size-carrying `listStoredObjects` — verify's cross-check without breaking the seam. _(Worth exploring — slice-5 prep.)_
-
-_Surfaced 2026-07-03._ `listObjectHashes`
-([src/lib/objects.mjs](../src/lib/objects.mjs):122–130) collapses each listed object to a
-bare hash, but verify's finding class 2 (size mismatch) needs `hash → size` from the *same*
-LIST it already pays for (the design forbids extra requests). As shaped, `verify` would have
-to bypass `objects.mjs` and call `s3.mjs`'s `listObjects` directly — leaking the `objects/`
-prefix literal out of the one module that owns it. Add
-`listStoredObjects(bucket) → AsyncGenerator<{ hash, size }>` and re-express
-`listObjectHashes` as a thin map over it: the hash-only consumers keep their view, verify
-gets sizes, the seam stays sealed.
-
-### Decide the `referenced` union's seam before slice 5. _(Worth exploring — placement decision, not a defect.)_
-
-_Surfaced 2026-07-03._ The design (docs/design/backup.md) commits to *referenced* — the
-union of hashes across snapshots — being a single internal lib function with two scopes
-(per-set for `verify`, bucket-wide for `cleanup`), detecting conflicting-size rows for free
-while unioning. The pieces exist across two modules (`set-marker.mjs` lists sets,
-`remote.mjs` lists/reads one set's snapshots); the composite has no owner yet. Assembled
-inline inside `verify`, the two scopes would drift. Pick its placement (in `remote.mjs`, or
-a small new module composing the two) as one parameterised function, before writing slice 5.
-
 ### Lift `seedStarterExclude`'s guard into `sets.mjs`. _(Worth exploring — small.)_
 
 _Surfaced 2026-07-03._ PR #146's split is mostly right — starter data + read/write
@@ -78,19 +41,20 @@ user-facing notice. Locality/testability gain, not a depth lever.
 
 ### Pure `planUpload` — give `backup` the `planRestore` treatment. _(Strong.)_
 
-_Surfaced 2026-06-24; re-verified 2026-07-03._ `restore` split its decision step
-(`planRestore`, pure and unit-tested without S3) from its I/O loop; `backup` never got the
-same treatment. `uploadSnapshot` ([src/lib/remote.mjs](../src/lib/remote.mjs):193–250)
-interleaves the upload-set decision — `uploadCandidates` (target − latest remote) minus the
-per-bucket objects cache (`knownObjects`, [src/lib/objects.mjs](../src/lib/objects.mjs)), then
-first-path-wins `pathByHash` selection — directly with the `putObject` loop. So only the pure
-`uploadCandidates` diff is unit-tested; the cache-narrowing + path-selection logic is reachable
-only through the gated real-S3 tests (`remote.test.mjs:190`, skipped without a bucket) — and
-the `backup` command has no test at all. Extract a pure `planUpload(target, remote, cached) →
-Map<hash, path>` and shrink `uploadSnapshot` to *executing* the plan (PUT + `recordObjects` +
-snapshot-last). Then the spec's "how `backup` computes the upload set" is one testable
-function, mirroring the already-accepted `planRestore`, and a `backup` command test becomes
-feasible. Purely additive — no ADR tension.
+_Surfaced 2026-06-24; re-verified & **narrowed** 2026-07-08 (objects cache dropped, ADR-0045)._
+`restore` split its decision step (`planRestore`, pure and unit-tested without S3) from its I/O
+loop; `backup`/`upload` got it only *half*-way. `uploadSnapshot`
+([src/lib/remote.mjs](../src/lib/remote.mjs):368–436) now has **two** forms of "target minus
+what's already there": the pure, tested `uploadCandidates` (target − baseline,
+[src/lib/remote.mjs](../src/lib/remote.mjs):307–337) on the `--since` path, and an **inlined
+streaming LIST-diff** on the first-backup path
+([src/lib/remote.mjs](../src/lib/remote.mjs):390–398) — seed a Set from `target`, delete each
+hash as `listObjectHashes` streams — plus the first-path-wins `pathByHash` selection and the
+`putObject` loop, all interleaved. So the first-backup diff + path-selection are reachable only
+through the gated real-S3 tests. Extract a pure `planUpload(target, { baseline, listed }) →
+Map<hash, path>` covering **both** branches, and shrink `uploadSnapshot` to *executing* the plan
+(PUT + snapshot-last). Then "how `backup` computes the upload set" is one testable function,
+mirroring `planRestore`. Purely additive — no ADR tension. (`recordObjects` is gone — no cache.)
 
 ### One atomic `downloadToFile` at the S3 seam. _(Worth exploring — genuinely reduces total lines.)_
 
@@ -158,36 +122,20 @@ Decision for later: `diff`'s export has no non-test caller besides `compareSnaps
 export is *only* a test seam today — acceptable (an internal seam used by its own tests), but
 make it a conscious call.
 
-### Narrow `s3.mjs` to the SDK seam it guards. _(Worth exploring — progress half escalated.)_
+### Trim `s3.mjs` — delete the dead `emptyBucket`. _(Worth exploring — small; the delete half resolved.)_
 
-_Surfaced 2026-06-23 (as "candidate C"); previously filed under engine-robustness.md, moved
-here 2026-07-02; `bucketPolicy` point retired 2026-07-02; progress half escalated 2026-07-03
-into its own "one stderr-progress module" candidate, which **landed** as
-[PR #148](https://github.com/allens/s3cab/pull/148) (`lib/progress.mjs`)._ What remains here:
-`s3.mjs` exposes test-only `deleteObject`/`emptyBucket` —
-move them to a test helper so the interface narrows to the seam it guards. Note before
-acting: the settled `cleanup` design (docs/design/backup.md, slice 5) will need a real
-*production* delete at this seam, so the shape of that command may resolve this half for
-free — revisit when cleanup is built rather than moving the ops twice. (`bucketPolicy`, once
-flagged here as unused-droppable, is now consumed by the `aws` onboarding command via
-[src/lib/onboarding.mjs](../src/lib/onboarding.mjs) — if s3.mjs is narrowed it migrates, not
-drops. The operational side of `emptyBucket` — uncalled, destructive, one-delete-per-request
-— stays tracked in [engine-robustness.md](engine-robustness.md).)
-
-### `compareSnapshots` returns structured diff, not display strings. _(Speculative — parked until a second consumer exists.)_
-
-_Surfaced 2026-06-23 (as "candidate D"); canonical entry here, UX driver in
-[output-ux.md](output-ux.md)._ `diff` is exemplary — pure, structured, each rule pinned by a
-test. But `compareSnapshots` wraps it and bakes **presentation** into the returned
-`CompareResult` — root-relative paths (`relativeToRoot`) and the `==` / `→` / `→→` arrow
-rendering — so the lib seam hands callers formatted text, not data. A second consumer (a
-`--json` mode, a TUI) couldn't recover the structured relations without re-parsing the arrows.
-Split: `compareSnapshots` returns structured relations; a `presentDiff()` formatter at the
-command edge renders the display. **Speculative on purpose** — only the terminal renderer
-consumes this today, so by the project's own bar
-([ADR-0006](../docs/adr/0006-minimal-code.md) / convention #7) it's a hypothetical seam until
-a second output format actually appears. The human-output/`--json` work in
-[output-ux.md](output-ux.md) is what would make it real — implement this as its first step.
+_Surfaced 2026-06-23 (as "candidate C"); progress half **landed** 2026-07-03 as
+[PR #148](https://github.com/allens/s3cab/pull/148) (`lib/progress.mjs`); re-scoped 2026-07-08._
+The old "move test-only `deleteObject`/`emptyBucket` to a test helper" framing is **stale**:
+`deleteObject` ([src/lib/s3.mjs](../src/lib/s3.mjs):560) is now a genuine *production* seam —
+three layout-owning wrappers guard it (`deleteStoredObject` in objects.mjs → cleanup,
+`deleteRemoteSnapshot` in remote.mjs → delete, and set-marker.mjs → exclude.txt). What remains
+is `emptyBucket` ([src/lib/s3.mjs](../src/lib/s3.mjs):569–578): **zero callers anywhere**
+(production, tests, scripts) — a `DeleteObjectCommand` loop with its own stderr progress,
+duplicating iteration `listObjects` already owns. Fails the deletion test outright — delete it.
+(The pure helpers that also live in s3.mjs — `authNotice`/`clientConfig`/`formatUploadProgress`/
+`putObjectParams`/`parseS3Uri`/`bucketPolicy`, the last consumed by `aws` onboarding — are there
+for cohesion and touch no SDK; the interface-vs-SDK-seam width is deliberate, **not** flagged.)
 
 ---
 
@@ -282,3 +230,18 @@ least once; re-open only if the stated reason no longer holds.
   returns off a TTY until it too was folded in (which also fixed a latent "Found 0 files..."
   display quirk for sets under 500 files). Interface shipped as `createProgress(stream, { logLines })
   → { update(text, { cursor }), [Symbol.dispose] }` (per-caller renderers kept as plain strings).
+- **2026-07-08 — fifth pass.** Re-verified all opens against the source after heavy churn (PRs
+  #150–#160: `verify`/`delete`/`cleanup` built, human-first output + `render.mjs` (ADR-0043),
+  unified `upload` (ADR-0044), the objects cache **dropped** (ADR-0045), tests co-located
+  (ADR-0046)). **Four candidates retired as done/moot:** `rewriteObjects` (dead — no cache),
+  size-carrying `listStoredObjects` (landed — yields `{hash,size,lastModified}`), the
+  `referenced`-union seam (landed as `referencedObjects` in remote.mjs), and the structured
+  `CompareResult` split (landed, ADR-0043). `planUpload` re-scoped (cache gone; first-backup diff
+  inlined) and `s3.mjs` re-scoped (`deleteObject` now production; kill the dead `emptyBucket`).
+  New top pick: *extract a pure `planCleanup`* — the verify/cleanup twin realized in code only on
+  verify's side. **Landed as [PR #164](https://github.com/allens/s3cab/pull/164):** pure
+  `planCleanup` in `src/lib/cleanup.mjs` (mirroring `verifySet`), 8 mock-free lib tests, the
+  cleanup command thinned to I/O + policy; a Copilot-review pass also fixed a pre-existing
+  cross-set `damaged` under-count the extraction had preserved. Its open-candidate entry is
+  deleted (the pair is noted in docs/design/backup.md). Superseded the prior HTML report (now
+  overwritten in place at `architecture-review.html`).
