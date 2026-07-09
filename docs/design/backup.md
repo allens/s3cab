@@ -26,7 +26,11 @@ used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<ba
 `src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
 `deleteStoredObject`, computing missing/damaged/orphan tallies directly from the same two
 enumerations as `verify` — the opposite `stored − referenced` difference; it works at hash
-level, so it needs none of verify's per-path problem model). Remaining is the
+level, so it needs none of verify's per-path problem model). Cleanup's diff core is the pure
+`planCleanup` in `src/lib/cleanup.mjs` — the `stored − referenced` orphan set (with the grace
+window) plus the missing/damaged/unreadable tallies, `now` injected and never throwing — the
+read-only twin of verify's `verifySet`, with the command left as an I/O + policy shell (the two
+abort interlocks, the wrong-size warn, the TTY prompt, the delete loop). Remaining is the
 versioning/ransomware user-doc note (deferred, tracked in "Open items"); the
 everyday-vs-elevated delete-rights question is **resolved** — the everyday identity's
 soft-delete grant is the settled model

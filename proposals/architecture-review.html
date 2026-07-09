@@ -47,10 +47,10 @@
       <section id="candidates" class="space-y-12">
         <h2 class="text-2xl font-serif font-semibold text-slate-700">Open candidates</h2>
 
-        <!-- ============ CANDIDATE 1 — cleanupPlan (STRONG, TOP) ============ -->
+        <!-- ============ CANDIDATE 1 — planCleanup (STRONG, TOP) ============ -->
         <article id="c1" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
           <div class="flex items-center justify-between gap-4 flex-wrap">
-            <h3 class="text-xl font-serif font-semibold text-slate-800">1 · Realize the <span class="mono text-lg">verify</span>/<span class="mono text-lg">cleanup</span> twin in code — extract a pure <span class="mono text-lg">cleanupPlan</span></h3>
+            <h3 class="text-xl font-serif font-semibold text-slate-800">1 · Realize the <span class="mono text-lg">verify</span>/<span class="mono text-lg">cleanup</span> twin in code — extract a pure <span class="mono text-lg">planCleanup</span></h3>
             <div class="flex gap-2">
               <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
               <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
@@ -85,7 +85,7 @@
                 <div class="border-2 border-slate-300 rounded p-2">
                   <p class="diag-label text-slate-500">cleanup command</p>
                   <div class="mt-1 h-6 bg-slate-100 rounded flex items-center justify-center text-slate-500">thin shell → deleteStoredObject loop</div>
-                  <div class="mt-1 rounded deep text-emerald-200 py-2 text-center diag-label">cleanupPlan() — pure, unit-tested</div>
+                  <div class="mt-1 rounded deep text-emerald-200 py-2 text-center diag-label">planCleanup() — pure, unit-tested</div>
                 </div>
                 <p class="text-center text-emerald-600 diag-label">same seam, both sides</p>
               </div>
@@ -94,7 +94,7 @@
 
           <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
             <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The documented "read-only twin" is realized on one side only — <span class="mono">verify</span> extracted its diff into the pure <span class="mono">verifySet</span>; <span class="mono">cleanup</span>'s orphan + missing/damaged arithmetic sits inline in the async command, testable only by module-mocking S3.</span></div>
-            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Extract <span class="mono">cleanupPlan(referencedBySet, stored, { now }) → { orphanHashes, reclaimableBytes, withinGrace, missing, damaged, unreadable }</span> beside <span class="mono">verifySet</span>. <span class="mono">cleanup</span> keeps only enumerate → plan → confirm → delete-loop.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Extract <span class="mono">planCleanup(referencedBySet, stored, { now }) → { orphanHashes, reclaimableBytes, withinGrace, missing, damaged, unreadable }</span> beside <span class="mono">verifySet</span>. <span class="mono">cleanup</span> keeps only enumerate → plan → confirm → delete-loop.</span></div>
           </div>
           <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
             <li class="bg-slate-50 rounded px-3 py-2">locality: GC arithmetic in one testable place</li>
@@ -102,7 +102,7 @@
             <li class="bg-slate-50 rounded px-3 py-2">mirrors the accepted verifySet precedent</li>
             <li class="bg-slate-50 rounded px-3 py-2">the twin becomes structural, not prose</li>
           </ul>
-          <div class="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-2 text-xs text-emerald-800"><span class="font-semibold">Status (2026-07-08):</span> chosen &amp; built on <span class="mono">worktree-cleanup-plan</span> — pure <span class="mono">planCleanup</span> in <span class="mono">src/lib/cleanup.mjs</span>, 7 mock-free lib tests, full gate green. Awaiting review/merge.</div>
+          <div class="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-2 text-xs text-emerald-800"><span class="font-semibold">Status (2026-07-08):</span> <strong>landed</strong> (PR #164) — pure <span class="mono">planCleanup</span> in <span class="mono">src/lib/cleanup.mjs</span>, 8 mock-free lib tests, full gate green.</div>
         </article>
 
         <!-- ============ CANDIDATE 2 — downloadToFile ============ -->
@@ -389,8 +389,8 @@ sequenceDiagram
       <!-- ============ TOP RECOMMENDATION ============ -->
       <section id="top-recommendation" class="rounded-xl deep text-slate-100 p-8 space-y-4">
         <p class="diag-label text-emerald-300">Top recommendation</p>
-        <h2 class="text-2xl font-serif font-semibold">Candidate 1 — extract a pure <span class="mono">cleanupPlan</span></h2>
-        <p class="text-slate-300 text-sm max-w-3xl">It's the freshest and highest-leverage. The design doc <em>asserts</em> <span class="mono">cleanup</span> is <span class="mono">verify</span>'s twin, but only <span class="mono">verify</span> realized that in code (the pure <span class="mono">verifySet</span>); <span class="mono">cleanup</span>'s orphan + grace-window + missing/damaged arithmetic is trapped inline in the async command, testable only by mocking S3. Extracting <span class="mono">cleanupPlan</span> beside <span class="mono">verifySet</span> makes the twin structural, follows an already-accepted precedent, and puts the destructive path's riskiest logic — the grace window — under direct unit test. Pairs naturally with the standing <a href="#c7" class="text-emerald-300 underline">candidate 7</a> cleanup of the S3 seam. <span class="text-emerald-300">(Chosen 2026-07-08; built on <span class="mono">worktree-cleanup-plan</span>, awaiting merge.)</span></p>
+        <h2 class="text-2xl font-serif font-semibold">Candidate 1 — extract a pure <span class="mono">planCleanup</span></h2>
+        <p class="text-slate-300 text-sm max-w-3xl">It's the freshest and highest-leverage. The design doc <em>asserts</em> <span class="mono">cleanup</span> is <span class="mono">verify</span>'s twin, but only <span class="mono">verify</span> realized that in code (the pure <span class="mono">verifySet</span>); <span class="mono">cleanup</span>'s orphan + grace-window + missing/damaged arithmetic is trapped inline in the async command, testable only by mocking S3. Extracting <span class="mono">planCleanup</span> beside <span class="mono">verifySet</span> makes the twin structural, follows an already-accepted precedent, and puts the destructive path's riskiest logic — the grace window — under direct unit test. Pairs naturally with the standing <a href="#c7" class="text-emerald-300 underline">candidate 7</a> cleanup of the S3 seam. <span class="text-emerald-300">(Landed 2026-07-08 as PR #164.)</span></p>
         <p class="text-xs text-slate-400">Cheapest quick win if you'd rather warm up first: <a href="#c6" class="text-emerald-300 underline">candidate 6</a> (drive <span class="mono">diff</span> directly) — no structural change, and <span class="mono">diff</span> already sits at the right seam.</p>
       </section>
 

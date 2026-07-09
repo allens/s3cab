@@ -28,22 +28,6 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-### Extract a pure `planCleanup` — realize the verify/cleanup twin in code. _(Strong — chosen 2026-07-08, in progress.)_
-
-_Surfaced 2026-07-08 (fifth pass)._ The design doc calls `cleanup` the "read-only twin of
-`verify`," but only `verify` realized it in code: its diff lives in the pure, directly
-unit-tested `verifySet` ([src/lib/verify.mjs](../src/lib/verify.mjs):93–143), while `cleanup`'s
-orphan / grace-window / missing-damaged arithmetic sat inline in the async command
-([src/commands/cleanup.mjs](../src/commands/cleanup.mjs)), reachable only by `mock.module`-ing
-three lib seams (`referencedObjects`/`listStoredObjects`/`deleteStoredObject`) plus staging
-`stdin.isTTY`. **Being built on `worktree-cleanup-plan`:** a pure, non-throwing
-`planCleanup(referencedBySet, stored, { now }) → CleanupPlan` in a new
-[src/lib/cleanup.mjs](../src/lib/cleanup.mjs) (mirroring the `verify.mjs` pair; `now` injected
-for the grace window; `unreadable` pulled behind the seam as structured data). The command
-keeps only the I/O + policy (the two abort interlocks, the wrong-size warn, the TTY prompt, the
-delete loop). Lib gets 7 mock-free tests; the command test sheds its two arithmetic-only cases.
-When it merges, delete this entry and note the pair in docs/design/backup.md's cleanup section.
-
 ### Lift `seedStarterExclude`'s guard into `sets.mjs`. _(Worth exploring — small.)_
 
 _Surfaced 2026-07-03._ PR #146's split is mostly right — starter data + read/write
@@ -255,6 +239,9 @@ least once; re-open only if the stated reason no longer holds.
   `CompareResult` split (landed, ADR-0043). `planUpload` re-scoped (cache gone; first-backup diff
   inlined) and `s3.mjs` re-scoped (`deleteObject` now production; kill the dead `emptyBucket`).
   New top pick: *extract a pure `planCleanup`* — the verify/cleanup twin realized in code only on
-  verify's side. **Chosen and built on `worktree-cleanup-plan`** (pure `planCleanup` in
-  `src/lib/cleanup.mjs`, 7 mock-free lib tests, full gate green; awaiting review/merge).
-  Superseded the prior HTML report (now overwritten in place at `architecture-review.html`).
+  verify's side. **Landed as [PR #164](https://github.com/allens/s3cab/pull/164):** pure
+  `planCleanup` in `src/lib/cleanup.mjs` (mirroring `verifySet`), 8 mock-free lib tests, the
+  cleanup command thinned to I/O + policy; a Copilot-review pass also fixed a pre-existing
+  cross-set `damaged` under-count the extraction had preserved. Its open-candidate entry is
+  deleted (the pair is noted in docs/design/backup.md). Superseded the prior HTML report (now
+  overwritten in place at `architecture-review.html`).
