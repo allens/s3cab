@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 /** @import { ReferencedResult } from "../lib/verify.mjs" */
 
-// Offline tests for `cleanup`: the S3 reads/writes (referencedObjects,
-// listStoredObjects, deleteStoredObject) and the prompt are faked at the lib
-// seam; the object ages are staged as Dates so the 7-day grace window is
-// exercised without waiting. cleanup computes its missing/damaged/orphan tallies
-// directly from the two enumerations (hash level). Mocks first, then a dynamic
-// import.
+// Offline tests for the `cleanup` *command shell*: the S3 reads/writes
+// (referencedObjects, listStoredObjects, deleteStoredObject) and the prompt are
+// faked at the lib seam, so these cover what the command adds around the pure
+// plan — the two abort interlocks, the dry-run/`--delete` split, the TTY prompt,
+// and the delete loop. The orphan/grace/missing/damaged *arithmetic* is
+// unit-tested without mocks in lib/cleanup.test.mjs (planCleanup). Mocks first,
+// then a dynamic import.
 
 /** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
@@ -129,17 +130,6 @@ describe("cleanup command", () => {
     assert.equal(result.deleted, 1);
   });
 
-  it("counts a missing hash referenced by several sets once", async () => {
-    // The same object referenced-but-absent in two sets is one missing object,
-    // not two — the report counts distinct hashes.
-    referencedBySet.set("photos", ref(["shared-missing"]));
-    referencedBySet.set("docs", ref(["shared-missing"]));
-    storedObjects = []; // referenced by both sets, stored by neither
-
-    const result = await cleanup("b");
-    assert.equal(result.missingObjects, 1);
-  });
-
   it("warns about an object stored at the wrong size, but does not count it missing or orphaned", async () => {
     // "kept" is recorded at size 1 (the ref helper) but stored at 999 — damaged,
     // not missing (it exists) and not orphaned (it's referenced). Cleanup only
@@ -159,44 +149,6 @@ describe("cleanup command", () => {
       assert.ok(
         warnings.some((w) => /wrong size/.test(w)),
         "warns about the wrong-size object",
-      );
-    } finally {
-      warn.mock.restore();
-    }
-  });
-
-  it("flags a hash damaged when any of its paths disagrees on size (torn snapshot file)", async () => {
-    // One hash under two paths recorded at different sizes; stored matches only
-    // the first path. cleanup must still flag it — it checks every path's size,
-    // not just the first (or a torn snapshot file's wrong size would go unwarned).
-    referencedBySet.set("photos", {
-      referenced: new Map([
-        [
-          "h",
-          {
-            paths: new Map([
-              ["/a", { sizes: new Set([1]), snapshots: new Set(["s1"]) }],
-              ["/b", { sizes: new Set([2]), snapshots: new Set(["s1"]) }],
-            ]),
-          },
-        ],
-      ]),
-      snapshotsChecked: 1,
-      unreadable: [],
-    });
-    storedObjects = [{ hash: "h", size: 1, lastModified: daysAgo(30) }];
-
-    /** @type {string[]} */
-    const warnings = [];
-    const warn = mock.method(console, "warn", (/** @type {string} */ m) =>
-      warnings.push(m),
-    );
-    try {
-      const result = await cleanup("b");
-      assert.equal(result.missingObjects, 0);
-      assert.ok(
-        warnings.some((w) => /wrong size/.test(w)),
-        "warns about the torn-snapshot-file hash",
       );
     } finally {
       warn.mock.restore();
