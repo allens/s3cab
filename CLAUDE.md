@@ -348,8 +348,8 @@ skills blockquote under "Where knowledge lives", not vendored here). Scaffolded 
 
 ### Issue tracker
 
-GitHub Issues via the `gh` CLI (repo `allens/s3cab`); external PRs are **not** a triage
-surface. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+Local markdown files under `.scratch/<feature-slug>/` (no remote tracker; there is no PR
+triage surface). See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
 
 ### Triage labels
 
