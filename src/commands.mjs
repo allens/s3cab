@@ -233,6 +233,9 @@ Notes:
   - env files are supported for compatibility, including some S3-compatible providers.
   - For AWS, temporary credentials from profile-based setups are preferred
     over long-lived keys.
+  - To keep a long-lived key/secret out of plaintext env files, store it
+    in a secret manager and expose it through a credential_process profile
+    — the full guide has the recipe.
 
 When the server rejects your credentials:
 

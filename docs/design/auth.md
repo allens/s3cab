@@ -95,9 +95,10 @@ already have.
 
 * never log credentials or tokens;
 * prefer temporary credentials with expiration (profile/SSO-based setups) over long-lived static keys whenever feasible — the SDK refreshes expiration-aware providers automatically;
-* long-lived keys, where unavoidable (most S3-compatible providers), live in s3cab env files or the user's own AWS shared config — s3cab stores no credential material of its own.
+* long-lived keys, where unavoidable (most S3-compatible providers), live in s3cab env files or the user's own AWS shared config — s3cab stores no credential material of its own. s3cab writes its env files owner-only (mode `0600`, directories `0700` — `src/lib/env-file.mjs`);
+* the endorsed way to keep a long-lived key out of plaintext altogether is a **`credential_process` profile backed by a secret manager** — the standard chain already supports it, so it costs s3cab zero credential code; the user-facing recipe is in [guide/aws.md](../../guide/aws.md#keeping-the-secret-out-of-plaintext).
 
-**Future work:** an optional OS-secure-storage layer (Windows DPAPI / macOS Keychain / libsecret) for users stuck with long-lived keys, slotting into `resolveCredentials` as another source. Not designed yet; noted so the resolver stays pluggable.
+**Future work — deliberately deferred:** a built-in OS-secure-storage layer (Windows DPAPI / macOS Keychain / libsecret). Its *security* properties are already reachable through the `credential_process` pattern above (every OS store has a CLI that can print the credential JSON); what a built-in layer would add is convenience — one `s3cab auth`-style command instead of editing `~/.aws/config` — not a new security property, since an unlocked store is readable by any process running as the user on most platforms anyway. So it waits for real demand rather than being built speculatively. If built, it slots into `resolveCredentials` as another source; the resolver stays pluggable.
 
 ## Non-Goals
 

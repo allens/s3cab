@@ -121,6 +121,54 @@ s3cab automatically drops AWS-only request features (server-side encryption,
 intelligent-tiering, the default integrity-checksum trailer) when a custom
 endpoint is set, so a plain bucket elsewhere just works.
 
+### Keeping the secret out of plaintext
+
+The template above leaves a long-lived secret key in a plaintext file. s3cab
+creates its env files owner-only (mode `0600`, directories `0700`) — if you
+created `~/.s3cab/env` by hand, consider a `chmod 600` — but the secret can stay
+out of the file entirely: keep it in a secret manager and hand it to s3cab
+through the standard credential chain's **`credential_process`** hook, which
+s3cab already supports with no extra configuration.
+
+The recipe is manager-agnostic. Store this JSON document as a single secret in
+whatever you use (1Password, `pass`, the OS keychain, …):
+
+```json
+{ "Version": 1, "AccessKeyId": "<your-access-key>", "SecretAccessKey": "<your-secret>" }
+```
+
+Then add a profile to `~/.aws/config` (yours to edit — s3cab never writes it)
+whose `credential_process` prints that secret:
+
+```ini
+[profile r2-backup]
+credential_process = op read op://Private/s3cab-r2/credential
+; or:         pass show s3cab/r2
+; or (macOS): security find-generic-password -s s3cab-r2 -w
+; or (Linux): secret-tool lookup service s3cab-r2
+```
+
+Point s3cab at the profile, and keep only the endpoint (not a secret) in the
+env file:
+
+```console
+> s3cab auth --profile r2-backup
+```
+
+```ini
+AWS_ENDPOINT_URL_S3=https://<your-endpoint>
+AWS_REGION=auto
+```
+
+Two honest caveats. This protects the secret **at rest** — encrypted on disk,
+out of home-directory syncs, dotfile repos, and file-level backups — but on most
+platforms it does not protect against code already running _as you_: any process
+that can run your secret manager can usually read the secret too (macOS prompts
+per app; Linux's Secret Service typically doesn't). And scheduled backups run
+unattended, so the store must be unlockable when they fire — a locked vault
+makes the backup fail until you sign in, which you may consider a feature or a
+bug.
+
 ## A note on the `us-east-1` quirk
 
 `us-east-1` is the S3 API's default region and must **not** carry a

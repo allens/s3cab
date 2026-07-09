@@ -168,6 +168,9 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    (s3cab does **not** read a `.env` from the current directory.) The quickest way to set your
    profile is **`s3cab auth --profile <name>`** — it writes `AWS_PROFILE` to `~/.s3cab/env` for
    you (add a set name to scope it to one set, e.g. a set backing up to a different AWS account).
+   Long-lived provider keys needn't sit in these files in plaintext — the
+   [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
+   them from a secret manager through a `credential_process` profile.
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
    sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
 
