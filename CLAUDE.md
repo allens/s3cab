@@ -447,16 +447,18 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **Backup/restore/admin all built — retention policy + two doc notes remain** — the
+- **Backup/restore/admin all built — retention policy + one doc note remain** — the
   five-slice plan in [docs/design/backup.md](docs/design/backup.md) is **complete**: slices 1–4
   plus slice-5's `verify`/`delete`/`cleanup` are built (status detail there, not re-narrated
   here). Still open from slice 5: **retention-policy automation** (keep-last/daily/weekly/monthly
-  on top of `delete`/`cleanup` — deferred until real usage shows the shapes), the
-  **versioning/ransomware user-doc note**, and the **everyday-vs-elevated delete-rights policy
-  split** — the design wants everyday backup creds to *lack* delete rights (cleanup runs
-  elevated), but `bucketPolicy` in [src/lib/s3.mjs](src/lib/s3.mjs) currently grants
-  `s3:DeleteObject` to the everyday identity (soft-delete only, ADR-0033), which is also what
-  lets `delete` run under per-set creds; reconcile via the `aws` policy helper. (The
+  on top of `delete`/`cleanup` — deferred until real usage shows the shapes) and the
+  **versioning/ransomware user-doc note**. (The **everyday-vs-elevated delete-rights** question
+  is **resolved, don't re-litigate**: the everyday identity keeping `s3:DeleteObject` is the
+  settled model — [ADR-0033](docs/adr/0033-bucket-onboarding-security-model.md)'s
+  *soft-vs-permanent* seam (delete-marker, no `DeleteObjectVersion`) is the blast-radius
+  boundary, not delete-vs-no-delete — so `bucketPolicy` needs no everyday/elevated split and
+  `delete` rightly runs under per-set creds; the old backup.md "everyday should lack delete"
+  prose was stale and is now aligned.) (The
   `upload`/change-detection reshape the old `--if-modified-from` TODO belonged to is **done** —
   ADR-0044/0045: `upload` is unified and set-scoped, `backup` = `snapshot()` + `upload()` with a
   `--since` baseline, and `backup --snapshot` retired; the "load-bearing for backup" premise was

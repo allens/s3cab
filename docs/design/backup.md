@@ -26,9 +26,11 @@ used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<ba
 `src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
 `deleteStoredObject`, computing missing/damaged/orphan tallies directly from the same two
 enumerations as `verify` — the opposite `stored − referenced` difference; it works at hash
-level, so it needs none of verify's per-path problem model). Remaining are the
-versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
-(both deferred, tracked in "Open items"). (`compare --remote` was *dropped*,
+level, so it needs none of verify's per-path problem model). Remaining is the
+versioning/ransomware user-doc note (deferred, tracked in "Open items"); the
+everyday-vs-elevated delete-rights question is **resolved** — the everyday identity's
+soft-delete grant is the settled model
+([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)), no policy split. (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
 stays local-only, and `setup --inherit` instead syncs the set's snapshot files down so local
 `compare` works on a fresh machine.)
@@ -420,12 +422,13 @@ delete anything. Rules, several of which are **repository-format contract** (sta
 the [format spec](../../guide/format.md)), not implementation choice:
 
 - **The operand is the bucket, not a set.** Cleanup sits *beyond* sets: orphanhood is a
-  repository-level fact, and — decisively — the per-set env layer deliberately carries
-  the least-privilege everyday identity, exactly the credentials cleanup must *not* run
-  under. Taking the bucket directly (the `hashes`/`upload` pattern) resolves credentials
-  through user env / shell / standard chain, where the elevated identity lives. Consumer
-  vocabulary governs the *name* ([ADR-0012](../adr/0012-consumer-vocabulary-naming.md));
-  the operand follows the domain.
+  repository-level fact spanning every set, so scoping to one set's env would be wrong.
+  Taking the bucket directly (the `hashes`/`upload` pattern) resolves credentials through
+  user env / shell / standard chain — for a typical single-identity setup, the same
+  everyday key, whose soft-delete grant
+  ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)) is exactly what cleanup
+  needs. Consumer vocabulary governs the *name*
+  ([ADR-0012](../adr/0012-consumer-vocabulary-naming.md)); the operand follows the domain.
 - **Dry run by default; `--delete` is single-pass.** Bare `cleanup <bucket>` *reports*
   the orphans and the space they hold. `--delete` computes once, prints the same report,
   confirms with y/N on a TTY (non-interactive runs proceed on the explicit flag), and
@@ -470,10 +473,14 @@ the [format spec](../../guide/format.md)), not implementation choice:
   (the `delete` command above); retention *policy* automation is deferred and will sit
   on top of it. Until snapshots get deleted, the only garbage is crash orphans —
   negligible. The name `cleanup` is consumer vocabulary on purpose (not `gc`/`prune`).
-- **First command to need `DeleteObject`.** Everything else needs only Put/Get/List —
-  keep it that way. Everyday backup credentials should not carry delete rights (limits
-  the ransomware blast radius); cleanup runs under elevated ones. The `aws` command's
-  policy helper should encode this split.
+- **First command to need `DeleteObject`.** Everything else needs only Put/Get/List. The
+  everyday identity *does* carry `DeleteObject` — deliberately, and this is the settled
+  security model ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)): on a
+  versioned bucket it is only a *soft* delete (writes a delete marker; the key lacks
+  `DeleteObjectVersion`), so a leaked everyday key can never permanently destroy history.
+  The blast-radius boundary is soft-vs-permanent, **not** delete-vs-no-delete — so cleanup
+  runs on that same everyday key and the `aws` policy helper needs no everyday/elevated
+  split. (Per-prefix append-only scoping was weighed and parked in ADR-0033 §2.)
 - **Versioned buckets (document only — decided):** s3cab neither requires nor manages
   bucket versioning / Object Lock. User docs will recommend enabling versioning as
   ransomware protection, and note the interplay: on a versioned bucket
@@ -641,8 +648,10 @@ operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `delete` (snapshot r
 TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, dry-run default, single-pass
 `--delete` + y/N, 7-day grace window, damage interlock, local cache rewrite, the documented
 race warnings). The encryption-non-goal note is done (in the format spec); the
-versioning/ransomware user-doc note and the everyday-vs-elevated delete-rights policy split
-remain (deferred — see "Open items").
+versioning/ransomware user-doc note remains (deferred — see "Open items"). The
+everyday-vs-elevated delete-rights question is resolved: no split — the everyday
+soft-delete grant is the settled model
+([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)).
 
 **Why this order:** slices 1–2 keep the tool fully working locally at every point;
 3 delivers the README's promise; 4 makes it trustworthy (a backup you can't restore
