@@ -55,7 +55,6 @@
       "Bash(node ./src/s3cab.mjs *)",
       "Bash(gh api *)",
       "Bash(git worktree *)",
-      "Bash(bash .claude/hooks/block-redundant-git-c.sh*)",
       "Bash(tail *)",
       "Bash(head *)",
       "Bash(grep *)",
@@ -67,6 +66,7 @@
       "Bash(ls *)"
     ],
     "deny": [
+      "Bash(git -C *)",
       "Bash(git checkout -- *)",
       "Bash(git checkout .)",
       "Bash(git reset --hard *)",
@@ -85,11 +85,6 @@
       {
         "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/block-redundant-git-c.sh",
-            "timeout": 10
-          },
           {
             "type": "command",
             "command": "bash .claude/hooks/block-destructive-rm.sh",

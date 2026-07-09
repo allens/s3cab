@@ -182,11 +182,16 @@ rather than assuming it is fixed forever.
      worktree branches fresh from `origin/main`, so a stale local `main` blocks nothing).
      **Review the work on the GitHub PR; don't open the worktree directory in the IDE** — an
      open file there gives Windows a lock that can block removal.
-   - **Run bare commands — don't prepend `cd`, and don't use `git -C <cwd>`.** The session cwd
+   - **Run bare commands — don't prepend `cd`, and don't use `git -C`.** The session cwd
      already *is* the worktree. Both forms defeat the path-free allowlist (re-prompting every
-     call), and `git -C …` *also* slips past the path-free **deny** guards, bypassing the
-     destructive-command blocks. Use `git -C <path>` *only* to act on a genuinely different
-     checkout.
+     call), and `git -C …` *also* slips past the path-free **deny** guards. To act on **another
+     worktree**, `EnterWorktree` (it sets cwd), then run bare `git …` — do **not** reach in with
+     `git -C .claude/worktrees/<name> …` (the recurring trap). This is now **enforced by a
+     one-line deny rule** — `Bash(git -C *)` in [.claude/settings.json](.claude/settings.json)
+     hard-blocks any command that *starts* with `git -C` (chosen over a path-resolving hook per
+     #7 — the leading form is the actual trap). The accepted gaps: a `git -C` buried
+     mid-compound (`cd x && git -C …`) isn't caught, and `git -C` into a genuinely external repo
+     is also blocked — both rare enough not to warrant the heavier hook.
 10. **Request a Copilot code review at PR create** — pass `--reviewer "@copilot"` to
     `gh pr create`. That one create-time request **always works; fire it once and move on** —
     do **not** verify it, re-request it (`gh pr edit --add-reviewer`), or re-run after pushes.
@@ -200,9 +205,9 @@ rather than assuming it is fixed forever.
     `permissions`**, not at the file's top level — in the committed
     [.claude/settings.json](.claude/settings.json), so **every machine inherits it**. This is
     safe, **not** `bypassPermissions`: the `deny` list and the PreToolUse hooks still guard
-    everything (deny-first precedence runs before allow) — `block-redundant-git-c.sh` blocks the
-    `git -C <cwd>` deny-bypass (#9), and `block-destructive-rm.sh` catches recursive/force `rm`
-    in any flag ordering. **Never "solve" recurring prompts by adding specific allow entries or
+    everything (deny-first precedence runs before allow) — the `Bash(git -C *)` deny rule blocks
+    the `git -C` deny-bypass (#9), and the `block-destructive-rm.sh` hook catches recursive/force
+    `rm` in any flag ordering. **Never "solve" recurring prompts by adding specific allow entries or
     re-running `fewer-permissions`** — that is the failed layer that never converges (it only
     appends dead one-shot rules). If prompts persist, `defaultMode` applies on *next session
     start* (restart once), or the command genuinely hit a `deny` rule (a real safety block —
