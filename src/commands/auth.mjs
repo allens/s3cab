@@ -182,7 +182,8 @@ export async function auth(setName, options = {}) {
   }
   await warnIfUnknownProfile(name);
   // The user's ~/.s3cab may not exist yet on a fresh machine; a set's does.
-  mkdirSync(dirname(scope.path), { recursive: true });
+  // Owner-only: the env files inside may carry secrets (see lib/env-file.mjs).
+  mkdirSync(dirname(scope.path), { recursive: true, mode: 0o700 });
   updateEnvFile(scope.path, { AWS_PROFILE: name });
   return `Set AWS profile '${name}' for ${scope.phrase} (${tildeify(scope.path)}).`;
 }

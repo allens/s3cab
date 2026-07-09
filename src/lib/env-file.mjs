@@ -12,6 +12,12 @@ import { isENOENT } from "./error.mjs";
 // into the user or a set env) can import it — `env.mjs` can't host it without a
 // cycle, since env.mjs already imports `resolveSet` from sets.mjs.
 
+// Env files can carry secrets (AWS_SECRET_ACCESS_KEY — the only auth every
+// non-AWS S3 provider supports is a long-lived key+secret), so create them
+// owner-only. Applies at creation only; a no-op on Windows, where POSIX modes
+// are ignored and the profile dir's ACLs already restrict access.
+const envFileMode = 0o600;
+
 /**
  * Escape a string for literal use inside a `RegExp`. The keys we build line
  * matchers from are internal constants (`AWS_PROFILE`, `S3CAB_BUCKET`) with no
@@ -61,7 +67,7 @@ export function updateEnvFile(path, updates) {
       text += line + "\n";
     }
   }
-  writeFileSync(path, text);
+  writeFileSync(path, text, { mode: envFileMode });
 }
 
 /**
@@ -85,5 +91,5 @@ export function removeEnvKey(path, key) {
   if (kept.length === lines.length) {
     return;
   } // key absent — nothing to write
-  writeFileSync(path, kept.join("\n"));
+  writeFileSync(path, kept.join("\n"), { mode: envFileMode });
 }

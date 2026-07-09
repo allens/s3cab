@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -158,6 +158,27 @@ describe("set store", () => {
     );
     assert.equal(dirsTxt, "C:\\Photos\nD:\\Pics\n");
   });
+
+  it(
+    "writeSet creates ~/.s3cab and the set dir owner-only (0700)",
+    { skip: process.platform === "win32" && "POSIX modes don't apply" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const home = useTempHome(dir.path);
+
+      writeSet("photos", { dirs: ["C:\\Photos"], bucket: "my-bucket" });
+
+      // Every level this mkdir created is private — the set env file may
+      // carry secrets, and ~/.s3cab is where a fresh machine's tree is born.
+      for (const path of [
+        join(home, ".s3cab"),
+        join(home, ".s3cab", "sets"),
+        join(home, ".s3cab", "sets", "photos"),
+      ]) {
+        assert.equal(statSync(path).mode & 0o777, 0o700, path);
+      }
+    },
+  );
 
   it("writeSet re-running updates only what is passed", async () => {
     await using dir = await mkTmpDir();

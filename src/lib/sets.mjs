@@ -84,7 +84,7 @@ export const readSetExclude = (name) => readTextFile(setExcludePath(name));
  * @param {string} text
  */
 export function writeSetExclude(name, text) {
-  mkdirSync(setDir(name), { recursive: true });
+  mkdirSync(setDir(name), { recursive: true, mode: 0o700 });
   writeFileSync(setExcludePath(name), text);
 }
 
@@ -365,7 +365,9 @@ export function formatSets(sets) {
  * @returns {BackupSet} The set as stored after the write
  */
 export function writeSet(name, { dirs, bucket } = {}) {
-  mkdirSync(setDir(name), { recursive: true });
+  // Owner-only (applied to ~/.s3cab too when this creates it recursively): the
+  // set's env file may carry secrets (see lib/env-file.mjs).
+  mkdirSync(setDir(name), { recursive: true, mode: 0o700 });
 
   if (dirs?.length) {
     writeFileSync(setDirsPath(name), dirs.join("\n") + "\n");
