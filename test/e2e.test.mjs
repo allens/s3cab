@@ -309,14 +309,42 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /--since/);
   });
 
-  it("help auth prints the auth command's help, credential guide included", () => {
-    // The auth topic folded into the command (ADR-0041); the error messages'
-    // "Run 's3cab help auth'" pointers must keep landing on the guide.
-    const { status, stdout } = run("help", "auth");
+  it("provider --keys reads two piped stdin lines into the user env", async () => {
+    // End-to-end on purpose: the unit tests mock the prompt seam, so only this
+    // tier exercises real piped stdin — which is where a
+    // one-readline-interface-per-line implementation loses the second line
+    // (the interface's close discards its buffered remainder).
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = dir.path;
+
+    const { status, stdout } = spawnSync(
+      process.execPath,
+      [CLI, "provider", "--keys"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, USERPROFILE: home },
+        input: "AKIAEXAMPLE\nsooper-secret\n",
+      },
+    );
 
     assert.strictEqual(status, 0);
-    assert.match(stdout, /Usage: s3cab auth/);
+    assert.match(stdout, /Set access keys/);
+    assert.doesNotMatch(stdout, /sooper-secret/); // never echo the secret
+    const env = readFileSync(join(home, ".s3cab", "env"), "utf8");
+    assert.match(env, /AWS_ACCESS_KEY_ID=AKIAEXAMPLE/);
+    assert.match(env, /AWS_SECRET_ACCESS_KEY=sooper-secret/);
+  });
+
+  it("help provider prints the provider command's help, credential guide included", () => {
+    // The auth topic folded into the command (ADR-0041, renamed by ADR-0047);
+    // the error messages' "Run 's3cab help provider'" pointers must keep
+    // landing on the guide, non-AWS onboarding steps included.
+    const { status, stdout } = run("help", "provider");
+
+    assert.strictEqual(status, 0);
+    assert.match(stdout, /Usage: s3cab provider/);
     assert.match(stdout, /standard AWS SDK credential chain/);
+    assert.match(stdout, /Cloudflare R2/);
   });
 
   it("prints the AWS profile + endpoint in use on the first S3 touch (stderr)", async () => {

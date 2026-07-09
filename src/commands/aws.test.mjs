@@ -46,17 +46,18 @@ describe("aws routing", () => {
     assert.doesNotMatch(out, /aws iam create-user/);
   });
 
-  it("auto-selects the non-AWS recipe when an endpoint is set", () => {
+  it("redirects to 'help provider' when a custom endpoint is set (not AWS)", () => {
     process.env.AWS_ENDPOINT_URL_S3 = "https://acct.r2.cloudflarestorage.com";
     const out = aws("my-backups");
-    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/acct\.r2/);
+    assert.match(out, /custom S3 endpoint is set \(https:\/\/acct\.r2/);
+    assert.match(out, /s3cab help provider/);
     assert.doesNotMatch(out, /aws iam/);
   });
 
-  it("lets the endpoint win over --sso (there is no SSO off AWS)", () => {
+  it("lets the endpoint win over --sso, and needs no bucket to redirect", () => {
     process.env.AWS_ENDPOINT_URL = "https://s3.example.test";
-    const out = aws("my-backups", { sso: true });
-    assert.match(out, /AWS_ENDPOINT_URL_S3=https:\/\/s3\.example\.test/);
+    const out = aws(undefined, { sso: true });
+    assert.match(out, /s3cab help provider/);
     assert.doesNotMatch(out, /aws sso login/);
   });
 });

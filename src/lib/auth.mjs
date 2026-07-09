@@ -22,20 +22,32 @@ import { listProfiles } from "./aws-profiles.mjs";
  * The guidance block for the "no credentials" error, chosen by what the
  * *configuration* says. The common trap is being told to "set a profile" when
  * one is already set — so when `AWS_PROFILE` is set we diagnose *why* it yielded
- * nothing, using the same `~/.aws` cross-check `profile`'s show/set paths use.
- * Three states (ADR-0030 wording — goal-framed, copy-pasteable fix on its own line):
+ * nothing, using the same `~/.aws` cross-check `provider`'s show/set paths use.
+ * Four states (ADR-0030 wording — goal-framed, copy-pasteable fix on its own line):
+ *   - no profile, custom endpoint set → a non-AWS provider missing its keys:
+ *     the fix is `provider --keys`, not profile advice that assumes the AWS CLI;
  *   - no profile set → the original "point s3cab at a profile" advice;
  *   - set but absent from `~/.aws` → the missing "aha": create it or point elsewhere;
  *   - set and present (or config unreadable) → it produced nothing: SSO sign-in / check keys.
  * @param {string} [profile] - The configured `AWS_PROFILE`, if any.
  * @param {string[]} [knownProfiles] - Profiles in `~/.aws` (`listProfiles`);
  *   `undefined` when the config couldn't be read, so we don't claim it's absent.
+ * @param {string} [endpoint] - The custom S3 endpoint, if any (its presence
+ *   means "not AWS").
  */
-const credentialGuidance = (profile, knownProfiles) => {
+const credentialGuidance = (profile, knownProfiles, endpoint) => {
   if (!profile) {
+    if (endpoint) {
+      return `A custom S3 endpoint is set (${endpoint}),
+but s3cab found no access keys for it.
+
+To continue, save your provider's access key + secret:
+  s3cab provider --keys
+(or set AWS_* variables directly in ~/.s3cab/env)`;
+    }
     return `To continue, do one of the following:
   - point s3cab at an AWS profile:
-      s3cab auth --profile <name>
+      s3cab provider --profile <name>
     (for AWS IAM Identity Center, run \`aws sso login\` first —
     s3cab picks the session up automatically)
   - or set AWS_* variables directly in ~/.s3cab/env`;
@@ -49,7 +61,7 @@ To continue, do one of the following:
       aws configure --profile ${profile}
     (for AWS IAM Identity Center, run \`aws configure sso\` instead)
   - or point s3cab at a different profile:
-      s3cab auth --profile <name>`;
+      s3cab provider --profile <name>`;
   }
   return `s3cab is set to use AWS profile '${profile}', but it produced no credentials.
 
@@ -69,11 +81,15 @@ To continue, do one of the following:
  * one. The whole thing must live in the message: the CLI prints only `message`
  * unless S3CAB_DEBUG is set (`cause` is kept for that debug path).
  * @param {unknown} cause - The error thrown by the standard chain.
- * @param {{ profile?: string, knownProfiles?: string[] }} [config] - The
- *   configured `AWS_PROFILE` and the `~/.aws` profiles, resolved by the async
- *   caller (`resolveCredentials`) and passed in so this factory stays sync.
+ * @param {{ profile?: string, knownProfiles?: string[], endpoint?: string }} [config] -
+ *   The configured `AWS_PROFILE`, the `~/.aws` profiles, and the custom
+ *   endpoint, resolved by the async caller (`resolveCredentials`) and passed in
+ *   so this factory stays sync.
  */
-export const noCredentialsError = (cause, { profile, knownProfiles } = {}) => {
+export const noCredentialsError = (
+  cause,
+  { profile, knownProfiles, endpoint } = {},
+) => {
   const reason = (Error.isError(cause) ? cause.message : String(cause))
     .trim()
     .replaceAll("\n", "\n     ");
@@ -85,9 +101,9 @@ s3cab tried:
   2. The standard AWS SDK credential chain, which reported:
      ${reason}
 
-${credentialGuidance(profile, knownProfiles)}
+${credentialGuidance(profile, knownProfiles, endpoint)}
 
-Run 's3cab help auth' for details.`,
+Run 's3cab help provider' for details.`,
     { cause },
   );
 };
@@ -114,7 +130,7 @@ To continue, refresh them and run the command again:
   - for temporary credentials (AWS_SESSION_TOKEN), request a new set
   - for a named profile, renew it (and set AWS_PROFILE)
 
-Run 's3cab help auth' for details.`,
+Run 's3cab help provider' for details.`,
     { cause },
   );
 
@@ -197,7 +213,7 @@ and read/write access to ${target}.`
 Your sign-in worked — this is a permissions problem, not a credentials one.
 ${remedy}
 
-Run 's3cab help auth' for details.`,
+Run 's3cab help provider' for details.`,
     { cause },
   );
 };
@@ -207,7 +223,7 @@ Run 's3cab help auth' for details.`,
  * secret/profile/SSO/endpoint could live anywhere s3cab is source-agnostic
  * about (ADR-0015) — so each recognized *cause* supplies its own plain-language
  * headline + advice, and we embed the raw AWS error (code-first, for googling)
- * and point at `s3cab help auth` for the per-source depth. ADR-0030 wording.
+ * and point at `s3cab help provider` for the per-source depth. ADR-0030 wording.
  * @param {unknown} cause
  * @param {{ headline: string, advice: string }} copy
  */
@@ -220,7 +236,7 @@ ${advice}
 The server reported:
      ${rawAwsError(cause)}
 
-Run 's3cab help auth' for details.`,
+Run 's3cab help provider' for details.`,
     { cause },
   );
 
@@ -304,6 +320,10 @@ export const resolveCredentials = async (awsIdentityProperties) => {
     // so do it here (already async) and hand the result to the sync factory.
     const profile = process.env.AWS_PROFILE;
     const knownProfiles = profile ? await listProfiles() : undefined;
-    throw noCredentialsError(error, { profile, knownProfiles });
+    // The same SDK-native vars s3.mjs's customEndpoint() reads — inlined here
+    // rather than imported, since s3.mjs already imports this module.
+    const endpoint =
+      process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
+    throw noCredentialsError(error, { profile, knownProfiles, endpoint });
   }
 };

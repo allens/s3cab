@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  awsIamPlan,
-  awsSsoPlan,
-  backupLifecycle,
-  nonAwsPlan,
-} from "./onboarding.mjs";
+import { awsIamPlan, awsSsoPlan, backupLifecycle } from "./onboarding.mjs";
 
 // The cloud-onboarding plan is pure text (generative — ADR-0032), so each recipe
 // is asserted directly on its generated string: the right commands present, the
@@ -39,7 +34,7 @@ describe("awsIamPlan", () => {
     assert.match(out, /aws iam create-user --user-name s3cab/);
     assert.match(out, /aws iam put-user-policy --user-name s3cab/);
     assert.match(out, /aws iam create-access-key --user-name s3cab/);
-    assert.match(out, /s3cab auth --profile s3cab/);
+    assert.match(out, /s3cab provider --profile s3cab/);
   });
 
   it("emits the explicit-verb policy, never the s3:*Object wildcard", () => {
@@ -72,7 +67,7 @@ describe("awsIamPlan", () => {
   });
 
   it("omits the profile flag entirely when none is given", () => {
-    assert.doesNotMatch(plan(), / --profile (?!s3cab)/); // only the final `s3cab auth --profile s3cab` mentions a profile
+    assert.doesNotMatch(plan(), / --profile (?!s3cab)/); // only the final `s3cab provider --profile s3cab` mentions a profile
   });
 
   it("points SSO users at --sso", () => {
@@ -102,27 +97,5 @@ describe("awsSsoPlan", () => {
   it("shares the identity-agnostic bucket steps (versioning, lifecycle)", () => {
     assert.match(out, /put-bucket-versioning/);
     assert.match(out, /put-bucket-lifecycle-configuration/);
-  });
-});
-
-describe("nonAwsPlan", () => {
-  const out = nonAwsPlan({
-    bucket: "my-backups",
-    endpoint: "https://acct.r2.cloudflarestorage.com",
-  });
-
-  it("emits an env template with the detected endpoint pre-filled", () => {
-    assert.match(
-      out,
-      /AWS_ENDPOINT_URL_S3=https:\/\/acct\.r2\.cloudflarestorage\.com/,
-    );
-    assert.match(out, /AWS_ACCESS_KEY_ID=<your-access-key>/);
-    assert.match(out, /AWS_SECRET_ACCESS_KEY=<your-secret>/);
-  });
-
-  it("has no IAM or policy JSON — S3-compatible providers have no IAM", () => {
-    assert.doesNotMatch(out, /aws iam/);
-    assert.doesNotMatch(out, /arn:aws:s3/);
-    assert.match(out, /Cloudflare R2, Backblaze\n?\s*B2 and Wasabi/);
   });
 });

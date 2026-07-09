@@ -1,20 +1,21 @@
 import { requireArg } from "../lib/error.mjs";
-import { awsIamPlan, awsSsoPlan, nonAwsPlan } from "../lib/onboarding.mjs";
+import { awsIamPlan, awsSsoPlan } from "../lib/onboarding.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
-// `s3cab aws` — the cloud-onboarding command. It **prints** the exact `aws`
+// `s3cab aws` — the AWS-onboarding command. It **prints** the exact `aws`
 // CLI commands + policy/lifecycle JSON to stand up an S3 bucket as a backup
 // destination and a least-privilege identity for s3cab; it makes no AWS calls
 // and needs no credentials to run (generative, not active — ADR-0032). Provisioning
 // is a rare, one-time, per-bucket bootstrap, so it is a separate top-level command,
-// not part of `setup` (a per-set operation) or `profile` (the "point at an existing
-// profile" door, ADR-0031) — though it composes with both: its final step is
-// `s3cab auth --profile <name>`, then `s3cab setup`.
+// not part of `setup` (a per-set operation) or `provider` (the connection-config
+// door, ADR-0031/0047) — though it composes with both: its final step is
+// `s3cab provider --profile <name>`, then `s3cab setup`.
 //
-// The identity step is the only fork: the default emits the IAM-user recipe;
-// `--sso` emits the AWS IAM Identity Center recipe; a custom endpoint
-// (AWS_ENDPOINT_URL*) auto-selects the provider-neutral non-AWS guidance. The
-// plan text itself lives in src/lib/onboarding.mjs (pure, so it is unit-testable).
+// AWS only (ADR-0047): the identity fork is IAM-user (default) vs `--sso`
+// (IAM Identity Center); a custom endpoint (AWS_ENDPOINT_URL*) means "not AWS",
+// so the command points at `s3cab help provider` — the non-AWS steps live
+// there — instead of printing IAM JSON that can't apply. The plan text itself
+// lives in src/lib/onboarding.mjs (pure, so it is unit-testable).
 
 /**
  * Build the steps to set up an S3 bucket as an s3cab backup destination.
@@ -30,6 +31,22 @@ import { validateBucketName } from "../lib/sets.mjs";
  * @returns {string} The onboarding recipe, ready for the render layer.
  */
 export function aws(name, options = {}) {
+  // A custom endpoint is the single "not AWS" signal (the same SDK-native vars
+  // s3.mjs's customEndpoint() reads): an S3-compatible provider has no IAM, so
+  // the AWS recipes can't apply — redirect to the non-AWS steps instead of
+  // guessing. Checked before the bucket arg (the redirect doesn't need one).
+  const endpoint =
+    process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
+  if (endpoint) {
+    return `A custom S3 endpoint is set (${endpoint}), so this backup destination
+isn't on AWS — and 's3cab aws' generates AWS-specific setup (IAM policy,
+lifecycle JSON) that S3-compatible providers can't use.
+
+For the provider-neutral setup steps (Cloudflare R2, Backblaze B2,
+Wasabi, MinIO, …), run:
+  s3cab help provider`;
+  }
+
   requireArg(name, "bucket");
   validateBucketName(name);
 
@@ -42,18 +59,8 @@ export function aws(name, options = {}) {
     process.env.AWS_DEFAULT_REGION ||
     "us-east-1";
   const profile = options.profile?.trim() || undefined;
-  // A custom endpoint is the single "not AWS" signal (the same SDK-native vars
-  // s3.mjs's customEndpoint() reads): an S3-compatible provider has no IAM, so it
-  // takes the provider-neutral path rather than the IAM/SSO recipes. It wins over
-  // --sso (an AWS-only concept), since there is no Identity Center off AWS.
-  const endpoint =
-    process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
 
-  const plan = endpoint
-    ? nonAwsPlan({ bucket: name, endpoint })
-    : options.sso
-      ? awsSsoPlan({ bucket: name, region, profile })
-      : awsIamPlan({ bucket: name, region, profile });
-
-  return plan;
+  return options.sso
+    ? awsSsoPlan({ bucket: name, region, profile })
+    : awsIamPlan({ bucket: name, region, profile });
 }

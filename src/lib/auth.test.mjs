@@ -141,7 +141,7 @@ describe("invalidCredentialsError / badSignatureError / clockSkewError", () => {
       assert.match(error.message, /The server reported:/);
       assert.match(error.message, raw);
       // Defers the per-source depth to the help topic.
-      assert.match(error.message, /s3cab help auth/);
+      assert.match(error.message, /s3cab help provider/);
     }
   });
 });
@@ -159,9 +159,23 @@ describe("noCredentialsError (configuration-aware guidance)", () => {
       /Could not load credentials from any providers/,
     );
     // The original "point s3cab at a profile" advice.
-    assert.match(error.message, /s3cab auth --profile <name>/);
+    assert.match(error.message, /s3cab provider --profile <name>/);
     // It does NOT wrongly tell a user a profile is missing when none was set.
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
+  });
+
+  it("advises saving provider keys when a custom endpoint is set and no profile", () => {
+    // A non-AWS user (endpoint set, no profile) must not be sent to profile
+    // advice that assumes the AWS CLI — the fix is `provider --keys` (ADR-0047).
+    const error = noCredentialsError(cause, {
+      endpoint: "https://acct.r2.cloudflarestorage.com",
+    });
+    assert.match(
+      error.message,
+      /custom S3 endpoint is set \(https:\/\/acct\.r2\.cloudflarestorage\.com\)/,
+    );
+    assert.match(error.message, /s3cab provider --keys/);
+    assert.doesNotMatch(error.message, /--profile <name>/);
   });
 
   it("names the missing profile and how to create it when it isn't in ~/.aws", () => {
@@ -177,7 +191,7 @@ describe("noCredentialsError (configuration-aware guidance)", () => {
     // The exact, copy-pasteable fix, naming the profile.
     assert.match(error.message, /aws configure --profile s3cab-test/);
     // And the escape hatch to point elsewhere.
-    assert.match(error.message, /s3cab auth --profile <name>/);
+    assert.match(error.message, /s3cab provider --profile <name>/);
     // Not the "set a profile" advice (that would send them in a circle).
     assert.doesNotMatch(error.message, /or set AWS_\* variables directly/);
   });
