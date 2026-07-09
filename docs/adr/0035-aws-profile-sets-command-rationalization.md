@@ -4,7 +4,10 @@
 (`bucket`→`aws`, old-`aws`→`profile`) stand as shipped; **point 3 (folding `setup` into `sets`) is
 superseded** — the `sets` command built here was *dropped*, with `setup` revived as the
 set-mutation verb and listing moved to `list`. (Design decided via a `/grilling` session
-2026-06-27; implemented in #122.)
+2026-06-27; implemented in #122.) Point 1's scope is **amended by
+[0047](0047-provider-command-neutral-config-door.md)**: `aws` keeps the name but narrows to
+AWS-only — the non-AWS recipe it had carried moved to the `provider` command (`profile`/`auth`'s
+successor, renamed again by 0047 via [0041](0041-auth-command-hosts-credential-guide.md)).
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
 inherit a backup set, [docs/design/backup.md](../design/backup.md)), `aws` (point s3cab at an AWS

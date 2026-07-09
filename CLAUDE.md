@@ -328,8 +328,8 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   identity renderer is the honest degenerate case of the render layer
   ([ADR-0043](docs/adr/0043-human-first-output.md)); with `render` now required, forcing a
   structured `--json` shape onto prose just to satisfy the pattern is the over-engineering #7
-  forbids. (Worked example: `aws`'s onboarding recipe and `auth`'s status/confirmation lines,
-  in [src/commands/aws.mjs](src/commands/aws.mjs) / [src/commands/auth.mjs](src/commands/auth.mjs).)
+  forbids. (Worked example: `aws`'s onboarding recipe and `provider`'s status/confirmation lines,
+  in [src/commands/aws.mjs](src/commands/aws.mjs) / [src/commands/provider.mjs](src/commands/provider.mjs).)
 
 ---
 

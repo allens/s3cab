@@ -148,10 +148,17 @@ directories, exclude file) plus its snapshots. `--latest` narrows to the newest 
 shows one set's cloud backups. The read counterpart to **setup**.
 _Avoid_: ls, show; sets (the retired command name).
 
+**Provider**:
+The storage service a backup talks to — AWS S3 or any S3-compatible service (Cloudflare R2,
+Backblaze B2, Wasabi, MinIO, …). Off AWS, a provider reduces to three strings — endpoint,
+access key, secret key — plus a region label; the **provider** command (ADR-0047) records
+them (and the AWS profile) in s3cab's env files, user-wide or scoped to a set.
+_Avoid_: vendor, backend, cloud (as a noun for the service), storage service.
+
 **AWS profile**:
 A named profile in the user's AWS shared config (`~/.aws/config` / `~/.aws/credentials`).
-s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the **profile**
-command (`s3cab auth --profile <name>`), user-wide or scoped to a set. A pointer to AWS
-credentials, never credential material itself, and **not** a backup set (the thing the
-**Backup set** entry warns against calling a "profile").
+s3cab points at one by setting `AWS_PROFILE` in its *own* env files — written by the
+**provider** command (`s3cab provider --profile <name>`), user-wide or scoped to a set. A
+pointer to AWS credentials, never credential material itself, and **not** a backup set (the
+thing the **Backup set** entry warns against calling a "profile").
 _Avoid_: account, login, credentials (the profile names them; it is not them).

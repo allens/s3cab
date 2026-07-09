@@ -53,21 +53,22 @@ ADR as a live constraint.
 - [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
 - [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
 - [0030](0030-error-message-guidelines.md) — Error messages follow a fixed in-house standard
-- [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035 then 0041 — now `auth`)*
+- [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035, 0041, then 0047 — now `provider`)*
 - [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active
 - [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
 - [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command *(command name superseded by 0035 — now `aws`)*
-- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 — now `auth`)*
+- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 and 0047 — now `provider`; point 1 amended by 0047 — `aws` is AWS-only)*
 - [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
 - [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
 - [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
 - [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
-- [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide
+- [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide *(name superseded by 0047 — now `provider`)*
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set *(objects-cache rewrite dropped by 0045; finding-model correction pending — see proposals/engine-robustness.md)*
 - [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
 - [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045)*
 - [0045](0045-change-detection-local-baseline-list-fallback.md) — Change detection: drop the objects cache; baseline = local snapshot + on-demand LIST + conditional-PUT backstop *(engine implemented; companion to 0044)*
+- [0047](0047-provider-command-neutral-config-door.md) — `provider`: the neutral connection-config door (profile/endpoint/region/keys); `aws` narrows to AWS-only
 
 ### Build, release & tooling
 
