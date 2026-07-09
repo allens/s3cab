@@ -68,29 +68,40 @@ export function planCleanup(
   );
 
   // The referenced union (bucket-wide — cleanup must span every set), plus the
-  // missing/damaged tallies over distinct hashes.
+  // missing/damaged tallies, each over distinct hashes (an object several files or
+  // sets reference is one lost object — count it once).
   /** @type {Set<string>} */
   const referencedAll = new Set();
+  /** @type {Set<string>} */
+  const damagedHashes = new Set();
   let missing = 0;
-  let damaged = 0;
   for (const { referenced } of referencedBySet.values()) {
     for (const [hash, { paths }] of referenced) {
-      if (referencedAll.has(hash)) {
+      const storedSize = stored.get(hash)?.size;
+      // missing is per distinct hash — decide it once, on first sighting.
+      if (!referencedAll.has(hash)) {
+        referencedAll.add(hash);
+        if (storedSize === undefined) {
+          missing++;
+        }
+      }
+      // damaged must scan *every* set that references the hash: a torn snapshot
+      // file can record the wrong size in a later set than the first to point at
+      // it. Once flagged, skip re-scanning. (Missing hashes have no stored size to
+      // compare against.)
+      if (storedSize === undefined || damagedHashes.has(hash)) {
         continue;
       }
-      referencedAll.add(hash);
-      const storedSize = stored.get(hash)?.size;
-      if (storedSize === undefined) {
-        missing++;
-      } else if (
-        [...paths.values()].some((p) =>
-          [...p.sizes].some((size) => size !== storedSize),
-        )
-      ) {
-        damaged++;
+      for (const { sizes } of paths.values()) {
+        for (const size of sizes) {
+          if (size !== storedSize) {
+            damagedHashes.add(hash);
+          }
+        }
       }
     }
   }
+  const damaged = damagedHashes.size;
 
   // Orphans: stored − referenced, honouring the grace window.
   /** @type {string[]} */

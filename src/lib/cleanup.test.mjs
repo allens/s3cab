@@ -137,6 +137,21 @@ describe("planCleanup", () => {
     assert.equal(plan.missing, 0);
   });
 
+  it("counts a hash damaged when a LATER set records the wrong size (cross-set)", () => {
+    // Same content in two sets; set 'a' records the right size, set 'b' a torn one.
+    // The first-set-wins short-circuit must not hide the later disagreement.
+    const referenced = refs({
+      a: { h: [{ path: "/a", size: 10, snapshots: ["s1"] }] },
+      b: { h: [{ path: "/b", size: 999, snapshots: ["s1"] }] },
+    });
+    const stored = store([["h", 10, daysAgo(30)]]); // stored matches only /a
+
+    const plan = planCleanup(referenced, stored, { now: NOW });
+
+    assert.equal(plan.damaged, 1);
+    assert.equal(plan.missing, 0);
+  });
+
   it("surfaces unreadable snapshots structurally (the command decides to abort)", () => {
     const referenced = refs(
       { photos: { kept: [{ path: "/k", size: 1, snapshots: ["s1"] }] } },
