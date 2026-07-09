@@ -2,299 +2,400 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Architecture review — s3cab (2026-07-03)</title>
-    <!-- NOTE: This report loads Tailwind + Mermaid from public CDNs (requires network; only open trusted copies). -->
-    <!-- Latest-only: this file is replaced by each /improve-codebase-architecture run; the durable capture is architecture-improvements.md. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — s3cab</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
       mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
     </script>
     <style>
-      .seam { stroke-dasharray: 4 4; }
+      .seam { stroke-dasharray: 5 4; }
       .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
-      .iface { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .grid-cols-beforeafter { grid-template-columns: 1fr auto 1fr; }
+      .diag-label { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; }
     </style>
   </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
-    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
-      <header class="space-y-3">
-        <h1 class="font-serif text-3xl">Architecture review — <span class="font-mono">s3cab</span></h1>
-        <p class="text-sm text-slate-600">2026-07-03 · fourth pass · verified every open candidate against source, then explored the churn since 2026-07-02 (PRs #144–#147, the settled verify/cleanup design)</p>
-        <div class="flex flex-wrap gap-4 text-xs text-slate-500">
-          <span><span class="inline-block w-4 h-3 border border-slate-400 bg-white align-middle mr-1"></span>module</span>
-          <span><span class="inline-block w-4 h-0 border-t-2 border-dashed border-slate-400 align-middle mr-1"></span>seam</span>
-          <span><span class="inline-block w-4 h-0 border-t-2 border-red-600 align-middle mr-1"></span>leak</span>
-          <span><span class="inline-block w-4 h-3 deep align-middle mr-1"></span>deep module</span>
+  <body class="bg-stone-50 text-slate-900">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+      <!-- ============ HEADER ============ -->
+      <header class="space-y-4">
+        <p class="text-xs uppercase tracking-widest text-slate-400">Architecture review</p>
+        <h1 class="text-4xl font-serif font-semibold text-slate-800">s3cab — deepening opportunities</h1>
+        <p class="text-sm text-slate-500">2026-07-08 · fifth pass · v0.1.0-alpha (pre-1.0 — free rein for bold, correct refactors)</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-500 pt-2 border-t border-slate-200">
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-4 border-2 border-slate-700 rounded-sm"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#64748b" stroke-width="2" stroke-dasharray="5 4"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#dc2626" stroke-width="2"/><path d="M24 1 L28 4 L24 7 Z" fill="#dc2626"/></svg> leakage / duplication</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-4 rounded-sm deep"></span> deep module</span>
         </div>
-        <p class="text-sm text-slate-600">Durable capture (all runs, rejections, verification log): <span class="font-mono">proposals/architecture-improvements.md</span></p>
       </header>
 
-      <!-- ============ NEW THIS RUN ============ -->
-      <section id="candidates" class="space-y-10">
-        <h2 class="font-serif text-2xl border-b border-slate-200 pb-2">New this run</h2>
+      <!-- ============ RESOLVED LEDGER ============ -->
+      <section class="rounded-lg border border-emerald-200 bg-emerald-50/60 p-6">
+        <h2 class="text-lg font-serif font-semibold text-emerald-900 mb-1">Resolved since the 2026-07-03 pass — verified against source</h2>
+        <p class="text-sm text-emerald-800/80 mb-4">Heavy churn landed (<span class="mono">verify</span>/<span class="mono">delete</span>/<span class="mono">cleanup</span>, human-first output, unified upload, objects cache dropped). Four prior candidates are now moot or built — deleting them from the capture, not re-suggesting.</p>
+        <ul class="space-y-2 text-sm text-emerald-900">
+          <li><span class="font-semibold">Add <span class="mono">rewriteObjects</span></span> — <span class="text-emerald-700">dead.</span> ADR-0045 dropped the per-bucket objects cache entirely; there is no cache to rewrite. All three cache verbs gone from <span class="mono">objects.mjs</span>.</li>
+          <li><span class="font-semibold">Size-carrying <span class="mono">listStoredObjects</span></span> — <span class="text-emerald-700">landed.</span> <span class="mono">listStoredObjects(bucket)</span> yields <span class="mono">{ hash, size, lastModified }</span>; <span class="mono">listObjectHashes</span> is now the thin map over it.</li>
+          <li><span class="font-semibold">The <span class="mono">referenced</span> union's seam placement</span> — <span class="text-emerald-700">landed.</span> <span class="mono">referencedObjects(bucket)</span> lives in <span class="mono">remote.mjs</span>, grouped per set, shared by <span class="mono">verify</span> and <span class="mono">cleanup</span>. (But its <em>flatten</em> is duplicated — see candidate 1.)</li>
+          <li><span class="font-semibold"><span class="mono">compareSnapshots</span> returns structured diff</span> — <span class="text-emerald-700">landed (ADR-0043).</span> <span class="mono">CompareResult</span> is now absolute-path data; all display moved into <span class="mono">render.mjs</span>. The speculative "structured diff" candidate is built.</li>
+        </ul>
+      </section>
 
-        <!-- Card 1: progress module -->
-        <article id="progress" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-xl">One stderr-progress module — three adapters, one live gating bug</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">in-process</span>
+      <section id="candidates" class="space-y-12">
+        <h2 class="text-2xl font-serif font-semibold text-slate-700">Open candidates</h2>
+
+        <!-- ============ CANDIDATE 1 — cleanupPlan (STRONG, TOP) ============ -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">1 · Realize the <span class="mono text-lg">verify</span>/<span class="mono text-lg">cleanup</span> twin in code — extract a pure <span class="mono text-lg">cleanupPlan</span></h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
+            </div>
           </div>
-          <p class="font-mono text-sm text-slate-600">src/commands/snapshot.mjs:91–132 · src/lib/s3.mjs:309–323, 416–429 · src/commands/restore.mjs:124–160 · src/lib/style.mjs</p>
-          <p><strong>Problem:</strong> the in-place-stderr mechanic — gate on TTY, write <span class="font-mono">\r</span>, track whether a line was drawn, close with <span class="font-mono">\n</span>, fall back to plain lines off a TTY — is implemented three times, and the copies disagree: <span class="font-mono">snapshot</span>'s counter writes <span class="font-mono">\r</span> <em>unconditionally</em>, so a redirected or CI run gets carriage-return spam. PR #147's <span class="font-mono">style.mjs</span> centralised the <em>gate</em> but not the <em>mechanic</em>; its header's "every consumer routes through here" promise is already violated.</p>
-          <p><strong>Solution:</strong> a <span class="font-mono">lib/progress.mjs</span> module owns the mechanic behind one small interface; the three renderers (byte bar, done/total counter, percent+elapsed) stay as injected pure functions. <span class="font-mono">formatUploadProgress</span>, already pure and tested, becomes one of them.</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">Before — three copies, one ungated</p>
-              <div class="space-y-2">
-                <div class="border border-slate-300 bg-white rounded p-2">
-                  <p class="text-xs uppercase tracking-wider">s3.mjs bar</p>
-                  <p class="text-xs text-slate-500 font-mono">isInteractive ✓ · clearLine/cursorTo · \n on done</p>
+          <p class="mono text-sm text-slate-500">src/commands/cleanup.mjs:91–158 · src/lib/verify.mjs:93–143 (verifySet)</p>
+
+          <!-- diagram: asymmetric twins -->
+          <div class="grid grid-cols-beforeafter items-center gap-4">
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="diag-label text-slate-400 mb-3 text-center">Now — twin asserted in prose, not code</p>
+              <div class="space-y-3 text-xs">
+                <div class="border-2 border-slate-300 rounded p-2">
+                  <p class="diag-label text-slate-500">verify command</p>
+                  <div class="mt-1 h-6 bg-slate-100 rounded flex items-center justify-center text-slate-500">thin shell</div>
+                  <div class="mt-1 rounded deep text-emerald-200 py-3 text-center diag-label">verifySet() — pure, unit-tested</div>
                 </div>
-                <div class="border border-slate-300 bg-white rounded p-2">
-                  <p class="text-xs uppercase tracking-wider">restore counter</p>
-                  <p class="text-xs text-slate-500 font-mono">isInteractive ✓ · \r · drawn-flag · finally \n</p>
-                </div>
-                <div class="border-2 border-red-600 bg-red-50 rounded p-2">
-                  <p class="text-xs uppercase tracking-wider text-red-700">snapshot percent counter</p>
-                  <p class="text-xs text-red-600 font-mono">no gate — \r + padEnd(80) into any stream</p>
+                <div class="border-2 border-slate-300 rounded p-2">
+                  <p class="diag-label text-slate-500">cleanup command</p>
+                  <div class="mt-1 rounded deep text-amber-200 py-4 text-center diag-label leading-relaxed">union + missing/damaged tally<br/>+ orphan (stored − ref) + grace<br/><span class="text-red-300">— all inline in async I/O shell</span></div>
                 </div>
               </div>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">After — one deep module, three renderers</p>
-              <div class="border border-slate-300 bg-white rounded p-2 mb-2">
-                <p class="text-xs uppercase tracking-wider text-slate-500">interface</p>
-                <p class="text-xs font-mono">createProgress(stream, { render, line }) → { update, dispose }</p>
-              </div>
-              <div class="deep text-white rounded p-3">
-                <p class="text-xs uppercase tracking-wider mb-1">lib/progress.mjs</p>
-                <p class="text-xs text-slate-300 font-mono">TTY gate · \r / clearLine · drawn flag · closing \n · non-TTY fallback</p>
-              </div>
-              <div class="flex gap-2 mt-2">
-                <span class="text-xs border border-slate-300 bg-white rounded px-2 py-1">bar render</span>
-                <span class="text-xs border border-slate-300 bg-white rounded px-2 py-1">n/total render</span>
-                <span class="text-xs border border-slate-300 bg-white rounded px-2 py-1">% render</span>
+            <div class="text-slate-300 text-3xl text-center">→</div>
+            <div class="rounded-lg border border-emerald-300 p-4">
+              <p class="diag-label text-emerald-500 mb-3 text-center">After — symmetric pure halves</p>
+              <div class="space-y-3 text-xs">
+                <div class="border-2 border-slate-300 rounded p-2">
+                  <p class="diag-label text-slate-500">verify command</p>
+                  <div class="mt-1 rounded deep text-emerald-200 py-2 text-center diag-label">verifySet() — pure</div>
+                </div>
+                <div class="border-2 border-slate-300 rounded p-2">
+                  <p class="diag-label text-slate-500">cleanup command</p>
+                  <div class="mt-1 h-6 bg-slate-100 rounded flex items-center justify-center text-slate-500">thin shell → deleteStoredObject loop</div>
+                  <div class="mt-1 rounded deep text-emerald-200 py-2 text-center diag-label">cleanupPlan() — pure, unit-tested</div>
+                </div>
+                <p class="text-center text-emerald-600 diag-label">same seam, both sides</p>
               </div>
             </div>
           </div>
-          <ul class="text-sm list-disc pl-5 space-y-1">
-            <li>Fixes the live ungated-<span class="font-mono">\r</span> bug</li>
-            <li>Locality: gate + newline rules in one module</li>
-            <li>Leverage: one interface, three call sites</li>
-            <li>Tests: fake stream, <span class="font-mono">isTTY</span> toggled, once</li>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The documented "read-only twin" is realized on one side only — <span class="mono">verify</span> extracted its diff into the pure <span class="mono">verifySet</span>; <span class="mono">cleanup</span>'s orphan + missing/damaged arithmetic sits inline in the async command, testable only by module-mocking S3.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Extract <span class="mono">cleanupPlan(referencedBySet, stored, { now }) → { orphanHashes, reclaimableBytes, withinGrace, missing, damaged, unreadable }</span> beside <span class="mono">verifySet</span>. <span class="mono">cleanup</span> keeps only enumerate → plan → confirm → delete-loop.</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">locality: GC arithmetic in one testable place</li>
+            <li class="bg-slate-50 rounded px-3 py-2">grace-window logic unit-testable without S3</li>
+            <li class="bg-slate-50 rounded px-3 py-2">mirrors the accepted verifySet precedent</li>
+            <li class="bg-slate-50 rounded px-3 py-2">the twin becomes structural, not prose</li>
           </ul>
-          <p class="text-sm text-slate-600">Subsumes the progress half of the standing "narrow <span class="font-mono">s3.mjs</span>" candidate; the test-only-ops half remains separate below.</p>
+          <div class="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-2 text-xs text-emerald-800"><span class="font-semibold">Status (2026-07-08):</span> chosen &amp; built on <span class="mono">worktree-cleanup-plan</span> — pure <span class="mono">planCleanup</span> in <span class="mono">src/lib/cleanup.mjs</span>, 7 mock-free lib tests, full gate green. Awaiting review/merge.</div>
         </article>
 
-        <!-- Card 2: rewriteObjects -->
-        <article id="rewrite-cache" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-xl">The objects cache needs its third verb: atomic rewrite</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">slice-5 prep</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/objects.mjs:143–189 · docs/adr/0042 · docs/design/backup.md (verify + cleanup)</p>
-          <p><strong>Problem:</strong> the per-bucket objects cache exposes read-all (<span class="font-mono">knownObjects</span>) and append (<span class="font-mono">recordObjects</span>, a bare <span class="font-mono">appendFileSync</span>). ADR-0042 requires <span class="font-mono">verify</span> to <em>rewrite</em> the cache from a completed LIST (atomic temp + rename, never from a partial LIST), and <span class="font-mono">cleanup --delete</span> must rewrite it from stored − deleted. Without a lib verb, both commands would grow the write-and-rename dance inline — commands doing lib-work, twice, past the seam that owns the file's path and format.</p>
-          <p><strong>Solution:</strong> add <span class="font-mono">rewriteObjects(bucket, hashes)</span> to <span class="font-mono">objects.mjs</span> — temp file + <span class="font-mono">rename</span>, the atomic pattern its own <span class="font-mono">getObject</span> already uses. The cache becomes one deep concept: three verbs, one owner, one path literal, one atomicity guarantee, next to the staleness-asymmetry comment that already explains it.</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">Before — verify &amp; cleanup each reach past the seam</p>
-              <pre class="mermaid">
-flowchart TD
-  V[verify] -. "inline temp+rename,<br/>re-spells objects.&lt;bucket&gt;" .-> F[(cache file)]
-  C[cleanup] -. "inline temp+rename,<br/>re-spells objects.&lt;bucket&gt;" .-> F
-  O[objects.mjs<br/>knownObjects · recordObjects] --> F
-  linkStyle 0 stroke:#dc2626,stroke-width:2px
-  linkStyle 1 stroke:#dc2626,stroke-width:2px
-              </pre>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">After — the module owns the whole lifecycle</p>
-              <pre class="mermaid">
-flowchart TD
-  V[verify] --> O
-  C[cleanup] --> O
-  B[backup] --> O
-  O[objects.mjs<br/>knownObjects · recordObjects · rewriteObjects] --> F[(cache file)]
-  style O fill:#0f172a,color:#fff
-              </pre>
+        <!-- ============ CANDIDATE 2 — downloadToFile ============ -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">2 · One atomic <span class="mono text-lg">downloadToFile</span> at the S3 seam</h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">2 adapters</span>
             </div>
           </div>
-          <ul class="text-sm list-disc pl-5 space-y-1">
-            <li>Locality: atomicity invariant lives once</li>
-            <li>Unit-testable: rewrite A→B, assert exactly B</li>
-            <li>Unblocks slice 5 cleanly</li>
-          </ul>
-        </article>
+          <p class="mono text-sm text-slate-500">src/lib/objects.mjs:82–109 (getObject) · src/lib/remote.mjs:272–294 (downloadRemoteSnapshots) · src/lib/s3.mjs</p>
 
-        <!-- Card 3: listStoredObjects -->
-        <article id="list-size" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-xl">The store's listing drops <span class="font-mono">Size</span> — verify's size cross-check needs it</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">slice-5 prep</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/objects.mjs:122–130 · docs/design/backup.md (finding class 2)</p>
-          <p><strong>Problem:</strong> <span class="font-mono">listObjectHashes</span> collapses each listed object to a bare hash. Verify's size-mismatch check needs <span class="font-mono">hash → size</span> from the <em>same</em> LIST it already pays for (the design forbids extra requests). As shaped, <span class="font-mono">verify</span> would have to bypass <span class="font-mono">objects.mjs</span> and call <span class="font-mono">s3.mjs</span>'s <span class="font-mono">listObjects</span> directly — leaking the <span class="font-mono">objects/</span> prefix literal out of the one module that owns it.</p>
-          <p><strong>Solution:</strong> a size-carrying enumerator <span class="font-mono">listStoredObjects(bucket) → AsyncGenerator&lt;{ hash, size }&gt;</span>; <span class="font-mono">listObjectHashes</span> becomes a thin map over it. The interface grows one small entry; the seam stays sealed.</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">Before — the listing knows less than the store</p>
-              <div class="flex items-end gap-3">
-                <div class="flex-1">
-                  <div class="border border-slate-300 bg-white rounded p-2 text-center text-xs font-mono">LIST → Key + Size</div>
-                  <div class="text-center text-slate-400 text-lg leading-none">↓</div>
-                  <div class="border border-slate-300 bg-white rounded p-2 text-center text-xs font-mono">listObjectHashes → hash <span class="text-red-600 line-through">size</span></div>
-                  <div class="text-center text-red-600 text-lg leading-none">↓</div>
-                  <div class="border-2 border-red-600 bg-red-50 rounded p-2 text-center text-xs text-red-700">verify must reach around the module for sizes</div>
-                </div>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">After — lossless enumerator, hash-only view kept</p>
-              <div class="deep text-white rounded p-3 mb-2">
-                <p class="text-xs uppercase tracking-wider mb-1">objects.mjs</p>
-                <p class="text-xs font-mono text-slate-300">listStoredObjects → { hash, size }</p>
-              </div>
-              <div class="flex gap-2">
-                <span class="text-xs border border-slate-300 bg-white rounded px-2 py-1">verify: hash + size</span>
-                <span class="text-xs border border-slate-300 bg-white rounded px-2 py-1">hashes / cache seed: map(o → o.hash)</span>
-              </div>
-            </div>
-          </div>
-          <ul class="text-sm list-disc pl-5 space-y-1">
-            <li><span class="font-mono">objects/</span> prefix stays in one module</li>
-            <li>Size-mismatch detection testable at the lib seam</li>
-          </ul>
-        </article>
-
-        <!-- Card 4: referenced union -->
-        <article id="referenced" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-xl">The "referenced" union has no home yet — pick its seam before slice 5</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">placement decision</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/remote.mjs (per-set snapshot listing/reading) · src/lib/set-marker.mjs (set listing) · docs/design/backup.md</p>
-          <p><strong>Problem:</strong> the design commits to <em>referenced</em> — the union of hashes across snapshots — being a single internal lib function with two scopes (per-set for <span class="font-mono">verify</span>, bucket-wide for <span class="font-mono">cleanup</span>), detecting conflicting-size rows for free while unioning. The pieces exist across two modules; the composite has no owner. Assembled inline inside <span class="font-mono">verify</span>, the two scopes would drift.</p>
-          <p><strong>Solution:</strong> not a defect today — a seam that is <em>absent</em>. Decide its placement (in <span class="font-mono">remote.mjs</span>, or a small new module composing <span class="font-mono">set-marker</span> + <span class="font-mono">remote</span>) as one parameterised function, before writing slice 5.</p>
           <div class="rounded-lg border border-slate-200 bg-white p-4">
             <pre class="mermaid">
-flowchart LR
-  subgraph today [pieces exist]
-    SM[set-marker.mjs<br/>listRemoteSets]
-    RM[remote.mjs<br/>listRemoteSnapshots · readRemoteSnapshot]
+flowchart TB
+  subgraph now["Now — the temp→pipeline→rename→unlink dance, hand-rolled twice"]
+    direction LR
+    G["getObject<br/>tmp · pipeline+SHA256 tap · rename · unlink-catch"]
+    D["downloadRemoteSnapshots<br/>tmp · pipeline · rename · unlink-catch"]
+    G -. "same 4 steps" .-> D
   end
-  R{{referenced&#40;bucket, sets?&#41; — no home}}
-  SM --> R
-  RM --> R
-  R --> V[verify: per set]
-  R --> C[cleanup: all sets]
-  style R fill:#fef3c7,stroke:#d97706
+  subgraph after["After — one primitive at the s3.mjs seam"]
+    direction TB
+    P["downloadToFile(uri, dest, { tap })<br/>tmp · pipeline · rename · unlink-catch"]
+    G2["getObject → passes hashing tap + verify"] --> P
+    D2["downloadRemoteSnapshots → passes no tap"] --> P
+  end
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#7f1d1d;
+  class G,D leak
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class P deep
             </pre>
           </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">Two functions hand-roll the identical atomic-download dance; only the SHA-256 tap differs. Atomicity/cleanup live in two places and can drift.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600"><span class="mono">downloadToFile(uri, destPath, { tap })</span> at the <span class="mono">s3.mjs</span> seam; <span class="mono">getObject</span> passes the hashing tap + verify, <span class="mono">downloadRemoteSnapshots</span> passes none.</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">two real adapters justify the seam</li>
+            <li class="bg-slate-50 rounded px-3 py-2">locality: atomicity in one place</li>
+            <li class="bg-slate-50 rounded px-3 py-2">callers shrink to what varies</li>
+            <li class="bg-slate-50 rounded px-3 py-2">reduces total lines</li>
+          </ul>
+          <p class="text-xs text-slate-400"><span class="mono">withSnapshotFile</span> shares the temp+rename skeleton but streams <em>out</em> through zstd — fold in only if the primitive stays honest; don't stretch one over two different writes.</p>
         </article>
 
-        <!-- Card 5: seedStarterExclude -->
-        <article id="seed-exclude" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-xl">Lift <span class="font-mono">seedStarterExclude</span>'s guard to <span class="font-mono">sets.mjs</span></h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">small</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/commands/setup.mjs:179–188 · src/lib/sets.mjs:76–126</p>
-          <p><strong>Problem:</strong> PR #146's split is mostly right — starter data + read/write primitives in <span class="font-mono">sets.mjs</span>, policy in <span class="font-mono">setup.mjs</span>. But the load-bearing guard ("never clobber an existing exclude file") is a private command function reachable only through the async S3 create flow, so its contract is only testable end-to-end.</p>
-          <p><strong>Solution:</strong> move the idempotent seed into <span class="font-mono">sets.mjs</span> as <span class="font-mono">seedStarterExclude(name) → boolean</span> (wrote / already had one); <span class="font-mono">setup</span> keeps only the user-facing notice. The module's exclude surface then reads as one concept beside the data it guards.</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">Before</p>
-              <p class="text-xs font-mono">setup.mjs: create() → claimRemoteSet() → <span class="text-red-600">guard + write + notice</span></p>
-              <p class="text-xs text-slate-500 mt-2">contract reachable only through a full remote create</p>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">After</p>
-              <p class="text-xs font-mono">sets.mjs: seedStarterExclude(name) → boolean<br/>setup.mjs: notice if it returned true</p>
-              <p class="text-xs text-slate-500 mt-2">absent→write / present→skip pinned by a pure sets.test.mjs case</p>
+        <!-- ============ CANDIDATE 3 — snapshot-name authority ============ -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">3 · One snapshot-name authority — close the two-clock skew</h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-700">latent bug</span>
             </div>
           </div>
-          <ul class="text-sm list-disc pl-5 space-y-1">
-            <li>Locality: guard beside the data + primitives</li>
-            <li>Small — testability gain, not a depth lever</li>
+          <p class="mono text-sm text-slate-500">src/commands/snapshot.mjs:38,58,116–119 · src/lib/snapshot-file.mjs:265 · src/lib/compare.mjs:62</p>
+
+          <!-- cross-section: two clocks with I/O between -->
+          <div class="grid grid-cols-beforeafter items-center gap-4">
+            <div class="rounded-lg border border-slate-200 p-4 space-y-1 text-xs">
+              <p class="diag-label text-slate-400 mb-2 text-center">Now — two clock reads, I/O between</p>
+              <div class="h-8 border-l-4 border-slate-400 bg-slate-50 flex items-center px-3">clock read #1 → filename <span class="mono ml-1">2026‑…T0915</span> <span class="text-slate-400">(no colon)</span></div>
+              <div class="h-8 border-l-4 border-red-300 bg-red-50 flex items-center px-3 text-red-700">await readSnapshot(previous) · walkSet()</div>
+              <div class="h-8 border-l-4 border-slate-400 bg-slate-50 flex items-center px-3">clock read #2 → #SNAPSHOT <span class="mono ml-1">2026‑…T09:15</span> <span class="text-slate-400">(colon)</span></div>
+              <div class="h-8 border-l-4 border-slate-400 bg-slate-50 flex items-center px-3">snapshotNames regex — 3rd spelling</div>
+              <p class="text-red-600 text-center pt-1">minute ticks over → filename disagrees with its own header</p>
+            </div>
+            <div class="text-slate-300 text-3xl text-center">→</div>
+            <div class="rounded-lg border border-emerald-300 p-4 space-y-1 text-xs">
+              <p class="diag-label text-emerald-500 mb-2 text-center">After — one authority, one clock</p>
+              <div class="rounded deep text-emerald-200 py-3 px-3 text-center leading-relaxed diag-label">snapshotName(now()) → { name, datetime }<br/>+ recognizer + extension-normalizer</div>
+              <div class="h-8 border-l-4 border-emerald-300 bg-emerald-50 flex items-center px-3">filename & header from one capture</div>
+              <div class="h-8 border-l-4 border-emerald-300 bg-emerald-50 flex items-center px-3">compare's normalizeName ← same module</div>
+              <p class="text-emerald-600 text-center pt-1">name ↔ header consistent by construction</p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The timestamp format is spelled in three places and sampled from <em>two</em> <span class="mono">Temporal.Now</span> reads with an <span class="mono">await</span> between them — a minute-boundary tick makes the filename and its <span class="mono">#SNAPSHOT</span> header disagree. <span class="mono">normalizeName</span> in <span class="mono">compare.mjs</span> is a fourth leak of the grammar.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">A snapshot-name authority in <span class="mono">snapshot-file.mjs</span> beside <span class="mono">parseSnapshotStream</span>: one <span class="mono">now()</span> capture → <span class="mono">{ name, datetime }</span>, plus the recognizer and the extension-normalizer.</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">latent clock-skew bug closed</li>
+            <li class="bg-slate-50 rounded px-3 py-2">format in one place (leverage)</li>
+            <li class="bg-slate-50 rounded px-3 py-2">grammar stops leaking to compare</li>
+            <li class="bg-slate-50 rounded px-3 py-2">directly unit-testable</li>
           </ul>
         </article>
 
-        <!-- ============ CARRIED FORWARD ============ -->
-        <h2 class="font-serif text-2xl border-b border-slate-200 pb-2 pt-4">Carried forward — re-verified 2026-07-03, all still hold</h2>
-        <p class="text-sm text-slate-600">Full detail and line refs in <span class="font-mono">architecture-improvements.md</span>; diagrams were in the superseded 2026-07-02 report (git history).</p>
-
-        <article id="plan-upload" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">Pure <span class="font-mono">planUpload</span> — give <span class="font-mono">backup</span> the <span class="font-mono">planRestore</span> treatment</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+        <!-- ============ CANDIDATE 4 — planUpload completion ============ -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">4 · Finish <span class="mono text-lg">planUpload</span> — fold the first-backup diff into the pure seam</h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">narrowed</span>
+            </div>
           </div>
-          <p class="text-sm"><span class="font-mono">uploadSnapshot</span> (remote.mjs:193–250) interleaves the upload-set decision — candidates minus cache, first-path-wins selection — with the PUT loop, so the decision is reachable only through gated real-S3 tests and <span class="font-mono">backup</span> has no test at all. Extract pure <span class="font-mono">planUpload(target, remote, cached) → Map&lt;hash, path&gt;</span>; <span class="font-mono">uploadSnapshot</span> shrinks to executing the plan. Mirrors the accepted <span class="font-mono">planRestore</span>.</p>
+          <p class="mono text-sm text-slate-500">src/lib/remote.mjs:307–337 (uploadCandidates — pure) · 368–436 (uploadSnapshot) · 390–398 (inline first-backup diff)</p>
+
+          <!-- mass diagram: one pure diff exists, one inlined twin -->
+          <div class="grid grid-cols-beforeafter items-center gap-4">
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="diag-label text-slate-400 mb-3 text-center">Now — the diff exists twice</p>
+              <div class="flex gap-3 items-end justify-center h-40">
+                <div class="text-center">
+                  <div class="w-24 bg-slate-800 text-emerald-200 rounded-t text-[10px] flex items-center justify-center" style="height:70px">uploadCandidates<br/>pure · tested</div>
+                  <div class="w-24 bg-emerald-100 text-emerald-700 rounded-b text-[10px] py-1">--since path</div>
+                </div>
+                <div class="text-center">
+                  <div class="w-28 bg-red-900 text-red-200 rounded-t text-[10px] flex items-center justify-center px-1" style="height:120px">inline LIST-diff<br/>+ pathByHash<br/>+ PUT loop<br/><span class="text-red-300">— buried in I/O</span></div>
+                  <div class="w-28 bg-red-100 text-red-700 rounded-b text-[10px] py-1">first-backup path</div>
+                </div>
+              </div>
+            </div>
+            <div class="text-slate-300 text-3xl text-center">→</div>
+            <div class="rounded-lg border border-emerald-300 p-4">
+              <p class="diag-label text-emerald-500 mb-3 text-center">After — one pure plan, one executor</p>
+              <div class="flex gap-3 items-end justify-center h-40">
+                <div class="text-center">
+                  <div class="w-32 bg-slate-800 text-emerald-200 rounded-t text-[10px] flex items-center justify-center px-1" style="height:110px">planUpload(target, baseline?, listed?)<br/>→ Map&lt;hash,path&gt;<br/>pure · tested</div>
+                  <div class="w-32 bg-emerald-100 text-emerald-700 rounded-b text-[10px] py-1">both paths</div>
+                </div>
+                <div class="text-center">
+                  <div class="w-20 bg-slate-200 text-slate-500 rounded-t text-[10px] flex items-center justify-center" style="height:45px">PUT loop</div>
+                  <div class="w-20 bg-slate-50 text-slate-500 rounded-b text-[10px] py-1">executor</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">"Target minus what's already there" exists in two forms: the pure, tested <span class="mono">uploadCandidates</span> (<span class="mono">--since</span>) and an inlined streaming LIST-diff for the first-backup path, reachable only through gated real-S3 tests. The <span class="mono">backup</span> command still has no unit-testable upload plan.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Extract <span class="mono">planUpload</span> covering both branches (baseline diff <em>or</em> listed-store diff) + first-path-wins <span class="mono">pathByHash</span>, returning <span class="mono">Map&lt;hash, path&gt;</span>. <span class="mono">uploadSnapshot</span> shrinks to <em>executing</em> the plan.</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">mirrors accepted planRestore</li>
+            <li class="bg-slate-50 rounded px-3 py-2">both branches tested off-S3</li>
+            <li class="bg-slate-50 rounded px-3 py-2">path-selection stops hiding</li>
+            <li class="bg-slate-50 rounded px-3 py-2">purely additive — no ADR tension</li>
+          </ul>
         </article>
 
-        <article id="download-to-file" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">One atomic <span class="font-mono">downloadToFile</span> at the S3 seam</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+        <!-- ============ CANDIDATE 5 — thread previous snapshot ============ -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">5 · Thread the previous snapshot through <span class="mono text-lg">snapshot → compare</span></h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">hot path</span>
+            </div>
           </div>
-          <p class="text-sm"><span class="font-mono">getObject</span> (objects.mjs:85–112) and <span class="font-mono">downloadRemoteSnapshots</span> (remote.mjs:119–139) hand-roll the same temp-sibling → pipeline → rename → unlink-on-error dance, differing only in the SHA-256 tap. Extract <span class="font-mono">downloadToFile(uri, destPath, { tap })</span> at the s3.mjs seam — two real adapters justify it.</p>
+          <p class="mono text-sm text-slate-500">src/commands/snapshot.mjs:43–47, 81–85 · src/lib/compare.mjs:113</p>
+
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+sequenceDiagram
+  participant S as snapshot
+  participant D as disk (.tsv.zst)
+  participant C as compareSnapshots
+  Note over S,C: Now — previous snapshot decompressed + parsed TWICE
+  S->>D: readSnapshot(previous) — hash-reuse lookup
+  D-->>S: entries (zstd decode + parse)
+  S->>C: compareSnapshots(since: previous)
+  C->>D: readSnapshot(previous) AGAIN — baseline
+  D-->>C: entries (zstd decode + parse) #2
+            </pre>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The previous snapshot is fully zstd-decompressed and per-entry parsed twice per run — once for <span class="mono">snapshot</span>'s hash lookup, again as <span class="mono">compareSnapshots</span>' baseline. Exactly the per-file-overhead the hot-path convention warns about, at whole-snapshot scale.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Thread the already-parsed <span class="mono">since</span> entries through the compare seam, or have <span class="mono">snapshot</span> compose the pure <span class="mono">diff</span> directly with what it already holds. (The <em>new</em>-side re-read is cheap to keep — it doubles as round-trip verification.)</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">one decode per run, not two</li>
+            <li class="bg-slate-50 rounded px-3 py-2">data threaded through interface</li>
+            <li class="bg-slate-50 rounded px-3 py-2">no module-level cache</li>
+            <li class="bg-slate-50 rounded px-3 py-2">pairs with candidate 6</li>
+          </ul>
         </article>
 
-        <article id="name-authority" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">One snapshot-name authority — close the two-clock gap</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring · latent bug</span>
+        <!-- ============ CANDIDATE 6 — test diff directly ============ -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">6 · Test <span class="mono text-lg">diff</span> at its own interface, not through the I/O shell</h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">cheapest</span>
+            </div>
           </div>
-          <p class="text-sm">The timestamp format is spelled in three places: <span class="font-mono">snapshot.mjs</span> renders "now" twice from two separate clock reads with an <span class="font-mono">await</span> between (filename line 37 via getTimestamp; <span class="font-mono">#SNAPSHOT</span> header line 57) — a minute-boundary crossing makes the filename disagree with its own header — plus the <span class="font-mono">snapshotNames</span> regex (snapshot-file.mjs:263–266) and <span class="font-mono">normalizeName</span>'s extension-strip (compare.mjs:21). One authority in snapshot-file.mjs: single <span class="font-mono">now()</span> → <span class="font-mono">{ name, datetime }</span>, plus recognizer and normalizer.</p>
+          <p class="mono text-sm text-slate-500">src/lib/compare.mjs:227 (diff — pure, exported) · src/lib/compare.test.mjs (25 tests, 0 hit diff)</p>
+
+          <div class="grid grid-cols-beforeafter items-center gap-4">
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="diag-label text-slate-400 mb-3 text-center">Now — deepest logic, most expensive access</p>
+              <div class="flex flex-col items-center gap-1 text-xs">
+                <div class="w-full bg-slate-100 rounded px-2 py-1 text-center text-slate-500">25 tests</div>
+                <div class="text-slate-400">↓ build real .tsv.zst fixtures</div>
+                <div class="w-full bg-slate-200 rounded px-2 py-2 text-center text-slate-600">withSnapshotFile · zstd compress · re-read</div>
+                <div class="text-slate-400">↓ compareSnapshots</div>
+                <div class="w-full rounded deep text-red-200 px-2 py-4 text-center">diff() — greedy move-pairing<br/>+ copy annotation · <span class="text-red-300">0 direct tests</span></div>
+              </div>
+            </div>
+            <div class="text-slate-300 text-3xl text-center">→</div>
+            <div class="rounded-lg border border-emerald-300 p-4">
+              <p class="diag-label text-emerald-500 mb-3 text-center">After — drive the seam directly</p>
+              <div class="flex flex-col items-center gap-1 text-xs">
+                <div class="w-full bg-emerald-100 rounded px-2 py-1 text-center text-emerald-700">edge-case tests (rotations, swaps, copies-of-moves)</div>
+                <div class="text-emerald-400">↓ two in-memory Maps</div>
+                <div class="w-full rounded deep text-emerald-200 px-2 py-4 text-center">diff() — driven at its own interface</div>
+                <div class="w-full bg-slate-100 rounded px-2 py-1 text-center text-slate-500 mt-1">thin compareSnapshots tests for since/until + display</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The codebase's most intricate pure logic has the most expensive test access — all 25 tests reach <span class="mono">diff</span> through <span class="mono">compareSnapshots</span>, building and re-reading compressed fixtures. Pairing edge cases are costly to enumerate.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Drive <span class="mono">diff</span> with in-memory Maps; keep a thin set of <span class="mono">compareSnapshots</span> tests for what only it adds (<span class="mono">since</span>/<span class="mono">until</span> resolution, path display). A test-discipline change — <span class="mono">diff</span> already sits at the right seam.</span></div>
+          </div>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">interface is the test surface</li>
+            <li class="bg-slate-50 rounded px-3 py-2">edge cases cheap to enumerate</li>
+            <li class="bg-slate-50 rounded px-3 py-2">no structural change</li>
+            <li class="bg-slate-50 rounded px-3 py-2">export becomes a conscious test seam</li>
+          </ul>
         </article>
 
-        <article id="thread-previous" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">Thread the previous snapshot through <span class="font-mono">snapshot → compare</span></h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring · hot path</span>
+        <!-- ============ CANDIDATE 7 — trim s3.mjs ============ -->
+        <article id="c7" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">7 · Trim the <span class="mono text-lg">s3.mjs</span> seam — delete the dead <span class="mono text-lg">emptyBucket</span></h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">small</span>
+            </div>
           </div>
-          <p class="text-sm">The previous snapshot is fully decompressed and parsed twice per run: once for the hash lookup (snapshot.mjs:42–47), again inside <span class="font-mono">compareSnapshots</span> as the diff baseline. Thread the parsed entries through the compare seam (or compose the pure <span class="font-mono">diff</span> directly) — the CLAUDE.md hot-path rule's prescribed fix.</p>
+          <p class="mono text-sm text-slate-500">src/lib/s3.mjs:569–578 (emptyBucket — 0 callers) · :560 (deleteObject — now production)</p>
+
+          <div class="grid md:grid-cols-2 gap-6 items-start text-sm">
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="diag-label text-slate-400 mb-2">deleteObject — resolved</p>
+              <p class="text-slate-600">No longer test-only. Three production wrappers now guard it over their key layouts:</p>
+              <ul class="mono text-xs text-slate-500 mt-2 space-y-1">
+                <li>objects.mjs:151 deleteStoredObject → cleanup</li>
+                <li>remote.mjs:79 deleteRemoteSnapshot → delete</li>
+                <li>set-marker.mjs:120 → exclude.txt</li>
+              </ul>
+              <p class="text-emerald-600 text-xs mt-2">The old "move deleteObject to a test helper" candidate is stale — it's a real seam now.</p>
+            </div>
+            <div class="rounded-lg border border-red-200 bg-red-50/50 p-4">
+              <p class="diag-label text-red-400 mb-2">emptyBucket — fails the deletion test</p>
+              <p class="text-slate-600">Zero callers anywhere — not production, not tests, not scripts. A <span class="mono">DeleteObjectCommand</span> loop with its own stderr progress, duplicating iteration <span class="mono">listObjects</span> already owns.</p>
+              <p class="text-red-600 text-xs mt-2">Deleting it concentrates nothing — pure surface-area bloat at the boundary module. Remove it.</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400">Also present in <span class="mono">s3.mjs</span>: pure helpers (<span class="mono">authNotice</span>, <span class="mono">clientConfig</span>, <span class="mono">formatUploadProgress</span>, <span class="mono">putObjectParams</span>, <span class="mono">parseS3Uri</span>, <span class="mono">bucketPolicy</span>) that touch no SDK. They live here for cohesion and are consumed (e.g. <span class="mono">bucketPolicy</span> → onboarding) — <em>not</em> flagged; the interface-vs-SDK-seam mismatch is deliberate. Only <span class="mono">emptyBucket</span> earns removal.</p>
         </article>
 
-        <article id="diff-tests" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">Test <span class="font-mono">diff</span> at its own interface</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring · cheapest</span>
+        <!-- ============ CANDIDATE 8 — seedStarterExclude ============ -->
+        <article id="c8" class="rounded-xl border border-slate-200 bg-white shadow-sm p-7 space-y-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <h3 class="text-xl font-serif font-semibold text-slate-800">8 · Lift <span class="mono text-lg">seedStarterExclude</span>'s guard into <span class="mono text-lg">sets.mjs</span></h3>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">small</span>
+            </div>
           </div>
-          <p class="text-sm">Still 27 × <span class="font-mono">compareSnapshots</span> (grown from 22), 0 × direct <span class="font-mono">diff</span>. The codebase's most intricate pure logic (move-pairing, copy annotation) pays compressed-fixture-file prices for every edge case. Drive it with in-memory Maps; keep thin <span class="font-mono">compareSnapshots</span> tests for what only it adds.</p>
-        </article>
-
-        <article id="narrow-s3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg">Narrow <span class="font-mono">s3.mjs</span> to the SDK seam it guards</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring · progress half escalated above</span>
+          <p class="mono text-sm text-slate-500">src/commands/setup.mjs:189–193 (private) · src/lib/sets.mjs (starterExclude + writeSetExclude)</p>
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div><span class="font-semibold text-slate-700">Problem.</span> <span class="text-slate-600">The load-bearing "never clobber an existing exclude file" guard is a private command function reachable only through the async S3 create flow — absent→write / present→skip is testable only end-to-end.</span></div>
+            <div><span class="font-semibold text-slate-700">Solution.</span> <span class="text-slate-600">Move the idempotent seed to <span class="mono">sets.mjs</span> as <span class="mono">seedStarterExclude(name) → boolean</span> (wrote / already had one); <span class="mono">setup</span> keeps only the user-facing notice.</span></div>
           </div>
-          <p class="text-sm">The progress-rendering half is now the Strong candidate at the top of this report. Remaining here: move the test-only <span class="font-mono">deleteObject</span>/<span class="font-mono">emptyBucket</span> to a test helper (note: the settled <span class="font-mono">cleanup</span> design will need a real production delete — its shape may resolve this half for free).</p>
-        </article>
-
-        <article id="structured-diff" class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="font-serif text-lg"><span class="font-mono">compareSnapshots</span> returns structured diff, not display strings</h3>
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-200 text-slate-700">Speculative · parked</span>
-          </div>
-          <p class="text-sm">Parked until a second consumer exists — the <span class="font-mono">--json</span> epic in output-ux.md is what would make the seam real; implement this as its first step.</p>
+          <ul class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+            <li class="bg-slate-50 rounded px-3 py-2">guard unit-testable directly</li>
+            <li class="bg-slate-50 rounded px-3 py-2">starter data + guard co-located</li>
+            <li class="bg-slate-50 rounded px-3 py-2">locality, not a depth lever</li>
+            <li class="bg-slate-50 rounded px-3 py-2">small blast radius</li>
+          </ul>
         </article>
       </section>
 
       <!-- ============ TOP RECOMMENDATION ============ -->
-      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-600 bg-emerald-50 p-8 space-y-3">
-        <h2 class="font-serif text-2xl">Top recommendation</h2>
-        <p><a href="#progress" class="font-semibold underline decoration-emerald-600">One stderr-progress module</a> — it is the only candidate fixing a <em>live</em> defect (redirected/CI <span class="font-mono">snapshot</span> runs get raw <span class="font-mono">\r</span> spam), it completes what PR #147 started ("every consumer routes through here"), and the three-adapters threshold is met exactly. Small, self-contained, and it retires half of a standing candidate for free.</p>
-        <p class="text-sm text-slate-700"><strong>Timing note:</strong> the two slice-5 prep seams — <a href="#rewrite-cache" class="underline">rewriteObjects</a> and <a href="#list-size" class="underline">listStoredObjects</a> — are tiny and should land before or with the <span class="font-mono">verify</span> implementation, whichever candidate is explored first.</p>
+      <section id="top-recommendation" class="rounded-xl deep text-slate-100 p-8 space-y-4">
+        <p class="diag-label text-emerald-300">Top recommendation</p>
+        <h2 class="text-2xl font-serif font-semibold">Candidate 1 — extract a pure <span class="mono">cleanupPlan</span></h2>
+        <p class="text-slate-300 text-sm max-w-3xl">It's the freshest and highest-leverage. The design doc <em>asserts</em> <span class="mono">cleanup</span> is <span class="mono">verify</span>'s twin, but only <span class="mono">verify</span> realized that in code (the pure <span class="mono">verifySet</span>); <span class="mono">cleanup</span>'s orphan + grace-window + missing/damaged arithmetic is trapped inline in the async command, testable only by mocking S3. Extracting <span class="mono">cleanupPlan</span> beside <span class="mono">verifySet</span> makes the twin structural, follows an already-accepted precedent, and puts the destructive path's riskiest logic — the grace window — under direct unit test. Pairs naturally with the standing <a href="#c7" class="text-emerald-300 underline">candidate 7</a> cleanup of the S3 seam. <span class="text-emerald-300">(Chosen 2026-07-08; built on <span class="mono">worktree-cleanup-plan</span>, awaiting merge.)</span></p>
+        <p class="text-xs text-slate-400">Cheapest quick win if you'd rather warm up first: <a href="#c6" class="text-emerald-300 underline">candidate 6</a> (drive <span class="mono">diff</span> directly) — no structural change, and <span class="mono">diff</span> already sits at the right seam.</p>
       </section>
 
-      <footer class="text-xs text-slate-400 pt-4 border-t border-slate-200">
-        Registry/help seam (PRs #144/#145), style.mjs, and the starter-exclude placement were all examined and found clean — recorded in architecture-improvements.md so future passes don't re-derive.
+      <footer class="text-xs text-slate-400 pt-6 border-t border-slate-200">
+        Vocabulary: module / interface / implementation / depth / seam / adapter / leverage / locality (codebase-design skill) · domain terms from CONTEXT.md. Report is static — Tailwind + Mermaid from public CDNs.
       </footer>
     </main>
   </body>
