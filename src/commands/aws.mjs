@@ -1,3 +1,4 @@
+import { customEndpoint } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { awsIamPlan, awsSsoPlan } from "../lib/onboarding.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
@@ -31,12 +32,11 @@ import { validateBucketName } from "../lib/sets.mjs";
  * @returns {string} The onboarding recipe, ready for the render layer.
  */
 export function aws(name, options = {}) {
-  // A custom endpoint is the single "not AWS" signal (the same SDK-native vars
-  // s3.mjs's customEndpoint() reads): an S3-compatible provider has no IAM, so
-  // the AWS recipes can't apply — redirect to the non-AWS steps instead of
-  // guessing. Checked before the bucket arg (the redirect doesn't need one).
-  const endpoint =
-    process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
+  // A custom endpoint is the single "not AWS" signal: an S3-compatible provider
+  // has no IAM, so the AWS recipes can't apply — redirect to the non-AWS steps
+  // instead of guessing. Checked before the bucket arg (the redirect doesn't
+  // need one).
+  const endpoint = customEndpoint();
   if (endpoint) {
     return `A custom S3 endpoint is set (${endpoint}), so this backup destination
 isn't on AWS — and 's3cab aws' generates AWS-specific setup (IAM policy,

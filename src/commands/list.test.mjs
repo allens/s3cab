@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { writeSet } from "../lib/sets.mjs";
+import { readSet, writeSet } from "../lib/sets.mjs";
 import { list } from "./list.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -120,6 +120,36 @@ describe("list", () => {
     assert.match(result.set.dirsPath, /docs.dirs\.txt$/);
     assert.match(result.set.excludePath, /docs.exclude\.txt$/);
     assert.deepEqual(result.snapshots, ["2026-05-12T0946"]);
+    // The set env carries only its bucket → no provider overrides.
+    assert.deepEqual(result.overrides, {
+      profile: undefined,
+      endpoint: undefined,
+      region: undefined,
+      keys: false,
+    });
+  });
+
+  it("surfaces the set's provider overrides, key presence only", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    seedSet("docs", ["/data/docs"], "my-bucket", []);
+    writeFileSync(
+      readSet("docs").envPath,
+      "AWS_PROFILE=work\nAWS_ENDPOINT_URL=https://s3.example\n" +
+        "AWS_ACCESS_KEY_ID=id\nAWS_SECRET_ACCESS_KEY=hunter2\n",
+      { flag: "a" },
+    );
+
+    const result = await list("docs");
+
+    assert(result.mode === "detail");
+    assert.deepEqual(result.overrides, {
+      profile: "work",
+      endpoint: "https://s3.example", // the _S3 ?? plain fallback, one spelling
+      region: undefined,
+      keys: true, // presence only —
+    });
+    assert.doesNotMatch(JSON.stringify(result), /hunter2/); // — never the secret
   });
 
   it("rejects an unknown named set", async () => {

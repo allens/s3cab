@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, sep } from "node:path";
 import { listProfiles } from "../lib/aws-profiles.mjs";
 import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
-import { parseEnvFile, userEnvPath } from "../lib/env.mjs";
+import { customEndpoint, parseEnvFile, userEnvPath } from "../lib/env.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { promptHidden, promptLine, stdinLines } from "../lib/prompt.mjs";
 import { readSet } from "../lib/sets.mjs";
@@ -38,16 +38,16 @@ const knobs = {
 
 /**
  * The env file a command invocation targets, plus how to name that scope in
- * messages. Two naming forms (the design's query-noun/action-phrase split):
- * `noun` heads the profile status line ("Default AWS profile: work"), `phrase`
- * fills an action sentence ("Cleared the access keys for set 'photos'"). The
- * user scope is "the default" — per-set settings override it (env layering,
- * ADR-0022/0025) — not "all backups", which overclaims. A discriminated union:
- * the set scope always carries the set `name` (used to build set-scoped
- * suggestions), the user scope never does — so an `isSet: true` scope without a
- * `name` can't be constructed, and `tsc` enforces the coupling.
- * @typedef {{ path: string, noun: string, phrase: string, isSet: false }
- *   | { path: string, noun: string, phrase: string, isSet: true, name: string }} Scope
+ * messages: `phrase` fills both the status nouns ("AWS endpoint for the
+ * default (all backups)") and the action sentences ("Cleared the access keys
+ * for set 'photos'"). The user scope is "the default" — per-set settings
+ * override it (env layering, ADR-0022/0025) — not "all backups", which
+ * overclaims. A discriminated union: the set scope always carries the set
+ * `name` (used to build set-scoped suggestions), the user scope never does —
+ * so an `isSet: true` scope without a `name` can't be constructed, and `tsc`
+ * enforces the coupling.
+ * @typedef {{ path: string, phrase: string, isSet: false }
+ *   | { path: string, phrase: string, isSet: true, name: string }} Scope
  */
 
 /**
@@ -61,7 +61,6 @@ function resolveScope(setName) {
   if (setName === undefined) {
     return {
       path: userEnvPath(),
-      noun: "Default AWS profile",
       phrase: "the default (all backups)",
       isSet: false,
     };
@@ -69,7 +68,6 @@ function resolveScope(setName) {
   const set = readSet(setName);
   return {
     path: set.envPath,
-    noun: `AWS profile for set '${set.name}'`,
     phrase: `set '${set.name}'`,
     isSet: true,
     name: set.name,
@@ -102,13 +100,13 @@ const tildeify = (path) =>
  * @returns {Promise<string>}
  */
 async function describeScope(scope) {
-  const { path, noun, phrase } = scope;
+  const { path, phrase } = scope;
   const values = parseEnvFile(path);
   const profile = values.AWS_PROFILE;
-  const endpoint = values.AWS_ENDPOINT_URL_S3 ?? values.AWS_ENDPOINT_URL;
+  const endpoint = customEndpoint(values);
   const region = values.AWS_REGION;
-  const hasKeys = Boolean(values.AWS_ACCESS_KEY_ID);
-  if (!profile && !endpoint && !region && !hasKeys) {
+  const keyId = values.AWS_ACCESS_KEY_ID;
+  if (!profile && !endpoint && !region && !keyId) {
     return scope.isSet
       ? `No provider settings for ${phrase} — it uses the user default.\n` +
           `Give this set its own with:\n` +
@@ -117,11 +115,14 @@ async function describeScope(scope) {
           `Point s3cab at one of your AWS profiles with:\n` +
           `  s3cab provider --profile <name>\n` +
           `Or set up an S3-compatible provider (Cloudflare R2, Backblaze B2, …):\n` +
-          `  s3cab help provider`;
+          `  s3cab help provider${shellNote()}`;
   }
   const where = `   (${tildeify(path)})`;
   const lines = [];
   if (profile) {
+    const noun = scope.isSet
+      ? `AWS profile for ${phrase}`
+      : "Default AWS profile";
     lines.push(`${noun}: ${profile}${where}`);
     const known = await listProfiles();
     if (known && !known.includes(profile)) {
@@ -137,10 +138,45 @@ async function describeScope(scope) {
   if (region) {
     lines.push(`AWS region for ${phrase}: ${region}${where}`);
   }
-  if (hasKeys) {
-    lines.push(`Access keys for ${phrase}: set${where}`);
+  if (keyId) {
+    lines.push(`Access keys for ${phrase}: set (${keyTail(keyId)})${where}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * The last few characters of an access key ID — enough to answer "which key?"
+ * without dumping the whole thing into every status line. Key IDs are not
+ * secret (consoles list them in full); this is brevity, not masking.
+ * @param {string} keyId
+ */
+const keyTail = (keyId) => `…${keyId.slice(-4)}`;
+
+/**
+ * A trailing note for the user-scope "nothing configured" answer when the
+ * *shell environment* nonetheless carries auth — without it, a user whose
+ * backups work fine off shell `AWS_*` vars reads "no provider configured" as
+ * broken. Only shell-origin values can appear here: this branch means the user
+ * env file set nothing, and the set layer is never loaded by this command.
+ * An empty `AWS_PROFILE` counts as none (as `authNotice` treats it).
+ */
+function shellNote() {
+  const vars = [];
+  if (process.env.AWS_PROFILE) {
+    vars.push(`AWS_PROFILE=${process.env.AWS_PROFILE}`);
+  }
+  const endpoint = customEndpoint();
+  if (endpoint) {
+    vars.push(`an endpoint (${endpoint})`);
+  }
+  if (process.env.AWS_ACCESS_KEY_ID) {
+    vars.push("access keys");
+  }
+  if (vars.length === 0) {
+    return "";
+  }
+  return `\n(Your shell environment sets ${vars.join(", ")} — s3cab uses that
+unless a file overrides it.)`;
 }
 
 /**
@@ -303,8 +339,9 @@ export async function provider(setName, options = {}) {
     set.push(`region ${value}`);
   }
   if (keys) {
-    Object.assign(updates, await readKeys());
-    set.push("access keys");
+    const pair = await readKeys();
+    Object.assign(updates, pair);
+    set.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
   }
 
   // The user's ~/.s3cab may not exist yet on a fresh machine; a set's does.

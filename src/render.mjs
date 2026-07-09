@@ -310,10 +310,11 @@ function summaryLine(result, renamedCount, movedCount) {
  */
 export function renderList(result) {
   if (result.mode === "detail") {
-    const { set, snapshots, remote } = result;
+    const { set, overrides, snapshots, remote } = result;
     return [
       `name: ${set.name}`,
       `bucket: ${set.bucket}`,
+      ...providerOverrideLines(overrides),
       `dirs (${set.dirsPath}):`,
       ...(set.dirs.length ? set.dirs.map((dir) => `  ${dir}`) : ["  (none)"]),
       `exclude file: ${set.excludePath}`,
@@ -327,6 +328,31 @@ export function renderList(result) {
   return result.sets
     .map((s) => `${s.name}:\n${indentSnapshots(s.snapshots)}`)
     .join("\n");
+}
+
+/**
+ * The set's own provider settings, as an indented block after the bucket —
+ * where its backups actually go (ADR-0047). Rendered only when the set
+ * overrides something; a set on the user default stays as before (the absence
+ * IS the answer). Key presence only, never the secret.
+ * @param {import("./commands/list.mjs").ProviderOverrides} overrides
+ * @returns {string[]}
+ */
+function providerOverrideLines({ profile, endpoint, region, keys }) {
+  const lines = [];
+  if (profile) {
+    lines.push(`  AWS profile: ${profile}`);
+  }
+  if (endpoint) {
+    lines.push(`  endpoint: ${endpoint}`);
+  }
+  if (region) {
+    lines.push(`  region: ${region}`);
+  }
+  if (keys) {
+    lines.push(`  access keys: set`);
+  }
+  return lines.length ? ["provider overrides:", ...lines] : [];
 }
 
 /**

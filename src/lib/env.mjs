@@ -31,9 +31,28 @@ import { resolveSet } from "./sets.mjs";
 
 /**
  * The per-user env file, `~/.s3cab/env` — the one place this path is spelled, so
- * the `aws` command writes/reads exactly the file `loadEnv` applies.
+ * the `provider` command writes/reads exactly the file `loadEnv` applies.
  */
 export const userEnvPath = () => join(s3cabDir(), "env");
+
+/**
+ * The custom S3 endpoint, if one is configured — present for any S3-compatible
+ * provider that isn't AWS (Cloudflare R2, Backblaze B2, MinIO, Wasabi, …). Its
+ * presence is the single `targets-AWS?` signal: a set endpoint means "not AWS",
+ * which gates the AWS-only behaviours (region redirects, storage class, SSE —
+ * `s3.mjs`) and routes onboarding/guidance (`aws`, `credentialGuidance`).
+ *
+ * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
+ * rather than inventing new surface (ADR-0005/0006); `provider --endpoint`
+ * writes the specific `_S3` form (ADR-0047). Lives here — the env module — so
+ * every reader shares one spelling of the fallback chain.
+ * @param {NodeJS.Dict<string>} [env] - The variables to read: the process
+ *   environment by default (the *effective*, post-layering view), or a
+ *   `parseEnvFile` dict to ask about one layer in isolation.
+ * @returns {string | undefined}
+ */
+export const customEndpoint = (env = process.env) =>
+  env.AWS_ENDPOINT_URL_S3 ?? env.AWS_ENDPOINT_URL;
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous

@@ -1,5 +1,6 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { listProfiles } from "./aws-profiles.mjs";
+import { customEndpoint } from "./env.mjs";
 
 // AWS credential resolution. This is the single source of truth for *how* s3cab
 // obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`) hands
@@ -320,10 +321,10 @@ export const resolveCredentials = async (awsIdentityProperties) => {
     // so do it here (already async) and hand the result to the sync factory.
     const profile = process.env.AWS_PROFILE;
     const knownProfiles = profile ? await listProfiles() : undefined;
-    // The same SDK-native vars s3.mjs's customEndpoint() reads — inlined here
-    // rather than imported, since s3.mjs already imports this module.
-    const endpoint =
-      process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
-    throw noCredentialsError(error, { profile, knownProfiles, endpoint });
+    throw noCredentialsError(error, {
+      profile,
+      knownProfiles,
+      endpoint: customEndpoint(),
+    });
   }
 };

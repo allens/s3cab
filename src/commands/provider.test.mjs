@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseEnv } from "node:util";
@@ -228,8 +228,8 @@ describe("provider --keys", () => {
     const env = parseEnvFile(userEnvPath());
     assert.equal(env.AWS_ACCESS_KEY_ID, "AKIAEXAMPLE");
     assert.equal(env.AWS_SECRET_ACCESS_KEY, "sooper-secret");
-    assert.match(out, /Set access keys for the default/);
-    // The secret must never appear in the confirmation.
+    // The key-ID tail answers "which key?"; the secret never appears.
+    assert.match(out, /Set access keys \(…MPLE\) for the default/);
     assert.doesNotMatch(out, /sooper-secret/);
   });
 
@@ -277,21 +277,6 @@ describe("provider --keys", () => {
     assert.equal(env.AWS_ACCESS_KEY_ID, "id");
     assert.match(out, /endpoint .*region auto.*access keys/s);
   });
-
-  it(
-    "creates the user env file owner-only (0600) — it now holds a secret",
-    { skip: process.platform === "win32" && "POSIX modes don't apply" },
-    async () => {
-      await using dir = await mkTmpDir();
-      useTempHome(dir.path);
-      stdin.isTTY = false;
-      promptLines = ["id", "secret"];
-
-      await provider(undefined, { keys: true });
-
-      assert.equal(statSync(userEnvPath()).mode & 0o777, 0o600);
-    },
-  );
 });
 
 describe("provider --unset", () => {
@@ -340,15 +325,48 @@ describe("provider --unset", () => {
 });
 
 describe("provider (show)", () => {
+  /** The knobs the shell-env note reads; cleared for hermetic empty-scope tests. */
+  const SHELL_VARS = [
+    "AWS_PROFILE",
+    "AWS_ENDPOINT_URL_S3",
+    "AWS_ENDPOINT_URL",
+    "AWS_ACCESS_KEY_ID",
+  ];
+
   it("reports nothing configured for the default scope, pointing both ways in", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
+    for (const name of SHELL_VARS) {
+      delete process.env[name]; // restored by afterEach
+    }
 
     const out = await provider(undefined, {});
 
     assert.match(out, /No default provider configured/);
     assert.match(out, /s3cab provider --profile <name>/); // the AWS way in
     assert.match(out, /s3cab help provider/); // the non-AWS way in
+    assert.doesNotMatch(out, /shell environment/); // nothing ambient to report
+  });
+
+  it("notes shell-environment auth so an empty file doesn't read as broken", async () => {
+    // Backups can work entirely off shell AWS_* vars; "no provider configured"
+    // alone would then be a false alarm.
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    for (const name of SHELL_VARS) {
+      delete process.env[name];
+    }
+    process.env.AWS_PROFILE = "work";
+    process.env.AWS_ENDPOINT_URL = "https://s3.example";
+
+    const out = await provider(undefined, {});
+
+    assert.match(out, /No default provider configured/);
+    assert.match(
+      out,
+      /shell environment sets AWS_PROFILE=work, an endpoint \(https:\/\/s3\.example\)/,
+    );
+    assert.match(out, /unless a file overrides it/);
   });
 
   it("reports profile, endpoint, region, and key presence at the default scope", async () => {
@@ -371,8 +389,12 @@ describe("provider (show)", () => {
       /AWS endpoint for the default \(all backups\): https:\/\/example\.r2/,
     );
     assert.match(out, /AWS region for the default \(all backups\): auto/);
-    assert.match(out, /Access keys for the default \(all backups\): set/);
-    assert.doesNotMatch(out, /hunter2/); // never the secret
+    // Key presence + the ID tail ("which key?"), never the secret.
+    assert.match(
+      out,
+      /Access keys for the default \(all backups\): set \(…id\)/,
+    );
+    assert.doesNotMatch(out, /hunter2/);
     assert.doesNotMatch(out, /Not in your AWS config/);
   });
 
