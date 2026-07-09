@@ -15,8 +15,8 @@
 # Checks UI), not the YAML key `ci-gate`. It passes only when every job that ran
 # succeeded, so a merge can never slip in untested code — and no human decides whether
 # to run the suite. (Don't mark `s3 integration` required directly: it's skipped on
-# fork PRs, and a required check that gets skipped is treated as forever-pending,
-# wedging those PRs.)
+# fork and Dependabot PRs, and a required check that gets skipped is treated as
+# forever-pending, wedging those PRs.)
 
 name: ci
 
@@ -119,10 +119,12 @@ jobs:
   # verified download) that need an actual bucket. Runs AUTOMATICALLY on every
   # same-repo PR before merge — no manual approval, no "should I run it?" decision —
   # which covers the day-to-day case where forgetting is the real risk. It does NOT
-  # run on push-to-main (redundant: the PR already tested that commit) nor on fork
-  # PRs (`if` below): GitHub gives a fork run no secrets/OIDC by design, so it
-  # physically can't run; forks stay green on the mocked-seam tier. A fork PR is a
-  # rare, attention-getting event — to run the real round-trip on one, reproduce its
+  # run on push-to-main (redundant: the PR already tested that commit), on fork
+  # PRs, nor on Dependabot PRs (`if` below): GitHub withholds this repo's
+  # secrets/OIDC from both by design (a fork gets none; a `dependabot[bot]` run gets
+  # only the separate Dependabot secrets store), so the job physically can't assume
+  # the role — it stays green on the mocked-seam tier instead. A fork PR is a rare,
+  # attention-getting event — to run the real round-trip on one, reproduce its
   # commits as a branch in this repo, which makes it a same-repo PR and runs here.
   #
   # Auth is short-lived OIDC (no stored keys). The approval Environment was REMOVED
@@ -135,7 +137,7 @@ jobs:
   # One OS only — the S3 code path doesn't branch on platform (unlike the matrix above).
   s3-integration:
     name: s3 integration
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
@@ -155,7 +157,8 @@ jobs:
           S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
 
   # The single required check. Always runs and fails if any job that ran failed (a
-  # fork-skipped s3-integration is 'skipped', not 'failure', so it doesn't block).
+  # fork- or Dependabot-skipped s3-integration is 'skipped', not 'failure', so it
+  # doesn't block).
   # Mark this job — by its display name `ci gate` — as the required status check.
   ci-gate:
     name: ci gate
