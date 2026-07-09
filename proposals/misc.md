@@ -16,3 +16,7 @@ future "platform / release" epic).
 - **Distribution**: winget / scoop / Homebrew manifests once released; a real Windows
   code-signing cert eventually (same class of trust problem as the macOS notarization gap).
 - **Use nodejs test runner tags** https://nodejs.org/docs/latest/api/test.html#test-tags
+- **`upload --snapshot` manifest opt-out** ("upload the objects but not the snapshot file";
+  name TBD — `--no-manifest` / `--objects-only`). Deferred from the upload epic (ADR-0044) per
+  #7 — no use has appeared. Harmless if added: orphan objects with no manifest are the *safe*
+  direction (wasted space, not corruption).
