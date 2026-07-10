@@ -21,7 +21,7 @@ mock.module("../lib/s3.mjs", {
     getData: async () => undefined,
     deleteObject: async () => {},
     listObjects: async function* () {},
-    createS3ReadStream: () => {},
+    openObjectBody: async () => {},
     downloadToFile: async () => {},
     putFile: async () => true,
   },

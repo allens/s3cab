@@ -1,8 +1,8 @@
 import {
-  createS3ReadStream,
   deleteObject,
   downloadToFile,
   listObjects,
+  openObjectBody,
   putFile,
 } from "./s3.mjs";
 
@@ -14,7 +14,7 @@ import {
 //
 // It is the twin of remote.mjs (which owns the `snapshots/` half) and sits, like
 // it, *above* s3.mjs — composing the generic SDK boundary's putFile/listObjects/
-// createS3ReadStream so s3.mjs never learns the layout. The `objects/` prefix
+// openObjectBody so s3.mjs never learns the layout. The `objects/` prefix
 // literal lives here and nowhere else; callers (the `hashes`/`upload` plumbing
 // commands and backup/restore) compose these operations and never build a key.
 
@@ -74,7 +74,7 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
  */
 export async function getObject(bucket, hash, destPath) {
   const uri = objectUri(bucket, hash);
-  await downloadToFile(createS3ReadStream(uri), destPath, { sha256: hash });
+  await downloadToFile(await openObjectBody(uri), destPath, { sha256: hash });
 }
 
 /**

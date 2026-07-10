@@ -30,7 +30,7 @@ let download;
 let listedObjects = [];
 mock.module("./s3.mjs", {
   exports: {
-    createS3ReadStream: (/** @type {string} */ uri) => {
+    openObjectBody: async (/** @type {string} */ uri) => {
       requestedUri = uri;
       return Readable.from("");
     },
