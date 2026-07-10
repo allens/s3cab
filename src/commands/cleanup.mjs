@@ -10,7 +10,7 @@ import { isInteractive } from "../lib/style.mjs";
  * Reclaim storage held by orphaned objects — `objects/<hash>` entries no snapshot
  * references any more, the residue of deleted snapshots and crashed backups
  * (docs/design/backup.md). `cleanup`'s the deliberately-heavy, deliberately-rare
- * garbage collector; the everyday commands never delete. The **read-only twin of
+ * orphan deleter; the everyday commands never delete. The **read-only twin of
  * `verify`**: both compose the same two enumerations (the bucket's *stored*
  * objects and its *referenced* union across every set), and orphans are simply
  * the opposite set-difference — `stored − referenced` where `verify` computes

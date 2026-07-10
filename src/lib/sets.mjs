@@ -89,8 +89,9 @@ export function writeSetExclude(name, text) {
 }
 
 /**
- * The starter `exclude.txt` a new set is born with (`setup` create, and inherit
- * when the remote had none — never overwriting an existing file). The active
+ * The starter `exclude.txt` a new set is born with (`setup` create only, via
+ * `seedStarterExclude` below; inherit reproduces the remote config exactly and
+ * never seeds — setup.mjs). The active
  * patterns are strictly "you'd almost never want this backed up": regenerable
  * dependency trees and OS metadata/system noise. Anything arguable ships
  * commented out — a backup tool must not silently skip files a user might mean
@@ -125,6 +126,30 @@ System Volume Information/
 # **/._*
 # **/desktop.ini
 `;
+
+/**
+ * Seed a set with the starter exclude file, unless it already has one — a
+ * hand-written `exclude.txt` (or one racing in from elsewhere) is never
+ * clobbered: the write is atomic write-if-absent (`wx`), so the kernel
+ * enforces the guarantee rather than a check-then-write racing it.
+ * Idempotent; returns whether the starter was written, so the caller can
+ * tell the user where the file landed.
+ * @param {string} name
+ * @returns {boolean} `true` if the starter was written, `false` if the set
+ *   already had an exclude file
+ */
+export function seedStarterExclude(name) {
+  mkdirSync(setDir(name), { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(setExcludePath(name), starterExclude, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
+      return false; // already had one — never clobbered
+    }
+    throw error;
+  }
+}
 
 /**
  * Coerce a string to the canonical set-name charset: lowercase `a-z`, `0-9`, `-`

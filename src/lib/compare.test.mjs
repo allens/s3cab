@@ -1,27 +1,274 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
 import { stringifySnapshot, withSnapshotFile } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
-import { compareSnapshots } from "./compare.mjs";
+import { compareSnapshots, diff } from "./compare.mjs";
 
-/** @import { CompareResult } from "./compare.mjs" */
+/** @import { CompareResult, DiffResult } from "./compare.mjs" */
+/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
-// These exercise the storage core `compareSnapshots(snapshotDir, dirs, …)`
-// directly — the snapshots are written into the temp dir and the temp dir is
-// the (single) member root, so a path stored `resolve(dir.path, name)` recovers
-// its original relative name against the root.
+// compare.mjs holds two seams and the tests split accordingly: `diff` — the
+// classification engine, the intricate part — is driven directly with
+// in-memory SnapshotEntries Maps, so pairing edge cases are cheap to
+// enumerate (no fixture files). `compareSnapshots` tests keep only what the
+// I/O shell adds on top: since/until resolution and defaults, reading real
+// `.tsv.zst` files, the errors category, and the structured absolute-path
+// result (ADR-0043) whose sizes come from the snapshot entries.
+
+// ---------------------------------------------------------------------------
+// diff — classification at its own interface.
+
+/**
+ * Build {@link SnapshotEntries} from `{ path: hash }` — `diff` classifies by
+ * hash and path alone, so size/mtime are filler.
+ * @param {Record<string, string>} byPath
+ * @returns {SnapshotEntries}
+ */
+const entries = (byPath) =>
+  new Map(
+    Object.entries(byPath).map(([path, hash]) => [
+      path,
+      { hash, size: 0, mtime: "" },
+    ]),
+  );
+
+/**
+ * Project a {@link DiffResult} into compact strings for assertions: `path`,
+ * `path == dup1,dup2` for a duplicated add, and `from → to` for a move.
+ * @param {DiffResult} result
+ */
+const plain = ({ added, moved, modified, deleted }) => ({
+  added: Array.from(added, ([path, duplicates]) =>
+    duplicates.size ? `${path} == ${[...duplicates].join(",")}` : path,
+  ),
+  moved: Array.from(moved, ([from, to]) => `${from} → ${to}`),
+  modified: [...modified],
+  deleted: [...deleted],
+});
+
+const NONE = { added: [], moved: [], modified: [], deleted: [] };
+
+describe("diff", () => {
+  it("classifies a same-path hash change as modified — the hash is the only signal", () => {
+    // file2 keeps its content but is "touched" (mtime moves): silently
+    // unchanged. Only file1, whose hash differs, reports.
+    const previous = new Map([
+      ["file1.txt", { hash: "h-one", size: 9, mtime: "2024-01-01T00:00" }],
+      ["file2.txt", { hash: "h-same", size: 4, mtime: "2024-01-01T00:00" }],
+    ]);
+    const current = new Map([
+      ["file1.txt", { hash: "h-two", size: 9, mtime: "2024-02-02T00:00" }],
+      ["file2.txt", { hash: "h-same", size: 4, mtime: "2024-02-02T00:00" }],
+    ]);
+
+    assert.deepStrictEqual(plain(diff(previous, current)), {
+      ...NONE,
+      modified: ["file1.txt"],
+    });
+  });
+
+  it("classifies swapped contents as two modifications", () => {
+    // Both paths persist, so neither can be a move source (only deleted
+    // paths can) — two files trading hashes are just two modifications,
+    // never an A→B/B→A cross-move of paths that still exist.
+    const result = diff(
+      entries({ "file.A": "h1", "file.B": "h2" }),
+      entries({ "file.A": "h2", "file.B": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      modified: ["file.A", "file.B"],
+    });
+  });
+
+  it("classifies a vanished path as deleted, and modifies neither input", () => {
+    const previous = entries({ "file1.txt": "h1", "file2.txt": "h2" });
+    const current = entries({ "file1.txt": "h1" });
+
+    const result = diff(previous, current);
+
+    assert.deepStrictEqual(plain(result), { ...NONE, deleted: ["file2.txt"] });
+    // "Neither input is modified" (the doc contract).
+    assert.equal(previous.size, 2);
+    assert.equal(current.size, 1);
+  });
+
+  it("classifies rotation as modified plus a copy of the old content", () => {
+    // Rotation / copy-then-edit: app.log's old content now lives at
+    // app.log.1, and app.log itself changed. Only *deleted* paths can be
+    // move sources, so this is deliberately NOT reported as a move: from two
+    // snapshots, "copied then edited" and "renamed away then recreated" are
+    // indistinguishable, and modified-plus-copy is the reading that is
+    // verifiably true from the data either way (git's rename detection draws
+    // the same line). The duplicate annotation refers to the previous snapshot:
+    // app.log.1 holds what app.log *used to* contain.
+    const result = diff(
+      entries({ "app.log": "h-old" }),
+      entries({ "app.log": "h-new", "app.log.1": "h-old" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: ["app.log.1 == app.log"],
+      modified: ["app.log"],
+    });
+  });
+
+  it("pairs a renamed file", () => {
+    const result = diff(
+      entries({ "oldname.txt": "h1" }),
+      entries({ "newname.txt": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      moved: ["oldname.txt → newname.txt"],
+    });
+  });
+
+  it("pairs a moved file", () => {
+    const result = diff(
+      entries({ "olddir/file1.txt": "h1" }),
+      entries({ "newdir/file1.txt": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      moved: ["olddir/file1.txt → newdir/file1.txt"],
+    });
+  });
+
+  it("pairs a move and ignores a persisting file with the same content", () => {
+    // file.A persists across both snapshots with the same content as the
+    // moved file. The pairing must not mistake file.A as the move source.
+    const result = diff(
+      entries({ "file.A": "h1", "olddir/file1.txt": "h1" }),
+      entries({ "file.A": "h1", "newdir/file1.txt": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      moved: ["olddir/file1.txt → newdir/file1.txt"],
+    });
+  });
+
+  it("reports one move and one copy when a deleted holder is claimed", () => {
+    const result = diff(
+      entries({ "file.A": "h1", "file.B": "h1" }),
+      entries({ "file.A": "h1", "file.X": "h1", "file.Y": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: ["file.Y == file.A"],
+      moved: ["file.B → file.X"],
+    });
+  });
+
+  it("annotates copies with every surviving holder of the content", () => {
+    const result = diff(
+      entries({ "file.A": "h1", "file.B": "h1", "file.C": "h1" }),
+      entries({
+        "file.A": "h1",
+        "file.B": "h1",
+        "file.X": "h1",
+        "file.Y": "h1",
+        "file.Z": "h1",
+      }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: ["file.Y == file.A,file.B", "file.Z == file.A,file.B"],
+      moved: ["file.C → file.X"],
+    });
+  });
+
+  it("classifies pure copies as added with duplicates", () => {
+    const result = diff(
+      entries({ "file.A": "h1", "file.B": "h1" }),
+      entries({
+        "file.A": "h1",
+        "file.B": "h1",
+        "file.X": "h1",
+        "file.Y": "h1",
+        "file.Z": "h1",
+      }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: [
+        "file.X == file.A,file.B",
+        "file.Y == file.A,file.B",
+        "file.Z == file.A,file.B",
+      ],
+    });
+  });
+
+  it("annotates a copy with the moved-to location when the original moved away", () => {
+    // Every previous holder of the content was claimed as a move source, so
+    // the annotation points at where the content lives *now* — a copy is
+    // never mistaken for brand-new content.
+    const result = diff(
+      entries({ "file.A": "h1" }),
+      entries({ "file.B": "h1", "file.C": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: ["file.C == file.B"],
+      moved: ["file.A → file.B"],
+    });
+  });
+
+  it("pairs simultaneous moves by basename", () => {
+    // All four files share one hash (think: empty files) — pairing must still
+    // line up x with x and y with y rather than cross-pairing arbitrarily.
+    const result = diff(
+      entries({ "olddir/x.txt": "h0", "olddir/y.txt": "h0" }),
+      entries({ "newdir/x.txt": "h0", "newdir/y.txt": "h0" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      moved: ["olddir/x.txt → newdir/x.txt", "olddir/y.txt → newdir/y.txt"],
+    });
+  });
+
+  it("prefers a same-directory move source when basenames differ", () => {
+    const result = diff(
+      entries({ "dir1/old.txt": "h1", "dir2/old.txt": "h1" }),
+      entries({ "dir1/new.txt": "h1", "dir2/new.txt": "h1" }),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      moved: ["dir1/old.txt → dir1/new.txt", "dir2/old.txt → dir2/new.txt"],
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compareSnapshots — the I/O shell over `diff`.
+
+// These exercise `compareSnapshots(snapshotDir, dirs, …)` against real
+// snapshot files — the snapshots are written into the temp dir and the temp
+// dir is the (single) member root, so a path stored `resolve(dir.path, name)`
+// recovers its original relative name against the root.
 //
-// `compareSnapshots` now returns *structured, absolute-path* data (ADR-0043) —
-// the string microsyntax (`==`, `→`, `→→`) and the relative shortening moved to
-// the renderer (`renderCompareResult`, tested in render.test.mjs). To keep these
-// classification tests readable, `summarize` projects the structured result back
-// to a compact relative form: it's a test-only view of *what was classified how*,
+// `compareSnapshots` returns *structured, absolute-path* data (ADR-0043) —
+// the string microsyntax (`==`, `→`) and the relative shortening moved to
+// the renderer (`renderCompareResult`, tested in render.test.mjs). To keep
+// these tests readable, `summarize` projects the structured result back to a
+// compact relative form: it's a test-only view of *what was classified how*,
 // not the renderer (which decides display, colour, and rename-vs-move wording).
 //
 // listSnapshotNames() only reports datestamped `.tsv.zst` snapshots, so tests
@@ -55,7 +302,7 @@ function summarize(result, base) {
 
 const EMPTY = { added: [], moved: [], modified: [], deleted: [], errors: [] };
 
-describe("compare", () => {
+describe("compareSnapshots", () => {
   it("shows added file (first snapshot compares against an empty baseline)", async () => {
     await using dir = await mkTmpDir();
 
@@ -141,326 +388,6 @@ describe("compare", () => {
     assert.deepStrictEqual(summarize(previousResult, dir.path), {
       ...EMPTY,
       added: ["fileB.txt"],
-    });
-  });
-
-  it("shows modified file and ignores a file whose mtime alone changed", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "file1.txt", { lastModified: 1700000000000 }),
-      new File(["same"], "file2.txt", { lastModified: 1700000000000 }),
-    ]);
-
-    // file1 changes content; file2 keeps its content but is touched.
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["contents2"], "file1.txt", { lastModified: 1800000000000 }),
-      new File(["same"], "file2.txt", { lastModified: 1800000000000 }),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      modified: ["file1.txt"],
-    });
-  });
-
-  it("shows swapped contents as two modifications", async () => {
-    await using dir = await mkTmpDir();
-
-    // Both paths persist, so neither can be a move source (only deleted
-    // paths can) — two files trading hashes are just two modifications,
-    // never an A→B/B→A cross-move of paths that still exist.
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "file.A"),
-      new File(["contents2"], "file.B"),
-    ]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["contents2"], "file.A"),
-      new File(["contents1"], "file.B"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      modified: ["file.A", "file.B"],
-    });
-  });
-
-  it("shows deleted file", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "file1.txt"),
-      new File(["contents2"], "file2.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["contents1"], "file1.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      deleted: ["file2.txt"],
-    });
-  });
-
-  it("shows rotation as modified plus a copy of the old content", async () => {
-    await using dir = await mkTmpDir();
-
-    // Rotation / copy-then-edit: app.log's old content now lives at
-    // app.log.1, and app.log itself changed. Only *deleted* paths can be
-    // move sources, so this is deliberately NOT reported as a move: from two
-    // snapshots, "copied then edited" and "renamed away then recreated" are
-    // indistinguishable, and modified-plus-copy is the reading that is
-    // verifiably true from the data either way (git's rename detection draws
-    // the same line). The duplicate annotation refers to the previous snapshot:
-    // app.log.1 holds what app.log *used to* contain.
-    await writeSnapshot(dir.path, PREVIOUS, [new File(["old"], "app.log")]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["new"], "app.log"),
-      new File(["old"], "app.log.1"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: ["app.log.1 == app.log"],
-      modified: ["app.log"],
-    });
-  });
-
-  it("shows renamed file", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "oldname.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "newname.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      moved: ["oldname.txt → newname.txt"],
-    });
-  });
-
-  it("shows moved file", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "olddir/file1.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "newdir/file1.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      moved: [`olddir${sep}file1.txt → newdir${sep}file1.txt`],
-    });
-  });
-
-  it("shows moved file and ignores persisting file with same content", async () => {
-    await using dir = await mkTmpDir();
-
-    // file.A persists across both snapshots with the same content as the moved file.
-    // The algorithm must not mistake file.A as the move source.
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "olddir/file1.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "newdir/file1.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      moved: [`olddir${sep}file1.txt → newdir${sep}file1.txt`],
-    });
-  });
-
-  it("shows moved and a copy", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.B"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.X"),
-      new File(["contents1"], "file.Y"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: ["file.Y == file.A"],
-      moved: ["file.B → file.X"],
-    });
-  });
-
-  it("shows moved file with multiple existing copies", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.B"),
-      new File(["contents1"], "file.C"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.B"),
-      new File(["contents1"], "file.X"),
-      new File(["contents1"], "file.Y"),
-      new File(["contents1"], "file.Z"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: ["file.Y == file.A,file.B", "file.Z == file.A,file.B"],
-      moved: ["file.C → file.X"],
-    });
-  });
-
-  it("shows added files", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, "previous", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.B"),
-    ]);
-
-    await writeSnapshot(dir.path, "current", [
-      new File(["contents1"], "file.A"),
-      new File(["contents1"], "file.B"),
-      new File(["contents1"], "file.X"),
-      new File(["contents1"], "file.Y"),
-      new File(["contents1"], "file.Z"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path], {
-      since: "previous",
-      until: "current",
-    });
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: [
-        "file.X == file.A,file.B",
-        "file.Y == file.A,file.B",
-        "file.Z == file.A,file.B",
-      ],
-    });
-  });
-
-  it("annotates a copy with the moved-to location when the original moved away", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "file.A"),
-    ]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["contents1"], "file.B"),
-      new File(["contents1"], "file.C"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      added: ["file.C == file.B"],
-      moved: ["file.A → file.B"],
-    });
-  });
-
-  it("pairs simultaneous moves by basename", async () => {
-    await using dir = await mkTmpDir();
-
-    // Both files are empty, so they share one hash — pairing must still line
-    // up x with x and y with y rather than cross-pairing arbitrarily.
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File([""], "olddir/x.txt"),
-      new File([""], "olddir/y.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File([""], "newdir/x.txt"),
-      new File([""], "newdir/y.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      moved: [
-        `olddir${sep}x.txt → newdir${sep}x.txt`,
-        `olddir${sep}y.txt → newdir${sep}y.txt`,
-      ],
-    });
-  });
-
-  it("prefers a same-directory move source when basenames differ", async () => {
-    await using dir = await mkTmpDir();
-
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "dir1/old.txt"),
-      new File(["contents1"], "dir2/old.txt"),
-    ]);
-
-    await writeSnapshot(dir.path, CURRENT, [
-      new File(["contents1"], "dir1/new.txt"),
-      new File(["contents1"], "dir2/new.txt"),
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      moved: [
-        `dir1${sep}old.txt → dir1${sep}new.txt`,
-        `dir2${sep}old.txt → dir2${sep}new.txt`,
-      ],
     });
   });
 

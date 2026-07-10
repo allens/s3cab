@@ -55,7 +55,7 @@ mock.module("../lib/objects.mjs", {
     },
   },
 });
-mock.module("../lib/remote.mjs", {
+mock.module("../lib/upload.mjs", {
   exports: {
     uploadSnapshot: async (/** @type {Record<string, unknown>} */ args) => {
       uploadSnapshotCalls.push(args);

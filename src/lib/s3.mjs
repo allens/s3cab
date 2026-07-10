@@ -551,18 +551,3 @@ export async function deleteObject(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   await client().send(new DeleteObjectCommand({ Bucket, Key }));
 }
-
-/**
- * Empty an S3 bucket (delete every object in it).
- * @param {string} bucketName
- */
-export async function emptyBucket(bucketName) {
-  for await (const { Key } of listObjects(`s3://${bucketName}`)) {
-    if (!Key) {
-      continue;
-    }
-    await client().send(new DeleteObjectCommand({ Bucket: bucketName, Key }));
-    // Progress, not a result → stderr.
-    console.warn(`Deleted: ${Key}`);
-  }
-}
