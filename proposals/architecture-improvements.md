@@ -28,62 +28,9 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-### One atomic `downloadToFile` at the S3 seam. _(Worth exploring — genuinely reduces total lines.)_
-
-_Surfaced 2026-06-24; re-verified 2026-07-10._ `getObject`
-([src/lib/objects.mjs](../src/lib/objects.mjs):82–109) and `downloadRemoteSnapshots`
-([src/lib/remote.mjs](../src/lib/remote.mjs):272–294, the dance at :283–291) each hand-roll the same dance —
-temp-sibling path → `pipeline` → atomic `rename` → `unlink`-on-error in a `try/catch` —
-differing only in that `getObject` pipes the bytes through a pass-through SHA-256 **hashing
-stage** and `downloadRemoteSnapshots` copies verbatim. (The hashing happens in-stream; the
-*verify* — compare-and-throw against the expected hash — happens after the pipeline and stays
-in `getObject`, which is why the option is a `hasher`, not a "verify". The code's local
-variable for the stage is currently named `tap` — objects.mjs:87 — rename it when this lands;
-"tap" reads very differently outside American English.) Extract
-`downloadToFile(uri, destPath, { hasher })` at
-the [src/lib/s3.mjs](../src/lib/s3.mjs) seam; `getObject` passes the hashing stage,
-`downloadRemoteSnapshots` passes none. Two real adapters justify the seam, atomicity/cleanup
-live in one place, and callers shrink to the part that varies. (`withSnapshotFile` shares the
-temp+rename shape but streams *out* through zstd — fold it in only if the abstraction stays
-honest; don't stretch one primitive over two different writes.)
-
-### One snapshot-name authority — and close the two-clock gap. _(Worth exploring — latent bug.)_
-
-_Surfaced 2026-06-24; extended 2026-07-02; re-verified 2026-07-10._ The snapshot timestamp format is
-spelled in three places: [src/commands/snapshot.mjs](../src/commands/snapshot.mjs) renders
-"now" **twice** — the filename `2026-06-12T0915` (no colon, `getTimestamp()` called at line 38)
-and the `#SNAPSHOT` header `2026-06-12T09:15` (colon, lines 58–60) — from two separate
-`Temporal.Now` reads with an
-`await readSnapshot(previous)` *between* them (line 46), and
-[src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs)'s `snapshotNames` regex (lines
-263–269, the literal at :265) independently encodes the no-colon filename shape. If the clock
-crosses a minute
-boundary during that `await`, the filename disagrees with its own `#SNAPSHOT` header. A third
-leak (added 2026-07-02): `normalizeName` in [src/lib/compare.mjs](../src/lib/compare.mjs):62
-strips the `.tsv(.zst)` extension — a grammar detail a caller shouldn't know, the only place it
-lives outside snapshot-file.mjs. A snapshot-name authority in snapshot-file.mjs, beside
-`parseSnapshotStream`: one `now()` capture → `{ name, datetime }`, plus the recognizer and the
-extension-normalizer. Format in one place; name ↔ header consistent by construction; latent
-skew closed; the seam stops leaking. (Related but distinct:
-[snapshot-format.md](snapshot-format.md)'s timezone/precision *decision* — if that format
-changes, this refactor makes it a one-place edit.)
-
-### Thread the previous snapshot through `snapshot → compare`. _(Worth exploring — hot path.)_
-
-_Surfaced 2026-07-02 (subsumes a performance.md note); re-verified 2026-07-10._ The previous snapshot is fully
-decompressed and parsed **twice** per snapshot run: once by `snapshot` for its hash lookup
-([src/commands/snapshot.mjs](../src/commands/snapshot.mjs):43–47), again inside
-`compareSnapshots` as the diff baseline ([src/lib/compare.mjs](../src/lib/compare.mjs):113,
-`since: latestSnapshotName` passed at snapshot.mjs:81–85). The just-written *new* snapshot is also re-read as the `until`
-side — that face is cheaper to accept, since re-parsing what was just written doubles as a
-round-trip verification. On a large set the previous-side re-read is a full zstd decompress +
-per-entry parse done twice — the per-file-overhead pattern the CLAUDE.md hot-path convention
-warns about, and its prescribed fix is exactly this: thread the data you already have through
-the interface (never a module-level cache). Two shapes to grill: let the compare seam accept
-an already-parsed `since` side (entries alongside the name — widens `compareSnapshots`'
-interface), or have `snapshot` compose the pure `diff` directly with what it already holds
-(moves display assembly). Pairs naturally with the `diff` test-discipline candidate below —
-both reshape the compare seam.
+_None at present — the 2026-07-10 bundle (run log below) cleared the list for the first time
+since this epic started. The next `/improve-codebase-architecture` run starts from the source
+(and the rejected list below), not from stale entries._
 
 ---
 
@@ -231,3 +178,21 @@ least once; re-open only if the stated reason no longer holds.
   Three opens remain: `downloadToFile` (spell the option `hasher`, not "tap" — and rename the
   `tap` local in objects.mjs when it lands), the snapshot-name authority, and threading the
   previous snapshot through `snapshot → compare`.
+- **2026-07-10 — the remaining-three bundle landed**
+  ([PR #168](https://github.com/allens/s3cab/pull/168), grilled in-session, decisions recorded
+  in the entries first, then built small-to-large). **All three opens retired as done,
+  emptying the open list for the first time.** *Thread the previous snapshot* (the first
+  shape: `compareSnapshots`' `since` accepts `{ name, entries }`, `snapshot` hands its parse
+  through, `--rehash` still reads; a test hands in synthetic entries under a since name that
+  doesn't exist on disk, proving no re-read). *`downloadToFile`* — grilling reshaped the
+  recorded sketch twice, both times smaller: the injected `hasher` became the plain
+  `{ sha256 }` expected digest (the injection was over-engineering — the entry's post-mortem
+  is in git history), and the first parameter became the **source stream** rather than a URI
+  after implementation surfaced that a URI form would sink the integrity logic below the
+  "mock at s3.mjs" test line — it now tests mock-free against `Readable.from` in s3.test.mjs
+  (plus new verbatim-copy and mid-stream-failure cases), with objects.test.mjs keeping the
+  key-as-digest pairing; the `tap` local is gone. *The snapshot-name authority* (one step
+  past the sketch: `snapshotName()` mints the name from one clock read and `writeSnapshot`
+  **derives the header datetime from the name**, dropping its `datetime` parameter —
+  consistent by construction, not by shared capture; `normalizeSnapshotName` moved home to
+  snapshot-file.mjs, ending the extension-grammar leak into compare.mjs).

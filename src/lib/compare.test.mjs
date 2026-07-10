@@ -339,6 +339,35 @@ describe("compareSnapshots", () => {
     ]);
   });
 
+  it("accepts an already-parsed since side instead of re-reading it", async () => {
+    await using dir = await mkTmpDir();
+
+    await writeSnapshot(dir.path, CURRENT, [new File(["same"], "kept.txt")]);
+
+    // The baseline is handed in as { name, entries } — the threading seam
+    // `snapshot` uses so the previous snapshot isn't decompressed twice. No
+    // PREVIOUS file exists on disk, so a re-read would throw: the classification
+    // below can only come from the synthetic entries.
+    /** @type {SnapshotEntries} */
+    const entries = new Map([
+      [
+        resolve(dir.path, "vanished.txt"),
+        { size: 4, mtime: "2024-01-01T01:01:00Z", hash: "0".repeat(64) },
+      ],
+    ]);
+    const result = await compareSnapshots(dir.path, [dir.path], {
+      since: { name: PREVIOUS, entries },
+      until: CURRENT,
+    });
+
+    assert.equal(result.since, PREVIOUS);
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      added: ["kept.txt"],
+      deleted: ["vanished.txt"],
+    });
+  });
+
   it("populates since with the predecessor for a non-first comparison", async () => {
     await using dir = await mkTmpDir();
 

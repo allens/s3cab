@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 // This whole file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
-// not the AWS SDK"): the object store's listing logic and — crucially —
-// `getObject`'s integrity check run here with zero AWS, on every push. The
-// real-bucket happy path is covered separately by restore.integration.test.mjs's gated
-// round-trip (restore fetches every object through `getObject`).
+// not the AWS SDK"): the object store's listing logic and `getObject`'s
+// key-as-digest pairing run here with zero AWS, on every push. The download
+// atomicity/integrity mechanics live below the seam, in s3.mjs's
+// `downloadToFile` — tested mock-free in s3.test.mjs against an in-memory
+// stream. The real-bucket happy path is covered separately by
+// restore.integration.test.mjs's gated round-trip (restore fetches every
+// object through `getObject`).
 //
 // Module mocking has a load-bearing ordering rule (verified): a static `import`
 // of objects.mjs would bind the *real* s3.mjs before the mock is set, and a
@@ -19,16 +18,29 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // static import of it. The runner needs `--experimental-test-module-mocks` (set
 // on the `test`/`test:coverage*` scripts).
 
-// `getObject` streams `createS3ReadStream(uri)` and verifies its bytes; the fake
-// yields whatever the current test stages here. listObjects/putFile are stubbed
-// only because objects.mjs imports them (a mock module exports exactly these) —
-// no test in this file calls them.
-let streamedBytes = Buffer.alloc(0);
+// The fakes record what getObject asks of the seam: the URI opened and the
+// downloadToFile destination/options. putFile is stubbed only because
+// objects.mjs imports it (a mock module exports exactly these) — no test in
+// this file calls it.
+/** @type {string | undefined} */
+let requestedUri;
+/** @type {{ destPath: string, options: object | undefined } | undefined} */
+let download;
 /** @type {import("@aws-sdk/client-s3")._Object[]} */
 let listedObjects = [];
 mock.module("./s3.mjs", {
   exports: {
-    createS3ReadStream: () => Readable.from(streamedBytes),
+    createS3ReadStream: (/** @type {string} */ uri) => {
+      requestedUri = uri;
+      return Readable.from("");
+    },
+    downloadToFile: async (
+      /** @type {Readable} */ _source,
+      /** @type {string} */ destPath,
+      /** @type {object} */ options,
+    ) => {
+      download = { destPath, options };
+    },
     listObjects: async function* () {
       for (const object of listedObjects) {
         yield object;
@@ -41,8 +53,6 @@ mock.module("./s3.mjs", {
 });
 const { getObject, listObjectHashes, listStoredObjects } =
   await import("./objects.mjs");
-
-const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -109,37 +119,17 @@ describe("listStoredObjects", () => {
   });
 });
 
-describe("getObject integrity", () => {
-  const content = "the real object bytes";
-  const hash = createHash("sha256").update(content).digest("hex");
+describe("getObject", () => {
+  it("opens objects/<hash> and passes the key as the expected digest", async () => {
+    // The layout policy in one pairing: the key *is* the content hash, so the
+    // same value must reach downloadToFile as the expected digest — that is
+    // what turns its generic integrity check into design #1's guarantee.
+    await getObject("my-bucket", "abc123", "/restore/out.bin");
 
-  it("writes the object when its content matches the hash", async () => {
-    await using dir = await mkTmpDir();
-    streamedBytes = Buffer.from(content);
-    const dest = join(dir.path, "out.bin");
-
-    await getObject("my-bucket", hash, dest);
-
-    assert.equal(readFileSync(dest, "utf8"), content);
-    // No temp sibling left behind.
-    assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
-  });
-
-  it("rejects a content/hash mismatch and leaves nothing behind", async () => {
-    await using dir = await mkTmpDir();
-    // The stored bytes don't hash to the requested key — the silent-data-loss
-    // case design #1 exists to catch.
-    streamedBytes = Buffer.from("tampered bytes, not the real content");
-    const dest = join(dir.path, "out.bin");
-
-    await assert.rejects(
-      () => getObject("my-bucket", hash, dest),
-      /Integrity check failed/,
-    );
-    assert.ok(!existsSync(dest), "a mismatched object must not be placed");
-    assert.ok(
-      !existsSync(join(dir.path, ".out.bin.s3cab-tmp")),
-      "the temp file must be cleaned up",
-    );
+    assert.equal(requestedUri, "s3://my-bucket/objects/abc123");
+    assert.deepEqual(download, {
+      destPath: "/restore/out.bin",
+      options: { sha256: "abc123" },
+    });
   });
 });

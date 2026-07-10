@@ -10,9 +10,13 @@ import {
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import assert from "node:assert";
-import { createReadStream, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream, statSync } from "node:fs";
+import { rename, unlink } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
-import { PassThrough, Readable } from "node:stream";
+import { basename, dirname, join } from "node:path";
+import { PassThrough, Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   accessDeniedError,
   badSignatureError,
@@ -275,6 +279,57 @@ class S3ReadStream extends PassThrough {
  * @returns {S3ReadStream}
  */
 export const createS3ReadStream = (uri) => new S3ReadStream(uri);
+
+/**
+ * Land a downloaded stream in a local file, atomically: bytes go to a sibling
+ * temp file first, and only once the pipeline — and, when `sha256` is given,
+ * the digest check — has succeeded is the file renamed into place. A crash, a
+ * failed download, or a corrupt object never leaves a partial or unverified
+ * file at `destPath`; on any failure the temp file is removed (best-effort)
+ * and the error rethrown. `destPath`'s parent directory must already exist
+ * (the temp file is a sibling, and the rename needs it).
+ *
+ * The source is handed in (typically `createS3ReadStream(uri)`) rather than
+ * opened here, so the atomicity/verify logic is directly testable with an
+ * in-memory stream — no client, no mocks (src/lib/s3.test.mjs).
+ * @param {import("node:stream").Readable} source - The object's byte stream (typically `createS3ReadStream(uri)`)
+ * @param {string} destPath - Where to write the file (parent must exist)
+ * @param {object} [options]
+ * @param {string} [options.sha256] - Expected content digest (lowercase hex); a mismatch throws, before the rename
+ * @returns {Promise<void>}
+ */
+export async function downloadToFile(source, destPath, { sha256 } = {}) {
+  const tmpPath = join(dirname(destPath), `.${basename(destPath)}.s3cab-tmp`);
+  const hasher = sha256 ? createHash("sha256") : undefined;
+  const hashingStage = hasher
+    ? [
+        new Transform({
+          transform(chunk, _encoding, callback) {
+            hasher.update(chunk);
+            callback(null, chunk);
+          },
+        }),
+      ]
+    : [];
+  try {
+    await pipeline([source, ...hashingStage, createWriteStream(tmpPath)]);
+    if (hasher) {
+      const got = hasher.digest("hex");
+      if (got !== sha256) {
+        throw new Error(
+          `Integrity check failed writing ${destPath}: its content hashes ` +
+            `to ${got}, not ${sha256}. The stored object is corrupt or ` +
+            `mismatched.`,
+        );
+      }
+    }
+    await rename(tmpPath, destPath);
+  } catch (error) {
+    // Never leave the partial/unverified temp file behind (best-effort).
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+}
 
 const PROGRESS_BAR_RANGE = 20;
 const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize

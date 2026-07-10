@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
+import { zstdDecompressSync } from "node:zlib";
 import {
   listSnapshotNames,
+  normalizeSnapshotName,
   parseSnapshotStream,
   readSnapshot,
+  snapshotName,
+  snapshotNames,
   writeSnapshot,
 } from "./snapshot-file.mjs";
 
@@ -187,6 +191,26 @@ describe("listSnapshotNames", () => {
   });
 });
 
+describe("snapshotName", () => {
+  it("mints a minute-precision name the snapshot lister recognises", () => {
+    const name = snapshotName();
+    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    // The minted name round-trips through the recognizer that list (local
+    // files) and the remote lister both filter by.
+    assert.deepEqual(snapshotNames([`${name}.tsv.zst`]), [name]);
+  });
+});
+
+describe("normalizeSnapshotName", () => {
+  it("strips the .tsv/.tsv.zst extension and leaves bare names alone", () => {
+    const name = "2026-06-12T0915";
+    assert.equal(normalizeSnapshotName(`${name}.tsv.zst`), name);
+    assert.equal(normalizeSnapshotName(`${name}.tsv`), name);
+    assert.equal(normalizeSnapshotName(name), name);
+    assert.equal(normalizeSnapshotName(undefined), undefined);
+  });
+});
+
 // writeSnapshot is the single production seam for "files → snapshot file". It is
 // driven here with an injected getProps (so no disk hashing and no `prop` — the
 // writer's own logic is what's under test): the #SNAPSHOT/#DIR header, the
@@ -211,7 +235,6 @@ describe("writeSnapshot", () => {
     const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
       identity: "photos",
       dirs: [dir.path],
-      datetime: "2026-06-23T10:00",
       files: [a, b, bad],
       excluded: [{ fileType: "File", reason: "*.tmp", path: skipped }],
       getProps: async (p) => {
@@ -252,7 +275,6 @@ describe("writeSnapshot", () => {
     await writeSnapshot(dir.path, "2026-06-23T1000", {
       identity: "photos",
       dirs,
-      datetime: "2026-06-23T10:00",
       files: [],
       excluded: [],
       getProps: props,
@@ -272,7 +294,6 @@ describe("writeSnapshot", () => {
     const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
       identity: "photos",
       dirs: [dir.path],
-      datetime: "2026-06-23T10:00",
       files: [regular],
       excluded: [],
       skipped: [
@@ -300,13 +321,35 @@ describe("writeSnapshot", () => {
     assert.deepEqual([...snap.skipped], [[link, "Unsupported file type"]]);
   });
 
+  it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
+    await using dir = await mkTmpDir();
+
+    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+      identity: "photos",
+      dirs: [],
+      files: [],
+      excluded: [],
+      getProps: props,
+    });
+
+    // The name is the only clock input: the header's colon form must be
+    // derived from it, never a second now() read — so filename and header
+    // agree by construction (the old two-clock gap).
+    const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
+    const [header = ""] = text.split("\n");
+    assert.match(header, /^#SNAPSHOT/);
+    assert.ok(
+      header.includes("2026-06-23T10:00"),
+      `header datetime must be derived from the name: ${header}`,
+    );
+  });
+
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {
     await using dir = await mkTmpDir();
     /** @type {Parameters<typeof writeSnapshot>[2]} */
     const args = {
       identity: "photos",
       dirs: [dir.path],
-      datetime: "2026-06-23T10:00",
       files: [],
       excluded: [],
       getProps: props,
