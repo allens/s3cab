@@ -508,10 +508,15 @@ Pre-release housekeeping and open decisions surfaced from the code:
   [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see
   [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)).
-- **Stable doc URLs before release.** Help topics, the help footer, and the `compare`
-  command description print GitHub URLs (the placement doctrine's "link to the fuller
-  online guide"); a shipped binary freezes the URLs it prints forever. Before release, stand up the planned proper website (or
-  commit to permanent GitHub paths) and point the help text at stable addresses.
+- **Stable doc URLs — resolved: commit to GitHub paths (no website pre-1.0).** Help topics,
+  the help footer, and the `compare`/`aws`/`auth` command descriptions print GitHub URLs (the
+  placement doctrine's "link to the fuller online guide"), and a shipped binary freezes them
+  forever. Decision: the `github.com/allens/s3cab/blob/main/guide/*.md` file paths are the
+  permanent form — no website is stood up before 1.0. The stability commitment this buys is: **don't
+  rename `guide/*.md` files or move the repo slug** without updating the printed URLs. One outlier
+  remains as a nicety, not a blocker: the `auth` topic's footer points at the `#authentication`
+  README *anchor* (fragile if the heading is reworded, and mildly circular since that README
+  section defers back to `s3cab help auth`) — fold a fix into the next auth-doc touch.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
