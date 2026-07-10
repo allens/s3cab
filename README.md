@@ -126,6 +126,15 @@ look up its hash in a snapshot and download `objects/<that-hash>`. The full cont
 the repository layout, the snapshot-file grammar, and a recover-by-hand walkthrough — is
 written down in [guide/format.md](guide/format.md), **the format spec**.
 
+**Turn on bucket versioning** — it is your ransomware and fat-finger backstop. With versioning
+on, `s3cab delete` (drop a snapshot) and `s3cab cleanup` (reclaim unreferenced objects) issue
+only _soft_ deletes: they write a delete marker and the bytes live on as a recoverable
+noncurrent version, so a mistake — or a leaked key — can add to your backup but can never
+permanently destroy its history. `s3cab aws` turns versioning on for you; if you set a bucket
+up by hand, enable it yourself. The trade-off is that reclaimed space frees only once a
+lifecycle rule expires those noncurrent versions — [guide/aws.md](guide/aws.md) walks through
+the full model.
+
 The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is composition:
 the flat hash-per-line stream pipes into ordinary shell tools, so you can reproduce s3cab's
