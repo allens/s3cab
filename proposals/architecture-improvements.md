@@ -178,7 +178,8 @@ least once; re-open only if the stated reason no longer holds.
   Three opens remain: `downloadToFile` (spell the option `hasher`, not "tap" — and rename the
   `tap` local in objects.mjs when it lands), the snapshot-name authority, and threading the
   previous snapshot through `snapshot → compare`.
-- **2026-07-10 — the remaining-three bundle landed** (grilled in-session, decisions recorded
+- **2026-07-10 — the remaining-three bundle landed**
+  ([PR #168](https://github.com/allens/s3cab/pull/168), grilled in-session, decisions recorded
   in the entries first, then built small-to-large). **All three opens retired as done,
   emptying the open list for the first time.** *Thread the previous snapshot* (the first
   shape: `compareSnapshots`' `since` accepts `{ name, entries }`, `snapshot` hands its parse
