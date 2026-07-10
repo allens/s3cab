@@ -37,20 +37,24 @@ temp-sibling path → `pipeline` → atomic `rename` → `unlink`-on-error in a 
 differing only in that `getObject` pipes the bytes through a pass-through SHA-256 **hashing
 stage** and `downloadRemoteSnapshots` copies verbatim.
 
-**Settled in grilling (2026-07-10):** `downloadToFile(uri, destPath, { sha256 })` at the
+**Settled in grilling (2026-07-10):** `downloadToFile(source, destPath, { sha256 })` at the
 [src/lib/s3.mjs](../src/lib/s3.mjs) seam — the option is the **expected hex digest, a plain
 value**, superseding the entry's earlier `hasher` sketch (injecting the Hash was
 over-engineering: comparing bytes to an expected digest is a generic integrity feature, not
 caller policy, and the injected shape pushed the verify *after* the rename — wrong order —
-then needed a second option to fix it). When `sha256` is given, the primitive hashes
-in-stream and throws **before the rename** on mismatch, so an unverified file never reaches
-`destPath` and the unlink-on-error path cleans up; `getObject` collapses to one call passing
-its key as the digest, `downloadRemoteSnapshots` passes no option. The `tap` local disappears
-entirely (the internal stage gets a plain name, e.g. `hashingStage`). Two real adapters
-justify the seam, atomicity/cleanup/verify-ordering live in one place, and callers shrink to
-the part that varies. (`withSnapshotFile` shares the temp+rename shape but streams *out*
-through zstd — fold it in only if the abstraction stays honest; don't stretch one primitive
-over two different writes.)
+then needed a second option to fix it). The first parameter is the **source stream**
+(typically `createS3ReadStream(uri)`), not a URI: with a URI the primitive would call
+`createS3ReadStream` intra-module, below the "mock at s3.mjs" line, orphaning the ungated
+integrity tests — with the stream handed in, the logic tests directly against
+`Readable.from`, no mock at all. When `sha256` is given, the primitive hashes in-stream and
+throws **before the rename** on mismatch, so an unverified file never reaches `destPath` and
+the unlink-on-error path cleans up; `getObject` collapses to one call passing its key as the
+digest, `downloadRemoteSnapshots` passes no option. The `tap` local disappears entirely (the
+internal stage gets a plain name, e.g. `hashingStage`). Two real adapters justify the seam,
+atomicity/cleanup/verify-ordering live in one place, and callers shrink to the part that
+varies. (`withSnapshotFile` shares the temp+rename shape but streams *out* through zstd —
+fold it in only if the abstraction stays honest; don't stretch one primitive over two
+different writes.)
 
 ### One snapshot-name authority — and close the two-clock gap. _(Worth exploring — latent bug.)_
 
