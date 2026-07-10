@@ -28,43 +28,20 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-### Lift `seedStarterExclude`'s guard into `sets.mjs`. _(Worth exploring — small.)_
-
-_Surfaced 2026-07-03._ PR #146's split is mostly right — starter data + read/write
-primitives in `sets.mjs`, policy + notice in `setup.mjs`. The residue: the load-bearing
-guard ("never clobber an existing exclude file",
-[src/commands/setup.mjs](../src/commands/setup.mjs):179–188) is a private command function
-reachable only through the async S3 create flow, so absent→write / present→skip is only
-testable end-to-end. Move the idempotent seed to `sets.mjs` as
-`seedStarterExclude(name) → boolean` (wrote / already had one); `setup` keeps only the
-user-facing notice. Locality/testability gain, not a depth lever.
-
-### Pure `planUpload` — give `backup` the `planRestore` treatment. _(Strong.)_
-
-_Surfaced 2026-06-24; re-verified & **narrowed** 2026-07-08 (objects cache dropped, ADR-0045)._
-`restore` split its decision step (`planRestore`, pure and unit-tested without S3) from its I/O
-loop; `backup`/`upload` got it only *half*-way. `uploadSnapshot`
-([src/lib/remote.mjs](../src/lib/remote.mjs):368–436) now has **two** forms of "target minus
-what's already there": the pure, tested `uploadCandidates` (target − baseline,
-[src/lib/remote.mjs](../src/lib/remote.mjs):307–337) on the `--since` path, and an **inlined
-streaming LIST-diff** on the first-backup path
-([src/lib/remote.mjs](../src/lib/remote.mjs):390–398) — seed a Set from `target`, delete each
-hash as `listObjectHashes` streams — plus the first-path-wins `pathByHash` selection and the
-`putObject` loop, all interleaved. So the first-backup diff + path-selection are reachable only
-through the gated real-S3 tests. Extract a pure `planUpload(target, { baseline, listed }) →
-Map<hash, path>` covering **both** branches, and shrink `uploadSnapshot` to *executing* the plan
-(PUT + snapshot-last). Then "how `backup` computes the upload set" is one testable function,
-mirroring `planRestore`. Purely additive — no ADR tension. (`recordObjects` is gone — no cache.)
-
 ### One atomic `downloadToFile` at the S3 seam. _(Worth exploring — genuinely reduces total lines.)_
 
-_Surfaced 2026-06-24; re-verified 2026-07-03._ `getObject`
-([src/lib/objects.mjs](../src/lib/objects.mjs):85–112) and `downloadRemoteSnapshots`
-([src/lib/remote.mjs](../src/lib/remote.mjs):119–139) each hand-roll the same dance —
+_Surfaced 2026-06-24; re-verified 2026-07-10._ `getObject`
+([src/lib/objects.mjs](../src/lib/objects.mjs):82–109) and `downloadRemoteSnapshots`
+([src/lib/remote.mjs](../src/lib/remote.mjs):272–294, the dance at :283–291) each hand-roll the same dance —
 temp-sibling path → `pipeline` → atomic `rename` → `unlink`-on-error in a `try/catch` —
-differing only in that `getObject` taps the stream through a SHA-256 verifier and
-`downloadRemoteSnapshots` copies verbatim. Extract `downloadToFile(uri, destPath, { tap })` at
-the [src/lib/s3.mjs](../src/lib/s3.mjs) seam; `getObject` passes the hashing tap,
+differing only in that `getObject` pipes the bytes through a pass-through SHA-256 **hashing
+stage** and `downloadRemoteSnapshots` copies verbatim. (The hashing happens in-stream; the
+*verify* — compare-and-throw against the expected hash — happens after the pipeline and stays
+in `getObject`, which is why the option is a `hasher`, not a "verify". The code's local
+variable for the stage is currently named `tap` — objects.mjs:87 — rename it when this lands;
+"tap" reads very differently outside American English.) Extract
+`downloadToFile(uri, destPath, { hasher })` at
+the [src/lib/s3.mjs](../src/lib/s3.mjs) seam; `getObject` passes the hashing stage,
 `downloadRemoteSnapshots` passes none. Two real adapters justify the seam, atomicity/cleanup
 live in one place, and callers shrink to the part that varies. (`withSnapshotFile` shares the
 temp+rename shape but streams *out* through zstd — fold it in only if the abstraction stays
@@ -72,15 +49,17 @@ honest; don't stretch one primitive over two different writes.)
 
 ### One snapshot-name authority — and close the two-clock gap. _(Worth exploring — latent bug.)_
 
-_Surfaced 2026-06-24; extended 2026-07-02; re-verified 2026-07-03._ The snapshot timestamp format is
+_Surfaced 2026-06-24; extended 2026-07-02; re-verified 2026-07-10._ The snapshot timestamp format is
 spelled in three places: [src/commands/snapshot.mjs](../src/commands/snapshot.mjs) renders
-"now" **twice** — the filename `2026-06-12T0915` (no colon, line 37) and the `#SNAPSHOT`
-header `2026-06-12T09:15` (colon, line 57) — from two separate `Temporal.Now` reads with an
-`await readSnapshot(previous)` *between* them, and
+"now" **twice** — the filename `2026-06-12T0915` (no colon, `getTimestamp()` called at line 38)
+and the `#SNAPSHOT` header `2026-06-12T09:15` (colon, lines 58–60) — from two separate
+`Temporal.Now` reads with an
+`await readSnapshot(previous)` *between* them (line 46), and
 [src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs)'s `snapshotNames` regex (lines
-263–266) independently encodes the no-colon filename shape. If the clock crosses a minute
+263–269, the literal at :265) independently encodes the no-colon filename shape. If the clock
+crosses a minute
 boundary during that `await`, the filename disagrees with its own `#SNAPSHOT` header. A third
-leak (added 2026-07-02): `normalizeName` in [src/lib/compare.mjs](../src/lib/compare.mjs):21
+leak (added 2026-07-02): `normalizeName` in [src/lib/compare.mjs](../src/lib/compare.mjs):62
 strips the `.tsv(.zst)` extension — a grammar detail a caller shouldn't know, the only place it
 lives outside snapshot-file.mjs. A snapshot-name authority in snapshot-file.mjs, beside
 `parseSnapshotStream`: one `now()` capture → `{ name, datetime }`, plus the recognizer and the
@@ -91,11 +70,11 @@ changes, this refactor makes it a one-place edit.)
 
 ### Thread the previous snapshot through `snapshot → compare`. _(Worth exploring — hot path.)_
 
-_Surfaced 2026-07-02 (subsumes a performance.md note); re-verified 2026-07-03._ The previous snapshot is fully
+_Surfaced 2026-07-02 (subsumes a performance.md note); re-verified 2026-07-10._ The previous snapshot is fully
 decompressed and parsed **twice** per snapshot run: once by `snapshot` for its hash lookup
-([src/commands/snapshot.mjs](../src/commands/snapshot.mjs):42–47), again inside
-`compareSnapshots` as the diff baseline ([src/lib/compare.mjs](../src/lib/compare.mjs):99,
-`since: latestSnapshotName`). The just-written *new* snapshot is also re-read as the `until`
+([src/commands/snapshot.mjs](../src/commands/snapshot.mjs):43–47), again inside
+`compareSnapshots` as the diff baseline ([src/lib/compare.mjs](../src/lib/compare.mjs):113,
+`since: latestSnapshotName` passed at snapshot.mjs:81–85). The just-written *new* snapshot is also re-read as the `until`
 side — that face is cheaper to accept, since re-parsing what was just written doubles as a
 round-trip verification. On a large set the previous-side re-read is a full zstd decompress +
 per-entry parse done twice — the per-file-overhead pattern the CLAUDE.md hot-path convention
@@ -105,37 +84,6 @@ an already-parsed `since` side (entries alongside the name — widens `compareSn
 interface), or have `snapshot` compose the pure `diff` directly with what it already holds
 (moves display assembly). Pairs naturally with the `diff` test-discipline candidate below —
 both reshape the compare seam.
-
-### Test `diff` at its own interface, not through the I/O shell. _(Worth exploring — cheapest on the list.)_
-
-_Surfaced 2026-06-23; re-verified 2026-07-03 (grown: now 27 × `compareSnapshots`, still 0 × `diff`)._
-`diff` in [src/lib/compare.mjs](../src/lib/compare.mjs):200 is a **pure, in-process** function
-(two `SnapshotEntries` Maps in, four classification sets out) and holds the codebase's most
-intricate logic: the greedy move-pairing and copy annotation. It is `export`ed — but every one
-of its tests reaches it through `compareSnapshots`, each building real compressed `.tsv.zst`
-fixture files via `withSnapshotFile` + `stringifySnapshot`. The deepest logic has the most
-expensive test access, so pairing edge cases (rotations, swaps, copies-of-moves) are costly to
-enumerate. This is a **test-discipline** change, not a structural one — `diff` already sits at
-the right seam. Drive it directly with in-memory Maps; keep a thin set of `compareSnapshots`
-tests for what only it adds (`since`/`until` resolution defaults, `relativeToRoot` display).
-Decision for later: `diff`'s export has no non-test caller besides `compareSnapshots`, so the
-export is *only* a test seam today — acceptable (an internal seam used by its own tests), but
-make it a conscious call.
-
-### Trim `s3.mjs` — delete the dead `emptyBucket`. _(Worth exploring — small; the delete half resolved.)_
-
-_Surfaced 2026-06-23 (as "candidate C"); progress half **landed** 2026-07-03 as
-[PR #148](https://github.com/allens/s3cab/pull/148) (`lib/progress.mjs`); re-scoped 2026-07-08._
-The old "move test-only `deleteObject`/`emptyBucket` to a test helper" framing is **stale**:
-`deleteObject` ([src/lib/s3.mjs](../src/lib/s3.mjs):560) is now a genuine *production* seam —
-three layout-owning wrappers guard it (`deleteStoredObject` in objects.mjs → cleanup,
-`deleteRemoteSnapshot` in remote.mjs → delete, and set-marker.mjs → exclude.txt). What remains
-is `emptyBucket` ([src/lib/s3.mjs](../src/lib/s3.mjs):569–578): **zero callers anywhere**
-(production, tests, scripts) — a `DeleteObjectCommand` loop with its own stderr progress,
-duplicating iteration `listObjects` already owns. Fails the deletion test outright — delete it.
-(The pure helpers that also live in s3.mjs — `authNotice`/`clientConfig`/`formatUploadProgress`/
-`putObjectParams`/`parseS3Uri`/`bucketPolicy`, the last consumed by `aws` onboarding — are there
-for cohesion and touch no SDK; the interface-vs-SDK-seam width is deliberate, **not** flagged.)
 
 ---
 
@@ -245,3 +193,41 @@ least once; re-open only if the stated reason no longer holds.
   cross-set `damaged` under-count the extraction had preserved. Its open-candidate entry is
   deleted (the pair is noted in docs/design/backup.md). Superseded the prior HTML report (now
   overwritten in place at `architecture-review.html`).
+- **2026-07-10 — sixth pass** (with a user-requested extra: score the project against the
+  `codebase-design` / `domain-modeling` / `tdd` / `code-review` skills; scorecard in the HTML
+  report). Re-verified all seven opens against HEAD `0f19353` — **all hold**; line anchors
+  refreshed (several had drifted: `downloadRemoteSnapshots` 119→272, `normalizeName` 21→62,
+  compare baseline 99→113, `emptyBucket` 569→559, `seedStarterExclude` 179→189 + its
+  `(name)`→`(set)` signature). One finding **strengthened**: `diff`'s `export` has zero
+  importers anywhere — not even its tests — so it's speculative surface, not a test seam.
+  Examined the PR #166 churn (`auth`→`provider` rebuild, ADR-0047, the largest command file at
+  352 lines): genuinely deep — pure helpers behind one export, discriminated-union `Scope`
+  typedef, 456 lines of tests — **no new candidates**; its CLI-surface follow-ups
+  (`--profile` flag collision) already live in `provider-ux.md`. Scorecard net: strong on all
+  four skills; the one systematic weakness is plan/execute interleaving pushing pure decision
+  logic behind I/O-only test access (exactly the `planUpload` / `diff` / `seedStarterExclude`
+  candidates). Minor ubiquitous-language slips noted: user-facing "adopts" in `setup.mjs:256`
+  (canonical: **inherit**), comment-level "garbage collector"/"orphan GC"/"blob"
+  (`cleanup.mjs:13`, `objects.mjs:116`, `verify.mjs:149`). Top pick: **pure `planUpload`**
+  (runner-up: test `diff` directly). Superseded the prior HTML report in place.
+- **2026-07-10 — the 1+5+7 bundle landed** ([PR #167](https://github.com/allens/s3cab/pull/167),
+  grilled in-session then built step-by-step). **Four candidates retired as done:** *pure
+  `planUpload`* (landed as the **`lib/upload.mjs` verb module** — planner + `uploadSnapshot`
+  moved in beside it, the subsystem-cohesion rule honestly applied since restore/verify/cleanup
+  already had verb modules and upload was the outlier embedded in the store module; `remote.mjs`
+  −169 lines to the snapshot-store read/manage side, still sole owner of the `snapshots/`
+  prefix; `uploadCandidates`/`candidatesNotIn` subsumed, `status` reuses the planner; the
+  first-backup LIST diff gained ungated unit tests), *test `diff` at its own interface* (13
+  classification tests on in-memory Maps, 12 shell tests kept; the export is now a deliberate
+  internal test seam), *lift `seedStarterExclude`* (name-keyed `sets.mjs` primitive returning
+  wrote/skipped; a Copilot review comment then upgraded it to **atomic write-if-absent** — the
+  `wx` flag replaces the check-then-write, making the never-clobber guarantee kernel-enforced
+  and *smaller*), and *trim `s3.mjs`* (`emptyBucket` deleted; the versioned-bucket manual-test
+  script it was meant to be is parked in [misc.md](misc.md) — a per-key delete only adds delete
+  markers on a versioned bucket, so a faithful move was impossible). Ride-alongs: the
+  CONTEXT.md vocabulary sweep (adopts→inherits incl. one user-facing string, GC→orphan
+  sweep/deleter, blob→object) and the user-stated memory/async stance recorded in CLAUDE.md
+  ("modern user PC, not a headless VM; async engine interfaces welcome — progress can hook in").
+  Three opens remain: `downloadToFile` (spell the option `hasher`, not "tap" — and rename the
+  `tap` local in objects.mjs when it lands), the snapshot-name authority, and threading the
+  previous snapshot through `snapshot → compare`.

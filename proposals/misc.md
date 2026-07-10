@@ -20,3 +20,8 @@ future "platform / release" epic).
   name TBD — `--no-manifest` / `--objects-only`). Deferred from the upload epic (ADR-0044) per
   #7 — no use has appeared. Harmless if added: orphan objects with no manifest are the *safe*
   direction (wasted space, not corruption).
+- **`scripts/`: empty-a-versioned-bucket helper for manual testing** (write fresh when asked).
+  The deleted `emptyBucket` in s3.mjs was meant for this but never did it — a plain per-key
+  `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs
+  `ListObjectVersions` + per-`{Key, VersionId}` deletes so the bucket can actually be emptied
+  and removed.
