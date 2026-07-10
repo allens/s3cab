@@ -225,11 +225,10 @@ const inProgressError = (tmpPath) => {
  * rows stay inline with the entries, in file order. Parsing is marker-driven so
  * order doesn't affect correctness (`parseSnapshotStream`).
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
- * @param {string} name - Snapshot name (minute-precision timestamp, no extension)
+ * @param {string} name - Snapshot name (minute-precision timestamp, no extension — mint it with `snapshotName`); the `#SNAPSHOT` header datetime is derived from it
  * @param {object} args
  * @param {string} args.identity - The set name (its whole identity, ADR-0024) — the `#SNAPSHOT` line
  * @param {string[]} args.dirs - Member directories (one `#DIR` line each)
- * @param {string} args.datetime - Snapshot datetime (minute precision) for the `#SNAPSHOT` line
  * @param {Iterable<string> | AsyncIterable<string>} args.files - Kept file paths to hash and record
  * @param {ExclusionRecord[]} args.excluded - Pattern-matched entries (→ `#EXCLUDED` rows)
  * @param {ExclusionRecord[]} [args.skipped] - By-design unsupported entries (→ `#SKIPPED` rows)
@@ -243,7 +242,6 @@ export async function writeSnapshot(
   {
     identity,
     dirs,
-    datetime,
     files,
     excluded,
     skipped = [],
@@ -255,7 +253,7 @@ export async function writeSnapshot(
     snapshotDir,
     name,
     async (writeStream) => {
-      writeStream.write(snapshotHeader({ datetime, identity, dirs }));
+      writeStream.write(snapshotHeader({ name, identity, dirs }));
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
       }
@@ -293,6 +291,29 @@ export async function readSnapshot(snapshotDir, name) {
   }
   throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
 }
+
+/**
+ * The name for a new snapshot: "now" at minute precision with the colon
+ * dropped (`2026-06-12T0915`) — the one place a snapshot name is minted, from
+ * a single clock read. The `#SNAPSHOT` header datetime is derived back from
+ * this name by the writer (`snapshotHeader`), so a snapshot's filename and its
+ * own header agree by construction — no second `now()` for an `await` to slip
+ * a minute boundary between.
+ * @returns {string}
+ */
+export const snapshotName = () =>
+  Temporal.Now.plainDateTimeISO()
+    .toString({ smallestUnit: "minutes" })
+    .replace(":", "");
+
+/**
+ * Accept either a bare snapshot name (as `list` reports) or a full snapshot
+ * filename, by stripping the `.tsv`/`.tsv.zst` extension — so callers taking
+ * user-supplied names (`compare`) never learn the extension grammar.
+ * @param {string} [name]
+ */
+export const normalizeSnapshotName = (name) =>
+  name?.replace(/\.tsv(\.zst)?$/, "");
 
 /**
  * The snapshot names among a set of snapshot file names, newest first. This
@@ -503,16 +524,20 @@ function formatLine(col1, col2, col3, col4) {
  * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
  * snapshot's datetime and identity, then one `#DIR` line per member directory —
  * the preamble that makes a snapshot self-describing even found alone
- * (docs/design/backup.md). Module-private: `writeSnapshot` is its only caller;
- * the `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
+ * (docs/design/backup.md). The datetime is *derived from the snapshot's name*
+ * (re-inserting the colon the filename drops), so a snapshot's filename and
+ * its own header cannot disagree — the two spellings of one moment share one
+ * source. Module-private: `writeSnapshot` is its only caller; the
+ * `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
  * `parseSnapshotStream` that reads them back.
  * @param {object} header
- * @param {string} header.datetime - Snapshot datetime (minute precision)
+ * @param {string} header.name - The snapshot name (minute-precision timestamp, see `snapshotName`)
  * @param {string} header.identity - The set name (its whole identity, ADR-0024)
  * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
  * @returns {string}
  */
-function snapshotHeader({ datetime, identity, dirs }) {
+function snapshotHeader({ name, identity, dirs }) {
+  const datetime = name.replace(/T(\d{2})(\d{2})$/, "T$1:$2");
   let out = formatLine(SNAPSHOT, "", datetime, identity);
   for (const dir of dirs) {
     out += formatLine(DIR, "", "", dir);

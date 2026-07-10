@@ -10,6 +10,7 @@ import { createProgress } from "../lib/progress.mjs";
 import {
   listSnapshotNames,
   readSnapshot,
+  snapshotName,
   writeSnapshot,
 } from "../lib/snapshot-file.mjs";
 import { walkSet } from "../lib/walk.mjs";
@@ -33,7 +34,7 @@ export async function snapshot(setName, options = {}) {
   const set = loadSet(setName);
   const snapshotDir = set.snapshotsDir;
 
-  const newSnapshotName = getTimestamp();
+  const newSnapshotName = snapshotName();
   console.warn("Generating new snapshot:", newSnapshotName);
 
   /** @type {SnapshotEntries | undefined} */
@@ -53,13 +54,9 @@ export async function snapshot(setName, options = {}) {
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the previous-snapshot
   // lookup, so an unchanged file reuses its stored hash.
-  const datetime = Temporal.Now.plainDateTimeISO().toString({
-    smallestUnit: "minutes",
-  });
   const snapshotPath = await writeSnapshot(snapshotDir, newSnapshotName, {
     identity: set.name,
     dirs: set.dirs,
-    datetime,
     files: withProgress("Generating snapshot file...", files.length)(files),
     excluded,
     skipped,
@@ -75,9 +72,14 @@ export async function snapshot(setName, options = {}) {
     );
   }
 
-  // Compare with previous snapshot
+  // Compare with the previous snapshot. When it was already read for the hash
+  // lookup above, hand the parse through so the baseline isn't decompressed and
+  // parsed a second time; under --rehash it wasn't read, so the compare reads it.
   return await compareSnapshots(snapshotDir, set.dirs, {
-    since: latestSnapshotName,
+    since:
+      lookup && latestSnapshotName
+        ? { name: latestSnapshotName, entries: lookup }
+        : latestSnapshotName,
     until: newSnapshotName,
     setName: set.name,
   });
@@ -110,8 +112,3 @@ function withProgress(label, total) {
     }
   };
 }
-
-const getTimestamp = () =>
-  Temporal.Now.plainDateTimeISO()
-    .toString({ smallestUnit: "minutes" })
-    .replace(":", "");

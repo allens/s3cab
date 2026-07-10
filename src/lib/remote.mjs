@@ -1,9 +1,12 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, unlink } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
-import { createS3ReadStream, deleteObject, listObjects } from "./s3.mjs";
+import {
+  createS3ReadStream,
+  deleteObject,
+  downloadToFile,
+  listObjects,
+} from "./s3.mjs";
 import { parseSnapshotStream, snapshotNames } from "./snapshot-file.mjs";
 import { isCorruptSnapshotError } from "./verify.mjs";
 
@@ -246,7 +249,7 @@ async function readSetReferenced(bucket, set, names) {
  * inherit-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
  * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
- * file (atomic temp + rename, like `getObject`), touching **no** `objects/`. A
+ * file (atomically, via `downloadToFile`), touching **no** `objects/`. A
  * remote snapshot file is byte-identical to its local form
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
  * correct and avoids needless decompress-then-recompress.
@@ -273,15 +276,7 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   for (const name of names) {
     const uri = `s3://${bucket}/${prefix}${name}.tsv.zst`;
     const destPath = join(snapshotDir, `${name}.tsv.zst`);
-    const tmpPath = join(snapshotDir, `.${name}.tsv.zst.s3cab-tmp`);
-    try {
-      await pipeline(createS3ReadStream(uri), createWriteStream(tmpPath));
-      await rename(tmpPath, destPath);
-    } catch (error) {
-      // Never leave a partial temp file behind (best-effort).
-      await unlink(tmpPath).catch(() => {});
-      throw error;
-    }
+    await downloadToFile(createS3ReadStream(uri), destPath);
   }
   return names.length;
 }
