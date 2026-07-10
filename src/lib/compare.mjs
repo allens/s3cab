@@ -69,10 +69,17 @@ const normalizeName = (name) => name?.replace(/\.tsv(\.zst)?$/, "");
  * Naming a snapshot that doesn't exist is an error, never a silent empty
  * result. When `until` is the oldest snapshot (or the only one), the baseline
  * is empty and everything reports as added.
+ *
+ * The `since` side may arrive already parsed, as `{ name, entries }`:
+ * `snapshot` reads the previous snapshot for its hash lookup anyway, and
+ * handing the parse through here saves decompressing and re-parsing the same
+ * baseline twice in one run (the hot-path rule: thread the data you already
+ * have through the interface). The object pairs the name with its entries
+ * structurally; a bare name is read from `snapshotDir` as before.
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string[]} dirs - The set's member directories (for path display)
  * @param {object} [options]
- * @param {string} [options.since] - Older snapshot to compare from (default: the one before `until`)
+ * @param {string | { name: string, entries: SnapshotEntries }} [options.since] - Older snapshot to compare from (default: the one before `until`), optionally carrying its already-parsed entries
  * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
  * @param {string} [options.setName] - The set's name, for the "no snapshots yet" guidance
  * @returns {Promise<CompareResult>} Diff results
@@ -91,7 +98,15 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   const untilSnapshot = await readSnapshot(snapshotDir, until);
 
   // Older side (`since`) defaults to the snapshot immediately before `until`.
-  let since = normalizeName(options.since);
+  let since;
+  /** @type {SnapshotEntries | undefined} */
+  let parsedEntries;
+  if (typeof options.since === "object") {
+    since = normalizeName(options.since.name);
+    parsedEntries = options.since.entries;
+  } else {
+    since = normalizeName(options.since);
+  }
   if (since === undefined) {
     const untilIndex = snapshotNames.indexOf(until);
     if (untilIndex === -1) {
@@ -109,6 +124,8 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   if (since === undefined) {
     // Nothing older than `until`: an empty baseline; everything is "added".
     sinceEntries = new Map();
+  } else if (parsedEntries) {
+    sinceEntries = parsedEntries;
   } else {
     const sinceSnapshot = await readSnapshot(snapshotDir, since);
     sinceEntries = sinceSnapshot.entries;

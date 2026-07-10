@@ -77,9 +77,14 @@ export async function snapshot(setName, options = {}) {
     );
   }
 
-  // Compare with previous snapshot
+  // Compare with the previous snapshot. When it was already read for the hash
+  // lookup above, hand the parse through so the baseline isn't decompressed and
+  // parsed a second time; under --rehash it wasn't read, so the compare reads it.
   return await compareSnapshots(snapshotDir, set.dirs, {
-    since: latestSnapshotName,
+    since:
+      lookup && latestSnapshotName
+        ? { name: latestSnapshotName, entries: lookup }
+        : latestSnapshotName,
     until: newSnapshotName,
     setName: set.name,
   });
