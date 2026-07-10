@@ -7,12 +7,15 @@ import {
   formatSets,
   listSets,
   readSet,
+  readSetExclude,
   resolveSet,
   sanitizeNamePart,
+  seedStarterExclude,
   starterExclude,
   validateBucketName,
   validateSetName,
   writeSet,
+  writeSetExclude,
 } from "./sets.mjs";
 import { ValidationError } from "./error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
@@ -68,6 +71,30 @@ describe("starterExclude", () => {
   it("header points at the help topic and the online guide (discovery hook)", () => {
     assert.match(starterExclude, /'s3cab help exclude'/);
     assert.match(starterExclude, /guide\/exclude\.md/);
+  });
+});
+
+describe("seedStarterExclude", () => {
+  it("gives a bare set the starter and reports it wrote", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
+
+    assert.equal(seedStarterExclude("photos"), true);
+    assert.equal(readSetExclude("photos"), starterExclude);
+
+    // Idempotent: a second seed is a no-op, not a rewrite.
+    assert.equal(seedStarterExclude("photos"), false);
+  });
+
+  it("never clobbers an existing exclude file", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    writeSet("photos", { dirs: ["C:\\Photos"], bucket: "b" });
+    writeSetExclude("photos", "# mine\n**/secret/\n");
+
+    assert.equal(seedStarterExclude("photos"), false);
+    assert.equal(readSetExclude("photos"), "# mine\n**/secret/\n");
   });
 });
 

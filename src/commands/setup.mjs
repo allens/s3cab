@@ -14,7 +14,7 @@ import {
 import {
   listSets,
   readSetExclude,
-  starterExclude,
+  seedStarterExclude,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -170,33 +170,21 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
-  seedStarterExclude(set);
+  // The starter exclude file is a birth gift for *new* sets only (`inherit`
+  // reproduces an existing set exactly, never silently narrowing what it backs
+  // up), seeded before `pushSetConfig` so the published remote config matches.
+  // The notice is what makes it findable — its header is the `help exclude`
+  // discovery hook — and prints the real resolved path (honours an S3CAB_HOME
+  // override), not a ~ template.
+  if (seedStarterExclude(name)) {
+    console.warn(
+      `Wrote a starter exclude file (skips node_modules and OS noise):\n` +
+        `  ${set.excludePath}\n` +
+        `Edit it to skip more — see 's3cab help exclude' for the pattern syntax.`,
+    );
+  }
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
   return set;
-}
-
-/**
- * Give a newborn set the starter exclude file (sets.mjs `starterExclude`),
- * telling the user where it landed — the file's header is the `help exclude`
- * discovery hook, so the notice is what makes it findable. Guarded on absence,
- * so a hand-written file (or one racing in from elsewhere) is never clobbered.
- * Create-only, before its `pushSetConfig`, so the published remote config
- * matches — the starter is a birth gift for *new* sets; `inherit` reproduces
- * an existing set exactly as it was (exclude-less if it was exclude-less),
- * never silently narrowing what an established set backs up.
- * @param {BackupSet} set
- */
-function seedStarterExclude(set) {
-  if (readSetExclude(set.name) !== undefined) {
-    return;
-  }
-  writeSetExclude(set.name, starterExclude);
-  // The real resolved path (honours an S3CAB_HOME override), not a ~ template.
-  console.warn(
-    `Wrote a starter exclude file (skips node_modules and OS noise):\n` +
-      `  ${set.excludePath}\n` +
-      `Edit it to skip more — see 's3cab help exclude' for the pattern syntax.`,
-  );
 }
 
 /**
