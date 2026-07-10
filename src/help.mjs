@@ -13,8 +13,8 @@
 // command registry; making dispatch lazy is deliberately deferred — see
 // proposals/performance.md.) The exclude text mirrors the matcher in
 // `src/commands/tree.mjs` (guide/exclude.md). The former auth topic lives on as
-// the `auth` command's registry description (ADR-0041) — `help auth` still
-// reaches it via the `help <command>` routing.
+// the `provider` command's registry description (ADR-0041, name per ADR-0047) —
+// `help provider` reaches it via the `help <command>` routing.
 //
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
 // its place here only if a user needs it mid-task in a terminal; each topic

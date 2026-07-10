@@ -5,7 +5,9 @@ produced the topics-are-cross-cutting-only rule and the aws-topic fold, PR #144)
 **implemented** (2026-07-03). Supersedes the *name* chosen in
 [0035](0035-aws-profile-sets-command-rationalization.md) (`aws`→`profile`); the command's
 behaviour, scope model, and read-only `~/.aws` validation
-([0031](0031-aws-profile-config-door.md)) are unchanged.
+([0031](0031-aws-profile-config-door.md)) are unchanged. **The name is in turn superseded
+by [0047](0047-provider-command-neutral-config-door.md)** (`auth` → `provider`, which also
+grows endpoint/region/keys knobs); the hosted-guide pattern and everything else here stands.
 
 ## Context
 

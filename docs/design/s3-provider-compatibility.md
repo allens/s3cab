@@ -82,8 +82,9 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    ([../../src/lib/s3.mjs](../../src/lib/s3.mjs)) now reads the endpoint explicitly via `customEndpoint()`
    (honouring SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`) and passes it as
    `endpoint`; its presence is the single "not AWS" signal driving the gating below. We did
-   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var ([ADR-0005](../adr/0005-builtins-over-dependencies.md) / [ADR-0006](../adr/0006-minimal-code.md)); a
-   friendlier per-destination endpoint UX belongs to the `setup` command.
+   **not** add an `S3CAB_ENDPOINT` alias — leaning on the SDK-native var ([ADR-0005](../adr/0005-builtins-over-dependencies.md) / [ADR-0006](../adr/0006-minimal-code.md)); the
+   friendlier per-destination endpoint UX landed as `provider --endpoint`
+   ([ADR-0047](../adr/0047-provider-command-neutral-config-door.md)).
 
 2. **Gate AWS-only upload options.** ✅ **Done.** `putFile` now omits
    `StorageClass: INTELLIGENT_TIERING` and `ServerSideEncryption: AES256` when a custom
@@ -155,4 +156,6 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 ## Out of scope
 
 - Provider-aware bucket creation and IAM policy in `setup`.
-- A friendlier per-destination endpoint/credential UX.
+- ~~A friendlier per-destination endpoint/credential UX.~~ **Built** (2026-07): the
+  `provider` command records endpoint/region by flag and the key pair by prompt/stdin,
+  user-wide or per set — [ADR-0047](../adr/0047-provider-command-neutral-config-door.md).

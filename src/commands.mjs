@@ -1,4 +1,3 @@
-import { auth } from "./commands/auth.mjs";
 import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
@@ -7,6 +6,7 @@ import { deleteSnapshot } from "./commands/delete.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
 import { prop } from "./commands/prop.mjs";
+import { provider } from "./commands/provider.mjs";
 import { restore } from "./commands/restore.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
@@ -146,10 +146,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
 
   // ── Setup: provision the cloud, point at credentials, define a set ─────
-  // The onboarding order (ADR-0036, names per ADR-0041): aws → auth → setup → backup.
+  // The onboarding order (ADR-0036, names per ADR-0047): aws|provider → setup → backup.
   aws: {
     group: "Setup",
-    summary: "Show the steps to set up an S3 bucket for backups",
+    summary: "Show the steps to set up an AWS S3 bucket for backups",
     examples: [
       "s3cab aws my-backups",
       "s3cab aws my-backups --region eu-west-1 --profile admin",
@@ -162,9 +162,9 @@ identity that can never permanently destroy backup history.
 Choosing an identity:
   (default)  a dedicated AWS IAM user — simplest if you don't use SSO
   --sso      reuse your AWS IAM Identity Center (SSO) sign-in
-  (auto)     a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi, …) is
-             detected from a custom endpoint (AWS_ENDPOINT_URL_S3 or
-             AWS_ENDPOINT_URL) and you get provider-neutral steps
+
+AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
+MinIO, …), run 's3cab help provider' for the setup steps instead.
 
 Then create a backup set in it:
   s3cab setup <name> <directory>... --bucket <bucket>
@@ -197,15 +197,44 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
     exec: (options, [name] = []) => aws(name, options),
     render: renderText,
   },
-  auth: {
-    summary: "Set, clear, or show how s3cab signs in to your cloud",
-    examples: ["s3cab auth --profile s3cab-backup", "s3cab auth"],
-    description: `s3cab resolves credentials in this order:
+  provider: {
+    summary: "Set, clear, or show how s3cab connects to your storage provider",
+    examples: [
+      "s3cab provider --endpoint https://<account>.r2.cloudflarestorage.com --region auto",
+      "s3cab provider --profile s3cab-backup",
+      "s3cab provider",
+    ],
+    description: `Configures which storage provider s3cab talks to and how it signs in — an
+AWS profile, a custom S3 endpoint (any S3-compatible provider), a region,
+and access keys. Run it with no flags to see the current setup.
+
+Setting up a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
+MinIO, …):
+
+1. Create your bucket in the provider's console (or its CLI).
+2. Turn on object versioning if the provider supports it — your safety
+   net, so a deleted or overwritten backup stays recoverable.
+3. Create an access key / token scoped to that bucket, with read, write,
+   delete, and list on its objects (R2: API Tokens; B2: Application Keys;
+   Wasabi: sub-users).
+4. Point s3cab at the provider:
+     s3cab provider --endpoint https://<your-endpoint> --region auto
+     s3cab provider --keys
+   (--keys asks for the key + secret — some providers need a real region,
+   e.g. us-east-1. s3cab drops AWS-only request features automatically
+   when a custom endpoint is set.)
+5. Create a backup set in the bucket:
+     s3cab setup <name> <directory>... --bucket <bucket>
+
+On AWS instead? 's3cab aws <bucket>' prints the full bucket + identity
+recipe, ending back here at --profile.
+
+How s3cab resolves credentials:
 
 1. s3cab loads its own env files first, if present. These set AWS_*
-   variables — a profile, region, endpoint, or keys (set a profile easily
-   with 's3cab auth --profile <name>'). Highest precedence first (a file
-   always beats the shell):
+   variables — a profile, region, endpoint, or keys (all settable with
+   this command). Highest precedence first (a file always beats the
+   shell):
      ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
                               overrides (written by 's3cab setup')
      ~/.s3cab/env             per-user defaults - the base layer under the set,
@@ -220,19 +249,15 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
 3. If nothing is configured, s3cab stops with an error explaining
    these options.
 
-Supported options:
-  - Quickest: 's3cab auth --profile <name>' points s3cab at an AWS profile
-    (writes AWS_PROFILE to ~/.s3cab/env; add a set name to scope it to one set)
-  - Existing AWS profile / AWS_PROFILE (for AWS IAM Identity Center,
-    run 'aws sso login' first — s3cab picks the session up)
-  - Existing shared AWS credential_process setup
-  - s3cab env files / AWS_* environment variables
-
 Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
-  - env files are supported for compatibility, including some S3-compatible providers.
+  - Keys are never taken via flags (they'd leak into shell history) —
+    --keys prompts at a terminal, or reads two lines from stdin.
   - For AWS, temporary credentials from profile-based setups are preferred
     over long-lived keys.
+  - To keep a long-lived key/secret out of plaintext env files, store it
+    in a secret manager and expose it through a credential_process profile
+    — the full guide has the recipe.
 
 When the server rejects your credentials:
 
@@ -245,9 +270,9 @@ s3cab names the cause and shows the raw error. By cause:
 
   Invalid / rejected credentials
     Replace the credentials s3cab is using, by their source:
-    - env vars / env file: re-check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-      and AWS_SESSION_TOKEN in ~/.s3cab/env (or ~/.s3cab/sets/<set>/env if
-      you scoped them to a set; no stray quotes or spaces)
+    - env file: re-enter the key + secret with 's3cab provider --keys'
+      (add the set name if you scoped them to a set), or re-check
+      AWS_SESSION_TOKEN in ~/.s3cab/env (no stray quotes or spaces)
     - a profile: renew it, and confirm AWS_PROFILE names the right one
     - SSO: run 'aws sso login' again
 
@@ -280,15 +305,28 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       profile: {
         type: "string",
         short: "p",
+        description: "The AWS profile to use (from your ~/.aws config)",
+      },
+      endpoint: {
+        type: "string",
         description:
-          "The AWS profile to use (from your ~/.aws config); omit to show the current setting",
+          "The provider's S3 endpoint URL, for non-AWS providers (writes AWS_ENDPOINT_URL_S3)",
+      },
+      region: {
+        type: "string",
+        description: "The region label the provider expects (e.g. auto)",
+      },
+      keys: {
+        type: "boolean",
+        description:
+          "Save an access key + secret — prompts at a terminal, or reads two lines from stdin (never flags)",
       },
       unset: {
-        type: "boolean",
-        description: "Remove the configured AWS profile",
+        type: "string",
+        description: "Remove a setting: profile, endpoint, region, or keys",
       },
     },
-    exec: (options, [set] = []) => auth(set, options),
+    exec: (options, [set] = []) => provider(set, options),
     render: renderText,
   },
   setup: {

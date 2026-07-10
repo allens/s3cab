@@ -1,4 +1,4 @@
-import { loadSet } from "../lib/env.mjs";
+import { customEndpoint, loadSet, parseEnvFile } from "../lib/env.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
 import { listSets, readSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
@@ -21,11 +21,23 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  * @property {SetSnapshots[]} sets
  */
 /**
- * The single-set detail view — the whole `BackupSet` (config + derived paths) and
- * its snapshots, local or (with `--remote`) the set's cloud backups.
+ * The provider settings a set's own env file overrides (ADR-0047) — absent
+ * fields fall through to the user default. `keys` is presence only, never the
+ * secret.
+ * @typedef {Object} ProviderOverrides
+ * @property {string} [profile]
+ * @property {string} [endpoint]
+ * @property {string} [region]
+ * @property {boolean} keys
+ */
+/**
+ * The single-set detail view — the whole `BackupSet` (config + derived paths),
+ * its provider overrides, and its snapshots, local or (with `--remote`) the
+ * set's cloud backups.
  * @typedef {Object} ListDetail
  * @property {"detail"} mode
  * @property {BackupSet} set
+ * @property {ProviderOverrides} overrides
  * @property {string[]} snapshots
  * @property {boolean} remote
  */
@@ -66,14 +78,26 @@ export async function list(setName, options = {}) {
   if (options.remote) {
     const set = loadSet(setName);
     const snapshots = await snapshotsFor(set, options);
-    return { mode: "detail", set, snapshots, remote: true };
+    return {
+      mode: "detail",
+      set,
+      overrides: providerOverrides(set),
+      snapshots,
+      remote: true,
+    };
   }
 
   // A named set → the detail view. Local, so no env/credentials are needed.
   if (setName !== undefined) {
     const set = readSet(setName);
     const snapshots = await snapshotsFor(set, options);
-    return { mode: "detail", set, snapshots, remote: false };
+    return {
+      mode: "detail",
+      set,
+      overrides: providerOverrides(set),
+      snapshots,
+      remote: false,
+    };
   }
 
   // No set named → every set, compact (name + snapshot times).
@@ -86,6 +110,24 @@ export async function list(setName, options = {}) {
     };
   });
   return { mode: "summary", sets };
+}
+
+/**
+ * The provider settings this set's own env file carries (its layer only — the
+ * effective merged view is the use-time notice's job), so the detail view shows
+ * *where its backups go* beside the bucket without a separate `provider <set>`
+ * query. Reads the same file `provider` writes; key presence only.
+ * @param {BackupSet} set
+ * @returns {ProviderOverrides}
+ */
+function providerOverrides(set) {
+  const values = parseEnvFile(set.envPath);
+  return {
+    profile: values.AWS_PROFILE,
+    endpoint: customEndpoint(values),
+    region: values.AWS_REGION,
+    keys: Boolean(values.AWS_ACCESS_KEY_ID),
+  };
 }
 
 /**

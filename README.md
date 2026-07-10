@@ -55,7 +55,8 @@ them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
-| `s3cab aws <bucket>`          | Print the steps to stand up an S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
+| `s3cab aws <bucket>`          | Print the steps to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
+| `s3cab provider`              | Set, clear, or show how s3cab connects to your storage provider — an AWS profile, or a custom endpoint/region/keys for any S3-compatible provider ([non-AWS setup](guide/aws.md#non-aws-providers)). |
 | `s3cab setup <set> <directory>…` | Create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
@@ -165,13 +166,18 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
      lives for the common single-bucket case.
 
-   (s3cab does **not** read a `.env` from the current directory.) The quickest way to set your
-   profile is **`s3cab auth --profile <name>`** — it writes `AWS_PROFILE` to `~/.s3cab/env` for
-   you (add a set name to scope it to one set, e.g. a set backing up to a different AWS account).
+   (s3cab does **not** read a `.env` from the current directory.) The **`provider`** command
+   writes these files for you: `s3cab provider --profile <name>` for an AWS profile,
+   `--endpoint <url> --region <r>` for an S3-compatible provider, and `--keys` for an access
+   key + secret (prompted or piped — never flags). Add a set name to scope any of it to one
+   set, e.g. a set backing up to a different account. Long-lived provider keys needn't sit in
+   these files in plaintext — the
+   [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
+   them from a secret manager through a `credential_process` profile.
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
    sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
 
-If neither is configured, s3cab stops and tells you what to do. Run **`s3cab help auth`**
+If neither is configured, s3cab stops and tells you what to do. Run **`s3cab help provider`**
 for the full details. s3cab has no sign-in flow of its own and stores no credentials: AWS
 IAM Identity Center (SSO) users sign in with the AWS CLI's `aws sso login`, and s3cab picks
 the session up automatically through the standard chain.

@@ -26,6 +26,7 @@ import {
   isInvalidCredentials,
   resolveCredentials,
 } from "./auth.mjs";
+import { customEndpoint } from "./env.mjs";
 import { formatByteValue } from "./format.mjs";
 import { createProgress } from "./progress.mjs";
 import { isInteractive } from "./style.mjs";
@@ -38,20 +39,9 @@ import { isInteractive } from "./style.mjs";
 /** @type {S3Client | undefined} */
 let _client;
 
-/**
- * The custom S3 endpoint, if one is configured — present for any S3-compatible
- * provider that isn't AWS (Cloudflare R2, Backblaze B2, MinIO, Wasabi, …). Its
- * presence is the single `targets-AWS?` signal: a set endpoint means "not AWS",
- * which gates the AWS-only behaviours (region redirects, storage class, SSE).
- *
- * Honours the SDK-native `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL` variables
- * rather than inventing new surface (ADR-0005/0006); a friendlier per-destination
- * endpoint UX belongs to the `setup` command. Read from `process.env` at call
- * time, after env is loaded (enforced centrally in `client()` — ADR-0022).
- * @returns {string | undefined}
- */
-const customEndpoint = () =>
-  process.env.AWS_ENDPOINT_URL_S3 ?? process.env.AWS_ENDPOINT_URL;
+// The `targets-AWS?` signal, `customEndpoint()`, lives in env.mjs (one spelling
+// of the fallback chain for every reader); it is read at call time here, after
+// env is loaded (enforced centrally in `client()` — ADR-0022).
 
 /**
  * The one-line notice s3cab prints (to stderr, once) when it first authenticates

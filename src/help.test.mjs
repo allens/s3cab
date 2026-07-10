@@ -233,17 +233,22 @@ describe("helpTopics", () => {
     assert.match(exclude, /guide\/exclude\.md/); // links the full online guide
   });
 
-  it("auth is a command description now, not a topic (ADR-0041)", () => {
-    // The former auth topic folded into the `auth` command's registry
-    // description; `help auth` reaches it via the `help <command>` routing.
+  it("auth/provider is a command description, not a topic (ADR-0041/0047)", () => {
+    // The former auth topic folded into the command's registry description
+    // (now `provider`); `help provider` reaches it via the `help <command>`
+    // routing.
     assert.equal(helpTopics.auth, undefined);
-    const auth = commands.auth?.description ?? "";
+    assert.equal(helpTopics.provider, undefined);
+    const provider = commands.provider?.description ?? "";
 
-    assert.match(auth, /env files/);
-    assert.match(auth, /standard AWS SDK credential chain/);
+    assert.match(provider, /env files/);
+    assert.match(provider, /standard AWS SDK credential chain/);
+    // The non-AWS onboarding steps live here too (ADR-0047, option a).
+    assert.match(provider, /Cloudflare R2/);
+    assert.match(provider, /--endpoint/);
     // SSO users are pointed at the AWS CLI; s3cab's own login command was
     // removed and must not be advertised.
-    assert.match(auth, /aws sso login/);
-    assert.doesNotMatch(auth, /s3cab login/);
+    assert.match(provider, /aws sso login/);
+    assert.doesNotMatch(provider, /s3cab login/);
   });
 });

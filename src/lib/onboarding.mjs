@@ -127,7 +127,7 @@ export function awsIamPlan({ bucket, region, profile }) {
 
     `5. Point s3cab at the new key (paste the key + secret from step 4):\n` +
       `   aws configure --profile s3cab\n` +
-      `   s3cab auth --profile s3cab`,
+      `   s3cab provider --profile s3cab`,
 
     nextStep(bucket),
 
@@ -170,7 +170,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
 
     `5. Refresh your session and point s3cab at your profile:\n` +
       `   aws sso login --profile <your-sso-profile>\n` +
-      `   s3cab auth --profile <your-sso-profile>`,
+      `   s3cab provider --profile <your-sso-profile>`,
 
     `--- Advanced: a dedicated s3cab-only identity ---\n\n` +
       `For tighter scope, give s3cab its own permission set instead of reusing\n` +
@@ -182,7 +182,7 @@ export function awsSsoPlan({ bucket, region, profile }) {
       `  3. Add an SSO profile for it, then sign in:\n` +
       `     aws configure sso          # pick the s3cab-backup permission set\n` +
       `     aws sso login --profile s3cab\n` +
-      `     s3cab auth --profile s3cab\n\n` +
+      `     s3cab provider --profile s3cab\n\n` +
       `CLI appendix (if you manage Identity Center from the command line —\n` +
       `substitute the <placeholder> ARNs from your account; they can't be\n` +
       `pre-filled):\n` +
@@ -190,45 +190,6 @@ export function awsSsoPlan({ bucket, region, profile }) {
       `     --instance-arn <sso-instance-arn> \\\n` +
       `     --permission-set-arn <permission-set-arn> \\\n` +
       `     --inline-policy file://policy.json`,
-
-    nextStep(bucket),
-  ];
-  return blocks.join("\n\n");
-}
-
-/**
- * The non-AWS recipe, auto-selected when a custom endpoint is set (any
- * S3-compatible provider — Cloudflare R2, Backblaze B2, Wasabi, MinIO, …). These
- * have **no IAM**, so onboarding degrades to best-effort console steps plus a
- * ready-to-paste `~/.s3cab/env` template (endpoint + key/secret) — there is no
- * policy JSON to attach. Versioning is offered conditionally since not every
- * provider supports it. The detected `endpoint` is pre-filled into the template.
- * @param {{ bucket: string, endpoint: string }} params
- * @returns {string}
- */
-export function nonAwsPlan({ bucket, endpoint }) {
-  const blocks = [
-    `To set up "${bucket}" as an s3cab backup destination on ${endpoint},\n` +
-      `run these steps. (A custom S3 endpoint is set, so these are\n` +
-      `provider-neutral — S3-compatible providers like Cloudflare R2, Backblaze\n` +
-      `B2 and Wasabi have no AWS IAM, so there is no policy to attach.)`,
-
-    `1. Create the bucket "${bucket}" in your provider's console (or its CLI).`,
-
-    `2. Turn on object versioning if the provider supports it — your safety net,\n` +
-      `   so a deleted or overwritten backup stays recoverable. Not every\n` +
-      `   S3-compatible provider offers it; skip this if yours doesn't.`,
-
-    `3. Create an access key / token scoped to this bucket, with read, write,\n` +
-      `   delete, and list on its objects. Where to do this differs by provider\n` +
-      `   (R2: API Tokens; B2: Application Keys; Wasabi: sub-users).`,
-
-    `4. Point s3cab at it — save these to ~/.s3cab/env (or set them in your shell):\n\n` +
-      `   AWS_ENDPOINT_URL_S3=${endpoint}\n` +
-      `   AWS_ACCESS_KEY_ID=<your-access-key>\n` +
-      `   AWS_SECRET_ACCESS_KEY=<your-secret>\n` +
-      `   AWS_REGION=auto          # some providers need a real region, e.g. us-east-1\n\n` +
-      `   s3cab drops AWS-only request features automatically off a custom endpoint.`,
 
     nextStep(bucket),
   ];

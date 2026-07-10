@@ -1,15 +1,16 @@
 # Setting up a cloud bucket
 
-`s3cab aws <bucket>` helps you stand up an S3 bucket as a backup destination,
-together with a least-privilege identity for s3cab to use — without s3cab
-becoming a manager of your cloud account.
+`s3cab aws <bucket>` helps you stand up an **AWS** S3 bucket as a backup
+destination, together with a least-privilege identity for s3cab to use — without
+s3cab becoming a manager of your cloud account. (Backing up to an S3-compatible
+provider instead — Cloudflare R2, Backblaze B2, Wasabi, MinIO, …? See
+[Non-AWS providers](#non-aws-providers) below: those have no IAM, so setup runs
+through the `provider` command, not this one.)
 
 It is **generative**: it _prints_ the exact `aws` commands and policy/lifecycle
 JSON for you to run, and makes no AWS calls itself. So it needs **no credentials
 to run** — you can read the whole plan before you have any — and you can see
-exactly what will touch your account before anything happens. (It also means the
-command works the same for the S3-compatible providers that have no AWS CLI at
-all; see [Non-AWS providers](#non-aws-providers).)
+exactly what will touch your account before anything happens.
 
 ```console
 > s3cab aws my-backups --region eu-west-1 --profile admin
@@ -78,7 +79,7 @@ attach the policy to_ differs.
 
 The simplest path if you don't use SSO. The command prints commands to create an
 IAM user, attach the policy to it, mint an access key, and point s3cab at it with
-`aws configure` + `s3cab auth --profile s3cab`.
+`aws configure` + `s3cab provider --profile s3cab`.
 
 > AWS now steers even basic users toward IAM Identity Center over standalone IAM
 > users. The IAM-user path is kept because it is the least moving parts when you
@@ -90,7 +91,7 @@ For accounts that sign in through IAM Identity Center (there is no long-lived
 access key to mint). Two tiers are printed:
 
 - **Reuse your existing sign-in** (the common case): attach the policy to the
-  permission set you already use, `aws sso login`, then `s3cab auth --profile
+  permission set you already use, `aws sso login`, then `s3cab provider --profile
   <your-sso-profile>`.
 - **A dedicated s3cab-only permission set** (advanced, optional): tighter scope
   at the cost of more setup. It is shown console-first, with a `<placeholder>`
@@ -103,23 +104,90 @@ the standard AWS tooling.
 
 ## Non-AWS providers
 
-If a custom S3 endpoint is set (`AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL`), the
-command auto-selects **provider-neutral** guidance for any S3-compatible service
-— Cloudflare R2, Backblaze B2, Wasabi, MinIO, and so on. These have no AWS IAM,
-so there is no policy JSON to attach; instead you get best-effort console steps
-(create the bucket, turn on versioning if supported, create a scoped token) and a
-ready-to-paste `~/.s3cab/env` template with your endpoint pre-filled:
+S3-compatible services — Cloudflare R2, Backblaze B2, Wasabi, MinIO, and so on —
+have no AWS IAM, so there is no policy JSON to attach and no `aws` CLI to
+install. Onboarding reduces to three strings (endpoint, access key, secret key)
+plus a region label, all recorded by the **`provider`** command
+([ADR-0047](https://github.com/allens/s3cab/blob/main/docs/adr/0047-provider-command-neutral-config-door.md)).
+The steps (also available offline via `s3cab help provider`):
 
-```ini
-AWS_ENDPOINT_URL_S3=https://<your-endpoint>
-AWS_ACCESS_KEY_ID=<your-access-key>
-AWS_SECRET_ACCESS_KEY=<your-secret>
-AWS_REGION=auto
-```
+1. **Create the bucket** in your provider's console (or its CLI).
+2. **Turn on object versioning** if the provider supports it — your safety net,
+   so a deleted or overwritten backup stays recoverable. Not every provider
+   offers it; skip this if yours doesn't.
+3. **Create an access key / token scoped to that bucket**, with read, write,
+   delete, and list on its objects. Where to do this differs by provider
+   (R2: API Tokens; B2: Application Keys; Wasabi: sub-users).
+4. **Point s3cab at the provider** — the endpoint and region by flag, the
+   key + secret at the prompt (never flags, which would leak into shell
+   history; piping two lines to `--keys` works for scripts):
+
+   ```console
+   > s3cab provider --endpoint https://<your-endpoint> --region auto
+   > s3cab provider --keys
+   Access key ID: …
+   Secret access key (hidden):
+   ```
+
+   Both write `~/.s3cab/env` (created owner-only), the base layer every backup
+   set inherits — add a set name to scope any of it to one set. Some providers
+   want a real region label (e.g. `us-east-1`); R2 takes `auto`.
+5. **Create a backup set** in the bucket:
+
+   ```console
+   > s3cab setup <name> <directory>... --bucket <bucket>
+   ```
 
 s3cab automatically drops AWS-only request features (server-side encryption,
 intelligent-tiering, the default integrity-checksum trailer) when a custom
 endpoint is set, so a plain bucket elsewhere just works.
+
+### Keeping the secret out of plaintext
+
+`--keys` stores the key pair in `~/.s3cab/env` — owner-only (mode `0600`,
+directories `0700`), but still plaintext on disk. The secret can stay out of the
+file entirely: keep it in a secret manager and hand it to s3cab through the
+standard credential chain's **`credential_process`** hook, which s3cab already
+supports with no extra configuration.
+
+The recipe is manager-agnostic. Store this JSON document as a single secret in
+whatever you use (1Password, `pass`, the OS keychain, …):
+
+```json
+{ "Version": 1, "AccessKeyId": "<your-access-key>", "SecretAccessKey": "<your-secret>" }
+```
+
+Then add a profile to `~/.aws/config` (yours to edit — s3cab never writes it)
+whose `credential_process` prints that secret:
+
+```ini
+[profile r2-backup]
+credential_process = op read op://Private/s3cab-r2/credential
+; or:         pass show s3cab/r2
+; or (macOS): security find-generic-password -s s3cab-r2 -w
+; or (Linux): secret-tool lookup service s3cab-r2
+```
+
+Point s3cab at the profile, and keep only the endpoint (not a secret) in the
+env file:
+
+```console
+> s3cab provider --profile r2-backup
+```
+
+```ini
+AWS_ENDPOINT_URL_S3=https://<your-endpoint>
+AWS_REGION=auto
+```
+
+Two honest caveats. This protects the secret **at rest** — encrypted on disk,
+out of home-directory syncs, dotfile repos, and file-level backups — but on most
+platforms it does not protect against code already running _as you_: any process
+that can run your secret manager can usually read the secret too (macOS prompts
+per app; Linux's Secret Service typically doesn't). And scheduled backups run
+unattended, so the store must be unlockable when they fire — a locked vault
+makes the backup fail until you sign in, which you may consider a feature or a
+bug.
 
 ## A note on the `us-east-1` quirk
 

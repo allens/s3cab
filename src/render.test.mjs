@@ -322,6 +322,7 @@ describe("renderList", () => {
     const text = renderList({
       mode: "detail",
       set: detailSet,
+      overrides: { keys: false },
       snapshots: ["2026-05-12T0946"],
       remote: false,
     });
@@ -331,6 +332,33 @@ describe("renderList", () => {
     assert.match(text, /dirs \(.*docs\/dirs\.txt\):\n {2}\/data\/docs/);
     assert.match(text, /exclude file: .*docs\/exclude\.txt/);
     assert.match(text, /\nsnapshots:\n {2}2026-05-12T0946$/);
+    // A set on the user default shows no override block — absence IS the answer.
+    assert.doesNotMatch(text, /provider overrides/);
+  });
+
+  it("shows the set's provider overrides after the bucket, key presence only", () => {
+    const detailSet = {
+      ...set("docs", "my-bucket", []),
+      dirsPath: "/d.txt",
+      excludePath: "/e.txt",
+    };
+    const text = renderList({
+      mode: "detail",
+      set: detailSet,
+      overrides: {
+        profile: "work",
+        endpoint: "https://acct.r2.cloudflarestorage.com",
+        region: "auto",
+        keys: true,
+      },
+      snapshots: [],
+      remote: false,
+    });
+
+    assert.match(
+      text,
+      /bucket: my-bucket\nprovider overrides:\n {2}AWS profile: work\n {2}endpoint: https:\/\/acct\.r2\.cloudflarestorage\.com\n {2}region: auto\n {2}access keys: set\n/,
+    );
   });
 
   it("labels the detail snapshots 'remote snapshots' for --remote", () => {
@@ -342,6 +370,7 @@ describe("renderList", () => {
     const text = renderList({
       mode: "detail",
       set: detailSet,
+      overrides: { keys: false },
       snapshots: [],
       remote: true,
     });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -59,6 +59,17 @@ describe("updateEnvFile", () => {
     updateEnvFile(path, { "A.B": "new" });
     assert.equal(readFileSync(path, "utf8"), "AxB=other\nA.B=new\n");
   });
+
+  it(
+    "creates the file owner-only (0600) — it may carry secret keys",
+    { skip: process.platform === "win32" && "POSIX modes don't apply" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const path = join(dir.path, "env");
+      updateEnvFile(path, { AWS_SECRET_ACCESS_KEY: "hunter2" });
+      assert.equal(statSync(path).mode & 0o777, 0o600);
+    },
+  );
 });
 
 describe("removeEnvKey", () => {
