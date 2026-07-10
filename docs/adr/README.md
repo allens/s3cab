@@ -69,6 +69,7 @@ ADR as a live constraint.
 - [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045)*
 - [0045](0045-change-detection-local-baseline-list-fallback.md) — Change detection: drop the objects cache; baseline = local snapshot + on-demand LIST + conditional-PUT backstop *(engine implemented; companion to 0044)*
 - [0047](0047-provider-command-neutral-config-door.md) — `provider`: the neutral connection-config door (profile/endpoint/region/keys); `aws` narrows to AWS-only
+- [0048](0048-snapshot-lock-atomic-temp-file.md) — Snapshot concurrency lock: the temp file created atomically (`wx`); stale locks removed manually
 
 ### Build, release & tooling
 
