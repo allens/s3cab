@@ -221,6 +221,18 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 [0005](docs/adr/0005-builtins-over-dependencies.md),
 [0018](docs/adr/0018-dependabot-not-renovate.md).)
 
+- **Reach for the modern, best-in-class JS/Node built-in before hand-rolling.** Before writing
+  stream/async/collection plumbing by hand, check whether a current primitive already does it —
+  and does it *more correctly*. The hand-rolled version usually misses an edge the built-in
+  handles: e.g. `stream.pipeline` forwards `error` and tears down *every* stream on failure or
+  premature close, where a manual `.pipe()` + `source.on("error", …)` drops the peer and leaks
+  it. Same reflex for `Array.fromAsync`, `structuredClone`, `AbortSignal`/`AbortController`,
+  `node:stream/consumers`, `Iterator.prototype` helpers, etc. This complements
+  [ADR-0005](docs/adr/0005-builtins-over-dependencies.md) (builtins over deps): prefer not just a
+  builtin over a dependency, but the *current, purpose-built* builtin over a lower-level one you'd
+  wire together yourself. (Worked example: `readRemoteSnapshot` in [src/lib/remote.mjs](src/lib/remote.mjs)
+  composes the S3 body and zstd-decompress with `stream.compose`, not a raw `.pipe()` that would
+  drop a mid-download error — and the reader consumes the SDK's `Body` Readable directly, no wrapper.)
 - **Each file in `src/commands/` exports exactly one symbol — its command function.** The
   mechanical form of [ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md)'s
   porcelain/plumbing/`lib` layering: if anything else — a sibling command *or* a test — needs
