@@ -19,7 +19,7 @@ import { setHasFindings } from "./lib/verify.mjs";
 import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
-/** @import { ListResult } from "./commands/list.mjs" */
+/** @import { ListResult, ProviderOverrides } from "./commands/list.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
@@ -335,7 +335,7 @@ export function renderList(result) {
  * where its backups actually go (ADR-0047). Rendered only when the set
  * overrides something; a set on the user default stays as before (the absence
  * IS the answer). Key presence only, never the secret.
- * @param {import("./commands/list.mjs").ProviderOverrides} overrides
+ * @param {ProviderOverrides} overrides
  * @returns {string[]}
  */
 function providerOverrideLines({ profile, endpoint, region, keys }) {
