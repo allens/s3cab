@@ -506,9 +506,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   don't reintroduce it (package.json can't carry a comment saying so; this is the warning).
 - **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (see
   [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
-- **Concurrency guard** for snapshots is only the temp-file check (its existence doubles
-  as a crude in-progress lock); a proper lock file is a `TODO` in
-  [src/commands/snapshot.mjs](src/commands/snapshot.mjs).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see
   [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)).
 - **Stable doc URLs before release.** Help topics, the help footer, and the `compare`

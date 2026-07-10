@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -8,6 +8,7 @@ import {
   listSnapshotNames,
   parseSnapshotStream,
   readSnapshot,
+  withSnapshotFile,
   writeSnapshot,
 } from "./snapshot-file.mjs";
 
@@ -322,5 +323,90 @@ describe("writeSnapshot", () => {
       ...args,
       overwrite: true,
     });
+  });
+});
+
+// The snapshot temp file doubles as the set's concurrency lock (ADR-0048):
+// created atomically (`wx`) on acquire, consumed by the rename on success,
+// unlinked on failure. Driven at the withSnapshotFile seam so the lock's three
+// paths — held, stale, released-on-failure — are asserted without a real walk.
+describe("withSnapshotFile (snapshot concurrency lock)", () => {
+  it("refuses a concurrent snapshot while the first holds the lock", async () => {
+    await using dir = await mkTmpDir();
+    const acquired = Promise.withResolvers();
+    const gate = Promise.withResolvers();
+
+    // First run: signal once inside the callback (lock held), then block.
+    // The callback must end the stream itself (in production writeSnapshot's
+    // pipeline does that) or the compression pipeline never settles.
+    const first = withSnapshotFile(dir.path, "2026-06-23T1000", async (s) => {
+      acquired.resolve(undefined);
+      await gate.promise;
+      s.end("x");
+    });
+    await acquired.promise;
+
+    // Second run (different name, so it's the lock refusing, not the
+    // same-minute check) must fail with the in-progress error.
+    await assert.rejects(
+      withSnapshotFile(dir.path, "2026-06-23T1001", async () => {}),
+      /already in progress/,
+    );
+
+    // Release the first run: it completes, and the rename that installs the
+    // snapshot is also what releases the lock — no temp file remains.
+    gate.resolve(undefined);
+    const path = await first;
+    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.ok(
+      !existsSync(resolve(dir.path, ".snapshot.tsv.zst")),
+      "success must release the lock (temp renamed away)",
+    );
+  });
+
+  it("reports a stale lock (crashed run's leftover) with the exact fix", async () => {
+    await using dir = await mkTmpDir();
+    const tmpPath = resolve(dir.path, ".snapshot.tsv.zst");
+    writeFileSync(tmpPath, "");
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {}),
+      (/** @type {Error} */ error) => {
+        // ADR-0030: goal-framed headline, then the copy-pasteable fix naming
+        // the actual file — gated on nothing else running.
+        assert.match(error.message, /already in progress/);
+        assert.match(error.message, /delete the file and retry/);
+        assert.ok(
+          error.message.includes(tmpPath),
+          "the fix must name the lock file's real path",
+        );
+        return true;
+      },
+    );
+  });
+
+  it("releases the lock when a run fails, so the next run succeeds", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {
+        throw new Error("member directory vanished");
+      }),
+      /vanished/,
+    );
+    assert.ok(
+      !existsSync(resolve(dir.path, ".snapshot.tsv.zst")),
+      "a failed run must release the lock, not wedge the next one",
+    );
+
+    // The retry acquires cleanly and completes.
+    const path = await withSnapshotFile(
+      dir.path,
+      "2026-06-23T1000",
+      async (s) => {
+        s.end("x");
+      },
+    );
+    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
   });
 });

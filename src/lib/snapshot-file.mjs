@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { createReadStream, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { open, rename } from "node:fs/promises";
+import { open, rename, unlink } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
@@ -83,6 +83,14 @@ const ERROR = "#ERROR";
  * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/`, resolved by the
  * caller). The FileHandle is automatically disposed when the callback completes.
  *
+ * The fixed-name temp file `.snapshot.tsv.zst` doubles as the set's snapshot
+ * **concurrency lock** (ADR-0048): it is created atomically (`wx`), so a second
+ * concurrent snapshot of the same set fails to acquire it rather than
+ * interleaving writes into the same file. The success path releases the lock by
+ * renaming it into place; any failure releases it by unlinking, so a leftover
+ * temp file can only mean a killed/crashed run — `inProgressError` tells the
+ * user the exact fix. Never auto-broken (no age or PID heuristics).
+ *
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
  * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
@@ -111,14 +119,21 @@ export async function withSnapshotFile(
     );
   }
   const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
-  if (existsSync(tmpPath)) {
-    throw new Error(
-      `A snapshot is already in progress for this set (temp file ${tmpPath}).\n` +
-        `If a previous run was interrupted, remove that file and snapshot again.`,
-    );
+
+  // Acquire the lock: `wx` creates the temp file only if absent, atomically —
+  // the kernel enforces mutual exclusion, not a check-then-write racing it
+  // (the seedStarterExclude pattern, lib/sets.mjs).
+  /** @type {import("node:fs/promises").FileHandle} */
+  let fd;
+  try {
+    fd = await open(tmpPath, "wx");
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
+      throw inProgressError(tmpPath);
+    }
+    throw error;
   }
 
-  const fd = await open(tmpPath, "w");
   const chunkSize = 128 * 1024; // 128 KB
 
   const snapshotWriter = new PassThrough({ highWaterMark: chunkSize * 4 });
@@ -135,29 +150,57 @@ export async function withSnapshotFile(
     fd.createWriteStream(),
   );
 
-  // The finally ensures the fd is closed on every path — including a mid-pipeline
-  // failure after callbackFn succeeds — so the rename below (which needs the
-  // handle released on Windows) always sees a closed fd.
   try {
-    // Execute the callback with the write stream. If it throws (e.g. a member
-    // directory vanished mid-walk), tear the writer down and let the already-
-    // running pipeline settle before rethrowing — otherwise it surfaces later as
-    // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
+    // The finally ensures the fd is closed on every path — including a mid-pipeline
+    // failure after callbackFn succeeds — so the rename below (which needs the
+    // handle released on Windows) always sees a closed fd.
     try {
-      await callbackFn(snapshotWriter);
-    } catch (error) {
-      snapshotWriter.destroy();
-      await pipelinePromise.catch(() => {});
-      throw error;
+      // Execute the callback with the write stream. If it throws (e.g. a member
+      // directory vanished mid-walk), tear the writer down and let the already-
+      // running pipeline settle before rethrowing — otherwise it surfaces later as
+      // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
+      try {
+        await callbackFn(snapshotWriter);
+      } catch (error) {
+        snapshotWriter.destroy();
+        await pipelinePromise.catch(() => {});
+        throw error;
+      }
+      await pipelinePromise;
+    } finally {
+      await fd.close();
     }
-    await pipelinePromise;
-  } finally {
-    await fd.close();
-  }
 
-  await rename(tmpPath, snapshotPath);
-  return snapshotPath;
+    await rename(tmpPath, snapshotPath);
+    return snapshotPath;
+  } catch (error) {
+    // Release the lock on any failure (after the close above — Windows can't
+    // unlink an open file), so a *failed* run never wedges the next one.
+    // Best-effort: a failed unlink must not mask the real error.
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }
+
+/**
+ * The lock-held error `withSnapshotFile` raises when the snapshot temp file
+ * already exists (ADR-0048): either another snapshot/backup of this set is
+ * running right now, or a crashed run left the file behind. Manual removal is
+ * the only unlock — the message gives the exact command (ADR-0030), gated on
+ * "if nothing is running": on POSIX, deleting a *live* run's file and
+ * re-running can corrupt the store (Windows blocks the delete via the open
+ * handle).
+ * @param {string} tmpPath - The lock/temp file path (`.snapshot.tsv.zst`)
+ */
+const inProgressError = (tmpPath) => {
+  const del = process.platform === "win32" ? "del" : "rm";
+  return new Error(
+    `A snapshot of this set is already in progress — or a previous one was ` +
+      `interrupted and left its work file behind.\n` +
+      `If no snapshot or backup of this set is running now, delete the file and retry:\n` +
+      `  ${del} "${tmpPath}"`,
+  );
+};
 
 /**
  * Write a complete snapshot file and return its path: the `#SNAPSHOT`/`#DIR`

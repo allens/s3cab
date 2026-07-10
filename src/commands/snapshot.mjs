@@ -30,8 +30,6 @@ import { walkSet } from "../lib/walk.mjs";
  * @returns {Promise<CompareResult>} Diff against the previous snapshot
  */
 export async function snapshot(setName, options = {}) {
-  // TODO - some kind of lock file to stop concurrent snapshots
-
   const set = loadSet(setName);
   const snapshotDir = set.snapshotsDir;
 
