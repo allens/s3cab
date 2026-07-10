@@ -1,7 +1,7 @@
 import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
-import { uploadSnapshot } from "../lib/remote.mjs";
+import { uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
 /**

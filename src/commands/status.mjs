@@ -1,12 +1,13 @@
 import { loadSet } from "../lib/env.mjs";
-import { readLatestRemoteSnapshot, uploadCandidates } from "../lib/remote.mjs";
+import { readLatestRemoteSnapshot } from "../lib/remote.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
+import { planUpload } from "../lib/upload.mjs";
 
 /**
  * Show what is backed up and what a backup would upload (docs/design/backup.md): the
  * read-only half of the uploader's diff — the set's latest *local* snapshot
  * compared against its latest *remote* snapshot, with no writes. It reuses
- * `uploadCandidates`, the very diff `backup` runs (steps 1–2 of "how backup
+ * `planUpload`, the very diff `backup` runs (steps 1–2 of "how backup
  * computes the upload set"), so `status` and `backup` never disagree.
  *
  * `status` does not take a snapshot (it is read-only), so it reports against the
@@ -46,12 +47,12 @@ export async function status(setName) {
     set.name,
   );
 
-  const candidates = uploadCandidates(target, remote);
+  const plan = await planUpload(target, { baseline: remote });
 
   return {
     set: set.name,
     snapshot: localName,
     backedUp: remoteName ?? null,
-    toUpload: candidates.size,
+    toUpload: plan.size,
   };
 }
