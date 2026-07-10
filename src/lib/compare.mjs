@@ -1,5 +1,9 @@
 import { basename, dirname } from "node:path";
-import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
+import {
+  listSnapshotNames,
+  normalizeSnapshotName,
+  readSnapshot,
+} from "./snapshot-file.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -55,13 +59,6 @@ import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
  */
 
 /**
- * Accept either a bare snapshot name (as `list` reports) or a full snapshot
- * filename, by stripping the `.tsv`/`.tsv.zst` extension.
- * @param {string} [name]
- */
-const normalizeName = (name) => name?.replace(/\.tsv(\.zst)?$/, "");
-
-/**
  * Diff two snapshots from a snapshot directory, displaying paths relative to
  * `dirs` (the set's member directories). The engine behind the `compare`
  * command, reused by `snapshot` for its post-snapshot report.
@@ -88,7 +85,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   const snapshotNames = listSnapshotNames(snapshotDir);
 
   // Newer side (`until`) defaults to the latest snapshot.
-  const until = normalizeName(options.until) ?? snapshotNames.at(0);
+  const until = normalizeSnapshotName(options.until) ?? snapshotNames.at(0);
   if (!until) {
     throw new Error(
       `No snapshots to compare yet for set '${options.setName}'.\n` +
@@ -102,10 +99,10 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   /** @type {SnapshotEntries | undefined} */
   let parsedEntries;
   if (typeof options.since === "object") {
-    since = normalizeName(options.since.name);
+    since = normalizeSnapshotName(options.since.name);
     parsedEntries = options.since.entries;
   } else {
-    since = normalizeName(options.since);
+    since = normalizeSnapshotName(options.since);
   }
   if (since === undefined) {
     const untilIndex = snapshotNames.indexOf(until);
