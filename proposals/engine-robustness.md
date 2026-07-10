@@ -2,9 +2,6 @@
 
 Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
 
-- **S3ReadStream doesn't propagate body-stream errors.** `Body.pipe(this)` — `pipe` doesn't
-  forward `error` events, so a mid-download failure may hang or end the stream silently. (No
-  caller yet, but `restore` is built on it.)
 - **`emptyBucket` is uncalled, destructive, and deletes one object per request.** Either
   remove until a caller exists or switch to batched `DeleteObjects` (1000/request). Its
   existence in the bundle is risk with no reward today.
