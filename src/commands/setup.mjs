@@ -241,7 +241,7 @@ async function update(name, directories, options) {
 async function inherit(name, directories, creating, options) {
   if (directories.length) {
     throw new ParseArgsError(
-      "setup --inherit takes no directories (it adopts an existing remote set)",
+      "setup --inherit takes no directories (it inherits an existing remote set)",
     );
   }
   if (!options.bucket) {
@@ -275,7 +275,7 @@ async function inherit(name, directories, creating, options) {
   const set = writeSet(name, { dirs, bucket });
   // The remote config is reproduced exactly — including *no* exclude file for
   // a legacy set that never had one. No starter here: silently activating
-  // excludes on adoption would narrow what an established set backs up.
+  // excludes on inherit would narrow what an established set backs up.
   if (exclude !== undefined) {
     writeSetExclude(name, exclude);
   }

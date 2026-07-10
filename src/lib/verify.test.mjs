@@ -76,7 +76,7 @@ describe("verifySet", () => {
   });
 
   it("reports every path of a hash absent from the store as missing", () => {
-    // A missing blob referenced by two files yields two `missing` rows — all
+    // A missing object referenced by two files yields two `missing` rows — all
     // affected files, no object grouping.
     const referenced = ref({
       aaa: [

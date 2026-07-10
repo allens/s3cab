@@ -146,7 +146,7 @@ export function verifySet(name, referencedResult, stored) {
  * A single set's verify report: how much was checked, plus a flat per-path
  * `problems` list and any `unreadableSnapshots`. Empty across both means the set
  * verified clean. `problems` is one row per broken *file* (not per object): a
- * missing blob referenced by five paths yields five rows — the user thinks in
+ * missing object referenced by five paths yields five rows — the user thinks in
  * files, and hashes never surface (docs/design/backup.md, ADR-0042).
  * `unreadableSnapshots` stays separate because it is not file-shaped — a corrupt
  * snapshot file has no file list to annotate, only a lost restore point.

@@ -250,7 +250,7 @@ async function readSetReferenced(bucket, set, names) {
 
 /**
  * Pull a set's remote snapshot files down into `snapshotDir` — the
- * adoption-time metadata sync
+ * inherit-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
  * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
  * file (atomic temp + rename, like `getObject`), touching **no** `objects/`. A
