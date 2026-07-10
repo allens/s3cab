@@ -35,17 +35,22 @@ _Surfaced 2026-06-24; re-verified 2026-07-10._ `getObject`
 ([src/lib/remote.mjs](../src/lib/remote.mjs):272–294, the dance at :283–291) each hand-roll the same dance —
 temp-sibling path → `pipeline` → atomic `rename` → `unlink`-on-error in a `try/catch` —
 differing only in that `getObject` pipes the bytes through a pass-through SHA-256 **hashing
-stage** and `downloadRemoteSnapshots` copies verbatim. (The hashing happens in-stream; the
-*verify* — compare-and-throw against the expected hash — happens after the pipeline and stays
-in `getObject`, which is why the option is a `hasher`, not a "verify". The code's local
-variable for the stage is currently named `tap` — objects.mjs:87 — rename it when this lands;
-"tap" reads very differently outside American English.) Extract
-`downloadToFile(uri, destPath, { hasher })` at
-the [src/lib/s3.mjs](../src/lib/s3.mjs) seam; `getObject` passes the hashing stage,
-`downloadRemoteSnapshots` passes none. Two real adapters justify the seam, atomicity/cleanup
-live in one place, and callers shrink to the part that varies. (`withSnapshotFile` shares the
-temp+rename shape but streams *out* through zstd — fold it in only if the abstraction stays
-honest; don't stretch one primitive over two different writes.)
+stage** and `downloadRemoteSnapshots` copies verbatim.
+
+**Settled in grilling (2026-07-10):** `downloadToFile(uri, destPath, { sha256 })` at the
+[src/lib/s3.mjs](../src/lib/s3.mjs) seam — the option is the **expected hex digest, a plain
+value**, superseding the entry's earlier `hasher` sketch (injecting the Hash was
+over-engineering: comparing bytes to an expected digest is a generic integrity feature, not
+caller policy, and the injected shape pushed the verify *after* the rename — wrong order —
+then needed a second option to fix it). When `sha256` is given, the primitive hashes
+in-stream and throws **before the rename** on mismatch, so an unverified file never reaches
+`destPath` and the unlink-on-error path cleans up; `getObject` collapses to one call passing
+its key as the digest, `downloadRemoteSnapshots` passes no option. The `tap` local disappears
+entirely (the internal stage gets a plain name, e.g. `hashingStage`). Two real adapters
+justify the seam, atomicity/cleanup/verify-ordering live in one place, and callers shrink to
+the part that varies. (`withSnapshotFile` shares the temp+rename shape but streams *out*
+through zstd — fold it in only if the abstraction stays honest; don't stretch one primitive
+over two different writes.)
 
 ### One snapshot-name authority — and close the two-clock gap. _(Worth exploring — latent bug.)_
 
@@ -61,12 +66,21 @@ crosses a minute
 boundary during that `await`, the filename disagrees with its own `#SNAPSHOT` header. A third
 leak (added 2026-07-02): `normalizeName` in [src/lib/compare.mjs](../src/lib/compare.mjs):62
 strips the `.tsv(.zst)` extension — a grammar detail a caller shouldn't know, the only place it
-lives outside snapshot-file.mjs. A snapshot-name authority in snapshot-file.mjs, beside
-`parseSnapshotStream`: one `now()` capture → `{ name, datetime }`, plus the recognizer and the
-extension-normalizer. Format in one place; name ↔ header consistent by construction; latent
-skew closed; the seam stops leaking. (Related but distinct:
-[snapshot-format.md](snapshot-format.md)'s timezone/precision *decision* — if that format
-changes, this refactor makes it a one-place edit.)
+lives outside snapshot-file.mjs.
+
+**Settled in grilling (2026-07-10), one step past the entry's `{ name, datetime }` sketch
+(chosen as cleaner and net-negative LOC):** export **`snapshotName()`** from snapshot-file.mjs
+(one `Temporal.Now` capture → the no-colon name) and **drop `writeSnapshot`'s `datetime`
+parameter** — the writer derives the `#SNAPSHOT` header datetime *from the name* inside the
+`snapshotHeader` path, so name ↔ header cannot disagree **by construction** (not merely by a
+shared capture threaded as two values). `snapshot.mjs` deletes `getTimestamp` and its inline
+datetime block; the test call sites drop their paired `datetime:` args. Cost accepted:
+`writeSnapshot` assumes timestamp-shaped names (production always passes one). The
+extension-normalizer moves as **`normalizeSnapshotName`**, body unchanged (kept separate from
+the `snapshotNames` recognizer regex — strip-extension and recognize-a-snapshot are different
+questions); compare.mjs imports it. Format in one place; latent skew closed; the seam stops
+leaking. (Related but distinct: [snapshot-format.md](snapshot-format.md)'s timezone/precision
+*decision* — if that format changes, this refactor makes it a one-place edit.)
 
 ### Thread the previous snapshot through `snapshot → compare`. _(Worth exploring — hot path.)_
 
@@ -79,11 +93,17 @@ side — that face is cheaper to accept, since re-parsing what was just written 
 round-trip verification. On a large set the previous-side re-read is a full zstd decompress +
 per-entry parse done twice — the per-file-overhead pattern the CLAUDE.md hot-path convention
 warns about, and its prescribed fix is exactly this: thread the data you already have through
-the interface (never a module-level cache). Two shapes to grill: let the compare seam accept
-an already-parsed `since` side (entries alongside the name — widens `compareSnapshots`'
-interface), or have `snapshot` compose the pure `diff` directly with what it already holds
-(moves display assembly). Pairs naturally with the `diff` test-discipline candidate below —
-both reshape the compare seam.
+the interface (never a module-level cache).
+
+**Settled in grilling (2026-07-10): the first shape** — `compareSnapshots`' `since` option
+widens to `string | { name, entries }`; `snapshot` passes `{ name: latestSnapshotName,
+entries: lookup }` when it holds the parse, and the plain name under `--rehash` (where it
+never read the previous snapshot, so the compare still must). The object form makes the
+name ↔ entries pairing structural (a separate `sinceEntries` option could ride along with a
+mismatched name). The rejected shape — `snapshot` composing the pure `diff` directly — would
+relocate `compareSnapshots`' ~50-line result assembly into a shared helper and still
+duplicate the since-read for `--rehash`, all to save the identical read the option saves in a
+few lines.
 
 ---
 
