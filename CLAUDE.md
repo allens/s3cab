@@ -283,6 +283,11 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   function order-dependent, and silently rots into dead code (worked example: `prop.mjs`'s
   `_lstatCache` went dead once the pipeline settled to one `prop` per file — keep the saving
   *in the interface*, where the compiler can see it rot).
+- **Memory/async stance (user-stated, 2026-07-10): assume a modern user PC, not a little
+  headless VM.** Don't needlessly use memory, but don't be shy about using it either. And no
+  sync-purity dogma for engine functions — async interfaces are welcome, mainly because
+  progress reporting can hook in later (worked example: `planUpload` accepts the LIST as an
+  async iterable rather than forcing a materialized Set).
 - **`realpathSync.native` is the one reliable path canonicalizer — capture it once, at the
   low-frequency edges, then trust the fast string functions.** Node's pure-string path
   functions (`resolve`/`normalize`/`join`) can return subtly *different* strings for the same
