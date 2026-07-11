@@ -361,7 +361,7 @@ export const formatUploadProgress = ({
  * The AWS-only PutObject params (`ServerSideEncryption` + `StorageClass`),
  * omitted off-AWS. These are AWS-isms that S3-compatible providers (R2/B2/Spaces)
  * reject, so they're sent only when targeting AWS (no custom endpoint). Shared by
- * every uploader — `putFile` (via `putObjectParams`) and `putData` — so the
+ * every uploader — `putFile` (via `putObjectParams`) and `putText` — so the
  * gating rule lives in one place. `customEndpoint()` is read here, so the
  * caller's s3cab env must already be loaded.
  * @returns {Partial<import("@aws-sdk/client-s3").PutObjectCommandInput>}
@@ -506,7 +506,7 @@ async function objectExists(uri) {
  * @param {boolean} [options.noClobber] - Conditional PUT: don't overwrite an existing object.
  * @returns {Promise<boolean>} True if written; false if `noClobber` and it already existed.
  */
-export async function putData(uri, content, { noClobber = false } = {}) {
+export async function putText(uri, content, { noClobber = false } = {}) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     await client().send(
@@ -540,7 +540,7 @@ export async function putData(uri, content, { noClobber = false } = {}) {
  * @param {string} uri - The `s3://bucket/key` URI.
  * @returns {Promise<string | undefined>}
  */
-export async function getData(uri) {
+export async function getText(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));

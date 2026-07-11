@@ -33,7 +33,7 @@ user action. HTTP status cannot:
 Matching `error.name` is also what the codebase already does for `ExpiredToken`, `NoSuchKey`,
 `NotFound`, `PreconditionFailed`; `AccessDenied` is even a modeled SDK class with
 `readonly name: "AccessDenied"`. The unmodeled codes deserialize with `.name` set to the
-response `<Code>`. Same mechanism, already proven in `getData`/`objectExists`.
+response `<Code>`. Same mechanism, already proven in `getText`/`objectExists`.
 
 ## What we catch: "can fix" + "common and can advise"
 
