@@ -1,12 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { compose } from "node:stream";
 import { createZstdDecompress } from "node:zlib";
-import {
-  createS3ReadStream,
-  deleteObject,
-  downloadToFile,
-  listObjects,
-} from "./s3.mjs";
+import { deleteObject, downloadToFile, getStream, listObjects } from "./s3.mjs";
 import { parseSnapshotStream, snapshotNames } from "./snapshot-file.mjs";
 import { isCorruptSnapshotError } from "./verify.mjs";
 
@@ -118,8 +114,11 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  */
 export async function readRemoteSnapshot(bucket, set, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
-  const input = createS3ReadStream(uri).pipe(createZstdDecompress());
-  return parseSnapshotStream(input);
+  const body = await getStream(uri);
+  // `compose` (not `body.pipe(decompress)`): the composed stream propagates a
+  // body or decompress error to the reader in `parseSnapshotStream`, where a
+  // raw `.pipe` would drop it and stall on a truncated download.
+  return parseSnapshotStream(compose(body, createZstdDecompress()));
 }
 
 /**
@@ -276,7 +275,7 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   for (const name of names) {
     const uri = `s3://${bucket}/${prefix}${name}.tsv.zst`;
     const destPath = join(snapshotDir, `${name}.tsv.zst`);
-    await downloadToFile(createS3ReadStream(uri), destPath);
+    await downloadToFile(await getStream(uri), destPath);
   }
   return names.length;
 }
