@@ -9,7 +9,7 @@ dependencies across many — so both live under `test/`, not beside a source fil
 
 - **Unit** → `foo.test.mjs` beside `foo.mjs` (unchanged from 0046). Belongs to one module; its
   absence beside a module is honest "tested elsewhere / too thin" signal.
-- **Integration** (real bucket, gated) → `test/integration/*.test.mjs`. **No `.integration.`
+- **Integration** (real bucket, gated) → `test/integration/**/*.test.mjs`. **No `.integration.`
   suffix** — the folder is the tier marker. `test:integration` globs
   `test/integration/**/*.test.mjs`, so a new suite still auto-enrols by being dropped in.
 - **E2E** (subprocess CLI) → `test/e2e.test.mjs`, a single file caught by the shallow

@@ -61,7 +61,7 @@ subprocess — and **(B) are external deps real or faked.**
   driving a function — the mock is a technique, not a separate location, so they share the
   unmarked `.test.mjs` name.)
 - **Integration** — drive an internal API with a **real** external dep (real S3). The
-  `test/integration/*.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
+  `test/integration/**/*.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
 - **E2E** — drive the **end-user entry point** (the CLI, `spawn`ed) through the whole stack;
   deps real or stubbed. `test/e2e.test.mjs`.
 
