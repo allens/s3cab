@@ -21,10 +21,10 @@ import { pipeline } from "node:stream/promises";
  * check — has succeeded is the file renamed into place. The `rename` is the
  * atomic gate: a crash, a failed download, or a corrupt object never leaves a
  * partial or unverified file *at `destPath`*. A failed write may leave the temp
- * sibling behind — harmless (it's plainly a temp by its extension, is ignored by
- * every snapshot listing, and a retry overwrites it), so there's no failure-path
- * cleanup to risk masking the real error. `destPath`'s parent directory must
- * already exist (the temp file is a sibling, and the rename needs it).
+ * sibling behind — harmless: it's plainly a temp by its extension (never
+ * mistaken for the real file) and a retry overwrites it, so there's no
+ * failure-path cleanup to risk masking the real error. `destPath`'s parent
+ * directory must already exist (the temp file is a sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
  * @param {import("node:stream").Readable} source - The byte stream to write (typically `await getStream(uri)`)
  * @param {object} [options]

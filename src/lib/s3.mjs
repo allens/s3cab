@@ -250,9 +250,9 @@ export async function* listObjects(uri) {
 
 /**
  * Open a readable over an S3 object — the SDK's `GetObject` `Body`, already a
- * Node `Readable`, returned directly with no wrapper. Callers feed it straight
- * into a `pipeline` (or `stream.compose`), so a mid-download failure propagates
- * and every stream tears down through that primitive — nothing here needs to
+ * Node `Readable`, returned directly with no wrapper. Callers feed it into a
+ * `pipeline` (as `writeFileAtomic` does), so a mid-download failure propagates
+ * and the streams tear down through that primitive — nothing here needs to
  * swallow the error. The streaming counterpart of `getText`, which buffers the
  * whole body to a string.
  * @param {string} uri - The `s3://bucket/key` URI of the object.

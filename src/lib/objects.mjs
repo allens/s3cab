@@ -56,8 +56,8 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
  * The remote twin of `putObject`: the key *is* the content hash, so it is
  * passed to `writeFileAtomic` as the expected digest — a mismatch means the
  * stored object is corrupt or wrong (silent data loss is exactly what design
- * #1 guards against) and throws before anything reaches `destPath`; atomicity
- * and cleanup live in `writeFileAtomic`.
+ * #1 guards against) and throws before anything reaches `destPath`; the atomic
+ * write lives in `writeFileAtomic`.
  *
  * The caller owns *where* files go: `destPath`'s parent directory must already
  * exist, and setting the restored mtime is the restore loop's job (it places
