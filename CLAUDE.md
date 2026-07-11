@@ -198,7 +198,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   a ternary branch, destructuring (`const { lookup } = await read(…)`), and `await` as a call
   argument (`assert.deepEqual(await foo(), …)`). (Copilot flags the destructuring, argument, and
   ternary cases — decline those.) No linter (too false-positive-prone, per
-  [ADR-0006](docs/adr/0006-minimal-code.md)/#7); self-check by grepping the diff for
+  [ADR-0006](docs/adr/0006-minimal-code.md)/#5); self-check by grepping the diff for
   `(await …).`/`(await …)[` and `&& `/`|| ` before `await`.
 - **The whole-project type check (`tsc -p jsconfig.json`, the `typecheck` script) is kept
   clean** and covers `scripts/` too (JSDoc only). One non-obvious bit: `jsconfig.json` maps
@@ -276,7 +276,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `render` at the shared `renderText` passthrough** — don't invent structured data or a bespoke
   renderer for inherently prose output (a recipe, a confirmation line). The identity renderer is
   the honest degenerate case of the render layer ([ADR-0043](docs/adr/0043-human-first-output.md));
-  forcing a `--json` shape onto prose just to satisfy the pattern is the over-engineering #7
+  forcing a `--json` shape onto prose just to satisfy the pattern is the over-engineering #5
   forbids. (Worked example: `aws`'s onboarding recipe and `provider`'s status lines.)
 
 ---
