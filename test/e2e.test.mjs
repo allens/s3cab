@@ -15,13 +15,11 @@ const CLI = "src/s3cab.mjs";
 // in a normal checkout, so the smoke test below skips itself unless the binary
 // has actually been built.
 // Map Node's process.platform to our sea/ target labels: "win"/"macos" read better
-// than the raw "win32"/"darwin" in release-asset and config names.
-const PLATFORM =
-  process.platform === "win32"
-    ? "win"
-    : process.platform === "darwin"
-      ? "macos"
-      : process.platform;
+// than the raw "win32"/"darwin" in release-asset and config names. A lookup table
+// with a passthrough fallback (linux et al. keep their platform name unchanged).
+/** @type {Partial<Record<NodeJS.Platform, string>>} */
+const PLATFORM_LABELS = { win32: "win", darwin: "macos" };
+const PLATFORM = PLATFORM_LABELS[process.platform] ?? process.platform;
 const HOST_TARGET = `${PLATFORM}-${process.arch}`;
 const EXE = JSON.parse(readFileSync(`sea/${HOST_TARGET}.json`, "utf8")).output;
 
