@@ -2,7 +2,12 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createZstdDecompress } from "node:zlib";
 import { writeFileAtomic } from "./atomic-file.mjs";
-import { deleteObject, getStream, listObjects } from "./s3.mjs";
+import {
+  deleteObject,
+  getStream,
+  isObjectNotFound,
+  listObjects,
+} from "./s3.mjs";
 import { parseSnapshotStream, snapshotNames } from "./snapshot-file.mjs";
 import { isCorruptSnapshotError } from "./verify.mjs";
 
@@ -195,9 +200,14 @@ export async function referencedObjects(bucket) {
 
 /**
  * Accumulate one set's referenced objects from its snapshot `names` — the
- * per-set inner loop of {@link referencedObjects}. An unreadable snapshot
- * (`isCorruptSnapshotError`) becomes a finding and the loop continues; any other
- * error is rethrown (aborts). Module-private: only `referencedObjects` calls it.
+ * per-set inner loop of {@link referencedObjects}. Three ways a snapshot read can
+ * fail, handled distinctly: a snapshot that vanished between the bucket LIST and
+ * this read (`isObjectNotFound`) is silently skipped — it's genuinely gone (S3 is
+ * strongly consistent), not unreadable, so a concurrent delete/cleanup on the
+ * shared bucket mustn't abort the scan; a damaged snapshot
+ * (`isCorruptSnapshotError`) becomes an `unreadable` finding and the loop
+ * continues; any other error (network/auth) is rethrown (aborts). Module-private:
+ * only `referencedObjects` calls it.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string[]} names - The set's snapshot names, newest first
@@ -216,6 +226,20 @@ async function readSetReferenced(bucket, set, names) {
     try {
       snapshot = await readRemoteSnapshot(bucket, set, name);
     } catch (error) {
+      if (isObjectNotFound(error)) {
+        // Vanished between the bucket LIST and this read — a concurrent
+        // delete/cleanup (s3cab is multi-machine, ADR-0013/0014) or an external
+        // removal. S3 is strongly consistent, so it's genuinely gone: its
+        // references no longer exist, so drop it rather than flag it unreadable
+        // (it isn't) or abort. Under S3CAB_DEBUG leave a breadcrumb — this scan
+        // feeds cleanup's GC, so a trail helps if deletions ever look wrong.
+        if (process.env.S3CAB_DEBUG) {
+          console.warn(
+            `snapshot ${set}/${name} vanished during scan (concurrent delete?)`,
+          );
+        }
+        continue;
+      }
       if (!isCorruptSnapshotError(error)) {
         throw error;
       }

@@ -23,6 +23,8 @@ mock.module("../lib/s3.mjs", {
     listObjects: async function* () {},
     getStream: async () => {},
     putFile: async () => true,
+    // remote.mjs (in this test's graph) imports it; unused by these cases.
+    isObjectNotFound: () => false,
   },
 });
 const { setup } = await import("./setup.mjs");
