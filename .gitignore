@@ -68,3 +68,6 @@ snapshot-log.tsv
 tree.txt
 snapshot.txt
 objects.txt
+
+# Skill working-space: ephemeral & per-machine. Durable work → proposals/ + CLAUDE.md.
+.scratch/

@@ -361,8 +361,11 @@ skills blockquote under "Where knowledge lives", not vendored here). Scaffolded 
 
 ### Issue tracker
 
-Local markdown files under `.scratch/<feature-slug>/` (no remote tracker; there is no PR
-triage surface). See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+Skills use `.scratch/<feature-slug>/` as **ephemeral, gitignored** working-space during a run
+(per-machine, throwaway — *not* a durable or shared tracker). **Durable** work-to-be-done and
+decisions live in [proposals/](proposals/) and this file — committed, so every machine sees
+them; promote anything worth keeping out of `.scratch/` into those before it's cleaned. See
+[docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
 
 ### Triage labels
 

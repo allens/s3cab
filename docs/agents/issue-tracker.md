@@ -1,6 +1,12 @@
 # Issue tracker: Local Markdown
 
-Issues and PRDs for this repo live as markdown files in `.scratch/`.
+Skills use markdown files under `.scratch/<feature-slug>/` as a working area during a run.
+
+> **`.scratch/` is gitignored — ephemeral, per-machine scratch, not a durable or shared
+> tracker.** Anything that should persist or reach another machine — backlog items, decisions —
+> belongs in a committed home: [proposals/](../../proposals/) for work-to-be-done,
+> [CLAUDE.md](../../CLAUDE.md) for conventions. Promote it there; don't rely on `.scratch/`
+> surviving.
 
 ## Conventions
 
