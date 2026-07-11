@@ -280,6 +280,14 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   test files across worker processes in parallel; collapsing to a single process loses
   that. The suite _is_ in-process-safe (no cross-file leakage), so the flag is fine for
   debugging shared state — just not a speedup.
+- **Before pushing a change to the S3 read/write/stream path, run the gated real-S3 suite
+  (`npm run test:integration`), not just the mocked unit tests.** Mocks and a plain local `npm
+  test` can't exercise stream *teardown/abort* behaviour that only the real S3 body exhibits —
+  green units, red integration. Worked example: #171's `stream.compose(body, …)` aborted the
+  live GetObject request on completion (`ABORT_ERR` in `restore.integration.test.mjs`) while
+  every unit test passed. Setup (bucket + `.env.test`) is in
+  [docs/integration-testing.md](docs/integration-testing.md); this is *the* reason the suite is
+  real-bucket rather than mocked ([ADR-0019](docs/adr/0019-s3-test-strategy.md)).
 - **Watch for per-file overhead in the walk/snapshot hot path — small costs mount up over
   thousands of files.** A second `lstat`/`stat`/read per file is invisible on one file and
   dominant on tens of thousands. The fix is to **thread the data you already have through the

@@ -2,9 +2,17 @@
 
 Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
 
-- **S3ReadStream doesn't propagate body-stream errors.** `Body.pipe(this)` — `pipe` doesn't
-  forward `error` events, so a mid-download failure may hang or end the stream silently. (No
-  caller yet, but `restore` is built on it.)
+- **Snapshot reads drop a mid-download body error.** `readRemoteSnapshot` (and the local
+  snapshot read in `snapshot-file.mjs`) pipe the body through zstd-decompress with a plain
+  `.pipe`, which doesn't forward the source's `error` — a truncated/dropped read stalls the
+  parser instead of failing. `compose`/`pipeline` *do* propagate it, but their teardown
+  **aborts the live S3 request** on normal completion (this regressed #171 with `ABORT_ERR`, so
+  `readRemoteSnapshot` was reverted to `.pipe`). Proper fix: make `parseSnapshotStream` the
+  terminal sink of a `pipeline` (source fully consumed before teardown), applied to both read
+  paths, with a real-S3 mid-stream-error integration test — needs local real-S3 to verify
+  ([docs/integration-testing.md](../docs/integration-testing.md)). (The *download* path,
+  `getObject` → `writeFileAtomic` via `pipeline`, already propagates — #171 fixed it by dropping
+  the old `S3ReadStream` wrapper; only the snapshot *reads* remain.)
 - **`emptyBucket` is uncalled, destructive, and deletes one object per request.** Either
   remove until a caller exists or switch to batched `DeleteObjects` (1000/request). Its
   existence in the bundle is risk with no reward today.
