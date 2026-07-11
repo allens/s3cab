@@ -232,10 +232,32 @@ describe("authNotice", () => {
     assert.equal(authNotice({ profile: "work" }), "Using AWS profile: work");
   });
 
+  it("appends where the profile came from when a source is given", () => {
+    assert.equal(
+      authNotice({ profile: "work", profileSource: "your environment" }),
+      "Using AWS profile: work (from your environment)",
+    );
+    assert.equal(
+      authNotice({ profile: "work", profileSource: "set 'photos' config" }),
+      "Using AWS profile: work (from set 'photos' config)",
+    );
+  });
+
   it("reports both profile and endpoint when both are set", () => {
     assert.equal(
       authNotice({ profile: "work", endpoint: "https://example.r2" }),
       "Using AWS profile: work, endpoint: https://example.r2",
+    );
+  });
+
+  it("places the profile source before the endpoint when both are present", () => {
+    assert.equal(
+      authNotice({
+        profile: "work",
+        profileSource: "~/.s3cab/env",
+        endpoint: "https://example.r2",
+      }),
+      "Using AWS profile: work (from ~/.s3cab/env), endpoint: https://example.r2",
     );
   });
 
