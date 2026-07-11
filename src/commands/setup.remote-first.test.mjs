@@ -22,7 +22,6 @@ mock.module("../lib/s3.mjs", {
     deleteObject: async () => {},
     listObjects: async function* () {},
     getStream: async () => {},
-    downloadToFile: async () => {},
     putFile: async () => true,
   },
 });

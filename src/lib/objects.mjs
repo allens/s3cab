@@ -1,10 +1,5 @@
-import {
-  deleteObject,
-  downloadToFile,
-  getStream,
-  listObjects,
-  putFile,
-} from "./s3.mjs";
+import { writeFileAtomic } from "./atomic-file.mjs";
+import { deleteObject, getStream, listObjects, putFile } from "./s3.mjs";
 
 // The content-addressed object store: the `objects/<sha256>` half of an s3cab
 // repository's fixed layout (design #1, docs/design/backup.md). Every file's content
@@ -59,10 +54,10 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
 /**
  * Download one content-addressed object to a local path, verifying integrity.
  * The remote twin of `putObject`: the key *is* the content hash, so it is
- * passed to `downloadToFile` as the expected digest — a mismatch means the
+ * passed to `writeFileAtomic` as the expected digest — a mismatch means the
  * stored object is corrupt or wrong (silent data loss is exactly what design
  * #1 guards against) and throws before anything reaches `destPath`; atomicity
- * and cleanup live in `downloadToFile`.
+ * and cleanup live in `writeFileAtomic`.
  *
  * The caller owns *where* files go: `destPath`'s parent directory must already
  * exist, and setting the restored mtime is the restore loop's job (it places
@@ -74,7 +69,7 @@ export function putObject(bucket, hash, path, { force = false } = {}) {
  */
 export async function getObject(bucket, hash, destPath) {
   const uri = objectUri(bucket, hash);
-  await downloadToFile(await getStream(uri), destPath, { sha256: hash });
+  await writeFileAtomic(destPath, await getStream(uri), { hash });
 }
 
 /**
