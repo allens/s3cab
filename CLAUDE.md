@@ -407,11 +407,12 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **Backup/restore/admin all built — retention policy + one doc note remain** — the
+- **Backup/restore/admin all built — retention policy remains** — the
   five-slice plan in [docs/design/backup.md](docs/design/backup.md) is **complete** (slices 1–4
   plus slice-5's `verify`/`delete`/`cleanup`; detail there). Still open from slice 5:
   **retention-policy automation** (keep-last/daily/weekly/monthly on top of `delete`/`cleanup` —
-  deferred until real usage shows the shapes) and the **versioning/ransomware user-doc note**.
+  deferred until real usage shows the shapes). The **versioning/ransomware user-doc note** is
+  **done** (README's versioning section + [guide/aws.md](guide/aws.md)'s soft-delete model).
   Settled, **don't re-litigate**: the **everyday-vs-elevated delete-rights** question
   ([ADR-0033](docs/adr/0033-bucket-onboarding-security-model.md) — the everyday identity keeps
   `s3:DeleteObject`; the *soft-vs-permanent* seam, not delete-vs-no-delete, is the blast-radius
@@ -436,8 +437,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   - **Only `macos-arm64` ships** — Intel Macs are legacy; those users have `npm` or the
     portable bundle. Adding it later is one `sea/` config + one `macos-13` matrix row.
   - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
-- **"Latest snapshot uncompressed"** currently only happens behind `S3CAB_DEBUG`. Decide
-  whether keeping the latest snapshot uncompressed for transparency is a real feature.
+- **"Latest snapshot uncompressed" stays `S3CAB_DEBUG`-only — settled, don't re-litigate.**
+  The `.snapshot.tsv` sidecar `snapshot` writes under debug ([src/commands/snapshot.mjs](src/commands/snapshot.mjs))
+  is *not* promoted to an always-on transparency feature: the no-lock-in pillar
+  ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)) is already met by the standard,
+  tool-decompressible `.tsv.zst` (`zstd -d`, documented in [guide/format.md](guide/format.md)),
+  so an always-uncompressed second artifact per snapshot would be cost for no gain
+  ([ADR-0006](docs/adr/0006-minimal-code.md)/#5). The ~7-line debug-gated sidecar stays as-is.
 - **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
   job): `npm run typecheck` plus a `test:coverage:report` run that **prints** the coverage
   table as advisory output ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). One
