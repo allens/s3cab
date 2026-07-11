@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { compose } from "node:stream";
 import { createZstdDecompress } from "node:zlib";
 import { writeFileAtomic } from "./atomic-file.mjs";
 import { deleteObject, getStream, listObjects } from "./s3.mjs";
@@ -116,10 +115,11 @@ export async function readLatestRemoteSnapshot(bucket, set) {
 export async function readRemoteSnapshot(bucket, set, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
   const body = await getStream(uri);
-  // `compose` (not `body.pipe(decompress)`): the composed stream propagates a
-  // body or decompress error to the reader in `parseSnapshotStream`, where a
-  // raw `.pipe` would drop it and stall on a truncated download.
-  return parseSnapshotStream(compose(body, createZstdDecompress()));
+  // Plain `.pipe` (as the local read path does): a `compose`/`pipeline` here
+  // owns the stream lifecycle and, on completion, would destroy — and abort —
+  // the live S3 request. Propagating a mid-download body error into the parser
+  // is a known gap, deferred to a follow-up that can verify against a real bucket.
+  return parseSnapshotStream(body.pipe(createZstdDecompress()));
 }
 
 /**
