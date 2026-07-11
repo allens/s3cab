@@ -10,39 +10,24 @@ import { secondsSince } from "./format.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 
-// Snapshot file format:
-// Each line represents a file with the following tab-separated fields:
-// col1<TAB>col2<TAB>col3<TAB>path<TAB>optional_extra_fields
-// Column widths are:
-// col1: 64 characters (length of lowercase hex-encoded SHA-256 hash)
-// col2: 10 characters (file size in bytes as string long enough to go to double digit Gigabytes)
-// col3: 24 characters (ISO 8601 datetime string to milliseconds precision)
-// path: unlimited length (file path)
-// # : comment line
-// For included files  the fields are:
-// hash<TAB>size<TAB>mtime<TAB>path
-// where:
-// hash: SHA-256 hash of the file content in lowercase hex encoding
-// mtime: modification time in ISO 8601 format
-// size: size of the file in bytes (right-aligned)
-// For #EXCLUDED comment lines the fields are (col2/col3 as `excludedLine` writes them):
-// #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path   reason = the matching exclude pattern
-// For #SKIPPED comment lines — entries the walk omitted by design (unsupported type):
-// #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path    reason = why (e.g. "Unsupported file type")
-// For #ERROR comment lines — a file the walk couldn't hash — the fields are
-// (col3 as `errorLine` writes it):
-// #ERROR<TAB><TAB>reason<TAB>path
-// A snapshot file opens with two header comment lines (written by `snapshotHeader`):
-//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity   identity = the set name (ADR-0024)
-//   #DIR<TAB><TAB><TAB>path                     one per member directory
-// so a snapshot file is self-describing even found alone (docs/design/backup.md).
-// `writeSnapshot` is the sole writer of all of this: the header, the `#EXCLUDED`
-// rows (pattern-matched entries via `excludedLine`), the `#SKIPPED` rows
-// (by-design-unsupported entries via `skippedLine`), and the `#ERROR` rows (via
-// `errorLine`, for files that fail to hash). The walk yields these as separate
-// data buckets and no longer knows the grammar. On read `parseSnapshotStream`
-// surfaces `#SNAPSHOT`/`#DIR` (into the headers), `#ERROR` (into `errors`), and
-// `#SKIPPED` (into `skipped`); `#EXCLUDED` and any other comment line are ignored.
+// The snapshot TSV — this module is its sole writer and parser. The file-row
+// grammar (the tab-separated `hash`/`size`/`mtime`/`path` columns) is the
+// recovery contract, specified in guide/format.md and decided in ADR-0004;
+// `formatLine` below documents the fixed column widths it pads. The metadata
+// rows are an internal detail (a recovery reader skips every `#` line), so their
+// grammar lives here:
+//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity     opening header; identity = set name (ADR-0024)
+//   #DIR<TAB><TAB><TAB>path                       one per member directory
+//   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
+//   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
+//   #ERROR<TAB><TAB>reason<TAB>path               a file the walk couldn't hash
+// so a snapshot is self-describing even found alone (docs/design/backup.md).
+// `writeSnapshot` is the sole writer of all of it (header via `snapshotHeader`,
+// then the `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows via `excludedLine`/`skippedLine`/
+// `errorLine`); the walk yields these as separate data buckets and no longer
+// knows the grammar. On read, `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR`
+// (into the headers), `#ERROR` (into `errors`), and `#SKIPPED` (into `skipped`);
+// `#EXCLUDED` and any other comment line are ignored.
 
 // The comment markers heading the grammar's non-file lines — shared by the
 // (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)
