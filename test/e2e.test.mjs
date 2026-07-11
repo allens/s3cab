@@ -378,7 +378,7 @@ describe("cli (e2e)", () => {
 
     assert.match(
       stderr,
-      /Using AWS profile: work, endpoint: http:\/\/127\.0\.0\.1:1/,
+      /Using AWS profile: work \(from your environment\), endpoint: http:\/\/127\.0\.0\.1:1/,
     );
   });
 

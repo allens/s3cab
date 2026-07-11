@@ -26,7 +26,10 @@ import {
   isInvalidCredentials,
   resolveCredentials,
 } from "./auth.mjs";
-import { customEndpoint } from "./env.mjs";
+import {
+  customEndpoint,
+  profileSource as resolveProfileSource,
+} from "./env.mjs";
 import { formatByteValue } from "./format.mjs";
 import { createProgress } from "./progress.mjs";
 import { isInteractive } from "./style.mjs";
@@ -53,18 +56,24 @@ let _client;
  * it falls back to a generic contacting-the-cloud line rather than silence. An
  * empty profile (`AWS_PROFILE=`) counts as none.
  *
+ * When given a `profileSource` (from env.mjs's `profileSource()`), it appends
+ * where that profile came from — `(from set 'photos' config)`, `(from
+ * ~/.s3cab/env)`, `(from your environment)` — so a surprising profile (a stale
+ * shell export shadowing a set, say) is traceable, not a silent mystery.
+ *
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*
  * value (after env layering); the `auth` command set it (see commands/auth.mjs).
- * @param {{ profile?: string, endpoint?: string }} config
+ * @param {{ profile?: string, profileSource?: string, endpoint?: string }} config
  * @returns {string}
  */
-export function authNotice({ profile, endpoint }) {
+export function authNotice({ profile, profileSource, endpoint }) {
+  const via = profile && profileSource ? ` (from ${profileSource})` : "";
   if (profile && endpoint) {
-    return `Using AWS profile: ${profile}, endpoint: ${endpoint}`;
+    return `Using AWS profile: ${profile}${via}, endpoint: ${endpoint}`;
   }
   if (profile) {
-    return `Using AWS profile: ${profile}`;
+    return `Using AWS profile: ${profile}${via}`;
   }
   if (endpoint) {
     return `Using S3 endpoint: ${endpoint}`;
@@ -146,6 +155,7 @@ function client() {
   console.warn(
     authNotice({
       profile: process.env.AWS_PROFILE,
+      profileSource: resolveProfileSource(),
       endpoint: customEndpoint(),
     }),
   );

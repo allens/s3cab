@@ -77,6 +77,18 @@ export function parseEnvFile(path) {
 const appliedEnvFiles = new Set();
 
 /**
+ * Which env layer last set each key: variable name → human label (`~/.s3cab/env`,
+ * `set 'photos' config`). A key present in process.env but *absent* here came from
+ * outside s3cab's layering — a shell export, a Node `--env-file`, the parent
+ * process — which is exactly what `profileSource` reports as "your environment".
+ * Module-level and ordered like `appliedEnvFiles`, because env loading is itself a
+ * stateful, ordered process (user layer, then set on top): last writer wins, which
+ * matches the effective process.env value.
+ * @type {Map<string, string>}
+ */
+const envSources = new Map();
+
+/**
  * Read one env file and merge its layer into process.env, once. Skipping an
  * already-applied file keeps precedence correct across the user/set loads (a
  * later call must not re-apply a lower layer over a higher one) — and, since the
@@ -87,8 +99,9 @@ const appliedEnvFiles = new Set();
  * apply, so a file created later in the same process (e.g. by `setup`)
  * still loads on a subsequent call instead of being skipped forever.
  * @param {string} path
+ * @param {string} label - Where this layer's values came from, for `profileSource`.
  */
-function applyEnvLayer(path) {
+function applyEnvLayer(path, label) {
   if (appliedEnvFiles.has(path)) {
     return;
   }
@@ -98,6 +111,28 @@ function applyEnvLayer(path) {
   }
   appliedEnvFiles.add(path);
   Object.assign(process.env, values);
+  for (const key of Object.keys(values)) {
+    envSources.set(key, label);
+  }
+}
+
+/**
+ * Where the effective `AWS_PROFILE` came from — the layer whose value won (a set's
+ * config, or `~/.s3cab/env`), or "your environment" for anything s3cab didn't set
+ * itself: a shell export, a Node `--env-file`, the parent process, all
+ * indistinguishable once merged into process.env before we ran. `undefined` when
+ * no profile is set at all.
+ *
+ * Feeds the auth notice (`authNotice` in s3.mjs), so a surprising profile — a stale
+ * shell export shadowing a set's config, say — is traceable at a glance instead of
+ * a silent mystery (the case ADR-0022's layering makes possible but opaque).
+ * @returns {string | undefined}
+ */
+export function profileSource() {
+  if (!process.env.AWS_PROFILE) {
+    return undefined;
+  }
+  return envSources.get("AWS_PROFILE") ?? "your environment";
 }
 
 /**
@@ -114,7 +149,7 @@ function applyEnvLayer(path) {
  * Set env is applied separately, by {@link loadSet}, so this takes no set.
  */
 export function loadEnv() {
-  applyEnvLayer(userEnvPath());
+  applyEnvLayer(userEnvPath(), "~/.s3cab/env");
   // Drop the development tripwire `s3.mjs`'s `client()` asserts (ADR-0022) —
   // unconditionally, so an absent/empty user file (nothing applied) still counts:
   // "loadEnv ran", not "a file existed", is the precondition. `__`-prefixed: an
@@ -140,6 +175,6 @@ export function loadEnv() {
  */
 export function loadSet(setName) {
   const set = resolveSet(setName);
-  applyEnvLayer(set.envPath);
+  applyEnvLayer(set.envPath, `set '${set.name}' config`);
   return set;
 }

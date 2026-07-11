@@ -71,6 +71,7 @@ async function setup(root) {
   return {
     loadEnv: env.loadEnv,
     loadSet: env.loadSet,
+    profileSource: env.profileSource,
     setEnvPath,
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
@@ -196,5 +197,65 @@ describe("loadSet", () => {
 
     assert.throws(() => t.loadSet("local"), /no S3CAB_BUCKET/);
     assert.equal(process.env.AWS_REGION, undefined);
+  });
+});
+
+describe("profileSource", () => {
+  it("is undefined when no profile is set", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+
+    t.loadEnv();
+
+    assert.equal(t.profileSource(), undefined);
+  });
+
+  it("reports 'your environment' for a shell/ambient profile s3cab didn't set", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    // Set directly on process.env — a shell export or a Node --env-file both land
+    // here before s3cab's layering runs, indistinguishable from each other.
+    process.env.AWS_PROFILE = "shellprof";
+
+    t.loadEnv();
+
+    assert.equal(t.profileSource(), "your environment");
+  });
+
+  it("names the user env file when the profile came from ~/.s3cab/env", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.user("AWS_PROFILE=userprof\n");
+
+    t.loadEnv();
+
+    assert.equal(t.profileSource(), "~/.s3cab/env");
+  });
+
+  it("names the set config when the set layer supplies the profile", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_PROFILE=setprof\n");
+
+    t.loadEnv();
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_PROFILE, "setprof");
+    assert.equal(t.profileSource(), "set 'photos' config");
+  });
+
+  it("attributes the winning layer: a set profile overriding an ambient one", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    process.env.AWS_PROFILE = "shellprof";
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_PROFILE=setprof\n");
+
+    t.loadEnv();
+    t.loadSet("photos");
+
+    // The set value wins the merge, so the reported source follows it — not the
+    // shadowed shell export.
+    assert.equal(process.env.AWS_PROFILE, "setprof");
+    assert.equal(t.profileSource(), "set 'photos' config");
   });
 });
