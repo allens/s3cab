@@ -152,7 +152,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
-      - run: npm test
+      - run: npm run test:integration
         env:
           S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
 

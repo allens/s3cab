@@ -9,7 +9,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // Offline setup tests (docs/design/backup.md, ADR-0036): the pre-S3
 // create/update/inherit validation, which fires before any network touch. The
 // create / collision / inherit behaviour touches the bucket, so it lives in the
-// gated setup.integration.test.mjs. The set store keeps no module state, so each
+// gated test/integration/set-lifecycle.test.mjs. The set store keeps no module state, so each
 // test points S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));

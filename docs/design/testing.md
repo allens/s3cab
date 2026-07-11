@@ -61,22 +61,23 @@ subprocess — and **(B) are external deps real or faked.**
   driving a function — the mock is a technique, not a separate location, so they share the
   unmarked `.test.mjs` name.)
 - **Integration** — drive an internal API with a **real** external dep (real S3). The
-  co-located `*.integration.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
+  `test/integration/**/*.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
 - **E2E** — drive the **end-user entry point** (the CLI, `spawn`ed) through the whole stack;
   deps real or stubbed. `test/e2e.test.mjs`.
 
 The integration-vs-e2e line that always feels fuzzy is decided by **axis A, not B**:
 integration drives *your* API with a real dependency behind it; e2e drives *the user's*
 interface. "Real dependency" alone does **not** make a test e2e —
-`remote.integration.test.mjs` hits real S3 but calls `listRemoteSnapshots()` directly, so it
-is integration; and a stubbed dependency does not stop a test being e2e if it drives the
+`test/integration/remote.test.mjs` hits real S3 but calls `listRemoteSnapshots()` directly, so
+it is integration; and a stubbed dependency does not stop a test being e2e if it drives the
 binary (`e2e.test.mjs`'s `hashes` case points at a dead endpoint yet is still e2e).
 
-This maps straight onto the filenames
-([ADR-0046](../adr/0046-test-layout-colocated-tier-suffix.md)): unit and integration
-**co-locate** with their module (integration marked by the `.integration` suffix) because each
-*belongs to* one module; e2e is the one suite that belongs to no module, so it alone lives in
-`test/`.
+This maps onto the layout
+([ADR-0049](../adr/0049-centralize-cross-cutting-test-tiers.md), superseding
+[0046](../adr/0046-test-layout-colocated-tier-suffix.md)): **unit** co-locates with its module
+because it *belongs to* one; **integration** and **e2e** own no single module — each drives many
+— so both centralize under `test/` (integration in `test/integration/`, e2e as its single file
+`test/e2e.test.mjs`).
 
 ### Which boundary to mock at — `s3.mjs`, not the AWS SDK
 
@@ -134,25 +135,29 @@ stays. (Recorded in [ADR-0019](../adr/0019-s3-test-strategy.md).)
 
 ### Gated suites that exist today
 
-`test:integration` runs the glob `src/**/*.integration.test.mjs`, so a new suite auto-enrols by name —
-no hand-maintained list ([ADR-0046](../adr/0046-test-layout-colocated-tier-suffix.md)):
+`test:integration` globs `test/integration/**/*.test.mjs`, so a new suite auto-enrols by being
+dropped in the folder — no hand-maintained list
+([ADR-0049](../adr/0049-centralize-cross-cutting-test-tiers.md), superseding
+[0046](../adr/0046-test-layout-colocated-tier-suffix.md)). Named by the truest thing — a
+scenario name where cross-cutting, a module name where clearest:
 
-- `src/lib/remote.integration.test.mjs` — remote snapshot listing, `downloadRemoteSnapshots`,
+- `test/integration/remote.test.mjs` — remote snapshot listing, `downloadRemoteSnapshots`,
   `uploadSnapshot`, `referencedObjects`, `deleteRemoteSnapshot`. (`getObject`'s verified
   download is exercised offline by the mocked-seam tests in `src/lib/objects.test.mjs`, and
   end-to-end by the restore round-trip below.)
-- `src/lib/set-marker.integration.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT
+- `test/integration/set-marker.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT
   claim, listing, config publish).
-- `src/commands/setup.integration.test.mjs` — `setup`'s create / collision / `--inherit`
+- `test/integration/set-lifecycle.test.mjs` — `setup`'s create / collision / `--inherit`
   against a real bucket.
-- `src/commands/restore.integration.test.mjs` — the **`backup → restore` round-trip** (set up
-  → backup → wipe originals → restore asserting byte-identical + mtime → skip → `--overwrite`).
-  The single most valuable integration test.
+- `test/integration/backup-restore-roundtrip.test.mjs` — the **`backup → restore` round-trip**
+  (set up → backup → wipe originals → restore asserting byte-identical + mtime → skip →
+  `--overwrite`). The single most valuable integration test.
 
 All tear down via `deleteObject` in a `finally` (a set's marker files via the shared
 `cleanupSetMarker` in [`test/helpers/integration.mjs`](../../test/helpers/integration.mjs),
-which also holds the `S3CAB_TEST_BUCKET`/`skip` gate); content is unique per run so the shared
-`objects/` store stays isolated and cleanup is exact.
+which also holds the `S3CAB_TEST_BUCKET` gate — a **hard-fail** when the bucket is unset, not a
+silent skip, since these files run only when integration is explicitly requested); content is
+unique per run so the shared `objects/` store stays isolated and cleanup is exact.
 
 ## Where real S3 runs (the security model)
 
@@ -271,14 +276,25 @@ design-level:
 - **Region/bucket are read from the environment, never hardcoded:** tests take the region
   from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET`, so the `us-east-1` CI run and a
   `eu-west-*` local run are the *same* code path.
-- **Which OS runs S3 tests:** one (**ubuntu**) — the S3 code doesn't branch on platform; the
-  3-OS matrix exists for the platform-branching code (globs, separator normalization).
+- **Which OS runs S3 tests:** the per-PR `s3-integration` job runs on **ubuntu** only — the S3
+  code doesn't branch on platform, and the 3-OS `test` matrix exists for the platform-branching
+  code (globs, separator normalization). But "the code is the same" removes cipher/cert
+  divergence, **not** how sockets, the event-loop model (IOCP vs epoll/kqueue), and file I/O
+  (rename-over-open-file, AV locks, fsync) behave under it (#171 was a real per-platform
+  stream-teardown bug every mock passed). So **release.yml adds a gated per-platform real-S3
+  `setup → backup → restore` round-trip** on each `build` matrix runner, driving the built
+  binary and asserting byte-identical recovery — the ship-gate that no per-PR tier gives
+  ([ADR-0049](../adr/0049-centralize-cross-cutting-test-tiers.md)). It runs on `v*` tags and on
+  `workflow_dispatch` (dispatch-first, tag-when-green), gated on the bucket var so a no-cred
+  dispatch still builds artifacts.
 - **Non-AWS canary (the still-pending piece):** a *second*, separate gated set of credentials
   (R2 token → access key/secret + `AWS_ENDPOINT_URL_S3`), run on the periodic/manual cadence
   above — not the per-PR job.
-- **Possible ride-along:** a gated CLI-subprocess e2e round-trip in `test/e2e.test.mjs`
-  (today's e2e only covers the always-run, no-S3 paths). **Deliberately not built for the
-  human-first-output action confirmations** (backup/upload/restore/delete/cleanup renderers,
+- **Gated CLI round-trip — now built as the release ship-gate.** The long-standing "possible
+  ride-along" (a gated CLI-subprocess round-trip, since today's `test/e2e.test.mjs` only covers
+  the always-run no-S3 paths) landed in release.yml: the per-platform `setup → backup → restore`
+  above drives the **built binary** against the real bucket. **Still deliberately not built for
+  the human-first-output action confirmations** (backup/upload/restore/delete/cleanup renderers,
   ADR-0043): the only untested bit was the *wiring* (dispatcher → the right renderer → stdout),
   and `render` is now a **required, `tsc`-enforced** registry field — an unwired renderer won't
   compile — so the compiler closes that gap. Their result-shaping is already covered by the

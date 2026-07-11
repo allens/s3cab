@@ -8,7 +8,7 @@ import {
 
 // Pure unit tests for verify's diff core — the per-path `problems` model and the
 // error classifier — with no S3 (the S3 reads are integration-tested via
-// remote.integration.test.mjs / the gated bucket). See docs/design/backup.md.
+// test/integration/remote.test.mjs / the gated bucket). See docs/design/backup.md.
 
 /**
  * Build a ReferencedResult from a compact spec: each hash maps to its list of

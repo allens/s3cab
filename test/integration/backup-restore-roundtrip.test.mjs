@@ -10,18 +10,14 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { remoteSnapshotsPrefix } from "../lib/remote.mjs";
-import { deleteObject } from "../lib/s3.mjs";
-import { readSnapshot } from "../lib/snapshot-file.mjs";
-import { backup } from "./backup.mjs";
-import { restore } from "./restore.mjs";
-import { setup } from "./setup.mjs";
-import { useTempHome } from "../../test/helpers/temp-home.mjs";
-import {
-  bucket,
-  cleanupSetMarker,
-  skip,
-} from "../../test/helpers/integration.mjs";
+import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
+import { deleteObject } from "../../src/lib/s3.mjs";
+import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
+import { backup } from "../../src/commands/backup.mjs";
+import { restore } from "../../src/commands/restore.mjs";
+import { setup } from "../../src/commands/setup.mjs";
+import { useTempHome } from "../helpers/temp-home.mjs";
+import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
 // The backup → restore round trip against a real bucket (docs/design/backup.md
 // slice 4) — the single most valuable integration test. Restore inherently needs
@@ -48,7 +44,7 @@ afterEach(() => {
 const sha256 = (/** @type {string} */ path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
-describe("backup → restore round trip (real bucket)", { skip }, () => {
+describe("backup → restore round trip (real bucket)", () => {
   it("recovers files byte-identically, skips existing, and overwrites on request", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

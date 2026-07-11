@@ -209,14 +209,20 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `prettier --check .`, so unformatted hand edits fail CI every time (a recurring trip-up).
   `npm run format` fixes, then re-check. The pre-commit gate is format + lint + typecheck +
   test, mirroring CI.
-- **Test layout convention** ([ADR-0046](docs/adr/0046-test-layout-colocated-tier-suffix.md)):
-  tests are **co-located**, tier in the filename — unit `*.test.mjs`, real-bucket integration
-  `*.integration.test.mjs` (gated; `test:integration` globs `src/**/*.integration.test.mjs`, so
-  new suites auto-enrol) — while the subprocess e2e suite and shared `fixtures/`/`helpers/`
-  (incl. the gated harness `helpers/integration.mjs`) live in [test/](test/). A module's
-  *absent* test file is honest "tested elsewhere / too thin" signal, not a gap. A second test
-  file for one module takes a dotted aspect (`setup.remote-first.test.mjs`), never a hyphen.
-  Full rationale: [test/README.md](test/README.md). (The `--experimental-test-module-mocks` flag
+- **Test layout convention** ([ADR-0049](docs/adr/0049-centralize-cross-cutting-test-tiers.md),
+  superseding [0046](docs/adr/0046-test-layout-colocated-tier-suffix.md)): **co-locate the
+  module-owned tier (unit `*.test.mjs` beside its module); centralize the cross-cutting tiers.**
+  Real-bucket integration lives in [test/integration/](test/integration/) — the **folder** is the
+  tier marker (no `.integration.` suffix), `test:integration` globs `test/integration/**/*.test.mjs`
+  so new suites auto-enrol; a run that opts in without a bucket **hard-fails**, never silently
+  skips. The subprocess e2e suite ([test/e2e.test.mjs](test/e2e.test.mjs)) and shared
+  `fixtures/`/`helpers/` (incl. the gated harness `helpers/integration.mjs`) also live in
+  [test/](test/). A module's *absent* co-located test file is honest "tested elsewhere / too thin"
+  signal, not a gap. A second *unit* file for one module takes a dotted aspect
+  (`setup.remote-first.test.mjs`), never a hyphen; integration files name by the truest thing
+  (scenario where cross-cutting — `backup-restore-roundtrip` — else module — `remote`). Scripts:
+  `test` = unit + e2e (hermetic), `test:integration` = the folder, `test:all` = both. Full
+  rationale: [test/README.md](test/README.md). (The `--experimental-test-module-mocks` flag
   exists for `objects.test.mjs`'s `mock.module` — [ADR-0019](docs/adr/0019-s3-test-strategy.md).)
   Scratch → [scripts/](scripts/).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
@@ -227,7 +233,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   (`npm run test:integration`), not just mocked units.** Mocks and a local `npm test` can't
   exercise stream *teardown/abort* behaviour that only the real S3 body exhibits — green units,
   red integration. Worked example: #171's `stream.compose(body, …)` aborted the live GetObject
-  on completion (`ABORT_ERR` in `restore.integration.test.mjs`) while every unit test passed.
+  on completion (`ABORT_ERR` in `test/integration/backup-restore-roundtrip.test.mjs`) while every unit test passed.
   Setup: [docs/integration-testing.md](docs/integration-testing.md); this is *the* reason the
   suite is real-bucket ([ADR-0019](docs/adr/0019-s3-test-strategy.md)).
 - **Watch for per-file overhead in the walk/snapshot hot path — small costs mount up over

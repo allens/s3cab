@@ -1,6 +1,16 @@
 # Test layout: co-located tests, tier in the filename suffix
 
-**Status:** accepted
+**Status:** partly superseded by [0049](0049-centralize-cross-cutting-test-tiers.md) — the
+integration tier moved out of `src/` into `test/integration/` (folder as marker, `.integration.`
+suffix dropped) and the `skip` flag became a hard-fail. **Unit co-location and the file-nesting
+solution below still stand.**
+
+> **Superseded in part by [0049](0049-centralize-cross-cutting-test-tiers.md).** The revised
+> principle — *co-locate the module-owned tier (unit); centralize the cross-cutting tiers
+> (integration in a folder, e2e as its single file)* — reverses this ADR's placement of
+> integration and its suffix-as-marker for that tier. The unit half (co-located `foo.test.mjs`,
+> the "absent test file is honest signal" reading, file nesting over relocation) is unchanged.
+> Read 0049 for the live layout.
 
 Tests live **next to the code they cover**, with the tier encoded in the filename;
 VS Code explorer clutter is solved by file nesting, not by relocating tests into a

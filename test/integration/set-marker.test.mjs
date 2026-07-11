@@ -7,19 +7,15 @@ import {
   readRemoteInfo,
   readSetConfig,
   writeRemoteInfo,
-} from "./set-marker.mjs";
-import {
-  bucket,
-  cleanupSetMarker,
-  skip,
-} from "../../test/helpers/integration.mjs";
+} from "../../src/lib/set-marker.mjs";
+import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
 // The remote `sets/<set>/` marker's S3 behaviour (ADR-0024), against a real
 // bucket. Each test uses a unique set name so the shared bucket stays isolated,
 // and deletes its marker files on teardown. The gate/harness lives in the shared
 // integration helper.
 
-describe("set marker (real bucket)", { skip }, () => {
+describe("set marker (real bucket)", () => {
   it("claimRemoteSet is atomic: the first writer wins, the second loses", async () => {
     const name = `sm-claim-${Date.now()}`;
     try {

@@ -4,7 +4,7 @@ import { GRACE_MS, planCleanup } from "./cleanup.mjs";
 
 // Pure unit tests for cleanup's diff core — the orphan set-difference, the grace
 // window, and the missing/damaged/unreadable tallies — with no S3 and no injected
-// clock (the S3 reads are integration-tested via remote.integration.test.mjs; the
+// clock (the S3 reads are integration-tested via test/integration/remote.test.mjs; the
 // command shell's aborts/prompt/deletes are covered in commands/cleanup.test.mjs).
 // See docs/design/backup.md.
 

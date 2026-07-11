@@ -2,6 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "CiPullRequestAndReleaseDispatch",
       "Effect": "Allow",
       "Principal": {
         "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
@@ -10,7 +11,26 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:allens/s3cab:pull_request"
+          "token.actions.githubusercontent.com:sub": [
+            "repo:allens/s3cab:pull_request",
+            "repo:allens/s3cab:ref:refs/heads/main"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReleaseTags",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:allens/s3cab:ref:refs/tags/v*"
         }
       }
     }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) are faked at
 // the lib seam so the per-set report, the { bucket, sets } shape, and the
 // exit-code side effect are locked down without a bucket. The real S3 path is
-// covered by remote.integration.test.mjs's gated `referencedObjects` test; the pure diff by
+// covered by test/integration/remote.test.mjs's gated `referencedObjects` test; the pure diff by
 // verify.test.mjs. Module-mock ordering (objects.test.mjs) applies: mocks first,
 // then a dynamic import of the command.
 
