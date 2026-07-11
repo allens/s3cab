@@ -175,6 +175,19 @@ aws iam create-role --role-name s3cab-ci --assume-role-policy-document file://tr
 aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/s3cab-ci-test-access
 ```
 
+> **Updating an existing role** (not first-time setup): swap `create-role` for
+> `aws iam update-assume-role-policy --role-name s3cab-ci --policy-document file://trust-policy.json`.
+> On Windows/Git Bash, point `file://` at a path in the current directory — the native `aws.exe`
+> can't read Git Bash's `/tmp`.
+
+> **This minimal policy covers the per-PR integration job only.** The project's own
+> [`ci/aws/trust-policy.json`](../ci/aws/trust-policy.json) additionally scopes two release-only
+> subjects — `:ref:refs/heads/main` (for `workflow_dispatch`) and `StringLike
+> :ref:refs/tags/v*` (for a `v*` tag) — so release.yml's per-platform real-S3 round-trip can
+> assume the same role ([ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md)). All three
+> gate on the same write-access boundary. A fork that only wants per-PR integration can skip
+> those.
+
 > Keep your account ID out of a public repo: commit `trust-policy.json` with an
 > `ACCOUNT_ID` placeholder, substitute it only at apply time (`sed`, or PowerShell's
 > `(Get-Content … -Raw).Replace(…)`) into a temp file you delete, and store the resulting
