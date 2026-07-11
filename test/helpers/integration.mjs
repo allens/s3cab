@@ -1,6 +1,7 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { after } from "node:test";
 import { loadEnv } from "../../src/lib/env.mjs";
 import { deleteObject } from "../../src/lib/s3.mjs";
 import { remoteSetPrefix } from "../../src/lib/set-marker.mjs";
@@ -42,9 +43,13 @@ export const bucket = TEST_BUCKET;
 // process.env, leaking their machine's set config into the suite — the very way a
 // stale `AWS_PROFILE=…` there once shadowed .env.test and broke a run. Per-test
 // useTempHome() overrides this again; credentials are untouched (they resolve from
-// ~/.aws via HOME, which we leave alone).
-useTempHome(mkdtempSync(join(tmpdir(), "s3cab-it-")));
+// ~/.aws via HOME, which we leave alone). Cleaned up once the file's suite ends so
+// runs don't accumulate empty s3cab-it-* dirs (matching the mkdtempDisposable
+// hygiene the unit tests use).
+const isolatedHome = mkdtempSync(join(tmpdir(), "s3cab-it-"));
+useTempHome(isolatedHome);
 loadEnv();
+after(() => rmSync(isolatedHome, { recursive: true, force: true }));
 
 /**
  * Best-effort teardown of a set's remote `sets/<name>/` marker files, so the
