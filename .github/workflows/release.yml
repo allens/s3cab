@@ -53,6 +53,9 @@ jobs:
   build:
     needs: verify
     runs-on: ${{ matrix.runner }}
+    permissions:
+      id-token: write # mint the OIDC token for the gated real-S3 round-trip's assume-role
+      contents: read
     strategy:
       fail-fast: false
       # `bin` is the built executable name (it's plain `s3cab[.exe]` on every
@@ -122,6 +125,65 @@ jobs:
         run: |
           ./dist/${{ matrix.bin }} --version
           ./dist/${{ matrix.bin }} prop package.json
+
+      # Assume the test role via OIDC for the gated round-trip below. Gated on the
+      # bucket var (mirrors ci.yml's s3-integration) — NOT the test-runner hard-fail
+      # — so a no-cred dispatch or fork still builds and ships artifacts; only the
+      # extra ship-gate assertion is skipped when there's no bucket.
+      - name: Configure AWS credentials (gated real-S3 round-trip)
+        if: vars.S3CAB_TEST_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
+
+      # The per-platform ship-gate: drive the freshly built binary through a full
+      # setup → backup → wipe → restore against the real test bucket, on THIS OS,
+      # asserting byte-identical recovery. It upgrades the smoke test above from "the
+      # binary boots" to "the binary actually backs up and restores here" — the check
+      # that closes the standing gap where no tier did a real S3 round-trip on Windows
+      # or macOS (sockets/IOCP-vs-epoll, rename-over-open-file, AV locks all diverge by
+      # platform; #171 was a real per-platform stream-teardown bug the mocks all
+      # passed). Content is unique per platform per run, so concurrent matrix legs never
+      # collide in the shared objects/ store; the bucket's ~1-day lifecycle auto-expiry
+      # sweeps it (docs/design/testing.md). Runs on both v* tags and workflow_dispatch,
+      # so the whole matrix can be dry-run on demand and tagged only once green.
+      - name: Real-S3 backup → restore round-trip (gated)
+        if: vars.S3CAB_TEST_BUCKET != ''
+        shell: bash
+        env:
+          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
+        run: |
+          set -euo pipefail
+          # Paths stay RELATIVE to the workspace (cwd). On the Windows runner the
+          # binary is native but the shell is Git Bash, and MSYS rewrites POSIX
+          # *arguments* to Windows paths but NOT env-var *values* — so an absolute
+          # `mktemp -d` (`/tmp/…`) in S3CAB_HOME would reach the exe unconverted and
+          # resolve wrong. Relative paths dodge all that (the smoke test above already
+          # drives the exe with a relative arg).
+          bin="./dist/${{ matrix.bin }}"
+          export S3CAB_HOME=".s3cab-rt" # isolate the set store from ~/.s3cab
+          src="rt-src"
+          mkdir -p "$src/nested"
+          # Unique content per platform per run → unique object hashes, so concurrent
+          # matrix legs never collide in the shared objects/ store.
+          stamp="${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          a="top-level $stamp"
+          b="nested $stamp"
+          printf '%s' "$a" >"$src/file-a.txt"
+          printf '%s' "$b" >"$src/nested/file-b.txt"
+          setname="rt-$stamp" # [a-z0-9-]+: a valid set name
+          "$bin" setup "$setname" "$src" --bucket "$S3CAB_TEST_BUCKET"
+          "$bin" backup "$setname"
+          # The content now lives only in S3: wipe the originals, then restore.
+          rm -rf "$src"
+          "$bin" restore "$setname"
+          # Byte-identical recovery — the assertion this whole job exists for.
+          got_a="$(cat "$src/file-a.txt")"
+          got_b="$(cat "$src/nested/file-b.txt")"
+          [ "$got_a" = "$a" ] || { echo "::error::file-a mismatch: '$got_a' != '$a'"; exit 1; }
+          [ "$got_b" = "$b" ] || { echo "::error::file-b mismatch: '$got_b' != '$b'"; exit 1; }
+          echo "round-trip OK on ${{ matrix.target }}"
 
       # Wrap the bare `s3cab[.exe]` in a per-platform archive for release: tar.gz
       # everywhere except Windows (zip, more native there). `-C dist` keeps the

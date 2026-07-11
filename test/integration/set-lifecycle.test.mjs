@@ -4,15 +4,15 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { readRemoteInfo, readSetConfig } from "../lib/set-marker.mjs";
-import { readSet, readSetExclude, starterExclude } from "../lib/sets.mjs";
-import { setup } from "./setup.mjs";
-import { useTempHome } from "../../test/helpers/temp-home.mjs";
+import { readRemoteInfo, readSetConfig } from "../../src/lib/set-marker.mjs";
 import {
-  bucket,
-  cleanupSetMarker,
-  skip,
-} from "../../test/helpers/integration.mjs";
+  readSet,
+  readSetExclude,
+  starterExclude,
+} from "../../src/lib/sets.mjs";
+import { setup } from "../../src/commands/setup.mjs";
+import { useTempHome } from "../helpers/temp-home.mjs";
+import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
 // setup's create / collision / inherit behaviour against a real bucket
 // (docs/design/backup.md, ADR-0036). Each uses a unique set name so the shared
@@ -35,7 +35,7 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("setup (real bucket)", { skip }, () => {
+describe("setup (real bucket)", () => {
   it("create claims the name and publishes its config", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

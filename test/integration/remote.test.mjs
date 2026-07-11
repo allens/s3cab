@@ -3,8 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects, putText } from "./s3.mjs";
-import { readSnapshot } from "./snapshot-file.mjs";
+import { deleteObject, listObjects, putText } from "../../src/lib/s3.mjs";
+import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
 import {
   deleteRemoteSnapshot,
   downloadRemoteSnapshots,
@@ -12,10 +12,10 @@ import {
   readLatestRemoteSnapshot,
   referencedObjects,
   remoteSnapshotsPrefix,
-} from "./remote.mjs";
-import { uploadSnapshot } from "./upload.mjs";
-import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
-import { bucket, skip } from "../../test/helpers/integration.mjs";
+} from "../../src/lib/remote.mjs";
+import { uploadSnapshot } from "../../src/lib/upload.mjs";
+import { writeSnapshot } from "../helpers/write-snapshot.mjs";
+import { bucket } from "../helpers/integration.mjs";
 
 // The remote engine's S3 round-trips against a real test bucket (S3 test strategy,
 // docs/design/testing.md). The gate/harness lives in the shared integration
@@ -38,7 +38,7 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("remote snapshot listing (real bucket)", { skip }, () => {
+describe("remote snapshot listing (real bucket)", () => {
   it("returns no snapshots for a set that has none yet", async () => {
     // A unique set name no backup has ever written to, so the listing is
     // empty without seeding or cleanup.
@@ -53,7 +53,7 @@ describe("remote snapshot listing (real bucket)", { skip }, () => {
   });
 });
 
-describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
+describe("downloadRemoteSnapshots (real bucket)", () => {
   it("returns 0 for a set with no remote snapshots", async () => {
     await using dir = await mkTmpDir();
     const set = `empty-dl-${Date.now()}`;
@@ -107,7 +107,7 @@ describe("downloadRemoteSnapshots (real bucket)", { skip }, () => {
   });
 });
 
-describe("referencedObjects (real bucket)", { skip }, () => {
+describe("referencedObjects (real bucket)", () => {
   it("unions a set's snapshot hashes and flags an unreadable snapshot", async () => {
     await using dir = await mkTmpDir();
     const set = `ref-${Date.now()}`;
@@ -168,7 +168,7 @@ describe("referencedObjects (real bucket)", { skip }, () => {
   });
 });
 
-describe("deleteRemoteSnapshot (real bucket)", { skip }, () => {
+describe("deleteRemoteSnapshot (real bucket)", () => {
   it("removes just the snapshot, leaving its objects in place", async () => {
     await using dir = await mkTmpDir();
     const set = `del-${Date.now()}`;

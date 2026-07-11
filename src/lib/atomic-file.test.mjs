@@ -10,7 +10,7 @@ import { writeFileAtomic } from "./atomic-file.mjs";
 // writeFileAtomic takes its source stream as a parameter — that seam is what
 // lets the atomicity + integrity logic run here against an in-memory stream
 // with zero AWS and no mocks, on every push. The real-bucket happy path is
-// covered by restore.integration.test.mjs's gated round-trip (restore fetches
+// covered by test/integration/backup-restore-roundtrip.test.mjs's gated round-trip (restore fetches
 // every object through `getObject`, which composes this with the expected
 // digest — the key).
 describe("writeFileAtomic", () => {

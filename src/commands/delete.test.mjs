@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // the lib seam, and the TTY gate is driven via process.stdin.isTTY — so the
 // required-arg guards, the existence check, and the confirm/skip logic are locked
 // down without a bucket or a terminal. The real delete is covered by
-// remote.integration.test.mjs's gated round-trip. Mocks first, then a dynamic import.
+// test/integration/remote.test.mjs's gated round-trip. Mocks first, then a dynamic import.
 
 /** @type {{ name: string, bucket: string }} */
 let fakeSet = { name: "photos", bucket: "b1" };

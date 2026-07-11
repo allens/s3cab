@@ -3,12 +3,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects } from "./s3.mjs";
-import { readSnapshot } from "./snapshot-file.mjs";
-import { listRemoteSnapshots, remoteSnapshotsPrefix } from "./remote.mjs";
-import { uploadSnapshot } from "./upload.mjs";
-import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
-import { bucket, skip } from "../../test/helpers/integration.mjs";
+import { deleteObject, listObjects } from "../../src/lib/s3.mjs";
+import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
+import {
+  listRemoteSnapshots,
+  remoteSnapshotsPrefix,
+} from "../../src/lib/remote.mjs";
+import { uploadSnapshot } from "../../src/lib/upload.mjs";
+import { writeSnapshot } from "../helpers/write-snapshot.mjs";
+import { bucket } from "../helpers/integration.mjs";
 
 // The upload executor's S3 round-trip against a real test bucket (S3 test
 // strategy, docs/design/testing.md). The gate/harness lives in the shared
@@ -31,7 +34,7 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("uploadSnapshot (real bucket)", { skip }, () => {
+describe("uploadSnapshot (real bucket)", () => {
   it("first backup LISTs the store; a --since backup diffs against the local previous snapshot", async () => {
     await using dir = await mkTmpDir();
     const set = `upload-${Date.now()}`;

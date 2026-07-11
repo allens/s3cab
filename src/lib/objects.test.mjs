@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // download atomicity/integrity mechanics live below the seam, in atomic-file.mjs's
 // `writeFileAtomic` — tested mock-free in atomic-file.test.mjs against an
 // in-memory stream. The real-bucket happy path is covered separately by
-// restore.integration.test.mjs's gated round-trip (restore fetches every
+// test/integration/backup-restore-roundtrip.test.mjs's gated round-trip (restore fetches every
 // object through `getObject`).
 //
 // Module mocking has a load-bearing ordering rule (verified): a static `import`
