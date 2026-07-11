@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects, putData } from "./s3.mjs";
+import { deleteObject, listObjects, putText } from "./s3.mjs";
 import { readSnapshot } from "./snapshot-file.mjs";
 import {
   deleteRemoteSnapshot,
@@ -134,7 +134,7 @@ describe("referencedObjects (real bucket)", { skip }, () => {
 
     try {
       await uploadSnapshot({ bucket, set, snapshotDir, name });
-      await putData(`s3://${bucket}/${badKey}`, "not a zstd stream");
+      await putText(`s3://${bucket}/${badKey}`, "not a zstd stream");
 
       // Bucket-wide, grouped by set: pick out the set this test wrote (the shared
       // test bucket may hold other sets from concurrent runs).

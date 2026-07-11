@@ -1,9 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
-import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
@@ -11,7 +6,6 @@ import {
   bucketPolicy,
   clientConfig,
   credentialErrorRelay,
-  downloadToFile,
   formatUploadProgress,
   putObjectParams,
 } from "./s3.mjs";
@@ -342,78 +336,6 @@ describe("AWS upload request shaping (no custom endpoint)", () => {
     assert.ok(
       headers.includes("x-amz-storage-class"),
       `missing storage-class header on AWS: ${headers.join(", ")}`,
-    );
-  });
-});
-
-// downloadToFile takes its source stream as a parameter — that seam is what
-// lets the atomicity + integrity logic run here against an in-memory stream
-// with zero AWS and no mocks, on every push. The real-bucket happy path is
-// covered by restore.integration.test.mjs's gated round-trip (restore fetches
-// every object through `getObject`, which composes this with the expected
-// digest — the key).
-describe("downloadToFile", () => {
-  const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
-  const content = "the real object bytes";
-  const sha256 = createHash("sha256").update(content).digest("hex");
-
-  it("writes the file when its content matches the expected digest", async () => {
-    await using dir = await mkTmpDir();
-    const dest = join(dir.path, "out.bin");
-
-    await downloadToFile(Readable.from(content), dest, { sha256 });
-
-    assert.equal(readFileSync(dest, "utf8"), content);
-    // No temp sibling left behind.
-    assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
-  });
-
-  it("rejects a content/digest mismatch and leaves nothing behind", async () => {
-    await using dir = await mkTmpDir();
-    const dest = join(dir.path, "out.bin");
-
-    // The bytes don't hash to the expected digest — the silent-data-loss case
-    // design #1 exists to catch. The throw must come before the rename.
-    await assert.rejects(
-      () =>
-        downloadToFile(Readable.from("tampered bytes, not the content"), dest, {
-          sha256,
-        }),
-      /Integrity check failed/,
-    );
-    assert.ok(!existsSync(dest), "a mismatched file must not be placed");
-    assert.ok(
-      !existsSync(join(dir.path, ".out.bin.s3cab-tmp")),
-      "the temp file must be cleaned up",
-    );
-  });
-
-  it("copies verbatim (no digest check) when sha256 is not given", async () => {
-    await using dir = await mkTmpDir();
-    const dest = join(dir.path, "plain.txt");
-
-    await downloadToFile(Readable.from("any bytes at all"), dest);
-
-    assert.equal(readFileSync(dest, "utf8"), "any bytes at all");
-    assert.ok(!existsSync(join(dir.path, ".plain.txt.s3cab-tmp")));
-  });
-
-  it("cleans up the temp file when the source stream fails", async () => {
-    await using dir = await mkTmpDir();
-    const dest = join(dir.path, "out.bin");
-
-    async function* failingSource() {
-      yield "some bytes";
-      throw new Error("connection reset");
-    }
-    await assert.rejects(
-      () => downloadToFile(Readable.from(failingSource()), dest),
-      /connection reset/,
-    );
-    assert.ok(!existsSync(dest), "a partial download must not be placed");
-    assert.ok(
-      !existsSync(join(dir.path, ".out.bin.s3cab-tmp")),
-      "the temp file must be cleaned up",
     );
   });
 });

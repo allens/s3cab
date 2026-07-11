@@ -10,13 +10,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import assert from "node:assert";
-import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, statSync } from "node:fs";
-import { rename, unlink } from "node:fs/promises";
+import { createReadStream, statSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { PassThrough, Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import {
   accessDeniedError,
   badSignatureError,
@@ -252,83 +248,24 @@ export async function* listObjects(uri) {
   }
 }
 
-class S3ReadStream extends PassThrough {
-  /** @param {string} uri */
-  constructor(uri) {
-    super();
-    this.uri = uri;
-  }
-  /** @param {(error?: Error | null) => void} callback */
-  _construct(callback) {
-    const { Bucket, Key } = parseS3Uri(this.uri);
-    client()
-      .send(new GetObjectCommand({ Bucket, Key }))
-      .then(({ Body }) => {
-        if (Body instanceof Readable) {
-          Body.pipe(this);
-        }
-        callback();
-      })
-      .catch(callback);
-  }
-}
-
 /**
- * Open a readable stream over an S3 object.
+ * Open a readable over an S3 object — the SDK's `GetObject` `Body`, already a
+ * Node `Readable`, returned directly with no wrapper. Callers feed it into a
+ * `pipeline` (as `writeFileAtomic` does), so a mid-download failure propagates
+ * and the streams tear down through that primitive — nothing here needs to
+ * swallow the error. The streaming counterpart of `getText`, which buffers the
+ * whole body to a string.
  * @param {string} uri - The `s3://bucket/key` URI of the object.
- * @returns {S3ReadStream}
+ * @returns {Promise<Readable>}
  */
-export const createS3ReadStream = (uri) => new S3ReadStream(uri);
-
-/**
- * Land a downloaded stream in a local file, atomically: bytes go to a sibling
- * temp file first, and only once the pipeline — and, when `sha256` is given,
- * the digest check — has succeeded is the file renamed into place. A crash, a
- * failed download, or a corrupt object never leaves a partial or unverified
- * file at `destPath`; on any failure the temp file is removed (best-effort)
- * and the error rethrown. `destPath`'s parent directory must already exist
- * (the temp file is a sibling, and the rename needs it).
- *
- * The source is handed in (typically `createS3ReadStream(uri)`) rather than
- * opened here, so the atomicity/verify logic is directly testable with an
- * in-memory stream — no client, no mocks (src/lib/s3.test.mjs).
- * @param {import("node:stream").Readable} source - The object's byte stream (typically `createS3ReadStream(uri)`)
- * @param {string} destPath - Where to write the file (parent must exist)
- * @param {object} [options]
- * @param {string} [options.sha256] - Expected content digest (lowercase hex); a mismatch throws, before the rename
- * @returns {Promise<void>}
- */
-export async function downloadToFile(source, destPath, { sha256 } = {}) {
-  const tmpPath = join(dirname(destPath), `.${basename(destPath)}.s3cab-tmp`);
-  const hasher = sha256 ? createHash("sha256") : undefined;
-  const hashingStage = hasher
-    ? [
-        new Transform({
-          transform(chunk, _encoding, callback) {
-            hasher.update(chunk);
-            callback(null, chunk);
-          },
-        }),
-      ]
-    : [];
-  try {
-    await pipeline([source, ...hashingStage, createWriteStream(tmpPath)]);
-    if (hasher) {
-      const got = hasher.digest("hex");
-      if (got !== sha256) {
-        throw new Error(
-          `Integrity check failed writing ${destPath}: its content hashes ` +
-            `to ${got}, not ${sha256}. The stored object is corrupt or ` +
-            `mismatched.`,
-        );
-      }
-    }
-    await rename(tmpPath, destPath);
-  } catch (error) {
-    // Never leave the partial/unverified temp file behind (best-effort).
-    await unlink(tmpPath).catch(() => {});
-    throw error;
-  }
+export async function getStream(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));
+  assert(
+    Body instanceof Readable,
+    `S3 GetObject returned no readable body for ${uri}`,
+  );
+  return Body;
 }
 
 const PROGRESS_BAR_RANGE = 20;
@@ -361,7 +298,7 @@ export const formatUploadProgress = ({
  * The AWS-only PutObject params (`ServerSideEncryption` + `StorageClass`),
  * omitted off-AWS. These are AWS-isms that S3-compatible providers (R2/B2/Spaces)
  * reject, so they're sent only when targeting AWS (no custom endpoint). Shared by
- * every uploader — `putFile` (via `putObjectParams`) and `putData` — so the
+ * every uploader — `putFile` (via `putObjectParams`) and `putText` — so the
  * gating rule lives in one place. `customEndpoint()` is read here, so the
  * caller's s3cab env must already be loaded.
  * @returns {Partial<import("@aws-sdk/client-s3").PutObjectCommandInput>}
@@ -506,7 +443,7 @@ async function objectExists(uri) {
  * @param {boolean} [options.noClobber] - Conditional PUT: don't overwrite an existing object.
  * @returns {Promise<boolean>} True if written; false if `noClobber` and it already existed.
  */
-export async function putData(uri, content, { noClobber = false } = {}) {
+export async function putText(uri, content, { noClobber = false } = {}) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     await client().send(
@@ -533,14 +470,14 @@ export async function putData(uri, content, { noClobber = false } = {}) {
 
 /**
  * Read a small S3 object's body as text, or `undefined` if it doesn't exist —
- * the string twin of `createS3ReadStream` for the marker / config files (`info`,
+ * the string twin of `getStream` for the marker / config files (`info`,
  * pushed `dirs.txt`/`exclude.txt`) the collision check and `--inherit` read back.
  * A missing object yields `undefined` (not a throw), so callers branch on
  * presence — e.g. "is this set already claimed?".
  * @param {string} uri - The `s3://bucket/key` URI.
  * @returns {Promise<string | undefined>}
  */
-export async function getData(uri) {
+export async function getText(uri) {
   const { Bucket, Key } = parseS3Uri(uri);
   try {
     const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));

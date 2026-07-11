@@ -8,21 +8,20 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // `setup` update is remote-first (push config, *then* commit local) so a creds
 // failure mid-update leaves no local-ahead-of-cloud drift. Proving that needs the
 // remote push to *fail*, so this file mocks the s3.mjs seam (per
-// docs/design/testing.md) with `putData` throwing — it can't share
+// docs/design/testing.md) with `putText` throwing — it can't share
 // setup.integration.test.mjs, whose gated real-bucket suite needs the real
 // s3.mjs. The mock is registered
 // before the dynamic import of setup.mjs (the load-bearing ordering rule from
 // objects.test.mjs); the runner needs `--experimental-test-module-mocks`.
 mock.module("../lib/s3.mjs", {
   exports: {
-    putData: async () => {
+    putText: async () => {
       throw new Error("boom: remote push failed");
     },
-    getData: async () => undefined,
+    getText: async () => undefined,
     deleteObject: async () => {},
     listObjects: async function* () {},
-    createS3ReadStream: () => {},
-    downloadToFile: async () => {},
+    getStream: async () => {},
     putFile: async () => true,
   },
 });

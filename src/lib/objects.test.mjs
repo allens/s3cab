@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
-// This whole file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
-// not the AWS SDK"): the object store's listing logic and `getObject`'s
-// key-as-digest pairing run here with zero AWS, on every push. The download
-// atomicity/integrity mechanics live below the seam, in s3.mjs's
-// `downloadToFile` — tested mock-free in s3.test.mjs against an in-memory
-// stream. The real-bucket happy path is covered separately by
+// This file mocks the s3.mjs and atomic-file.mjs seams, per docs/design/testing.md
+// ("mock at s3.mjs, not the AWS SDK"): the object store's listing logic and
+// `getObject`'s key-as-digest pairing run here with zero AWS, on every push. The
+// download atomicity/integrity mechanics live below the seam, in atomic-file.mjs's
+// `writeFileAtomic` — tested mock-free in atomic-file.test.mjs against an
+// in-memory stream. The real-bucket happy path is covered separately by
 // restore.integration.test.mjs's gated round-trip (restore fetches every
 // object through `getObject`).
 //
@@ -18,8 +18,8 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // static import of it. The runner needs `--experimental-test-module-mocks` (set
 // on the `test`/`test:coverage*` scripts).
 
-// The fakes record what getObject asks of the seam: the URI opened and the
-// downloadToFile destination/options. putFile is stubbed only because
+// The fakes record what getObject asks of the seams: the URI opened and the
+// writeFileAtomic destination/options. putFile is stubbed only because
 // objects.mjs imports it (a mock module exports exactly these) — no test in
 // this file calls it.
 /** @type {string | undefined} */
@@ -28,18 +28,22 @@ let requestedUri;
 let download;
 /** @type {import("@aws-sdk/client-s3")._Object[]} */
 let listedObjects = [];
-mock.module("./s3.mjs", {
+mock.module("./atomic-file.mjs", {
   exports: {
-    createS3ReadStream: (/** @type {string} */ uri) => {
-      requestedUri = uri;
-      return Readable.from("");
-    },
-    downloadToFile: async (
-      /** @type {Readable} */ _source,
+    writeFileAtomic: async (
       /** @type {string} */ destPath,
+      /** @type {Readable} */ _source,
       /** @type {object} */ options,
     ) => {
       download = { destPath, options };
+    },
+  },
+});
+mock.module("./s3.mjs", {
+  exports: {
+    getStream: async (/** @type {string} */ uri) => {
+      requestedUri = uri;
+      return Readable.from("");
     },
     listObjects: async function* () {
       for (const object of listedObjects) {
@@ -122,14 +126,14 @@ describe("listStoredObjects", () => {
 describe("getObject", () => {
   it("opens objects/<hash> and passes the key as the expected digest", async () => {
     // The layout policy in one pairing: the key *is* the content hash, so the
-    // same value must reach downloadToFile as the expected digest — that is
+    // same value must reach writeFileAtomic as the expected digest — that is
     // what turns its generic integrity check into design #1's guarantee.
     await getObject("my-bucket", "abc123", "/restore/out.bin");
 
     assert.equal(requestedUri, "s3://my-bucket/objects/abc123");
     assert.deepEqual(download, {
       destPath: "/restore/out.bin",
-      options: { sha256: "abc123" },
+      options: { hash: "abc123" },
     });
   });
 });

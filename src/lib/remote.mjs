@@ -1,12 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createZstdDecompress } from "node:zlib";
-import {
-  createS3ReadStream,
-  deleteObject,
-  downloadToFile,
-  listObjects,
-} from "./s3.mjs";
+import { writeFileAtomic } from "./atomic-file.mjs";
+import { deleteObject, getStream, listObjects } from "./s3.mjs";
 import { parseSnapshotStream, snapshotNames } from "./snapshot-file.mjs";
 import { isCorruptSnapshotError } from "./verify.mjs";
 
@@ -118,8 +114,12 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  */
 export async function readRemoteSnapshot(bucket, set, name) {
   const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
-  const input = createS3ReadStream(uri).pipe(createZstdDecompress());
-  return parseSnapshotStream(input);
+  const body = await getStream(uri);
+  // Plain `.pipe` (as the local read path does): a `compose`/`pipeline` here
+  // owns the stream lifecycle and, on completion, would destroy — and abort —
+  // the live S3 request. Propagating a mid-download body error into the parser
+  // is a known gap, deferred to a follow-up that can verify against a real bucket.
+  return parseSnapshotStream(body.pipe(createZstdDecompress()));
 }
 
 /**
@@ -249,7 +249,7 @@ async function readSetReferenced(bucket, set, names) {
  * inherit-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
  * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
- * file (atomically, via `downloadToFile`), touching **no** `objects/`. A
+ * file (atomically, via `writeFileAtomic`), touching **no** `objects/`. A
  * remote snapshot file is byte-identical to its local form
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
  * correct and avoids needless decompress-then-recompress.
@@ -276,7 +276,7 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   for (const name of names) {
     const uri = `s3://${bucket}/${prefix}${name}.tsv.zst`;
     const destPath = join(snapshotDir, `${name}.tsv.zst`);
-    await downloadToFile(createS3ReadStream(uri), destPath);
+    await writeFileAtomic(destPath, await getStream(uri));
   }
   return names.length;
 }

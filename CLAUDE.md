@@ -145,7 +145,12 @@ rather than assuming it is fixed forever.
    opposite of over-engineering. The guiding heuristic, in the project's spirit of keeping it
    simple, is to **minimize lines of code** as a proxy for complexity — clear, not obfuscated,
    but not overly verbose either. So this forbids _speculative_ structure, not _justified_
-   refactoring: when restructuring genuinely simplifies, do it even if sizable. **Version gates
+   refactoring: when restructuring genuinely simplifies, do it even if sizable. **And "simpler"
+   means _clearer_, not only structurally smaller:** better names, consistent interfaces, and
+   more legible code are worth the churn even when they add no capability — legibility _is_ part
+   of getting the design right, so don't shy off a rename or reshape for it (e.g. `getData`→`getText`
+   so the interface states its contract, or an inline `pipeline` async generator in place of a
+   `Transform` subclass). **Version gates
    how bold to be:** while **pre-1.0** (`package.json` major `0`) you have **free rein** for
    large, correct refactors — favour getting the design *right* over minimizing churn or
    back-compat. **Once it ships 1.0 this reverses:** breaking changes then need real care and a
@@ -427,7 +432,10 @@ own doc comment.
   `snapshots/<namespace>/` → [src/lib/remote.mjs](src/lib/remote.mjs); the generic SDK
   boundary → `src/lib/s3.mjs`) follow from
   [ADR-0013](docs/adr/0013-one-repository-one-bucket.md) and
-  [ADR-0014](docs/adr/0014-backup-sets.md). Auth splits in two: *credential resolution* is
+  [ADR-0014](docs/adr/0014-backup-sets.md). The atomic, integrity-checked *landing* of a
+  downloaded stream to local disk is **not** an SDK concern, so it sits outside that boundary in
+  [src/lib/atomic-file.mjs](src/lib/atomic-file.mjs) (`writeFileAtomic`) — where design #1's hash
+  check is enforced on the way in. Auth splits in two: *credential resolution* is
   `resolveCredentials` in [src/lib/auth.mjs](src/lib/auth.mjs) (see
   [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)), and *env-file layering* is
   `loadEnv`/`loadSet` in [src/lib/env.mjs](src/lib/env.mjs) — the **user** layer loaded once at

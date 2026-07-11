@@ -1,5 +1,5 @@
 import { parseEnv } from "node:util";
-import { deleteObject, getData, listObjects, putData } from "./s3.mjs";
+import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 
 // The remote `sets/<set>/` area of an s3cab repository: a backup set's published
 // config and ownership marker (ADR-0024). The third remote concern, beside
@@ -63,7 +63,7 @@ const formatInfo = ({ owner, created }) =>
  * @returns {Promise<boolean>} True if this machine won the claim.
  */
 export function claimRemoteSet(bucket, set, info) {
-  return putData(fileUri(bucket, set, "info"), formatInfo(info), {
+  return putText(fileUri(bucket, set, "info"), formatInfo(info), {
     noClobber: true,
   });
 }
@@ -77,7 +77,7 @@ export function claimRemoteSet(bucket, set, info) {
  * @returns {Promise<SetInfo | undefined>}
  */
 export async function readRemoteInfo(bucket, set) {
-  const text = await getData(fileUri(bucket, set, "info"));
+  const text = await getText(fileUri(bucket, set, "info"));
   if (text === undefined) {
     return undefined;
   }
@@ -96,7 +96,7 @@ export async function readRemoteInfo(bucket, set) {
  * @returns {Promise<void>}
  */
 export async function writeRemoteInfo(bucket, set, info) {
-  await putData(fileUri(bucket, set, "info"), formatInfo(info));
+  await putText(fileUri(bucket, set, "info"), formatInfo(info));
 }
 
 /**
@@ -114,12 +114,12 @@ export async function writeRemoteInfo(bucket, set, info) {
  * @returns {Promise<void>}
  */
 export async function pushSetConfig(bucket, set, { dirs, exclude }) {
-  await putData(fileUri(bucket, set, "dirs.txt"), dirs.join("\n") + "\n");
+  await putText(fileUri(bucket, set, "dirs.txt"), dirs.join("\n") + "\n");
   if (exclude === undefined) {
     // No local exclude → remove any stale remote one (DeleteObject is idempotent).
     await deleteObject(fileUri(bucket, set, "exclude.txt"));
   } else {
-    await putData(fileUri(bucket, set, "exclude.txt"), exclude);
+    await putText(fileUri(bucket, set, "exclude.txt"), exclude);
   }
 }
 
@@ -135,12 +135,12 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
  * @returns {Promise<{ dirs: string[], exclude: string | undefined }>}
  */
 export async function readSetConfig(bucket, set) {
-  const dirsText = await getData(fileUri(bucket, set, "dirs.txt"));
+  const dirsText = await getText(fileUri(bucket, set, "dirs.txt"));
   const dirs = (dirsText ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const excludeText = await getData(fileUri(bucket, set, "exclude.txt"));
+  const excludeText = await getText(fileUri(bucket, set, "exclude.txt"));
   const exclude = excludeText || undefined;
   return { dirs, exclude };
 }
