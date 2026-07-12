@@ -7,6 +7,7 @@ import {
   clientConfig,
   credentialErrorRelay,
   formatUploadProgress,
+  isObjectNotFound,
   putObjectParams,
 } from "./s3.mjs";
 
@@ -380,5 +381,30 @@ describe("AWS upload request shaping (no custom endpoint)", () => {
       headers.includes("x-amz-storage-class"),
       `missing storage-class header on AWS: ${headers.join(", ")}`,
     );
+  });
+});
+
+describe("isObjectNotFound", () => {
+  it("recognizes a GET NoSuchKey and a HEAD/provider NotFound", () => {
+    assert.equal(
+      isObjectNotFound(Object.assign(new Error("gone"), { name: "NoSuchKey" })),
+      true,
+    );
+    assert.equal(
+      isObjectNotFound(Object.assign(new Error("gone"), { name: "NotFound" })),
+      true,
+    );
+  });
+
+  it("is false for other S3 / non-Error failures", () => {
+    assert.equal(
+      isObjectNotFound(
+        Object.assign(new Error("denied"), { name: "AccessDenied" }),
+      ),
+      false,
+    );
+    assert.equal(isObjectNotFound(new Error("plain")), false);
+    assert.equal(isObjectNotFound("NoSuchKey"), false);
+    assert.equal(isObjectNotFound(undefined), false);
   });
 });

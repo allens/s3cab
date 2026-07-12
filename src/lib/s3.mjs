@@ -424,6 +424,23 @@ export async function putFile(path, uri, options = {}) {
 }
 
 /**
+ * Whether an S3 error means the object isn't there. A GET on a missing key
+ * returns `NoSuchKey`; a HEAD (and some S3-compatible providers) surface a 404 as
+ * `NotFound` — both mean absent. The single spelling of "missing object" for this
+ * SDK boundary, so callers (`objectExists`, `getText`, remote.mjs's referenced
+ * scan) don't each repeat the SDK's names. Matched by `name`, like the other
+ * s3.mjs guards (see error.mjs's header).
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isObjectNotFound(error) {
+  return (
+    Error.isError(error) &&
+    (error.name === "NoSuchKey" || error.name === "NotFound")
+  );
+}
+
+/**
  * Whether an object should count as existing for `putFile`'s multipart
  * `--no-clobber` preflight. A successful HEAD only counts when the object has
  * custom metadata: an object that exists but has none is treated as absent here
@@ -440,7 +457,7 @@ async function objectExists(uri) {
     );
     return Object.keys(Metadata ?? {}).length > 0;
   } catch (error) {
-    if (Error.isError(error) && error.name === "NotFound") {
+    if (isObjectNotFound(error)) {
       return false;
     }
     throw error;
@@ -501,12 +518,7 @@ export async function getText(uri) {
     const { Body } = await client().send(new GetObjectCommand({ Bucket, Key }));
     return await Body?.transformToString();
   } catch (error) {
-    // NoSuchKey is S3's "missing"; some providers / a HEAD-style 404 surface as
-    // NotFound — treat both as absent.
-    if (
-      Error.isError(error) &&
-      (error.name === "NoSuchKey" || error.name === "NotFound")
-    ) {
+    if (isObjectNotFound(error)) {
       return undefined;
     }
     throw error;
