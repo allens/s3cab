@@ -168,6 +168,12 @@ rather than assuming it is fixed forever.
    specific allow entries or `fewer-permissions`** — the failed layer that only appends dead
    one-shot rules. If prompts persist, `defaultMode` applies on *next session start* (restart
    once), or the command hit a real `deny` block (surface it, don't widen the allow-list).
+10. **Reply to every review comment you act on — whether you fixed it or deliberately won't.**
+    When you address a PR review comment (human or Copilot), post a reply on that thread: cite
+    the commit if you fixed it, or give the reasoning if you're declining. Never silently push a
+    fix or resolve a thread — the reviewer and the next reader need the trail of *why*. This
+    closes the loop #8 opens (requesting the review) and the "review the PR comments" bullet
+    under #1 (deciding on each); a decision that never lands back on the thread is invisible.
 
 ### Coding conventions
 
