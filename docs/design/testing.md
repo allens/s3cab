@@ -15,7 +15,7 @@ The trigger was PR #44 (restore + adoption): the full data lifecycle now exists 
 stable**: `s3.mjs` (the single SDK boundary), the snapshot TSV parser, the set store
 (`sets.mjs`), the auth env-layering, and the remote engine (`remote.mjs`). The still-unbuilt
 commands (`verify`, `cleanup`, `delete`) add new _logic_ but **no new seams** — so the strategy
-won't be invalidated by them. (The `reconnect` snapshot-file sync of
+won't be invalidated by them. (The `reattach` snapshot-file sync of
 [0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md) adds one small new
 plumbing op — download-object-to-file — but still no new seam.)
 
@@ -147,7 +147,7 @@ scenario name where cross-cutting, a module name where clearest:
   end-to-end by the restore round-trip below.)
 - `test/integration/set-marker.test.mjs` — the `sets/<set>/` claim marker (conditional-PUT
   claim, listing, config publish).
-- `test/integration/set-lifecycle.test.mjs` — `setup`'s create / collision and `reconnect`'s
+- `test/integration/set-lifecycle.test.mjs` — `setup`'s create / collision and `reattach`'s
   adopt against a real bucket.
 - `test/integration/backup-restore-roundtrip.test.mjs` — the **`backup → restore` round-trip**
   (set up → backup → wipe originals → restore asserting byte-identical + mtime → skip →

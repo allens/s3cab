@@ -114,14 +114,15 @@ _Avoid_: push, upload (that is the plumbing verb), sync.
 The porcelain verb for downloading files from a remote snapshot back to disk.
 _Avoid_: pull, download (the plumbing verb), recover.
 
-**Reconnect** (the command):
+**Reattach** (the command):
 Attaching *this machine* to a backup set that already exists in the cloud — machine
 **succession**: the old machine is being retired, replaced, or recovered after loss
-(`s3cab reconnect <set> --bucket <b>`, ADR-0053). Pulls the set's config and snapshot
+(`s3cab reattach <set> --bucket <b>`, ADR-0053). Pulls the set's config and snapshot
 *history* down (**not** the backed-up files — that's **restore**), recreates it locally, and
 re-stamps ownership to this machine. Not a way to run two live machines off one set. Split out
 of the old `setup --inherit`.
-_Avoid_: inherit (the retired flag name), adopt, clone, migrate, take-over.
+_Avoid_: reconnect (the runner-up — implies a live link; "attach" is the backup drive's own verb,
+ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over.
 
 **Verify**:
 The porcelain verb that checks backups are complete and undamaged without downloading
@@ -143,7 +144,7 @@ The verb that *creates a new backup set* on this machine (ADR-0036, ADR-0052, AD
 A bucket is required, and it touches S3 (the collision check). There is no update mode — a set's
 directories live in its public `dirs.txt`, edited directly (like `exclude.txt`), so re-running
 `setup` on a set that already exists here is refused; adopting an existing *remote* set is
-**reconnect**. Distinct from a **backup set**, the noun it operates on.
+**reattach**. Distinct from a **backup set**, the noun it operates on.
 _Avoid_: sets (the retired command name), init, config, register, create.
 
 **List** (the command):

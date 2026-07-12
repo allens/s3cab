@@ -43,11 +43,11 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
  */
 
 /**
- * Confirm a `setup` (create) or `reconnect` by echoing the set's resulting state.
+ * Confirm a `setup` (create) or `reattach` by echoing the set's resulting state.
  * Both return the stored `BackupSet`, so they share this renderer (ADR-0043 keeps
  * the command a pure data returner): the confirmation someone wants is "what is
  * this set now". The command-specific guidance (setup's starter-exclude notice,
- * reconnect's snapshot-pull summary) already went to stderr from inside the command.
+ * reattach's snapshot-pull summary) already went to stderr from inside the command.
  *
  * The `dirs.txt` path heads the directory list so a capable terminal can open it
  * — directories are edited in that file now, not through a `setup` re-run (there

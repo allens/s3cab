@@ -17,7 +17,7 @@ the `snapshots/` remote half and the cloud porcelain: the remote repository engi
 `remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
 `objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
 added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and machine
-succession (`reconnect`, via the remote `sets/<set>/` marker). `restore --output`
+succession (`reattach`, via the remote `sets/<set>/` marker). `restore --output`
 re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
 used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
 **Slice 5 is complete** — `verify` (`src/commands/verify.mjs` over `referencedObjects` in
@@ -36,11 +36,11 @@ everyday-vs-elevated delete-rights question is **resolved** — the everyday ide
 soft-delete grant is the settled model
 ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)), no policy split. (`compare --remote` was *dropped*,
 not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
-stays local-only, and `reconnect` instead syncs the set's snapshot files down so local
+stays local-only, and `reattach` instead syncs the set's snapshot files down so local
 `compare` works on a fresh machine.)
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
-identity, flattened `snapshots/<set>/`, the `setup` collision check + `reconnect`, the
+identity, flattened `snapshots/<set>/`, the `setup` collision check + `reattach`, the
 `sets/<set>/` marker, bucket-required set creation, and the single-tier set resolver) —
 [ADR-0024](../adr/0024-set-name-is-the-whole-identity.md),
 [ADR-0025](../adr/0025-drop-per-bucket-env-layer.md), and
@@ -91,7 +91,7 @@ the remote namespace under `snapshots/` and `sets/`. There is no `user@machine` 
 - **Bucket-wide uniqueness is "first person wins,"** enforced by a setup-time collision
   check against the remote `sets/<name>/` marker (see "Remote repository layout"). The
   marker carries an advisory "created-on `<machine>`" field, surfaced only in the collision
-  error to help a human choose rename-vs-`reconnect` — advisory, never part of the identity.
+  error to help a human choose rename-vs-`reattach` — advisory, never part of the identity.
 - **Charset (decided):** a name is lowercase `a-z`, `0-9`, and `-` — nothing else, so
   nothing downstream ever needs escaping. `validateSetName` is the keystone guard: it
   rejects a non-conforming name with the rule and a suggested kebab-case form (the name is
@@ -146,9 +146,9 @@ operand (they operate on a whole repository; see their section and
 ### `setup` — create a set
 
 `s3cab setup` is the set-**creation** verb ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md),
-[ADR-0052](../adr/0052-retire-setup-update-mode.md), [ADR-0053](../adr/0053-reconnect-command.md)):
+[ADR-0052](../adr/0052-retire-setup-update-mode.md), [ADR-0053](../adr/0053-reattach-command.md)):
 it makes a **new** backup set on this machine. (Adopting a set that already exists in the cloud is
-`reconnect`, below — ADR-0053 split that out; listing what you have is `list`'s job — the
+`reattach`, below — ADR-0053 split that out; listing what you have is `list`'s job — the
 read/write split ADR-0036 made.) There is **no update mode**: a set's member directories live in
 its public `dirs.txt`, edited directly like `exclude.txt`, so re-running `setup` on a set that
 already exists here is refused ([ADR-0052](../adr/0052-retire-setup-update-mode.md)).
@@ -160,17 +160,17 @@ s3cab setup <set> <dir>... --bucket <bucket>
 **`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
 bound to its bucket at creation, and creating a set always touches S3 to run the collision
 check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`/`list`
-still work after a one-time online set-up; only creating a set — or `reconnect` — needs
+still work after a one-time online set-up; only creating a set — or `reattach` — needs
 connectivity.)
 
 `setup <name> <dir>... --bucket <b>` collision-checks the remote `sets/<name>/` marker; if it
-already exists, it errors naming the owning machine and suggesting `reconnect`; otherwise it claims
+already exists, it errors naming the owning machine and suggesting `reattach`; otherwise it claims
 the marker (a conditional PUT — first writer wins), writes the local set, and publishes its
 `dirs.txt`/`exclude.txt` to the marker.
 
-### `reconnect` — adopt an existing set (succession)
+### `reattach` — adopt an existing set (succession)
 
-`s3cab reconnect <set> --bucket <bucket>` ([ADR-0053](../adr/0053-reconnect-command.md)) is the
+`s3cab reattach <set> --bucket <bucket>` ([ADR-0053](../adr/0053-reattach-command.md)) is the
 path for a **replacement or recovery machine** — it adopts a set that already exists remotely.
 Requires `sets/<name>/` to exist in the bucket; pulls its `dirs.txt`/`exclude.txt` **and its
 snapshot history** down, recreates the local set, and re-stamps the owning machine. Takes no
@@ -178,11 +178,11 @@ directories (they come from the remote). It does **not** download the backed-up 
 that is `restore`; only the config + snapshot manifests come down, which is what lets
 `list`/`compare` run offline afterwards ([ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)).
 
-Split out of the old `setup --inherit` ([ADR-0053](../adr/0053-reconnect-command.md)): `setup`
-creates, `reconnect` adopts — near-opposite acts (a free name vs. an existing one) no longer
+Split out of the old `setup --inherit` ([ADR-0053](../adr/0053-reattach-command.md)): `setup`
+creates, `reattach` adopts — near-opposite acts (a free name vs. an existing one) no longer
 multiplexed behind one flag. Two live machines on one set is a discouraged-but-tolerated
 power-user case (e.g. a OneDrive-synced directory, where both hold the same content so the
-interleaving is benign): `reconnect` never disables the prior machine — re-stamping the owner is
+interleaving is benign): `reattach` never disables the prior machine — re-stamping the owner is
 its only remote change. An interactive wizard may later wrap this one-shot form; it is not part
 of v1.
 
@@ -304,7 +304,7 @@ name is a single `[a-z0-9-]+` segment, so it needs no escaping anywhere in these
 The `sets/<set>/` marker is written when a set is created: `info` (the atomic claim token + advisory
 owner/created fields) doubles as the collision-registration marker — a set with no snapshots
 yet would otherwise be invisible — and `dirs.txt`/`exclude.txt` are pushed for the
-**full-DR** story (point a fresh machine at the bucket, `reconnect`, and the set config comes
+**full-DR** story (point a fresh machine at the bucket, `reattach`, and the set config comes
 back; only credentials need re-entering). The set's `env` is **never** pushed (it holds
 credentials); the bucket name is not stored (redundant once in the bucket).
 
@@ -348,7 +348,7 @@ baseline and hands it to the `upload` plumbing (which composes the `uploadSnapsh
 
 1. **Baseline = the set's previous *local* snapshot.** The set-ownership model makes local
    history authoritative: a set is owned by exactly one machine (the `sets/<name>/` marker;
-   `reconnect` *re-stamps* the owner, it never shares), so there is no other machine whose
+   `reattach` *re-stamps* the owner, it never shares), so there is no other machine whose
    uploads the local history wouldn't already know about. Its objects were stored when it
    was uploaded (the snapshot-last invariant), so anything it references can be skipped with
    **no network read**.
@@ -644,12 +644,12 @@ built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used t
 under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign
 replaced it with `setup --inherit` via the `sets/<set>/` marker (`listRemoteNamespaces`
-retired with it), later split into the standalone `reconnect` command
-([ADR-0053](../adr/0053-reconnect-command.md)). **`compare --remote` is dropped, not deferred**
+retired with it), later split into the standalone `reattach` command
+([ADR-0053](../adr/0053-reattach-command.md)). **`compare --remote` is dropped, not deferred**
 (PR #89, [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
-local-only, and `reconnect` instead pulls the set's remote snapshot files down (verbatim
+local-only, and `reattach` instead pulls the set's remote snapshot files down (verbatim
 `.tsv.zst` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
-full history. (The `--remote` flag + `notImplemented()` stub were removed and the reconnect-time
+full history. (The `--remote` flag + `notImplemented()` stub were removed and the reattach-time
 snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 ### Slice 5 — Admin pair

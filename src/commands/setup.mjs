@@ -23,9 +23,9 @@ import {
 /**
  * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053) —
  * create a **new** backup set on this machine. Adopting a set that *already*
- * exists in the cloud (a replacement/recovery machine) is `reconnect`'s job now
- * ([ADR-0053](../../docs/adr/0053-reconnect-command.md) split the old
- * `setup --inherit` out — `setup` creates, `reconnect` adopts). Listing what you
+ * exists in the cloud (a replacement/recovery machine) is `reattach`'s job now
+ * ([ADR-0053](../../docs/adr/0053-reattach-command.md) split the old
+ * `setup --inherit` out — `setup` creates, `reattach` adopts). Listing what you
  * have is `list`'s job (ADR-0036 split that on the read/write seam); `setup` only
  * *writes*.
  *
@@ -39,7 +39,7 @@ import {
  * ("first person wins") by atomically writing the remote `info` marker, then
  * writes the local set and publishes its config (`dirs.txt`/`exclude.txt`) to
  * `sets/<name>/`. A name already claimed by another machine is refused with the
- * owner and a `reconnect` suggestion. `--bucket` is required (ADR-0026). It
+ * owner and a `reattach` suggestion. `--bucket` is required (ADR-0026). It
  * touches S3 (the claim/publish), which is why this is async; the read commands
  * (`list`/`snapshot`/`compare`/`tree`) stay offline once a set exists.
  *
@@ -66,7 +66,7 @@ export async function setup(name, directories = [], options = {}) {
   }
 
   // A set that already exists here can't be re-created (and isn't updated —
-  // ADR-0052); adopting an existing *remote* set is `reconnect`, not `setup`.
+  // ADR-0052); adopting an existing *remote* set is `reattach`, not `setup`.
   if (listSets().includes(name)) {
     throw existsError(name);
   }
@@ -123,7 +123,7 @@ const nowStamp = () =>
 
 /**
  * The collision error a losing claim raises: name the owner and point at
- * `reconnect` as the way to take the set over on this machine.
+ * `reattach` as the way to take the set over on this machine.
  * @param {string} name
  * @param {string} bucket
  * @param {import("../lib/set-marker.mjs").SetInfo} [info]
@@ -142,7 +142,7 @@ const collisionError = (name, bucket, info) => {
   return new Error(
     `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n` +
       `To take it over on this machine:\n` +
-      `  s3cab reconnect ${name} --bucket ${bucket}`,
+      `  s3cab reattach ${name} --bucket ${bucket}`,
   );
 };
 
@@ -183,7 +183,7 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
-  // The starter exclude file is a birth gift for *new* sets only (`reconnect`
+  // The starter exclude file is a birth gift for *new* sets only (`reattach`
   // reproduces an existing set exactly, never silently narrowing what it backs
   // up), seeded before `pushSetConfig` so the published remote config matches.
   // The notice is what makes it findable — its header is the `help exclude`

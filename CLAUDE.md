@@ -421,7 +421,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
   --snapshot` retired; a `node:sqlite` hash cache was spiked and **rejected** for the in-memory
   `Map`, see [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs)).
   `compare` is local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md));
-  `reconnect` (ADR-0053, split from `setup --inherit`) pulls a set's remote manifests down so a
+  `reattach` (ADR-0053, split from `setup --inherit`) pulls a set's remote manifests down so a
   fresh machine's `compare`/`list`/`restore` work on full history.
 - **Native-executable packaging works and is validated on real runners** (the full matrix
   has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,

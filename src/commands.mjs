@@ -7,7 +7,7 @@ import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
 import { prop } from "./commands/prop.mjs";
 import { provider } from "./commands/provider.mjs";
-import { reconnect } from "./commands/reconnect.mjs";
+import { reattach } from "./commands/reattach.mjs";
 import { restore } from "./commands/restore.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
@@ -354,13 +354,13 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       setup(name, directories, options),
     render: renderSetup,
   },
-  reconnect: {
-    summary: "Reconnect this machine to an existing backup set",
-    examples: ["s3cab reconnect photos --bucket my-backups"],
+  reattach: {
+    summary: "Reattach this machine to an existing backup set",
+    examples: ["s3cab reattach photos --bucket my-backups"],
     args: {
       set: {
         required: true,
-        description: "The existing backup set to reconnect to",
+        description: "The existing backup set to reattach to",
       },
     },
     options: {
@@ -371,7 +371,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
       },
     },
     exec: (options, [name, ...directories] = []) =>
-      reconnect(name, directories, options),
+      reattach(name, directories, options),
     render: renderSetup,
   },
 

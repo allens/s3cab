@@ -514,7 +514,7 @@ export async function putText(uri, content, { noClobber = false } = {}) {
 /**
  * Read a small S3 object's body as text, or `undefined` if it doesn't exist —
  * the string twin of `getStream` for the marker / config files (`info`,
- * pushed `dirs.txt`/`exclude.txt`) the collision check and `reconnect` read back.
+ * pushed `dirs.txt`/`exclude.txt`) the collision check and `reattach` read back.
  * A missing object yields `undefined` (not a throw), so callers branch on
  * presence — e.g. "is this set already claimed?".
  * @param {string} uri - The `s3://bucket/key` URI.

@@ -86,7 +86,7 @@ describe("renderSetup", () => {
   });
 
   it("steers toward editing dirs.txt when a set has none yet", () => {
-    // A reconnected set can land with no member dirs (a partial/legacy remote
+    // A reattached set can land with no member dirs (a partial/legacy remote
     // marker); the confirmation must not print an empty directory list, and —
     // since there is no update mode (ADR-0052) — points at the dirs.txt file it
     // just named rather than a `setup` re-run (which would now error).
