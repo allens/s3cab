@@ -283,25 +283,26 @@ const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 
 /**
  * Build the upload-progress line (pure): an ASCII bar plus the humanized byte
- * counts. `total` can be absent in an httpUploadProgress event, so it omits the
- * "of <total>" segment rather than rendering a misleading "of 0B". Returns the
- * rendered `message` and the bar `fill` (lit chars), which the handler reuses to
- * position the cursor.
+ * counts, labelled by the local file being uploaded. `total` can be absent in an
+ * httpUploadProgress event, so it omits the "of <total>" segment rather than
+ * rendering a misleading "of 0B". Returns the rendered `message` and the bar
+ * `fill` (lit chars), which the handler reuses to position the cursor.
+ *
+ * The label is the source *path*, never the object's `s3://bucket/objects/<hash>`
+ * key: the content-addressed hash is storage machinery of no interest to someone
+ * backing up files (design #1), so the human-facing line names the file (the
+ * hash↔path mapping lives in the snapshot / `S3CAB_DEBUG` sidecar).
  * @param {import("@aws-sdk/lib-storage").Progress} progress
+ * @param {string} label - The local path of the file being uploaded
  * @returns {{ message: string, fill: number }}
  */
-export const formatUploadProgress = ({
-  Bucket,
-  Key,
-  loaded = 0,
-  total = 0,
-}) => {
+export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
   const fill = total ? Math.round((loaded / total) * PROGRESS_BAR_RANGE) : 0;
   const bar = "*".repeat(fill) + ".".repeat(PROGRESS_BAR_RANGE - fill);
   const sizes = total
     ? `${formatByteValue(loaded)} of ${formatByteValue(total)}`
     : formatByteValue(loaded);
-  return { message: `${bar} s3://${Bucket}/${Key}: uploaded ${sizes} `, fill };
+  return { message: `${bar} ${label}: uploaded ${sizes} `, fill };
 };
 
 /**
@@ -389,7 +390,7 @@ export async function putFile(path, uri, options = {}) {
   // result, so it goes to stderr (stream discipline).
   using progress = createProgress(process.stderr);
   upload.on("httpUploadProgress", (event) => {
-    const { message, fill } = formatUploadProgress(event);
+    const { message, fill } = formatUploadProgress(event, path);
     progress.update(message, { cursor: fill });
   });
 
@@ -409,8 +410,9 @@ export async function putFile(path, uri, options = {}) {
   }
 
   if (!isInteractive(process.stderr)) {
-    // No bar was drawn — leave one summary line as the log evidence.
-    console.warn(`Uploaded ${uri} (${formatByteValue(size)})`);
+    // No bar was drawn — leave one summary line as the log evidence, named by
+    // the file (not the object hash), to match the interactive progress line.
+    console.warn(`Uploaded ${path} (${formatByteValue(size)})`);
   }
   return true;
 }
