@@ -1,39 +1,33 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { parseEnv } from "node:util";
-import { s3cabDir } from "./home.mjs";
 import { isENOENT } from "./error.mjs";
 import { resolveSet } from "./sets.mjs";
 
 /** @import { BackupSet } from "./sets.mjs" */
 
-// s3cab's layered environment-file loading — *what configuration applies* (the
-// set's bucket, region, endpoint, profile), distinct from *how credentials are
-// obtained* (the standard AWS chain in src/lib/auth.mjs). The layer model —
-// set > user > shell, a file value always beating the shell, never the cwd
-// `.env`, never `~/.aws/*` — is specified in docs/design/auth.md; this module
-// implements it. Files are parsed with the built-in `util.parseEnv` (no dotenv
-// dep, ADR-0005), so the per-key precedence is enforced by *us*, independent of
-// any one loader's fixed override semantics.
+// s3cab's environment-file loading — *what configuration applies* (the set's
+// bucket, region, endpoint, profile), distinct from *how credentials are
+// obtained* (the standard AWS chain in src/lib/auth.mjs). There is one s3cab
+// layer: a set's own env file, applied over the ambient shell (set > shell, a
+// file value always beating the shell, never the cwd `.env`, never `~/.aws/*`) —
+// specified in docs/design/auth.md; this module implements it. The machine-wide
+// default is the ambient AWS setup itself (~/.aws, a default profile, exported
+// AWS_*), not a parallel s3cab file — ADR-0055 dropped the former per-user layer
+// as a mechanism competing with the standard chain (ADR-0015). Files are parsed
+// with the built-in `util.parseEnv` (no dotenv dep, ADR-0005), so the
+// set-over-shell precedence is enforced by *us*.
 //
-// Two doors apply the layers (ADR-0022):
-//   loadEnv()       applies the *user* layer (~/.s3cab/env). The CLI entry point
-//                   (s3cab.mjs) calls it once before dispatching, and a library
-//                   consumer calls it once up front — commands never call it.
+// Two doors (ADR-0022):
+//   loadEnv()       marks the environment initialized — the `__S3CAB_ENV_LOADED`
+//                   breadcrumb `s3.mjs`'s `client()` asserts, a development
+//                   tripwire catching a lib consumer who forgot the up-front
+//                   call. The CLI entry point (s3cab.mjs) calls it once before
+//                   dispatching; a library consumer calls it once up front;
+//                   commands never call it. With the user layer gone it loads no
+//                   file — only the set layer carries s3cab config now.
 //   loadSet(name)   resolves a set *and* applies its *set* layer
-//                   (~/.s3cab/sets/<set>/env) on top. Every command that takes
-//                   a set argument routes through it.
-// Because the user layer went on first, `loadSet` only adds the set layer and
-// precedence (set > user) holds by construction — no per-command "load env
-// before S3" guard. `loadEnv` also drops the `__S3CAB_ENV_LOADED` breadcrumb
-// that `s3.mjs`'s `client()` asserts — a development tripwire catching a lib
-// consumer who forgot the call, not load-bearing for correct use (ADR-0022).
-
-/**
- * The per-user env file, `~/.s3cab/env` — the one place this path is spelled, so
- * the `provider` command writes/reads exactly the file `loadEnv` applies.
- */
-export const userEnvPath = () => join(s3cabDir(), "env");
+//                   (~/.s3cab/sets/<set>/env) over the ambient shell. Every
+//                   command that takes a set argument routes through it.
 
 /**
  * The custom S3 endpoint, if one is configured — present for any S3-compatible
@@ -77,13 +71,12 @@ export function parseEnvFile(path) {
 const appliedEnvFiles = new Set();
 
 /**
- * Which env layer last set each key: variable name → human label (`~/.s3cab/env`,
- * `set 'photos' config`). A key present in process.env but *absent* here came from
- * outside s3cab's layering — a shell export, a Node `--env-file`, the parent
+ * Which env layer last set each key: variable name → human label
+ * (`set 'photos' config`). A key present in process.env but *absent* here came
+ * from outside s3cab's layering — a shell export, a Node `--env-file`, the parent
  * process — which is exactly what `profileSource` reports as "your environment".
- * Module-level and ordered like `appliedEnvFiles`, because env loading is itself a
- * stateful, ordered process (user layer, then set on top): last writer wins, which
- * matches the effective process.env value.
+ * Module-level like `appliedEnvFiles`: the set layer is applied over the shell,
+ * last writer wins, matching the effective process.env value.
  * @type {Map<string, string>}
  */
 const envSources = new Map();
@@ -117,15 +110,15 @@ function applyEnvLayer(path, label) {
 }
 
 /**
- * Where the effective `AWS_PROFILE` came from — the layer whose value won (a set's
- * config, or `~/.s3cab/env`), or "your environment" for anything s3cab didn't set
+ * Where the effective `AWS_PROFILE` came from — a set's config (the label
+ * `envSources` recorded), or "your environment" for anything s3cab didn't set
  * itself: a shell export, a Node `--env-file`, the parent process, all
  * indistinguishable once merged into process.env before we ran. `undefined` when
  * no profile is set at all.
  *
  * Feeds the auth notice (`authNotice` in s3.mjs), so a surprising profile — a stale
  * shell export shadowing a set's config, say — is traceable at a glance instead of
- * a silent mystery (the case ADR-0022's layering makes possible but opaque).
+ * a silent mystery.
  * @returns {string | undefined}
  */
 export function profileSource() {
@@ -136,36 +129,27 @@ export function profileSource() {
 }
 
 /**
- * Apply the per-**user** env layer (`~/.s3cab/env`) to process.env. This is the
- * single up-front load: the CLI entry point (src/s3cab.mjs) calls it once before
- * dispatching any command, and a library consumer calls it once before using the
- * API. **Commands do not call it** — the entry point has already run it by the
- * time any command body executes.
+ * Mark the environment initialized. The CLI entry point (src/s3cab.mjs) calls it
+ * once before dispatching any command, and a library consumer calls it once
+ * before using the API. **Commands do not call it** — the entry point has already
+ * run it by the time any command body executes.
  *
- * Loading env files only reads small files into process.env; it does *not* build
- * an AWS client (that stays lazy in s3.mjs), so calling this up front does not
- * force credentials on the local commands. Idempotent per file.
- *
- * Set env is applied separately, by {@link loadSet}, so this takes no set.
+ * With the per-user layer gone (ADR-0055) it loads no file: only a set's env
+ * layer carries s3cab config, applied by {@link loadSet}. All it does now is drop
+ * the `__S3CAB_ENV_LOADED` breadcrumb `s3.mjs`'s `client()` asserts — a
+ * development tripwire that the up-front init ran before any S3 op, catching a lib
+ * consumer who skipped it (ADR-0022). `__`-prefixed: an internal flag, not a
+ * config var.
  */
 export function loadEnv() {
-  applyEnvLayer(userEnvPath(), "~/.s3cab/env");
-  // Drop the development tripwire `s3.mjs`'s `client()` asserts (ADR-0022) —
-  // unconditionally, so an absent/empty user file (nothing applied) still counts:
-  // "loadEnv ran", not "a file existed", is the precondition. `__`-prefixed: an
-  // internal debug flag, not a real config var.
   process.env.__S3CAB_ENV_LOADED = "1";
 }
 
 /**
  * Resolve a backup set *and* apply its env layer — the door every set-accepting
  * command routes through. `resolveSet` (sets.mjs) picks the set (sole-set
- * default), then this applies that set's `~/.s3cab/sets/<set>/env` on top.
- *
- * Only the *set* layer is applied here: the user layer is already in process.env
- * (loaded at the entry point, or by a consumer's one-call contract), so precedence
- * (set > user) holds because user went on first. Re-applying the user layer would
- * just be the redundant guard this design removes.
+ * default), then this applies that set's `~/.s3cab/sets/<set>/env` over the
+ * ambient shell (set > shell — the one s3cab layer, ADR-0055).
  *
  * Reading the set env file is not an AWS client build, so routing the local
  * commands (`snapshot`/`compare`/`tree`/`list`) through this keeps them cred-free

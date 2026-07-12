@@ -73,10 +73,9 @@ try {
     console.warn({ execPath, jsPath, commandName, positionals, options });
   }
 
-  // Apply the user env layer once, up front, so it is always already in
-  // process.env before any command runs (ADR-0022). Set-accepting commands add
-  // their set layer on top via `loadSet`. Inside the try so a malformed env file
-  // surfaces through the error handler below.
+  // Mark the environment initialized once, up front (ADR-0022) — the tripwire
+  // s3.mjs's client() asserts. There is no user layer to load (ADR-0055);
+  // set-accepting commands apply their set layer via `loadSet`.
   loadEnv();
 
   const { json, ...execOptions } = options;

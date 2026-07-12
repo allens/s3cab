@@ -299,7 +299,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     args: {
       set: {
         description:
-          "Scope to this set instead of the user-wide default (omit to set the default for all backups — this is not the sole-set default)",
+          "The set to configure (omit for your only set on a write, or to summarize all sets on a bare show)",
       },
     },
     options: {

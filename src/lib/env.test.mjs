@@ -4,11 +4,13 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-// Tests for the layered env loading in env.mjs (see docs/design/auth.md). loadEnv
-// reads s3cabDir() and mutates process.env, and applies each file at most once
-// per run — so each test (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh*
-// copy of the module so the once-per-run guard starts empty, and (c) has
-// process.env snapshotted and restored around it.
+// Tests for env.mjs's env loading (see docs/design/auth.md). The one s3cab layer
+// is a set's env file, applied by loadSet over the ambient shell (ADR-0055 dropped
+// the user layer); loadEnv just marks the environment initialized. applyEnvLayer
+// mutates process.env and applies each file at most once per run — so each test
+// (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh* copy of the module so the
+// once-per-run guard starts empty, and (c) has process.env snapshotted and restored
+// around it.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -81,76 +83,40 @@ async function setup(root) {
 }
 
 describe("loadEnv", () => {
-  it("loads the per-user env file", async () => {
+  it("marks the environment initialized (the client() tripwire breadcrumb)", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
+
+    t.loadEnv();
+
+    assert.equal(process.env.__S3CAB_ENV_LOADED, "1");
+  });
+
+  it("no longer loads a user env file (ADR-0055 dropped the user layer)", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    // A ~/.s3cab/env file must be ignored now — only a set's env layer carries
+    // s3cab config, applied by loadSet.
     t.user("AWS_PROFILE=userprof\n");
 
     t.loadEnv();
 
-    assert.equal(process.env.AWS_PROFILE, "userprof");
-  });
-
-  it("lets a file value win over the shell (files are authoritative)", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    process.env.AWS_REGION = "us-shell";
-    t.user("AWS_REGION=us-file\n");
-
-    t.loadEnv();
-
-    assert.equal(process.env.AWS_REGION, "us-file");
-  });
-
-  it("is a no-op when no user env file exists", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-
-    t.loadEnv();
-
     assert.equal(process.env.AWS_PROFILE, undefined);
   });
 
-  it("loads a user env file created after an earlier no-op load", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-
-    // First load: the user env file doesn't exist yet → nothing applied, and
-    // the guard must NOT record a missing file as "applied".
-    t.loadEnv();
-    assert.equal(process.env.AWS_PROFILE, undefined);
-
-    // Create it, then load again in the same process — it must now take effect.
-    t.user("AWS_PROFILE=created-later\n");
-    t.loadEnv();
-    assert.equal(process.env.AWS_PROFILE, "created-later");
-  });
-
-  it("parses comments and quoted values (util.parseEnv)", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user('# a comment\nAWS_PROFILE="quoted value"\n\nAWS_REGION=us-east-1\n');
-
-    t.loadEnv();
-
-    assert.equal(process.env.AWS_PROFILE, "quoted value");
-    assert.equal(process.env.AWS_REGION, "us-east-1");
-  });
-
-  // `loadEnv` no longer takes a set at all — the set layer is `loadSet`'s job,
-  // and the path-separator guard lives upstream in `resolveSet`/`readSet`
-  // (assertPathSegment), covered by sets.test.mjs.
+  // The set layer's parsing (comments/quotes via util.parseEnv) and its
+  // set-over-shell precedence are exercised through `loadSet` below; `loadEnv`
+  // itself now only drops the breadcrumb.
 });
 
 describe("loadSet", () => {
-  // `loadSet` adds the set layer *on top of* an already-loaded user layer (the
-  // entry point loads the user layer first), so these arrange both and call
-  // `loadEnv()` before `loadSet()` to mirror that order.
+  // `loadSet` applies the set layer over the ambient shell (set > shell — the one
+  // s3cab layer, ADR-0055). `loadEnv()` is called first only to mirror the entry
+  // point's order; it loads nothing itself.
 
   it("resolves the cloud-ready set and surfaces it", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    t.user("AWS_PROFILE=photoprof\n");
     t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
 
     t.loadEnv();
@@ -161,30 +127,44 @@ describe("loadSet", () => {
     assert.equal(set.bucket, "photobucket");
   });
 
-  it("applies the set layer over the user layer (and user fills the gaps)", async () => {
+  it("applies the set layer over the shell (and the shell fills the gaps)", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
-    t.user("AWS_REGION=us-user\nAWS_PROFILE=userprof\n");
-    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
-
-    t.loadEnv(); // user layer first (as the entry point does)
-    t.loadSet("photos"); // then the set layer on top
-
-    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over user
-    assert.equal(process.env.AWS_PROFILE, "userprof"); // user fills what set omits
-  });
-
-  it("does not let a later loadEnv() clobber the set layer already applied", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_REGION=us-user\n");
+    process.env.AWS_REGION = "us-shell";
+    process.env.AWS_PROFILE = "shellprof";
     t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
 
     t.loadEnv();
-    t.loadSet("photos"); // user then set → us-set
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_REGION, "us-set"); // set wins over shell
+    assert.equal(process.env.AWS_PROFILE, "shellprof"); // shell fills what set omits
+  });
+
+  it("parses comments and quoted values in a set env file (util.parseEnv)", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.set(
+      "photos",
+      '# a comment\nS3CAB_BUCKET=photobucket\nAWS_PROFILE="quoted value"\n',
+    );
+
+    t.loadEnv();
+    t.loadSet("photos");
+
+    assert.equal(process.env.AWS_PROFILE, "quoted value");
+  });
+
+  it("a later loadEnv() leaves an applied set layer intact", async () => {
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    t.set("photos", "S3CAB_BUCKET=photobucket\nAWS_REGION=us-set\n");
+
+    t.loadEnv();
+    t.loadSet("photos");
     assert.equal(process.env.AWS_REGION, "us-set");
 
-    t.loadEnv(); // a later user load — must not re-apply the user layer over set
+    t.loadEnv(); // inert now — must not disturb the applied set layer
     assert.equal(process.env.AWS_REGION, "us-set");
   });
 
@@ -220,16 +200,6 @@ describe("profileSource", () => {
     t.loadEnv();
 
     assert.equal(t.profileSource(), "your environment");
-  });
-
-  it("names the user env file when the profile came from ~/.s3cab/env", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_PROFILE=userprof\n");
-
-    t.loadEnv();
-
-    assert.equal(t.profileSource(), "~/.s3cab/env");
   });
 
   it("names the set config when the set layer supplies the profile", async () => {

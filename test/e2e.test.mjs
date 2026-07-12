@@ -307,17 +307,22 @@ describe("cli (e2e)", () => {
     assert.match(stdout, /--since/);
   });
 
-  it("provider --keys reads two piped stdin lines into the user env", async () => {
+  it("provider --keys reads two piped stdin lines into a set's env", async () => {
     // End-to-end on purpose: the unit tests mock the prompt seam, so only this
     // tier exercises real piped stdin — which is where a
     // one-readline-interface-per-line implementation loses the second line
     // (the interface's close discards its buffered remainder).
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = dir.path;
+    // Keys live per-set now (ADR-0055), so seed a bucket-bound set directly on
+    // disk (no network) for `provider --keys` to write into.
+    const setDir = join(home, ".s3cab", "sets", "photos");
+    mkdirSync(setDir, { recursive: true });
+    writeFileSync(join(setDir, "env"), "S3CAB_BUCKET=my-bucket\n");
 
     const { status, stdout } = spawnSync(
       process.execPath,
-      [CLI, "provider", "--keys"],
+      [CLI, "provider", "--keys", "photos"],
       {
         encoding: "utf8",
         env: { ...process.env, HOME: home, USERPROFILE: home },
@@ -328,7 +333,7 @@ describe("cli (e2e)", () => {
     assert.strictEqual(status, 0);
     assert.match(stdout, /Set access keys/);
     assert.doesNotMatch(stdout, /sooper-secret/); // never echo the secret
-    const env = readFileSync(join(home, ".s3cab", "env"), "utf8");
+    const env = readFileSync(join(setDir, "env"), "utf8");
     assert.match(env, /AWS_ACCESS_KEY_ID=AKIAEXAMPLE/);
     assert.match(env, /AWS_SECRET_ACCESS_KEY=sooper-secret/);
   });
