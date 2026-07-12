@@ -2,6 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
+import { parseLines } from "../lib/read-lines.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   claimRemoteSet,
@@ -15,6 +16,7 @@ import {
   listSets,
   readSetExclude,
   seedStarterExclude,
+  starterExclude,
   validateBucketName,
   validateSetName,
   writeSet,
@@ -177,10 +179,13 @@ async function create(name, directories, options) {
   // discovery hook — and prints the real resolved path (honours an S3CAB_HOME
   // override), not a ~ template.
   if (seedStarterExclude(name)) {
+    const skipped = parseLines(starterExclude)
+      .map((pattern) => `  ${pattern}`)
+      .join("\n");
     console.warn(
-      `Wrote a starter exclude file (skips node_modules and OS noise):\n` +
-        `  ${set.excludePath}\n` +
-        `Edit it to skip more — see 's3cab help exclude' for the pattern syntax.`,
+      `Wrote a starter exclude file — these patterns are skipped by default:\n` +
+        `${skipped}\n` +
+        `Edit ${set.excludePath} to change what's skipped — see 's3cab help exclude'.`,
     );
   }
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });

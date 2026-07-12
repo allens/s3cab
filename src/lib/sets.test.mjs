@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   formatSets,
@@ -18,6 +18,7 @@ import {
   writeSetExclude,
 } from "./sets.mjs";
 import { ValidationError } from "./error.mjs";
+import { parseLines } from "./read-lines.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the backup-set store (docs/design/backup.md). The store derives every
@@ -42,28 +43,41 @@ afterEach(() => {
 });
 
 describe("starterExclude", () => {
-  // Mirrors the runtime parsing (lib/read-lines.mjs): trim first, then drop
-  // `#` comments — so an indented comment counts as a comment here too.
-  const active = starterExclude
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"));
+  // The active patterns, parsed exactly as the runtime reads a set's exclude
+  // file and as setup lists them (lib/read-lines.mjs's parseLines). Patterns are
+  // written with the native separator (ADR-0051), so normalize back to `/` to
+  // assert the pattern *set* independently of the platform running the test.
+  const active = parseLines(starterExclude).map((p) => p.split(sep).join("/"));
 
-  it("activates only never-wanted junk: dependency trees and OS noise", () => {
-    // The active set is a contract: a backup tool must not silently skip
-    // anything a user might mean to keep. Arguable patterns stay commented.
+  it("activates never-wanted junk: dependency trees, VCS metadata, and OS noise", () => {
+    // The active set is a contract. `.git` is skipped by default but disclosed —
+    // setup lists every active pattern (ADR-0050) — so it isn't a *silent* skip.
+    // Genuinely arguable patterns (build output, logs, temp files) stay commented.
     assert.deepEqual(active, [
       "**/node_modules/",
+      "**/.git/",
       "**/.DS_Store",
       "**/Thumbs.db",
+      "**/._*",
+      "**/desktop.ini",
       "$RECYCLE.BIN/",
       "System Volume Information/",
     ]);
   });
 
+  it("writes patterns with the platform's native separator (ADR-0051)", () => {
+    // A public file the user edits speaks the separator they see everywhere
+    // else. On win32 that means backslashes; the matcher normalizes either back.
+    assert.ok(
+      starterExclude.includes(`**${sep}node_modules${sep}`),
+      `expected native-separated pattern, got: ${parseLines(starterExclude)[0]}`,
+    );
+  });
+
   it("keeps the arguable patterns commented out, not active", () => {
-    for (const pattern of ["**/.git/", "**/*.tmp", "**/*.log"]) {
-      assert.ok(starterExclude.includes(`# ${pattern}`), pattern);
+    for (const pattern of ["**/dist/", "**/*.tmp", "**/*.log"]) {
+      const native = pattern.split("/").join(sep);
+      assert.ok(starterExclude.includes(`# ${native}`), pattern);
       assert.ok(!active.includes(pattern), pattern);
     }
   });
