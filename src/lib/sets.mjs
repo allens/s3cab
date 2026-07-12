@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { parseEnv } from "node:util";
 import { isENOENT, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
@@ -89,6 +89,15 @@ export function writeSetExclude(name, text) {
 }
 
 /**
+ * Rewrite a `/`-written glob to the platform's separator, so the starter shows a
+ * Windows user the paths they know (`\`) and a POSIX user `/`. Only the pattern
+ * *separator* is a display choice — the matcher normalizes either back to `/`
+ * internally (exclude.mjs), so this never changes what a pattern matches.
+ * @param {string} pattern
+ */
+const nativePattern = (pattern) => pattern.replaceAll("/", sep);
+
+/**
  * The starter `exclude.txt` a new set is born with (`setup` create only, via
  * `seedStarterExclude` below; inherit reproduces the remote config exactly and
  * never seeds — setup.mjs). The active patterns are "you'd almost never want
@@ -99,36 +108,40 @@ export function writeSetExclude(name, text) {
  * silent, keeping faith with "a backup tool must not silently skip files a user
  * might mean to keep"; genuinely arguable patterns (build output, logs, temp
  * files) still ship commented ([ADR-0050](../../docs/adr/0050-default-exclude-git-with-disclosure.md)).
+ *
+ * Patterns are written with the **native** separator (`\` on Windows, `/`
+ * elsewhere, via `nativePattern`): `exclude.txt` is a public file a user reads
+ * and edits, so it speaks the paths they see everywhere else in s3cab — the `/`
+ * canonical form is an internal matching detail that stays behind the matcher,
+ * not something a Windows user should have to learn ([ADR-0051](../../docs/adr/0051-native-separator-in-user-path-files.md)).
  * The header doubles as the topic's discovery hook: it points at 's3cab help
- * exclude' at the exact moment the user is editing patterns. Patterns use '/'
- * (portable on every OS; matching is case-insensitive on Windows), mirroring
- * guide/exclude.md.
+ * exclude' at the exact moment the user is editing patterns.
  */
 export const starterExclude = `# Files and directories this backup set skips — one glob pattern per line.
-# '/' separates directories on every OS. '**/' matches any depth; a trailing
-# '/' matches a directory and everything in it. Blank lines and # comments
+# '${sep}' separates directories. '**${sep}' matches any depth; a trailing
+# '${sep}' matches a directory and everything in it. Blank lines and # comments
 # are ignored. Syntax help: 's3cab help exclude'
 # Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md
 
 # Regenerable dependency trees and VCS metadata — huge and/or already on your remote
-**/node_modules/
-**/.git/
+${nativePattern("**/node_modules/")}
+${nativePattern("**/.git/")}
 
 # Operating-system noise (safe to skip on any platform)
-**/.DS_Store
-**/Thumbs.db
-**/._*
-**/desktop.ini
-$RECYCLE.BIN/
-System Volume Information/
+${nativePattern("**/.DS_Store")}
+${nativePattern("**/Thumbs.db")}
+${nativePattern("**/._*")}
+${nativePattern("**/desktop.ini")}
+${nativePattern("$RECYCLE.BIN/")}
+${nativePattern("System Volume Information/")}
 
 # Common suggestions — uncomment any that fit this set
-# **/dist/
-# **/build/
-# **/coverage/
-# **/__pycache__/
-# **/*.tmp
-# **/*.log
+# ${nativePattern("**/dist/")}
+# ${nativePattern("**/build/")}
+# ${nativePattern("**/coverage/")}
+# ${nativePattern("**/__pycache__/")}
+# ${nativePattern("**/*.tmp")}
+# ${nativePattern("**/*.log")}
 `;
 
 /**

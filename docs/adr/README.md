@@ -71,6 +71,7 @@ ADR as a live constraint.
 - [0047](0047-provider-command-neutral-config-door.md) — `provider`: the neutral connection-config door (profile/endpoint/region/keys); `aws` narrows to AWS-only
 - [0048](0048-snapshot-lock-atomic-temp-file.md) — Snapshot concurrency lock: the temp file created atomically (`wx`); stale locks removed manually
 - [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent
+- [0051](0051-native-separator-in-user-path-files.md) — User-facing path files (the starter `exclude.txt`) use the native separator; `/` stays an internal matching form
 
 ### Build, release & tooling
 

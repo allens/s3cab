@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   formatSets,
@@ -44,8 +44,10 @@ afterEach(() => {
 
 describe("starterExclude", () => {
   // The active patterns, parsed exactly as the runtime reads a set's exclude
-  // file and as setup lists them (lib/read-lines.mjs's parseLines).
-  const active = parseLines(starterExclude);
+  // file and as setup lists them (lib/read-lines.mjs's parseLines). Patterns are
+  // written with the native separator (ADR-0051), so normalize back to `/` to
+  // assert the pattern *set* independently of the platform running the test.
+  const active = parseLines(starterExclude).map((p) => p.split(sep).join("/"));
 
   it("activates never-wanted junk: dependency trees, VCS metadata, and OS noise", () => {
     // The active set is a contract. `.git` is skipped by default but disclosed —
@@ -63,9 +65,19 @@ describe("starterExclude", () => {
     ]);
   });
 
+  it("writes patterns with the platform's native separator (ADR-0051)", () => {
+    // A public file the user edits speaks the separator they see everywhere
+    // else. On win32 that means backslashes; the matcher normalizes either back.
+    assert.ok(
+      starterExclude.includes(`**${sep}node_modules${sep}`),
+      `expected native-separated pattern, got: ${parseLines(starterExclude)[0]}`,
+    );
+  });
+
   it("keeps the arguable patterns commented out, not active", () => {
     for (const pattern of ["**/dist/", "**/*.tmp", "**/*.log"]) {
-      assert.ok(starterExclude.includes(`# ${pattern}`), pattern);
+      const native = pattern.split("/").join(sep);
+      assert.ok(starterExclude.includes(`# ${native}`), pattern);
       assert.ok(!active.includes(pattern), pattern);
     }
   });
