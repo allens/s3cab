@@ -11,7 +11,7 @@ import { loadSet } from "../lib/env.mjs";
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)):
  * local snapshots are a superset of remote ones, so any two remote snapshots
  * already exist locally and a remote diff could only reproduce a local one. A
- * fresh machine gets full history because `sets --inherit` pulls the set's
+ * fresh machine gets full history because `reconnect` pulls the set's
  * remote snapshot files down.
  * @param {string} [setName] - Backup set whose snapshots to compare (default: the only set)
  * @param {object} [options]

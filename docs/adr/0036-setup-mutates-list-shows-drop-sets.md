@@ -96,6 +96,9 @@ noun is gone, and the CRUD multiplexer with it. Verbs name actions, nouns name r
 - **`--inherit` stays a flag on `setup`** rather than its own `inherit` verb. Pulling it out would
   make `setup` a *pure* upsert (one job per command), at the cost of one more command — declined
   for now under [0006](0006-minimal-code.md); revisit only if the flag-mode grates in use.
+  _(Resolved by [ADR-0053](0053-reconnect-command.md): once [0052](0052-retire-setup-update-mode.md)
+  removed update mode, `--inherit` was the last invisible-mode flag left, so it was split out as
+  the standalone `reconnect` command — `setup` is create-only.)_
 - **Set-config detail in `list`.** A set's member directories are config, not snapshots; whether
   `list`'s per-set heading carries the directories (vs. just `set → bucket`, with directories left to a
   detail view) is a presentation call left to implementation.

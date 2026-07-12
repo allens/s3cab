@@ -65,7 +65,7 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
     assert.equal(pulled, 0);
   });
 
-  it("pulls each snapshot file down byte-identically (the inherit sync, ADR-0027)", async () => {
+  it("pulls each snapshot file down byte-identically (the reconnect sync, ADR-0027)", async () => {
     await using dir = await mkTmpDir();
     const set = `dl-${Date.now()}`;
     const name = "2025-02-20T0900";

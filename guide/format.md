@@ -34,7 +34,7 @@ s3://my-backup-bucket/
 - **`sets/<set>/`** marks the set's existence (a set with no snapshots yet would otherwise
   be invisible), records which machine created it, and mirrors the set's
   `dirs.txt`/`exclude.txt` so a fresh machine can adopt it
-  (`s3cab setup <set> --inherit`). The set's local `env` file is **never** uploaded — it
+  (`s3cab reconnect <set>`). The set's local `env` file is **never** uploaded — it
   can hold credentials.
 
 ### The invariant: objects first, snapshot last
@@ -118,7 +118,7 @@ the API**, and some of them you are expected to edit directly in a text editor:
 
 Editing a set *is* editing these files; deleting the directory deletes the set. Note the
 deliberate asymmetry of weight: the **bucket is the keystone**. Everything local except
-`env` is recoverable *from* the remote — `setup --inherit` pulls `dirs.txt`/`exclude.txt`
+`env` is recoverable *from* the remote — `reconnect` pulls `dirs.txt`/`exclude.txt`
 back down and syncs the snapshot history — whereas nothing can rebuild a lost remote.
 (Exclude patterns are covered in the [exclude guide](exclude.md).)
 

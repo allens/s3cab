@@ -2,14 +2,10 @@ import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
-import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   claimRemoteSet,
-  listRemoteSets,
   pushSetConfig,
   readRemoteInfo,
-  readSetConfig,
-  writeRemoteInfo,
 } from "../lib/set-marker.mjs";
 import {
   listSets,
@@ -20,40 +16,37 @@ import {
   validateBucketName,
   validateSetName,
   writeSet,
-  writeSetExclude,
 } from "../lib/sets.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052) — create or
- * inherit a backup set. Listing what you have is `list`'s job (ADR-0036 split this
- * command on the read/write seam); `setup` only *writes*, and only ever brings a
- * set into being on this machine — there is no "update mode" (ADR-0052 retired it):
- * a set's member directories live in its public `dirs.txt`, edited directly like
- * `exclude.txt`, so re-running `setup` on a set that already exists here is an error,
- * not a silent mutation. A set's name is its whole identity (ADR-0024) — local
- * handle, local directory, and remote namespace — so there is nothing to pin; the
- * mode is chosen by what's given:
+ * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053) —
+ * create a **new** backup set on this machine. Adopting a set that *already*
+ * exists in the cloud (a replacement/recovery machine) is `reconnect`'s job now
+ * ([ADR-0053](../../docs/adr/0053-reconnect-command.md) split the old
+ * `setup --inherit` out — `setup` creates, `reconnect` adopts). Listing what you
+ * have is `list`'s job (ADR-0036 split that on the read/write seam); `setup` only
+ * *writes*.
  *
- * - **Create** (`setup <name> <directory>... --bucket <b>`): claim the name in the
- *   bucket ("first person wins") by atomically writing the remote `info` marker,
- *   then write the local set and publish its config (`dirs.txt`/`exclude.txt`) to
- *   `sets/<name>/`. A name already claimed by another machine is refused with the
- *   owner and an `--inherit` suggestion. `--bucket` is required (ADR-0026).
- * - **Inherit** (`setup <name> --inherit --bucket <b>`): the succession path for a
- *   replacement/recovery machine — pull an existing remote set's config, recreate
- *   it locally, and re-stamp ownership to this machine. Takes no directories.
+ * There is no "update mode" (ADR-0052 retired it): a set's member directories
+ * live in its public `dirs.txt`, edited directly like `exclude.txt`, so
+ * re-running `setup` on a set that already exists here is an error, not a silent
+ * mutation. A set's name is its whole identity (ADR-0024) — local handle, local
+ * directory, and remote namespace.
  *
- * Both modes touch S3 (the claim/publish/inherit), which is why this is async;
- * the read commands (`list`/`snapshot`/`compare`/`tree`) stay offline once a set
- * exists.
+ * `setup <name> <directory>... --bucket <b>` claims the name in the bucket
+ * ("first person wins") by atomically writing the remote `info` marker, then
+ * writes the local set and publishes its config (`dirs.txt`/`exclude.txt`) to
+ * `sets/<name>/`. A name already claimed by another machine is refused with the
+ * owner and a `reconnect` suggestion. `--bucket` is required (ADR-0026). It
+ * touches S3 (the claim/publish), which is why this is async; the read commands
+ * (`list`/`snapshot`/`compare`/`tree`) stay offline once a set exists.
  *
  * @param {string} [name] - The set's name (required)
- * @param {string[]} [directories] - The member directories (required when creating)
+ * @param {string[]} [directories] - The member directories (required)
  * @param {object} [options]
- * @param {string} [options.bucket] - The S3 bucket to back the set up to (required on create)
- * @param {boolean} [options.inherit] - Inherit an existing remote set onto this machine
+ * @param {string} [options.bucket] - The S3 bucket to back the set up to (required)
  * @returns {Promise<BackupSet>} The set as stored
  */
 export async function setup(name, directories = [], options = {}) {
@@ -72,12 +65,9 @@ export async function setup(name, directories = [], options = {}) {
     validateBucketName(options.bucket);
   }
 
-  const creating = !listSets().includes(name);
-
-  if (options.inherit) {
-    return inherit(name, directories, creating, options);
-  }
-  if (!creating) {
+  // A set that already exists here can't be re-created (and isn't updated —
+  // ADR-0052); adopting an existing *remote* set is `reconnect`, not `setup`.
+  if (listSets().includes(name)) {
     throw existsError(name);
   }
   return create(name, directories, options);
@@ -133,7 +123,7 @@ const nowStamp = () =>
 
 /**
  * The collision error a losing claim raises: name the owner and point at
- * `--inherit` as the way to take over.
+ * `reconnect` as the way to take the set over on this machine.
  * @param {string} name
  * @param {string} bucket
  * @param {import("../lib/set-marker.mjs").SetInfo} [info]
@@ -152,7 +142,7 @@ const collisionError = (name, bucket, info) => {
   return new Error(
     `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n` +
       `To take it over on this machine:\n` +
-      `  s3cab setup ${name} --inherit --bucket ${bucket}`,
+      `  s3cab reconnect ${name} --bucket ${bucket}`,
   );
 };
 
@@ -193,7 +183,7 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
-  // The starter exclude file is a birth gift for *new* sets only (`inherit`
+  // The starter exclude file is a birth gift for *new* sets only (`reconnect`
   // reproduces an existing set exactly, never silently narrowing what it backs
   // up), seeded before `pushSetConfig` so the published remote config matches.
   // The notice is what makes it findable — its header is the `help exclude`
@@ -210,93 +200,5 @@ async function create(name, directories, options) {
     );
   }
   await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
-  return set;
-}
-
-/**
- * Inherit an existing remote set onto this machine (`setup --inherit`): the
- * succession path for retiring/replacing a machine or recovering on a fresh one.
- * Pulls the remote set's published config, recreates it locally, and re-stamps
- * `OWNER` to this machine while preserving the original `CREATED`. Takes no
- * directories — they come from the remote. Inherit never disables the prior machine
- * (re-stamping `OWNER` is the only remote change), so two live machines on one
- * set stays possible (the tolerated power-user case).
- * @param {string} name
- * @param {string[]} directories
- * @param {boolean} creating - Whether the set is new locally
- * @param {{ bucket?: string }} options
- * @returns {Promise<BackupSet>}
- */
-async function inherit(name, directories, creating, options) {
-  if (directories.length) {
-    throw new ParseArgsError(
-      "setup --inherit takes no directories (it inherits an existing remote set)",
-    );
-  }
-  if (!options.bucket) {
-    throw new ParseArgsError(
-      `Inheriting needs the bucket holding the set:\n` +
-        `  s3cab setup ${name} --inherit --bucket <bucket>`,
-    );
-  }
-  const bucket = options.bucket;
-  if (!creating) {
-    throw new Error(
-      `Set '${name}' already exists locally. Delete it first to re-inherit it ` +
-        `from the bucket.`,
-    );
-  }
-
-  // First S3 touch: the set env doesn't exist yet, so the user env loaded at the
-  // entry point supplies the credentials.
-  const info = await readRemoteInfo(bucket, name);
-  if (!info) {
-    const available = await listRemoteSets(bucket);
-    throw new Error(
-      `No backup set '${name}' in bucket '${bucket}' to inherit.\n` +
-        (available.length
-          ? `Sets in this bucket:\n  ${available.join("\n  ")}`
-          : `This bucket holds no backup sets yet.`),
-    );
-  }
-
-  const { dirs, exclude } = await readSetConfig(bucket, name);
-  const set = writeSet(name, { dirs, bucket });
-  // The remote config is reproduced exactly — including *no* exclude file for
-  // a legacy set that never had one. No starter here: silently activating
-  // excludes on inherit would narrow what an established set backs up.
-  if (exclude !== undefined) {
-    writeSetExclude(name, exclude);
-  }
-
-  // Pull the set's snapshot files down so the new machine lands with full
-  // local history — this is what lets `compare`/`list` stay local-only (ADR-0027).
-  console.warn(`Inheriting '${name}' from bucket '${bucket}'…`);
-  const pulled = await downloadRemoteSnapshots(bucket, name, set.snapshotsDir);
-  console.warn(
-    pulled > 0
-      ? `Pulled ${pulled} snapshot${pulled === 1 ? "" : "s"} from the cloud — ` +
-          `local history is ready (try: s3cab list ${name}).`
-      : `No snapshots in the cloud for '${name}' yet — nothing to pull.`,
-  );
-
-  // A normal set always has member dirs (create requires ≥1 directory), so an empty
-  // `dirs` here means a partial/legacy remote marker. Not fatal — restore reads
-  // paths from the snapshot, not dirs.txt, so the set can still recover files —
-  // but warn, since it can't snapshot/backup until directories are added.
-  if (dirs.length === 0) {
-    console.warn(
-      `Inherited '${name}' with no member directories from the remote config. ` +
-        `It can restore, but can't snapshot or back up until you add directories ` +
-        `(one absolute path per line) to:\n` +
-        `  ${set.dirsPath}`,
-    );
-  }
-
-  // Re-stamp ownership to this machine; preserve the original CREATED.
-  await writeRemoteInfo(bucket, name, {
-    owner: hostname(),
-    created: info.created,
-  });
   return set;
 }

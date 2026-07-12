@@ -57,7 +57,8 @@ them back**. You create a set once, then the commands act on it:
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab aws <bucket>`          | Print the steps to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
 | `s3cab provider`              | Set, clear, or show how s3cab connects to your storage provider — an AWS profile, or a custom endpoint/region/keys for any S3-compatible provider ([non-AWS setup](guide/aws.md#non-aws-providers)). |
-| `s3cab setup <set> <directory>…` | Create or inherit a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
+| `s3cab setup <set> <directory>…` | Create a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
+| `s3cab reconnect <set>`       | Attach this machine to a set that already exists in the cloud — a replacement/recovery machine (`--bucket` holds it). Pulls its config + history, not the files (that's `restore`). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
@@ -84,8 +85,8 @@ With no `paths…` it restores the **whole set** — the disaster-recovery backs
 back to the locations they were backed up from; pass `--output <dir>` to recover under a
 directory you choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is
 how you restore a backup whose original paths don't fit this machine — a different drive
-layout, or another OS. To recover onto a **fresh machine**, re-create the set pointed at the
-existing backup — `s3cab setup <set> --inherit --bucket <bucket>` — then `restore`.
+layout, or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
+`s3cab reconnect <set> --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
 and `upload`, also work already — advanced building blocks covered under
@@ -118,7 +119,7 @@ One bucket can hold **many backup sets** — your own, and other people's or mac
 sharing `objects/`, so duplicate content is stored once across everything in the bucket. Each
 set keeps its own snapshot files under its own prefix, `snapshots/<set>/` (a set name is
 unique within a bucket: claimed first-come, and taken over on a new machine with
-`setup --inherit`). A snapshot file only ever appears in `snapshots/` after every file it
+`reconnect`). A snapshot file only ever appears in `snapshots/` after every file it
 references is safely in `objects/`, so any snapshot file you find is complete and restorable.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
