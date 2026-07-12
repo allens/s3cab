@@ -90,6 +90,23 @@ never guesses that a move happened — a path is only reported as moved when it
 is actually gone from the newer snapshot. (Git's rename detection draws the
 same line.)
 
+## A directory added to or removed from the set
+
+A compare is between two snapshots, and each snapshot records the set's directories at the
+time it was taken. If you change the set's directories — by editing its `dirs.txt` — between
+two snapshots, that change shows up in the report as files **added** or **deleted**:
+
+- **remove a directory** from `dirs.txt`, and every file under it appears under `Deleted` in
+  the next comparison — not because the files were deleted from disk, but because they are no
+  longer in the set's scope;
+- **add a directory**, and its files appear under `Added`.
+
+This is expected: the report faithfully shows the difference between the two snapshots, and the
+set genuinely covered different directories in each. If a comparison shows a surprising wave of
+deletions, check whether the set's directories changed between the two snapshots (`s3cab list
+<set>` shows the current directories). Restoring either snapshot still recovers exactly what
+that snapshot contained.
+
 ## Files that couldn't be read
 
 A file the snapshot couldn't hash (for example, permission denied) is recorded

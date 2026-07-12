@@ -119,6 +119,16 @@ export async function reattach(name, directories = [], options = {}) {
         `(one absolute path per line) to:\n` +
         `  ${set.dirsPath}`,
     );
+  } else {
+    // The directory list came verbatim from the machine that created the set, so
+    // its paths may not exist here (a different drive layout or OS). We don't
+    // check them now (#5 — no speculative machinery); a backup validates them and
+    // fails loudly if any are missing (ADR-0054). This is the proactive nudge.
+    console.warn(
+      `The directory list came from the machine that created '${name}'. ` +
+        `If this machine's layout differs, edit it before backing up:\n` +
+        `  ${set.dirsPath}`,
+    );
   }
 
   // Re-stamp ownership to this machine; preserve the original CREATED.

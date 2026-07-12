@@ -3,7 +3,25 @@ import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
-import { walkDirs } from "./walk.mjs";
+import { walkDirs, walkSet } from "./walk.mjs";
+
+/** @import { BackupSet } from "./sets.mjs" */
+
+/**
+ * A minimal resolved set for `walkSet` — it reads only name/dirs/dirsPath/
+ * excludePath (the exclude path points at a nonexistent file so no patterns
+ * load); the cast covers the other derived fields.
+ * @param {string} root
+ * @param {string[]} dirs
+ * @returns {BackupSet}
+ */
+const setOf = (root, dirs) =>
+  /** @type {BackupSet} */ ({
+    name: "photos",
+    dirs,
+    dirsPath: join(root, "dirs.txt"),
+    excludePath: join(root, "no-such-exclude.txt"),
+  });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -219,4 +237,46 @@ describe("walkDirs", () => {
       assert.equal(np0.reason, "Unsupported file type");
     },
   );
+});
+
+describe("walkSet dirs guard (ADR-0054)", () => {
+  it("walks a set whose directories all exist", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "a.txt");
+    const root = realpathSync.native(dir.path);
+    const { files } = walkSet(setOf(dir.path, [root]));
+    assert.deepStrictEqual(relPaths(root, files), ["a.txt"]);
+  });
+
+  it("aborts and lists every unavailable directory, pointing at dirs.txt", async () => {
+    await using dir = await mkTmpDir();
+    const present = realpathSync.native(dir.path);
+    const missing = join(present, "gone");
+    assert.throws(
+      () => walkSet(setOf(present, [present, missing])),
+      (error) =>
+        error instanceof Error &&
+        /aren't available/.test(error.message) &&
+        error.message.includes(missing) &&
+        error.message.includes("dirs.txt"),
+    );
+  });
+
+  it("rejects a member path that is a file, not a directory", async () => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "notadir.txt");
+    const root = realpathSync.native(dir.path);
+    assert.throws(
+      () => walkSet(setOf(root, [join(root, "notadir.txt")])),
+      /aren't available/,
+    );
+  });
+
+  it("rejects an empty dirs list (nothing to back up)", async () => {
+    await using dir = await mkTmpDir();
+    assert.throws(
+      () => walkSet(setOf(dir.path, [])),
+      /no directories to back up[\s\S]*dirs\.txt/,
+    );
+  });
 });
