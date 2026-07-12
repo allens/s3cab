@@ -89,7 +89,10 @@ from invisible local state — "does this set already exist locally?" — rather
 flag. This was flagged during the grilling session as a real shape smell, but deliberately **left
 unfixed**: it's idempotent and low-stakes (re-running it just re-publishes the same config), and
 fixing it is orthogonal to the rename/merge decided here. Left as a future improvement, not
-part of this ADR's consequences.
+part of this ADR's consequences. _(Resolved by [ADR-0052](0052-retire-setup-update-mode.md): the
+update mode was **retired** — a set's directories are edited in `dirs.txt` — rather than made an
+explicit flag. The `sets` command itself was already dropped by
+[ADR-0036](0036-setup-mutates-list-shows-drop-sets.md).)_
 
 ## Consequences
 

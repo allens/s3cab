@@ -54,8 +54,9 @@ const result = (over) => ({
 // renderer gets its cases here.
 
 /**
- * A minimal `BackupSet` for the renderer — it reads only name/bucket/dirs, so
- * the derived path fields are elided (cast covers the missing ones).
+ * A minimal `BackupSet` for the renderer — it reads name/bucket/dirs and
+ * `dirsPath`, so the other derived path fields are elided (cast covers the
+ * missing ones).
  * @param {string} name
  * @param {string} bucket
  * @param {string[]} dirs
