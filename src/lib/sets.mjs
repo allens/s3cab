@@ -91,14 +91,18 @@ export function writeSetExclude(name, text) {
 /**
  * The starter `exclude.txt` a new set is born with (`setup` create only, via
  * `seedStarterExclude` below; inherit reproduces the remote config exactly and
- * never seeds — setup.mjs). The active
- * patterns are strictly "you'd almost never want this backed up": regenerable
- * dependency trees and OS metadata/system noise. Anything arguable ships
- * commented out — a backup tool must not silently skip files a user might mean
- * to keep. The header doubles as the topic's discovery hook: it points at
- * 's3cab help exclude' at the exact moment the user is editing patterns.
- * Patterns use '/' (portable on every OS; matching is case-insensitive on
- * Windows), mirroring guide/exclude.md.
+ * never seeds — setup.mjs). The active patterns are "you'd almost never want
+ * this backed up": regenerable dependency trees, VCS metadata (`.git` — its
+ * working internals churn every commit, and the history normally lives on the
+ * remote), and OS metadata/system noise. `.git` is defaulted-out but *disclosed*
+ * — `setup` lists every active pattern (setup.mjs), so the skip is visible, not
+ * silent, keeping faith with "a backup tool must not silently skip files a user
+ * might mean to keep"; genuinely arguable patterns (build output, logs, temp
+ * files) still ship commented ([ADR-0050](../../docs/adr/0050-default-exclude-git-with-disclosure.md)).
+ * The header doubles as the topic's discovery hook: it points at 's3cab help
+ * exclude' at the exact moment the user is editing patterns. Patterns use '/'
+ * (portable on every OS; matching is case-insensitive on Windows), mirroring
+ * guide/exclude.md.
  */
 export const starterExclude = `# Files and directories this backup set skips — one glob pattern per line.
 # '/' separates directories on every OS. '**/' matches any depth; a trailing
@@ -106,25 +110,25 @@ export const starterExclude = `# Files and directories this backup set skips —
 # are ignored. Syntax help: 's3cab help exclude'
 # Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md
 
-# Regenerable dependency trees — huge and never worth backing up
+# Regenerable dependency trees and VCS metadata — huge and/or already on your remote
 **/node_modules/
+**/.git/
 
 # Operating-system noise (safe to skip on any platform)
 **/.DS_Store
 **/Thumbs.db
+**/._*
+**/desktop.ini
 $RECYCLE.BIN/
 System Volume Information/
 
 # Common suggestions — uncomment any that fit this set
-# **/.git/
 # **/dist/
 # **/build/
 # **/coverage/
 # **/__pycache__/
 # **/*.tmp
 # **/*.log
-# **/._*
-# **/desktop.ini
 `;
 
 /**

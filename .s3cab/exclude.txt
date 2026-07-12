@@ -6,9 +6,17 @@
 # directories, '*' matches within a single segment, and a trailing '/' marks a
 # directory. (The walker always skips a .s3cab/ directory, so it needs no rule here.)
 
-# Dependencies and VCS metadata
+# Dependencies and VCS metadata (matches the default a new set is born with)
 **/node_modules/
-.git/
+**/.git/
+
+# Operating-system noise (safe to skip on any platform)
+**/.DS_Store
+**/Thumbs.db
+**/._*
+**/desktop.ini
+$RECYCLE.BIN/
+System Volume Information/
 
 # Build output and packaged binaries (esbuild bundle + SEA executable)
 build/
