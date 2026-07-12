@@ -16,7 +16,8 @@ This is the **distilled essence** of the [Command Line Interface
 Guidelines](https://clig.dev) (clig.dev), the project's chosen authority for CLI
 *shape* (CLAUDE.md names it the bible; the companion authority for error
 *wording* is [ADR-0030](../../../docs/adr/0030-error-message-guidelines.md)).
-s3cab is a **backup CLI for ordinary people** — largely non-interactive, run both
+s3cab is a **backup CLI for a casual but technical user** (someone who can stand up
+an S3-compatible service, not a git-native developer) — largely non-interactive, run both
 by hand and from scripts/cron — so the guidance below is filtered to that case
 and anchored to the ADRs where s3cab has already decided something. Apply it; a
 violation is a review finding (the `/review` Standards axis + Copilot).
@@ -165,7 +166,9 @@ these rules live:
 
 - **Name for consumers, not developers** (→
   [ADR-0012](../../../docs/adr/0012-consumer-vocabulary-naming.md)) — plain backup
-  vocabulary over git/dev jargon. Lowercase, short, easy to type.
+  vocabulary over git/dev jargon, because plain language reads clearer for everyone (not
+  because the user is non-technical). Consumer-honest where it costs nothing; keep a genuinely
+  technical term (`verify`, `--remote`) rather than contort. Lowercase, short, easy to type.
 
 ---
 

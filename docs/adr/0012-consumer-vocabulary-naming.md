@@ -2,8 +2,15 @@
 
 **Status:** accepted
 
-The audience is **ordinary, non-technical people**, so user-facing names favour consumer
-backup vocabulary over git/dev jargon. The canonical terms are pinned in
+The audience is a **casual but technical user** — comfortable enough to stand up an
+S3-compatible service, but not a developer who lives in git. So user-facing names favour plain
+consumer backup vocabulary over git/dev jargon — **not** because the user can't handle a
+technical term, but because plain language reads more clearly *for everyone* (Nielsen's
+heuristic #9 urges plain language even for expert users —
+[ADR-0030](0030-error-message-guidelines.md)). The bar is consumer-honest naming where it costs
+nothing, **not** contorting to hide a genuinely technical concept from a technical user — which
+is why `verify`, `--remote`, and the plumbing `prop`/`tree`/`upload` were weighed and *kept*
+(see "Calls weighed but kept as-is" below). The canonical terms are pinned in
 [CONTEXT.md](../../CONTEXT.md); this ADR records the naming *calls* — weighed on purpose,
 don't re-litigate casually.
 
