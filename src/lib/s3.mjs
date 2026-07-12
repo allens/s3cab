@@ -279,6 +279,9 @@ export async function getStream(uri) {
 }
 
 const PROGRESS_BAR_RANGE = 20;
+// Width to pad each humanized size to. "999.9GB" is 7 chars, so 8 aligns every
+// realistic per-file size; a rarer giant just nudges its own line's path right.
+const SIZE_COL = 8;
 const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 
 /**
@@ -288,11 +291,13 @@ const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
  * rendering a misleading "of 0B". Returns the rendered `message` and the bar
  * `fill` (lit chars), which the handler reuses to position the cursor.
  *
- * Field order is deliberate: the fixed-width bar leads, then the byte counts,
- * then the variable-length path last — so the bar's edge and the counts stay put
- * as paths vary from file to file (the ls -l / log-line convention: unbounded
- * free text trails). Because the bar starts at column 0, `cursor: fill` still
- * parks the terminal cursor inside it.
+ * Field order and padding are deliberate: the fixed-width bar leads, then the
+ * byte counts in fixed-width columns (progress right-aligned so its digits grow
+ * leftward from a fixed edge, total left-aligned), then the variable-length path
+ * last. Padding the sizes to `SIZE_COL` makes the path start at a constant column
+ * so the paths left-align, and the ls -l / log-line convention (unbounded free
+ * text trails) keeps everything before it aligned as files vary. Because the bar
+ * starts at column 0, `cursor: fill` still parks the terminal cursor inside it.
  *
  * The label is the source *path*, never the object's `s3://bucket/objects/<hash>`
  * key: the content-addressed hash is storage machinery of no interest to someone
@@ -305,10 +310,13 @@ const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
   const fill = total ? Math.round((loaded / total) * PROGRESS_BAR_RANGE) : 0;
   const bar = "*".repeat(fill) + ".".repeat(PROGRESS_BAR_RANGE - fill);
+  const loadedCol = formatByteValue(loaded).padStart(SIZE_COL);
+  // Reserve the " of <total>" width even when total is unknown, so the trailing
+  // path lands in the same column either way.
   const sizes = total
-    ? `${formatByteValue(loaded)} of ${formatByteValue(total)}`
-    : formatByteValue(loaded);
-  return { message: `${bar}  uploaded ${sizes}  ${label}`, fill };
+    ? `${loadedCol} of ${formatByteValue(total).padEnd(SIZE_COL)}`
+    : loadedCol.padEnd(SIZE_COL + " of ".length + SIZE_COL);
+  return { message: `${bar}  ${sizes}  ${label}`, fill };
 };
 
 /**
