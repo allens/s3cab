@@ -27,6 +27,11 @@ import { isInteractive } from "../lib/style.mjs";
 // write targets your only set (and errors, listing them, if several exist, since
 // writing credentials to the wrong set would be as bad as a missing arg), while a
 // bare `provider` show summarizes every set.
+//
+// A set is exactly one credential mode: a profile OR access keys (ADR-0055) —
+// alternative ways to sign in, not layers. Setting one clears the other on that
+// set (with a note in the confirmation), and passing both in one call is rejected.
+// Endpoint and region are orthogonal connection knobs, untouched by the switch.
 
 /** The knobs `--unset` accepts, and the env keys each one clears. */
 const knobs = {
@@ -261,6 +266,9 @@ async function readKeys() {
  * Omitting the set name takes the sole-set default for a write/`--unset` (erroring
  * if several sets exist), and summarizes every set for a bare show (ADR-0055).
  *
+ * A set holds one credential mode: `--profile` and `--keys` are mutually exclusive
+ * — setting one clears the other on that set (endpoint/region are untouched).
+ *
  * @param {string} [setName] - A backup set to scope to; omit to target your only
  *   set (write/unset) or summarize all sets (show)
  * @param {object} [options]
@@ -282,6 +290,14 @@ export async function provider(setName, options = {}) {
   if (unset !== undefined && setting) {
     throw new ParseArgsError(
       "Pass --unset on its own, without other settings.",
+    );
+  }
+
+  // One credential mode per set (ADR-0055): a profile and access keys are two
+  // alternative ways to sign in, so setting both in one call is a contradiction.
+  if (profile !== undefined && keys) {
+    throw new ParseArgsError(
+      "Set either a profile or access keys, not both — they are two alternative ways to sign in.",
     );
   }
 
@@ -350,9 +366,31 @@ export async function provider(setName, options = {}) {
     set.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
   }
 
+  // Enforce the one-mode rule against what's already on disk: writing a profile
+  // clears any access keys, and writing keys clears any profile (endpoint and
+  // region are orthogonal connection knobs — left alone). Read the current values
+  // first so the confirmation can name what was replaced.
+  const current = parseEnvFile(scope.path);
+  /** @type {string[]} */
+  let clear = [];
+  let replaced = "";
+  if (
+    profile !== undefined &&
+    (current.AWS_ACCESS_KEY_ID || current.AWS_SECRET_ACCESS_KEY)
+  ) {
+    clear = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+    replaced = ", replacing its access keys";
+  } else if (keys && current.AWS_PROFILE) {
+    clear = ["AWS_PROFILE"];
+    replaced = `, replacing its profile '${current.AWS_PROFILE}'`;
+  }
+
   // The set's directory already exists (resolveScope resolved it); mkdir is a
   // harmless owner-only guard. The env file may carry secrets (see lib/env-file.mjs).
   mkdirSync(dirname(scope.path), { recursive: true, mode: 0o700 });
   updateEnvFile(scope.path, updates);
-  return `Set ${set.join(", ")} for ${scope.phrase} (${tildeify(scope.path)}).`;
+  for (const key of clear) {
+    removeEnvKey(scope.path, key);
+  }
+  return `Set ${set.join(", ")} for ${scope.phrase}${replaced} (${tildeify(scope.path)}).`;
 }

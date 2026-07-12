@@ -318,6 +318,85 @@ describe("provider --keys", () => {
   });
 });
 
+describe("provider one mode per set", () => {
+  it("writing a profile clears existing access keys, and says so", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    makeSet();
+    seedSetEnv("photos", "AWS_ACCESS_KEY_ID=AKIA\nAWS_SECRET_ACCESS_KEY=shh\n");
+    captureWarn(t);
+
+    const out = await provider("photos", { profile: "work" });
+
+    const env = setEnv();
+    assert.equal(env.AWS_PROFILE, "work");
+    assert.equal(env.AWS_ACCESS_KEY_ID, undefined); // the other mode is gone
+    assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.match(out, /replacing its access keys/);
+  });
+
+  it("writing keys clears an existing profile, naming it", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    seedSetEnv("photos", "AWS_PROFILE=work\n");
+    stdin.isTTY = false;
+    promptLines = ["AKIAEXAMPLE", "secret"];
+
+    const out = await provider("photos", { keys: true });
+
+    const env = setEnv();
+    assert.equal(env.AWS_ACCESS_KEY_ID, "AKIAEXAMPLE");
+    assert.equal(env.AWS_PROFILE, undefined); // the profile is gone
+    assert.match(out, /replacing its profile 'work'/);
+  });
+
+  it("keeps endpoint and region when switching to a profile", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    makeSet();
+    seedSetEnv(
+      "photos",
+      "AWS_ENDPOINT_URL_S3=https://s3.example\nAWS_REGION=auto\n" +
+        "AWS_ACCESS_KEY_ID=AKIA\nAWS_SECRET_ACCESS_KEY=shh\n",
+    );
+    captureWarn(t);
+
+    await provider("photos", { profile: "work" });
+
+    const env = setEnv();
+    assert.equal(env.AWS_PROFILE, "work");
+    assert.equal(env.AWS_ACCESS_KEY_ID, undefined); // keys cleared
+    assert.equal(env.AWS_ENDPOINT_URL_S3, "https://s3.example"); // knob kept
+    assert.equal(env.AWS_REGION, "auto"); // knob kept
+  });
+
+  it("says nothing about replacing when the other mode was absent", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    makeSet();
+    captureWarn(t);
+
+    const out = await provider("photos", { profile: "work" });
+
+    assert.doesNotMatch(out, /replacing/);
+  });
+
+  it("rejects --profile and --keys in one call", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    await assert.rejects(
+      () => provider("photos", { profile: "work", keys: true }),
+      /either a profile or access keys/,
+    );
+  });
+});
+
 describe("provider --unset", () => {
   it("removes the AWS_PROFILE line, preserving the bucket", async (t) => {
     await using dir = await mkTmpDir();
