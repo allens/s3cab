@@ -282,16 +282,22 @@ const PROGRESS_BAR_RANGE = 20;
 const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
 
 /**
- * Build the upload-progress line (pure): an ASCII bar plus the humanized byte
+ * Build the upload-progress line (pure): an ASCII bar and the humanized byte
  * counts, labelled by the local file being uploaded. `total` can be absent in an
  * httpUploadProgress event, so it omits the "of <total>" segment rather than
  * rendering a misleading "of 0B". Returns the rendered `message` and the bar
  * `fill` (lit chars), which the handler reuses to position the cursor.
  *
+ * Field order is deliberate: the fixed-width bar leads, then the byte counts,
+ * then the variable-length path last — so the bar's edge and the counts stay put
+ * as paths vary from file to file (the ls -l / log-line convention: unbounded
+ * free text trails). Because the bar starts at column 0, `cursor: fill` still
+ * parks the terminal cursor inside it.
+ *
  * The label is the source *path*, never the object's `s3://bucket/objects/<hash>`
  * key: the content-addressed hash is storage machinery of no interest to someone
  * backing up files (design #1), so the human-facing line names the file (the
- * hash↔path mapping lives in the snapshot / `S3CAB_DEBUG` sidecar).
+ * file's stored hash is recorded in the snapshot manifest).
  * @param {import("@aws-sdk/lib-storage").Progress} progress
  * @param {string} label - The local path of the file being uploaded
  * @returns {{ message: string, fill: number }}
@@ -302,7 +308,7 @@ export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
   const sizes = total
     ? `${formatByteValue(loaded)} of ${formatByteValue(total)}`
     : formatByteValue(loaded);
-  return { message: `${bar} ${label}: uploaded ${sizes} `, fill };
+  return { message: `${bar}  uploaded ${sizes}  ${label}`, fill };
 };
 
 /**

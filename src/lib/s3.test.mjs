@@ -208,10 +208,25 @@ describe("formatUploadProgress", () => {
       { loaded: 1000, total: 10000 },
       "photos/beach.jpg",
     );
-    assert.match(message, /photos\/beach\.jpg: uploaded /);
+    assert.match(message, /photos\/beach\.jpg/);
     // The content-addressed key is storage machinery, never shown to the user.
     assert.doesNotMatch(message, /s3:\/\//);
     assert.doesNotMatch(message, /objects\//);
+  });
+
+  it("leads with the fixed-width bar and trails with the variable path", () => {
+    const { message } = formatUploadProgress(
+      { loaded: 1000, total: 10000 },
+      "photos/beach.jpg",
+    );
+    // Bar first (fixed 20 chars), path last: fixed columns lead so the bar edge
+    // and byte counts stay aligned as paths vary from file to file.
+    assert.match(message, /^[*.]{20} /);
+    assert.match(message, /photos\/beach\.jpg$/);
+    assert.ok(
+      message.indexOf("kB") < message.indexOf("photos"),
+      "byte counts must precede the trailing path",
+    );
   });
 
   it("omits the 'of <total>' segment when total is unknown", () => {
