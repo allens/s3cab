@@ -198,8 +198,8 @@ describe("formatUploadProgress", () => {
       { loaded: 1000, total: 10000 },
       "photos/beach.jpg",
     );
-    assert.match(message, /uploaded 1kB of 10kB /);
-    // Guards against the regression to raw integers ("uploaded 1000 of 10000").
+    assert.match(message, /1kB of 10kB/);
+    // Guards against the regression to raw integers ("1000 of 10000").
     assert.doesNotMatch(message, /\b1000\b/);
     assert.doesNotMatch(message, /\b10000\b/);
   });
@@ -230,14 +230,39 @@ describe("formatUploadProgress", () => {
     );
   });
 
+  it("pads the byte columns so the path starts at a fixed column", () => {
+    const small = formatUploadProgress({ loaded: 41, total: 41 }, "a.txt");
+    const large = formatUploadProgress(
+      { loaded: 176400, total: 176400 },
+      "b.txt",
+    );
+    // A tiny "41B" file and a "176.4kB" file must put their paths in the same
+    // column — the whole point of padding the size fields.
+    assert.equal(
+      small.message.indexOf("a.txt"),
+      large.message.indexOf("b.txt"),
+    );
+  });
+
   it("omits the 'of <total>' segment when total is unknown", () => {
     const { message, fill } = formatUploadProgress(
       { loaded: 1500 },
       "photos/beach.jpg",
     );
-    assert.match(message, /uploaded 1\.5kB /);
+    assert.match(message, /1\.5kB/);
     assert.doesNotMatch(message, / of /); // no misleading "of 0B"
     assert.equal(fill, 0); // no bar fill without a known total
+  });
+
+  it("keeps the path aligned whether or not the total is known", () => {
+    const known = formatUploadProgress({ loaded: 41, total: 41 }, "x.txt");
+    const unknown = formatUploadProgress({ loaded: 41 }, "x.txt");
+    // The unknown-total line reserves the " of <total>" width, so the path does
+    // not jump left when a progress event arrives without a total.
+    assert.equal(
+      known.message.indexOf("x.txt"),
+      unknown.message.indexOf("x.txt"),
+    );
   });
 
   it("fills the bar proportionally when total is known", () => {
