@@ -119,8 +119,9 @@ Attaching *this machine* to a backup set that already exists in the cloud — ma
 **succession**: the old machine is being retired, replaced, or recovered after loss
 (`s3cab reattach <set> --bucket <b>`, ADR-0053). Pulls the set's config and snapshot
 *history* down (**not** the backed-up files — that's **restore**), recreates it locally, and
-re-stamps ownership to this machine. Not a way to run two live machines off one set. Split out
-of the old `setup --inherit`.
+re-stamps ownership to this machine. Meant for succession, not for running two live machines off
+one set — though it never disables the prior machine, so that stays possible (a discouraged
+power-user case). Split out of the old `setup --inherit`.
 _Avoid_: reconnect (the runner-up — implies a live link; "attach" is the backup drive's own verb,
 ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over.
 

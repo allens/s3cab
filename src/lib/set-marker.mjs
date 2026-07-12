@@ -10,7 +10,7 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 //   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (ISO minute)
 //
 // `info` doubles as the collision-registration marker and the atomic claim token:
-// `sets` claims a name by conditional-PUTting `info` (first writer wins), and the
+// `setup` claims a name by conditional-PUTting `info` (first writer wins), and the
 // presence of `info` is how the collision check and `reattach` learn a name is
 // taken. The set name is canonical `[a-z0-9-]+` (validateSetName), so it is a safe
 // key segment with no escaping. The set `env` is NEVER pushed here (it may hold
