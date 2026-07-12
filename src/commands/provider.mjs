@@ -69,10 +69,9 @@ function resolveScope(setName) {
  * post-layering effective values — the always-on notice from `client()` shows
  * that at use-time), as legible `noun: value` status lines, one per configured
  * knob. Access keys report presence only — never the secret. A set with nothing
- * of its own falls back to the user default, so its "none" message says so; a
- * bare default scope points at the two ways in (an AWS profile, or the non-AWS
- * setup steps in `help provider`). When a profile *is* set, it runs the same
- * `~/.aws` cross-check the set path warns on, so *looking* also flags a broken
+ * of its own falls back to the ambient AWS setup, so its "none" message says so
+ * and points at the set-scoped way in. When a profile *is* set, it runs the same
+ * `~/.aws` cross-check the write path warns on, so *looking* also flags a broken
  * profile. Async for that lookup; best-effort (`listProfiles` → `undefined`
  * means "couldn't read", so skip the diagnostic rather than wrongly claim it's
  * absent).

@@ -167,21 +167,17 @@ raw escape hatch for seeding a file into a bucket that isn't one of your sets.)
 s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
 edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
 
-1. s3cab's own **env files**, if present (handy for `AWS_*` keys, a profile, or an endpoint —
-   including some S3-compatible providers). Highest precedence first, a file always beating
-   the shell:
-   - **`~/.s3cab/sets/<set>/env`** — per-backup-set (where `s3cab setup` records the set's
-     bucket; add per-set auth overrides here). It takes effect as the set-based commands arrive
-     with `backup`;
-   - **`~/.s3cab/env`** — your per-user defaults; the base layer under the set, and where auth
-     lives for the common single-bucket case.
-
-   (s3cab does **not** read a `.env` from the current directory.) The **`provider`** command
-   writes these files for you: `s3cab provider --profile <name>` for an AWS profile,
+1. the active backup **set's env file**, `~/.s3cab/sets/<set>/env`, if present (handy for
+   `AWS_*` keys, a profile, or an endpoint — including some S3-compatible providers). It's the
+   one s3cab config layer — where `s3cab setup` records the set's bucket, and where its auth
+   lives — applied over your shell (a file value always beats the shell). s3cab does **not**
+   read a `.env` from the current directory, and there is no per-user s3cab file: your
+   machine-wide default is your ordinary AWS setup (step 2). The **`provider`** command writes a
+   set's file for you: `s3cab provider --profile <name>` for an AWS profile,
    `--endpoint <url> --region <r>` for an S3-compatible provider, and `--keys` for an access
-   key + secret (prompted or piped — never flags). Add a set name to scope any of it to one
-   set, e.g. a set backing up to a different account. Long-lived provider keys needn't sit in
-   these files in plaintext — the
+   key + secret (prompted or piped — never flags). A set signs in **one** way — a profile *or*
+   keys, not both — so setting one clears the other. Long-lived provider keys needn't sit in
+   plaintext — the
    [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
    them from a secret manager through a `credential_process` profile.
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO

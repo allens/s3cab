@@ -118,7 +118,13 @@ The steps (also available offline via `s3cab help provider`):
 3. **Create an access key / token scoped to that bucket**, with read, write,
    delete, and list on its objects. Where to do this differs by provider
    (R2: API Tokens; B2: Application Keys; Wasabi: sub-users).
-4. **Point s3cab at the provider** — the endpoint and region by flag, the
+4. **Create a backup set** in the bucket — config is per-set now, so the set
+   exists before you point s3cab at the provider:
+
+   ```console
+   > s3cab setup <name> <directory>... --bucket <bucket>
+   ```
+5. **Point s3cab at the provider** — the endpoint and region by flag, the
    key + secret at the prompt (never flags, which would leak into shell
    history; piping two lines to `--keys` works for scripts):
 
@@ -129,14 +135,10 @@ The steps (also available offline via `s3cab help provider`):
    Secret access key (hidden):
    ```
 
-   Both write `~/.s3cab/env` (created owner-only), the base layer every backup
-   set inherits — add a set name to scope any of it to one set. Some providers
-   want a real region label (e.g. `us-east-1`); R2 takes `auto`.
-5. **Create a backup set** in the bucket:
-
-   ```console
-   > s3cab setup <name> <directory>... --bucket <bucket>
-   ```
+   With one set these target it by default (name it explicitly if you have
+   several). They write the set's env file (`~/.s3cab/sets/<set>/env`, created
+   owner-only). Some providers want a real region label (e.g. `us-east-1`); R2
+   takes `auto`.
 
 s3cab automatically drops AWS-only request features (server-side encryption,
 intelligent-tiering, the default integrity-checksum trailer) when a custom
@@ -144,9 +146,9 @@ endpoint is set, so a plain bucket elsewhere just works.
 
 ### Keeping the secret out of plaintext
 
-`--keys` stores the key pair in `~/.s3cab/env` — owner-only (mode `0600`,
-directories `0700`), but still plaintext on disk. The secret can stay out of the
-file entirely: keep it in a secret manager and hand it to s3cab through the
+`--keys` stores the key pair in the set's env file (`~/.s3cab/sets/<set>/env`) —
+owner-only (mode `0600`, directories `0700`), but still plaintext on disk. The
+secret can stay out of the file entirely: keep it in a secret manager and hand it to s3cab through the
 standard credential chain's **`credential_process`** hook, which s3cab already
 supports with no extra configuration.
 

@@ -232,15 +232,15 @@ recipe, ending back here at --profile.
 
 How s3cab resolves credentials:
 
-1. s3cab loads its own env files first, if present. These set AWS_*
+1. s3cab loads the active set's env file first, if present. It sets AWS_*
    variables — a profile, region, endpoint, or keys (all settable with
-   this command). Highest precedence first (a file always beats the
-   shell):
-     ~/.s3cab/sets/<set>/env  per-backup-set - the set's bucket + per-set
-                              overrides (written by 's3cab setup')
-     ~/.s3cab/env             per-user defaults - the base layer under the set,
-                              where auth lives for the common single-bucket case
-   s3cab does NOT read a .env from the current directory.
+   this command). It is the one s3cab config layer, applied over your
+   shell (a file always beats the shell):
+     ~/.s3cab/sets/<set>/env  the set's bucket + how to reach it
+                              (written by 's3cab setup' and this command)
+   There is no per-user s3cab file; your machine-wide default is your
+   ordinary AWS setup (step 2). s3cab does NOT read a .env from the
+   current directory.
 
 2. s3cab then uses the standard AWS SDK credential chain.
    This includes existing AWS_PROFILE, shared AWS profiles (including
@@ -254,6 +254,8 @@ Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
   - Keys are never taken via flags (they'd leak into shell history) —
     --keys prompts at a terminal, or reads two lines from stdin.
+  - A set signs in one way: a profile OR keys, not both. Setting one
+    with this command clears the other on that set.
   - For AWS, temporary credentials from profile-based setups are preferred
     over long-lived keys.
   - To keep a long-lived key/secret out of plaintext env files, store it
@@ -271,9 +273,9 @@ s3cab names the cause and shows the raw error. By cause:
 
   Invalid / rejected credentials
     Replace the credentials s3cab is using, by their source:
-    - env file: re-enter the key + secret with 's3cab provider --keys'
-      (add the set name if you scoped them to a set), or re-check
-      AWS_SESSION_TOKEN in ~/.s3cab/env (no stray quotes or spaces)
+    - the set's env file: re-enter the key + secret with
+      's3cab provider --keys <set>', or re-check a temporary
+      AWS_SESSION_TOKEN in your shell (no stray quotes or spaces)
     - a profile: renew it, and confirm AWS_PROFILE names the right one
     - SSO: run 'aws sso login' again
 

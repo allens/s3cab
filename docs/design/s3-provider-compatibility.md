@@ -158,4 +158,4 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 - Provider-aware bucket creation and IAM policy in `setup`.
 - ~~A friendlier per-destination endpoint/credential UX.~~ **Built** (2026-07): the
   `provider` command records endpoint/region by flag and the key pair by prompt/stdin,
-  user-wide or per set — [ADR-0047](../adr/0047-provider-command-neutral-config-door.md).
+  per set — [ADR-0047](../adr/0047-provider-command-neutral-config-door.md), [ADR-0055](../adr/0055-per-set-credentials-one-mode.md).

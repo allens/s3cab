@@ -21,8 +21,8 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  * @property {SetSnapshots[]} sets
  */
 /**
- * The provider settings a set's own env file overrides (ADR-0047) — absent
- * fields fall through to the user default. `keys` is presence only, never the
+ * The provider settings a set's own env file carries (ADR-0047) — absent fields
+ * fall through to your ambient AWS setup. `keys` is presence only, never the
  * secret.
  * @typedef {Object} ProviderOverrides
  * @property {string} [profile]

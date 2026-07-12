@@ -57,9 +57,9 @@ let _client;
  * empty profile (`AWS_PROFILE=`) counts as none.
  *
  * When given a `profileSource` (from env.mjs's `profileSource()`), it appends
- * where that profile came from — `(from set 'photos' config)`, `(from
- * ~/.s3cab/env)`, `(from your environment)` — so a surprising profile (a stale
- * shell export shadowing a set, say) is traceable, not a silent mystery.
+ * where that profile came from — `(from set 'photos' config)` or `(from your
+ * environment)` — so a surprising profile (a stale shell export shadowing a set,
+ * say) is traceable, not a silent mystery.
  *
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*

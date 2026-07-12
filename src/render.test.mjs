@@ -344,7 +344,7 @@ describe("renderList", () => {
     assert.match(text, /dirs \(.*docs\/dirs\.txt\):\n {2}\/data\/docs/);
     assert.match(text, /exclude file: .*docs\/exclude\.txt/);
     assert.match(text, /\nsnapshots:\n {2}2026-05-12T0946$/);
-    // A set on the user default shows no override block — absence IS the answer.
+    // A set with no provider settings of its own shows no block — absence IS the answer.
     assert.doesNotMatch(text, /provider overrides/);
   });
 

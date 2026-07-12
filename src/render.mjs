@@ -321,8 +321,8 @@ export function renderList(result) {
 /**
  * The set's own provider settings, as an indented block after the bucket —
  * where its backups actually go (ADR-0047). Rendered only when the set
- * overrides something; a set on the user default stays as before (the absence
- * IS the answer). Key presence only, never the secret.
+ * carries provider settings of its own; a set relying on the ambient AWS setup
+ * shows no block (the absence IS the answer). Key presence only, never the secret.
  * @param {ProviderOverrides} overrides
  * @returns {string[]}
  */
