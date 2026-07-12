@@ -223,18 +223,21 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
   });
 
-  it("uses the set-less template for a bare --bucket (no set in play)", () => {
-    // upload --bucket resolves no set, so the error can't name one — it reports
-    // the ambient failure and points back at sets.
+  it("uses the ambient template when no set is loaded (setup / upload --bucket)", () => {
+    // setup/reattach (the set doesn't exist yet) and upload --bucket resolve no
+    // set, so the error can't name one — it reports the ambient failure and
+    // steers to ambient creds (a profile or exported AWS_*), not `provider`
+    // (which needs a set to write to).
     const error = noCredentialsError(cause); // no set
     assert.equal(error.cause, cause);
     assert.match(error.message, /^No AWS credentials found\./);
-    assert.match(error.message, /raw --bucket with no set/);
+    assert.match(error.message, /runs on your ambient AWS credentials/);
     assert.match(
       error.message,
       /Could not load credentials from any providers/,
     );
     assert.doesNotMatch(error.message, /for set '/); // not set-scoped
+    assert.doesNotMatch(error.message, /--bucket/); // no longer --bucket-specific
     assert.match(error.message, /s3cab help provider/);
   });
 });

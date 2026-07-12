@@ -1,6 +1,6 @@
 # Per-set credentials: drop the user env layer; each set is one credential mode
 
-**Status:** accepted (2026-07-12) — **not yet implemented**. **Partly supersedes
+**Status:** accepted (2026-07-12) — **implemented** (2026-07-12, PR #183). **Partly supersedes
 [0025](0025-drop-per-bucket-env-layer.md)** (removes the *user* layer, leaving set > shell) and
 **amends [0022](0022-prepare-remote-set-front-door.md)** (there is no user layer to load at the
 entry point). Sharpens [0015](0015-standard-aws-credential-chain.md)'s "respect the existing AWS

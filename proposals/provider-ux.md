@@ -3,34 +3,19 @@
 Follow-ups from the ADR-0047 session (2026-07-09) that need a **shape discussion before
 building** — parked here so tomorrow's session can pick them up with context intact.
 
-## Implement ADR-0055 — per-set credentials, one mode per set (design DONE, build pending)
+## Onboarding: `setup` needs ambient credentials (open — surfaced by ADR-0055)
 
-The design is **settled and captured** in
-[ADR-0055](../docs/adr/0055-per-set-credentials-one-mode.md) (grilled 2026-07-12); this is the
-build to-do. Drops the s3cab **user** env layer (`~/.s3cab/env`) so the layering is **set >
-shell**, makes each set exactly **one credential mode** (profile XOR keys XOR ambient) enforced at
-`provider` write time, gives `provider` the **sole-set default**, and rewrites `noCredentialsError`
-around the **named set** (classifier → `{ annotation, diagnosis?, fix }` + one assembler; separate
-minimal template for the no-set `upload --bucket` case). Motivation: a walkthrough found the
-two-precedence-systems trap (a set-layer profile silently beaten by a user-layer key pair) and the
-user layer as a parallel-default mechanism — full context in the ADR.
+[ADR-0055](../docs/adr/0055-per-set-credentials-one-mode.md) (implemented, PR #183) made
+credentials per-set — but a set's creds can't be configured until the set exists, and `setup`
+needs credentials to claim the remote marker. So `setup` runs on **ambient** creds only. AWS
+users are fine (`~/.aws`); non-AWS (R2/B2) users regressed — they must export
+`AWS_ENDPOINT_URL_S3` + keys in the shell for the first `setup`, then persist them per-set with
+`provider` afterward.
 
-**Slice into ~3 PRs:**
-
-1. **Drop the user layer + thread the set into the error.** Remove the user layer from `env.mjs`
-   and the entry-point `loadEnv` (re-home/retire the `__S3CAB_ENV_LOADED` breadcrumb, ADR-0022);
-   `loadSet` records the resolved set (name + `envPath`) in module state; simplify
-   `profileSource`/`envSources`. `upload --bucket` becomes ambient-only. Update `env.test.mjs`.
-2. **One-mode-per-set + sole-set default in `provider`.** `--keys` clears `AWS_PROFILE` and
-   vice versa (with a confirmation line); no user scope; a no-set write targets the only set,
-   errors on ambiguity; bare show summarizes all sets. `provider --keys` prompts for id+secret
-   only (no session token). `provider.test.mjs`.
-3. **The error/guidance rewrite.** Invert `noCredentialsError`/`credentialGuidance` to the frame +
-   classifier shape; the five validated renderings are in the design-session transcript. Rewrite
-   [docs/design/auth.md](../docs/design/auth.md) to the set > shell model; touch README/guide
-   credential sections.
-
-An existing `~/.s3cab/env` is simply no longer read (pre-1.0; no migration).
+Options to decide: **(a)** accept + document the shell-export-first dance; **(b)** let `setup`
+take the provider knobs (`--endpoint`/`--region`/`--profile`/`--keys`) and write the new set's
+env *before* claiming the remote, so one command is self-sufficient; **(c)** leave as-is.
+Leaning (b) — needs the `cli-design` skill before building.
 
 ## `provider --check` — a connection probe (the flagship)
 

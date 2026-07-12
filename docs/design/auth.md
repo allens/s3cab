@@ -83,8 +83,8 @@ This allows all of the following to work with no `s3cab` special-casing:
 error](#authentication-error)): it names the set, leads with a pinpoint diagnosis
 when it can (a profile absent from `~/.aws`, or a non-AWS endpoint with no keys),
 shows where it looked (the set's env file + the ambient chain), and offers the
-fix. With no set in play (the `upload --bucket` hatch) it falls back to a shorter
-ambient-only message.
+fix. With no set loaded (`setup`/`reattach`, or the `upload --bucket` hatch) it
+falls back to a shorter ambient-only message.
 
 ## Security Model
 
@@ -142,8 +142,9 @@ command uses (`listProfiles`, [ADR-0031](../adr/0031-aws-profile-config-door.md)
 
 There is **no keys-present case**: keys present means the chain resolves
 *something*, so a wrong key surfaces later as a *request-time* rejection (below),
-never here. With **no set** in play (the `upload --bucket` hatch), a shorter
-set-less template reports the ambient failure and points back at sets. The
+never here. With **no set** loaded (`setup`/`reattach` — the set doesn't exist
+yet — or the `upload --bucket` hatch), a shorter template reports the ambient
+failure and steers to ambient credentials (a profile or exported `AWS_*`). The
 `~/.aws` lookup is async, so `resolveCredentials` performs it and hands the result
 to the (sync) error factory.
 

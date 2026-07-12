@@ -90,14 +90,17 @@ config — that's why there are no credentials.`,
 };
 
 /**
- * The credential error when no set was in play — the `upload --bucket` escape
- * hatch resolves none and relies purely on ambient AWS credentials (ADR-0055).
- * Deliberately minimal: it is the plumbiest plumbing command, so it skips the
- * set-scoped frame and just reports the ambient failure + the fix.
+ * The credential error when **no set is loaded** to carry its own auth, so the
+ * command runs on ambient credentials — `setup`/`reattach` (the set doesn't
+ * exist yet, so there is nothing to configure per-set) and the `upload --bucket`
+ * escape hatch (ADR-0055). Skips the set-scoped frame and reports the ambient
+ * failure + how to configure it. Note the fix is *ambient* (a profile or exported
+ * `AWS_*`), not `s3cab provider` — that writes a set's file, and here there is no
+ * set to write to.
  * @param {unknown} cause
  * @param {string} reason - The chain's own message, pre-indented (`reasonFrom`).
  */
-const bareBucketError = (cause, reason) =>
+const ambientCredentialsError = (cause, reason) =>
   new Error(
     `No AWS credentials found.
 
@@ -105,9 +108,9 @@ s3cab looked in your standard AWS setup (~/.aws/config, ~/.aws/credentials, or
 AWS_* in your environment), which reported:
      ${reason}
 
-This command used a raw --bucket with no set, so it relies on your ambient AWS
-credentials — configure them with a profile or exported AWS_* variables, or run
-against one of your sets instead.
+This command runs on your ambient AWS credentials (no backup set is loaded to
+carry its own). Configure them — an AWS profile, or exported AWS_* variables
+(add AWS_ENDPOINT_URL_S3 for a non-AWS provider) — then run it again.
 
 Run 's3cab help provider' for details.`,
     { cause },
@@ -119,8 +122,8 @@ Run 's3cab help provider' for details.`,
  *     optional pinpoint diagnosis, then a constant "looked in" frame — the set's
  *     env file + the ambient chain, embedding the chain's own message — then a
  *     tailored fix ({@link credentialCase});
- *   - **with no set** (the `upload --bucket` escape hatch): the shorter
- *     {@link bareBucketError} template.
+ *   - **with no set** (`setup`/`reattach`/`upload --bucket`): the shorter
+ *     {@link ambientCredentialsError} template.
  * The whole message must be self-contained: the CLI prints only `message` unless
  * S3CAB_DEBUG (`cause` kept for that path). The set and the `~/.aws` cross-check
  * are gathered by the async caller (`resolveCredentials`) and passed in, so this
@@ -133,7 +136,7 @@ export const noCredentialsError = (cause, ctx = {}) => {
   const reason = reasonFrom(cause);
   const { set, profile, knownProfiles, endpoint } = ctx;
   if (!set) {
-    return bareBucketError(cause, reason);
+    return ambientCredentialsError(cause, reason);
   }
   const { annotation, diagnosis, fix } = credentialCase(
     set,
