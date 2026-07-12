@@ -248,17 +248,22 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     assert.deepStrictEqual(relPaths(root, files), ["a.txt"]);
   });
 
-  it("aborts and lists every unavailable directory, pointing at dirs.txt", async () => {
+  it("aborts and lists every unavailable directory, pointing at the set's dirs.txt", async () => {
     await using dir = await mkTmpDir();
     const present = realpathSync.native(dir.path);
-    const missing = join(present, "gone");
+    const missingA = join(present, "gone-a");
+    const missingB = join(present, "gone-b");
+    const set = setOf(present, [present, missingA, missingB]);
     assert.throws(
-      () => walkSet(setOf(present, [present, missing])),
+      () => walkSet(set),
       (error) =>
         error instanceof Error &&
         /aren't available/.test(error.message) &&
-        error.message.includes(missing) &&
-        error.message.includes("dirs.txt"),
+        // aggregates *every* offender (not fail-at-first) …
+        error.message.includes(missingA) &&
+        error.message.includes(missingB) &&
+        // … and points at the exact file to edit.
+        error.message.includes(set.dirsPath),
     );
   });
 

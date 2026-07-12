@@ -3,7 +3,7 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { readRemoteInfo, readSetConfig } from "../../src/lib/set-marker.mjs";
 import {
   readSet,
@@ -101,15 +101,27 @@ describe("setup (real bucket)", () => {
       await setup(name, [content], { bucket });
       const before = await readRemoteInfo(bucket, name);
 
-      // Machine B reattachs — no directories, recreated from the remote config.
+      // Machine B reattaches — no directories, recreated from the remote config.
       useTempHome(join(dir.path, "b"));
+      /** @type {string[]} */
+      const warnings = [];
+      const warn = mock.method(console, "warn", (/** @type {string} */ m) =>
+        warnings.push(m),
+      );
       const reattached = await reattach(name, [], { bucket });
+      warn.mock.restore();
       assert.equal(reattached?.bucket, bucket);
       assert.deepEqual(reattached?.dirs, [realpathSync.native(content)]);
       // The local set really exists on machine B.
       assert.deepEqual(readSet(name).dirs, [realpathSync.native(content)]);
       // Machine A's starter exclude came over with the remote config.
       assert.equal(readSetExclude(name), starterExclude);
+      // With directories present, reattach nudges that they came from the
+      // creating machine and may need editing before a backup (ADR-0054).
+      assert.match(
+        warnings.join("\n"),
+        /directory list came from the machine that created/,
+      );
 
       // CREATED is preserved across the reattach (only OWNER is re-stamped).
       const after = await readRemoteInfo(bucket, name);

@@ -71,9 +71,9 @@ function assertWalkableDirs(set) {
     throw new Error(
       `These directories in backup set '${set.name}' aren't available:\n` +
         unavailable.map((dir) => `  ${dir}`).join("\n") +
-        `\nA backup won't run while a listed directory is missing — an unplugged ` +
-        `drive, or a deleted or renamed folder. Reconnect the drive, or edit the ` +
-        `set's directory list:\n` +
+        `\nA backup won't run while a listed directory can't be reached — it may be ` +
+        `missing (an unplugged drive, a deleted or renamed folder) or unreadable. ` +
+        `Reconnect the drive, or edit the set's directory list:\n` +
         `  ${set.dirsPath}`,
     );
   }
