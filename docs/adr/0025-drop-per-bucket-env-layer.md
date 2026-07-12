@@ -1,9 +1,16 @@
 # Drop the per-bucket env layer
 
-**Status:** accepted (2026-06-21) — implemented. Part of the 2026-06-20 redesign with the
-sibling [ADR-0024](0024-set-name-is-the-whole-identity.md) /
+**Status:** accepted (2026-06-21) — implemented; **user layer later dropped by
+[0055](0055-per-set-credentials-one-mode.md)** (the three layers below become **set > shell**).
+Part of the 2026-06-20 redesign with the sibling
+[ADR-0024](0024-set-name-is-the-whole-identity.md) /
 [ADR-0026](0026-bucket-required-at-setup.md); full design in
 [docs/design/backup.md](../design/backup.md).
+
+> **Superseded in part by [ADR-0055](0055-per-set-credentials-one-mode.md):** the **user** layer
+> (`~/.s3cab/env`) is removed as a parallel-default mechanism, leaving **set > shell**. The
+> reasoning below — why the *per-bucket* layer went — still stands; only the surviving layer count
+> changed.
 
 s3cab's env-file layering drops from four layers to three: the per-bucket
 `~/.s3cab/env.<bucket>` file is removed, leaving **set > user > shell**. Auth

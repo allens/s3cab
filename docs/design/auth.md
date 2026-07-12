@@ -2,7 +2,14 @@
 
 ## Status
 
-Implemented (see `src/lib/auth.mjs`).
+Implemented (see `src/lib/auth.mjs`) — **but the layering model is changing.**
+
+> **Direction (target vs built): [ADR-0055](../adr/0055-per-set-credentials-one-mode.md)** drops
+> the **user** env layer (leaving **set > shell**), makes each set exactly **one credential mode**
+> (profile XOR keys XOR ambient), and restructures the resolve-time error around the named set.
+> Everything below describes what is **built today** (the user + set layers, the four-state
+> `credentialGuidance`); it will be rewritten to the 0055 model when that lands. Read it as
+> current behaviour, not the target.
 
 > **History:** earlier revisions of this design also defined a bespoke `s3cab login`
 > (IAM Identity Center / SSO device-authorization flow), an app-managed session
