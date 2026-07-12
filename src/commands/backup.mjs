@@ -27,7 +27,7 @@ import { upload } from "./upload.mjs";
  *
  * With no update mode ([ADR-0052](../../docs/adr/0052-retire-setup-update-mode.md)),
  * a set's `dirs.txt`/`exclude.txt` are edited by hand, so `backup` is where those
- * edits re-sync to the remote `sets/<name>/` marker (which a later `setup --inherit`
+ * edits re-sync to the remote `sets/<name>/` marker (which a later `reattach`
  * reads). It's best-effort metadata: a failure there must not fail a backup whose
  * objects + snapshot are already safely up — the next backup re-publishes.
  *

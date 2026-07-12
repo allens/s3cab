@@ -114,11 +114,16 @@ _Avoid_: push, upload (that is the plumbing verb), sync.
 The porcelain verb for downloading files from a remote snapshot back to disk.
 _Avoid_: pull, download (the plumbing verb), recover.
 
-**Inherit**:
-Taking over an existing remote set on a new machine when the old one is being retired,
-replaced, or recovered after loss — machine **succession** (`s3cab setup <set> --inherit`). Not
-a way to run two live machines off one set.
-_Avoid_: adopt, clone, migrate, take-over.
+**Reattach** (the command):
+Attaching *this machine* to a backup set that already exists in the cloud — machine
+**succession**: the old machine is being retired, replaced, or recovered after loss
+(`s3cab reattach <set> --bucket <b>`, ADR-0053). Pulls the set's config and snapshot
+*history* down (**not** the backed-up files — that's **restore**), recreates it locally, and
+re-stamps ownership to this machine. Meant for succession, not for running two live machines off
+one set — though it never disables the prior machine, so that stays possible (a discouraged
+power-user case). Split out of the old `setup --inherit`.
+_Avoid_: reconnect (the runner-up — implies a live link; "attach" is the backup drive's own verb,
+ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over.
 
 **Verify**:
 The porcelain verb that checks backups are complete and undamaged without downloading
@@ -135,12 +140,12 @@ objects, and the only one needing delete credentials.
 _Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
-The verb that *brings a backup set into being* on this machine (ADR-0036, ADR-0052):
-`s3cab setup <set> <directory>... --bucket <b>` creates a set, and `--inherit` adopts an existing
-remote set onto this machine. A bucket is required, and both modes touch S3. There is no update
-mode — a set's directories live in its public `dirs.txt`, edited directly (like `exclude.txt`),
-so re-running `setup` on a set that already exists here is refused. Distinct from a **backup
-set**, the noun it operates on.
+The verb that *creates a new backup set* on this machine (ADR-0036, ADR-0052, ADR-0053):
+`s3cab setup <set> <directory>... --bucket <b>` claims the name and binds the set to its bucket.
+A bucket is required, and it touches S3 (the collision check). There is no update mode — a set's
+directories live in its public `dirs.txt`, edited directly (like `exclude.txt`), so re-running
+`setup` on a set that already exists here is refused; adopting an existing *remote* set is
+**reattach**. Distinct from a **backup set**, the noun it operates on.
 _Avoid_: sets (the retired command name), init, config, register, create.
 
 **List** (the command):

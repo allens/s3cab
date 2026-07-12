@@ -7,11 +7,12 @@ import { setup } from "./setup.mjs";
 import { writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Offline setup tests (docs/design/backup.md, ADR-0036, ADR-0052): the pre-S3
-// create/inherit validation, which fires before any network touch, and the
-// refusal to re-run on a set that already exists here (there is no update mode —
-// directories are edited in the public dirs.txt). The create / collision /
-// inherit behaviour touches the bucket, so it lives in the gated
+// Offline setup tests (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053): the
+// pre-S3 create validation, which fires before any network touch, and the refusal
+// to re-run on a set that already exists here (there is no update mode —
+// directories are edited in the public dirs.txt). Adopting an existing *remote*
+// set is `reattach` now, tested in reattach.test.mjs. The create/collision
+// behaviour touches the bucket, so it lives in the gated
 // test/integration/set-lifecycle.test.mjs. The set store keeps no module state,
 // so each test points S3CAB_HOME at a temp dir.
 
@@ -43,7 +44,7 @@ function withMemberDir(root) {
 }
 
 describe("setup (offline validation)", () => {
-  it("requires a set name, since setup only mutates a named set", async () => {
+  it("requires a set name, since setup creates a named set", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
 
@@ -132,20 +133,6 @@ describe("setup (offline validation)", () => {
     await assert.rejects(
       () => setup("photos", [photos], { bucket: "my-bucket" }),
       /already exists on this machine[\s\S]*dirs\.txt[\s\S]*create a new set/,
-    );
-  });
-
-  it("inherit takes no directories and needs a bucket", async () => {
-    await using dir = await mkTmpDir();
-    const { photos } = withMemberDir(dir.path);
-
-    await assert.rejects(
-      () => setup("photos", [photos], { inherit: true, bucket: "b" }),
-      /takes no directories/,
-    );
-    await assert.rejects(
-      () => setup("photos", [], { inherit: true }),
-      /Inheriting needs the bucket/,
     );
   });
 });

@@ -10,8 +10,8 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 //   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (ISO minute)
 //
 // `info` doubles as the collision-registration marker and the atomic claim token:
-// `sets` claims a name by conditional-PUTting `info` (first writer wins), and the
-// presence of `info` is how the collision check and `--inherit` learn a name is
+// `setup` claims a name by conditional-PUTting `info` (first writer wins), and the
+// presence of `info` is how the collision check and `reattach` learn a name is
 // taken. The set name is canonical `[a-z0-9-]+` (validateSetName), so it is a safe
 // key segment with no escaping. The set `env` is NEVER pushed here (it may hold
 // credentials); only this explicit allowlist (dirs/exclude/info) leaves the
@@ -71,7 +71,7 @@ export function claimRemoteSet(bucket, set, info) {
 /**
  * Read a set's remote `info` marker, or `undefined` if the set isn't claimed in
  * this bucket — the presence test behind the collision error (who owns it) and
- * `--inherit` (which preserves `CREATED`).
+ * `reattach` (which preserves `CREATED`).
  * @param {string} bucket
  * @param {string} set
  * @returns {Promise<SetInfo | undefined>}
@@ -86,8 +86,8 @@ export async function readRemoteInfo(bucket, set) {
 }
 
 /**
- * Overwrite a set's remote `info` marker — used by `--inherit` to re-stamp
- * `OWNER` to the inheriting machine (the caller preserves `CREATED`). A plain
+ * Overwrite a set's remote `info` marker — used by `reattach` to re-stamp
+ * `OWNER` to the reattaching machine (the caller preserves `CREATED`). A plain
  * (non-conditional) PUT: the marker already exists and we are deliberately
  * taking ownership.
  * @param {string} bucket
@@ -104,8 +104,8 @@ export async function writeRemoteInfo(bucket, set, info) {
  * the local set**: `dirs.txt` always, and `exclude.txt` only when the set has
  * one — when it doesn't (`exclude` undefined), any stale remote `exclude.txt` is
  * **deleted**, so removing `exclude.txt` locally and re-running `sets` can't
- * leave one behind for `--inherit` to resurrect. Plain overwrites — the caller
- * owns the set (it won the claim or inherited it).
+ * leave one behind for `reattach` to resurrect. Plain overwrites — the caller
+ * owns the set (it won the claim or reattached to it).
  * @param {string} bucket
  * @param {string} set
  * @param {object} config
@@ -124,7 +124,7 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
 }
 
 /**
- * Read a set's published config back from its remote marker — what `--inherit`
+ * Read a set's published config back from its remote marker — what `reattach`
  * recreates the local set from. `dirs` is parsed like the local `dirs.txt` (one
  * absolute path per non-blank line); `exclude` is the verbatim file text, or
  * `undefined` if the set has none remotely — an empty `exclude.txt` (which
@@ -147,7 +147,7 @@ export async function readSetConfig(bucket, set) {
 
 /**
  * List the names of the backup sets present in a bucket — the distinct first
- * segments under `sets/`. The discovery aid in `--inherit`'s "no such set"
+ * segments under `sets/`. The discovery aid in `reattach`'s "no such set"
  * error, where a fresh machine won't recall exact names. Only canonical
  * `[a-z0-9-]+` segments count, so a stray console-made key can't surface as a
  * bogus target (the parity of remote.mjs's old namespace filter). Sorted, deduped.

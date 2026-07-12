@@ -270,7 +270,7 @@ async function readSetReferenced(bucket, set, names) {
 
 /**
  * Pull a set's remote snapshot files down into `snapshotDir` — the
- * inherit-time metadata sync
+ * reattach-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
  * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
  * file (atomically, via `writeFileAtomic`), touching **no** `objects/`. A
@@ -278,12 +278,12 @@ async function readSetReferenced(bucket, set, names) {
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is
  * correct and avoids needless decompress-then-recompress.
  *
- * This is what lets `compare`/`list`/`restore` stay local-only: `sets --inherit`
+ * This is what lets `compare`/`list`/`restore` stay local-only: `reattach`
  * calls it so a fresh machine lands with full local history, instead of growing a
  * remote-reading variant of every browse command (ADR-0027). It streams
  * (bounded memory) and writes each file atomically, so a mid-pull failure leaves
  * no partial snapshot file behind — only fewer of them, in a fresh set the user can
- * delete and re-inherit.
+ * delete and reattach.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} snapshotDir - The set's local snapshots dir to write into

@@ -39,14 +39,14 @@ describe("set marker (real bucket)", () => {
     );
   });
 
-  it("writeRemoteInfo re-stamps the marker (the --inherit takeover)", async () => {
+  it("writeRemoteInfo re-stamps the marker (the reattach takeover)", async () => {
     const name = `sm-restamp-${Date.now()}`;
     try {
       await claimRemoteSet(bucket, name, {
         owner: "machine-a",
         created: "2026-01-01T00:00",
       });
-      // Re-stamp OWNER, preserve CREATED (what --inherit does).
+      // Re-stamp OWNER, preserve CREATED (what reattach does).
       await writeRemoteInfo(bucket, name, {
         owner: "machine-b",
         created: "2026-01-01T00:00",
@@ -74,7 +74,7 @@ describe("set marker (real bucket)", () => {
       });
 
       // Re-pushing the same set with no exclude DELETES the stale remote one
-      // (mirror local), so --inherit can't resurrect a removed exclude.txt.
+      // (mirror local), so reattach can't resurrect a removed exclude.txt.
       await pushSetConfig(bucket, withExclude, { dirs: ["C:\\Photos"] });
       assert.deepEqual(await readSetConfig(bucket, withExclude), {
         dirs: ["C:\\Photos"],

@@ -7,6 +7,7 @@ import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
 import { prop } from "./commands/prop.mjs";
 import { provider } from "./commands/provider.mjs";
+import { reattach } from "./commands/reattach.mjs";
 import { restore } from "./commands/restore.mjs";
 import { setup } from "./commands/setup.mjs";
 import { snapshot } from "./commands/snapshot.mjs";
@@ -330,37 +331,47 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     render: renderText,
   },
   setup: {
-    summary: "Create or inherit a backup set",
-    examples: [
-      "s3cab setup photos C:\\Users\\me\\Photos --bucket my-backups",
-      "s3cab setup photos --inherit --bucket my-backups",
-    ],
+    summary: "Create a backup set",
+    examples: ["s3cab setup photos C:\\Users\\me\\Photos --bucket my-backups"],
     args: {
       set: {
         required: true,
-        description: "The backup set to create or inherit",
+        description: "The backup set to create",
       },
       directory: {
         variadic: true,
-        description:
-          "The directories that make up the set, given when you first create it",
+        description: "The directories that make up the set",
       },
     },
     options: {
       bucket: {
         type: "string",
         short: "b",
-        description:
-          "The S3 bucket to back this set up to, set when you first create it",
-      },
-      inherit: {
-        type: "boolean",
-        description:
-          "Inherit an existing backup set from the bucket onto this machine (for a replacement machine or recovery)",
+        description: "The S3 bucket to back this set up to",
       },
     },
     exec: (options, [name, ...directories] = []) =>
       setup(name, directories, options),
+    render: renderSetup,
+  },
+  reattach: {
+    summary: "Reattach this machine to an existing backup set",
+    examples: ["s3cab reattach photos --bucket my-backups"],
+    args: {
+      set: {
+        required: true,
+        description: "The existing backup set to reattach to",
+      },
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description: "The S3 bucket holding the set",
+      },
+    },
+    exec: (options, [name, ...directories] = []) =>
+      reattach(name, directories, options),
     render: renderSetup,
   },
 

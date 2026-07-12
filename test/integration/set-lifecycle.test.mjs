@@ -10,14 +10,15 @@ import {
   readSetExclude,
   starterExclude,
 } from "../../src/lib/sets.mjs";
+import { reattach } from "../../src/commands/reattach.mjs";
 import { setup } from "../../src/commands/setup.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 
-// setup's create / collision / inherit behaviour against a real bucket
-// (docs/design/backup.md, ADR-0036). Each uses a unique set name so the shared
-// bucket stays isolated, and deletes its `sets/<name>/` marker on teardown. The
-// gate/harness lives in the shared integration helper.
+// setup's create/collision behaviour and reattach's adopt behaviour against a
+// real bucket (docs/design/backup.md, ADR-0036, ADR-0053). Each uses a unique set
+// name so the shared bucket stays isolated, and deletes its `sets/<name>/` marker
+// on teardown. The gate/harness lives in the shared integration helper.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -66,7 +67,7 @@ describe("setup (real bucket)", () => {
     }
   });
 
-  it("refuses a name already claimed (by another machine), pointing at --inherit", async () => {
+  it("refuses a name already claimed (by another machine), pointing at reattach", async () => {
     await using dir = await mkTmpDir();
     const name = `st-collide-${Date.now()}`;
     const content = resolve(dir.path, "content");
@@ -81,16 +82,16 @@ describe("setup (real bucket)", () => {
       useTempHome(join(dir.path, "b"));
       await assert.rejects(
         () => setup(name, [content], { bucket }),
-        /already set up[\s\S]*--inherit/,
+        /already set up[\s\S]*reattach/,
       );
     } finally {
       await cleanupSetMarker(name);
     }
   });
 
-  it("inherit recreates the set locally from the remote, preserving CREATED", async () => {
+  it("reattach recreates the set locally from the remote, preserving CREATED", async () => {
     await using dir = await mkTmpDir();
-    const name = `st-inherit-${Date.now()}`;
+    const name = `st-reattach-${Date.now()}`;
     const content = resolve(dir.path, "content");
     mkdirSync(content, { recursive: true });
 
@@ -100,17 +101,17 @@ describe("setup (real bucket)", () => {
       await setup(name, [content], { bucket });
       const before = await readRemoteInfo(bucket, name);
 
-      // Machine B inherits — no directories, recreated from the remote config.
+      // Machine B reattachs — no directories, recreated from the remote config.
       useTempHome(join(dir.path, "b"));
-      const inherited = await setup(name, [], { bucket, inherit: true });
-      assert.equal(inherited?.bucket, bucket);
-      assert.deepEqual(inherited?.dirs, [realpathSync.native(content)]);
+      const reattached = await reattach(name, [], { bucket });
+      assert.equal(reattached?.bucket, bucket);
+      assert.deepEqual(reattached?.dirs, [realpathSync.native(content)]);
       // The local set really exists on machine B.
       assert.deepEqual(readSet(name).dirs, [realpathSync.native(content)]);
       // Machine A's starter exclude came over with the remote config.
       assert.equal(readSetExclude(name), starterExclude);
 
-      // CREATED is preserved across the inherit (only OWNER is re-stamped).
+      // CREATED is preserved across the reattach (only OWNER is re-stamped).
       const after = await readRemoteInfo(bucket, name);
       assert.equal(after?.created, before?.created);
     } finally {

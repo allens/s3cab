@@ -68,7 +68,7 @@ function readTextFile(path) {
 
 /**
  * Read a set's local `exclude.txt` verbatim, or `undefined` if it has none —
- * what `sets` pushes to the remote marker and `--inherit` writes back. Verbatim
+ * what `setup`/`backup` push to the remote marker and `reattach` writes back. Verbatim
  * (not parsed) because the exclude file is the user's to read and edit, and is
  * stored on the remote byte-for-byte (set-marker.mjs).
  * @param {string} name
@@ -77,7 +77,7 @@ function readTextFile(path) {
 export const readSetExclude = (name) => readTextFile(setExcludePath(name));
 
 /**
- * Write a set's local `exclude.txt` from text — used by `--inherit` to recreate
+ * Write a set's local `exclude.txt` from text — used by `reattach` to recreate
  * the exclude file pulled from the remote marker. Creates the set directory if
  * absent (so it can run before `writeSet` if ever needed).
  * @param {string} name
@@ -99,7 +99,7 @@ const nativePattern = (pattern) => pattern.replaceAll("/", sep);
 
 /**
  * The starter `exclude.txt` a new set is born with (`setup` create only, via
- * `seedStarterExclude` below; inherit reproduces the remote config exactly and
+ * `seedStarterExclude` below; reattach reproduces the remote config exactly and
  * never seeds — setup.mjs). The active patterns are "you'd almost never want
  * this backed up": regenerable dependency trees, VCS metadata (`.git` — its
  * working internals churn every commit, and the history normally lives on the
