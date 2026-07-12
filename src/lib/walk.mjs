@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
@@ -31,12 +31,52 @@ import { isInteractive } from "./style.mjs";
  * @returns {WalkResult} The kept file paths and the records of what was skipped
  */
 export function walkSet(set) {
+  assertWalkableDirs(set);
   const excludePath = set.excludePath;
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
   if (patterns.length) {
     console.warn("Using exclude file", `'${excludePath}'`);
   }
   return walkDirs(set.dirs, patterns);
+}
+
+/**
+ * Guard that every member directory is present and really a directory before the
+ * walk starts. `dirs.txt` is a hand-edited public file, so a line can point at a
+ * deleted or renamed folder, a typo, or an unplugged drive; without this the walk
+ * dies mid-run on a raw `ENOENT` at the first bad path. A backup must never
+ * *silently* skip a directory the user means to keep, so a missing directory
+ * **aborts the whole run** rather than backing up a quietly smaller set
+ * ([ADR-0054](../../docs/adr/0054-missing-member-dir-aborts.md)) — the failure is
+ * loud and lists every offender at once, and the fix is to reconnect the drive or
+ * edit `dirs.txt`. An empty `dirs.txt` is the degenerate case (nothing to back up).
+ * @param {BackupSet} set
+ */
+function assertWalkableDirs(set) {
+  if (set.dirs.length === 0) {
+    throw new Error(
+      `Backup set '${set.name}' has no directories to back up.\n` +
+        `Add one absolute path per line to:\n` +
+        `  ${set.dirsPath}`,
+    );
+  }
+  const unavailable = set.dirs.filter((dir) => {
+    try {
+      return !statSync(dir).isDirectory();
+    } catch {
+      return true; // missing (ENOENT) or otherwise unreadable → unavailable
+    }
+  });
+  if (unavailable.length) {
+    throw new Error(
+      `These directories in backup set '${set.name}' aren't available:\n` +
+        unavailable.map((dir) => `  ${dir}`).join("\n") +
+        `\nA backup won't run while a listed directory can't be reached — it may be ` +
+        `missing (an unplugged drive, a deleted or renamed folder) or unreadable. ` +
+        `Reconnect the drive, or edit the set's directory list:\n` +
+        `  ${set.dirsPath}`,
+    );
+  }
 }
 
 /**
