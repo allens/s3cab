@@ -1,7 +1,10 @@
 # `setup` mutates a set, `list` shows sets; drop the `sets` command
 
 **Status:** accepted (design decided via a design session 2026-06-28) — **implemented**
-(2026-06-28). **Supersedes [0035](0035-aws-profile-sets-command-rationalization.md)
+(2026-06-28); **§2's upsert (the *update* half) partly superseded by
+[0052](0052-retire-setup-update-mode.md)** — `setup` is create-or-inherit only now, a set's
+directories are edited in `dirs.txt`; create/inherit and everything else here stand.
+**Supersedes [0035](0035-aws-profile-sets-command-rationalization.md)
 point 3** (the `setup`-folds-into-`sets` half); 0035's points 1–2 (`bucket`→`aws`, old-`aws`→`profile`)
 stand untouched.
 

@@ -62,10 +62,15 @@ const result = (over) => ({
  * @returns {BackupSet}
  */
 const set = (name, bucket, dirs) =>
-  /** @type {BackupSet} */ ({ name, bucket, dirs });
+  /** @type {BackupSet} */ ({
+    name,
+    bucket,
+    dirs,
+    dirsPath: `/home/me/.s3cab/sets/${name}/dirs.txt`,
+  });
 
 describe("renderSetup", () => {
-  it("confirms the set with its bucket and member directories", () => {
+  it("confirms the set with its bucket and member directories, heading them with the editable dirs.txt path", () => {
     const text = renderSetup(
       set("photos", "my-backups", ["/home/me/Photos", "/home/me/Pics"]),
     );
@@ -73,20 +78,26 @@ describe("renderSetup", () => {
     assert.equal(
       text,
       "Set 'photos' → bucket 'my-backups'\n" +
+        "dirs (/home/me/.s3cab/sets/photos/dirs.txt):\n" +
         "  /home/me/Photos\n" +
         "  /home/me/Pics",
     );
   });
 
-  it("guides toward adding directories when a set has none yet", () => {
+  it("steers toward editing dirs.txt when a set has none yet", () => {
     // An inherited set can land with no member dirs (a partial/legacy remote
-    // marker); the confirmation must not print an empty directory list, and
-    // should point at how to add them.
+    // marker); the confirmation must not print an empty directory list, and —
+    // since there is no update mode (ADR-0052) — points at the dirs.txt file it
+    // just named rather than a `setup` re-run (which would now error).
     const text = renderSetup(set("photos", "my-backups", []));
 
     assert.match(text, /Set 'photos' → bucket 'my-backups'/);
-    assert.match(text, /no directories yet/);
-    assert.match(text, /s3cab setup photos <directory>\.\.\./);
+    assert.match(
+      text,
+      /dirs \(\/home\/me\/\.s3cab\/sets\/photos\/dirs\.txt\):/,
+    );
+    assert.match(text, /none yet — add them by editing that file/);
+    assert.doesNotMatch(text, /s3cab setup/);
   });
 });
 

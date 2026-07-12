@@ -117,27 +117,4 @@ describe("setup (real bucket)", () => {
       await cleanupSetMarker(name);
     }
   });
-
-  it("update re-publishes changed directories to the remote", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    const name = `st-update-${Date.now()}`;
-    const c1 = resolve(dir.path, "one");
-    const c2 = resolve(dir.path, "two");
-    mkdirSync(c1, { recursive: true });
-    mkdirSync(c2, { recursive: true });
-
-    try {
-      await setup(name, [c1], { bucket });
-      await setup(name, [c1, c2], { bucket }); // update: add a directory
-
-      const config = await readSetConfig(bucket, name);
-      assert.deepEqual(config.dirs, [
-        realpathSync.native(c1),
-        realpathSync.native(c2),
-      ]);
-    } finally {
-      await cleanupSetMarker(name);
-    }
-  });
 });

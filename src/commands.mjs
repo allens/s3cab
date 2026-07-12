@@ -330,7 +330,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     render: renderText,
   },
   setup: {
-    summary: "Create, update, or inherit a backup set",
+    summary: "Create or inherit a backup set",
     examples: [
       "s3cab setup photos C:\\Users\\me\\Photos --bucket my-backups",
       "s3cab setup photos --inherit --bucket my-backups",
@@ -338,12 +338,12 @@ Full guide: https://github.com/allens/s3cab#authentication`,
     args: {
       set: {
         required: true,
-        description: "The backup set to create, update, or inherit",
+        description: "The backup set to create or inherit",
       },
       directory: {
         variadic: true,
         description:
-          "The directories that make up the set, set when you first create it",
+          "The directories that make up the set, given when you first create it",
       },
     },
     options: {

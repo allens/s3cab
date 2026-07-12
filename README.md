@@ -57,7 +57,7 @@ them back**. You create a set once, then the commands act on it:
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab aws <bucket>`          | Print the steps to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
 | `s3cab provider`              | Set, clear, or show how s3cab connects to your storage provider — an AWS profile, or a custom endpoint/region/keys for any S3-compatible provider ([non-AWS setup](guide/aws.md#non-aws-providers)). |
-| `s3cab setup <set> <directory>…` | Create, update, or inherit a **backup set** (`--bucket` binds its cloud destination). |
+| `s3cab setup <set> <directory>…` | Create or inherit a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
