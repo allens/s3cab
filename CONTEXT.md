@@ -135,10 +135,12 @@ objects, and the only one needing delete credentials.
 _Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
-The verb that *mutates* a backup set (ADR-0036): `s3cab setup <set> <directory>... --bucket <b>`
-creates or updates a set, and `--inherit` adopts an existing remote set onto this machine. A
-bucket is required to create, and every mode touches S3. Distinct from a **backup set**, the
-noun it operates on.
+The verb that *brings a backup set into being* on this machine (ADR-0036, ADR-0052):
+`s3cab setup <set> <directory>... --bucket <b>` creates a set, and `--inherit` adopts an existing
+remote set onto this machine. A bucket is required, and both modes touch S3. There is no update
+mode — a set's directories live in its public `dirs.txt`, edited directly (like `exclude.txt`),
+so re-running `setup` on a set that already exists here is refused. Distinct from a **backup
+set**, the noun it operates on.
 _Avoid_: sets (the retired command name), init, config, register, create.
 
 **List** (the command):

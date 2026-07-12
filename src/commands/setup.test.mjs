@@ -4,13 +4,16 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { setup } from "./setup.mjs";
+import { writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Offline setup tests (docs/design/backup.md, ADR-0036): the pre-S3
-// create/update/inherit validation, which fires before any network touch. The
-// create / collision / inherit behaviour touches the bucket, so it lives in the
-// gated test/integration/set-lifecycle.test.mjs. The set store keeps no module state, so each
-// test points S3CAB_HOME at a temp dir.
+// Offline setup tests (docs/design/backup.md, ADR-0036, ADR-0052): the pre-S3
+// create/inherit validation, which fires before any network touch, and the
+// refusal to re-run on a set that already exists here (there is no update mode —
+// directories are edited in the public dirs.txt). The create / collision /
+// inherit behaviour touches the bucket, so it lives in the gated
+// test/integration/set-lifecycle.test.mjs. The set store keeps no module state,
+// so each test points S3CAB_HOME at a temp dir.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -115,6 +118,20 @@ describe("setup (offline validation)", () => {
     await assert.rejects(
       () => setup("photos", [photos, file]),
       /Not a directory: /,
+    );
+  });
+
+  it("refuses to re-run on a set that already exists here (no update mode)", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+    // A set already exists locally (written straight to the store, no S3).
+    writeSet("photos", { dirs: [photos], bucket: "my-bucket" });
+
+    // Re-running setup on it is refused — pointing at the public dirs.txt and at
+    // creating a new set, not silently re-pointing the existing one.
+    await assert.rejects(
+      () => setup("photos", [photos], { bucket: "my-bucket" }),
+      /already exists on this machine[\s\S]*dirs\.txt[\s\S]*create a new set/,
     );
   });
 

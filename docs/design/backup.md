@@ -143,11 +143,14 @@ operand (they operate on a whole repository; see their section and
 [ADR-0042](../adr/0042-verify-bucket-operand.md)), as do the file/bucket diagnostics
 (`prop`, `hashes`, `upload`).
 
-### `setup` — create, update, inherit a set
+### `setup` — create or inherit a set
 
-`s3cab setup` is the set-**mutation** verb ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)):
-it creates, updates, or inherits a backup set. (Listing what you have is `list`'s job — the
-read/write split that ADR-0036 made.)
+`s3cab setup` is the set-**creation** verb ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md),
+[ADR-0052](../adr/0052-retire-setup-update-mode.md)): it creates or inherits a backup set — it
+only ever brings a set into being on this machine. (Listing what you have is `list`'s job — the
+read/write split that ADR-0036 made.) There is **no update mode**: a set's member directories
+live in its public `dirs.txt`, edited directly like `exclude.txt`, so re-running `setup` on a
+set that already exists here is refused ([ADR-0052](../adr/0052-retire-setup-update-mode.md)).
 
 ```
 s3cab setup <set> <dir>... --bucket <bucket>
@@ -157,8 +160,8 @@ s3cab setup <set> --inherit --bucket <bucket>
 **`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
 bound to its bucket at creation, and creating a set always touches S3 to run the collision
 check — there are **no** bucket-less, local-only sets. (Offline `snapshot`/`compare`/`tree`/`list`
-still work after a one-time online set-up; only creating or updating a set needs
-connectivity.) The three modes:
+still work after a one-time online set-up; only creating or inheriting a set needs
+connectivity.) The two modes:
 
 - **Create** (`setup <name> <dir>... --bucket <b>`): collision-check the remote
   `sets/<name>/` marker; if it already exists, error naming the owning machine and
@@ -168,12 +171,6 @@ connectivity.) The three modes:
   replacement or recovery machine. Requires `sets/<name>/` to exist remotely; pulls its
   `dirs.txt`/`exclude.txt`, recreates the local set, and re-stamps the owning machine. Takes
   no directories (they come from the remote). For machine retirement/replacement or DR only.
-- **Update** (`setup <name> [<dir>...]` on a set you already have): refresh the member
-  directories and re-publish the config; the bucket is fixed at creation (re-binding to a
-  different bucket — migration — isn't supported yet). **Remote-first**, mirroring create:
-  push the config *then* commit the local write, so a credentials failure mid-update leaves
-  local no further ahead than the cloud. The guarantee is convergence (re-running `setup`
-  reconciles), not strict transactional atomicity.
 
 Two live machines on one set is a discouraged-but-tolerated power-user case (e.g. a
 OneDrive-synced directory, where both hold the same content so the interleaving is benign):

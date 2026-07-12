@@ -43,22 +43,24 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
  */
 
 /**
- * Confirm a `setup` (create / update / inherit) by echoing the set's resulting
- * state. The renderer is mode-neutral by necessity: ADR-0043 keeps the command
- * a pure data returner, so it returns only the stored `BackupSet` and can't say
- * which mode ran — and it needn't, since the confirmation someone wants is
- * "what is this set now". The mode-specific guidance (the starter-exclude
- * notice, inherit's snapshot-pull summary) already went to stderr from inside
- * the command.
+ * Confirm a `setup` (create / inherit) by echoing the set's resulting state. The
+ * renderer is mode-neutral by necessity: ADR-0043 keeps the command a pure data
+ * returner, so it returns only the stored `BackupSet` and can't say which mode
+ * ran — and it needn't, since the confirmation someone wants is "what is this set
+ * now". The mode-specific guidance (the starter-exclude notice, inherit's
+ * snapshot-pull summary) already went to stderr from inside the command.
+ *
+ * The `dirs.txt` path heads the directory list so a capable terminal can open it
+ * — directories are edited in that file now, not through a `setup` re-run (there
+ * is no update mode, ADR-0052), which is also what an empty set is steered toward.
  * @param {BackupSet} set
  * @returns {string}
  */
 export function renderSetup(set) {
   const dirs = set.dirs.length
     ? set.dirs.map((dir) => `  ${dir}`).join("\n")
-    : "  (no directories yet — add them with 's3cab setup " +
-      `${set.name} <directory>...')`;
-  return `Set '${set.name}' → bucket '${set.bucket}'\n${dirs}`;
+    : "  (none yet — add them by editing that file)";
+  return `Set '${set.name}' → bucket '${set.bucket}'\ndirs (${set.dirsPath}):\n${dirs}`;
 }
 
 /**

@@ -1,6 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
-import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
@@ -14,6 +13,7 @@ import {
 } from "../lib/set-marker.mjs";
 import {
   listSets,
+  readSet,
   readSetExclude,
   seedStarterExclude,
   starterExclude,
@@ -26,11 +26,15 @@ import {
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
- * The set-mutation verb (docs/design/backup.md, ADR-0036) — create / update /
- * inherit a backup set. Listing what you have is `list`'s job now (ADR-0036
- * split this command on the read/write seam); `setup` only *writes*. A set's
- * name is its whole identity (ADR-0024) — local handle, local directory, and remote
- * namespace — so there is nothing to pin; the mode is chosen by what's given:
+ * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052) — create or
+ * inherit a backup set. Listing what you have is `list`'s job (ADR-0036 split this
+ * command on the read/write seam); `setup` only *writes*, and only ever brings a
+ * set into being on this machine — there is no "update mode" (ADR-0052 retired it):
+ * a set's member directories live in its public `dirs.txt`, edited directly like
+ * `exclude.txt`, so re-running `setup` on a set that already exists here is an error,
+ * not a silent mutation. A set's name is its whole identity (ADR-0024) — local
+ * handle, local directory, and remote namespace — so there is nothing to pin; the
+ * mode is chosen by what's given:
  *
  * - **Create** (`setup <name> <directory>... --bucket <b>`): claim the name in the
  *   bucket ("first person wins") by atomically writing the remote `info` marker,
@@ -40,10 +44,8 @@ import {
  * - **Inherit** (`setup <name> --inherit --bucket <b>`): the succession path for a
  *   replacement/recovery machine — pull an existing remote set's config, recreate
  *   it locally, and re-stamp ownership to this machine. Takes no directories.
- * - **Update** (`setup <name> [<directory>...]` on a set you already have): refresh
- *   the member directories and re-publish the config; the bucket is fixed at creation.
  *
- * Every mode touches S3 (the claim/publish/inherit), which is why this is async;
+ * Both modes touch S3 (the claim/publish/inherit), which is why this is async;
  * the read commands (`list`/`snapshot`/`compare`/`tree`) stay offline once a set
  * exists.
  *
@@ -75,11 +77,30 @@ export async function setup(name, directories = [], options = {}) {
   if (options.inherit) {
     return inherit(name, directories, creating, options);
   }
-  if (creating) {
-    return create(name, directories, options);
+  if (!creating) {
+    throw existsError(name);
   }
-  return update(name, directories, options);
+  return create(name, directories, options);
 }
+
+/**
+ * The error a plain `setup <name> …` raises when the set already exists here.
+ * There is no update mode (ADR-0052): a set's directories are edited in its public
+ * `dirs.txt` (like `exclude.txt`), and a fresh scope belongs in a *new* set — so
+ * point at both, rather than silently re-pointing an existing set's contents.
+ * @param {string} name
+ */
+const existsError = (name) => {
+  const set = readSet(name);
+  return new Error(
+    `Backup set '${name}' already exists on this machine.\n` +
+      `To change what it backs up, edit its files directly:\n` +
+      `  ${set.dirsPath}   (directories)\n` +
+      `  ${set.excludePath}   (exclude patterns)\n` +
+      `To back up a different set of directories, create a new set:\n` +
+      `  s3cab setup <new-name> <directory>... --bucket ${set.bucket}`,
+  );
+};
 
 /**
  * Resolve member directories to canonical absolute paths (what `dirs.txt` stores),
@@ -193,43 +214,6 @@ async function create(name, directories, options) {
 }
 
 /**
- * Update a set you already own: refresh its directories (if any are given) and
- * re-publish its config to the remote marker. The bucket is fixed at creation —
- * a different `--bucket` is rejected (bucket migration isn't supported yet).
- * @param {string} name
- * @param {string[]} directories
- * @param {{ bucket?: string }} options
- * @returns {Promise<BackupSet>}
- */
-async function update(name, directories, options) {
-  // `loadSet` resolves the set and applies its env layer (ADR-0022); it
-  // guarantees a bucket (ADR-0026), so `existing.bucket` is always bound — a
-  // corrupt, bucket-less directory is rejected there, not here. Resolving by an
-  // explicit name reads exactly that set, and the bucket-match check below is
-  // pure-local, so the order is fine.
-  const existing = loadSet(name);
-  if (options.bucket && options.bucket !== existing.bucket) {
-    throw new Error(
-      `Set '${name}' already backs up to bucket '${existing.bucket}'. Switching it ` +
-        `to a different bucket (migration) isn't supported yet.`,
-    );
-  }
-  const bucket = existing.bucket;
-
-  const dirs = directories.length
-    ? resolveDirectories(directories)
-    : existing.dirs;
-
-  // Remote-first (mirroring `create`): push the config, *then* commit local. If
-  // the push fails (e.g. expired credentials mid-update), local stays untouched,
-  // so there's no local-ahead-of-cloud drift — re-running `setup` converges.
-  // `readSetExclude` reads exclude.txt, which `writeSet` doesn't touch, so it's
-  // the same content either side of the reorder.
-  await pushSetConfig(bucket, name, { dirs, exclude: readSetExclude(name) });
-  return directories.length ? writeSet(name, { dirs }) : existing;
-}
-
-/**
  * Inherit an existing remote set onto this machine (`setup --inherit`): the
  * succession path for retiring/replacing a machine or recovering on a fresh one.
  * Pulls the remote set's published config, recreates it locally, and re-stamps
@@ -303,8 +287,9 @@ async function inherit(name, directories, creating, options) {
   if (dirs.length === 0) {
     console.warn(
       `Inherited '${name}' with no member directories from the remote config. ` +
-        `It can restore, but can't snapshot or back up until you add directories:\n` +
-        `  s3cab setup ${name} <directory>...`,
+        `It can restore, but can't snapshot or back up until you add directories ` +
+        `(one absolute path per line) to:\n` +
+        `  ${set.dirsPath}`,
     );
   }
 
