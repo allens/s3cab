@@ -146,62 +146,71 @@ describe("invalidCredentialsError / badSignatureError / clockSkewError", () => {
   });
 });
 
-describe("noCredentialsError (configuration-aware guidance)", () => {
+describe("noCredentialsError (set-scoped guidance)", () => {
   const cause = new Error("Could not load credentials from any providers");
+  const set = { name: "photos", envPath: "/tmp/.s3cab/sets/photos/env" };
 
-  it("advises pointing s3cab at a profile when none is set", () => {
-    const error = noCredentialsError(cause);
+  it("names the set and offers the pick-one menu when nothing is configured", () => {
+    const error = noCredentialsError(cause, { set });
     assert.equal(error.cause, cause); // kept for the debug path
-    assert.match(error.message, /^No AWS credentials found\./);
-    // The chain's own reason is embedded.
+    assert.match(error.message, /^No credentials found for set 'photos'\./);
+    // The "looked in" frame: the set's env file and the ambient chain's reason.
+    assert.match(
+      error.message,
+      /the set's own settings:.*sets[\\/]photos[\\/]env/,
+    );
     assert.match(
       error.message,
       /Could not load credentials from any providers/,
     );
-    // The original "point s3cab at a profile" advice.
-    assert.match(error.message, /s3cab provider --profile <name>/);
-    // It does NOT wrongly tell a user a profile is missing when none was set.
+    // The pick-one fix, set-scoped.
+    assert.match(error.message, /s3cab provider --profile <name> photos/);
+    assert.match(error.message, /s3cab provider --keys photos/);
+    // Nothing pinpointed → no diagnosis line about a profile.
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
   });
 
-  it("advises saving provider keys when a custom endpoint is set and no profile", () => {
-    // A non-AWS user (endpoint set, no profile) must not be sent to profile
-    // advice that assumes the AWS CLI — the fix is `provider --keys` (ADR-0047).
+  it("points at provider --keys when a custom endpoint has no keys", () => {
+    // A non-AWS set (endpoint, no keys) must not be sent to profile advice that
+    // assumes the AWS CLI — the fix is `provider --keys` (ADR-0047).
     const error = noCredentialsError(cause, {
+      set,
       endpoint: "https://acct.r2.cloudflarestorage.com",
     });
     assert.match(
       error.message,
-      /custom S3 endpoint is set \(https:\/\/acct\.r2\.cloudflarestorage\.com\)/,
+      /points at a custom S3 endpoint\s+\(https:\/\/acct\.r2\.cloudflarestorage\.com\)/,
     );
-    assert.match(error.message, /s3cab provider --keys/);
+    assert.match(error.message, /s3cab provider --keys photos/);
     assert.doesNotMatch(error.message, /--profile <name>/);
   });
 
   it("names the missing profile and how to create it when it isn't in ~/.aws", () => {
     // AWS_PROFILE=s3cab-test, but ~/.aws only has other profiles — the "aha".
     const error = noCredentialsError(cause, {
+      set,
       profile: "s3cab-test",
       knownProfiles: ["default", "work"],
     });
     assert.match(
       error.message,
-      /profile 's3cab-test', but it isn't in your AWS\s+config/,
+      /uses AWS profile 's3cab-test', but it isn't in your AWS\s+config/,
     );
-    // The exact, copy-pasteable fix, naming the profile.
+    // The exact, copy-pasteable fix, naming the profile, plus the set-scoped hatch.
     assert.match(error.message, /aws configure --profile s3cab-test/);
-    // And the escape hatch to point elsewhere.
-    assert.match(error.message, /s3cab provider --profile <name>/);
-    // Not the "set a profile" advice (that would send them in a circle).
-    assert.doesNotMatch(error.message, /or set AWS_\* variables directly/);
+    assert.match(error.message, /s3cab provider --profile <name> photos/);
   });
 
   it("advises SSO sign-in / key check when the profile exists but yields nothing", () => {
     const error = noCredentialsError(cause, {
+      set,
       profile: "s3cab-test",
       knownProfiles: ["default", "s3cab-test"],
     });
-    assert.match(error.message, /profile 's3cab-test', but it produced no/);
+    assert.match(
+      error.message,
+      /uses AWS profile 's3cab-test', but it produced no/,
+    );
     assert.match(error.message, /aws sso login --profile s3cab-test/);
     assert.match(error.message, /check the profile's access keys/);
   });
@@ -209,8 +218,23 @@ describe("noCredentialsError (configuration-aware guidance)", () => {
   it("treats an unreadable ~/.aws (undefined) as present, not missing", () => {
     // listProfiles() returns undefined when it can't read the config — don't
     // claim the profile is absent; fall to the "produced no credentials" branch.
-    const error = noCredentialsError(cause, { profile: "s3cab-test" });
+    const error = noCredentialsError(cause, { set, profile: "s3cab-test" });
     assert.match(error.message, /produced no credentials/);
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
+  });
+
+  it("uses the set-less template for a bare --bucket (no set in play)", () => {
+    // upload --bucket resolves no set, so the error can't name one — it reports
+    // the ambient failure and points back at sets.
+    const error = noCredentialsError(cause); // no set
+    assert.equal(error.cause, cause);
+    assert.match(error.message, /^No AWS credentials found\./);
+    assert.match(error.message, /raw --bucket with no set/);
+    assert.match(
+      error.message,
+      /Could not load credentials from any providers/,
+    );
+    assert.doesNotMatch(error.message, /for set '/); // not set-scoped
+    assert.match(error.message, /s3cab help provider/);
   });
 });

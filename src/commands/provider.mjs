@@ -1,9 +1,9 @@
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, sep } from "node:path";
+import { dirname } from "node:path";
 import { listProfiles } from "../lib/aws-profiles.mjs";
 import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
+import { tildeify } from "../lib/home.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { promptHidden, promptLine, stdinLines } from "../lib/prompt.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
@@ -63,16 +63,6 @@ function resolveScope(setName) {
   const set = resolveSet(setName);
   return { path: set.envPath, phrase: `set '${set.name}'`, name: set.name };
 }
-
-/**
- * Abbreviate a leading home directory to `~` so paths read legibly. Matches on a
- * separator boundary (`~/.s3cab`, not the whole home dir alone), so a sibling
- * whose name merely starts with the home path (`/home/alex` under `/home/al`)
- * isn't mangled to `~ex/…`.
- * @param {string} path
- */
-const tildeify = (path) =>
-  path.startsWith(homedir() + sep) ? "~" + path.slice(homedir().length) : path;
 
 /**
  * Show what is set *at this scope* (the values written here, not the

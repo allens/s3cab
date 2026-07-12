@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 
 /**
  * The directory where s3cab keeps all its local state — sets, snapshots, and env
@@ -16,6 +16,23 @@ import { basename, join } from "node:path";
  */
 export const s3cabDir = () =>
   process.env.S3CAB_HOME ?? join(homedir(), ".s3cab");
+
+/**
+ * Abbreviate a leading home directory to `~` for display. Matches on a separator
+ * boundary (`~/.s3cab`, not the whole home path alone), so a sibling whose name
+ * merely starts with the home path (`/home/alex` under `/home/al`) isn't mangled
+ * to `~ex/…`. The single home-path abbreviator, shared by every human-facing path
+ * (render.mjs's compare header, provider's scope lines, auth.mjs's credential error).
+ * @param {string} path
+ * @returns {string}
+ */
+export const tildeify = (path) => {
+  const home = homedir();
+  if (path === home) {
+    return "~";
+  }
+  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+};
 
 /**
  * Guard a caller-supplied name before it is interpolated into a path under

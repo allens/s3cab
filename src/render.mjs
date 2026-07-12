@@ -11,9 +11,9 @@
 // in lib/style.mjs; a renderer never prints (it returns), and never truncates
 // (ADR-0043 — the user manages volume with a pager or redirect).
 
-import { homedir } from "node:os";
 import { dirname, relative, sep } from "node:path";
 import { formatByteValue } from "./lib/format.mjs";
+import { tildeify } from "./lib/home.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
 import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
@@ -190,19 +190,6 @@ function commonAncestor(dirs) {
   // root (`/`, `C:\`). An exotic cross-UNC-share base degrades to near-absolute
   // — not worth hand-parsing UNC (minimal-code pillar).
   return base === "" || /^[A-Za-z]:$/.test(base) ? base + sep : base;
-}
-
-/**
- * Shorten a home-directory path to a leading `~` for the header (display only).
- * @param {string} path
- * @returns {string}
- */
-function tildeify(path) {
-  const home = homedir();
-  if (path === home) {
-    return "~";
-  }
-  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
 }
 
 /**

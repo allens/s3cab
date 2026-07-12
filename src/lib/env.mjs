@@ -71,6 +71,21 @@ export function parseEnvFile(path) {
 const appliedEnvFiles = new Set();
 
 /**
+ * The set `loadSet` most recently resolved (its name + env-file path), or
+ * `undefined` if no set command ran this invocation — e.g. `upload --bucket`
+ * resolves no set. Lets the credential error (auth.mjs's `noCredentialsError`)
+ * name the set and point at its env file, without threading the set down through
+ * the SDK client that calls `resolveCredentials`. Last-writer-wins, like the env
+ * layering itself; a single CLI command resolves at most one set.
+ * @type {{ name: string, envPath: string } | undefined}
+ */
+let _loadedSet;
+
+/** The set whose env layer is loaded (name + env-file path), for error messages
+ * that name it; `undefined` when no set command ran (see {@link _loadedSet}). */
+export const loadedSet = () => _loadedSet;
+
+/**
  * Which env layer last set each key: variable name → human label
  * (`set 'photos' config`). A key present in process.env but *absent* here came
  * from outside s3cab's layering — a shell export, a Node `--env-file`, the parent
@@ -159,6 +174,7 @@ export function loadEnv() {
  */
 export function loadSet(setName) {
   const set = resolveSet(setName);
+  _loadedSet = { name: set.name, envPath: set.envPath };
   applyEnvLayer(set.envPath, `set '${set.name}' config`);
   return set;
 }
