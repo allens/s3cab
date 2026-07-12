@@ -194,36 +194,57 @@ describe("bucketPolicy", () => {
 
 describe("formatUploadProgress", () => {
   it("humanizes the byte counts rather than printing raw integers", () => {
-    const { message } = formatUploadProgress({
-      Bucket: "b",
-      Key: "k",
-      loaded: 1000,
-      total: 10000,
-    });
+    const { message } = formatUploadProgress(
+      { loaded: 1000, total: 10000 },
+      "photos/beach.jpg",
+    );
     assert.match(message, /uploaded 1kB of 10kB /);
     // Guards against the regression to raw integers ("uploaded 1000 of 10000").
     assert.doesNotMatch(message, /\b1000\b/);
     assert.doesNotMatch(message, /\b10000\b/);
   });
 
+  it("labels the line with the file path, not the object hash", () => {
+    const { message } = formatUploadProgress(
+      { loaded: 1000, total: 10000 },
+      "photos/beach.jpg",
+    );
+    assert.match(message, /photos\/beach\.jpg/);
+    // The content-addressed key is storage machinery, never shown to the user.
+    assert.doesNotMatch(message, /s3:\/\//);
+    assert.doesNotMatch(message, /objects\//);
+  });
+
+  it("leads with the fixed-width bar and trails with the variable path", () => {
+    const { message } = formatUploadProgress(
+      { loaded: 1000, total: 10000 },
+      "photos/beach.jpg",
+    );
+    // Bar first (fixed 20 chars), path last: fixed columns lead so the bar edge
+    // and byte counts stay aligned as paths vary from file to file.
+    assert.match(message, /^[*.]{20} /);
+    assert.match(message, /photos\/beach\.jpg$/);
+    assert.ok(
+      message.indexOf("kB") < message.indexOf("photos"),
+      "byte counts must precede the trailing path",
+    );
+  });
+
   it("omits the 'of <total>' segment when total is unknown", () => {
-    const { message, fill } = formatUploadProgress({
-      Bucket: "b",
-      Key: "k",
-      loaded: 1500,
-    });
+    const { message, fill } = formatUploadProgress(
+      { loaded: 1500 },
+      "photos/beach.jpg",
+    );
     assert.match(message, /uploaded 1\.5kB /);
     assert.doesNotMatch(message, / of /); // no misleading "of 0B"
     assert.equal(fill, 0); // no bar fill without a known total
   });
 
   it("fills the bar proportionally when total is known", () => {
-    const { fill } = formatUploadProgress({
-      Bucket: "b",
-      Key: "k",
-      loaded: 5,
-      total: 10,
-    });
+    const { fill } = formatUploadProgress(
+      { loaded: 5, total: 10 },
+      "photos/beach.jpg",
+    );
     assert.equal(fill, 10); // half of the 20-char bar
   });
 });
