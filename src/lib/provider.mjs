@@ -71,7 +71,8 @@ function validateEndpoint(endpoint) {
 /**
  * Obtain the access-key pair without ever touching argv: prompt when stdin is a
  * terminal (key ID echoed, secret hidden), otherwise read two lines from stdin
- * (`printf '%s\n%s\n' "$ID" "$SECRET" | s3cab provider --keys`).
+ * (`printf '%s\n%s\n' "$ID" "$SECRET" | s3cab provider --keys <set>` — name the
+ * set, since `--keys` is set-scoped; `setup … --keys` reads it the same way).
  * @returns {Promise<{ AWS_ACCESS_KEY_ID: string, AWS_SECRET_ACCESS_KEY: string }>}
  */
 async function readKeys() {

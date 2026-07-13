@@ -3,20 +3,6 @@
 Follow-ups from the ADR-0047 session (2026-07-09) that need a **shape discussion before
 building** — parked here so tomorrow's session can pick them up with context intact.
 
-## Onboarding: `setup` needs ambient credentials (open — surfaced by ADR-0055)
-
-[ADR-0055](../docs/adr/0055-per-set-credentials-one-mode.md) (implemented, PR #183) made
-credentials per-set — but a set's creds can't be configured until the set exists, and `setup`
-needs credentials to claim the remote marker. So `setup` runs on **ambient** creds only. AWS
-users are fine (`~/.aws`); non-AWS (R2/B2) users regressed — they must export
-`AWS_ENDPOINT_URL_S3` + keys in the shell for the first `setup`, then persist them per-set with
-`provider` afterward.
-
-Options to decide: **(a)** accept + document the shell-export-first dance; **(b)** let `setup`
-take the provider knobs (`--endpoint`/`--region`/`--profile`/`--keys`) and write the new set's
-env *before* claiming the remote, so one command is self-sufficient; **(c)** leave as-is.
-Leaning (b) — needs the `cli-design` skill before building.
-
 ## `provider --check` — a connection probe (the flagship)
 
 **Problem.** After `provider --endpoint … --region … --keys`, there is no way to learn
