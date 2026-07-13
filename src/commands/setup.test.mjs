@@ -122,6 +122,29 @@ describe("setup (offline validation)", () => {
     );
   });
 
+  it("rejects --profile and --keys together before any network touch (one mode)", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+
+    // The one-mode rule (ADR-0055) is enforced while gathering the knobs, which
+    // runs before the remote claim — so this fails offline, no name is claimed.
+    await assert.rejects(
+      () =>
+        setup("photos", [photos], { bucket: "b", profile: "work", keys: true }),
+      /either a profile or access keys/,
+    );
+  });
+
+  it("rejects a malformed --endpoint before any network touch", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+
+    await assert.rejects(
+      () => setup("photos", [photos], { bucket: "b", endpoint: "not-a-url" }),
+      /Give the endpoint as a full URL/,
+    );
+  });
+
   it("refuses to re-run on a set that already exists here (no update mode)", async () => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberDir(dir.path);

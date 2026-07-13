@@ -351,6 +351,25 @@ Full guide: https://github.com/allens/s3cab#authentication`,
         short: "b",
         description: "The S3 bucket to back this set up to",
       },
+      profile: {
+        type: "string",
+        short: "p",
+        description: "The AWS profile to use (from your ~/.aws config)",
+      },
+      endpoint: {
+        type: "string",
+        description:
+          "The provider's S3 endpoint URL, for non-AWS providers (writes AWS_ENDPOINT_URL_S3)",
+      },
+      region: {
+        type: "string",
+        description: "The region label the provider expects (e.g. auto)",
+      },
+      keys: {
+        type: "boolean",
+        description:
+          "Save an access key + secret — prompts at a terminal, or reads two lines from stdin (never flags)",
+      },
     },
     exec: (options, [name, ...directories] = []) =>
       setup(name, directories, options),
