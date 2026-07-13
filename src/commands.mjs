@@ -205,9 +205,11 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
       "s3cab provider --profile s3cab-backup",
       "s3cab provider",
     ],
-    description: `Configures which storage provider s3cab talks to and how it signs in — an
-AWS profile, a custom S3 endpoint (any S3-compatible provider), a region,
-and access keys. Run it with no flags to see the current setup.
+    description: `Changes or shows how a set signs in to its storage provider — an AWS
+profile, a custom S3 endpoint (any S3-compatible provider), a region, and
+access keys. The initial setup is usually done when you create the set
+('s3cab setup', same knobs); use this to change it later, or run it with no
+flags to see the current setup.
 
 Setting up a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
 MinIO, …):
@@ -218,14 +220,11 @@ MinIO, …):
 3. Create an access key / token scoped to that bucket, with read, write,
    delete, and list on its objects (R2: API Tokens; B2: Application Keys;
    Wasabi: sub-users).
-4. Point s3cab at the provider:
-     s3cab provider --endpoint https://<your-endpoint> --region auto
-     s3cab provider --keys
-   (--keys asks for the key + secret — some providers need a real region,
-   e.g. us-east-1. s3cab drops AWS-only request features automatically
-   when a custom endpoint is set.)
-5. Create a backup set in the bucket:
-     s3cab setup <name> <directory>... --bucket <bucket>
+4. Create the backup set, pointed at the provider in one command:
+     s3cab setup <name> <dir>... --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys
+   (--keys asks for the key + secret; some providers need a real region,
+   e.g. us-east-1. Change these later with 's3cab provider'. s3cab drops
+   AWS-only request features automatically when a custom endpoint is set.)
 
 On AWS instead? 's3cab aws <bucket>' prints the full bucket + identity
 recipe, ending back here at --profile.

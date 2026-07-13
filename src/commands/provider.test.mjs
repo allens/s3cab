@@ -554,6 +554,23 @@ describe("provider (show)", () => {
     assert.match(out, /AWS region for set 'docs': eu-west-1/);
   });
 
+  it("emits the shell-environment note once for the summary, not per ambient set", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet("photos");
+    makeSet("docs");
+    // Both sets are empty (ambient), and the shell carries auth.
+    for (const name of SHELL_VARS) {
+      delete process.env[name];
+    }
+    process.env.AWS_PROFILE = "work";
+
+    const out = await provider(undefined, {});
+
+    // The global note appears exactly once, though two sets rely on ambient.
+    assert.equal((out.match(/shell environment sets/g) ?? []).length, 1);
+  });
+
   it("gives the create-a-set hint when there are no sets", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);

@@ -175,8 +175,9 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    machine-wide default is your ordinary AWS setup (step 2). The **`provider`** command writes a
    set's file for you: `s3cab provider --profile <name>` for an AWS profile,
    `--endpoint <url> --region <r>` for an S3-compatible provider, and `--keys` for an access
-   key + secret (prompted or piped — never flags). A set signs in **one** way — a profile *or*
-   keys, not both — so setting one clears the other. Long-lived provider keys needn't sit in
+   key + secret (prompted or piped — never flags). `s3cab setup` takes the **same** knobs, so a
+   new set can be pointed at its provider in one command. A set signs in **one** way — a profile
+   *or* keys, not both — so setting one clears the other. Long-lived provider keys needn't sit in
    plaintext — the
    [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
    them from a secret manager through a `credential_process` profile.

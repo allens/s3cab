@@ -8,10 +8,12 @@ import { ParseArgsError } from "../lib/error.mjs";
 import { gatherProviderConfig, keyTail } from "../lib/provider.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 
-// `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — the one door for
-// configuring which storage provider s3cab talks to and how it signs in
-// (docs/design/auth.md): an AWS profile, a custom S3 endpoint (any
-// S3-compatible provider), a region, and access keys. It writes a set's own env
+// `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
+// how a set signs in to its storage provider (docs/design/auth.md): an AWS
+// profile, a custom S3 endpoint (any S3-compatible provider), a region, and
+// access keys. The *initial* config is usually set at `s3cab setup` (which takes
+// the same knobs, ADR-0055); this command changes it afterward or shows it. It
+// writes a set's own env
 // file (`~/.s3cab/sets/<set>/env`) — the single s3cab config layer (ADR-0055); the
 // machine-wide default is your ambient AWS setup, not an s3cab file. It never
 // touches `~/.aws` to *write*; profile validation only *reads* it
@@ -75,9 +77,13 @@ function resolveScope(setName) {
  * means "couldn't read", so skip the diagnostic rather than wrongly claim it's
  * absent).
  * @param {Scope} scope
- * @returns {Promise<string>}
+ * @param {{ withShellNote?: boolean }} [opts] - Append the global shell-env note
+ *   in the "nothing configured" case (true for a single-set show; false for the
+ *   all-sets summary, which emits it once — see {@link describeAllSets}).
+ * @returns {Promise<{ text: string, ambient: boolean }>} `ambient` is true when the
+ *   set carries no settings of its own (it relies on the ambient AWS setup).
  */
-async function describeScope(scope) {
+async function describeScope(scope, { withShellNote = true } = {}) {
   const { path, phrase } = scope;
   const values = parseEnvFile(path);
   const profile = values.AWS_PROFILE;
@@ -85,11 +91,13 @@ async function describeScope(scope) {
   const region = values.AWS_REGION;
   const keyId = values.AWS_ACCESS_KEY_ID;
   if (!profile && !endpoint && !region && !keyId) {
-    return (
-      `No provider settings for ${phrase} — it uses your ambient AWS setup.\n` +
-      `Give this set its own with:\n` +
-      `  s3cab provider --profile <name> ${scope.name}${shellNote()}`
-    );
+    return {
+      ambient: true,
+      text:
+        `No provider settings for ${phrase} — it uses your ambient AWS setup.\n` +
+        `Give this set its own with:\n` +
+        `  s3cab provider --profile <name> ${scope.name}${withShellNote ? shellNote() : ""}`,
+    };
   }
   const where = `   (${tildeify(path)})`;
   const lines = [];
@@ -112,7 +120,7 @@ async function describeScope(scope) {
   if (keyId) {
     lines.push(`Access keys for ${phrase}: set (${keyTail(keyId)})${where}`);
   }
-  return lines.join("\n");
+  return { text: lines.join("\n"), ambient: false };
 }
 
 /**
@@ -128,10 +136,15 @@ async function describeAllSets() {
   if (names.length === 0) {
     return NO_SETS_MESSAGE;
   }
-  const blocks = await Promise.all(
-    names.map((name) => describeScope(resolveScope(name))),
+  const results = await Promise.all(
+    names.map((name) =>
+      describeScope(resolveScope(name), { withShellNote: false }),
+    ),
   );
-  return blocks.join("\n\n");
+  // The shell-env note is global, not per-set, so emit it once (not once per
+  // ambient set) — and only when some set actually relies on the ambient setup.
+  const note = results.some((r) => r.ambient) ? shellNote() : "";
+  return results.map((r) => r.text).join("\n\n") + note;
 }
 
 /**
@@ -232,7 +245,8 @@ export async function provider(setName, options = {}) {
 
   // Get mode: nothing to set → report the current settings.
   if (!setting) {
-    return describeScope(scope);
+    const { text } = await describeScope(scope);
+    return text;
   }
 
   // The knob-gathering (validate, prompt for keys, reject profile+keys) is shared

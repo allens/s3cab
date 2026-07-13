@@ -158,8 +158,9 @@ _Avoid_: ls, show; sets (the retired command name).
 **Provider**:
 The storage service a backup talks to — AWS S3 or any S3-compatible service (Cloudflare R2,
 Backblaze B2, Wasabi, MinIO, …). Off AWS, a provider reduces to three strings — endpoint,
-access key, secret key — plus a region label; the **provider** command (ADR-0047) records
-them (and the AWS profile) in the set's env file (ADR-0055).
+access key, secret key — plus a region label; these (and the AWS profile) are recorded in the
+set's env file — at creation by `s3cab setup`, or later with the **provider** command
+(ADR-0047/0055).
 _Avoid_: vendor, backend, cloud (as a noun for the service), storage service.
 
 **AWS profile**:

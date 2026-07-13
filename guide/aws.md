@@ -118,27 +118,22 @@ The steps (also available offline via `s3cab help provider`):
 3. **Create an access key / token scoped to that bucket**, with read, write,
    delete, and list on its objects. Where to do this differs by provider
    (R2: API Tokens; B2: Application Keys; Wasabi: sub-users).
-4. **Create a backup set** in the bucket — config is per-set now, so the set
-   exists before you point s3cab at the provider:
+4. **Create the backup set, pointed at the provider in one command** — the
+   endpoint and region by flag, the key + secret at the prompt (never flags,
+   which would leak into shell history; piping two lines to `--keys` works for
+   scripts). Config is per-set, so it goes on the set as you create it:
 
    ```console
-   > s3cab setup <name> <directory>... --bucket <bucket>
-   ```
-5. **Point s3cab at the provider** — the endpoint and region by flag, the
-   key + secret at the prompt (never flags, which would leak into shell
-   history; piping two lines to `--keys` works for scripts):
-
-   ```console
-   > s3cab provider --endpoint https://<your-endpoint> --region auto
-   > s3cab provider --keys
+   > s3cab setup <name> <directory>... --bucket <bucket> \
+       --endpoint https://<your-endpoint> --region auto --keys
    Access key ID: …
    Secret access key (hidden):
    ```
 
-   With one set these target it by default (name it explicitly if you have
-   several). They write the set's env file (`~/.s3cab/sets/<set>/env`, created
+   This writes the set's env file (`~/.s3cab/sets/<set>/env`, created
    owner-only). Some providers want a real region label (e.g. `us-east-1`); R2
-   takes `auto`.
+   takes `auto`. To change any of it later, use `s3cab provider`
+   (e.g. `s3cab provider --keys <set>`).
 
 s3cab automatically drops AWS-only request features (server-side encryption,
 intelligent-tiering, the default integrity-checksum trailer) when a custom
