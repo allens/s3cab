@@ -5,9 +5,8 @@ import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
-import { promptHidden, promptLine, stdinLines } from "../lib/prompt.mjs";
+import { gatherProviderConfig, keyTail } from "../lib/provider.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
-import { isInteractive } from "../lib/style.mjs";
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — the one door for
 // configuring which storage provider s3cab talks to and how it signs in
@@ -136,14 +135,6 @@ async function describeAllSets() {
 }
 
 /**
- * The last few characters of an access key ID — enough to answer "which key?"
- * without dumping the whole thing into every status line. Key IDs are not
- * secret (consoles list them in full); this is brevity, not masking.
- * @param {string} keyId
- */
-const keyTail = (keyId) => `…${keyId.slice(-4)}`;
-
-/**
  * A trailing note for a set's "nothing configured" answer when the *shell
  * environment* nonetheless carries auth — without it, a user whose backups work
  * fine off shell `AWS_*` vars reads "no provider settings" as broken. Only
@@ -168,74 +159,6 @@ function shellNote() {
   }
   return `\n(Your shell environment sets ${vars.join(", ")} — s3cab uses that
 unless the set overrides it.)`;
-}
-
-/**
- * Warn (but don't block) when a profile isn't in the user's AWS config, listing
- * the ones that are — the typo-catcher. Best-effort: `listProfiles` returns
- * `undefined` if the config can't be read, in which case validation is skipped.
- * @param {string} name
- */
-async function warnIfUnknownProfile(name) {
-  const profiles = await listProfiles();
-  if (!profiles || profiles.includes(name)) {
-    return;
-  }
-  const available = profiles.length
-    ? `Profiles found in your AWS config: ${profiles.join(", ")}.`
-    : `No profiles are configured in your AWS config.`;
-  console.warn(
-    `AWS profile '${name}' isn't in your AWS config yet.\n` +
-      `${available}\n` +
-      `s3cab will use it anyway. To create the profile first:\n` +
-      `  aws configure --profile ${name}\n` +
-      `(for AWS IAM Identity Center, run 'aws configure sso' instead).`,
-  );
-}
-
-/**
- * Validate an `--endpoint` value: an absolute http(s) URL, or a typo'd endpoint
- * becomes the classic silent R2/B2 signature-mismatch trap later.
- * @param {string} endpoint
- * @returns {string} The validated endpoint
- */
-function validateEndpoint(endpoint) {
-  const invalid = () =>
-    new ParseArgsError(
-      `Give the endpoint as a full URL, e.g. --endpoint https://<account>.r2.cloudflarestorage.com (got: ${endpoint})`,
-    );
-  let url;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    throw invalid();
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw invalid();
-  }
-  return endpoint;
-}
-
-/**
- * Obtain the access-key pair without ever touching argv: prompt when stdin is a
- * terminal (key ID echoed, secret hidden), otherwise read two lines from stdin
- * (`printf '%s\n%s\n' "$ID" "$SECRET" | s3cab provider --keys`).
- * @returns {Promise<{ AWS_ACCESS_KEY_ID: string, AWS_SECRET_ACCESS_KEY: string }>}
- */
-async function readKeys() {
-  let id, secret;
-  if (isInteractive(process.stdin)) {
-    id = await promptLine("Access key ID: ");
-    secret = await promptHidden("Secret access key (hidden): ");
-  } else {
-    [id = "", secret = ""] = await stdinLines(2);
-  }
-  if (!id || !secret) {
-    throw new ParseArgsError(
-      "Both an access key ID and a secret are needed — enter them at the prompts, or pipe them as two lines to --keys.",
-    );
-  }
-  return { AWS_ACCESS_KEY_ID: id, AWS_SECRET_ACCESS_KEY: secret };
 }
 
 /**
@@ -282,14 +205,6 @@ export async function provider(setName, options = {}) {
     );
   }
 
-  // One credential mode per set (ADR-0055): a profile and access keys are two
-  // alternative ways to sign in, so setting both in one call is a contradiction.
-  if (profile !== undefined && keys) {
-    throw new ParseArgsError(
-      "Set either a profile or access keys, not both — they are two alternative ways to sign in.",
-    );
-  }
-
   // Bare `provider` (no set named, nothing to set or unset) summarizes every set —
   // read-only, so an all-sets view is safe. A write or `--unset` with no set falls
   // through to the sole-set default in `resolveScope`.
@@ -320,40 +235,10 @@ export async function provider(setName, options = {}) {
     return describeScope(scope);
   }
 
-  /** @type {Record<string, string>} */
-  const updates = {};
-  /** @type {string[]} */
-  const set = [];
-  if (profile !== undefined) {
-    const name = profile.trim();
-    if (name === "") {
-      throw new ParseArgsError(
-        "Give a profile name, e.g. --profile work. To remove the profile, use --unset profile.",
-      );
-    }
-    await warnIfUnknownProfile(name);
-    updates.AWS_PROFILE = name;
-    set.push(`AWS profile '${name}'`);
-  }
-  if (endpoint !== undefined) {
-    updates.AWS_ENDPOINT_URL_S3 = validateEndpoint(endpoint.trim());
-    set.push(`endpoint ${updates.AWS_ENDPOINT_URL_S3}`);
-  }
-  if (region !== undefined) {
-    const value = region.trim();
-    if (value === "") {
-      throw new ParseArgsError(
-        "Give a region, e.g. --region auto. To remove the region, use --unset region.",
-      );
-    }
-    updates.AWS_REGION = value;
-    set.push(`region ${value}`);
-  }
-  if (keys) {
-    const pair = await readKeys();
-    Object.assign(updates, pair);
-    set.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
-  }
+  // The knob-gathering (validate, prompt for keys, reject profile+keys) is shared
+  // with `setup` — see lib/provider.mjs. `provider` then applies the one-mode
+  // clearing below, which `setup` doesn't need (its set is brand new).
+  const { updates, summary } = await gatherProviderConfig(options);
 
   // Enforce the one-mode rule against what's already on disk: writing a profile
   // clears any access keys, and writing keys clears any profile (endpoint and
@@ -381,5 +266,5 @@ export async function provider(setName, options = {}) {
   for (const key of clear) {
     removeEnvKey(scope.path, key);
   }
-  return `Set ${set.join(", ")} for ${scope.phrase}${replaced} (${tildeify(scope.path)}).`;
+  return `Set ${summary.join(", ")} for ${scope.phrase}${replaced} (${tildeify(scope.path)}).`;
 }
