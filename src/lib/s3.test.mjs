@@ -301,10 +301,10 @@ describe("authNotice", () => {
     assert.equal(
       authNotice({
         profile: "work",
-        profileSource: "~/.s3cab/env",
+        profileSource: "set 'photos' config",
         endpoint: "https://example.r2",
       }),
-      "Using AWS profile: work (from ~/.s3cab/env), endpoint: https://example.r2",
+      "Using AWS profile: work (from set 'photos' config), endpoint: https://example.r2",
     );
   });
 

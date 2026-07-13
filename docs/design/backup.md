@@ -108,11 +108,10 @@ diagram is repeated here because the design points below lean on it.)
 
 ```
 ~/.s3cab/
-  env                    # per-user defaults + auth      (existing auth layer)
   sets/
     photos/
       dirs.txt           # member directories, one absolute path per line
-      env                # S3CAB_BUCKET=… + any per-set auth overrides
+      env                # S3CAB_BUCKET=… + how to reach it (profile or keys)
       exclude.txt        # optional; patterns applied relative to each member dir
       snapshots/
         2026-06-12T0915.tsv.zst
@@ -121,11 +120,12 @@ diagram is repeated here because the design points below lean on it.)
 - **The files are the API.** Editing a set = opening `dirs.txt`/`env`/`exclude.txt` in
   any editor; deleting the directory deletes the set. No structured config format, no
   management subcommands to keep honest with the files.
-- The set's `env` is the **set layer** in the env layering (env.mjs): precedence is
-  **set → user → shell** ([ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) dropped the
-  former per-bucket layer). It pins `S3CAB_BUCKET` (the bound bucket — every set has one,
-  [ADR-0026](../adr/0026-bucket-required-at-setup.md)) plus any per-set auth override; the
-  name is the identity, so there is nothing else to pin.
+- The set's `env` is the **one s3cab config layer** (env.mjs): precedence is
+  **set → shell** ([ADR-0025](../adr/0025-drop-per-bucket-env-layer.md) dropped the per-bucket
+  layer; [ADR-0055](../adr/0055-per-set-credentials-one-mode.md) the per-user layer). It pins
+  `S3CAB_BUCKET` (the bound bucket — every set has one,
+  [ADR-0026](../adr/0026-bucket-required-at-setup.md)) plus how to reach it (one credential
+  mode — a profile or keys); the name is the identity, so there is nothing else to pin.
 - **`<dir>/.s3cab/` retires entirely** — snapshots and excludes no longer live inside
   backed-up directories.
 - `exclude.txt` keeps today's pattern semantics (see guide/exclude.md), applied relative

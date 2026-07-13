@@ -11,9 +11,9 @@
 // in lib/style.mjs; a renderer never prints (it returns), and never truncates
 // (ADR-0043 — the user manages volume with a pager or redirect).
 
-import { homedir } from "node:os";
 import { dirname, relative, sep } from "node:path";
 import { formatByteValue } from "./lib/format.mjs";
+import { tildeify } from "./lib/home.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
 import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
@@ -193,19 +193,6 @@ function commonAncestor(dirs) {
 }
 
 /**
- * Shorten a home-directory path to a leading `~` for the header (display only).
- * @param {string} path
- * @returns {string}
- */
-function tildeify(path) {
-  const home = homedir();
-  if (path === home) {
-    return "~";
-  }
-  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
-}
-
-/**
  * @param {AddedEntry[]} added
  * @param {(path: string) => string} shorten
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
@@ -334,8 +321,8 @@ export function renderList(result) {
 /**
  * The set's own provider settings, as an indented block after the bucket —
  * where its backups actually go (ADR-0047). Rendered only when the set
- * overrides something; a set on the user default stays as before (the absence
- * IS the answer). Key presence only, never the secret.
+ * carries provider settings of its own; a set relying on the ambient AWS setup
+ * shows no block (the absence IS the answer). Key presence only, never the secret.
  * @param {ProviderOverrides} overrides
  * @returns {string[]}
  */

@@ -1,6 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
+import { updateEnvFile } from "../lib/env-file.mjs";
 import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
+import { gatherProviderConfig } from "../lib/provider.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import {
   claimRemoteSet,
@@ -43,10 +45,20 @@ import {
  * touches S3 (the claim/publish), which is why this is async; the read commands
  * (`list`/`snapshot`/`compare`/`tree`) stay offline once a set exists.
  *
+ * The provider knobs (`--profile`/`--endpoint`/`--region`/`--keys`, shared with
+ * `provider`) may configure how the set signs in — needed for the very first
+ * claim when there is no ambient AWS setup (e.g. a non-AWS provider, whose creds
+ * can't be set per-set before the set exists — ADR-0055). They authenticate the
+ * claim and are saved to the set's env on a win; `provider` changes them later.
+ *
  * @param {string} [name] - The set's name (required)
  * @param {string[]} [directories] - The member directories (required)
  * @param {object} [options]
  * @param {string} [options.bucket] - The S3 bucket to back the set up to (required)
+ * @param {string} [options.profile] - AWS profile for the set (writes AWS_PROFILE)
+ * @param {string} [options.endpoint] - Custom S3 endpoint, non-AWS (writes AWS_ENDPOINT_URL_S3)
+ * @param {string} [options.region] - Region label (writes AWS_REGION)
+ * @param {boolean} [options.keys] - Save an access key + secret (prompt/stdin, never flags)
  * @returns {Promise<BackupSet>} The set as stored
  */
 export async function setup(name, directories = [], options = {}) {
@@ -151,7 +163,7 @@ const collisionError = (name, bucket, info) => {
  * publish its config. Directories and `--bucket` are both required here.
  * @param {string} name
  * @param {string[]} directories
- * @param {{ bucket?: string }} options
+ * @param {{ bucket?: string, profile?: string, endpoint?: string, region?: string, keys?: boolean }} options
  * @returns {Promise<BackupSet>}
  */
 async function create(name, directories, options) {
@@ -170,9 +182,17 @@ async function create(name, directories, options) {
   }
   const bucket = options.bucket;
 
-  // Claim the name before writing anything locally ("first person wins"). The
-  // set env doesn't exist yet; the user env loaded at the entry point supplies
-  // the S3 client's credentials/region.
+  // Gather the provider knobs (validate, prompt for keys, reject profile+keys —
+  // shared with `provider`, lib/provider.mjs) and merge them into the environment
+  // so the remote claim below can authenticate. A set's credentials can't be
+  // configured before the set exists (ADR-0055), so `setup` carries them here for
+  // that first S3 touch; with no knobs, the claim runs on the ambient AWS chain.
+  const { updates } = await gatherProviderConfig(options);
+  Object.assign(process.env, updates);
+
+  // Claim the name before writing anything locally ("first person wins"). If the
+  // claim loses, nothing local was written — the gathered config lives only in
+  // this process's environment, so there is nothing to roll back.
   const won = await claimRemoteSet(bucket, name, {
     owner: hostname(),
     created: nowStamp(),
@@ -183,6 +203,11 @@ async function create(name, directories, options) {
   }
 
   const set = writeSet(name, { dirs, bucket });
+  // Persist the provider config to the new set's env now the claim has won, so
+  // later commands sign in the same way without re-supplying it.
+  if (Object.keys(updates).length > 0) {
+    updateEnvFile(set.envPath, updates);
+  }
   // The starter exclude file is a birth gift for *new* sets only (`reattach`
   // reproduces an existing set exactly, never silently narrowing what it backs
   // up), seeded before `pushSetConfig` so the published remote config matches.

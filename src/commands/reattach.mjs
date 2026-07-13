@@ -75,8 +75,9 @@ export async function reattach(name, directories = [], options = {}) {
     );
   }
 
-  // First S3 touch: the set env doesn't exist yet, so the user env loaded at the
-  // entry point supplies the credentials.
+  // First S3 touch: the set doesn't exist here yet, so credentials come from the
+  // ambient AWS chain (~/.aws / exported AWS_*) — there is no set env to carry
+  // them (ADR-0055).
   const info = await readRemoteInfo(bucket, name);
   if (!info) {
     const available = await listRemoteSets(bucket);
