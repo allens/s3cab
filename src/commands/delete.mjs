@@ -43,8 +43,8 @@ export async function deleteSnapshot(setName, options = {}) {
     });
   }
 
-  // Resolve the set and apply its env layer (its bucket + auth) on top of the
-  // user env already loaded at the entry point (ADR-0022).
+  // Resolve the set and apply its env layer (its bucket + auth) over the ambient
+  // shell (ADR-0022/0055 — the one s3cab layer).
   const set = loadSet(setName);
 
   // Confirm the snapshot exists remotely, so the prompt names a real target and

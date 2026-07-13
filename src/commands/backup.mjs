@@ -36,9 +36,9 @@ import { upload } from "./upload.mjs";
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
-  // Resolve the set and apply its env layer (its bucket's auth) on top of the
-  // user env already loaded at the entry point (env.mjs, ADR-0022). `upload`
-  // re-resolves it (idempotent); we resolve here for the snapshot-name lookup.
+  // Resolve the set and apply its env layer (its bucket's auth) over the ambient
+  // shell (env.mjs, ADR-0022/0055 — the one s3cab layer). `upload` re-resolves it
+  // (idempotent); we resolve here for the snapshot-name lookup.
   const set = loadSet(setName);
   const snapshotDir = set.snapshotsDir;
 

@@ -355,7 +355,7 @@ export const NO_SETS_MESSAGE =
  * a resolved set is already cloud-ready — there is no second "has a bucket?"
  * resolver tier. This is the env-free inner resolver: commands reach a set
  * through `loadSet` (env.mjs), which wraps this and applies the set's env layer
- * on top of the user env already loaded at the entry point (ADR-0022).
+ * over the ambient shell (ADR-0022/0055 — the one s3cab layer).
  * @param {string} [name]
  * @returns {BackupSet}
  */
