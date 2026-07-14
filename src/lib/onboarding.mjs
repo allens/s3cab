@@ -1,12 +1,16 @@
 import { ValidationError } from "./error.mjs";
+import { tildeify } from "./home.mjs";
 import { bucketPolicy } from "./s3.mjs";
 
-// Generates the cloud-onboarding plan the `aws` command prints: a CloudFormation
-// template plus the short recipe a user runs to stand up an S3 backup destination
-// and a least-privilege identity for s3cab. Pure text — no AWS calls, no I/O —
-// which is what makes the command generative (ADR-0032/0056) and unit-testable
-// without a client (src/lib/onboarding.test.mjs). The command (src/commands/aws.mjs)
-// resolves region/profile/endpoint and prints what these return.
+// Generates the cloud-onboarding artifacts the `aws` command uses to stand up an S3
+// backup destination + a least-privilege identity for s3cab: the CloudFormation
+// **template** (`awsCloudFormationTemplate`/`awsRolesAnywhereTemplate`) the command
+// writes to `~/.s3cab/<bucket>.yaml`, and the short **recipe**
+// (`awsIamPlan`/`awsRolesAnywherePlan`) it prints, pointing the user at that file.
+// Pure text — no AWS calls, no I/O (the command owns the file write) — which is
+// what makes the command generative (ADR-0032/0056) and unit-testable without a
+// client (src/lib/onboarding.test.mjs). The command (src/commands/aws.mjs) resolves
+// region/profile/endpoint, writes the template, and prints what these return.
 //
 // Why a declarative template, not an imperative `aws` command list (ADR-0056):
 // CloudFormation resolves inter-resource references itself (no ARN threading), the
@@ -319,22 +323,24 @@ Outputs:
  * door (ADR-0055), which is why it, not `provider` (the *change-it-afterward*
  * door), completes the recipe: a fresh onboarding has no set yet for `provider` to
  * target, and `setup --keys` creates the set and stores the key in one atomic step.
- * @param {{ bucket: string, region: string, profile?: string }} params
+ * @param {{ bucket: string, region: string, profile?: string, templatePath: string }} params
+ *   - `templatePath`: where the command wrote the template (ADR-0056), referenced
+ *     by the deploy command's `--template-file`.
  * @returns {string}
  */
-export function awsIamPlan({ bucket, region, profile }) {
+export function awsIamPlan({ bucket, region, profile, templatePath }) {
   const pf = profileFlag(profile);
   const rf = region ? ` --region ${region}` : "";
   const stack = stackName(bucket);
   const blocks = [
     header(bucket, "AWS"),
 
-    `1. Save this CloudFormation template as ${stack}.yaml:\n\n` +
-      `${awsCloudFormationTemplate(bucket)}\n` +
-      `   Deploy it — one command creates the bucket and a locked-down s3cab\n` +
-      `   identity, resolving every reference for you:\n` +
-      `   aws cloudformation deploy --template-file ${stack}.yaml \\\n` +
-      `     --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
+    `Wrote the CloudFormation template to ${tildeify(templatePath)}.`,
+
+    `1. Deploy it — one command creates the bucket and a locked-down s3cab\n` +
+      `   identity, resolving every reference for you (one line so it pastes\n` +
+      `   identically into PowerShell, cmd, and bash):\n` +
+      `   aws cloudformation deploy --template-file "${templatePath}" --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
 
     `2. Mint an access key for the new identity. This is the one secret step —\n` +
       `   it is shown once here and never stored in the stack:\n` +
@@ -371,17 +377,18 @@ export function awsIamPlan({ bucket, region, profile }) {
  * @param {object} params
  * @param {string} params.bucket
  * @param {string} params.region
- * @param {string} params.caPem - The local CA certificate, embedded in the template.
  * @param {boolean} params.created - Whether this run generated a fresh identity.
+ * @param {string} params.templatePath - Where the command wrote the template
+ *   (ADR-0056), referenced by the deploy command's `--template-file`.
  * @param {string} [params.profile] - An admin profile to interpolate into `aws` commands.
  * @returns {string}
  */
 export function awsRolesAnywherePlan({
   bucket,
   region,
-  caPem,
   created,
   profile,
+  templatePath,
 }) {
   const pf = profileFlag(profile);
   const rf = region ? ` --region ${region}` : "";
@@ -393,15 +400,15 @@ export function awsRolesAnywherePlan({
     header(bucket, "AWS (keyless, Roles Anywhere)"),
 
     `${identityLine} under ~/.s3cab/roles-anywhere/. The client private key\n` +
-      `stays on this machine and is never sent to AWS; only the public CA below\n` +
-      `is uploaded (as the trust anchor).`,
+      `stays on this machine and is never sent to AWS; only the public CA\n` +
+      `(embedded in the template) is uploaded, as the trust anchor.`,
 
-    `1. Save this CloudFormation template as ${stack}.yaml:\n\n` +
-      `${awsRolesAnywhereTemplate(bucket, caPem)}\n` +
-      `   Deploy it — one command creates the bucket and the keyless identity\n` +
-      `   (trust anchor, role, profile), resolving every reference for you:\n` +
-      `   aws cloudformation deploy --template-file ${stack}.yaml \\\n` +
-      `     --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
+    `Wrote the CloudFormation template to ${tildeify(templatePath)}.`,
+
+    `1. Deploy it — one command creates the bucket and the keyless identity\n` +
+      `   (trust anchor, role, profile), resolving every reference for you (one\n` +
+      `   line so it pastes identically into PowerShell, cmd, and bash):\n` +
+      `   aws cloudformation deploy --template-file "${templatePath}" --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
 
     `2. Capture the stack's ARNs into your local identity (read-only — it only\n` +
       `   reads the stack you just deployed, creates nothing):\n` +

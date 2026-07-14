@@ -97,14 +97,20 @@ describe("awsCloudFormationTemplate", () => {
 });
 
 describe("awsIamPlan", () => {
+  const TEMPLATE_PATH = "/tmp/s3cab-home/my-backups.yaml";
   const plan = (/** @type {{region?: string, profile?: string}} */ opts = {}) =>
-    awsIamPlan({ bucket: "my-backups", region: "eu-west-1", ...opts });
+    awsIamPlan({
+      bucket: "my-backups",
+      region: "eu-west-1",
+      templatePath: TEMPLATE_PATH,
+      ...opts,
+    });
 
   it("walks through the three steps: deploy, mint one key, create the set with it", () => {
     const out = plan();
     assert.match(
       out,
-      /aws cloudformation deploy --template-file s3cab-my-backups\.yaml/,
+      /aws cloudformation deploy --template-file "\/tmp\/s3cab-home\/my-backups\.yaml"/,
     );
     assert.match(out, /--stack-name s3cab-my-backups/);
     assert.match(out, /--capabilities CAPABILITY_NAMED_IAM/);
@@ -118,9 +124,15 @@ describe("awsIamPlan", () => {
     assert.doesNotMatch(out, /s3cab provider --keys/);
   });
 
-  it("embeds the CloudFormation template inline for the user to save", () => {
-    assert.match(plan(), /AWSTemplateFormatVersion: "2010-09-09"/);
-    assert.match(plan(), /Type: AWS::S3::Bucket/);
+  it("points at the written template file, not an inline copy (ADR-0056)", () => {
+    const out = plan();
+    assert.match(
+      out,
+      /Wrote the CloudFormation template to \/tmp\/s3cab-home\/my-backups\.yaml\./,
+    );
+    // The YAML body is written to disk, not embedded in the recipe.
+    assert.doesNotMatch(out, /AWSTemplateFormatVersion/);
+    assert.doesNotMatch(out, /Type: AWS::S3::Bucket/);
   });
 
   it("keeps the access-key secret out of CloudFormation — no AWS::IAM::AccessKey", () => {
@@ -226,14 +238,15 @@ describe("awsRolesAnywhereTemplate", () => {
 });
 
 describe("awsRolesAnywherePlan", () => {
+  const TEMPLATE_PATH = "/tmp/s3cab-home/my-backups.yaml";
   const plan = (
     /** @type {{created?: boolean, region?: string, profile?: string}} */ opts = {},
   ) =>
     awsRolesAnywherePlan({
       bucket: "my-backups",
       region: "eu-west-1",
-      caPem: FAKE_CA,
       created: true,
+      templatePath: TEMPLATE_PATH,
       ...opts,
     });
 
@@ -251,7 +264,7 @@ describe("awsRolesAnywherePlan", () => {
     const out = plan();
     assert.match(
       out,
-      /aws cloudformation deploy --template-file s3cab-my-backups\.yaml/,
+      /aws cloudformation deploy --template-file "\/tmp\/s3cab-home\/my-backups\.yaml"/,
     );
     assert.match(out, /--capabilities CAPABILITY_NAMED_IAM/);
     assert.match(
@@ -260,9 +273,15 @@ describe("awsRolesAnywherePlan", () => {
     );
   });
 
-  it("embeds the RA template (trust anchor + CA bundle) inline", () => {
-    assert.match(plan(), /Type: AWS::RolesAnywhere::TrustAnchor/);
-    assert.match(plan(), /-----BEGIN CERTIFICATE-----/);
+  it("points at the written template file, not an inline copy (ADR-0056)", () => {
+    const out = plan();
+    assert.match(
+      out,
+      /Wrote the CloudFormation template to \/tmp\/s3cab-home\/my-backups\.yaml\./,
+    );
+    // The RA template (trust anchor + embedded CA bundle) is written to disk.
+    assert.doesNotMatch(out, /Type: AWS::RolesAnywhere::TrustAnchor/);
+    assert.doesNotMatch(out, /-----BEGIN CERTIFICATE-----/);
   });
 
   it("points at wiring a set to the identity (the runtime signer is built)", () => {

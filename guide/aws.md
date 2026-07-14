@@ -26,18 +26,20 @@ anything happens.
   sugar only — the command never uses it to authenticate.
 - `--roles-anywhere` — use the keyless, certificate-based Roles Anywhere identity
   instead of the default IAM-user one: generate the local CA + client certificate
-  and print its CloudFormation template (see [Identity options](#identity-options)).
+  and write its CloudFormation template (see [Identity options](#identity-options)).
   Recommended. Combine with `--save --from-stack <stack>` to capture the deployed
   stack's ARNs.
 
-It emits a **CloudFormation template** — a single declarative file describing the
-bucket, its least-privilege policy, and the s3cab identity — which you deploy with
-one `aws cloudformation deploy`. CloudFormation resolves every cross-resource
-reference itself, so there are no ARNs to copy from one command's output into the
-next, and the same command works identically on PowerShell and bash. The stack is
-updatable (change the lifecycle window, redeploy) and teardownable — though the
-bucket carries `DeletionPolicy: Retain`, so deleting the stack **never** destroys
-your backups.
+It writes a **CloudFormation template** — a single declarative file describing the
+bucket, its least-privilege policy, and the s3cab identity — to
+`~/.s3cab/<bucket>.yaml`, and prints the recipe to deploy it with one `aws
+cloudformation deploy`. Writing the file (rather than dumping YAML to the terminal
+for you to copy) means the deploy command just points `--template-file` at it.
+CloudFormation resolves every cross-resource reference itself, so there are no ARNs
+to copy from one command's output into the next, and the same command works
+identically on PowerShell and bash. The stack is updatable (change the lifecycle
+window, redeploy) and teardownable — though the bucket carries
+`DeletionPolicy: Retain`, so deleting the stack **never** destroys your backups.
 
 The three steps that follow the template are **sequential and human-in-the-loop**,
 not one paste-all: minting the identity's access key is a deliberate manual step
@@ -123,15 +125,16 @@ one level above access keys, deliberately not an enterprise PKI.
 
 `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your
-machine) and prints a CloudFormation template that stands up the bucket plus the
-keyless identity — a trust anchor over the public CA, an IAM role carrying the
-same least-privilege policy, and a profile. Deploy it, then capture the stack's
-ARNs back into the local identity:
+machine) and writes a CloudFormation template to `~/.s3cab/<bucket>.yaml` that
+stands up the bucket plus the keyless identity — a trust anchor over the public
+CA, an IAM role carrying the same least-privilege policy, and a profile. Deploy
+it, then capture the stack's ARNs back into the local identity. s3cab prints the
+deploy command ready to paste, with `--template-file` pointing at the absolute
+path it just wrote (the `~/.s3cab/<bucket>.yaml` below is illustrative):
 
 ```console
-> s3cab aws <bucket> --roles-anywhere          # generates certs + prints the template
-> aws cloudformation deploy --template-file s3cab-<bucket>.yaml \
-    --stack-name s3cab-<bucket> --capabilities CAPABILITY_NAMED_IAM
+> s3cab aws <bucket> --roles-anywhere          # generates certs + writes the template
+> aws cloudformation deploy --template-file ~/.s3cab/<bucket>.yaml --stack-name s3cab-<bucket> --capabilities CAPABILITY_NAMED_IAM
 > s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # read-only ARN capture
 ```
 
@@ -223,8 +226,7 @@ The steps (also available offline via `s3cab help provider`):
    scripts). Config is per-set, so it goes on the set as you create it:
 
    ```console
-   > s3cab setup <name> <directory>... --bucket <bucket> \
-       --endpoint https://<your-endpoint> --region auto --keys
+   > s3cab setup <name> <directory>... --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys
    Access key ID: …
    Secret access key (hidden):
    ```

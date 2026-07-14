@@ -55,7 +55,7 @@ them back**. You create a set once, then the commands act on it:
 
 | Command                       | What it does                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------- |
-| `s3cab aws <bucket>`          | Print the steps to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
+| `s3cab aws <bucket>`          | Write a CloudFormation template (+ print the steps) to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
 | `s3cab provider`              | Set, clear, or show how s3cab connects to your storage provider — an AWS profile, or a custom endpoint/region/keys for any S3-compatible provider ([non-AWS setup](guide/aws.md#non-aws-providers)). |
 | `s3cab setup <set> <directory>…` | Create a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
 | `s3cab reattach <set>`       | Attach this machine to a set that already exists in the cloud — a replacement/recovery machine (`--bucket` holds it). Pulls its config + history, not the files (that's `restore`). |
@@ -193,7 +193,7 @@ the session up automatically through the standard chain.
 access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
 session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and
-prints a CloudFormation template; after deploying it and capturing the ARNs
+writes a CloudFormation template to `~/.s3cab/<bucket>.yaml`; after deploying it and capturing the ARNs
 (`--save --from-stack`), point a set at it with `s3cab setup … --roles-anywhere` or
 `s3cab provider --roles-anywhere <set>`. The durable secret never travels, only a ~1-hour token
 flows to AWS, and the trust anchor gives you central revocation. It's a best-effort win, not a
