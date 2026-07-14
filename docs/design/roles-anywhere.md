@@ -1,0 +1,118 @@
+# `s3cab` IAM Roles Anywhere Design
+
+## Status
+
+Design agreed; the runtime signer is **validated by a live spike** (2026-07-14 — see
+[scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)),
+**implementation pending**. Decisions: [ADR-0057](../adr/0057-roles-anywhere-credential-mode.md)
+(the credential mode + native signer) and [ADR-0056](../adr/0056-onboarding-via-cloudformation.md)
+(the CloudFormation onboarding it rides on). This doc is the evolving *how*; the ADRs are the *why*.
+
+## Purpose
+
+IAM Roles Anywhere lets a workload **outside** AWS authenticate with an X.509 client certificate and
+receive short-lived STS session credentials — no long-lived AWS keys. s3cab adds it as a **fourth
+per-set credential mode**, beside profile / keys / ambient ([ADR-0055](../adr/0055-per-set-credentials-one-mode.md)).
+The goal is deliberately narrow: *one level above access keys — approved short-lived session
+credentials — not an enterprise PKI.* It is **AWS-only** (the RA protocol is AWS IAM/STS, not part of
+the S3 API; the credential-mode entry in [auth.md](auth.md) covers where RA sits among the modes).
+
+## The machine RA identity
+
+One **machine-level** identity, shared by every set in RA mode the way sets share a machine-level
+`AWS_PROFILE` (a set stores only a *pointer/marker*, never the material). It is a cluster under
+`~/.s3cab/roles-anywhere/` (`0700`, files `0600`):
+
+| File | What |
+| --- | --- |
+| `ca.pem` / `ca.key` | the self-signed CA (avoids AWS Private CA fees). `ca.key` is the *cold* key — only re-issues client certs; back it up. |
+| `client.pem` / `client.key` | the client certificate + key — the machine's identity; `client.key` is the runtime signing key, never sent to AWS. |
+| `env` | an env-format file (reusing `env-file.mjs`) with `S3CAB_RA_TRUST_ANCHOR_ARN` / `S3CAB_RA_PROFILE_ARN` / `S3CAB_RA_ROLE_ARN` / `AWS_REGION`. |
+
+**Long-lived cert (~10y), generate-and-forget** — no renew/rotate/revoke machinery; loss or
+compromise ⇒ regenerate (new CA → new trust anchor, same role/bucket). The cert's lifetime does not
+weaken the goal: RA still mints *short-lived* session creds, so a long-lived *local* cert is not a
+long-lived *AWS* key.
+
+## Setup (Phase A) — generative
+
+`s3cab aws <bucket> --roles-anywhere`, the keyless alternative to the default IAM-user path
+([ADR-0056](../adr/0056-onboarding-via-cloudformation.md)):
+
+1. **Generate the CA + client cert locally** — the one active step, but no AWS call, no admin creds,
+   no *AWS* secret, so squarely inside the generative posture ([ADR-0032](../adr/0032-generative-onboarding-not-active-provisioning.md)).
+2. **Emit a CloudFormation template** for the trust anchor (external-CA `CERTIFICATE_BUNDLE`, CA PEM
+   inline — public), the IAM role (RA trust policy + the managed `s3cab-bucket-access-<bucket>`
+   policy), and the profile. The user applies it with one `aws cloudformation deploy … --capabilities
+   CAPABILITY_NAMED_IAM`.
+3. **Capture the ARNs** into the machine `env` with a read-only `describe-stacks`
+   (`s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>`, via `@aws-sdk/client-cloudformation`).
+
+### Cert-shape requirements (RA rejects the trust anchor / session otherwise)
+
+The live spike established these are **mandatory** — whatever generates the certs (see the open
+sub-decision) must emit exactly:
+
+| Cert | Extensions |
+| --- | --- |
+| **CA** (→ trust anchor) | `basicConstraints = critical, CA:TRUE, pathlen:0` **and** `keyUsage = critical, keyCertSign, cRLSign` |
+| **client** (→ signs `CreateSession`) | `basicConstraints = critical, CA:FALSE`, `keyUsage = critical, digitalSignature`, `extendedKeyUsage = clientAuth` |
+
+A CA without `keyUsage: keyCertSign` fails trust-anchor creation with *"Incorrect basic constraints
+for CA certificate."*
+
+## Runtime (Phase B) — the native SigV4-X509 signer
+
+The AWS JS SDK ships **no** Roles Anywhere credential provider, and `CreateSession` is a
+special X509-signed endpoint (not in `@aws-sdk/client-rolesanywhere`, which is control-plane only).
+So credentials come from a bespoke signer on Node builtins — **validated end-to-end by the spike**
+(`201` + live session credentials). It slots into `resolveCredentials` as a fourth source: the set's
+RA marker routes to the signer, else the standard chain runs. `provider --roles-anywhere <set>` is
+the fourth mutually-exclusive mode (sets the marker, clears profile/keys), and `credentialCase` gains
+a fifth "RA identity missing/broken" case. s3cab never touches `~/.aws`.
+
+### The request
+
+`POST https://rolesanywhere.{region}.amazonaws.com/sessions`, body
+`{durationSeconds, profileArn, roleArn, trustAnchorArn}`, response
+`credentialSet[0].credentials` (`accessKeyId` / `secretAccessKey` / `sessionToken` / `expiration`).
+
+It is **standard SigV4 with two swaps**:
+
+- the **credential id** is the client cert **serial as a decimal string**
+  (`BigInt("0x" + X509Certificate.serialNumber)`), not an access-key id;
+- the cert rides in an **`X-Amz-X509`** header as single-line `base64(DER)`.
+
+Algorithm id `AWS4-X509-ECDSA-SHA256` (or `-RSA-`), keyed on the client key type; signed headers
+`host;x-amz-date;x-amz-x509`; the signature is `crypto.createSign("SHA256").sign(clientKey)` — EC
+yields DER (matching the reference's `encodeEcdsaSigValue`), RSA PKCS#1 v1.5 — hex-encoded.
+
+### Reuse `@smithy/signature-v4`, don't re-hand-roll canonicalization
+
+The spike inlined the canonicalization to isolate the unknown; the real signer instead reuses
+`@smithy/signature-v4` (a **direct dependency** — its heavy machinery is already present transitively
+via `@aws-sdk/client-s3`). It exports `SignatureV4Base` / `getCanonicalHeaders` / `getPayloadHash` /
+`createScope`, and its `createStringToSign` **takes the algorithm identifier as a parameter** — so
+only the ~40 X509-specific lines above are ours. The signer must **cache** the returned credentials
+and refresh before `expiration`.
+
+## Certificate generation — open sub-decision
+
+Node builtins **cannot create X.509 certificates**: `crypto.X509Certificate` is parse-only and there
+is no CSR/cert signing in `node:crypto` ([ADR-0057](../adr/0057-roles-anywhere-credential-mode.md),
+"Open"). So the *signer* is builtins-only but cert **generation** is not. Candidates, each of which
+must emit the cert-shape extensions above:
+
+- **Hand-rolled ASN.1 DER** — zero dependency, ~200 security-sensitive lines.
+- **A focused library** — `@peculiar/x509` or `node-forge` (an [ADR-0005](../adr/0005-builtins-over-dependencies.md) call).
+- **OS-native keystores** — Windows Certificate Store (DPAPI), macOS Keychain, Linux libsecret/NSS,
+  which can *generate* the cert *and* store the private key better than a `0600` PEM (per-OS shelling
+  cost). Related to the deferred OS-secure-storage layer in [auth.md](auth.md).
+
+Deferred; resolve by prototype.
+
+## References
+
+- The runnable, validated reference: [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)
+- Correctness oracle (Apache-2.0): <https://github.com/aws/rolesanywhere-credential-helper>
+- Self-signed-CA pattern: <https://aws.amazon.com/blogs/security/iam-roles-anywhere-with-an-external-certificate-authority/>
