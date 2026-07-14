@@ -45,8 +45,8 @@ The AWS JS SDK ships **no** Roles Anywhere credential provider, so credentials c
 (2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)).
 It `POST`s to `rolesanywhere.{region}.amazonaws.com/sessions`, signing the canonical request with the
 client key: standard SigV4 with two swaps — the credential id is the cert serial (decimal) not an
-access key, and the cert rides in an `X-Amz-X509` header. RSA → `createSign("RSA-SHA256")` (PKCS1v15);
-ECDSA → `createSign("SHA256")` (DER R/S). The crypto is Node builtins; the canonicalization reuses
+access key, and the cert rides in an `X-Amz-X509` header. A single `createSign("SHA256")` handles both
+key types — RSA → PKCS#1 v1.5, EC → DER R/S. The crypto is Node builtins; the canonicalization reuses
 **`@smithy/signature-v4`** (promoted to a direct dependency — already present transitively via
 `client-s3`, and its `createStringToSign` takes the algorithm id as a parameter), so only ~40
 X509-specific lines are bespoke. It slots into

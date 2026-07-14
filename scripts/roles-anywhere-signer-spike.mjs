@@ -206,7 +206,15 @@ async function main() {
 
   const result = await createSession(input);
   console.log("status:", result.status);
-  const parsed = JSON.parse(result.body);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.body);
+  } catch {
+    // A non-2xx often returns a non-JSON (or empty) body — print it raw so the
+    // spike is debuggable rather than throwing on the parse.
+    console.log(result.body || "(empty body)");
+    return;
+  }
   const creds = parsed.credentialSet?.[0]?.credentials;
   if (creds) {
     console.log("✅ session credentials:");
