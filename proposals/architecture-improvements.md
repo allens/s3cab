@@ -28,9 +28,59 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-_None at present — the 2026-07-10 bundle (run log below) cleared the list for the first time
-since this epic started. The next `/improve-codebase-architecture` run starts from the source
-(and the rejected list below), not from stale entries._
+Surfaced 2026-07-14 (seventh pass) over the Roles Anywhere subsystem (ADR-0055–0058, PRs
+#186–#191) — the churn since the 2026-07-10 empty. Verified against HEAD `2b48495`. The
+subsystem is mostly deep (the SigV4-X509 signer is the in-repo exemplar of the
+pure-core/thin-I/O pattern); the friction below is one adjacent function, one implicit
+cross-module contract, and the scatter of "which credential mode is this set in?".
+
+- **A — extract a pure `arnsFromOutputs` from `saveArnsFromStack`** (**Strong**, top pick).
+  `saveArnsFromStack` (roles-anywhere.mjs:465–505) fuses the `DescribeStacks` I/O with a pure
+  step — map `Outputs` → the three `S3CAB_RA_*` env keys + compute the `missing` list (482–501)
+  — reachable only by mocking `@aws-sdk/client-cloudformation` (roles-anywhere.test.mjs:211–285).
+  The project's named recurring weakness verbatim. Extract `arnsFromOutputs(outputs) → {arns,
+  missing}` (mirrors the signer's `parseSessionResponse`); the wrapper shrinks to
+  fetch-and-delegate. Deletion test **passes**; zero ADR tension. **Convergent — two independent
+  explorers surfaced it as #1/#2.**
+- **B — one RA stack-output ↔ identity-env contract** (**Worth exploring**). The names
+  `TrustAnchorArn`/`ProfileArn`/`RoleArn` ↔ `S3CAB_RA_*` exist only as matching literals in three
+  spots: template `Outputs` (onboarding.mjs:299–305), `ARN_ENV` (roles-anywhere.mjs:445–449),
+  and `readSigningIdentity`'s reads (559–566). No import binds them — rename an Output and
+  `--save` fails with an error that blames the user's stack. Promote to one shared
+  (output-name → env-key) constant consumed by all three. Pairs with A (same seam).
+- **C — a pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier**
+  (**Worth exploring — ADR-0055 tension, flag it**). "Which mode is this set in?" is re-derived
+  from raw env at 5+ sites (auth.mjs:435 route + :69–126 `credentialCase`; provider.mjs:296–322
+  `newMode`, :88–129 `describeScope`, :164–181 `shellNote`; s3.mjs authNotice). Stringly-typed
+  and inconsistent: flag/key `"roles-anywhere"`/`RA_MARKER`, internal literal `"ra"`, boolean
+  `rolesAnywhere`; and the marker read drifts (`=== "1"` vs a loose truthy at provider.mjs:319 —
+  `S3CAB_RA=0` reads not-RA everywhere *except* clear-on-replace, a latent bug). A **read-only**
+  classifier concentrates the derivations and kills the drift. ADR-0055 keeps auth "a bag of
+  `AWS_*`"; a read-only adapter over the bag is arguably new surface, not a restructure — but a
+  decision, not an obvious win. **Do not** fold the write-side mode-clearing in (that drags the
+  file-write across the seam and *fails* the deletion test — verified).
+- **D — teach `authNotice` the RA mode** (**Strong**). authNotice (s3.mjs:70–82) knows only
+  profile/endpoint/generic; an RA-mode set has neither, so every RA command prints the anonymous
+  `"Contacting the cloud…"`, silently degrading the docstring's promise for the one mode where
+  the identity *is* known. No `s3.test.mjs` RA case. Standalone-cheap; cheaper as the first
+  beneficiary of C (it is C's concrete symptom). Consistent with ADR-0057.
+- **E — consolidate the RA onboarding recipe prose** (**Worth exploring**). `saveRolesAnywhere`
+  (aws.mjs:126–138) hand-writes ~7 lines near-verbatim to `awsRolesAnywherePlan`'s close
+  (onboarding.mjs:410–416) — while aws.mjs's own header says the recipe text lives in
+  onboarding.mjs. The `--save --from-stack` command string recurs in four files (also
+  setup.mjs:115–123, roles-anywhere.mjs:467–471). Move the confirmation to an
+  `awsSaveConfirmation({dir})` generator; reference shared name-builders. Partial deletion test
+  (workflow is inherently multi-command); ADR-0056/0034.
+
+**Examined & left alone this pass** (not candidates — skip next run): the SigV4-X509 signer
+(the exemplar to cite, not fix); the RA credential arm's unit-test gap (coverage, not a boundary
+— ADR-0020; the `new Date(expiration)` shaping could be cheaply covered); the dead
+`buildSignedRequest` RSA branch (ADR-0058 discusses key type, parity is cheap — characterize);
+`readSigningIdentity`'s catch-all conflating not-usable with crashed (marginal); moving
+`saveArnsFromStack` off `roles-anywhere.mjs` (would leak the identity's env-file layout — keep);
+`set-marker.mjs` pure parsing behind S3 I/O (tangential, mild); `aws-profiles.mjs` shallow
+wrapper (inlining *moves* the sentinel — legit thin adapter); the region-default dup with
+`scripts/setup-test-bucket.mjs` (minor).
 
 ---
 
@@ -196,3 +246,14 @@ least once; re-open only if the stated reason no longer holds.
   **derives the header datetime from the name**, dropping its `datetime` parameter —
   consistent by construction, not by shared capture; `normalizeSnapshotName` moved home to
   snapshot-file.mjs, ending the extension-grammar leak into compare.mjs).
+- **2026-07-14 — seventh pass** (after the open list sat empty since 2026-07-10). First review
+  of the **Roles Anywhere subsystem** (ADR-0055–0058, PRs #186–#191) — `roles-anywhere.mjs` (879
+  lines, now the largest lib file), `onboarding.mjs`, the fourth credential mode in `auth.mjs`,
+  the `aws` command. Three parallel Explore agents (RA subsystem / onboarding+aws / s3.mjs+cred
+  flow) plus an independent read of the core; all findings re-verified against HEAD `2b48495`.
+  Verdict: the subsystem is **mostly deep** — the SigV4-X509 signer (`createSession` flanked by
+  pure `buildSignedRequest`/`parseSessionResponse`) is the in-repo exemplar of the pattern the
+  project keeps missing. Five open candidates recorded above (A–E); top pick **A — extract pure
+  `arnsFromOutputs`** (convergent across two explorers, textbook pure-logic-behind-I/O, smallest
+  blast radius, no ADR tension). Parked items (SetContext, remote/config restructure) confirmed
+  untouched. Overwrote the prior HTML report in place at `architecture-review.html`.
