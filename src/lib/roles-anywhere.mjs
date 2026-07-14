@@ -574,7 +574,7 @@ export function readSigningIdentity() {
 // ── The native SigV4-X509 signer (Phase B) ────────────────────────────────────
 // Roles Anywhere `CreateSession` is a special X509-signed STS endpoint the AWS JS
 // SDK ships no provider for (ADR-0057), so credentials come from this bespoke
-// signer — validated end-to-end by scripts/roles-anywhere-signer-spike.mjs. It is
+// signer — validated end-to-end by scripts/roles-anywhere-signer.mjs. It is
 // standard SigV4 with two swaps: the credential id is the client cert SERIAL as a
 // decimal (not an access-key id), and the cert rides in an `X-Amz-X509` header as
 // single-line base64(DER). Canonicalization is `@smithy/signature-v4`'s — its
@@ -809,10 +809,27 @@ export function parseSessionResponse({ status, body }) {
   };
 }
 
+/** How long to wait on the `CreateSession` exchange before aborting (ADR-0030). */
+const SESSION_TIMEOUT_MS = 10_000;
+
+/**
+ * The actionable timeout error (ADR-0030 — goal-framed, names the likely fix). A
+ * plain `Error`: nothing catches it by type, it flows to the CLI's top-level catch.
+ * @param {string} host
+ */
+const sessionTimeoutError = (host) =>
+  new Error(
+    `Timed out reaching the Roles Anywhere endpoint (${host}) after ${SESSION_TIMEOUT_MS / 1000}s.
+Check your network connection, and that AWS_REGION in the identity's env file
+(${tildeify(machineIdentityDir())}/env) matches where the trust anchor was deployed.`,
+  );
+
 /**
  * Sign and POST a `CreateSession` request, resolving its session credentials. The
  * one network call in the RA credential path (`node:https`, no SDK client — this
  * exchange authenticates with the cert, so it needs no AWS credentials of its own).
+ * Bounded by {@link SESSION_TIMEOUT_MS} so a stalled connection can't hang the
+ * command indefinitely.
  * @param {SessionInput} input
  * @returns {Promise<SessionCredentials>}
  */
@@ -829,6 +846,12 @@ export async function createSession(input) {
           path: signed.path,
           method: "POST",
           headers: signed.headers,
+          // Bound the wait: credential resolution sits on the critical path of
+          // every RA-mode command, so a silent (connected-but-unresponsive)
+          // endpoint must not hang `backup`/`restore` forever (clig.dev: sane
+          // network timeouts). `timeout` only *signals* inactivity — we abort the
+          // socket ourselves in the handler below.
+          timeout: SESSION_TIMEOUT_MS,
         },
         (res) => {
           let data = "";
@@ -837,6 +860,7 @@ export async function createSession(input) {
           res.on("end", () => resolve({ status: res.statusCode, body: data }));
         },
       );
+      req.on("timeout", () => req.destroy(sessionTimeoutError(signed.host)));
       req.on("error", reject);
       req.write(signed.body);
       req.end();

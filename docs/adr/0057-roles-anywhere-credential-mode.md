@@ -45,7 +45,7 @@ s3cab takes on `@aws-sdk/client-cloudformation`: cheap once `client-s3` has pull
 
 The AWS JS SDK ships **no** Roles Anywhere credential provider, so credentials come from a bespoke
 **SigV4-X509** signer — no `aws_signing_helper` (a Go binary). **Validated end-to-end by a live spike**
-(2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)).
+(2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs)).
 It `POST`s to `rolesanywhere.{region}.amazonaws.com/sessions`, signing the canonical request with the
 client key: standard SigV4 with two swaps — the credential id is the cert serial (decimal) not an
 access key, and the cert rides in an `X-Amz-X509` header. A single `createSign("SHA256")` handles both

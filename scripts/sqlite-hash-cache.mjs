@@ -15,7 +15,7 @@
  *   - on-disk size  — the persisted cache file vs a gzipped-TSV baseline feel
  *   - ergonomics    — what the calling code actually looks like
  *
- * Run: node scripts/sqlite-hash-cache-spike.mjs [N]
+ * Run: node scripts/sqlite-hash-cache.mjs [N]
  */
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";

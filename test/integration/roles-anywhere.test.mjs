@@ -50,7 +50,7 @@ const raReady =
   existsSync(join(String(RA_HOME), "roles-anywhere", "env"));
 const skip = raReady
   ? false
-  : "no Roles Anywhere identity — set S3CAB_TEST_RA_HOME to an s3cab home with a deployed trust anchor (s3cab aws <bucket> --roles-anywhere --save)";
+  : "no Roles Anywhere identity — stand one up via the Phase A-2 flow (see this file's header comment for the three steps), then point S3CAB_TEST_RA_HOME at the s3cab home holding roles-anywhere/";
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 

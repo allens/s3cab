@@ -24,7 +24,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // against those exact DER bytes (not just "has a basicConstraints"), plus the
 // chain verifies and the serial round-trips for the signer's swap #1. The
 // hand-rolled DER encoder is validated end-to-end against `openssl` by
-// scripts/roles-anywhere-certgen-spike.mjs — kept out of the test suite so
+// scripts/roles-anywhere-certgen.mjs — kept out of the test suite so
 // `openssl` isn't a test dependency; here we assert the observable contract via
 // node:crypto only.
 
@@ -285,7 +285,7 @@ describe("saveArnsFromStack", () => {
 // from the AWS spec with node:crypto. The signer under test derives the same
 // values via `@smithy/signature-v4`, so agreement cross-checks two independent
 // implementations. The oracle is the exact formula the live-validated signer spike
-// (scripts/roles-anywhere-signer-spike.mjs, a `201` from CreateSession) uses, kept
+// (scripts/roles-anywhere-signer.mjs, a `201` from CreateSession) uses, kept
 // here in the test rather than imported from scratch. Two levels: (1) every
 // deterministic field matches the reference; (2) the per-run-random ECDSA signature
 // is verified cryptographically against the client cert over the reference

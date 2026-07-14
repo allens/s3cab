@@ -3,8 +3,8 @@
 ## Status
 
 Design agreed; both the runtime signer and the cert generator are **validated by live spikes**
-(2026-07-14 — [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs),
-[scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)).
+(2026-07-14 — [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs),
+[scripts/roles-anywhere-certgen.mjs](../../scripts/roles-anywhere-certgen.mjs)).
 **Both phases are implemented: setup (Phase A-2) and the runtime signer (Phase B) — the
 credential path, the `provider`/`setup --roles-anywhere` mode, and the fifth `credentialCase`
 all ship in [src/lib/roles-anywhere.mjs](../../src/lib/roles-anywhere.mjs) /
@@ -110,7 +110,7 @@ SDK's own provider-memoization refreshes them before expiry — no caching of ou
 Node builtins **cannot create X.509 certificates**: `crypto.X509Certificate` is parse-only and there
 is no CSR/cert signing in `node:crypto`. So the *signer* is builtins-only but cert **generation** is
 not. Prototyped and decided ([ADR-0058](../adr/0058-roles-anywhere-cert-generation.md), cert generator
-**validated by a live spike** — [scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)):
+**validated by a live spike** — [scripts/roles-anywhere-certgen.mjs](../../scripts/roles-anywhere-certgen.mjs)):
 
 - **Chosen: a hand-rolled ASN.1 DER encoder** on `node:crypto`, zero dependency. Tractable because
   Node supplies the two hard parts — SPKI export (spliced in verbatim) and the DER ECDSA signature —
@@ -130,6 +130,6 @@ across every OS, exactly as the signer spike does.
 
 ## References
 
-- The runnable, validated reference: [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)
+- The runnable, validated reference: [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs)
 - Correctness oracle (Apache-2.0): <https://github.com/aws/rolesanywhere-credential-helper>
 - Self-signed-CA pattern: <https://aws.amazon.com/blogs/security/iam-roles-anywhere-with-an-external-certificate-authority/>

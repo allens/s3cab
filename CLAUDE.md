@@ -425,7 +425,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
   boundary, so `delete` runs under per-set creds); the **`upload` reshape** (ADR-0044/0045 —
   `upload` unified/set-scoped, `backup` = `snapshot()` + `upload()` with `--since`, `backup
   --snapshot` retired; a `node:sqlite` hash cache was spiked and **rejected** for the in-memory
-  `Map`, see [scripts/sqlite-hash-cache-spike.mjs](scripts/sqlite-hash-cache-spike.mjs)).
+  `Map`, see [scripts/sqlite-hash-cache.mjs](scripts/sqlite-hash-cache.mjs)).
   `compare` is local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md));
   `reattach` (ADR-0053, split from `setup --inherit`) pulls a set's remote manifests down so a
   fresh machine's `compare`/`list`/`restore` work on full history.
