@@ -440,6 +440,24 @@ describe("provider --roles-anywhere", () => {
     assert.match(out, /replacing its Roles Anywhere setting/);
   });
 
+  it("treats a non-'1' S3CAB_RA value as not Roles Anywhere (one canonical read)", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    makeSet();
+    seedSetEnv("photos", "S3CAB_RA=0\n"); // a degenerate hand-edit — not RA mode
+    captureWarn(t);
+
+    const out = await provider("photos", { profile: "work" });
+
+    // S3CAB_RA=0 is not RA mode (=== "1" is the one rule, via isRolesAnywhereMode),
+    // so switching to a profile must not claim to replace a Roles Anywhere setting.
+    // Guards the fixed drift: clear-on-replace once used a loose truthy that fired
+    // on any value, disagreeing with describeScope / resolveCredentials.
+    assert.equal(setEnv().AWS_PROFILE, "work");
+    assert.doesNotMatch(out, /replacing its Roles Anywhere setting/);
+  });
+
   it("refuses when the set points at a custom endpoint (AWS-only)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
