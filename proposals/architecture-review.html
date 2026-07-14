@@ -3,390 +3,425 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Architecture review — s3cab (2026-07-10)</title>
+    <title>s3cab · Architecture review · 2026-07-14</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true, theme: "dark" });
     </script>
     <style>
-      .seam { border-style: dashed; }
-      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
-      .modlabel { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+      .card { scroll-margin-top: 1rem; }
+      .badge-strong { background:#065f46; color:#d1fae5; }
+      .badge-worth { background:#78350f; color:#fed7aa; }
+      .badge-spec  { background:#3730a3; color:#c7d2fe; }
+      .before { background:#3f1d1d; border-color:#b91c1c; }
+      .after  { background:#0f2f22; border-color:#059669; }
+      .adrwarn { background:#422006; border-color:#d97706; }
+      .chip { background:#1e293b; border:1px solid #334155; }
     </style>
   </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
-    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
-
-      <header class="space-y-3">
-        <h1 class="text-3xl font-serif font-semibold">Architecture review — s3cab</h1>
-        <p class="text-sm text-slate-500">Sixth pass · 2026-07-10 · verified against HEAD <span class="font-mono">0f19353</span> (post PR #166, the <span class="font-mono">provider</span> rebuild)</p>
-        <div class="flex flex-wrap gap-4 text-xs text-slate-600 pt-1">
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-3 border border-slate-400 bg-white inline-block"></span> module</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-dashed border-slate-400 inline-block"></span> seam</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-red-600 inline-block"></span> leak / friction</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-3 deep inline-block rounded-sm"></span> deep module</span>
+  <body class="bg-slate-950 text-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-10">
+      <header class="mb-10 border-b border-slate-800 pb-6">
+        <div class="flex items-center gap-3 mb-2">
+          <span class="text-3xl">🧱</span>
+          <h1 class="text-3xl font-bold text-white">s3cab · Architecture review</h1>
         </div>
-        <p class="text-sm text-slate-600 max-w-3xl">All seven open candidates in <span class="font-mono text-xs">proposals/architecture-improvements.md</span> re-verified against source — <strong>all hold</strong>; line anchors refreshed, one finding strengthened (<span class="font-mono text-xs">diff</span>'s export has <em>zero</em> importers, not merely test-only). The PR #166 churn (<span class="font-mono text-xs">provider</span>, 352 lines) was examined and found genuinely deep — no new candidates. This run adds the requested <a href="#scorecard" class="text-indigo-600 underline">four-skill scorecard</a>.</p>
+        <p class="text-slate-400">
+          Seventh pass · <span class="mono">2026-07-14</span> · HEAD <span class="mono">2b48495</span> (#191, Roles Anywhere Phase B).
+          Deepening opportunities — more behaviour behind a smaller interface, at a clean seam, testable through that interface.
+        </p>
+        <p class="text-slate-500 mt-3 text-sm">
+          The open-candidate list was emptied on 2026-07-10. This run explores the un-reviewed churn since:
+          the entire <strong>Roles Anywhere credential subsystem</strong> (ADR-0055–0058, PRs #186–#191) —
+          <span class="mono">roles-anywhere.mjs</span> (879 lines, the largest lib file),
+          <span class="mono">onboarding.mjs</span>, the fourth credential mode in <span class="mono">auth.mjs</span>,
+          and the <span class="mono">aws</span> command. Three parallel explorers plus an independent read of the core.
+        </p>
       </header>
 
-      <!-- ================= SCORECARD ================= -->
-      <section id="scorecard" class="space-y-6">
-        <h2 class="text-2xl font-serif font-semibold">How the project stacks up — four-skill scorecard</h2>
-        <div class="grid md:grid-cols-2 gap-6">
+      <!-- Verdict banner -->
+      <section class="mb-10 rounded-lg border border-emerald-800 bg-emerald-950/40 p-5">
+        <h2 class="text-lg font-semibold text-emerald-300 mb-2">Headline: the new subsystem is mostly <em>deep</em></h2>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          <span class="mono">roles-anywhere.mjs</span> is a genuinely deep module — ~700 lines of DER / X.509 / SigV4-X509
+          machinery behind ~11 small exports, with the ~180-line DER encoder fully private. The <strong>signer path is the
+          in-repo exemplar</strong> of the pattern this project keeps <em>missing</em>: a thin I/O core
+          (<span class="mono">createSession</span>) flanked by two extracted, unit-tested pure functions
+          (<span class="mono">buildSignedRequest</span>, <span class="mono">parseSessionResponse</span>).
+          <span class="mono">onboarding.mjs</span> is likewise pure text-generation, asserted directly with zero mocking.
+          The friction is concentrated in <strong>one adjacent function, one implicit cross-module contract, and the
+          scatter of "which credential mode is this set in?"</strong> — not in the core design.
+        </p>
+      </section>
 
-          <!-- codebase-design -->
-          <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold">codebase-design <span class="text-slate-400 font-normal">· deep modules</span></h3>
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
-            </div>
-            <ul class="text-sm space-y-1.5 text-slate-700">
-              <li>✅ Exemplary depth: <span class="font-mono text-xs">file-props.mjs</span> (1 export / 74 LOC — the whole hashing engine), <span class="font-mono text-xs">progress.mjs</span> (1 / 63), <span class="font-mono text-xs">cleanup.mjs</span>'s pure <span class="font-mono text-xs">planCleanup</span>, <span class="font-mono text-xs">walk.mjs</span> (2 / 205).</li>
-              <li>✅ The <span class="font-mono text-xs">s3.mjs</span> seam is real — two adapters (SDK in prod, mock in tests, ADR-0019); the layout-owning wrappers in <span class="font-mono text-xs">objects/remote</span> pass the deletion test (each adds the <span class="font-mono text-xs">objects/</span>·<span class="font-mono text-xs">snapshots/</span> layout the SDK seam must not know).</li>
-              <li>✅ New code keeps the bar: <span class="font-mono text-xs">provider.mjs</span> decomposes into pure helpers behind one command export, with a discriminated-union <span class="font-mono text-xs">Scope</span> typedef.</li>
-              <li>🔻 Two unused-identity exports fail the deletion test: <span class="font-mono text-xs">emptyBucket</span> (dead) and <span class="font-mono text-xs">diff</span>'s <span class="font-mono text-xs">export</span> (zero importers) — <a href="#c-emptybucket" class="text-indigo-600 underline">card 6</a>, <a href="#c-diff" class="text-indigo-600 underline">card 5</a>.</li>
-              <li>🔻 <span class="font-mono text-xs">uploadSnapshot</span> interleaves plan and execution, so half its behaviour is reachable only through gated S3 — <a href="#c-planupload" class="text-indigo-600 underline">card 1</a>.</li>
-            </ul>
+      <!-- Contents -->
+      <nav class="mb-10 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+        <a href="#a" class="chip rounded px-3 py-2 hover:bg-slate-800">A · Extract pure <span class="mono">arnsFromOutputs</span> <span class="badge-strong px-2 py-0.5 rounded text-xs ml-1">Strong · top pick</span></a>
+        <a href="#d" class="chip rounded px-3 py-2 hover:bg-slate-800">D · Teach <span class="mono">authNotice</span> the RA mode <span class="badge-strong px-2 py-0.5 rounded text-xs ml-1">Strong</span></a>
+        <a href="#b" class="chip rounded px-3 py-2 hover:bg-slate-800">B · One RA stack-output ↔ env contract <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
+        <a href="#c" class="chip rounded px-3 py-2 hover:bg-slate-800">C · A pure <span class="mono">credentialMode()</span> classifier <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
+        <a href="#e" class="chip rounded px-3 py-2 hover:bg-slate-800">E · Consolidate RA recipe prose <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
+        <a href="#examined" class="chip rounded px-3 py-2 hover:bg-slate-800">Examined &amp; left alone (not candidates)</a>
+      </nav>
+
+      <!-- ============ CANDIDATE A ============ -->
+      <section id="a" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">A · Extract a pure <span class="mono">arnsFromOutputs</span></h2>
+            <p class="text-slate-400 text-sm mt-1">The stack-output → env-record mapping is trapped behind the CloudFormation SDK call.</p>
           </div>
+          <span class="badge-strong px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Strong · top pick</span>
+        </div>
 
-          <!-- domain-modeling -->
-          <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold">domain-modeling <span class="text-slate-400 font-normal">· ubiquitous language</span></h3>
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
-            </div>
-            <ul class="text-sm space-y-1.5 text-slate-700">
-              <li>✅ CONTEXT.md is a live glossary with <em>Avoid</em> lists; 47 ADRs with real status discipline (partly-superseded pointers, never deleted).</li>
-              <li>✅ Source-wide sweep of the <em>Avoid</em> terms: near-zero misuse. <span class="font-mono text-xs">digest</span>/<span class="font-mono text-xs">chunk</span>/<span class="font-mono text-xs">checksum</span> hits are all the Node/AWS API senses, legitimately different.</li>
-              <li>🔻 One user-facing slip: <span class="font-mono text-xs">setup.mjs:256</span> says "it <em>adopts</em> an existing remote set" — the canonical verb is <strong>inherit</strong> (CONTEXT.md lists <em>adopt</em> under Avoid).</li>
-              <li>🔻 Comment-level slips: "garbage collector" (<span class="font-mono text-xs">cleanup.mjs:13</span>), "orphan GC" (<span class="font-mono text-xs">objects.mjs:116</span>), "blob" (<span class="font-mono text-xs">verify.mjs:149</span>) — canonical: <strong>cleanup</strong>, <strong>orphan</strong>, <strong>object</strong>.</li>
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
+            <ul class="text-slate-400 space-y-0.5 mono text-xs">
+              <li>src/lib/roles-anywhere.mjs:465–505 (<span class="text-slate-200">saveArnsFromStack</span>)</li>
+              <li>&nbsp;&nbsp;pure part: 482–501</li>
+              <li>src/lib/roles-anywhere.test.mjs:211–285 (mock.module)</li>
             </ul>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
+            <p class="text-slate-400">
+              <span class="mono">saveArnsFromStack</span> fuses three concerns: an identity-exists precondition (I/O),
+              a lazy SDK import + <span class="mono">DescribeStacks</span> (I/O), and a <strong>pure</strong> step —
+              iterate <span class="mono">Outputs</span>, map <span class="mono">OutputKey</span> → the three
+              <span class="mono">S3CAB_RA_*</span> env keys, compute the <span class="mono">missing</span> list.
+              That pure "given outputs, produce the env record or the missing-key list" logic — the part a reviewer
+              actually cares about — is reachable only by mocking the whole
+              <span class="mono">@aws-sdk/client-cloudformation</span> module. This is the project's named recurring
+              weakness verbatim: <em>plan/execute interleaving pushing pure decision logic behind I/O-only test access.</em>
+            </p>
           </div>
-
-          <!-- tdd -->
-          <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold">tdd <span class="text-slate-400 font-normal">· test quality &amp; seams</span></h3>
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Good — one discipline gap</span>
-            </div>
-            <ul class="text-sm space-y-1.5 text-slate-700">
-              <li>✅ Tests live at declared seams: unit at lib interfaces, mocks only at the <span class="font-mono text-xs">s3.mjs</span> seam (never the SDK — ADR-0019), 4 gated integration suites, 1 subprocess e2e. Tiering is codified (ADR-0046).</li>
-              <li>✅ No tautological assertions found; absent test files are honest "tested elsewhere" (e.g. <span class="font-mono text-xs">remote.mjs</span> splits unit vs gated-integration routes; the three untested commands are thin porcelain covered by e2e).</li>
-              <li>🔻 <strong>The gap: the deepest logic has the worst test access.</strong> <span class="font-mono text-xs">diff</span>'s move-pairing has <strong>29</strong> tests via <span class="font-mono text-xs">compareSnapshots</span> + real <span class="font-mono text-xs">.tsv.zst</span> fixtures and <strong>0</strong> at its own interface (<a href="#c-diff" class="text-indigo-600 underline">card 5</a>); the first-backup upload diff is reachable only via gated real-S3 (<a href="#c-planupload" class="text-indigo-600 underline">card 1</a>); the never-clobber-exclude guard only via e2e (<a href="#c-seed" class="text-indigo-600 underline">card 7</a>).</li>
-              <li>🔸 Command-tier tests <span class="font-mono text-xs">mock.module</span> their lib collaborators — implementation-coupled by the skill's letter, but at the porcelain→plumbing seam ADR-0023 declares, so defensible.</li>
-            </ul>
-          </div>
-
-          <!-- code-review -->
-          <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold">code-review <span class="text-slate-400 font-normal">· standards + smell baseline</span></h3>
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
-            </div>
-            <ul class="text-sm space-y-1.5 text-slate-700">
-              <li>✅ Standards are documented and enforced where a linter can be honest: CLAUDE.md coding conventions, <span class="font-mono text-xs">.github/copilot-instructions.md</span> (test-coverage-first review priorities), the <span class="font-mono text-xs">local/one-export-per-command</span> ESLint rule, review-as-the-coverage-gate (ADR-0020), Copilot requested at every PR create.</li>
-              <li>🔸 Fowler smell sweep (judgement calls): <strong>Duplicated Code</strong> ×2 (the download dance; the seed-a-Set loop twice in <span class="font-mono text-xs">remote.mjs</span>), <strong>Speculative Generality</strong> ×2 (<span class="font-mono text-xs">emptyBucket</span>, <span class="font-mono text-xs">diff</span>'s export), <strong>Shotgun Surgery</strong> ×1 (timestamp format in 4 places), <strong>Primitive Obsession</strong> (snapshot names as raw strings), mild <strong>Data Clumps</strong> (<span class="font-mono text-xs">(bucket, set)</span> across 7 functions).</li>
-              <li>✅ Every smell found maps onto an existing candidate below — the two lenses agree, nothing new surfaced.</li>
-            </ul>
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
+            <p class="text-slate-400">
+              Extract <span class="mono">arnsFromOutputs(outputs) → { arns, missing }</span> as a pure exported
+              function. <span class="mono">saveArnsFromStack</span> shrinks to fetch-and-delegate: precondition →
+              <span class="mono">DescribeStacks</span> → <span class="mono">arnsFromOutputs</span> → throw-or-write.
+            </p>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
+            <p class="text-slate-400">
+              <strong>Locality:</strong> the output-shape knowledge (which is a contract with the template) sits in one
+              named unit. <strong>Leverage:</strong> the missing-outputs branch — today only hit through a mocked SDK —
+              becomes a plain array-in, object-out unit test. It follows the exact split the signer already models
+              (<span class="mono">parseSessionResponse</span> beside <span class="mono">createSession</span>).
+              Convergent: <strong>two independent explorers</strong> surfaced this as their #1/#2.
+            </p>
           </div>
         </div>
-        <p class="text-sm text-slate-600 max-w-3xl">Net: the project practices what the four skills preach — deep modules at declared seams, a maintained glossary + ADR log, seam-scoped tests, documented review standards. The one systematic weakness, visible through both the tdd and codebase-design lenses, is <strong>plan/execute interleaving that pushes pure decision logic behind I/O-only test access</strong> — which is exactly what candidates 1, 5 and 7 fix.</p>
+
+        <div class="grid md:grid-cols-2 gap-4 mt-5">
+          <div class="before border rounded-lg p-4">
+            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before — shallow: pure logic welded to I/O</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">saveArnsFromStack({stackName, region})
+┌─────────────────────────────────────┐
+│ ✓ identity-exists check       (I/O)  │
+│ ✓ import CFN client           (I/O)  │
+│ ✓ DescribeStacks              (I/O)  │
+│ ▓ map Outputs → S3CAB_RA_*   (pure) │ ◀─ only
+│ ▓ compute `missing` list     (pure) │ ◀─ reachable
+│ ✓ updateEnvFile               (I/O)  │    via mock
+└─────────────────────────────────────┘
+  test → mock.module(@aws-sdk/…) 🧪❌</pre>
+          </div>
+          <div class="after border rounded-lg p-4">
+            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After — the pure core lifts out</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">arnsFromOutputs(outputs) → {arns, missing}
+┌─────────────────────────────────────┐
+│ ▓ map + validate      (pure, export) │ ◀─ test with
+└─────────────────────────────────────┘    a plain array 🧪✅
+
+saveArnsFromStack({stackName, region})
+┌─────────────────────────────────────┐
+│ ✓ precondition · DescribeStacks (I/O)│
+│ → arnsFromOutputs(outputs)           │
+│ ✓ throw-or-updateEnvFile        (I/O)│
+└─────────────────────────────────────┘</pre>
+          </div>
+        </div>
+        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: <strong>passes</strong> — concentrates the mapping+validation into a directly testable unit; no complexity moves. Zero ADR tension (implements the ADR-0056 <span class="mono">--save --from-stack</span> step; a helper doesn't touch the decision).</p>
       </section>
 
-      <!-- ================= CANDIDATES ================= -->
-      <section id="candidates" class="space-y-10">
-        <h2 class="text-2xl font-serif font-semibold">Open candidates <span class="text-base font-sans font-normal text-slate-500">(all seven re-verified; anchors current)</span></h2>
-
-        <!-- 1. planUpload -->
-        <article id="c-planupload" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">1 · Pure <span class="font-mono">planUpload</span> — give <span class="font-mono">backup</span> the <span class="font-mono">planRestore</span> treatment</h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">in-process</span>
+      <!-- ============ CANDIDATE D ============ -->
+      <section id="d" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">D · Teach <span class="mono">authNotice</span> the Roles Anywhere mode</h2>
+            <p class="text-slate-400 text-sm mt-1">A user-visible promise silently degrades for exactly the new mode.</p>
           </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/remote.mjs:368–436 (uploadSnapshot) · :330–337 (uploadCandidates) · :307–316 (candidatesNotIn) · :390–397 (inlined LIST-diff)</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before</p>
-              <pre class="mermaid">
-flowchart TB
-  subgraph U["uploadSnapshot — one interleaved implementation"]
-    A["uploadCandidates<br/>pure, --since path"]
-    B["inlined LIST-diff<br/>first-backup path"]
-    C["pathByHash selection"]
-    D["putObject loop"]
-    A --> C
-    B --> C
-    C --> D
+          <span class="badge-strong px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Strong</span>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
+            <ul class="text-slate-400 space-y-0.5 mono text-xs">
+              <li>src/lib/s3.mjs:70–82 (<span class="text-slate-200">authNotice</span>)</li>
+              <li>src/lib/s3.mjs:155–161 (its caller <span class="text-slate-200">client()</span>)</li>
+              <li>src/lib/s3.test.mjs:277–327 (no RA case)</li>
+            </ul>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
+            <p class="text-slate-400">
+              <span class="mono">authNotice</span> knows three shapes — profile, endpoint, generic fallback.
+              <span class="mono">client()</span> feeds it <span class="mono">{profile, profileSource, endpoint}</span>.
+              But an RA-mode set carries <em>no</em> profile and (RA is AWS-only, mutually exclusive with a custom
+              endpoint) <em>no</em> endpoint — so every Roles Anywhere command prints the anonymous
+              <span class="mono">"Contacting the cloud…"</span>. The docstring's promise — <em>"'which account am I about
+              to touch?' never needs guessing"</em> — degrades for the one mode where the identity <em>is</em> known
+              (<span class="mono">isRolesAnywhereMode()</span>). The fourth mode was added to the resolver without
+              widening its paired notice (or its tests).
+            </p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
+            <p class="text-slate-400">
+              Pass an RA signal into <span class="mono">authNotice</span> (or, once candidate&nbsp;C lands, the resolved
+              mode) so it can print e.g. <span class="mono">"Using Roles Anywhere (keyless)"</span>. Add the missing
+              <span class="mono">s3.test.mjs</span> case.
+            </p>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
+            <p class="text-slate-400">
+              Closes a defect-shaped gap in the SDK boundary's one job. <strong>Standalone-cheap</strong> today; even
+              cheaper as the first beneficiary of a <span class="mono">credentialMode()</span> concept (C) — which is
+              why this is the concrete symptom that motivates C.
+            </p>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4 mt-5">
+          <div class="before border rounded-lg p-4">
+            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">$ s3cab backup work
+Contacting the cloud…          ◀─ anonymous
+… (RA-mode set: no profile, no endpoint)</pre>
+          </div>
+          <div class="after border rounded-lg p-4">
+            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">$ s3cab backup work
+Using Roles Anywhere (keyless)  ◀─ traceable</pre>
+          </div>
+        </div>
+        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: n/a (widening, not a boundary). ✓ ADR: consistent with ADR-0057 — the notice simply wasn't widened alongside <span class="mono">resolveCredentials</span>.</p>
+      </section>
+
+      <!-- ============ CANDIDATE B ============ -->
+      <section id="b" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">B · One RA stack-output ↔ identity-env contract</h2>
+            <p class="text-slate-400 text-sm mt-1">Three ARN key names, spelled by hand in three files — an implicit contract held together by matching string literals.</p>
+          </div>
+          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
+            <ul class="text-slate-400 space-y-0.5 mono text-xs">
+              <li>onboarding.mjs:299–305 — template <span class="text-slate-200">Outputs</span> (producer)</li>
+              <li>roles-anywhere.mjs:445–449 — <span class="text-slate-200">ARN_ENV</span> (map)</li>
+              <li>roles-anywhere.mjs:559–566 — <span class="text-slate-200">readSigningIdentity</span> (read)</li>
+            </ul>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
+            <p class="text-slate-400">
+              The names <span class="mono">TrustAnchorArn / ProfileArn / RoleArn</span> and their env twins
+              <span class="mono">S3CAB_RA_*</span> exist only as matching literals in three spots.
+              <span class="mono">onboarding.mjs</span> doesn't import from <span class="mono">roles-anywhere.mjs</span>,
+              so nothing binds them. Rename an Output and <span class="mono">--save</span> silently fails with
+              "missing the Roles Anywhere outputs" — an error that even <em>blames the user's stack</em>. Within
+              <span class="mono">roles-anywhere.mjs</span> the env keys are then spelled twice more: <span class="mono">ARN_ENV</span>
+              values (write) vs literal property reads in <span class="mono">readSigningIdentity</span> (read).
+            </p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
+            <p class="text-slate-400">
+              Promote the three (output-name → env-key) pairs to one shared constant, consumed by the template
+              generator, <span class="mono">arnsFromOutputs</span> (candidate&nbsp;A), and
+              <span class="mono">readSigningIdentity</span>. The template's <span class="mono">Outputs:</span> block and
+              the reader then can't drift.
+            </p>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
+            <p class="text-slate-400">
+              <strong>Locality:</strong> the round-trip contract becomes one symbol instead of a tacit convention.
+              Pairs naturally with A (both touch the same seam) — A makes the mapping testable, B makes the vocabulary
+              single-sourced.
+            </p>
+          </div>
+        </div>
+        <div class="mt-5 rounded-lg border border-slate-700 bg-slate-950/60 p-4">
+          <div class="mermaid">
+flowchart LR
+  subgraph now["Today — matched literals, no binding"]
+    T1["onboarding.mjs<br/>Outputs: TrustAnchorArn…"] -. "must equal (untyped)" .-> M1["roles-anywhere.mjs<br/>ARN_ENV keys"]
+    M1 -. "must equal (untyped)" .-> R1["readSigningIdentity<br/>env.S3CAB_RA_* reads"]
   end
-  T1["6 unit tests"] --> A
-  T2["gated real-S3 suite"] -.->|only route in| B
-  T2 -.-> C
-  classDef leak stroke:#dc2626,stroke-width:2px;
-  class B,C leak
-              </pre>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After</p>
-              <pre class="mermaid">
-flowchart TB
-  P["planUpload target, baseline, listed<br/>→ Map hash → path<br/><b>both branches + path selection</b>"]
-  E["uploadSnapshot<br/>executes the plan: PUT + snapshot-last"]
-  T1["unit tests, in-memory Maps"] --> P
-  P --> E
-  T2["thin gated-S3 tests"] --> E
-  classDef deepbox fill:#0f172a,color:#fff,stroke:#0f172a;
-  class P deepbox
-              </pre>
-            </div>
           </div>
-          <p class="text-sm"><strong>Problem:</strong> "target minus what's already there" exists twice — the pure, tested <span class="font-mono text-xs">uploadCandidates</span> and an inlined streaming LIST-diff — interleaved with path selection and the PUT loop, so the first-backup diff is testable only through gated real-S3.</p>
-          <p class="text-sm"><strong>Solution:</strong> extract one pure <span class="font-mono text-xs">planUpload(target, { baseline, listed })</span> covering both branches; <span class="font-mono text-xs">uploadSnapshot</span> shrinks to executing the plan — the exact shape that already landed twice (<span class="font-mono text-xs">planRestore</span>, <span class="font-mono text-xs">planCleanup</span> PR #164).</p>
-          <ul class="text-sm text-slate-700 list-disc list-inside">
-            <li>Leverage: one interface answers "what uploads?"</li>
-            <li>Locality: both diff branches in one module</li>
-            <li>Deletes the duplicated seed-a-Set loop</li>
-            <li>First-backup path gains ungated unit tests</li>
-          </ul>
-        </article>
-
-        <!-- 2. name authority -->
-        <article id="c-name" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">2 · One snapshot-name authority — close the two-clock gap</h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring — latent bug</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">in-process</span>
+          <div class="mermaid">
+flowchart LR
+  subgraph after["After — one shared symbol"]
+    C["RA_ARN_CONTRACT<br/>(output → env-key pairs)"]
+    C --> T2["template Outputs"]
+    C --> A2["arnsFromOutputs"]
+    C --> R2["readSigningIdentity"]
+  end
           </div>
-          <p class="font-mono text-sm text-slate-600">src/commands/snapshot.mjs:38, 58–60 · src/lib/snapshot-file.mjs:263–269 · src/lib/compare.mjs:62</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 space-y-2">
-              <p class="modlabel text-slate-500 mb-1">Before — format spelled in 4 places, 2 clock reads</p>
-              <div class="space-y-2 text-xs font-mono">
-                <div class="border border-red-400 rounded p-2 bg-white">snapshot.mjs:38 · clock read #1 → <b>2026-06-12T0915</b> (filename, no colon)</div>
-                <div class="border border-dashed border-slate-300 rounded p-2 bg-white text-slate-500">:46 · <i>await readSnapshot(previous)</i> — minute can roll over here ⏱</div>
-                <div class="border border-red-400 rounded p-2 bg-white">snapshot.mjs:58–60 · clock read #2 → <b>2026-06-12T09:15</b> (#SNAPSHOT header, colon)</div>
-                <div class="border border-red-400 rounded p-2 bg-white">snapshot-file.mjs:265 · regex re-encodes the no-colon shape</div>
-                <div class="border border-red-400 rounded p-2 bg-white">compare.mjs:62 · normalizeName strips .tsv(.zst) — grammar leak</div>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 space-y-2">
-              <p class="modlabel text-slate-500 mb-1">After — one authority in snapshot-file.mjs</p>
-              <div class="deep text-white rounded-lg p-4 text-xs font-mono space-y-1">
-                <div class="modlabel text-slate-300">snapshot-file.mjs · name authority</div>
-                <div>one now() → { name, datetime }</div>
-                <div class="text-slate-300">+ recognizer (the regex)</div>
-                <div class="text-slate-300">+ extension normalizer</div>
-              </div>
-              <div class="text-xs text-slate-600 space-y-1 pt-1">
-                <div>→ snapshot.mjs consumes both strings from one capture</div>
-                <div>→ compare.mjs stops knowing the file grammar</div>
-                <div>→ filename ↔ header consistent <b>by construction</b></div>
-              </div>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> the timestamp grammar leaks across the seam into three modules, and two separate clock reads with an <span class="font-mono text-xs">await</span> between them can desync a snapshot's filename from its own header.</p>
-          <p class="text-sm"><strong>Solution:</strong> a name authority beside <span class="font-mono text-xs">parseSnapshotStream</span> — one <span class="font-mono text-xs">now()</span> capture returning <span class="font-mono text-xs">{ name, datetime }</span>, plus the recognizer and the normalizer. Sibling: if <span class="font-mono text-xs">snapshot-format.md</span>'s timezone decision ever lands, it becomes a one-place edit.</p>
-          <ul class="text-sm text-slate-700 list-disc list-inside">
-            <li>Latent clock-skew bug closed by construction</li>
-            <li>Locality: format in one module</li>
-            <li>Seam stops leaking grammar to compare</li>
-          </ul>
-        </article>
-
-        <!-- 3. downloadToFile -->
-        <article id="c-download" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">3 · One atomic <span class="font-mono">downloadToFile</span> at the s3.mjs seam</h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">local-substitutable</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/objects.mjs:82–109 (getObject) · src/lib/remote.mjs:272–294 (downloadRemoteSnapshots, dance at :283–291)</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before — the dance, hand-rolled twice</p>
-              <div class="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div class="border border-red-400 rounded p-2 bg-white space-y-1">
-                  <div class="modlabel text-slate-500">getObject</div>
-                  <div>temp sibling</div><div>pipeline <b>+ SHA-256 hashing stage</b></div><div>rename (atomic)</div><div>unlink on error</div>
-                </div>
-                <div class="border border-red-400 rounded p-2 bg-white space-y-1">
-                  <div class="modlabel text-slate-500">downloadRemoteSnapshots</div>
-                  <div>temp sibling</div><div>pipeline (verbatim)</div><div>rename (atomic)</div><div>unlink on error</div>
-                </div>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After — one implementation, two adapters</p>
-              <div class="deep text-white rounded-lg p-3 text-xs font-mono mb-2">
-                <div class="modlabel text-slate-300">s3.mjs</div>
-                downloadToFile(uri, dest, { hasher })<br/>
-                <span class="text-slate-400">temp → pipeline → rename → cleanup</span>
-              </div>
-              <div class="flex gap-2 text-xs font-mono">
-                <div class="border border-slate-300 rounded p-2 bg-white flex-1">getObject: passes a hasher; verifies after</div>
-                <div class="border border-slate-300 rounded p-2 bg-white flex-1">downloadRemoteSnapshots: no hasher</div>
-              </div>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> the atomic-download dance is duplicated; the only variation is the in-stream hashing stage (hashing happens in the stream; the verify compare-and-throw stays in <span class="font-mono text-xs">getObject</span>).</p>
-          <p class="text-sm"><strong>Solution:</strong> extract <span class="font-mono text-xs">downloadToFile</span> at the s3.mjs seam. Two real adapters justify it. (Don't stretch it over <span class="font-mono text-xs">withSnapshotFile</span>'s zstd <em>write</em> — different direction, keep the interface honest.)</p>
-          <ul class="text-sm text-slate-700 list-disc list-inside">
-            <li>Atomicity + cleanup live in one place</li>
-            <li>Net fewer lines; callers keep only what varies</li>
-          </ul>
-        </article>
-
-        <!-- 4. thread previous snapshot -->
-        <article id="c-thread" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">4 · Thread the previous snapshot through <span class="font-mono">snapshot → compare</span></h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring — hot path</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">in-process</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/commands/snapshot.mjs:43–47, 81–85 · src/lib/compare.mjs:113</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before — previous snapshot parsed twice</p>
-              <pre class="mermaid">
-sequenceDiagram
-  participant S as snapshot cmd
-  participant F as previous .tsv.zst
-  participant C as compareSnapshots
-  S->>F: readSnapshot (hash lookup)
-  Note over F: zstd decompress + parse ①
-  S->>C: since = latestSnapshotName
-  C->>F: readSnapshot (diff baseline)
-  Note over F: zstd decompress + parse ② — same file
-              </pre>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After — parse once, thread the entries</p>
-              <pre class="mermaid">
-sequenceDiagram
-  participant S as snapshot cmd
-  participant F as previous .tsv.zst
-  participant C as compare seam
-  S->>F: readSnapshot (once)
-  Note over F: zstd decompress + parse ①
-  S->>C: entries already in hand
-  Note over C: diff runs on in-memory Maps
-              </pre>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> a full zstd decompress + per-entry parse done twice per run — the per-file-overhead pattern the hot-path convention warns about. (The <em>new</em> snapshot's re-read stays: it doubles as round-trip verification.)</p>
-          <p class="text-sm"><strong>Solution:</strong> thread the data through the interface (never a hidden cache). Two shapes to grill: the compare seam accepts an already-parsed <span class="font-mono text-xs">since</span> side, or <span class="font-mono text-xs">snapshot</span> composes the pure <span class="font-mono text-xs">diff</span> directly. Pairs naturally with card 5 — both reshape the compare seam.</p>
-          <ul class="text-sm text-slate-700 list-disc list-inside">
-            <li>Halves the previous-side parse cost on large sets</li>
-            <li>Saving lives in the interface, visible to the type checker</li>
-          </ul>
-        </article>
-
-        <!-- 5. diff -->
-        <article id="c-diff" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">5 · Test <span class="font-mono">diff</span> at its own interface, not through the I/O shell</h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring — cheapest on the list</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">in-process</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/compare.mjs:227 (diff) · :259–305 (move-pairing) · compare.test.mjs (29 × compareSnapshots, 0 × diff)</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before — mass diagram: cost to reach the depth</p>
-              <div class="space-y-1 text-xs font-mono">
-                <div class="bg-slate-200 rounded p-2">29 tests</div>
-                <div class="border border-red-400 bg-white rounded p-2">withSnapshotFile + stringifySnapshot → real compressed .tsv.zst fixtures</div>
-                <div class="border border-slate-300 bg-white rounded p-2">compareSnapshots — I/O shell (resolve names, read files)</div>
-                <div class="deep text-white rounded p-3">diff — deepest logic: greedy move-pairing, copy annotation · <b>0 direct tests</b>; export has <b>zero importers</b></div>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After — tests cross the real seam</p>
-              <div class="space-y-1 text-xs font-mono">
-                <div class="bg-slate-200 rounded p-2">edge-case tests (rotations, swaps, copies-of-moves) → in-memory Maps</div>
-                <div class="deep text-white rounded p-3">diff — driven directly at its interface</div>
-                <div class="border border-slate-300 bg-white rounded p-2 text-slate-600">thin compareSnapshots tests: only what it adds (name resolution, relativeToRoot)</div>
-              </div>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> the codebase's most intricate logic has the most expensive test access — every edge case pays a fixture-file toll. <strong>Strengthened this pass:</strong> the <span class="font-mono text-xs">export</span> on <span class="font-mono text-xs">diff</span> has <em>zero</em> importers — not even the tests — so today it is pure speculative surface.</p>
-          <p class="text-sm"><strong>Solution:</strong> a test-discipline change, no structural move — <span class="font-mono text-xs">diff</span> already sits at the right seam. Drive it with in-memory Maps; the export then earns its keep as a real (internal) test seam. Decision to make consciously: keep the export for tests, or drop it and keep testing through the shell.</p>
-          <ul class="text-sm text-slate-700 list-disc list-inside">
-            <li>Interface becomes the test surface</li>
-            <li>Edge cases get cheap to enumerate</li>
-            <li>Resolves an unused-identity export</li>
-          </ul>
-        </article>
-
-        <!-- 6. emptyBucket -->
-        <article id="c-emptybucket" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">6 · Delete the dead <span class="font-mono">emptyBucket</span></h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring — trivial</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">deletion</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/lib/s3.mjs:559–568</p>
-          <div class="grid md:grid-cols-2 gap-4 items-center">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before</p>
-              <div class="border-2 border-dashed border-red-400 rounded p-3 text-xs font-mono bg-white">
-                emptyBucket — DeleteObjectCommand loop + own stderr progress<br/>
-                <span class="text-red-600">inbound arrows: 0 (src, test, scripts)</span>
-              </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After</p>
-              <div class="text-xs font-mono text-slate-400 p-3">— 10 lines. The s3.mjs interface shrinks to 13 exports.</div>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> fails the deletion test outright — zero callers, and it duplicates iteration <span class="font-mono text-xs">listObjects</span> already owns. <strong>Solution:</strong> delete it.</p>
-        </article>
-
-        <!-- 7. seedStarterExclude -->
-        <article id="c-seed" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-xl font-semibold">7 · Lift <span class="font-mono">seedStarterExclude</span>'s guard into <span class="font-mono">sets.mjs</span></h3>
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Worth exploring — small</span>
-            <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">in-process</span>
-          </div>
-          <p class="font-mono text-sm text-slate-600">src/commands/setup.mjs:189–200 (guard at :190–192, called from create() at :173) · src/lib/sets.mjs (primitives already there)</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">Before</p>
-              <pre class="mermaid">
-flowchart TB
-  T["integration test — gated S3"] -.->|only route| C
-  C["setup create — async S3 flow"] --> G["seedStarterExclude<br/>never-clobber guard · private"]
-  G --> P["sets.mjs primitives"]
-  classDef leak stroke:#dc2626,stroke-width:2px;
-  class G leak
-              </pre>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
-              <p class="modlabel text-slate-500 mb-2">After</p>
-              <pre class="mermaid">
-flowchart TB
-  U["unit test — tmp home, no S3"] --> S
-  S["sets.mjs · seedStarterExclude set → boolean<br/>wrote / already had one"]
-  C["setup — keeps only the user-facing notice"] --> S
-  classDef deepbox fill:#0f172a,color:#fff,stroke:#0f172a;
-  class S deepbox
-              </pre>
-            </div>
-          </div>
-          <p class="text-sm"><strong>Problem:</strong> the load-bearing never-clobber guard is a private command function reachable only through the async S3 create flow — absent→write / present→skip is testable only end-to-end (confirmed: only <span class="font-mono text-xs">setup.integration.test.mjs:60–63, 110–111</span> touch it). <strong>Note:</strong> the signature drifted since capture — it now takes the <span class="font-mono text-xs">set</span>, not a name.</p>
-          <p class="text-sm"><strong>Solution:</strong> move the idempotent seed to <span class="font-mono text-xs">sets.mjs</span> beside the primitives it composes, returning wrote/skipped; <span class="font-mono text-xs">setup</span> keeps the notice. Locality/testability gain, not a depth lever.</p>
-        </article>
+        </div>
+        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: neither side deletes, but the shared vocabulary belongs in one place — extracting it <strong>concentrates</strong> the contract. ✓ ADR-0056 defines the pair but doesn't force a shared symbol.</p>
       </section>
 
-      <!-- ================= TOP RECOMMENDATION ================= -->
-      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-500 bg-emerald-50 p-8 space-y-3">
-        <p class="modlabel text-emerald-700">Top recommendation</p>
-        <h2 class="text-2xl font-serif font-semibold"><a href="#c-planupload" class="underline decoration-emerald-400">Pure <span class="font-mono">planUpload</span></a></h2>
-        <p class="text-sm text-slate-700 max-w-3xl">The only <strong>Strong</strong> on the list, and the pattern is de-risked: the plan/execute split has now landed twice (<span class="font-mono text-xs">planRestore</span>, <span class="font-mono text-xs">planCleanup</span> PR #164) and paid off both times. It erases a Duplicated Code smell, moves the first-backup diff from gated-real-S3-only to plain unit tests, and directly fixes the one systematic weakness the four-skill scorecard surfaced. Runner-up if you want something smaller first: <a href="#c-diff" class="underline">card 5</a> (test <span class="font-mono text-xs">diff</span> directly) — the cheapest, and it resolves the zero-importer export.</p>
+      <!-- ============ CANDIDATE C ============ -->
+      <section id="c" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">C · A pure <span class="mono">credentialMode()</span> classifier</h2>
+            <p class="text-slate-400 text-sm mt-1">"Which of the four modes is this set in?" is re-derived from raw env keys at five-plus sites, with three internal spellings of the concept.</p>
+          </div>
+          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
+        </div>
+
+        <div class="adrwarn border rounded-lg p-3 mb-4 text-sm">
+          <span class="text-amber-300 font-semibold">⚠ Sits on the ADR-0055 line.</span>
+          <span class="text-amber-100/80">ADR-0055 keeps auth as "a bag of <span class="mono">AWS_*</span> variables handed to the chain," and a prior review parked <em>restructuring</em> the config layer. A <strong>read-only classifier</strong> is arguably new surface (an adapter over the bag), not a restructure — but this is a decision, not an obvious win. <strong>Do not</strong> fold the write-side mode-clearing into it (that would drag the file-write across the seam and <em>fail</em> the deletion test — one explorer verified this).</span>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">The scatter</h3>
+            <ul class="text-slate-400 space-y-0.5 mono text-xs">
+              <li>auth.mjs:435 — <span class="text-slate-200">isRolesAnywhereMode()</span> route</li>
+              <li>auth.mjs:69–126 — <span class="text-slate-200">credentialCase</span> (5th case)</li>
+              <li>commands/provider.mjs:296–322 — <span class="text-slate-200">newMode</span> (<span class="text-amber-300">"ra"</span>)</li>
+              <li>commands/provider.mjs:88–129 — <span class="text-slate-200">describeScope</span></li>
+              <li>commands/provider.mjs:164–181 — <span class="text-slate-200">shellNote</span></li>
+              <li>s3.mjs:70–82 — <span class="text-slate-200">authNotice</span> (RA-blind, cand. D)</li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Problem</h3>
+            <p class="text-slate-400">
+              No function answers "which mode does this set declare?" Each site re-derives it from raw env keys, so
+              adding RA meant adding a fourth arm to every one. The concept is <strong>stringly-typed and inconsistent</strong>:
+              the flag/key is <span class="mono">"roles-anywhere"</span>/<span class="mono">RA_MARKER</span>, the internal
+              literal is <span class="mono">"ra"</span>, callers elsewhere use a <span class="mono">rolesAnywhere</span> boolean.
+              And the marker read drifts: <span class="mono">=== "1"</span> in two places but a loose
+              <span class="mono">truthy</span> at provider.mjs:319 — so <span class="mono">S3CAB_RA=0</span> reads as
+              not-RA everywhere <em>except</em> the clear-on-replace path (latent bug).
+            </p>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4 mt-5">
+          <div class="before border rounded-lg p-4">
+            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before — every reader re-derives</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">env bag {AWS_PROFILE, AWS_ENDPOINT…,
+         AWS_ACCESS_KEY_ID, S3CAB_RA}
+   │  │  │  │  │
+   ▼  ▼  ▼  ▼  ▼   (5+ ad-hoc derivations)
+authNotice  credentialCase  newMode
+describeScope  shellNote  isRolesAnywhereMode
+   "ra" / "roles-anywhere" / rolesAnywhere
+   === "1"  vs  truthy   ◀─ drift</pre>
+          </div>
+          <div class="after border rounded-lg p-4">
+            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After — one classifier</div>
+            <pre class="mono text-xs text-slate-300 leading-relaxed">credentialMode(env)
+  → "profile" | "keys" | "ra" | "ambient"
+       │
+       ▼  (one pure, unit-tested source)
+authNotice · credentialCase · describeScope
+shellNote · resolveCredentials
+   one spelling · one marker rule</pre>
+          </div>
+        </div>
+        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: a read-only classifier <strong>concentrates</strong> five derivations into one pure function and kills the naming/truthiness drift — <em>provided</em> the execute-side clearing stays put. Biggest leverage here, but the most contentious; grill the ADR-0055 boundary first.</p>
       </section>
 
-      <footer class="text-xs text-slate-400 pb-4">Generated by /improve-codebase-architecture · sixth pass · durable capture: proposals/architecture-improvements.md · needs network for Tailwind/Mermaid CDNs</footer>
-    </main>
+      <!-- ============ CANDIDATE E ============ -->
+      <section id="e" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">E · Consolidate the RA onboarding recipe prose</h2>
+            <p class="text-slate-400 text-sm mt-1">The porcelain hand-writes recipe text that its own header says lives (pure, unit-tested) in <span class="mono">onboarding.mjs</span>.</p>
+          </div>
+          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
+            <ul class="text-slate-400 space-y-0.5 mono text-xs">
+              <li>commands/aws.mjs:126–138 (<span class="text-slate-200">saveRolesAnywhere</span> confirmation)</li>
+              <li>onboarding.mjs:410–416 (near-verbatim closing)</li>
+              <li>setup.mjs:115–123 (<span class="text-slate-200">rolesAnywhereNotReadyError</span>)</li>
+              <li>roles-anywhere.mjs:467–471 (precondition error)</li>
+            </ul>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
+            <p class="text-slate-400">
+              <span class="mono">saveRolesAnywhere</span> inlines ~7 lines of "point a backup set at it" wiring prose
+              near-verbatim to the close of <span class="mono">awsRolesAnywherePlan</span> — while <span class="mono">aws.mjs</span>'s
+              own header comment claims "the recipe text lives in <span class="mono">onboarding.mjs</span> (pure,
+              unit-testable)." The command string <span class="mono">s3cab aws --roles-anywhere --save --from-stack …</span>
+              recurs in four files. Understanding "how a bucket gets onboarded via RA" means bouncing
+              <span class="mono">aws → roles-anywhere → onboarding → setup</span>.
+            </p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
+            <p class="text-slate-400">
+              Move the save-confirmation into an <span class="mono">awsSaveConfirmation({dir})</span> generator in
+              <span class="mono">onboarding.mjs</span>; have the duplicated command strings reference shared
+              name-builders (<span class="mono">stackName</span> et al. already exist there).
+            </p>
+            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
+            <p class="text-slate-400">
+              <strong>Locality:</strong> all recipe prose back in its one pure, unit-tested home, restoring the invariant
+              the header already asserts. The confirmation string — today reachable only through the async I/O path —
+              becomes directly testable.
+            </p>
+          </div>
+        </div>
+        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: partial — the human-in-the-loop workflow is inherently multi-command, so it doesn't fully collapse, but the duplicated <em>strings</em> concentrate. ✓ ADR-0056/0034 (thin porcelain, "the plan is the result").</p>
+      </section>
+
+      <!-- ============ EXAMINED, NOT CANDIDATES ============ -->
+      <section id="examined" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
+        <h2 class="text-xl font-bold text-white mb-3">Examined &amp; left alone</h2>
+        <p class="text-slate-400 text-sm mb-4">Verified against source and judged <em>not</em> deepening candidates — recorded so the next run skips them.</p>
+        <ul class="space-y-3 text-sm text-slate-400">
+          <li><strong class="text-slate-200">The SigV4-X509 signer — cite as the exemplar.</strong> <span class="mono">createSession</span> is a thin I/O core flanked by pure, independently-tested <span class="mono">buildSignedRequest</span> + <span class="mono">parseSessionResponse</span>; the socket-timeout concern is isolated in its own <span class="mono">node:https</span>-mocking test file. This <em>is</em> the pattern candidate A is missing.</li>
+          <li><strong class="text-slate-200">RA credential arm untested at unit level</strong> (auth.mjs:409–422, 434–437). The one bespoke credential arm s3cab owns is exercised only by the gated integration suite; the <span class="mono">new Date(expiration)</span> shaping could be cheaply unit-covered. A <em>coverage</em> observation (ADR-0020: judged by review), not a module boundary — worth a test, not a refactor.</li>
+          <li><strong class="text-slate-200">The <span class="mono">buildSignedRequest</span> RSA branch</strong> (roles-anywhere.mjs:674–683) is dead relative to the codebase (<span class="mono">buildIdentity</span> only emits P-256) — but ADR-0058 discusses key type and reference-helper parity is cheap. Characterize, don't act.</li>
+          <li><strong class="text-slate-200"><span class="mono">readSigningIdentity</span>'s catch-all</strong> (575–580) conflates "not usable" with "crashed" — a genuine bug in the read path is reframed as setup advice. Defensible &amp; documented; narrowing it moves nothing. Marginal.</li>
+          <li><strong class="text-slate-200"><span class="mono">saveArnsFromStack</span>'s CloudFormation dependency</strong> gives the crypto/storage module control-plane knowledge — but it writes the identity's private <span class="mono">env</span>, which only this module owns. Moving it out would leak the file layout. Keep.</li>
+          <li><strong class="text-slate-200"><span class="mono">set-marker.mjs</span> pure parsing behind S3 I/O</strong> (listRemoteSets / readRemoteInfo) — same shape as A but tangential to onboarding; mild, and it's <span class="mono">setup</span>'s remote marker, not a credential seam.</li>
+          <li><strong class="text-slate-200"><span class="mono">aws-profiles.mjs</span> shallow wrapper</strong> — interface ≈ body, but inlining <em>moves</em> the try/catch + <span class="mono">undefined</span>-sentinel into its one caller. A legitimate thin adapter over the SDK parser. Not a deletion candidate.</li>
+          <li><strong class="text-slate-200">Region-default chain</strong> (aws.mjs:73–77) duplicates <span class="mono">scripts/setup-test-bucket.mjs</span>. Minor policy dup.</li>
+        </ul>
+      </section>
+
+      <!-- ============ TOP RECOMMENDATION ============ -->
+      <section class="mb-6 rounded-lg border-2 border-emerald-700 bg-emerald-950/30 p-6">
+        <h2 class="text-2xl font-bold text-emerald-300 mb-3">⭐ Top recommendation</h2>
+        <p class="text-slate-200 leading-relaxed">
+          Tackle <strong>A (extract <span class="mono">arnsFromOutputs</span>)</strong> first. It is the one finding two
+          independent explorers converged on, it is the textbook instance of this project's <em>named</em> recurring
+          weakness (pure logic reachable only through mocked I/O), it has the smallest blast radius, zero ADR tension,
+          and an immediate test win — and it follows the split the signer in the same module already models.
+          <strong>B</strong> rides along naturally (same seam: A makes the mapping testable, B single-sources the ARN
+          vocabulary). <strong>D</strong> (RA-blind <span class="mono">authNotice</span>) is a cheap, user-visible
+          defect fix and the concrete symptom that motivates the deeper, more contentious <strong>C</strong>
+          (a pure <span class="mono">credentialMode()</span> classifier) — grill C's ADR-0055 boundary before committing
+          to it. <strong>E</strong> is a tidy locality win whenever the recipe prose is next touched.
+        </p>
+      </section>
+
+      <footer class="text-slate-600 text-xs border-t border-slate-800 pt-4">
+        Generated by <span class="mono">/improve-codebase-architecture</span> · seventh pass · 2026-07-14 ·
+        three parallel Explore agents + independent core read. Loads Tailwind + Mermaid from public CDNs (needs network).
+        Durable capture: <span class="mono">proposals/architecture-improvements.md</span>.
+      </footer>
+    </div>
   </body>
 </html>
