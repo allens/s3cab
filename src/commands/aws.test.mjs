@@ -90,4 +90,11 @@ describe("aws validation", () => {
   it("rejects a malformed bucket name (a path, not a bare name)", () => {
     assert.throws(() => aws("my/prefix"), { name: "ValidationError" });
   });
+
+  it("rejects an AWS-incompatible bucket name (dots break the stack name)", () => {
+    assert.throws(() => aws("com.example.backups"), {
+      name: "ValidationError",
+      message: /can't contain dots/,
+    });
+  });
 });

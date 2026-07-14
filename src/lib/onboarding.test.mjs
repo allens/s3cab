@@ -4,6 +4,7 @@ import {
   awsCloudFormationTemplate,
   awsIamPlan,
   backupLifecycle,
+  validateAwsBucketName,
 } from "./onboarding.mjs";
 
 // The cloud-onboarding plan is pure text (generative — ADR-0032/0056), so both
@@ -135,7 +136,35 @@ describe("awsIamPlan", () => {
   });
 
   it("omits the profile flag on the aws commands when none is given", () => {
-    // Only the closing `s3cab provider --keys` mentions keys; no `aws … --profile`.
+    // Only the closing `s3cab setup … --keys` mentions keys; no `aws … --profile`.
     assert.doesNotMatch(plan(), /aws [^\n]*--profile/);
+  });
+});
+
+describe("validateAwsBucketName", () => {
+  it("accepts an ordinary lowercase-hyphen bucket name", () => {
+    assert.doesNotThrow(() => validateAwsBucketName("my-backups"));
+  });
+
+  it("rejects a dotted name — CloudFormation stack names can't contain dots", () => {
+    assert.throws(() => validateAwsBucketName("com.example.backups"), {
+      name: "ValidationError",
+      message: /stack name .* can't contain dots/,
+    });
+  });
+
+  it("suggests a dot-free replacement in the error", () => {
+    assert.throws(() => validateAwsBucketName("my.backups"), {
+      message: /my-backups/,
+    });
+  });
+
+  it("rejects a name that pushes the IAM user name past 64 characters", () => {
+    // "s3cab-user-" is 11 chars, so 54+ overflows; 53 is the last that fits.
+    assert.throws(() => validateAwsBucketName("a".repeat(54)), {
+      name: "ValidationError",
+      message: /64-character limit/,
+    });
+    assert.doesNotThrow(() => validateAwsBucketName("a".repeat(53)));
   });
 });

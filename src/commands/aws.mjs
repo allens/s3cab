@@ -1,6 +1,6 @@
 import { customEndpoint } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { awsIamPlan } from "../lib/onboarding.mjs";
+import { awsIamPlan, validateAwsBucketName } from "../lib/onboarding.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
 // `s3cab aws` — the AWS-onboarding command. It **prints** a CloudFormation
@@ -53,6 +53,9 @@ Wasabi, MinIO, …), run:
 
   requireArg(name, "bucket");
   validateBucketName(name);
+  // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
+  // it has stricter name rules than the permissive global validator (ADR-0056).
+  validateAwsBucketName(name);
 
   // The keyless Roles Anywhere path (ADR-0057) has a recognized flag so the
   // surface exists, but its cert generation + template fragment aren't built yet;

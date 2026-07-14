@@ -1,3 +1,4 @@
+import { ValidationError } from "./error.mjs";
 import { bucketPolicy } from "./s3.mjs";
 
 // Generates the cloud-onboarding plan the `aws` command prints: a CloudFormation
@@ -69,6 +70,48 @@ const userName = (bucket) => `s3cab-user-${bucket}`;
  * @param {string} bucket
  */
 const policyName = (bucket) => `s3cab-bucket-access-${bucket}`;
+
+/** IAM's hard cap on a user name — the binding length limit here (below). */
+const IAM_NAME_MAX = 64;
+
+/**
+ * The AWS-onboarding-specific bucket-name checks, on top of the permissive global
+ * `validateBucketName` (sets.mjs, provider-neutral by design). The CloudFormation
+ * template derives named resources from the bucket (ADR-0056), and two AWS
+ * *control-plane* limits — which bite only here, never on non-AWS providers like
+ * R2/B2/Wasabi — would otherwise surface as an opaque `aws cloudformation deploy`
+ * failure well after the recipe was printed:
+ *
+ *   - **Dots** — CloudFormation stack names (`s3cab-<bucket>`) must match
+ *     `[A-Za-z][-A-Za-z0-9]*`, so no dots. (Dots are fine for the S3 bucket, the
+ *     IAM user, and the policy — only the *stack* name rejects them.)
+ *   - **Length** — IAM user names (`s3cab-user-<bucket>`) cap at 64 characters.
+ *
+ * Fail fast with the real reason (ADR-0030) instead of emitting a template that
+ * can't deploy. Kept AWS-scoped on purpose: a dotted or long bucket name is
+ * perfectly valid on the non-AWS providers s3cab also targets, so the global
+ * validator stays permissive (its rationale) and only `aws` applies these.
+ * @param {string} bucket
+ */
+export function validateAwsBucketName(bucket) {
+  if (bucket.includes(".")) {
+    throw new ValidationError(
+      `That bucket name can't be used for AWS onboarding — the CloudFormation\n` +
+        `stack name "${stackName(bucket)}" can't contain dots.\n` +
+        `Use a bucket name without dots, e.g.\n` +
+        `   ${bucket.replaceAll(".", "-")}`,
+    );
+  }
+  const user = userName(bucket);
+  if (user.length > IAM_NAME_MAX) {
+    const max = IAM_NAME_MAX - userName("").length;
+    throw new ValidationError(
+      `That bucket name can't be used for AWS onboarding — the IAM user name\n` +
+        `"${user}" would exceed AWS's ${IAM_NAME_MAX}-character limit (it is ${user.length}).\n` +
+        `Use a bucket name of ${max} characters or fewer.`,
+    );
+  }
+}
 
 /**
  * The ` --profile <name>` suffix interpolated into the generated `aws` commands
