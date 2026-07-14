@@ -3,6 +3,7 @@ import { ParseArgsError, requireArg } from "../lib/error.mjs";
 import {
   awsIamPlan,
   awsRolesAnywherePlan,
+  awsSaveConfirmation,
   validateAwsBucketName,
 } from "../lib/onboarding.mjs";
 import {
@@ -117,22 +118,14 @@ Wasabi, MinIO, …), run:
 
 /**
  * The `--save --from-stack` body: capture the stack's RA ARNs into the local
- * identity, then confirm (ADR-0030 — goal-framed, names the file it wrote and the
- * next step). Split out so the sync offline paths above stay a plain function.
+ * identity, then confirm. The confirmation prose lives with the other recipe text
+ * in onboarding.mjs (`awsSaveConfirmation`, pure + unit-testable — this file's
+ * header invariant); here we only do the I/O and hand it the display path.
  * @param {string} stackName
  * @param {string} region
  * @returns {Promise<string>}
  */
 async function saveRolesAnywhere(stackName, region) {
   const { dir } = await saveArnsFromStack({ stackName, region });
-  return `Saved the Roles Anywhere ARNs from stack "${stackName}" (region ${region})
-to your machine identity at ${tildeify(dir)}/env.
-
-Your keyless identity is now fully configured. Point a backup set at it — at
-creation:
-  s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
-or switch an existing set:
-  s3cab provider --roles-anywhere <set>
-s3cab then authenticates with the certificate and receives short-lived AWS
-credentials for every backup — no long-lived key.`;
+  return awsSaveConfirmation({ stackName, region, dir: tildeify(dir) });
 }

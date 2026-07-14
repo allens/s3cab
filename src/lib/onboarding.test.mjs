@@ -5,6 +5,7 @@ import {
   awsIamPlan,
   awsRolesAnywherePlan,
   awsRolesAnywhereTemplate,
+  awsSaveConfirmation,
   backupLifecycle,
   validateAwsBucketName,
 } from "./onboarding.mjs";
@@ -275,6 +276,31 @@ describe("awsRolesAnywherePlan", () => {
 
   it("puts the deploy region on the commands", () => {
     assert.match(plan({ region: "ap-southeast-2" }), /--region ap-southeast-2/);
+  });
+});
+
+describe("awsSaveConfirmation", () => {
+  const out = awsSaveConfirmation({
+    stackName: "s3cab-my-backups",
+    region: "eu-west-1",
+    dir: "~/.s3cab/roles-anywhere",
+  });
+
+  it("names the stack, region, and the identity env file it wrote", () => {
+    assert.match(
+      out,
+      /Saved the Roles Anywhere ARNs from stack "s3cab-my-backups" \(region eu-west-1\)/,
+    );
+    assert.match(out, /~\/\.s3cab\/roles-anywhere\/env/);
+  });
+
+  it("points a backup set at the now-complete identity (create and switch)", () => {
+    assert.match(
+      out,
+      /s3cab setup <name> <directory>\.\.\. --bucket <bucket> --roles-anywhere/,
+    );
+    assert.match(out, /s3cab provider --roles-anywhere <set>/);
+    assert.match(out, /short-lived AWS\n?credentials for every backup/);
   });
 });
 

@@ -417,3 +417,27 @@ export function awsRolesAnywherePlan({
   ];
   return blocks.join("\n\n");
 }
+
+/**
+ * The confirmation shown after `s3cab aws --roles-anywhere --save --from-stack`
+ * captures a deployed stack's ARNs into the local identity (src/commands/aws.mjs):
+ * it names the file it wrote and the next step — pointing a backup set at the
+ * now-complete identity (ADR-0030, goal-framed). Pure text, so it lives here with
+ * the other recipe prose (aws.mjs's "recipe text lives in onboarding.mjs"
+ * invariant) and is unit-testable without the `--save` I/O.
+ * @param {{ stackName: string, region: string, dir: string }} params - `dir` is
+ *   the identity directory as a display path (the caller passes `tildeify(dir)`).
+ * @returns {string}
+ */
+export function awsSaveConfirmation({ stackName, region, dir }) {
+  return `Saved the Roles Anywhere ARNs from stack "${stackName}" (region ${region})
+to your machine identity at ${dir}/env.
+
+Your keyless identity is now fully configured. Point a backup set at it — at
+creation:
+  s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
+or switch an existing set:
+  s3cab provider --roles-anywhere <set>
+s3cab then authenticates with the certificate and receives short-lived AWS
+credentials for every backup — no long-lived key.`;
+}
