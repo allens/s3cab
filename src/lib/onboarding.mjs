@@ -1,13 +1,19 @@
 import { bucketPolicy } from "./s3.mjs";
 
-// Generates the cloud-onboarding plan the `aws` command prints: the exact
-// `aws` CLI commands plus policy/lifecycle JSON a user runs to stand up an S3
-// backup destination and a least-privilege identity for s3cab. Pure text — no
-// AWS calls, no I/O — which is what makes the command generative (ADR-0032) and
-// unit-testable without a client (src/lib/onboarding.test.mjs). The command
-// (src/commands/aws.mjs) resolves region/profile/endpoint and prints what
-// these return; the JSON is `bucketPolicy()` (the same source the test docs
-// reference) and `backupLifecycle()` below.
+// Generates the cloud-onboarding plan the `aws` command prints: a CloudFormation
+// template plus the short recipe a user runs to stand up an S3 backup destination
+// and a least-privilege identity for s3cab. Pure text — no AWS calls, no I/O —
+// which is what makes the command generative (ADR-0032/0056) and unit-testable
+// without a client (src/lib/onboarding.test.mjs). The command (src/commands/aws.mjs)
+// resolves region/profile/endpoint and prints what these return.
+//
+// Why a declarative template, not an imperative `aws` command list (ADR-0056):
+// CloudFormation resolves inter-resource references itself (no ARN threading), the
+// deploy is one shell-agnostic command, and the stack is updatable/teardownable.
+// The one thing kept OUT of the template is the access-key secret — `AWS::IAM::AccessKey`
+// would materialize it in stack state, so `create-access-key` stays a single manual
+// step (secret to the terminal only, never persisted). See ADR-0056 for the full
+// "the delivery form tracks the secret" reasoning.
 
 /**
  * The backup bucket's lifecycle rules: expire *noncurrent* versions after 90
@@ -16,7 +22,8 @@ import { bucketPolicy } from "./s3.mjs";
  * current-object expiry — never auto-delete a live backup (the security model,
  * docs/adr/0033). The exact opposite of the *test* bucket's 1-day *current*-object
  * expiry (docs/integration-testing.md / scripts/setup-test-bucket.mjs), which is
- * why the two lifecycles are never shared.
+ * why the two lifecycles are never shared. The single source of the window values
+ * the CloudFormation template embeds below (`awsCloudFormationTemplate`).
  * @returns {import("@aws-sdk/client-s3").BucketLifecycleConfiguration}
  */
 export const backupLifecycle = () => ({
@@ -32,33 +39,44 @@ export const backupLifecycle = () => ({
 });
 
 /**
- * Pretty-print a policy/lifecycle object exactly as it should land in a file.
+ * Indent a JSON-serialized object under a YAML key. JSON is valid YAML (a flow
+ * mapping), so embedding `bucketPolicy()` verbatim keeps it the single source of
+ * truth (ADR-0056) without a bespoke YAML serializer. Each line is padded so the
+ * block nests under its `PolicyDocument:` key.
  * @param {unknown} value
+ * @param {number} spaces - Indentation depth for the nested block.
  */
-const json = (value) => JSON.stringify(value, null, 2);
+const indentJson = (value, spaces) => {
+  const pad = " ".repeat(spaces);
+  return JSON.stringify(value, null, 2)
+    .split("\n")
+    .map((line) => pad + line)
+    .join("\n");
+};
 
 /**
- * The ` --profile <name>` suffix interpolated into every generated `aws` command
+ * The CloudFormation stack name for a bucket's onboarding (ADR-0056).
+ * @param {string} bucket
+ */
+const stackName = (bucket) => `s3cab-${bucket}`;
+/**
+ * The dedicated IAM user's name (default identity path, ADR-0056).
+ * @param {string} bucket
+ */
+const userName = (bucket) => `s3cab-user-${bucket}`;
+/**
+ * The managed policy wrapping `bucketPolicy()` (ADR-0056).
+ * @param {string} bucket
+ */
+const policyName = (bucket) => `s3cab-bucket-access-${bucket}`;
+
+/**
+ * The ` --profile <name>` suffix interpolated into the generated `aws` commands
  * when `--profile` was passed (output sugar only — never used to authenticate;
  * the command is offline), or `""` otherwise.
  * @param {string} [profile]
  */
 const profileFlag = (profile) => (profile ? ` --profile ${profile}` : "");
-
-/**
- * The `aws s3api create-bucket` line(s), handling the us-east-1
- * `LocationConstraint` quirk: us-east-1 is the API default and must **not** carry
- * a `LocationConstraint` (S3 rejects it); every other region requires one. Mirrors
- * scripts/setup-test-bucket.mjs, the test-bucket provisioner.
- * @param {string} bucket
- * @param {string} region
- * @param {string} pf - The profile-flag suffix (`profileFlag` output)
- */
-const createBucketCommand = (bucket, region, pf) =>
-  region === "us-east-1"
-    ? `   aws s3api create-bucket --bucket ${bucket} --region ${region}${pf}`
-    : `   aws s3api create-bucket --bucket ${bucket} --region ${region} \\\n` +
-      `     --create-bucket-configuration LocationConstraint=${region}${pf}`;
 
 /**
  * The goal-framed opening line shared by every recipe (ADR-0030).
@@ -69,30 +87,6 @@ const header = (bucket, target) =>
   `To set up "${bucket}" as an s3cab backup destination on ${target}, run these steps.`;
 
 /**
- * Steps 1–3 — create the bucket, versioning, lifecycle. *Identity-agnostic*: the
- * AWS IAM and SSO recipes share these verbatim (only the identity step forks),
- * which is what keeps the SSO variant small.
- * @param {string} bucket
- * @param {string} region
- * @param {string} pf - The profile-flag suffix
- * @returns {string[]}
- */
-const bucketSteps = (bucket, region, pf) => [
-  `1. Create the bucket:\n` + createBucketCommand(bucket, region, pf),
-
-  `2. Turn on versioning — your safety net, so a deleted or overwritten\n` +
-    `   backup stays recoverable:\n` +
-    `   aws s3api put-bucket-versioning --bucket ${bucket} \\\n` +
-    `     --versioning-configuration Status=Enabled${pf}`,
-
-  `3. Add lifecycle rules (reclaim deleted space after 90 days; clear\n` +
-    `   stalled uploads after 1). Save as lifecycle.json:\n\n` +
-    `${json(backupLifecycle())}\n\n` +
-    `   aws s3api put-bucket-lifecycle-configuration --bucket ${bucket} \\\n` +
-    `     --lifecycle-configuration file://lifecycle.json${pf}`,
-];
-
-/**
  * The closing "now make a set" pointer shared by every recipe.
  * @param {string} bucket
  */
@@ -101,97 +95,101 @@ const nextStep = (bucket) =>
   `   s3cab setup <name> <directory>... --bucket ${bucket}`;
 
 /**
- * The default onboarding recipe: a dedicated **IAM user** scoped to this bucket
- * (the simplest path for someone without SSO). Numbered, goal-framed steps
- * (ADR-0030), each command copy-pasteable on its own line; sequential by
- * necessity — step 4 mints the key step 5 consumes — so it is human-in-the-loop,
- * not one paste-all. The policy/lifecycle JSON is printed inline for the user to
- * save as `policy.json` / `lifecycle.json`, which the `file://` references then
- * pick up (dodging cross-shell quoting of inline JSON).
+ * The CloudFormation template `s3cab aws <bucket>` emits (ADR-0056): one stack
+ * standing up the backup bucket plus a least-privilege IAM user for s3cab. Every
+ * ADR-0033 bucket protection is baked in — versioning ON, SSE-S3 default
+ * encryption, the noncurrent-version lifecycle window, and **`DeletionPolicy` /
+ * `UpdateReplacePolicy` `Retain`** so deleting the stack can never destroy backups
+ * (the load-bearing guard). `bucketPolicy()` is embedded verbatim as a managed
+ * policy (`policyName`) attached to the user — the single source of truth (ADR-0056).
+ *
+ * Region is deliberately **not** baked in: the bucket lands in whatever region the
+ * stack deploys to, so the old us-east-1 `LocationConstraint` quirk disappears.
+ * @param {string} bucket
+ * @returns {string} The YAML template text.
+ */
+export function awsCloudFormationTemplate(bucket) {
+  const [rule] = backupLifecycle().Rules ?? [];
+  const noncurrentDays = rule?.NoncurrentVersionExpiration?.NoncurrentDays;
+  const abortDays = rule?.AbortIncompleteMultipartUpload?.DaysAfterInitiation;
+  return `AWSTemplateFormatVersion: "2010-09-09"
+Description: s3cab backup bucket "${bucket}" and its least-privilege identity
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    # Retain so deleting this stack can NEVER destroy the backup bucket (ADR-0033/0056).
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: ${bucket}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ${rule?.ID}
+            Status: ${rule?.Status}
+            NoncurrentVersionExpiration:
+              NoncurrentDays: ${noncurrentDays}
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: ${abortDays}
+  BucketAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ${policyName(bucket)}
+      PolicyDocument:
+${indentJson(bucketPolicy(bucket), 8)}
+  User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: ${userName(bucket)}
+      ManagedPolicyArns:
+        - !Ref BucketAccessPolicy
+`;
+}
+
+/**
+ * The default onboarding recipe: a CloudFormation template that stands up the
+ * bucket + a dedicated **IAM user** scoped to it, then the three short steps to
+ * deploy it and wire s3cab up (ADR-0056). Goal-framed (ADR-0030). The steps are
+ * sequential by necessity — step 2 mints the access-key secret step 3 consumes —
+ * so it is human-in-the-loop, not one paste-all. The secret is the one thing kept
+ * out of the template (ADR-0056): `create-access-key` prints it once to the
+ * terminal and it is never stored in the stack.
  * @param {{ bucket: string, region: string, profile?: string }} params
  * @returns {string}
  */
 export function awsIamPlan({ bucket, region, profile }) {
   const pf = profileFlag(profile);
+  const rf = region ? ` --region ${region}` : "";
+  const stack = stackName(bucket);
   const blocks = [
     header(bucket, "AWS"),
 
-    ...bucketSteps(bucket, region, pf),
+    `1. Save this CloudFormation template as ${stack}.yaml:\n\n` +
+      `${awsCloudFormationTemplate(bucket)}\n` +
+      `   Deploy it — one command creates the bucket and a locked-down s3cab\n` +
+      `   identity, resolving every reference for you:\n` +
+      `   aws cloudformation deploy --template-file ${stack}.yaml \\\n` +
+      `     --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
 
-    `4. Create a locked-down identity for s3cab. Save as policy.json:\n\n` +
-      `${json(bucketPolicy(bucket))}\n\n` +
-      `   aws iam create-user --user-name s3cab${pf}\n` +
-      `   aws iam put-user-policy --user-name s3cab --policy-name s3cab-backup \\\n` +
-      `     --policy-document file://policy.json${pf}\n` +
-      `   aws iam create-access-key --user-name s3cab${pf}`,
+    `2. Mint an access key for the new identity. This is the one secret step —\n` +
+      `   it is shown once here and never stored in the stack:\n` +
+      `   aws iam create-access-key --user-name ${userName(bucket)}${pf}`,
 
-    `5. Point s3cab at the new key (paste the key + secret from step 4):\n` +
-      `   aws configure --profile s3cab\n` +
-      `   s3cab provider --profile s3cab`,
-
-    nextStep(bucket),
-
-    `Using AWS IAM Identity Center / SSO instead? Re-run with --sso.`,
-  ];
-  return blocks.join("\n\n");
-}
-
-/**
- * The `--sso` recipe for users who sign in with **AWS IAM Identity Center**
- * (where there is no long-lived access key to mint). Same bucket steps 1–3, then
- * the identity fork in two tiers:
- *
- * - **B-light** (steps 4–5, the common case): attach the bucket policy to the
- *   permission set you *already* sign in with, refresh the session, point s3cab
- *   at the profile. No new identity to create.
- * - **B-dedicated** (the trailing "Advanced" block, optional): a permission set
- *   used *only* by s3cab, for tighter scope — more setup, most people skip it.
- *   Console-first, since attaching an inline policy by CLI needs the SSO
- *   instance + permission-set ARNs, which can't be pre-filled (a `<placeholder>`
- *   CLI appendix is given for those who manage Identity Center from the shell).
- *
- * We do **not** teach standing up Identity Center from scratch (heavy, tiny
- * audience, re-treads the removed `login` ground — ADR-0015).
- * @param {{ bucket: string, region: string, profile?: string }} params
- * @returns {string}
- */
-export function awsSsoPlan({ bucket, region, profile }) {
-  const pf = profileFlag(profile);
-  const blocks = [
-    header(bucket, "AWS"),
-
-    ...bucketSteps(bucket, region, pf),
-
-    `4. Grant s3cab access through the identity you already sign in with.\n` +
-      `   Save as policy.json:\n\n` +
-      `${json(bucketPolicy(bucket))}\n\n` +
-      `   In the AWS console → IAM Identity Center → Permission sets → the\n` +
-      `   permission set you sign in with → Inline policy, paste policy.json.`,
-
-    `5. Refresh your session and point s3cab at your profile:\n` +
-      `   aws sso login --profile <your-sso-profile>\n` +
-      `   s3cab provider --profile <your-sso-profile>`,
-
-    `--- Advanced: a dedicated s3cab-only identity ---\n\n` +
-      `For tighter scope, give s3cab its own permission set instead of reusing\n` +
-      `your everyday one. More setup; most people don't need it.\n\n` +
-      `In the AWS console → IAM Identity Center:\n` +
-      `  1. Permission sets → Create permission set → custom → attach policy.json\n` +
-      `     (above) as an inline policy; name it e.g. s3cab-backup.\n` +
-      `  2. Assign that permission set to your user on the account holding the bucket.\n` +
-      `  3. Add an SSO profile for it, then sign in:\n` +
-      `     aws configure sso          # pick the s3cab-backup permission set\n` +
-      `     aws sso login --profile s3cab\n` +
-      `     s3cab provider --profile s3cab\n\n` +
-      `CLI appendix (if you manage Identity Center from the command line —\n` +
-      `substitute the <placeholder> ARNs from your account; they can't be\n` +
-      `pre-filled):\n` +
-      `   aws sso-admin put-inline-policy-to-permission-set \\\n` +
-      `     --instance-arn <sso-instance-arn> \\\n` +
-      `     --permission-set-arn <permission-set-arn> \\\n` +
-      `     --inline-policy file://policy.json`,
+    `3. Point s3cab at the new key (paste the key + secret from step 2):\n` +
+      `   s3cab provider --keys`,
 
     nextStep(bucket),
+
+    `Prefer no long-lived key? Re-run with --roles-anywhere for keyless,\n` +
+      `certificate-based access (recommended).`,
+
+    `Signing in with AWS IAM Identity Center (SSO)? It works through the\n` +
+      `standard credential chain — run 's3cab help provider'.`,
   ];
   return blocks.join("\n\n");
 }

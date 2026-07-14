@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { aws } from "./aws.mjs";
 
-// Tests for the `aws` command: the *routing* (which recipe it returns) and
-// argument validation. The recipe text itself is asserted in
-// src/lib/onboarding.test.mjs; here we only check the command picks the right one
-// from its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment. The command
+// Tests for the `aws` command: the *routing* (which recipe it returns, or the
+// not-yet-built refusal) and argument validation. The recipe text itself is
+// asserted in src/lib/onboarding.test.mjs; here we only check the command reacts
+// to its flags + the AWS_ENDPOINT_URL* / AWS_REGION environment. The command
 // returns the recipe as text now (ADR-0043); the dispatcher prints it.
 
 const ENV_VARS = [
@@ -36,14 +36,16 @@ afterEach(() => {
 });
 
 describe("aws routing", () => {
-  it("returns the IAM-user recipe by default", () => {
-    assert.match(aws("my-backups"), /aws iam create-user/);
+  it("returns the IAM-user CloudFormation recipe by default", () => {
+    const out = aws("my-backups");
+    assert.match(out, /aws cloudformation deploy/);
+    assert.match(out, /create-access-key --user-name s3cab-user-my-backups/);
   });
 
-  it("returns the SSO recipe with --sso", () => {
-    const out = aws("my-backups", { sso: true });
-    assert.match(out, /aws sso login/);
-    assert.doesNotMatch(out, /aws iam create-user/);
+  it("refuses --roles-anywhere as not yet available", () => {
+    assert.throws(() => aws("my-backups", { "roles-anywhere": true }), {
+      message: /Roles Anywhere.*isn't available yet/s,
+    });
   });
 
   it("redirects to 'help provider' when a custom endpoint is set (not AWS)", () => {
@@ -51,34 +53,32 @@ describe("aws routing", () => {
     const out = aws("my-backups");
     assert.match(out, /custom S3 endpoint is set \(https:\/\/acct\.r2/);
     assert.match(out, /s3cab help provider/);
-    assert.doesNotMatch(out, /aws iam/);
+    assert.doesNotMatch(out, /cloudformation/);
   });
 
-  it("lets the endpoint win over --sso, and needs no bucket to redirect", () => {
+  it("lets the endpoint win, and needs no bucket to redirect", () => {
     process.env.AWS_ENDPOINT_URL = "https://s3.example.test";
-    const out = aws(undefined, { sso: true });
+    const out = aws(undefined);
     assert.match(out, /s3cab help provider/);
-    assert.doesNotMatch(out, /aws sso login/);
+    assert.doesNotMatch(out, /cloudformation/);
   });
 });
 
 describe("aws region resolution", () => {
-  it("uses --region for the create-bucket command", () => {
+  it("uses --region for the deploy command", () => {
     assert.match(
       aws("my-backups", { region: "eu-west-1" }),
-      /LocationConstraint=eu-west-1/,
+      /--region eu-west-1/,
     );
   });
 
   it("falls back to $AWS_REGION when --region is absent", () => {
     process.env.AWS_REGION = "ap-southeast-2";
-    assert.match(aws("my-backups"), /LocationConstraint=ap-southeast-2/);
+    assert.match(aws("my-backups"), /--region ap-southeast-2/);
   });
 
-  it("defaults to us-east-1 (no LocationConstraint) when nothing is set", () => {
-    const out = aws("my-backups");
-    assert.match(out, /--region us-east-1/);
-    assert.doesNotMatch(out, /LocationConstraint/);
+  it("defaults to us-east-1 when nothing is set", () => {
+    assert.match(aws("my-backups"), /--region us-east-1/);
   });
 });
 

@@ -7,38 +7,50 @@ provider instead — Cloudflare R2, Backblaze B2, Wasabi, MinIO, …? See
 [Non-AWS providers](#non-aws-providers) below: those have no IAM, so setup runs
 through the `provider` command, not this one.)
 
-It is **generative**: it _prints_ the exact `aws` commands and policy/lifecycle
-JSON for you to run, and makes no AWS calls itself. So it needs **no credentials
-to run** — you can read the whole plan before you have any — and you can see
-exactly what will touch your account before anything happens.
+It is **generative**: it _prints_ a CloudFormation template and the handful of
+`aws` commands to deploy it, and makes no AWS calls itself. So it needs **no
+credentials to run** — you can read the whole plan (and the exact template) before
+you have any — and you can see exactly what will touch your account before
+anything happens.
 
 ```console
 > s3cab aws my-backups --region eu-west-1 --profile admin
 ```
 
 - `<bucket>` — the bucket name to set up (one repository is one bucket).
-- `--region <region>` — the bucket's AWS region. Defaults to `$AWS_REGION` /
-  `$AWS_DEFAULT_REGION`, then `us-east-1`.
+- `--region <region>` — the AWS region to deploy into. Defaults to `$AWS_REGION` /
+  `$AWS_DEFAULT_REGION`, then `us-east-1`. It is dropped into the `--region` of
+  the printed deploy command; the bucket lands wherever the stack deploys.
 - `--profile <name>` — an **admin** AWS profile to drop into the printed `aws …`
-  commands (the identity that _creates_ the bucket and the s3cab user). It is
-  output sugar only — the command never uses it to authenticate.
-- `--sso` — print the AWS IAM Identity Center (SSO) recipe instead of the default
-  IAM-user one (see [Identity options](#identity-options)).
+  commands (the identity that _deploys_ the stack and mints the key). It is output
+  sugar only — the command never uses it to authenticate.
+- `--roles-anywhere` — print the keyless, certificate-based Roles Anywhere recipe
+  instead of the default IAM-user one (see [Identity options](#identity-options)).
+  Recommended, but **not built yet** — it currently reports that it isn't available.
 
-The steps are **sequential and human-in-the-loop**, not one paste-all: creating
-the identity mints an access key that a later step consumes, so you run them in
-order. Each policy/lifecycle document is printed inline for you to save as
-`policy.json` / `lifecycle.json`; the `aws` commands reference those files with
-`file://` to avoid wrestling with cross-shell JSON quoting.
+It emits a **CloudFormation template** — a single declarative file describing the
+bucket, its least-privilege policy, and the s3cab identity — which you deploy with
+one `aws cloudformation deploy`. CloudFormation resolves every cross-resource
+reference itself, so there are no ARNs to copy from one command's output into the
+next, and the same command works identically on PowerShell and bash. The stack is
+updatable (change the lifecycle window, redeploy) and teardownable — though the
+bucket carries `DeletionPolicy: Retain`, so deleting the stack **never** destroys
+your backups.
+
+The three steps that follow the template are **sequential and human-in-the-loop**,
+not one paste-all: minting the identity's access key is a deliberate manual step
+whose secret a later step consumes.
 
 ## What it sets up
 
-| Setting                                | Value           | Why                                                                          |
-| -------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| Versioning                             | Enabled         | recover any deleted or overwritten backup                                    |
-| Lifecycle: noncurrent-version expiry   | ~90 days        | the disaster-recovery window — reclaims space a delete freed (see below)     |
-| Lifecycle: abort incomplete multipart  | 1 day           | clears stalled uploads, which accrue cost invisibly                          |
-| Lifecycle: current-object expiry       | **none**        | the cardinal sin — never auto-delete a live backup                           |
+| Setting                               | Value               | Why                                                                      |
+| ------------------------------------- | ------------------- | ------------------------------------------------------------------------ |
+| Versioning                            | Enabled             | recover any deleted or overwritten backup                                |
+| Default encryption                    | SSE-S3 (AES256)     | backups encrypted at rest, spelled out rather than left to the default   |
+| Deletion / update-replace policy      | Retain              | deleting the stack can never destroy the bucket or its contents          |
+| Lifecycle: noncurrent-version expiry  | ~90 days            | the disaster-recovery window — reclaims space a delete freed (see below)  |
+| Lifecycle: abort incomplete multipart | 1 day               | clears stalled uploads, which accrue cost invisibly                      |
+| Lifecycle: current-object expiry      | **none**            | the cardinal sin — never auto-delete a live backup                       |
 
 The 90-day window is a deliberate cost/safety **dial**: longer is safer, shorter
 reclaims pruned space sooner. In a content-addressable store this costs almost
@@ -72,35 +84,59 @@ backstop that makes everyday soft-deletes safe.
 
 ## Identity options
 
-The bucket and the policy are the same for everyone; only _which identity you
-attach the policy to_ differs.
+The bucket and the policy are the same for everyone; only _which identity gets the
+policy attached_ differs.
 
 ### Default — a dedicated IAM user
 
-The simplest path if you don't use SSO. The command prints commands to create an
-IAM user, attach the policy to it, mint an access key, and point s3cab at it with
-`aws configure` + `s3cab provider --profile s3cab`.
+The CloudFormation template creates an IAM user (`s3cab-user-<bucket>`) with the
+managed policy attached. After you deploy it, the only manual step is minting that
+user's access key:
 
-> AWS now steers even basic users toward IAM Identity Center over standalone IAM
-> users. The IAM-user path is kept because it is the least moving parts when you
-> have no SSO; if you _do_ sign in with SSO, prefer `--sso`.
+```console
+> aws iam create-access-key --user-name s3cab-user-<bucket>
+```
 
-### `--sso` — AWS IAM Identity Center
+This is the **one thing kept out of the template**. `AWS::IAM::AccessKey` would
+materialize the secret in CloudFormation's stack state (readable afterward), so the
+secret is instead printed once to your terminal and never persisted. Then point
+s3cab at it:
 
-For accounts that sign in through IAM Identity Center (there is no long-lived
-access key to mint). Two tiers are printed:
+```console
+> s3cab provider --keys
+```
 
-- **Reuse your existing sign-in** (the common case): attach the policy to the
-  permission set you already use, `aws sso login`, then `s3cab provider --profile
-  <your-sso-profile>`.
-- **A dedicated s3cab-only permission set** (advanced, optional): tighter scope
-  at the cost of more setup. It is shown console-first, with a `<placeholder>`
-  CLI appendix for those who manage Identity Center from the command line (the
-  SSO instance and permission-set ARNs can't be pre-filled).
+> AWS now steers even basic users toward short-lived credentials over standalone
+> access keys. The IAM-user path is the least moving parts today; if you'd rather
+> not hold a long-lived key, `--roles-anywhere` (below) is the recommended
+> alternative.
 
-The command does **not** teach standing up Identity Center from scratch — that
-is heavy, serves a tiny audience, and re-treads ground s3cab deliberately left to
-the standard AWS tooling.
+### `--roles-anywhere` — keyless, certificate-based access
+
+The recommended alternative to a long-lived access key. With IAM Roles Anywhere
+your machine authenticates using an X.509 client certificate and receives
+short-lived session credentials — no long-lived AWS key ever lives on disk. It is
+one level above access keys, deliberately not an enterprise PKI.
+
+> **Not built yet.** The flag is recognized but currently reports that it isn't
+> available; use the default IAM-user path in the meantime.
+
+### AWS IAM Identity Center (SSO)
+
+There is no separate SSO onboarding path (and no `--sso` flag). If you already sign
+in through IAM Identity Center with a broadly-privileged role that can reach the
+bucket, just create the bucket and point s3cab at your SSO profile — SSO flows
+through the standard AWS credential chain, which s3cab uses unchanged:
+
+```console
+> s3cab provider --profile <your-sso-profile>
+```
+
+A narrowly-scoped SSO permission set needs your account admin to grant it bucket
+access (the least-privilege policy above is an _identity_ policy on a dedicated
+user/role, not a bucket resource policy, so it can't widen an SSO role for you).
+That is an admin task s3cab deliberately leaves to the standard AWS tooling. See
+`s3cab help provider` for the credential-chain details.
 
 ## Non-AWS providers
 
@@ -185,14 +221,6 @@ per app; Linux's Secret Service typically doesn't). And scheduled backups run
 unattended, so the store must be unlockable when they fire — a locked vault
 makes the backup fail until you sign in, which you may consider a feature or a
 bug.
-
-## A note on the `us-east-1` quirk
-
-`us-east-1` is the S3 API's default region and must **not** carry a
-`LocationConstraint` (S3 rejects the create-bucket call if it does); every other
-region **requires** one. The generated create-bucket command handles this for you
-— it includes `--create-bucket-configuration LocationConstraint=<region>` only
-when the region isn't `us-east-1`.
 
 ## Next
 
