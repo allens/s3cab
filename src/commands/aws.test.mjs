@@ -65,7 +65,9 @@ describe("aws routing", () => {
     assert.match(template, /AWSTemplateFormatVersion/);
     assert.match(template, /Type: AWS::S3::Bucket/);
     assert.match(out, /Wrote the CloudFormation template to/);
-    assert.match(out, new RegExp(`--template-file "${path}"`));
+    // Plain substring, not a RegExp — a Windows path has backslashes that would be
+    // read as regex escapes.
+    assert.ok(out.includes(`--template-file "${path}"`));
     assert.doesNotMatch(out, /AWSTemplateFormatVersion/);
   });
 

@@ -128,8 +128,9 @@ certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your
 machine) and writes a CloudFormation template to `~/.s3cab/<bucket>.yaml` that
 stands up the bucket plus the keyless identity — a trust anchor over the public
 CA, an IAM role carrying the same least-privilege policy, and a profile. Deploy
-it, then capture the stack's ARNs back into the local identity (s3cab prints these
-commands with the template's real path filled in):
+it, then capture the stack's ARNs back into the local identity. s3cab prints the
+deploy command ready to paste, with `--template-file` pointing at the absolute
+path it just wrote (the `~/.s3cab/<bucket>.yaml` below is illustrative):
 
 ```console
 > s3cab aws <bucket> --roles-anywhere          # generates certs + writes the template

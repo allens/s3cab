@@ -7,6 +7,7 @@ import {
   awsIamPlan,
   awsRolesAnywherePlan,
   awsRolesAnywhereTemplate,
+  awsSaveConfirmation,
   validateAwsBucketName,
 } from "../lib/onboarding.mjs";
 import {
@@ -135,14 +136,17 @@ Wasabi, MinIO, …), run:
  * because it already lives under `~/.s3cab/`. The stack name keeps its `s3cab-`
  * prefix (an AWS-side identifier), so filename and stack name deliberately differ.
  * Not secret — the IAM template holds no key, the RA template embeds only the
- * public CA — but it sits in the owner-only home dir beside the RA identity.
+ * public CA — but it sits in the owner-only home dir beside the RA identity. This
+ * can be the first code to create `~/.s3cab`, so it makes the dir `0700` to match
+ * that convention (the home tree holds secrets — ADR-0033, roles-anywhere.mjs's
+ * `DIR_MODE`), rather than leaving it group/other-readable at the umask's mercy.
  * @param {string} bucket - Already validated dot-free (safe as a path segment).
  * @param {string} template - The template YAML to write.
  * @returns {string} The absolute path written.
  */
 function writeTemplate(bucket, template) {
   const dir = s3cabDir();
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, `${bucket}.yaml`);
   writeFileSync(path, template);
   return path;
@@ -150,22 +154,14 @@ function writeTemplate(bucket, template) {
 
 /**
  * The `--save --from-stack` body: capture the stack's RA ARNs into the local
- * identity, then confirm (ADR-0030 — goal-framed, names the file it wrote and the
- * next step). Split out so the sync offline paths above stay a plain function.
+ * identity, then confirm. The confirmation prose lives with the other recipe text
+ * in onboarding.mjs (`awsSaveConfirmation`, pure + unit-testable — this file's
+ * header invariant); here we only do the I/O and hand it the display path.
  * @param {string} stackName
  * @param {string} region
  * @returns {Promise<string>}
  */
 async function saveRolesAnywhere(stackName, region) {
   const { dir } = await saveArnsFromStack({ stackName, region });
-  return `Saved the Roles Anywhere ARNs from stack "${stackName}" (region ${region})
-to your machine identity at ${tildeify(dir)}/env.
-
-Your keyless identity is now fully configured. Point a backup set at it — at
-creation:
-  s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
-or switch an existing set:
-  s3cab provider --roles-anywhere <set>
-s3cab then authenticates with the certificate and receives short-lived AWS
-credentials for every backup — no long-lived key.`;
+  return awsSaveConfirmation({ stackName, region, dir: tildeify(dir) });
 }
