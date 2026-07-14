@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempDisposable } from "node:fs/promises";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { aws } from "./aws.mjs";
+import { s3cabDir } from "../lib/home.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the `aws` command: the *routing* (which recipe it returns, or the
@@ -21,10 +23,10 @@ const ENV_VARS = [
   "S3CAB_HOME",
 ];
 
-const mkTmpDir = () => mkdtempDisposable(join("test", ".tmp"));
-
 /** @type {Record<string, string | undefined>} */
 let savedEnv;
+/** @type {string} */
+let tmpHomeRoot;
 beforeEach(() => {
   // Start from a known no-endpoint, no-region state; restore the host's after.
   savedEnv = {};
@@ -32,8 +34,13 @@ beforeEach(() => {
     savedEnv[v] = process.env[v];
     delete process.env[v];
   }
+  // Every path now writes the template under s3cab's home, so isolate it — no test
+  // should touch the real ~/.s3cab. (useTempHome sets S3CAB_HOME, restored above.)
+  tmpHomeRoot = mkdtempSync(join(tmpdir(), "s3cab-aws-"));
+  useTempHome(tmpHomeRoot);
 });
 afterEach(() => {
+  rmSync(tmpHomeRoot, { recursive: true, force: true });
   for (const v of ENV_VARS) {
     if (savedEnv[v] === undefined) {
       delete process.env[v];
@@ -50,12 +57,23 @@ describe("aws routing", () => {
     assert.match(out, /create-access-key --user-name s3cab-user-my-backups/);
   });
 
-  it("generates the identity and RA template with --roles-anywhere", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
+  it("writes the template to ~/.s3cab/<bucket>.yaml and points the recipe at it", async () => {
+    const out = await aws("my-backups");
+    const path = join(s3cabDir(), "my-backups.yaml");
+    const template = readFileSync(path, "utf8");
+    // The YAML body is on disk (not in the recipe), and the deploy command names it.
+    assert.match(template, /AWSTemplateFormatVersion/);
+    assert.match(template, /Type: AWS::S3::Bucket/);
+    assert.match(out, /Wrote the CloudFormation template to/);
+    assert.match(out, new RegExp(`--template-file "${path}"`));
+    assert.doesNotMatch(out, /AWSTemplateFormatVersion/);
+  });
+
+  it("generates the identity and writes the RA template with --roles-anywhere", async () => {
     const out = await aws("my-backups", { "roles-anywhere": true });
-    assert.match(out, /Type: AWS::RolesAnywhere::TrustAnchor/);
-    assert.match(out, /-----BEGIN CERTIFICATE-----/);
+    const template = readFileSync(join(s3cabDir(), "my-backups.yaml"), "utf8");
+    assert.match(template, /Type: AWS::RolesAnywhere::TrustAnchor/);
+    assert.match(template, /-----BEGIN CERTIFICATE-----/);
     assert.match(out, /s3cab aws --roles-anywhere --save --from-stack/);
   });
 
@@ -86,8 +104,6 @@ describe("aws --save routing", () => {
   });
 
   it("refuses when no local identity exists yet (needs generating first)", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
     await assert.rejects(
       aws(undefined, {
         "roles-anywhere": true,

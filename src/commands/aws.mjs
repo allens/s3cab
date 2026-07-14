@@ -1,30 +1,35 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { customEndpoint } from "../lib/env.mjs";
 import { ParseArgsError, requireArg } from "../lib/error.mjs";
 import {
+  awsCloudFormationTemplate,
   awsIamPlan,
   awsRolesAnywherePlan,
+  awsRolesAnywhereTemplate,
   validateAwsBucketName,
 } from "../lib/onboarding.mjs";
 import {
   ensureMachineIdentity,
   saveArnsFromStack,
 } from "../lib/roles-anywhere.mjs";
-import { tildeify } from "../lib/home.mjs";
+import { s3cabDir, tildeify } from "../lib/home.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
-// `s3cab aws` — the AWS-onboarding command. It **prints** a CloudFormation
-// template + the short recipe to stand up an S3 bucket as a backup destination
-// and a least-privilege identity for s3cab; it makes no AWS calls and needs no
-// credentials to run (generative, not active — ADR-0032/0056). Provisioning is a
-// rare, one-time, per-bucket bootstrap, so it is a separate top-level command,
-// not part of `setup` (a per-set operation) or `provider` (the connection-config
-// door, ADR-0031/0047) — though it composes with them: its final step is
-// `s3cab setup ... --keys`, which creates the first set in the new bucket.
+// `s3cab aws` — the AWS-onboarding command. It **writes** a CloudFormation template
+// to `~/.s3cab/<bucket>.yaml` and prints the short recipe to deploy it — standing up
+// an S3 bucket as a backup destination and a least-privilege identity for s3cab. It
+// makes no AWS calls and needs no credentials to run (generative, not active —
+// ADR-0032/0056: s3cab writes the file, the user applies it with their admin creds).
+// Provisioning is a rare, one-time, per-bucket bootstrap, so it is a separate
+// top-level command, not part of `setup` (a per-set operation) or `provider` (the
+// connection-config door, ADR-0031/0047) — though it composes with them: its final
+// step is `s3cab setup ... --keys`, which creates the first set in the new bucket.
 //
 // AWS only (ADR-0047): the identity fork is the default IAM-user (access keys)
 // vs `--roles-anywhere` (keyless, certificate-based — ADR-0057/0058). The RA path
 // generates a machine-level CA + client certificate locally (src/lib/roles-anywhere.mjs),
-// emits a CloudFormation template embedding the public CA, and — with `--save
+// writes a CloudFormation template embedding the public CA, and — with `--save
 // --from-stack` — reads the deployed stack's ARNs back into the local identity
 // (read-only DescribeStacks). `--sso` is retired (ADR-0056): SSO works through the
 // standard credential chain, so it needs no onboarding path of its own — the
@@ -35,17 +40,19 @@ import { validateBucketName } from "../lib/sets.mjs";
 // src/lib/roles-anywhere.mjs.
 
 /**
- * Build the steps to set up an S3 bucket as an s3cab backup destination.
- * Purely local/offline — it reads `process.env` for region/endpoint defaults
- * but calls no AWS API. The plan *is* the result (ADR-0043): it returns the
- * finished recipe as text; the dispatcher writes it to stdout (via `renderText`).
+ * Set up an S3 bucket as an s3cab backup destination: write the CloudFormation
+ * template to `~/.s3cab/<bucket>.yaml` and return the recipe pointing at it.
+ * Local/offline — it reads `process.env` for region/endpoint defaults and writes
+ * the template file, but calls no AWS API (ADR-0032/0056: s3cab writes the file,
+ * the user deploys it). The recipe *is* the result (ADR-0043): the dispatcher
+ * writes it to stdout (via `renderText`).
  *
  * @param {string} [name] - The bucket name to set up (not needed with `--save`)
  * @param {{ region?: string, profile?: string, "roles-anywhere"?: boolean, save?: boolean, "from-stack"?: string }} [options]
  *   - `region`: the bucket's AWS region (defaults to $AWS_REGION /
  *     $AWS_DEFAULT_REGION / us-east-1); `profile`: an admin AWS profile to
  *     interpolate into the printed `aws` commands; `roles-anywhere`: the keyless
- *     Roles Anywhere path (generate certs + emit the RA template); `save` +
+ *     Roles Anywhere path (generate certs + write the RA template); `save` +
  *     `from-stack`: read a deployed stack's ARNs back into the local RA identity.
  * @returns {Promise<string>} The onboarding recipe or a confirmation, for the
  *   render layer. Async because `--save` makes a read-only DescribeStacks call;
@@ -99,20 +106,46 @@ Wasabi, MinIO, …), run:
   validateAwsBucketName(name);
 
   // The keyless Roles Anywhere path (ADR-0057/0058): generate the machine identity
-  // locally (once — reused on re-run so the CA never silently changes) and emit
+  // locally (once — reused on re-run so the CA never silently changes) and write
   // the RA CloudFormation template embedding its public CA.
   if (options["roles-anywhere"]) {
     const { caPem, created } = ensureMachineIdentity();
+    const templatePath = writeTemplate(
+      name,
+      awsRolesAnywhereTemplate(name, caPem),
+    );
     return awsRolesAnywherePlan({
       bucket: name,
       region,
-      caPem,
       created,
       profile,
+      templatePath,
     });
   }
 
-  return awsIamPlan({ bucket: name, region, profile });
+  const templatePath = writeTemplate(name, awsCloudFormationTemplate(name));
+  return awsIamPlan({ bucket: name, region, profile, templatePath });
+}
+
+/**
+ * Write the onboarding CloudFormation template to `~/.s3cab/<bucket>.yaml` and
+ * return its absolute path — the file the recipe's `--template-file` points at
+ * (ADR-0056: s3cab writes the file, the user deploys it). The template is
+ * regenerable, so a re-run overwrites in place; no `s3cab-` prefix on the name
+ * because it already lives under `~/.s3cab/`. The stack name keeps its `s3cab-`
+ * prefix (an AWS-side identifier), so filename and stack name deliberately differ.
+ * Not secret — the IAM template holds no key, the RA template embeds only the
+ * public CA — but it sits in the owner-only home dir beside the RA identity.
+ * @param {string} bucket - Already validated dot-free (safe as a path segment).
+ * @param {string} template - The template YAML to write.
+ * @returns {string} The absolute path written.
+ */
+function writeTemplate(bucket, template) {
+  const dir = s3cabDir();
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${bucket}.yaml`);
+  writeFileSync(path, template);
+  return path;
 }
 
 /**
