@@ -87,14 +87,6 @@ const header = (bucket, target) =>
   `To set up "${bucket}" as an s3cab backup destination on ${target}, run these steps.`;
 
 /**
- * The closing "now make a set" pointer shared by every recipe.
- * @param {string} bucket
- */
-const nextStep = (bucket) =>
-  `Next — create a backup set in this bucket:\n` +
-  `   s3cab setup <name> <directory>... --bucket ${bucket}`;
-
-/**
  * The CloudFormation template `s3cab aws <bucket>` emits (ADR-0056): one stack
  * standing up the backup bucket plus a least-privilege IAM user for s3cab. Every
  * ADR-0033 bucket protection is baked in — versioning ON, SSE-S3 default
@@ -159,6 +151,11 @@ ${indentJson(bucketPolicy(bucket), 8)}
  * so it is human-in-the-loop, not one paste-all. The secret is the one thing kept
  * out of the template (ADR-0056): `create-access-key` prints it once to the
  * terminal and it is never stored in the stack.
+ *
+ * Step 3 stores the key at set *creation* via `setup --keys` — the initial-config
+ * door (ADR-0055), which is why it, not `provider` (the *change-it-afterward*
+ * door), completes the recipe: a fresh onboarding has no set yet for `provider` to
+ * target, and `setup --keys` creates the set and stores the key in one atomic step.
  * @param {{ bucket: string, region: string, profile?: string }} params
  * @returns {string}
  */
@@ -180,10 +177,9 @@ export function awsIamPlan({ bucket, region, profile }) {
       `   it is shown once here and never stored in the stack:\n` +
       `   aws iam create-access-key --user-name ${userName(bucket)}${pf}`,
 
-    `3. Point s3cab at the new key (paste the key + secret from step 2):\n` +
-      `   s3cab provider --keys`,
-
-    nextStep(bucket),
+    `3. Create your backup set and store the key on it in one step (paste the\n` +
+      `   key + secret from step 2 when prompted):\n` +
+      `   s3cab setup <name> <directory>... --bucket ${bucket} --keys`,
 
     `Prefer no long-lived key? Re-run with --roles-anywhere for keyless,\n` +
       `certificate-based access (recommended).`,

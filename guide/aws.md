@@ -99,11 +99,12 @@ user's access key:
 
 This is the **one thing kept out of the template**. `AWS::IAM::AccessKey` would
 materialize the secret in CloudFormation's stack state (readable afterward), so the
-secret is instead printed once to your terminal and never persisted. Then point
-s3cab at it:
+secret is instead printed once to your terminal and never persisted. Then create
+your first backup set and store the key on it in one step — `setup` is the
+initial-config door (`--keys` prompts for the key + secret, never taken as flags):
 
 ```console
-> s3cab provider --keys
+> s3cab setup <name> <directory>... --bucket <bucket> --keys
 ```
 
 > AWS now steers even basic users toward short-lived credentials over standalone
@@ -224,10 +225,11 @@ bug.
 
 ## Next
 
-Once the identity is wired up, create a backup set pointed at the bucket:
+The recipe's last step already created your first backup set in the bucket, so
+you're ready to back up:
 
 ```console
-> s3cab setup <name> <directory>... --bucket my-backups
+> s3cab backup <name>
 ```
 
 See the [README](../README.md) for backing up and restoring.

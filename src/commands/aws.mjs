@@ -9,8 +9,8 @@ import { validateBucketName } from "../lib/sets.mjs";
 // credentials to run (generative, not active — ADR-0032/0056). Provisioning is a
 // rare, one-time, per-bucket bootstrap, so it is a separate top-level command,
 // not part of `setup` (a per-set operation) or `provider` (the connection-config
-// door, ADR-0031/0047) — though it composes with both: its final step is
-// `s3cab provider --keys`, then `s3cab setup`.
+// door, ADR-0031/0047) — though it composes with them: its final step is
+// `s3cab setup ... --keys`, which creates the first set in the new bucket.
 //
 // AWS only (ADR-0047): the identity fork is the default IAM-user (access keys)
 // vs `--roles-anywhere` (keyless, certificate-based — ADR-0057; not built yet).

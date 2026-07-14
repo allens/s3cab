@@ -87,7 +87,7 @@ describe("awsIamPlan", () => {
   const plan = (/** @type {{region?: string, profile?: string}} */ opts = {}) =>
     awsIamPlan({ bucket: "my-backups", region: "eu-west-1", ...opts });
 
-  it("walks through the three steps: deploy, mint one key, point s3cab at it", () => {
+  it("walks through the three steps: deploy, mint one key, create the set with it", () => {
     const out = plan();
     assert.match(
       out,
@@ -99,7 +99,10 @@ describe("awsIamPlan", () => {
       out,
       /aws iam create-access-key --user-name s3cab-user-my-backups/,
     );
-    assert.match(out, /s3cab provider --keys/);
+    // Step 3 stores the key at set creation (ADR-0055 initial-config door), not
+    // via `provider` — a fresh onboarding has no set for `provider` to target.
+    assert.match(out, /s3cab setup .*--bucket my-backups --keys/);
+    assert.doesNotMatch(out, /s3cab provider --keys/);
   });
 
   it("embeds the CloudFormation template inline for the user to save", () => {
