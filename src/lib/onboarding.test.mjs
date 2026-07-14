@@ -3,9 +3,19 @@ import { describe, it } from "node:test";
 import {
   awsCloudFormationTemplate,
   awsIamPlan,
+  awsRolesAnywherePlan,
+  awsRolesAnywhereTemplate,
   backupLifecycle,
   validateAwsBucketName,
 } from "./onboarding.mjs";
+
+// A throwaway, well-formed PEM stand-in for the CA bundle these functions embed —
+// they only splice the text, never parse it, so its content is irrelevant.
+const FAKE_CA = `-----BEGIN CERTIFICATE-----
+MIIBfake0Line1
+fakeLine2==
+-----END CERTIFICATE-----
+`;
 
 // The cloud-onboarding plan is pure text (generative — ADR-0032/0056), so both
 // the CloudFormation template and the recipe wrapping it are asserted directly on
@@ -138,6 +148,112 @@ describe("awsIamPlan", () => {
   it("omits the profile flag on the aws commands when none is given", () => {
     // Only the closing `s3cab setup … --keys` mentions keys; no `aws … --profile`.
     assert.doesNotMatch(plan(), /aws [^\n]*--profile/);
+  });
+});
+
+describe("awsRolesAnywhereTemplate", () => {
+  const yaml = awsRolesAnywhereTemplate("my-backups", FAKE_CA);
+
+  it("reuses the same protected bucket + managed policy as the IAM-user template", () => {
+    assert.match(yaml, /Type: AWS::S3::Bucket/);
+    assert.match(yaml, /DeletionPolicy: Retain/);
+    assert.match(yaml, /ManagedPolicyName: s3cab-bucket-access-my-backups/);
+    // No IAM user on the keyless path.
+    assert.doesNotMatch(yaml, /AWS::IAM::User/);
+  });
+
+  it("stands up the keyless RA resources with predictable names", () => {
+    assert.match(yaml, /Type: AWS::RolesAnywhere::TrustAnchor/);
+    assert.match(yaml, /Name: s3cab-trust-anchor-my-backups/);
+    assert.match(yaml, /Type: AWS::IAM::Role/);
+    assert.match(yaml, /RoleName: s3cab-role-my-backups/);
+    assert.match(yaml, /Type: AWS::RolesAnywhere::Profile/);
+    assert.match(yaml, /Name: s3cab-profile-my-backups/);
+  });
+
+  it("uploads the CA as an external CERTIFICATE_BUNDLE, indented under the block scalar", () => {
+    assert.match(yaml, /SourceType: CERTIFICATE_BUNDLE/);
+    assert.match(yaml, /X509CertificateData: \|/);
+    // The PEM lines are indented 12 spaces beneath the `|` block scalar.
+    assert.match(yaml, /\n {12}-----BEGIN CERTIFICATE-----/);
+    assert.match(yaml, /\n {12}-----END CERTIFICATE-----/);
+  });
+
+  it("attaches the same managed policy to the role (no ARN threading)", () => {
+    assert.match(yaml, /ManagedPolicyArns:\s*\n\s*- !Ref BucketAccessPolicy/);
+  });
+
+  it("trusts the Roles Anywhere service, scoped to this trust anchor by GetAtt", () => {
+    assert.match(yaml, /"Service": "rolesanywhere\.amazonaws\.com"/);
+    assert.match(yaml, /"sts:AssumeRole"/);
+    // Scoped to *this* anchor via a pure-JSON Fn::GetAtt (no YAML short-form tag
+    // inside the JSON block, which CloudFormation would misparse).
+    assert.match(yaml, /"aws:SourceArn"/);
+    assert.match(
+      yaml,
+      /"Fn::GetAtt":\s*\[\s*"TrustAnchor",\s*"TrustAnchorArn"\s*\]/,
+    );
+    assert.doesNotMatch(yaml, /!Sub/);
+  });
+
+  it("exports the three ARNs --save reads back", () => {
+    assert.match(yaml, /Outputs:/);
+    assert.match(
+      yaml,
+      /TrustAnchorArn:\s*\n\s*Value: !GetAtt TrustAnchor\.TrustAnchorArn/,
+    );
+    assert.match(yaml, /ProfileArn:\s*\n\s*Value: !GetAtt Profile\.ProfileArn/);
+    assert.match(yaml, /RoleArn:\s*\n\s*Value: !GetAtt Role\.Arn/);
+  });
+});
+
+describe("awsRolesAnywherePlan", () => {
+  const plan = (
+    /** @type {{created?: boolean, region?: string, profile?: string}} */ opts = {},
+  ) =>
+    awsRolesAnywherePlan({
+      bucket: "my-backups",
+      region: "eu-west-1",
+      caPem: FAKE_CA,
+      created: true,
+      ...opts,
+    });
+
+  it("says a fresh identity was generated, and that the key stays local", () => {
+    const out = plan({ created: true });
+    assert.match(out, /Generated a new keyless Roles Anywhere identity/);
+    assert.match(out, /never sent to AWS/);
+  });
+
+  it("says an existing identity is reused when one was already present", () => {
+    assert.match(plan({ created: false }), /Reusing your existing/);
+  });
+
+  it("walks through deploy then the read-only --save capture", () => {
+    const out = plan();
+    assert.match(
+      out,
+      /aws cloudformation deploy --template-file s3cab-my-backups\.yaml/,
+    );
+    assert.match(out, /--capabilities CAPABILITY_NAMED_IAM/);
+    assert.match(
+      out,
+      /s3cab aws --roles-anywhere --save --from-stack s3cab-my-backups/,
+    );
+  });
+
+  it("embeds the RA template (trust anchor + CA bundle) inline", () => {
+    assert.match(plan(), /Type: AWS::RolesAnywhere::TrustAnchor/);
+    assert.match(plan(), /-----BEGIN CERTIFICATE-----/);
+  });
+
+  it("is honest that the runtime signer is not built yet", () => {
+    // The target-vs-built rule: don't imply `backup` works over RA today.
+    assert.match(plan(), /land next|runtime signer/i);
+  });
+
+  it("puts the deploy region on the commands", () => {
+    assert.match(plan({ region: "ap-southeast-2" }), /--region ap-southeast-2/);
   });
 });
 

@@ -56,6 +56,23 @@ const indentJson = (value, spaces) => {
 };
 
 /**
+ * Indent a multi-line text block under a YAML key. Used to embed a PEM
+ * certificate (the CA bundle) inside a `|` block scalar without a YAML
+ * serializer — same single-source-of-truth trick as {@link indentJson}. Trailing
+ * blank lines are dropped so the block scalar stays tidy.
+ * @param {string} text
+ * @param {number} spaces
+ */
+const indentText = (text, spaces) => {
+  const pad = " ".repeat(spaces);
+  return text
+    .replace(/\n+$/, "")
+    .split("\n")
+    .map((line) => pad + line)
+    .join("\n");
+};
+
+/**
  * The CloudFormation stack name for a bucket's onboarding (ADR-0056).
  * @param {string} bucket
  */
@@ -70,6 +87,21 @@ const userName = (bucket) => `s3cab-user-${bucket}`;
  * @param {string} bucket
  */
 const policyName = (bucket) => `s3cab-bucket-access-${bucket}`;
+/**
+ * The IAM role assumed via Roles Anywhere (RA identity path, ADR-0056/0057).
+ * @param {string} bucket
+ */
+const roleName = (bucket) => `s3cab-role-${bucket}`;
+/**
+ * The Roles Anywhere trust anchor (external self-signed CA, ADR-0056/0057).
+ * @param {string} bucket
+ */
+const trustAnchorName = (bucket) => `s3cab-trust-anchor-${bucket}`;
+/**
+ * The Roles Anywhere profile pointing at the role (ADR-0056/0057).
+ * @param {string} bucket
+ */
+const profileName = (bucket) => `s3cab-profile-${bucket}`;
 
 /** IAM's hard cap on a user name — the binding length limit here (below). */
 const IAM_NAME_MAX = 64;
@@ -130,27 +162,18 @@ const header = (bucket, target) =>
   `To set up "${bucket}" as an s3cab backup destination on ${target}, run these steps.`;
 
 /**
- * The CloudFormation template `s3cab aws <bucket>` emits (ADR-0056): one stack
- * standing up the backup bucket plus a least-privilege IAM user for s3cab. Every
- * ADR-0033 bucket protection is baked in — versioning ON, SSE-S3 default
- * encryption, the noncurrent-version lifecycle window, and **`DeletionPolicy` /
- * `UpdateReplacePolicy` `Retain`** so deleting the stack can never destroy backups
- * (the load-bearing guard). `bucketPolicy()` is embedded verbatim as a managed
- * policy (`policyName`) attached to the user — the single source of truth (ADR-0056).
- *
- * Region is deliberately **not** baked in: the bucket lands in whatever region the
- * stack deploys to, so the old us-east-1 `LocationConstraint` quirk disappears.
+ * The shared `Resources:` block both onboarding templates carry — the protected
+ * backup bucket + the managed `bucketPolicy()`, indented for nesting under
+ * `Resources:`. Factored out so the IAM-user and Roles Anywhere templates keep an
+ * identical bucket (every ADR-0033 protection) with one definition.
  * @param {string} bucket
- * @returns {string} The YAML template text.
+ * @returns {string}
  */
-export function awsCloudFormationTemplate(bucket) {
+function bucketResources(bucket) {
   const [rule] = backupLifecycle().Rules ?? [];
   const noncurrentDays = rule?.NoncurrentVersionExpiration?.NoncurrentDays;
   const abortDays = rule?.AbortIncompleteMultipartUpload?.DaysAfterInitiation;
-  return `AWSTemplateFormatVersion: "2010-09-09"
-Description: s3cab backup bucket "${bucket}" and its least-privilege identity
-Resources:
-  Bucket:
+  return `  Bucket:
     Type: AWS::S3::Bucket
     # Retain so deleting this stack can NEVER destroy the backup bucket (ADR-0033/0056).
     DeletionPolicy: Retain
@@ -176,13 +199,110 @@ Resources:
     Properties:
       ManagedPolicyName: ${policyName(bucket)}
       PolicyDocument:
-${indentJson(bucketPolicy(bucket), 8)}
+${indentJson(bucketPolicy(bucket), 8)}`;
+}
+
+/**
+ * The CloudFormation template `s3cab aws <bucket>` emits (ADR-0056): one stack
+ * standing up the backup bucket plus a least-privilege IAM user for s3cab. Every
+ * ADR-0033 bucket protection is baked in via {@link bucketResources}; the identity
+ * is a dedicated **IAM user** carrying the managed `bucketPolicy()`.
+ *
+ * Region is deliberately **not** baked in: the bucket lands in whatever region the
+ * stack deploys to, so the old us-east-1 `LocationConstraint` quirk disappears.
+ * @param {string} bucket
+ * @returns {string} The YAML template text.
+ */
+export function awsCloudFormationTemplate(bucket) {
+  return `AWSTemplateFormatVersion: "2010-09-09"
+Description: s3cab backup bucket "${bucket}" and its least-privilege identity
+Resources:
+${bucketResources(bucket)}
   User:
     Type: AWS::IAM::User
     Properties:
       UserName: ${userName(bucket)}
       ManagedPolicyArns:
         - !Ref BucketAccessPolicy
+`;
+}
+
+/**
+ * The Roles Anywhere onboarding template (ADR-0056/0057): the same bucket +
+ * managed policy as the IAM-user template, but the identity is a **keyless**
+ * certificate-based one — a trust anchor over the self-signed CA, an IAM role the
+ * trust anchor's principal assumes (carrying the same managed `bucketPolicy()`),
+ * and a profile. No AWS secret ever exists (the client private key stays local —
+ * ADR-0058), so the whole identity goes into CloudFormation, unlike the IAM-user
+ * path's out-of-band access key ("the delivery form tracks the secret", ADR-0056).
+ *
+ * The CA certificate is embedded inline as the trust anchor's `CERTIFICATE_BUNDLE`
+ * — it is public (a cert, never the key), so this is safe. The role's trust policy
+ * is scoped to *this* trust anchor by `aws:SourceArn` (the external-CA best
+ * practice). Three `Outputs` (the trust anchor / profile / role ARNs) are what
+ * `s3cab aws --roles-anywhere --save --from-stack` reads back.
+ * @param {string} bucket
+ * @param {string} caPem - The self-signed CA certificate (PEM), from the local identity.
+ * @returns {string} The YAML template text.
+ */
+export function awsRolesAnywhereTemplate(bucket, caPem) {
+  const raTrustPolicy = {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Principal: { Service: "rolesanywhere.amazonaws.com" },
+        Action: ["sts:AssumeRole", "sts:TagSession", "sts:SetSourceIdentity"],
+        // Scope the trust to *this* trust anchor (the external-CA best practice).
+        // `Fn::GetAtt` in its pure-JSON form resolves to the anchor's ARN — no
+        // YAML short-form tag inside the JSON-in-YAML block, which CloudFormation
+        // parses unambiguously.
+        Condition: {
+          ArnEquals: {
+            "aws:SourceArn": {
+              "Fn::GetAtt": ["TrustAnchor", "TrustAnchorArn"],
+            },
+          },
+        },
+      },
+    ],
+  };
+  return `AWSTemplateFormatVersion: "2010-09-09"
+Description: s3cab backup bucket "${bucket}" and its keyless Roles Anywhere identity
+Resources:
+${bucketResources(bucket)}
+  TrustAnchor:
+    Type: AWS::RolesAnywhere::TrustAnchor
+    Properties:
+      Name: ${trustAnchorName(bucket)}
+      Enabled: true
+      Source:
+        SourceType: CERTIFICATE_BUNDLE
+        SourceData:
+          X509CertificateData: |
+${indentText(caPem, 12)}
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${roleName(bucket)}
+      ManagedPolicyArns:
+        - !Ref BucketAccessPolicy
+      AssumeRolePolicyDocument:
+${indentJson(raTrustPolicy, 8)}
+  Profile:
+    Type: AWS::RolesAnywhere::Profile
+    Properties:
+      Name: ${profileName(bucket)}
+      Enabled: true
+      RoleArns:
+        - !GetAtt Role.Arn
+Outputs:
+  TrustAnchorArn:
+    Value: !GetAtt TrustAnchor.TrustAnchorArn
+  ProfileArn:
+    Value: !GetAtt Profile.ProfileArn
+  RoleArn:
+    Value: !GetAtt Role.Arn
 `;
 }
 
@@ -229,6 +349,67 @@ export function awsIamPlan({ bucket, region, profile }) {
 
     `Signing in with AWS IAM Identity Center (SSO)? It works through the\n` +
       `standard credential chain — run 's3cab help provider'.`,
+  ];
+  return blocks.join("\n\n");
+}
+
+/**
+ * The keyless Roles Anywhere onboarding recipe (ADR-0056/0057). Unlike the
+ * IAM-user path, the identity is already generated **locally** by the time this
+ * text is shown — a CA + client certificate under `~/.s3cab/roles-anywhere/`, no
+ * AWS secret anywhere — so this recipe covers standing up the AWS side and wiring
+ * the ARNs back:
+ *
+ *   1. deploy the template (bucket + trust anchor + role + profile, all keyless);
+ *   2. capture the three ARNs into the local identity with a read-only
+ *      `--save --from-stack` (ADR-0056 — CloudFormation resolves the inter-resource
+ *      references, so there is nothing to copy-paste).
+ *
+ * The runtime signer that *uses* this identity for backups is Phase B (ADR-0057);
+ * the closing note says so plainly rather than implying `backup` works over RA
+ * today (the target-vs-built honesty rule).
+ * @param {object} params
+ * @param {string} params.bucket
+ * @param {string} params.region
+ * @param {string} params.caPem - The local CA certificate, embedded in the template.
+ * @param {boolean} params.created - Whether this run generated a fresh identity.
+ * @param {string} [params.profile] - An admin profile to interpolate into `aws` commands.
+ * @returns {string}
+ */
+export function awsRolesAnywherePlan({
+  bucket,
+  region,
+  caPem,
+  created,
+  profile,
+}) {
+  const pf = profileFlag(profile);
+  const rf = region ? ` --region ${region}` : "";
+  const stack = stackName(bucket);
+  const identityLine = created
+    ? `Generated a new keyless Roles Anywhere identity (CA + client certificate)`
+    : `Reusing your existing Roles Anywhere identity (CA + client certificate)`;
+  const blocks = [
+    header(bucket, "AWS (keyless, Roles Anywhere)"),
+
+    `${identityLine} under ~/.s3cab/roles-anywhere/. The client private key\n` +
+      `stays on this machine and is never sent to AWS; only the public CA below\n` +
+      `is uploaded (as the trust anchor).`,
+
+    `1. Save this CloudFormation template as ${stack}.yaml:\n\n` +
+      `${awsRolesAnywhereTemplate(bucket, caPem)}\n` +
+      `   Deploy it — one command creates the bucket and the keyless identity\n` +
+      `   (trust anchor, role, profile), resolving every reference for you:\n` +
+      `   aws cloudformation deploy --template-file ${stack}.yaml \\\n` +
+      `     --stack-name ${stack} --capabilities CAPABILITY_NAMED_IAM${rf}${pf}`,
+
+    `2. Capture the stack's ARNs into your local identity (read-only — it only\n` +
+      `   reads the stack you just deployed, creates nothing):\n` +
+      `   s3cab aws --roles-anywhere --save --from-stack ${stack}${rf}`,
+
+    `Once a backup set targets this identity, s3cab authenticates with the\n` +
+      `certificate and receives short-lived AWS credentials — no long-lived key.\n` +
+      `(The set wiring and runtime signer land next; see docs/design/roles-anywhere.md.)`,
   ];
   return blocks.join("\n\n");
 }
