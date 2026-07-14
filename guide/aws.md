@@ -225,8 +225,7 @@ The steps (also available offline via `s3cab help provider`):
    scripts). Config is per-set, so it goes on the set as you create it:
 
    ```console
-   > s3cab setup <name> <directory>... --bucket <bucket> \
-       --endpoint https://<your-endpoint> --region auto --keys
+   > s3cab setup <name> <directory>... --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys
    Access key ID: …
    Secret access key (hidden):
    ```
