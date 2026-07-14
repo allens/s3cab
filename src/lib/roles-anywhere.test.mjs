@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { parseEnv } from "node:util";
 import {
+  arnsFromOutputs,
   buildIdentity,
   buildSignedRequest,
   ensureMachineIdentity,
@@ -193,6 +194,56 @@ describe("ensureMachineIdentity", () => {
   });
 });
 
+describe("arnsFromOutputs", () => {
+  it("maps the three stack outputs onto their env keys, nothing missing", () => {
+    const { arns, missing } = arnsFromOutputs([
+      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
+      { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
+      { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
+    ]);
+    assert.deepEqual(arns, {
+      S3CAB_RA_TRUST_ANCHOR_ARN: "arn:aws:ta/1",
+      S3CAB_RA_PROFILE_ARN: "arn:aws:profile/2",
+      S3CAB_RA_ROLE_ARN: "arn:aws:role/3",
+    });
+    assert.deepEqual(missing, []);
+  });
+
+  it("reports the env keys no output supplied (the --save precondition)", () => {
+    const { arns, missing } = arnsFromOutputs([
+      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
+    ]);
+    assert.deepEqual(arns, { S3CAB_RA_TRUST_ANCHOR_ARN: "arn:aws:ta/1" });
+    assert.deepEqual(missing, ["S3CAB_RA_PROFILE_ARN", "S3CAB_RA_ROLE_ARN"]);
+  });
+
+  it("treats an empty output list as all three missing", () => {
+    const { arns, missing } = arnsFromOutputs([]);
+    assert.deepEqual(arns, {});
+    assert.deepEqual(missing, [
+      "S3CAB_RA_TRUST_ANCHOR_ARN",
+      "S3CAB_RA_PROFILE_ARN",
+      "S3CAB_RA_ROLE_ARN",
+    ]);
+  });
+
+  it("ignores outputs outside the contract and those without a value", () => {
+    const { arns, missing } = arnsFromOutputs([
+      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
+      { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
+      { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
+      { OutputKey: "Ignored", OutputValue: "nope" },
+      { OutputKey: "RoleArn", OutputValue: undefined },
+    ]);
+    assert.deepEqual(missing, []);
+    assert.equal(Object.keys(arns).length, 3);
+    assert.equal(
+      /** @type {Record<string, string>} */ (arns).Ignored,
+      undefined,
+    );
+  });
+});
+
 describe("saveArnsFromStack", () => {
   it("refuses when no identity has been generated yet", async () => {
     await using dir = await mkTmpDir();
@@ -203,7 +254,10 @@ describe("saveArnsFromStack", () => {
     );
   });
 
-  it("writes the three ARNs + region into the identity env from the stack outputs", async (t) => {
+  // The output→env-key mapping is unit-tested mock-free in `arnsFromOutputs` above;
+  // this covers only the wrapper's own I/O — that it persists what the mapping
+  // produced (plus the region) into the identity env file.
+  it("persists the mapped ARNs + region into the identity env file", async (t) => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     ensureMachineIdentity();
@@ -225,7 +279,6 @@ describe("saveArnsFromStack", () => {
                       OutputValue: "arn:aws:profile/2",
                     },
                     { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
-                    { OutputKey: "Ignored", OutputValue: "nope" },
                   ],
                 },
               ],
@@ -240,15 +293,7 @@ describe("saveArnsFromStack", () => {
       },
     });
 
-    const result = await saveArnsFromStack({
-      stackName: "s3cab-foo",
-      region: "eu-west-1",
-    });
-    assert.deepEqual(result.arns, {
-      S3CAB_RA_TRUST_ANCHOR_ARN: "arn:aws:ta/1",
-      S3CAB_RA_PROFILE_ARN: "arn:aws:profile/2",
-      S3CAB_RA_ROLE_ARN: "arn:aws:role/3",
-    });
+    await saveArnsFromStack({ stackName: "s3cab-foo", region: "eu-west-1" });
 
     const env = parseEnv(
       readFileSync(join(machineIdentityDir(), "env"), "utf8"),
