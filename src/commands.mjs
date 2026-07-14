@@ -156,16 +156,20 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
       "s3cab aws my-backups --region eu-west-1 --profile admin",
     ],
     description: `It only PRINTS the steps — it never touches your account and needs no
-credentials to run, so you can read the whole plan first. The printed recipe
-stands up the bucket (versioning ON as your safety net) and a least-privilege
-identity that can never permanently destroy backup history.
+credentials to run, so you can read the whole plan first. It emits a
+CloudFormation template that stands up the bucket (versioning ON as your
+safety net, and Retain-protected so a stack delete can't destroy it) plus a
+least-privilege identity that can never permanently destroy backup history.
+Deploy it, mint one access key, point s3cab at it.
 
 Choosing an identity:
-  (default)  a dedicated AWS IAM user — simplest if you don't use SSO
-  --sso      reuse your AWS IAM Identity Center (SSO) sign-in
+  (default)          a dedicated AWS IAM user with an access key
+  --roles-anywhere   keyless, certificate-based access (recommended; not built yet)
 
 AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
-MinIO, …), run 's3cab help provider' for the setup steps instead.
+MinIO, …), run 's3cab help provider' for the setup steps instead. Signing in
+with AWS IAM Identity Center (SSO)? It works through the standard credential
+chain — no separate setup; see 's3cab help provider'.
 
 Then create a backup set in it:
   s3cab setup <name> <directory>... --bucket <bucket>
@@ -178,10 +182,10 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
       },
     },
     options: {
-      sso: {
+      "roles-anywhere": {
         type: "boolean",
         description:
-          "Show the AWS IAM Identity Center (SSO) recipe instead of the IAM-user one",
+          "Show the keyless Roles Anywhere recipe instead of the IAM-user one (not built yet)",
       },
       profile: {
         type: "string",
