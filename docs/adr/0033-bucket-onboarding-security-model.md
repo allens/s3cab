@@ -1,6 +1,9 @@
 # Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
 
-**Status:** accepted
+**Status:** accepted (refined by [0056](0056-onboarding-via-cloudformation.md) — `bucketPolicy()`
+becomes a *managed* policy reused by the IAM user and the Roles Anywhere role, plus SSE-S3 encryption
+and `DeletionPolicy: Retain`, all carried into a CloudFormation template; the security model here
+stands).
 
 The `aws` command (and the AWS path of `setup`) sets a user up with an everyday cloud
 identity and a bucket configured so the pair has the property a backup tool should have: **a

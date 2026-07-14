@@ -170,3 +170,28 @@ s3cab points at one by setting `AWS_PROFILE` in a set's *own* env file — writt
 pointer to AWS credentials, never credential material itself, and **not** a backup set (the
 thing the **Backup set** entry warns against calling a "profile").
 _Avoid_: account, login, credentials (the profile names them; it is not them).
+
+**Roles Anywhere** (credential mode):
+A backup set's fourth credential mode (beside profile / keys / ambient — ADR-0055): the machine
+authenticates to AWS with an X.509 **client certificate** and receives short-lived session
+credentials, so there are no long-lived AWS keys. Set up with `s3cab aws <bucket> --roles-anywhere`;
+a set opts in via `s3cab provider --roles-anywhere` (ADR-0056/0057).
+_Avoid_: RA (in user-facing text), certificate auth, passwordless.
+
+**Trust anchor**:
+The AWS IAM Roles Anywhere object that holds your CA certificate and thereby establishes trust
+between Roles Anywhere and your CA. Replacing the CA means a new trust anchor — AWS no longer trusts
+certificates signed by the old CA.
+_Avoid_: root, CA (the trust anchor *references* the CA; it is not the CA).
+
+**Client certificate**:
+The X.509 certificate (plus its private key) that identifies this machine to Roles Anywhere, signed
+by the machine's CA. The private key is generated locally, stored owner-only, and never sent to AWS.
+Long-lived and generate-and-forget (ADR-0057).
+_Avoid_: key (the certificate is not the private key), token.
+
+**Machine RA identity**:
+The machine-level cluster a Roles Anywhere setup produces — the CA, the client certificate + key,
+and the trust-anchor / role / profile ARNs — stored once under `~/.s3cab/roles-anywhere/`. Every set
+in Roles Anywhere mode shares it, the way sets share a machine-level `AWS_PROFILE` (ADR-0057).
+_Avoid_: certificate store, PKI.

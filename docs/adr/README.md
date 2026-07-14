@@ -54,10 +54,10 @@ ADR as a live constraint.
 - [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
 - [0030](0030-error-message-guidelines.md) — Error messages follow a fixed in-house standard
 - [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035, 0041, then 0047 — now `provider`)*
-- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active
-- [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop
+- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active *(delivery form amended by 0056 — a CloudFormation template, still generative)*
+- [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop *(refined by 0056 — managed policy, SSE-S3, DeletionPolicy Retain)*
 - [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command *(command name superseded by 0035 — now `aws`)*
-- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 and 0047 — now `provider`; point 1 amended by 0047 — `aws` is AWS-only)*
+- [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 and 0047 — now `provider`; point 1 amended by 0047 — `aws` is AWS-only; `--sso` fork dropped by 0056)*
 - [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
 - [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
 - [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
@@ -76,6 +76,8 @@ ADR as a live constraint.
 - [0053](0053-reattach-command.md) — Split `setup --inherit` into its own `reattach` command; `setup` is create-only *(resolves 0036's deferred "`--inherit` stays a flag" item)*
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
 - [0055](0055-per-set-credentials-one-mode.md) — Per-set credentials: drop the user env layer (set > shell); each set is one credential mode (profile XOR keys XOR ambient) *(implemented; partly supersedes 0025, amends 0022)*
+- [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(proposed; amends 0032/0033/0035)*
+- [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509 on builtins) *(proposed; beside 0055/0015)*
 
 ### Build, release & tooling
 

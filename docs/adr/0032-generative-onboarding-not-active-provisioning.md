@@ -2,6 +2,9 @@
 
 **Status:** accepted (the `bucket` command is built; its *shape* is
 [0034](0034-bucket-command-shape.md) and its *security model* [0033](0033-bucket-onboarding-security-model.md)).
+Delivery form **amended by [0056](0056-onboarding-via-cloudformation.md)** — still generative, but
+now a CloudFormation template the user applies, not imperative `aws` commands. The generative-not-active
+decision this ADR records **stands**.
 
 The cloud-onboarding command (`bucket`) helps a user stand up an S3
 bucket + a least-privilege identity for s3cab. It does this **generatively** — it *prints* the

@@ -7,7 +7,9 @@ set-mutation verb and listing moved to `list`. (Design decided via a `/grilling`
 2026-06-27; implemented in #122.) Point 1's scope is **amended by
 [0047](0047-provider-command-neutral-config-door.md)**: `aws` keeps the name but narrows to
 AWS-only — the non-AWS recipe it had carried moved to the `provider` command (`profile`/`auth`'s
-successor, renamed again by 0047 via [0041](0041-auth-command-hosts-credential-guide.md)).
+successor, renamed again by 0047 via [0041](0041-auth-command-hosts-credential-guide.md)). The
+`--sso` identity fork on `aws` is **dropped by [0056](0056-onboarding-via-cloudformation.md)** — SSO
+has no self-contained onboarding recipe, so `aws`'s fork is now default IAM-user vs `--roles-anywhere`.
 
 Three commands existed for getting s3cab usable before real backup work: `setup` (create/update/
 inherit a backup set, [docs/design/backup.md](../design/backup.md)), `aws` (point s3cab at an AWS
