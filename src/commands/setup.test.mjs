@@ -131,7 +131,24 @@ describe("setup (offline validation)", () => {
     await assert.rejects(
       () =>
         setup("photos", [photos], { bucket: "b", profile: "work", keys: true }),
-      /either a profile or access keys/,
+      /Set one way to sign in, not a profile and access keys/,
+    );
+  });
+
+  it("refuses --roles-anywhere before any network touch when no identity exists", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+
+    // RA is a machine identity stood up by `s3cab aws --roles-anywhere` first;
+    // creating a set against it without one fails fast (offline), pointing at that
+    // recipe, so no name is claimed on a half-built identity (ADR-0057).
+    await assert.rejects(
+      () =>
+        setup("photos", [photos], {
+          bucket: "my-backups",
+          "roles-anywhere": true,
+        }),
+      /no complete Roles Anywhere identity yet.*s3cab aws my-backups --roles-anywhere/s,
     );
   });
 

@@ -16,7 +16,7 @@
  * VALIDATED 2026-07-14: every mandated extension present, the chain verifies, and
  * the serial round-trips for the signer's swap #1 (see the signer spike).
  *
- *   node scripts/roles-anywhere-certgen-spike.mjs
+ *   node scripts/roles-anywhere-certgen.mjs
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";

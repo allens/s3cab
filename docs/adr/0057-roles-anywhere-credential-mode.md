@@ -1,7 +1,10 @@
 # Roles Anywhere: a fourth credential mode, set up generatively and signed natively
 
-**Status:** accepted (native signer **validated by a live spike** 2026-07-14; implementation
-pending). Sits beside [0055](0055-per-set-credentials-one-mode.md)/[0015](0015-standard-aws-credential-chain.md);
+**Status:** accepted and **implemented** (native signer validated by a live spike 2026-07-14;
+both phases — setup and the runtime signer — now shipped in
+[src/lib/roles-anywhere.mjs](../../src/lib/roles-anywhere.mjs) /
+[src/lib/auth.mjs](../../src/lib/auth.mjs)). Sits beside
+[0055](0055-per-set-credentials-one-mode.md)/[0015](0015-standard-aws-credential-chain.md);
 setup delivery depends on [0056](0056-onboarding-via-cloudformation.md). Subsystem design + the
 cert-shape requirements the spike found: [docs/design/roles-anywhere.md](../design/roles-anywhere.md).
 
@@ -42,7 +45,7 @@ s3cab takes on `@aws-sdk/client-cloudformation`: cheap once `client-s3` has pull
 
 The AWS JS SDK ships **no** Roles Anywhere credential provider, so credentials come from a bespoke
 **SigV4-X509** signer — no `aws_signing_helper` (a Go binary). **Validated end-to-end by a live spike**
-(2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)).
+(2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs)).
 It `POST`s to `rolesanywhere.{region}.amazonaws.com/sessions`, signing the canonical request with the
 client key: standard SigV4 with two swaps — the credential id is the cert serial (decimal) not an
 access key, and the cert rides in an `X-Amz-X509` header. A single `createSign("SHA256")` handles both

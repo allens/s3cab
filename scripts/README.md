@@ -37,7 +37,7 @@ node scripts/setup-test-bucket.mjs <bucket>
 # or: S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
 ```
 
-## sqlite-hash-cache-spike.mjs
+## sqlite-hash-cache.mjs
 
 Evaluates `node:sqlite` as a local hash cache for the owed
 `upload --if-modified-from` skip, benchmarked against the in-memory `Map`
@@ -47,5 +47,5 @@ build and lookup, and sqlite would only earn its place for a persistent
 cross-run remote-hash set.
 
 ```sh
-node scripts/sqlite-hash-cache-spike.mjs [N]   # N = number of synthetic files
+node scripts/sqlite-hash-cache.mjs [N]   # N = number of synthetic files
 ```

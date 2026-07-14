@@ -1,7 +1,7 @@
 # Roles Anywhere certs: hand-rolled ASN.1 DER, key stored as a 0600 PEM
 
 **Status:** accepted (cert generator **validated by a live spike** 2026-07-14 —
-[scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)).
+[scripts/roles-anywhere-certgen.mjs](../../scripts/roles-anywhere-certgen.mjs)).
 Resolves the "certificate generation & storage" sub-decision left open in
 [0057](0057-roles-anywhere-credential-mode.md); it is an [0005](0005-builtins-over-dependencies.md)
 call. Subsystem design + the cert-shape requirements the signer spike found:
@@ -167,7 +167,7 @@ together if it ever lands.
 
 ## References
 
-- The runnable, validated cert-gen reference: [scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)
-- The signer spike whose key interface this pins: [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)
+- The runnable, validated cert-gen reference: [scripts/roles-anywhere-certgen.mjs](../../scripts/roles-anywhere-certgen.mjs)
+- The signer spike whose key interface this pins: [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs)
 - AWS SigV4-X509 reference implementation (Apache-2.0), the correctness oracle:
   <https://github.com/aws/rolesanywhere-credential-helper>

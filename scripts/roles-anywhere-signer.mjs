@@ -45,7 +45,7 @@
  *   3. Run (authenticates with the cert — needs no AWS credentials):
  *        RA_REGION=eu-west-1 RA_CERT=client.pem RA_KEY=client.key \
  *        RA_TRUST_ANCHOR_ARN=... RA_PROFILE_ARN=... RA_ROLE_ARN=... \
- *        node scripts/roles-anywhere-signer-spike.mjs
+ *        node scripts/roles-anywhere-signer.mjs
  */
 import { X509Certificate, createHash, createSign } from "node:crypto";
 import { readFileSync } from "node:fs";

@@ -1,7 +1,21 @@
-import { createSign, generateKeyPairSync, randomBytes } from "node:crypto";
+import {
+  X509Certificate,
+  createHash,
+  createSign,
+  generateKeyPairSync,
+  randomBytes,
+} from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { request } from "node:https";
 import { join } from "node:path";
+import {
+  SignatureV4Base,
+  createScope,
+  getCanonicalHeaders,
+  getPayloadHash,
+} from "@smithy/signature-v4";
 import { updateEnvFile } from "./env-file.mjs";
+import { parseEnvFile } from "./env.mjs";
 import { ValidationError } from "./error.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
 
@@ -17,9 +31,11 @@ import { s3cabDir, tildeify } from "./home.mjs";
 //   env                     KEY=value: the three RA ARNs + AWS_REGION, captured
 //                           from the deployed CloudFormation stack (--save).
 //
-// This module owns cert **generation** and **storage** (Phase A-2). The runtime
-// signer (Phase B) will live here too and read `client.key` as a PEM string,
-// calling `crypto.createSign("SHA256").sign(keyPem)` (ADR-0058 pins that interface).
+// This module owns cert **generation** and **storage** (Phase A-2) and the
+// runtime **SigV4-X509 signer** (Phase B, at the foot of the file): it reads
+// `client.key` as a PEM string and calls `crypto.createSign("SHA256").sign(keyPem)`
+// (ADR-0058 pins that interface), reusing `@smithy/signature-v4` for the SigV4
+// canonicalization so only the ~40 X509-specific lines are bespoke.
 //
 // Node builtins cannot *create* X.509 certificates (X509Certificate is parse-only),
 // so the certs are built by a hand-rolled ASN.1 DER encoder below — zero
@@ -486,4 +502,378 @@ export async function saveArnsFromStack({ stackName, region }) {
 
   updateEnvFile(identityEnvPath(), { ...arns, AWS_REGION: region });
   return { dir: machineIdentityDir(), arns, region };
+}
+
+// ── The set marker + the machine signing identity (Phase B) ───────────────────
+
+/**
+ * The set-level Roles Anywhere marker key. A set opts into RA mode by carrying
+ * `S3CAB_RA=1` in its env file — a *pointer* only, never the identity material,
+ * exactly as a profile-mode set stores `AWS_PROFILE` (ADR-0055/0057). `loadSet`
+ * merges it into `process.env`, where {@link isRolesAnywhereMode} reads it to
+ * route `resolveCredentials` (auth.mjs) to the signer instead of the standard AWS
+ * chain. It is one of the four mutually-exclusive credential modes, so writing it
+ * clears any `AWS_PROFILE`/keys and vice versa (commands/provider.mjs).
+ */
+export const RA_MARKER = "S3CAB_RA";
+
+/**
+ * Whether the active configuration selects Roles Anywhere mode — the set's marker
+ * (merged into the environment by `loadSet`) is present and set.
+ * @param {NodeJS.Dict<string>} [env] - The variables to read (default `process.env`).
+ * @returns {boolean}
+ */
+export const isRolesAnywhereMode = (env = process.env) =>
+  env[RA_MARKER] === "1";
+
+/**
+ * The machine RA identity the signer needs, read off disk: the client cert + key
+ * PEMs and the ARNs + region captured into its env file by `--save`.
+ * @typedef {Object} SigningIdentity
+ * @property {string} region - The region hosting the trust anchor/profile.
+ * @property {string} certPem - The client certificate (PEM), sent in X-Amz-X509.
+ * @property {string} keyPem - The client private key (PEM), the signing key.
+ * @property {string} trustAnchorArn
+ * @property {string} profileArn
+ * @property {string} roleArn
+ */
+
+/**
+ * Read the machine RA identity the signer signs with, or `undefined` when it is
+ * absent, incomplete, **or unreadable/corrupt** — no identity files, the env file
+ * missing an ARN or the region (a set in RA mode whose `--save` step never ran), or
+ * a file that exists but can't be read/parsed (EACCES, a malformed `env`). The
+ * signer's inputs come from the **machine identity**, not the set (the set carries
+ * only the marker): the two certs/keys live beside the `env` file under
+ * `~/.s3cab/roles-anywhere/`. Returning `undefined` in every "not usable" case (not
+ * throwing) lets the credential layer raise the actionable "RA identity
+ * missing/broken" error (auth.mjs, ADR-0030) — whose remedy, regenerate, fits a
+ * corrupt identity too — rather than an opaque read/parse failure here.
+ * @returns {SigningIdentity | undefined}
+ */
+export function readSigningIdentity() {
+  if (!machineIdentityExists()) {
+    return undefined;
+  }
+  try {
+    const env = parseEnvFile(identityEnvPath());
+    const trustAnchorArn = env.S3CAB_RA_TRUST_ANCHOR_ARN;
+    const profileArn = env.S3CAB_RA_PROFILE_ARN;
+    const roleArn = env.S3CAB_RA_ROLE_ARN;
+    const region = env.AWS_REGION;
+    if (!trustAnchorArn || !profileArn || !roleArn || !region) {
+      return undefined;
+    }
+    return {
+      region,
+      certPem: readFileSync(identityPath("client.pem"), "utf8"),
+      keyPem: readFileSync(identityPath("client.key"), "utf8"),
+      trustAnchorArn,
+      profileArn,
+      roleArn,
+    };
+  } catch {
+    // Present-but-unreadable/corrupt (EACCES, a directory where a file should be,
+    // a malformed env) is "broken", not "readable" — treat it as no usable
+    // identity so the caller gives the regenerate guidance, not a raw error.
+    return undefined;
+  }
+}
+
+// ── The native SigV4-X509 signer (Phase B) ────────────────────────────────────
+// Roles Anywhere `CreateSession` is a special X509-signed STS endpoint the AWS JS
+// SDK ships no provider for (ADR-0057), so credentials come from this bespoke
+// signer — validated end-to-end by scripts/roles-anywhere-signer.mjs. It is
+// standard SigV4 with two swaps: the credential id is the client cert SERIAL as a
+// decimal (not an access-key id), and the cert rides in an `X-Amz-X509` header as
+// single-line base64(DER). Canonicalization is `@smithy/signature-v4`'s — its
+// `createStringToSign` takes the algorithm id as a parameter — so only the two
+// swaps + the X509 algorithm id are ours (the spike's inline version, now retired
+// to a byte-for-byte-identical reuse).
+
+/** @import { SignatureV4Init, SignatureV4CryptoInit } from "@smithy/signature-v4" */
+
+/** The Roles Anywhere STS service id (the SigV4 scope + host component). */
+const RA_SERVICE = "rolesanywhere";
+/** The three headers the reference credential-helper signs, canonical order. */
+const RA_SIGNED_HEADERS = new Set(["host", "x-amz-date", "x-amz-x509"]);
+
+/**
+ * A `node:crypto` adapter for the `@smithy/*` hash-constructor interface
+ * (`new () => { update, digest }`) — the SigV4 machinery hashes the payload and
+ * the canonical request through it. Node's own SHA-256, no `@aws-crypto/*` shim.
+ */
+class Sha256 {
+  #hash = createHash("sha256");
+  /** @param {Uint8Array | string} data */
+  update(data) {
+    this.#hash.update(data);
+  }
+  /** @returns {Promise<Uint8Array>} */
+  digest() {
+    return Promise.resolve(this.#hash.digest());
+  }
+}
+
+/**
+ * Reach `@smithy/signature-v4`'s canonicalization, whose constructor and
+ * `createCanonicalRequest`/`createStringToSign` are `protected`. Subclassing is
+ * the intended door — we take the exact SigV4 canonical request and string-to-sign
+ * (the correctness we're reusing) and only supply the X509 signature ourselves.
+ */
+class RaCanonicalizer extends SignatureV4Base {
+  /** @param {SignatureV4Init & SignatureV4CryptoInit} init */
+  constructor(init) {
+    super(init);
+  }
+  /** @type {SignatureV4Base["createCanonicalRequest"]} */
+  canonicalRequest(request, canonicalHeaders, payloadHash) {
+    return this.createCanonicalRequest(request, canonicalHeaders, payloadHash);
+  }
+  /** @type {SignatureV4Base["createStringToSign"]} */
+  stringToSign(longDate, scope, canonicalRequest, algorithm) {
+    return this.createStringToSign(
+      longDate,
+      scope,
+      canonicalRequest,
+      algorithm,
+    );
+  }
+}
+
+/**
+ * The `CreateSession` request body + the machine identity to sign it with.
+ * @typedef {Object} SessionInput
+ * @property {string} region
+ * @property {string} certPem - The client certificate (PEM).
+ * @property {string} keyPem - The client private key (PEM).
+ * @property {string} trustAnchorArn
+ * @property {string} profileArn
+ * @property {string} roleArn
+ * @property {number} [durationSeconds] - Requested credential lifetime (default 3600).
+ */
+
+/**
+ * Build the signed `POST /sessions` request for Roles Anywhere `CreateSession`.
+ * Pure (no I/O); returns exactly what {@link createSession} POSTs. Standard SigV4
+ * (canonicalization via `@smithy/signature-v4`) with the two X509 swaps and the
+ * `AWS4-X509-{ECDSA,RSA}-SHA256` algorithm id keyed on the client key type. The
+ * signature is `createSign("SHA256").sign(keyPem)` — EC yields DER R/S (matching
+ * the reference), RSA PKCS#1 v1.5 — hex-encoded into `Authorization`.
+ * @param {SessionInput} input
+ * @returns {Promise<{ host: string, path: string, body: string, headers: Record<string, string> }>}
+ */
+export async function buildSignedRequest(input) {
+  const { region, certPem, keyPem, trustAnchorArn, profileArn, roleArn } =
+    input;
+  const durationSeconds = input.durationSeconds ?? 3600;
+
+  const cert = new X509Certificate(certPem);
+
+  // The algorithm id is the SigV4-X509 variant, keyed on the client key type.
+  const keyType = cert.publicKey.asymmetricKeyType;
+  const algorithm =
+    keyType === "ec"
+      ? "AWS4-X509-ECDSA-SHA256"
+      : keyType === "rsa"
+        ? "AWS4-X509-RSA-SHA256"
+        : undefined;
+  if (!algorithm) {
+    throw new Error(`unsupported client key type: ${keyType}`);
+  }
+
+  // Swap #1: the credential id is the cert serial as a DECIMAL string (Node hands
+  // it back as hex), not an access-key id.
+  const serialDecimal = BigInt(`0x${cert.serialNumber}`).toString();
+  // Swap #2: the leaf cert rides in X-Amz-X509 as single-line base64(DER).
+  const x509Header = cert.raw.toString("base64");
+
+  const host = `${RA_SERVICE}.${region}.amazonaws.com`;
+  const path = "/sessions";
+  const amzDate = new Date()
+    .toISOString()
+    .replace(/[:-]/g, "")
+    .replace(/\.\d{3}/, ""); // YYYYMMDDTHHMMSSZ
+  const shortDate = amzDate.slice(0, 8);
+
+  const body = JSON.stringify({
+    durationSeconds,
+    profileArn,
+    roleArn,
+    trustAnchorArn,
+  });
+
+  // Reuse `@smithy/signature-v4` for the SigV4 canonicalization — the request
+  // shape is a plain object with the fields its methods read (method/path/query/
+  // headers/body). No credentials are needed: we call only the pure canonical/
+  // string-to-sign builders, then sign the string-to-sign ourselves with the
+  // client key below.
+  const httpRequest = {
+    method: "POST",
+    protocol: "https:",
+    hostname: host,
+    path,
+    query: {},
+    headers: { host, "x-amz-date": amzDate, "x-amz-x509": x509Header },
+    body,
+  };
+  const sigv4 = new RaCanonicalizer({
+    service: RA_SERVICE,
+    region,
+    sha256: Sha256,
+    applyChecksum: false,
+    credentials: { accessKeyId: "", secretAccessKey: "" },
+  });
+  const canonicalHeaders = getCanonicalHeaders(
+    httpRequest,
+    undefined,
+    RA_SIGNED_HEADERS,
+  );
+  const payloadHash = await getPayloadHash(httpRequest, Sha256);
+  const canonicalRequest = sigv4.canonicalRequest(
+    httpRequest,
+    canonicalHeaders,
+    payloadHash,
+  );
+  const scope = createScope(shortDate, region, RA_SERVICE);
+  const stringToSign = await sigv4.stringToSign(
+    amzDate,
+    scope,
+    canonicalRequest,
+    algorithm,
+  );
+  const signedHeaders = Object.keys(canonicalHeaders).sort().join(";");
+
+  const signature = createSign("SHA256")
+    .update(stringToSign)
+    .sign(keyPem, "hex");
+  const authorization =
+    `${algorithm} Credential=${serialDecimal}/${scope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  return {
+    host,
+    path,
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": String(Buffer.byteLength(body)),
+      "X-Amz-Date": amzDate,
+      "X-Amz-X509": x509Header,
+      Authorization: authorization,
+    },
+  };
+}
+
+/**
+ * The short-lived STS credentials `CreateSession` returns (its
+ * `credentialSet[0].credentials`), field-for-field as AWS names them.
+ * @typedef {Object} SessionCredentials
+ * @property {string} accessKeyId
+ * @property {string} secretAccessKey
+ * @property {string} sessionToken
+ * @property {string} expiration - ISO 8601, when the token expires.
+ */
+
+/**
+ * Parse a `CreateSession` HTTP result into its session credentials, or throw a
+ * legible error. A non-2xx (a disabled/mismatched trust anchor, a wrong region)
+ * surfaces the server's own body; a 2xx without the credential block is treated as
+ * a protocol surprise rather than silently yielding partial credentials. Pure, so
+ * the mapping is unit-testable without a live endpoint.
+ * @param {{ status: number | undefined, body: string }} result
+ * @returns {SessionCredentials}
+ */
+export function parseSessionResponse({ status, body }) {
+  if (status === undefined || status < 200 || status >= 300) {
+    throw new Error(
+      `Roles Anywhere CreateSession failed (HTTP ${status ?? "?"}): ${body || "(empty body)"}`,
+    );
+  }
+  /** @type {any} */
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error(
+      `Roles Anywhere CreateSession returned a non-JSON body: ${body}`,
+    );
+  }
+  const credentials = parsed?.credentialSet?.[0]?.credentials;
+  if (
+    !credentials?.accessKeyId ||
+    !credentials?.secretAccessKey ||
+    !credentials?.sessionToken ||
+    !credentials?.expiration
+  ) {
+    throw new Error(
+      `Roles Anywhere CreateSession returned no credentials: ${body}`,
+    );
+  }
+  return {
+    accessKeyId: credentials.accessKeyId,
+    secretAccessKey: credentials.secretAccessKey,
+    sessionToken: credentials.sessionToken,
+    expiration: credentials.expiration,
+  };
+}
+
+/** How long to wait on the `CreateSession` exchange before aborting (ADR-0030). */
+const SESSION_TIMEOUT_MS = 10_000;
+
+/**
+ * The actionable timeout error (ADR-0030 — goal-framed, names the likely fix). A
+ * plain `Error`: nothing catches it by type, it flows to the CLI's top-level catch.
+ * @param {string} host
+ */
+const sessionTimeoutError = (host) =>
+  new Error(
+    `Timed out reaching the Roles Anywhere endpoint (${host}) after ${SESSION_TIMEOUT_MS / 1000}s.
+Check your network connection, and that AWS_REGION in the identity's env file
+(${tildeify(machineIdentityDir())}/env) matches where the trust anchor was deployed.`,
+  );
+
+/**
+ * Sign and POST a `CreateSession` request, resolving its session credentials. The
+ * one network call in the RA credential path (`node:https`, no SDK client — this
+ * exchange authenticates with the cert, so it needs no AWS credentials of its own).
+ * Bounded by {@link SESSION_TIMEOUT_MS} so a stalled connection can't hang the
+ * command indefinitely.
+ * @param {SessionInput} input
+ * @returns {Promise<SessionCredentials>}
+ */
+export async function createSession(input) {
+  const signed = await buildSignedRequest(input);
+  const result = await new Promise(
+    (
+      /** @type {(value: { status: number | undefined, body: string }) => void} */ resolve,
+      reject,
+    ) => {
+      const req = request(
+        {
+          host: signed.host,
+          path: signed.path,
+          method: "POST",
+          headers: signed.headers,
+          // Bound the wait: credential resolution sits on the critical path of
+          // every RA-mode command, so a silent (connected-but-unresponsive)
+          // endpoint must not hang `backup`/`restore` forever (clig.dev: sane
+          // network timeouts). `timeout` only *signals* inactivity — we abort the
+          // socket ourselves in the handler below.
+          timeout: SESSION_TIMEOUT_MS,
+        },
+        (res) => {
+          let data = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => resolve({ status: res.statusCode, body: data }));
+        },
+      );
+      req.on("timeout", () => req.destroy(sessionTimeoutError(signed.host)));
+      req.on("error", reject);
+      req.write(signed.body);
+      req.end();
+    },
+  );
+  return parseSessionResponse(result);
 }

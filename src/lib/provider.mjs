@@ -1,11 +1,12 @@
 import { listProfiles } from "./aws-profiles.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
+import { RA_MARKER } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 // Shared logic behind the provider *connection knobs* — the `--profile` /
-// `--endpoint` / `--region` / `--keys` options that say how a set signs in
-// (docs/design/auth.md). Extracted from `commands/provider.mjs` when `setup`
+// `--endpoint` / `--region` / `--keys` / `--roles-anywhere` options that say how a
+// set signs in (docs/design/auth.md). Extracted from `commands/provider.mjs` when `setup`
 // gained the same knobs (ADR-0055 onboarding; ADR-0023 "a second caller earns a
 // lib primitive"): both `provider` (change/inspect an existing set) and `setup`
 // (create one) turn these options into validated `AWS_*` values with
@@ -94,12 +95,15 @@ async function readKeys() {
 /**
  * Turn the provider connection options into validated `AWS_*` values plus a human
  * summary of what was set (for the confirmation line). Enforces the one-mode rule
- * at the option level — a profile and keys are alternative sign-ins (ADR-0055),
- * so passing both is rejected — validates the endpoint, trims the profile/region,
- * and prompts for the key pair (never via argv). Callers apply the returned
- * `updates`: `provider` writes them to a set's env file; `setup` populates the
- * environment for its remote claim, then persists them on a win.
- * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean }} options
+ * at the option level — a profile, access keys, and Roles Anywhere are alternative
+ * sign-ins (ADR-0055/0057), so passing more than one is rejected — validates the
+ * endpoint, trims the profile/region, and prompts for the key pair (never via
+ * argv). Roles Anywhere is AWS-only, so it can't combine with a custom `--endpoint`
+ * (ADR-0057); it contributes the set's `S3CAB_RA` marker to `updates`, no material.
+ * Callers apply the returned `updates`: `provider` writes them to a set's env file
+ * (and clears the modes RA/profile/keys replace); `setup` populates the environment
+ * for its remote claim, then persists them on a win.
+ * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean, rolesAnywhere?: boolean }} options
  * @returns {Promise<{ updates: Record<string, string>, summary: string[] }>}
  */
 export async function gatherProviderConfig({
@@ -107,16 +111,31 @@ export async function gatherProviderConfig({
   endpoint,
   region,
   keys,
+  rolesAnywhere,
 }) {
-  if (profile !== undefined && keys) {
+  const modes = [
+    profile !== undefined && "a profile",
+    keys && "access keys",
+    rolesAnywhere && "Roles Anywhere",
+  ].filter(Boolean);
+  if (modes.length > 1) {
     throw new ParseArgsError(
-      "Set either a profile or access keys, not both — they are two alternative ways to sign in.",
+      `Set one way to sign in, not ${modes.join(" and ")} — they are alternatives, not layers.`,
+    );
+  }
+  if (rolesAnywhere && endpoint !== undefined) {
+    throw new ParseArgsError(
+      "Roles Anywhere is AWS-only, so it can't be combined with a custom --endpoint (that's for non-AWS S3 providers).",
     );
   }
   /** @type {Record<string, string>} */
   const updates = {};
   /** @type {string[]} */
   const summary = [];
+  if (rolesAnywhere) {
+    updates[RA_MARKER] = "1";
+    summary.push("Roles Anywhere (keyless)");
+  }
   if (profile !== undefined) {
     const name = profile.trim();
     if (name === "") {

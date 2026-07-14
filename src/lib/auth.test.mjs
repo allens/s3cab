@@ -223,6 +223,24 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     assert.doesNotMatch(error.message, /isn't in your AWS config/);
   });
 
+  it("points at 's3cab aws --roles-anywhere' when the RA identity is missing/broken", () => {
+    // Fifth case (ADR-0057): the set is in Roles Anywhere mode but this machine's
+    // certificate identity is absent/incomplete — steer to setting it up, and name
+    // the identity (not ~/.aws) as the second place s3cab looked.
+    const raCause = new Error(
+      "No usable Roles Anywhere certificate identity at ~/.s3cab/roles-anywhere.",
+    );
+    const error = noCredentialsError(raCause, { set, rolesAnywhere: true });
+    assert.match(error.message, /^No credentials found for set 'photos'\./);
+    assert.match(error.message, /uses Roles Anywhere \(keyless\)/);
+    // Step 2 names the machine identity, not the AWS chain.
+    assert.match(error.message, /your machine's Roles Anywhere identity/);
+    assert.doesNotMatch(error.message, /standard AWS setup/);
+    // The exact, copy-pasteable setup + ARN-capture commands.
+    assert.match(error.message, /s3cab aws <bucket> --roles-anywhere/);
+    assert.match(error.message, /--save --from-stack s3cab-<bucket>/);
+  });
+
   it("uses the ambient template when no set is loaded (setup / upload --bucket)", () => {
     // setup/reattach (the set doesn't exist yet) and upload --bucket resolve no
     // set, so the error can't name one — it reports the ambient failure and
