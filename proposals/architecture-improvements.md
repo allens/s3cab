@@ -29,25 +29,13 @@ Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry no
 that surfaced it and when it was last verified against the source.
 
 Surfaced 2026-07-14 (seventh pass) over the Roles Anywhere subsystem (ADR-0055–0058, PRs
-#186–#191) — the churn since the 2026-07-10 empty. Verified against HEAD `2b48495`. The
-subsystem is mostly deep (the SigV4-X509 signer is the in-repo exemplar of the
-pure-core/thin-I/O pattern); the friction below is one adjacent function, one implicit
-cross-module contract, and the scatter of "which credential mode is this set in?".
+#186–#191) — the churn since the 2026-07-10 empty. The subsystem is mostly deep (the
+SigV4-X509 signer is the in-repo exemplar of the pure-core/thin-I/O pattern). **A and B
+landed together in [PR #192](https://github.com/allens/s3cab/pull/192)** (run log below): the
+pure `arnsFromOutputs` extraction plus the single-sourced `ARN_ENV` contract, with a
+template↔reader contract test. The three that remain all sit on the **credential-mode
+surface** (letters kept stable for reference):
 
-- **A — extract a pure `arnsFromOutputs` from `saveArnsFromStack`** (**Strong**, top pick).
-  `saveArnsFromStack` (roles-anywhere.mjs:465–505) fuses the `DescribeStacks` I/O with a pure
-  step — map `Outputs` → the three `S3CAB_RA_*` env keys + compute the `missing` list (482–501)
-  — reachable only by mocking `@aws-sdk/client-cloudformation` (roles-anywhere.test.mjs:211–285).
-  The project's named recurring weakness verbatim. Extract `arnsFromOutputs(outputs) → {arns,
-  missing}` (mirrors the signer's `parseSessionResponse`); the wrapper shrinks to
-  fetch-and-delegate. Deletion test **passes**; zero ADR tension. **Convergent — two independent
-  explorers surfaced it as #1/#2.**
-- **B — one RA stack-output ↔ identity-env contract** (**Worth exploring**). The names
-  `TrustAnchorArn`/`ProfileArn`/`RoleArn` ↔ `S3CAB_RA_*` exist only as matching literals in three
-  spots: template `Outputs` (onboarding.mjs:299–305), `ARN_ENV` (roles-anywhere.mjs:445–449),
-  and `readSigningIdentity`'s reads (559–566). No import binds them — rename an Output and
-  `--save` fails with an error that blames the user's stack. Promote to one shared
-  (output-name → env-key) constant consumed by all three. Pairs with A (same seam).
 - **C — a pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier**
   (**Worth exploring — ADR-0055 tension, flag it**). "Which mode is this set in?" is re-derived
   from raw env at 5+ sites (auth.mjs:435 route + :69–126 `credentialCase`; provider.mjs:296–322
@@ -257,3 +245,22 @@ least once; re-open only if the stated reason no longer holds.
   `arnsFromOutputs`** (convergent across two explorers, textbook pure-logic-behind-I/O, smallest
   blast radius, no ADR tension). Parked items (SetContext, remote/config restructure) confirmed
   untouched. Overwrote the prior HTML report in place at `architecture-review.html`.
+- **2026-07-14 — the A+B bundle landed** ([PR #192](https://github.com/allens/s3cab/pull/192),
+  grilled in-session then built). **Two candidates retired as done.** *Pure `arnsFromOutputs`*
+  (A) lifted the stack-output → identity-env mapping out of `saveArnsFromStack`'s CloudFormation
+  I/O into a pure exported `arnsFromOutputs(outputs) → { arns, missing }` — the mapping and the
+  missing-output check now unit-test against a plain array (4 mock-free cases) instead of a
+  mocked SDK; the wrapper thinned to fetch → delegate → throw-or-write, keeping the ADR-0030
+  error (which needs the stack/region context) on its side; typed with the real
+  `import("@aws-sdk/client-cloudformation").Output[]` (already a dependency, house idiom for SDK
+  types) rather than a hand-rolled structural type — the grilling flipped this once the dep
+  status was checked. *The ARN contract* (B) — `ARN_ENV` exported as the one home of the three
+  (output-name → env-key) pairs: `readSigningIdentity` reads the ARNs back through it (was bare
+  `S3CAB_RA_*` literals), and a **contract test** in `onboarding.test.mjs` asserts the RA
+  template emits every Output name the reader expects — chosen over a shared symbol (grilling
+  decision) so the template stays readable literal YAML and no `onboarding → roles-anywhere`
+  edge appears (ADR-0006: a test guard, not machinery; the asymmetric `RoleArn ← Role.Arn`
+  GetAtt meant a shared symbol would only own half the pairing anyway). Three opens remain (C,
+  D, E) — all on the credential-mode surface; **D is C's concrete symptom**, so the likely order
+  is D (Strong, cheap) then C (the deeper classifier, ADR-0055 tension to grill), with E as a
+  ride-along whenever the recipe prose is next touched.
