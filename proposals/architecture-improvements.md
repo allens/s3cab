@@ -32,29 +32,18 @@ Surfaced 2026-07-14 (seventh pass) over the Roles Anywhere subsystem (ADR-0055�
 #186–#191) — the churn since the 2026-07-10 empty. The subsystem is mostly deep (the
 SigV4-X509 signer is the in-repo exemplar of the pure-core/thin-I/O pattern). **A and B
 landed in [PR #192](https://github.com/allens/s3cab/pull/192)** (pure `arnsFromOutputs` +
-single-sourced `ARN_ENV` contract) **and D in [PR #193](https://github.com/allens/s3cab/pull/193)**
-(the RA-aware `authNotice`) — run log below. Two remain, both on the **credential-mode
-surface** (letters kept stable for reference):
+single-sourced `ARN_ENV` contract), **D in [PR #193](https://github.com/allens/s3cab/pull/193)**
+(the RA-aware `authNotice`), **and C — as its narrow marker-drift fix — in
+[PR #194](https://github.com/allens/s3cab/pull/194)** (both `provider.mjs` marker reads routed
+through the canonical `isRolesAnywhereMode`); the fuller `credentialMode()` classifier C
+originally floated was **declined** (see Rejected & parked), **and E — the pure
+`awsSaveConfirmation` relocation — in [PR #195](https://github.com/allens/s3cab/pull/195)**. Run
+log below.
 
-- **C — a pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier**
-  (**Worth exploring — ADR-0055 tension, flag it**). "Which mode is this set in?" is re-derived
-  from raw env at several sites (auth.mjs:435 route + :69–126 `credentialCase`; provider.mjs:296–322
-  `newMode`, :88–129 `describeScope`, :164–181 `shellNote`; and s3.mjs's `client()` now feeds
-  `authNotice` via `isRolesAnywhereMode()` since #193). Stringly-typed and inconsistent: flag/key
-  `"roles-anywhere"`/`RA_MARKER`, internal literal `"ra"`, boolean `rolesAnywhere`; and the marker
-  read drifts (`=== "1"` vs a loose truthy at provider.mjs:319 — `S3CAB_RA=0` reads not-RA
-  everywhere *except* clear-on-replace, a latent bug). A **read-only** classifier concentrates the
-  derivations and kills the drift. ADR-0055 keeps auth "a bag of `AWS_*`"; a read-only adapter over
-  the bag is arguably new surface, not a restructure — but a decision, not an obvious win. **Do
-  not** fold the write-side mode-clearing in (that drags the file-write across the seam and *fails*
-  the deletion test — verified).
-- **E — consolidate the RA onboarding recipe prose** (**Worth exploring**). `saveRolesAnywhere`
-  (aws.mjs:126–138) hand-writes ~7 lines near-verbatim to `awsRolesAnywherePlan`'s close
-  (onboarding.mjs:410–416) — while aws.mjs's own header says the recipe text lives in
-  onboarding.mjs. The `--save --from-stack` command string recurs in four files (also
-  setup.mjs:115–123, roles-anywhere.mjs:467–471). Move the confirmation to an
-  `awsSaveConfirmation({dir})` generator; reference shared name-builders. Partial deletion test
-  (workflow is inherently multi-command); ADR-0056/0034.
+_The seventh-pass open list is now empty: every candidate either landed (A/B/#192, D/#193,
+C/#194, E/#195) or was parked (the `credentialMode()` classifier, below). The next
+`/improve-codebase-architecture` run starts from the source and the rejected list, not from
+stale entries._
 
 **Examined & left alone this pass** (not candidates — skip next run): the SigV4-X509 signer
 (the exemplar to cite, not fix); the RA credential arm's unit-test gap (coverage, not a boundary
@@ -73,6 +62,19 @@ wrapper (inlining *moves* the sentinel — legit thin adapter); the region-defau
 Recorded so future runs (and reviewers) skip them. Each was verified against the source at
 least once; re-open only if the stated reason no longer holds.
 
+- **A pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier** — declined
+  during the 2026-07-14 grilling of candidate C. The premise (~5 sites re-derive one "which mode"
+  question) does **not** survive source verification: the sites ask *distinct* per-layer questions
+  — a binary RA route (`resolveCredentials`, `client()→authNotice`), a rich *error-diagnosis*
+  cascade needing `knownProfiles` and an absent-vs-present split (`credentialCase`), multi-knob
+  *enumerators* that list every present knob at once (`describeScope`/`shellNote`), and
+  *option*-classification of incoming CLI flags, not the env bag (`newMode`). So one classifier
+  value can't cleanly serve them; building it would over-generalize a scatter that isn't one
+  (ADR-0006/#5), and it sits on the [ADR-0055](../docs/adr/0055-per-set-credentials-one-mode.md)
+  "auth is a bag of `AWS_*`" line. The genuinely duplicated/drifty part — the RA-marker read — was
+  the *real* defect and was fixed narrowly instead ([PR #194](https://github.com/allens/s3cab/pull/194):
+  both `provider.mjs` reads routed through the existing `isRolesAnywhereMode`). Re-open only if a
+  future change makes several sites genuinely need the *same* single mode value.
 - **Split a snapshot codec/grammar module out of `snapshot-file.mjs`** — rejected twice
   (2026-06-23, re-floated and re-rejected 2026-06-29). Contradicts
   [ADR-0028](../docs/adr/0028-snapshot-writer-owns-the-grammar.md) (the grammar is deliberately
@@ -269,3 +271,19 @@ least once; re-open only if the stated reason no longer holds.
   reads env), RA takes precedence over any hand-left profile/endpoint (mirrors `resolveCredentials`'
   RA-before-chain check), plus the missing `s3.test.mjs` RA case. C and E remain open; C is next
   (grilled before building — the ADR-0055 read-only-classifier decision), E a ride-along.
+- **2026-07-14 — C landed as a narrow fix; the classifier declined** ([PR #194](https://github.com/allens/s3cab/pull/194),
+  grilled first). Grilling + source verification **undercut C's premise**: the ~5 "sites" ask
+  distinct per-layer questions, not one (details in the Rejected & parked entry above), so the full
+  `credentialMode()` classifier was declined and parked. What shipped is the genuine, verified
+  defect: `commands/provider.mjs` read the `S3CAB_RA` marker two ways — `describeScope:95` used
+  `=== "1"`, clear-on-replace `:319` a loose truthy — so `S3CAB_RA=0` read not-RA everywhere except
+  the clear path. Both now route through the canonical `isRolesAnywhereMode`, with a regression test
+  for the degenerate `=0` case. A worked case of grilling shrinking a candidate to its honest core.
+- **2026-07-14 — E landed (narrowed)** ([PR #195](https://github.com/allens/s3cab/pull/195)).
+  On close read E's advertised "duplication" was loose (different numbering/indentation, real-vs-
+  placeholder bucket), but a *second* rationale — aws.mjs's header asserts "recipe text lives in
+  onboarding.mjs (pure, unit-testable)" while `saveRolesAnywhere` hand-wrote its `--save`
+  confirmation inline (I/O-path-only, untested) — was the real win. Relocated the confirmation to a
+  pure `awsSaveConfirmation({ stackName, region, dir })` (byte-identical string, first unit
+  coverage); the marginal step-3 dedup was skipped (ADR-0006/#5). **This emptied the seventh-pass
+  open list** — every candidate landed or was parked.
