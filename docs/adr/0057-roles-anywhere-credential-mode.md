@@ -1,8 +1,9 @@
 # Roles Anywhere: a fourth credential mode, set up generatively and signed natively
 
-**Status:** proposed (design agreed, implementation pending). Sits beside
-[0055](0055-per-set-credentials-one-mode.md)/[0015](0015-standard-aws-credential-chain.md); its
-setup delivery depends on [0056](0056-onboarding-via-cloudformation.md).
+**Status:** accepted (native signer **validated by a live spike** 2026-07-14; implementation
+pending). Sits beside [0055](0055-per-set-credentials-one-mode.md)/[0015](0015-standard-aws-credential-chain.md);
+setup delivery depends on [0056](0056-onboarding-via-cloudformation.md). Subsystem design + the
+cert-shape requirements the spike found: [docs/design/roles-anywhere.md](../design/roles-anywhere.md).
 
 s3cab's AWS identity options are long-lived access keys (weakest practice) or a profile/SSO/ambient
 chain. AWS's guidance for workloads *outside* AWS is **IAM Roles Anywhere**: a machine authenticates
@@ -40,11 +41,15 @@ s3cab takes on `@aws-sdk/client-cloudformation`: cheap once `client-s3` has pull
 ## Runtime is a native signer (Phase B)
 
 The AWS JS SDK ships **no** Roles Anywhere credential provider, so credentials come from a bespoke
-**SigV4-X509** signer on Node builtins — no `aws_signing_helper` (a Go binary), no dependency. It
-`POST`s to `rolesanywhere.{region}.amazonaws.com/sessions`, signing the canonical request with the
-client key: standard SigV4 with two swaps — the credential id is `<cert-serial>/<scope>` not
-`<access-key>/<scope>`, and the cert rides in an `X-Amz-X509` header. RSA →
-`createSign("RSA-SHA256")` (PKCS1v15); ECDSA → `createSign("SHA256")` (DER R/S). It slots into
+**SigV4-X509** signer — no `aws_signing_helper` (a Go binary). **Validated end-to-end by a live spike**
+(2026-07-14: a `201` + session credentials; [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)).
+It `POST`s to `rolesanywhere.{region}.amazonaws.com/sessions`, signing the canonical request with the
+client key: standard SigV4 with two swaps — the credential id is the cert serial (decimal) not an
+access key, and the cert rides in an `X-Amz-X509` header. RSA → `createSign("RSA-SHA256")` (PKCS1v15);
+ECDSA → `createSign("SHA256")` (DER R/S). The crypto is Node builtins; the canonicalization reuses
+**`@smithy/signature-v4`** (promoted to a direct dependency — already present transitively via
+`client-s3`, and its `createStringToSign` takes the algorithm id as a parameter), so only ~40
+X509-specific lines are bespoke. It slots into
 `resolveCredentials` as a fourth source — the set marker routes RA → native signer, else → the
 standard chain — the pluggable seam [auth.md](../design/auth.md) already reserved. `provider
 --roles-anywhere <set>` is the fourth mutually-exclusive mode (sets the marker, clears
@@ -71,7 +76,8 @@ half is not:
   API exists in `crypto` or WebCrypto. So generating the CA + client cert needs either hand-rolled
   ASN.1 DER (zero-dependency, ~200 security-sensitive lines) or a focused library (`@peculiar/x509`,
   `node-forge`) — an [0005](0005-builtins-over-dependencies.md) call to resolve by prototype, not
-  assumed free.
+  assumed free. Whatever generates them **must** emit the exact CA/client cert extensions RA enforces
+  (the spike found them the hard way — recorded in [docs/design/roles-anywhere.md](../design/roles-anywhere.md)).
 - **OS-native keystores are a candidate for both.** Windows Certificate Store (DPAPI), macOS
   Keychain, and Linux libsecret/NSS can *store* the client private key better than a `0600` PEM
   (OS-protected, non-exportable), and several can also *generate* the cert — so OS tooling could
@@ -96,8 +102,10 @@ half is not:
 
 `resolveCredentials` branches on the RA marker; a new `src/lib/roles-anywhere.mjs` owns cert
 generation + the signer; `provider`/`setup` gain `--roles-anywhere`; `aws` gains the RA template
-path; one new **read-only** SDK dependency. Main maintenance risk: hand-rolled AWS signing, bounded
-by testing against the reference and the live endpoint.
+path. Two dependency moves: `@aws-sdk/client-cloudformation` (read-only, for ARN capture) and
+`@smithy/signature-v4` promoted to a direct dependency (already transitively present). Main
+maintenance risk: the bespoke AWS signing, bounded by testing against the reference and the live
+endpoint. Full mechanics: [docs/design/roles-anywhere.md](../design/roles-anywhere.md).
 
 ## References
 
