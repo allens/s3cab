@@ -2,11 +2,14 @@
 
 ## Status
 
-Design agreed; the runtime signer is **validated by a live spike** (2026-07-14 — see
-[scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs)),
-**implementation pending**. Decisions: [ADR-0057](../adr/0057-roles-anywhere-credential-mode.md)
-(the credential mode + native signer) and [ADR-0056](../adr/0056-onboarding-via-cloudformation.md)
-(the CloudFormation onboarding it rides on). This doc is the evolving *how*; the ADRs are the *why*.
+Design agreed; both the runtime signer and the cert generator are **validated by live spikes**
+(2026-07-14 — [scripts/roles-anywhere-signer-spike.mjs](../../scripts/roles-anywhere-signer-spike.mjs),
+[scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)).
+**Setup (Phase A-2) implemented; runtime signer (Phase B) pending.** Decisions:
+[ADR-0057](../adr/0057-roles-anywhere-credential-mode.md) (the credential mode + native signer),
+[ADR-0058](../adr/0058-roles-anywhere-cert-generation.md) (cert generation + key storage), and
+[ADR-0056](../adr/0056-onboarding-via-cloudformation.md) (the CloudFormation onboarding it rides on).
+This doc is the evolving *how*; the ADRs are the *why*.
 
 ## Purpose
 
@@ -96,20 +99,28 @@ via `@aws-sdk/client-s3`). It exports `SignatureV4Base` / `getCanonicalHeaders` 
 only the ~40 X509-specific lines above are ours. The signer must **cache** the returned credentials
 and refresh before `expiration`.
 
-## Certificate generation — open sub-decision
+## Certificate generation — resolved ([ADR-0058](../adr/0058-roles-anywhere-cert-generation.md))
 
 Node builtins **cannot create X.509 certificates**: `crypto.X509Certificate` is parse-only and there
-is no CSR/cert signing in `node:crypto` ([ADR-0057](../adr/0057-roles-anywhere-credential-mode.md),
-"Open"). So the *signer* is builtins-only but cert **generation** is not. Candidates, each of which
-must emit the cert-shape extensions above:
+is no CSR/cert signing in `node:crypto`. So the *signer* is builtins-only but cert **generation** is
+not. Prototyped and decided ([ADR-0058](../adr/0058-roles-anywhere-cert-generation.md), cert generator
+**validated by a live spike** — [scripts/roles-anywhere-certgen-spike.mjs](../../scripts/roles-anywhere-certgen-spike.mjs)):
 
-- **Hand-rolled ASN.1 DER** — zero dependency, ~200 security-sensitive lines.
-- **A focused library** — `@peculiar/x509` or `node-forge` (an [ADR-0005](../adr/0005-builtins-over-dependencies.md) call).
-- **OS-native keystores** — Windows Certificate Store (DPAPI), macOS Keychain, Linux libsecret/NSS,
-  which can *generate* the cert *and* store the private key better than a `0600` PEM (per-OS shelling
-  cost). Related to the deferred OS-secure-storage layer in [auth.md](auth.md).
+- **Chosen: a hand-rolled ASN.1 DER encoder** on `node:crypto`, zero dependency. Tractable because
+  Node supplies the two hard parts — SPKI export (spliced in verbatim) and the DER ECDSA signature —
+  so the bespoke code is DER TLV + the fixed TBSCertificate skeleton (~150 lines), smaller than the
+  library it replaces. It emits exactly the CA/client extensions above.
+- **Rejected: a focused library** (`@peculiar/x509` — 10 transitive deps incl. `tsyringe`;
+  `node-forge` — its own bespoke crypto). Both ship to users, over the [ADR-0005](../adr/0005-builtins-over-dependencies.md)
+  bar for a one-time offline op.
+- **Rejected: OS-native keystores.** A non-exportable key would fork the signer per OS (CNG /
+  Security.framework), Linux has no clean non-exportable *signing* story (falls back to a PEM
+  anyway), and it over-protects relative to how s3cab already stores `AWS_SECRET_ACCESS_KEY` (a
+  `0600` env file). Captured for the deferred OS-secure-storage layer in [auth.md](auth.md), not built.
 
-Deferred; resolve by prototype.
+**Storage + the Phase B key interface:** the client private key is a **`0600` PEM** (`client.key`);
+the signer reads it as a PEM string and calls `crypto.createSign("SHA256").sign(keyPem)` — uniform
+across every OS, exactly as the signer spike does.
 
 ## References
 

@@ -164,7 +164,13 @@ Deploy it, mint one access key, point s3cab at it.
 
 Choosing an identity:
   (default)          a dedicated AWS IAM user with an access key
-  --roles-anywhere   keyless, certificate-based access (recommended; not built yet)
+  --roles-anywhere   keyless, certificate-based access (recommended)
+
+With --roles-anywhere it generates a machine-level CA + client certificate
+under ~/.s3cab/roles-anywhere/ (the private key never leaves your machine),
+emits a template embedding the public CA as a trust anchor, then captures the
+deployed stack's ARNs back with:
+  s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>
 
 AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
 MinIO, …), run 's3cab help provider' for the setup steps instead. Signing in
@@ -185,7 +191,17 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
       "roles-anywhere": {
         type: "boolean",
         description:
-          "Show the keyless Roles Anywhere recipe instead of the IAM-user one (not built yet)",
+          "Use the keyless Roles Anywhere identity (generate certs + emit its template) instead of an IAM user",
+      },
+      save: {
+        type: "boolean",
+        description:
+          "Capture a deployed stack's Roles Anywhere ARNs into the local identity (use with --from-stack)",
+      },
+      "from-stack": {
+        type: "string",
+        description:
+          "The deployed CloudFormation stack to read Roles Anywhere ARNs from (e.g. s3cab-<bucket>)",
       },
       profile: {
         type: "string",

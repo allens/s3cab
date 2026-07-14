@@ -66,10 +66,12 @@ native token/key auth. So RA is **AWS-only**, parallel to how `aws` narrows to A
 exclusive with a custom endpoint (a set with `AWS_ENDPOINT_URL_S3` set can't use RA and is
 refused), and **access keys remain the cross-provider path**.
 
-## Open: certificate generation & storage (deferred)
+## Open: certificate generation & storage → **resolved by [0058](0058-roles-anywhere-cert-generation.md)**
 
-Two sub-decisions the design above leaves open — the **signer** is builtins-only, but the **PKI**
-half is not:
+Two sub-decisions the design above left open — the **signer** is builtins-only, but the **PKI**
+half is not. Both are now **resolved by [ADR-0058](0058-roles-anywhere-cert-generation.md)**:
+hand-rolled ASN.1 DER (zero-dep, validated), client key stored as a `0600` PEM (so the signer reads
+a PEM and calls `createSign(keyPem)`), OS keystores rejected. The reasoning that was open:
 
 - **Cert generation needs more than builtins.** Node core signs arbitrary data (`createSign`) and
   *parses* X.509 (`X509Certificate`), but **cannot create/sign a certificate** — no cert-creation

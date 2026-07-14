@@ -1,6 +1,15 @@
 import { customEndpoint } from "../lib/env.mjs";
-import { requireArg } from "../lib/error.mjs";
-import { awsIamPlan, validateAwsBucketName } from "../lib/onboarding.mjs";
+import { ParseArgsError, requireArg } from "../lib/error.mjs";
+import {
+  awsIamPlan,
+  awsRolesAnywherePlan,
+  validateAwsBucketName,
+} from "../lib/onboarding.mjs";
+import {
+  ensureMachineIdentity,
+  saveArnsFromStack,
+} from "../lib/roles-anywhere.mjs";
+import { tildeify } from "../lib/home.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
 // `s3cab aws` — the AWS-onboarding command. It **prints** a CloudFormation
@@ -13,13 +22,17 @@ import { validateBucketName } from "../lib/sets.mjs";
 // `s3cab setup ... --keys`, which creates the first set in the new bucket.
 //
 // AWS only (ADR-0047): the identity fork is the default IAM-user (access keys)
-// vs `--roles-anywhere` (keyless, certificate-based — ADR-0057; not built yet).
-// `--sso` is retired (ADR-0056): SSO works through the standard credential chain,
-// so it needs no onboarding path of its own — the recipe points there in a line.
-// A custom endpoint (AWS_ENDPOINT_URL*) means "not AWS", so the command points at
-// `s3cab help provider` — the non-AWS steps live there — instead of printing IAM
-// JSON that can't apply. The plan text itself lives in src/lib/onboarding.mjs
-// (pure, so it is unit-testable).
+// vs `--roles-anywhere` (keyless, certificate-based — ADR-0057/0058). The RA path
+// generates a machine-level CA + client certificate locally (src/lib/roles-anywhere.mjs),
+// emits a CloudFormation template embedding the public CA, and — with `--save
+// --from-stack` — reads the deployed stack's ARNs back into the local identity
+// (read-only DescribeStacks). `--sso` is retired (ADR-0056): SSO works through the
+// standard credential chain, so it needs no onboarding path of its own — the
+// recipe points there in a line. A custom endpoint (AWS_ENDPOINT_URL*) means "not
+// AWS", so the command points at `s3cab help provider` — the non-AWS steps live
+// there — instead of printing IAM JSON that can't apply. The recipe text lives in
+// src/lib/onboarding.mjs (pure, unit-testable); cert gen + ARN capture live in
+// src/lib/roles-anywhere.mjs.
 
 /**
  * Build the steps to set up an S3 bucket as an s3cab backup destination.
@@ -27,15 +40,18 @@ import { validateBucketName } from "../lib/sets.mjs";
  * but calls no AWS API. The plan *is* the result (ADR-0043): it returns the
  * finished recipe as text; the dispatcher writes it to stdout (via `renderText`).
  *
- * @param {string} [name] - The bucket name to set up
- * @param {{ region?: string, profile?: string, "roles-anywhere"?: boolean }} [options]
+ * @param {string} [name] - The bucket name to set up (not needed with `--save`)
+ * @param {{ region?: string, profile?: string, "roles-anywhere"?: boolean, save?: boolean, "from-stack"?: string }} [options]
  *   - `region`: the bucket's AWS region (defaults to $AWS_REGION /
  *     $AWS_DEFAULT_REGION / us-east-1); `profile`: an admin AWS profile to
- *     interpolate into the printed `aws` commands; `roles-anywhere`: emit the
- *     keyless Roles Anywhere recipe instead of the IAM-user one (not built yet).
- * @returns {string} The onboarding recipe, ready for the render layer.
+ *     interpolate into the printed `aws` commands; `roles-anywhere`: the keyless
+ *     Roles Anywhere path (generate certs + emit the RA template); `save` +
+ *     `from-stack`: read a deployed stack's ARNs back into the local RA identity.
+ * @returns {Promise<string>} The onboarding recipe or a confirmation, for the
+ *   render layer. Async because `--save` makes a read-only DescribeStacks call;
+ *   the offline paths just resolve immediately.
  */
-export function aws(name, options = {}) {
+export async function aws(name, options = {}) {
   // A custom endpoint is the single "not AWS" signal: an S3-compatible provider
   // has no IAM, so the AWS recipes can't apply — redirect to the non-AWS steps
   // instead of guessing. Checked before the bucket arg (the redirect doesn't
@@ -51,23 +67,6 @@ Wasabi, MinIO, …), run:
   s3cab help provider`;
   }
 
-  requireArg(name, "bucket");
-  validateBucketName(name);
-  // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
-  // it has stricter name rules than the permissive global validator (ADR-0056).
-  validateAwsBucketName(name);
-
-  // The keyless Roles Anywhere path (ADR-0057) has a recognized flag so the
-  // surface exists, but its cert generation + template fragment aren't built yet;
-  // error clearly and point back at the working default meanwhile (ADR-0030).
-  if (options["roles-anywhere"]) {
-    throw new Error(
-      `Keyless Roles Anywhere onboarding (--roles-anywhere) isn't available yet.\n` +
-        `For now, set up "${name}" with the default IAM-user path:\n` +
-        `   s3cab aws ${name}`,
-    );
-  }
-
   // Region for the deploy command's --region flag, defaulting like the test-bucket
   // script (scripts/setup-test-bucket.mjs): an explicit --region wins, then the
   // SDK's own AWS_REGION / AWS_DEFAULT_REGION, then us-east-1 as the fallback.
@@ -78,5 +77,58 @@ Wasabi, MinIO, …), run:
     "us-east-1";
   const profile = options.profile?.trim() || undefined;
 
+  // `--save` captures a deployed stack's ARNs into the local Roles Anywhere
+  // identity — the one online, AWS-touching path (read-only). It reads the stack
+  // named by --from-stack, not a bucket, so no bucket positional is required. It
+  // only makes sense for the RA identity, so it implies --roles-anywhere.
+  if (options.save) {
+    const stackName = options["from-stack"]?.trim();
+    if (!stackName) {
+      throw new ParseArgsError(
+        "--save needs --from-stack <stack> (the deployed onboarding stack, e.g. s3cab-<bucket>)",
+        { argName: "from-stack" },
+      );
+    }
+    return await saveRolesAnywhere(stackName, region);
+  }
+
+  requireArg(name, "bucket");
+  validateBucketName(name);
+  // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
+  // it has stricter name rules than the permissive global validator (ADR-0056).
+  validateAwsBucketName(name);
+
+  // The keyless Roles Anywhere path (ADR-0057/0058): generate the machine identity
+  // locally (once — reused on re-run so the CA never silently changes) and emit
+  // the RA CloudFormation template embedding its public CA.
+  if (options["roles-anywhere"]) {
+    const { caPem, created } = ensureMachineIdentity();
+    return awsRolesAnywherePlan({
+      bucket: name,
+      region,
+      caPem,
+      created,
+      profile,
+    });
+  }
+
   return awsIamPlan({ bucket: name, region, profile });
+}
+
+/**
+ * The `--save --from-stack` body: capture the stack's RA ARNs into the local
+ * identity, then confirm (ADR-0030 — goal-framed, names the file it wrote and the
+ * next step). Split out so the sync offline paths above stay a plain function.
+ * @param {string} stackName
+ * @param {string} region
+ * @returns {Promise<string>}
+ */
+async function saveRolesAnywhere(stackName, region) {
+  const { dir } = await saveArnsFromStack({ stackName, region });
+  return `Saved the Roles Anywhere ARNs from stack "${stackName}" (region ${region})
+to your machine identity at ${tildeify(dir)}/env.
+
+Your keyless identity is now fully configured. Once a backup set targets it,
+s3cab authenticates with the certificate and receives short-lived AWS
+credentials — no long-lived key.`;
 }

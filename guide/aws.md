@@ -24,9 +24,12 @@ anything happens.
 - `--profile <name>` — an **admin** AWS profile to drop into the printed `aws …`
   commands (the identity that _deploys_ the stack and mints the key). It is output
   sugar only — the command never uses it to authenticate.
-- `--roles-anywhere` — print the keyless, certificate-based Roles Anywhere recipe
-  instead of the default IAM-user one (see [Identity options](#identity-options)).
-  Recommended, but **not built yet** — it currently reports that it isn't available.
+- `--roles-anywhere` — use the keyless, certificate-based Roles Anywhere identity
+  instead of the default IAM-user one: generate the local CA + client certificate
+  and print its CloudFormation template (see [Identity options](#identity-options)).
+  Recommended. Combine with `--save --from-stack <stack>` to capture the deployed
+  stack's ARNs. (Setup is built; the runtime signer that uses the identity for
+  backups lands next.)
 
 It emits a **CloudFormation template** — a single declarative file describing the
 bucket, its least-privilege policy, and the s3cab identity — which you deploy with
@@ -119,8 +122,27 @@ your machine authenticates using an X.509 client certificate and receives
 short-lived session credentials — no long-lived AWS key ever lives on disk. It is
 one level above access keys, deliberately not an enterprise PKI.
 
-> **Not built yet.** The flag is recognized but currently reports that it isn't
-> available; use the default IAM-user path in the meantime.
+`s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
+certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your
+machine) and prints a CloudFormation template that stands up the bucket plus the
+keyless identity — a trust anchor over the public CA, an IAM role carrying the
+same least-privilege policy, and a profile. Deploy it, then capture the stack's
+ARNs back into the local identity:
+
+```console
+> s3cab aws <bucket> --roles-anywhere          # generates certs + prints the template
+> aws cloudformation deploy --template-file s3cab-<bucket>.yaml \
+    --stack-name s3cab-<bucket> --capabilities CAPABILITY_NAMED_IAM
+> s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # read-only ARN capture
+```
+
+Re-running the first step reuses the existing identity (it never silently mints a
+new CA, which would orphan the deployed trust anchor).
+
+> **Runtime signer pending.** Setup (the steps above) is built. Wiring a backup
+> set to authenticate through this identity — the native SigV4-X509 signer — lands
+> next; until then, use the default IAM-user path for live backups. See the
+> [subsystem design](https://github.com/allens/s3cab/blob/main/docs/design/roles-anywhere.md).
 
 ### AWS IAM Identity Center (SSO)
 
