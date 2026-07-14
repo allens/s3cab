@@ -8,6 +8,7 @@ import {
   backupLifecycle,
   validateAwsBucketName,
 } from "./onboarding.mjs";
+import { ARN_ENV } from "./roles-anywhere.mjs";
 
 // A throwaway, well-formed PEM stand-in for the CA bundle these functions embed —
 // they only splice the text, never parse it, so its content is irrelevant.
@@ -204,6 +205,22 @@ describe("awsRolesAnywhereTemplate", () => {
     );
     assert.match(yaml, /ProfileArn:\s*\n\s*Value: !GetAtt Profile\.ProfileArn/);
     assert.match(yaml, /RoleArn:\s*\n\s*Value: !GetAtt Role\.Arn/);
+  });
+
+  // The contract that binds this template to the reader: `arnsFromOutputs`/`--save`
+  // look each stack output up by the names in `ARN_ENV` (roles-anywhere.mjs), so
+  // every one of those names MUST appear here as an Output. A rename on either side
+  // that this misses would make `--save` fail silently ("missing the RA outputs",
+  // blaming the user's stack). Asserted here rather than via a shared symbol so the
+  // template stays readable literal YAML (ADR-0006 — a test guard, not machinery).
+  it("emits an Output for every name the reader (ARN_ENV) expects", () => {
+    for (const outputName of Object.keys(ARN_ENV)) {
+      assert.match(
+        yaml,
+        new RegExp(`\\n {2}${outputName}:\\n {4}Value:`),
+        `template is missing the ${outputName} Output that --save reads back`,
+      );
+    }
   });
 });
 

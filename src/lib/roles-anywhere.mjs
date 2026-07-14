@@ -441,12 +441,46 @@ export function ensureMachineIdentity() {
 
 // ── ARN capture from the deployed CloudFormation stack (--save) ────────────────
 
-/** The RA env keys the stack outputs map onto (design doc + auth.md). */
-const ARN_ENV = {
+/**
+ * The single source of the Roles Anywhere ARN contract: each CloudFormation stack
+ * **output name** paired with the identity `env` **key** it lands in (design doc +
+ * auth.md). Every side of the round-trip reads it, so the three names can't drift:
+ * {@link arnsFromOutputs} maps outputs → env keys through it, {@link readSigningIdentity}
+ * reads the identity's ARNs back through its values, and an `onboarding.test.mjs`
+ * contract test asserts the RA template emits exactly these output names — a rename
+ * here that the template misses would otherwise fail `--save` silently.
+ */
+export const ARN_ENV = {
   TrustAnchorArn: "S3CAB_RA_TRUST_ANCHOR_ARN",
   ProfileArn: "S3CAB_RA_PROFILE_ARN",
   RoleArn: "S3CAB_RA_ROLE_ARN",
 };
+
+/**
+ * Map a deployed stack's `Outputs` onto the RA identity's ARN env record, pairing
+ * each output with its `S3CAB_RA_*` key via {@link ARN_ENV}. Pure — no I/O, no SDK
+ * client — so the mapping and the "which outputs are absent" check are unit-testable
+ * against a plain array. Returns the populated `arns` (keyed by env key) and the
+ * `missing` env keys ({@link ARN_ENV} values no output supplied); the actionable
+ * throw stays with the I/O caller ({@link saveArnsFromStack}), which alone has the
+ * stack/region context ADR-0030's message needs. `Output` is a structural type, so a
+ * plain `{ OutputKey, OutputValue }[]` (what the tests pass) satisfies it too.
+ * @param {import("@aws-sdk/client-cloudformation").Output[]} outputs
+ * @returns {{ arns: Record<string, string>, missing: string[] }}
+ */
+export function arnsFromOutputs(outputs) {
+  /** @type {Record<string, string>} */
+  const arns = {};
+  for (const { OutputKey, OutputValue } of outputs) {
+    const envKey =
+      OutputKey && ARN_ENV[/** @type {keyof typeof ARN_ENV} */ (OutputKey)];
+    if (envKey && OutputValue) {
+      arns[envKey] = OutputValue;
+    }
+  }
+  const missing = Object.values(ARN_ENV).filter((key) => !arns[key]);
+  return { arns, missing };
+}
 
 /**
  * Read a deployed onboarding stack's three RA ARNs and persist them (plus the
@@ -479,19 +513,9 @@ export async function saveArnsFromStack({ stackName, region }) {
   const response = await client.send(
     new DescribeStacksCommand({ StackName: stackName }),
   );
-  const outputs = response.Stacks?.[0]?.Outputs ?? [];
-
-  /** @type {Record<string, string>} */
-  const arns = {};
-  for (const { OutputKey, OutputValue } of outputs) {
-    const envKey =
-      OutputKey && ARN_ENV[/** @type {keyof typeof ARN_ENV} */ (OutputKey)];
-    if (envKey && OutputValue) {
-      arns[envKey] = OutputValue;
-    }
-  }
-
-  const missing = Object.values(ARN_ENV).filter((key) => !arns[key]);
+  const { arns, missing } = arnsFromOutputs(
+    response.Stacks?.[0]?.Outputs ?? [],
+  );
   if (missing.length > 0) {
     throw new ValidationError(
       `Stack "${stackName}" is missing the Roles Anywhere outputs (${missing.join(", ")}).\n` +
@@ -557,9 +581,12 @@ export function readSigningIdentity() {
   }
   try {
     const env = parseEnvFile(identityEnvPath());
-    const trustAnchorArn = env.S3CAB_RA_TRUST_ANCHOR_ARN;
-    const profileArn = env.S3CAB_RA_PROFILE_ARN;
-    const roleArn = env.S3CAB_RA_ROLE_ARN;
+    // Read the ARNs through the same {@link ARN_ENV} keys `--save` wrote them under,
+    // so the env-key spelling lives in exactly one place. AWS_REGION is a standard
+    // AWS key, not part of the ARN contract, so it stays literal.
+    const trustAnchorArn = env[ARN_ENV.TrustAnchorArn];
+    const profileArn = env[ARN_ENV.ProfileArn];
+    const roleArn = env[ARN_ENV.RoleArn];
     const region = env.AWS_REGION;
     if (!trustAnchorArn || !profileArn || !roleArn || !region) {
       return undefined;
