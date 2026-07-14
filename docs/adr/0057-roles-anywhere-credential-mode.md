@@ -61,6 +61,24 @@ native token/key auth. So RA is **AWS-only**, parallel to how `aws` narrows to A
 exclusive with a custom endpoint (a set with `AWS_ENDPOINT_URL_S3` set can't use RA and is
 refused), and **access keys remain the cross-provider path**.
 
+## Open: certificate generation & storage (deferred)
+
+Two sub-decisions the design above leaves open — the **signer** is builtins-only, but the **PKI**
+half is not:
+
+- **Cert generation needs more than builtins.** Node core signs arbitrary data (`createSign`) and
+  *parses* X.509 (`X509Certificate`), but **cannot create/sign a certificate** — no cert-creation
+  API exists in `crypto` or WebCrypto. So generating the CA + client cert needs either hand-rolled
+  ASN.1 DER (zero-dependency, ~200 security-sensitive lines) or a focused library (`@peculiar/x509`,
+  `node-forge`) — an [0005](0005-builtins-over-dependencies.md) call to resolve by prototype, not
+  assumed free.
+- **OS-native keystores are a candidate for both.** Windows Certificate Store (DPAPI), macOS
+  Keychain, and Linux libsecret/NSS can *store* the client private key better than a `0600` PEM
+  (OS-protected, non-exportable), and several can also *generate* the cert — so OS tooling could
+  answer the generation question *and* the storage question at once, at the cost of per-OS shelling
+  from the SEA binary. Related to the deferred OS-secure-storage layer in
+  [auth.md](../design/auth.md)'s Security Model. Captured, not decided.
+
 ## Rejected
 
 - **`aws_signing_helper` + a `credential_process` profile** (the proposal's original v1). Works
