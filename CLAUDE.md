@@ -413,6 +413,17 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
+- **Roles Anywhere is built (both phases) but its live path is unverified end-to-end.** The
+  runtime signer shipped in [PR #191](https://github.com/allens/s3cab/pull/191) (ADR-0057/0058),
+  and the signer itself is proven byte-for-byte against the live-validated reference formula in a
+  unit test. But [test/integration/roles-anywhere.test.mjs](test/integration/roles-anywhere.test.mjs)'s
+  **live `CreateSession` + backup/restore round trip has never actually run** — it *skips* unless a
+  **deployed trust anchor** exists and `S3CAB_TEST_RA_HOME` points at an `~/.s3cab` holding
+  `roles-anywhere/`, which neither the dev box nor CI currently has (CI has the test bucket but not
+  the RA infra). To close it: run the Phase A-2 flow against the test bucket (`s3cab aws <bucket>
+  --roles-anywhere` → deploy → `--save --from-stack`), export `S3CAB_TEST_RA_HOME`, then
+  `npm run test:integration`. Per-machine setup blocker for this box is tracked in local memory
+  (the `local-real-s3-integration-testing` note); this is the *project-level* verification gap.
 - **Backup/restore/admin all built — retention policy remains** — the
   five-slice plan in [docs/design/backup.md](docs/design/backup.md) is **complete** (slices 1–4
   plus slice-5's `verify`/`delete`/`cleanup`; detail there). Still open from slice 5:
