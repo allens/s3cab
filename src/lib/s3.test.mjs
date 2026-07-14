@@ -315,6 +315,23 @@ describe("authNotice", () => {
     );
   });
 
+  it("reports Roles Anywhere, taking precedence over any profile/endpoint", () => {
+    assert.equal(
+      authNotice({ rolesAnywhere: true }),
+      "Using Roles Anywhere (keyless)",
+    );
+    // RA routes to the cert signer, so profile/endpoint (even if hand-left in the
+    // env) are irrelevant — the notice mirrors resolveCredentials' RA-first check.
+    assert.equal(
+      authNotice({
+        rolesAnywhere: true,
+        profile: "work",
+        endpoint: "https://example.r2",
+      }),
+      "Using Roles Anywhere (keyless)",
+    );
+  });
+
   it("falls back to a generic line for default AWS credentials with no profile", () => {
     // Never silent: something must print before the first network request so a
     // slow first S3 call doesn't look hung (clig.dev responsiveness).

@@ -32,6 +32,7 @@ import {
 } from "./env.mjs";
 import { formatByteValue } from "./format.mjs";
 import { createProgress } from "./progress.mjs";
+import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 // This is the single module in the production app that imports the AWS S3 SDK:
@@ -51,10 +52,11 @@ let _client;
  * to the cloud — so "which account/endpoint am I about to touch?" never needs
  * guessing, and so a network-bound command never sits silent before its first
  * request (print *before* the network call — clig.dev responsiveness). Reports
- * the effective `AWS_PROFILE` and/or custom endpoint; when there's nothing
- * distinctive to say (default AWS credentials, no profile, no custom endpoint)
- * it falls back to a generic contacting-the-cloud line rather than silence. An
- * empty profile (`AWS_PROFILE=`) counts as none.
+ * the set's credential mode: Roles Anywhere (keyless), else the effective
+ * `AWS_PROFILE` and/or custom endpoint; when there's nothing distinctive to say
+ * (default AWS credentials, no profile, no custom endpoint) it falls back to a
+ * generic contacting-the-cloud line rather than silence. An empty profile
+ * (`AWS_PROFILE=`) counts as none.
  *
  * When given a `profileSource` (from env.mjs's `profileSource()`), it appends
  * where that profile came from — `(from set 'photos' config)` or `(from your
@@ -64,10 +66,23 @@ let _client;
  * Pure — takes the values, returns the line — so it is unit-testable without a
  * live client; `client()` prints what it returns. We report the *effective*
  * value (after env layering); the `auth` command set it (see commands/auth.mjs).
- * @param {{ profile?: string, profileSource?: string, endpoint?: string }} config
+ * @param {{ profile?: string, profileSource?: string, endpoint?: string,
+ *   rolesAnywhere?: boolean }} config
  * @returns {string}
  */
-export function authNotice({ profile, profileSource, endpoint }) {
+export function authNotice({
+  profile,
+  profileSource,
+  endpoint,
+  rolesAnywhere,
+}) {
+  // Roles Anywhere routes credentials to the certificate signer, not the profile/
+  // endpoint chain, so it takes precedence — and an RA set carries no profile or
+  // endpoint to report anyway. Mirrors `resolveCredentials`, which checks RA mode
+  // before the standard chain.
+  if (rolesAnywhere) {
+    return "Using Roles Anywhere (keyless)";
+  }
   const via = profile && profileSource ? ` (from ${profileSource})` : "";
   if (profile && endpoint) {
     return `Using AWS profile: ${profile}${via}, endpoint: ${endpoint}`;
@@ -157,6 +172,7 @@ function client() {
       profile: process.env.AWS_PROFILE,
       profileSource: resolveProfileSource(),
       endpoint: customEndpoint(),
+      rolesAnywhere: isRolesAnywhereMode(),
     }),
   );
   _client = new S3Client(clientConfig());
