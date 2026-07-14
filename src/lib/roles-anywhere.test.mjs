@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { X509Certificate } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, unlinkSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -113,8 +113,11 @@ describe("buildIdentity", () => {
     );
   });
 
-  it("uses a positive serial the signer can render as a decimal (swap #1)", () => {
+  it("uses a positive, non-zero serial the signer can render as a decimal (swap #1)", () => {
+    // Guarded against the (astronomically unlikely) all-zero serial RFC 5280
+    // forbids — > 0n asserts both positive and non-zero.
     assert.ok(BigInt("0x" + client.serialNumber) > 0n);
+    assert.ok(BigInt("0x" + ca.serialNumber) > 0n);
   });
 
   it("exports both private keys as PKCS#8 PEM (the signer reads client.key)", () => {
@@ -159,6 +162,24 @@ describe("ensureMachineIdentity", () => {
     // Same CA text both times: re-running `aws --roles-anywhere` must not orphan
     // a deployed trust anchor by silently regenerating.
     assert.equal(second.caPem, first.caPem);
+  });
+
+  it("refuses to regenerate over a PARTIAL identity — never silently replaces the CA", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+
+    const { caPem } = ensureMachineIdentity();
+    const caPath = join(machineIdentityDir(), "ca.pem");
+    // An interrupted write / hand-deletion: client.pem gone, the CA survives.
+    unlinkSync(join(machineIdentityDir(), "client.pem"));
+
+    assert.equal(machineIdentityExists(), false); // not "present" — it's incomplete
+    assert.throws(ensureMachineIdentity, {
+      name: "ValidationError",
+      message: /incomplete \(missing client\.pem\)/,
+    });
+    // The surviving CA is left exactly as it was — not silently replaced.
+    assert.equal(readFileSync(caPath, "utf8"), caPem);
   });
 });
 

@@ -243,9 +243,15 @@ function makeCertificate({
   const notAfter = new Date(now);
   notAfter.setFullYear(notAfter.getFullYear() + years);
 
+  // A random 16-byte serial, forced positive and non-zero: clear the top bit (so
+  // it stays a positive INTEGER without a leading 0x00 pad) and set 0x40 (so it is
+  // never the all-zero serial RFC 5280 forbids). ~127 bits of randomness remain.
+  const serial = randomBytes(16);
+  serial[0] = ((serial[0] ?? 0) & 0x7f) | 0x40;
+
   const tbsCertificate = sequence(
     explicit(0, smallInteger(2)), // version: v3
-    integer(randomBytes(16)), // serialNumber
+    integer(serial), // serialNumber
     ecdsaSha256Alg, // signature algorithm
     distinguishedName(issuerCn),
     validity(notBefore, notAfter),
@@ -360,26 +366,51 @@ const identityPath = (file) => join(machineIdentityDir(), file);
 /** The identity's env file (the ARNs + region), an env-file.mjs KEY=value file. */
 const identityEnvPath = () => identityPath("env");
 
-/** Whether a machine RA identity has already been generated (client cert present). */
+/** The four files that together make up a complete machine identity. */
+const IDENTITY_FILES = ["ca.pem", "ca.key", "client.pem", "client.key"];
+
+/**
+ * Whether a **complete** machine RA identity is present — all four files, not just
+ * one. Keying on a single file would misread a half-written or partly-deleted
+ * identity as "present" (or, worse, as "absent" and regenerate over it). A partial
+ * state is neither present nor absent; {@link ensureMachineIdentity} treats it as
+ * an error.
+ */
 export const machineIdentityExists = () =>
-  existsSync(identityPath("client.pem"));
+  IDENTITY_FILES.every((file) => existsSync(identityPath(file)));
 
 /**
  * Ensure a machine RA identity exists, returning its CA certificate (the trust
- * anchor's `CERTIFICATE_BUNDLE`). Generate-and-forget (ADR-0057): the first call
- * generates + persists a new identity; later calls **reuse** it and only re-read
- * the CA, so re-running `aws --roles-anywhere` re-prints the same template without
- * ever silently minting a new CA (which would orphan the deployed trust anchor).
+ * anchor's `CERTIFICATE_BUNDLE`). Generate-and-forget (ADR-0057), with three
+ * states so re-running `aws --roles-anywhere` **never silently mints a new CA**
+ * (which would orphan an already-deployed trust anchor):
+ *   - **none of the four files** → generate + persist a fresh identity;
+ *   - **all four** → reuse; re-read the CA and re-print the same template;
+ *   - **some but not all** → a hard error (ADR-0030). A partial identity (an
+ *     interrupted write, a hand-deleted file) must not fall through to
+ *     regeneration, which would replace the CA behind the user's back.
  * @returns {{ caPem: string, created: boolean, dir: string }}
  */
 export function ensureMachineIdentity() {
   const dir = machineIdentityDir();
-  if (machineIdentityExists()) {
+  const present = IDENTITY_FILES.filter((file) =>
+    existsSync(identityPath(file)),
+  );
+  if (present.length === IDENTITY_FILES.length) {
     return {
       caPem: readFileSync(identityPath("ca.pem"), "utf8"),
       created: false,
       dir,
     };
+  }
+  if (present.length > 0) {
+    const missing = IDENTITY_FILES.filter((file) => !present.includes(file));
+    throw new ValidationError(
+      `The Roles Anywhere identity at ${tildeify(dir)} is incomplete (missing ${missing.join(", ")}).\n` +
+        `Regenerating would mint a new CA and orphan any deployed trust anchor, so\n` +
+        `s3cab won't do it automatically. Remove the directory to start fresh:\n` +
+        `   rm -rf ${tildeify(dir)}`,
+    );
   }
   const identity = buildIdentity();
   mkdirSync(dir, { recursive: true, mode: DIR_MODE });
