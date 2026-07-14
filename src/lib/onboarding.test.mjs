@@ -247,9 +247,13 @@ describe("awsRolesAnywherePlan", () => {
     assert.match(plan(), /-----BEGIN CERTIFICATE-----/);
   });
 
-  it("is honest that the runtime signer is not built yet", () => {
-    // The target-vs-built rule: don't imply `backup` works over RA today.
-    assert.match(plan(), /land next|runtime signer/i);
+  it("points at wiring a set to the identity (the runtime signer is built)", () => {
+    // Phase B is done: the recipe ends by pointing a set at the identity, which
+    // then signs in with the certificate for every backup.
+    const out = plan();
+    assert.match(out, /--bucket my-backups --roles-anywhere/);
+    assert.match(out, /s3cab provider --roles-anywhere <set>/);
+    assert.match(out, /short-lived AWS\n?credentials for every backup/);
   });
 
   it("puts the deploy region on the commands", () => {

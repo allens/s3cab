@@ -77,7 +77,7 @@ ADR as a live constraint.
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
 - [0055](0055-per-set-credentials-one-mode.md) — Per-set credentials: drop the user env layer (set > shell); each set is one credential mode (profile XOR keys XOR ambient) *(implemented; partly supersedes 0025, amends 0022)*
 - [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(proposed; amends 0032/0033/0035)*
-- [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted — signer validated by live spike; beside 0055/0015; design in docs/design/roles-anywhere.md)*
+- [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted & implemented — both setup and the runtime signer ship; beside 0055/0015; design in docs/design/roles-anywhere.md)*
 - [0058](0058-roles-anywhere-cert-generation.md) — Roles Anywhere certs: hand-rolled ASN.1 DER (zero-dep), client key stored as a 0600 PEM (pins the Phase B signer's key interface) *(accepted — cert generator validated by live spike; resolves 0057's open cert-gen/storage sub-decision)*
 
 ### Build, release & tooling

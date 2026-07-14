@@ -392,8 +392,117 @@ describe("provider one mode per set", () => {
 
     await assert.rejects(
       () => provider("photos", { profile: "work", keys: true }),
-      /either a profile or access keys/,
+      /Set one way to sign in, not a profile and access keys/,
     );
+  });
+});
+
+describe("provider --roles-anywhere", () => {
+  it("writes the S3CAB_RA marker to the sole set", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    const out = await provider(undefined, { "roles-anywhere": true });
+
+    assert.equal(setEnv().S3CAB_RA, "1");
+    assert.equal(setEnv().S3CAB_BUCKET, "my-bucket"); // untouched
+    assert.match(out, /Set Roles Anywhere \(keyless\) for set 'photos'/);
+  });
+
+  it("clears an existing profile and keys when switching to Roles Anywhere", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    seedSetEnv("photos", "AWS_PROFILE=work\n");
+
+    const out = await provider("photos", { "roles-anywhere": true });
+
+    const env = setEnv();
+    assert.equal(env.S3CAB_RA, "1");
+    assert.equal(env.AWS_PROFILE, undefined); // the other mode is gone
+    assert.match(out, /replacing its profile 'work'/);
+  });
+
+  it("clears the S3CAB_RA marker when switching back to a profile", async (t) => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    useAwsConfig(dir.path);
+    makeSet();
+    seedSetEnv("photos", "S3CAB_RA=1\n");
+    captureWarn(t);
+
+    const out = await provider("photos", { profile: "work" });
+
+    const env = setEnv();
+    assert.equal(env.AWS_PROFILE, "work");
+    assert.equal(env.S3CAB_RA, undefined); // RA marker cleared
+    assert.match(out, /replacing its Roles Anywhere setting/);
+  });
+
+  it("refuses when the set points at a custom endpoint (AWS-only)", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    seedSetEnv("photos", "AWS_ENDPOINT_URL_S3=https://s3.example.com\n");
+
+    await assert.rejects(
+      () => provider("photos", { "roles-anywhere": true }),
+      /Roles Anywhere is AWS-only.*--unset endpoint photos/s,
+    );
+    assert.equal(setEnv().S3CAB_RA, undefined); // nothing written
+  });
+
+  it("rejects Roles Anywhere together with a profile or with keys", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    for (const other of [{ profile: "work" }, { keys: true }]) {
+      await assert.rejects(
+        () => provider("photos", { "roles-anywhere": true, ...other }),
+        /Set one way to sign in.*alternatives, not layers/s,
+      );
+    }
+  });
+
+  it("rejects Roles Anywhere together with a custom --endpoint in the same call", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+
+    await assert.rejects(
+      () =>
+        provider("photos", {
+          "roles-anywhere": true,
+          endpoint: "https://s3.example.com",
+        }),
+      /Roles Anywhere is AWS-only.*can't be combined with a custom --endpoint/s,
+    );
+  });
+
+  it("reports Roles Anywhere in the set's show output", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    seedSetEnv("photos", "S3CAB_RA=1\n");
+
+    const out = await provider("photos", {});
+
+    assert.match(out, /Sign-in for set 'photos': Roles Anywhere \(keyless\)/);
+  });
+
+  it("clears the marker with --unset roles-anywhere", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    seedSetEnv("photos", "S3CAB_RA=1\n");
+
+    const out = await provider("photos", { unset: "roles-anywhere" });
+
+    assert.match(out, /Cleared the Roles Anywhere setting for set 'photos'\./);
+    assert.equal(setEnv().S3CAB_RA, undefined);
+    assert.equal(setEnv().S3CAB_BUCKET, "my-bucket"); // preserved
   });
 });
 

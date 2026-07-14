@@ -6,6 +6,7 @@ import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { gatherProviderConfig, keyTail } from "../lib/provider.mjs";
+import { RA_MARKER } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
@@ -42,6 +43,7 @@ const knobs = {
   endpoint: ["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"],
   region: ["AWS_REGION"],
   keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+  "roles-anywhere": [RA_MARKER],
 };
 
 /**
@@ -90,7 +92,8 @@ async function describeScope(scope, { withShellNote = true } = {}) {
   const endpoint = customEndpoint(values);
   const region = values.AWS_REGION;
   const keyId = values.AWS_ACCESS_KEY_ID;
-  if (!profile && !endpoint && !region && !keyId) {
+  const rolesAnywhere = values[RA_MARKER] === "1";
+  if (!profile && !endpoint && !region && !keyId && !rolesAnywhere) {
     return {
       ambient: true,
       text:
@@ -101,6 +104,9 @@ async function describeScope(scope, { withShellNote = true } = {}) {
   }
   const where = `   (${tildeify(path)})`;
   const lines = [];
+  if (rolesAnywhere) {
+    lines.push(`Sign-in for ${phrase}: Roles Anywhere (keyless)${where}`);
+  }
   if (profile) {
     lines.push(`AWS profile for ${phrase}: ${profile}${where}`);
     const known = await listProfiles();
@@ -184,6 +190,8 @@ unless the set overrides it.)`;
  * - `provider --region <region> [<set>]` — write `AWS_REGION`.
  * - `provider --keys [<set>]` — write `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
  *   prompted or piped, never flags. Setters combine in one call.
+ * - `provider --roles-anywhere [<set>]` — switch the set to the keyless Roles
+ *   Anywhere identity (writes the `S3CAB_RA` marker; AWS-only, ADR-0057).
  * - `provider --unset <knob> [<set>]` — remove a knob's line(s) (distinct from
  *   writing an empty value, which would be a meaningful-empty override).
  * - `provider <set>` — show that set's settings; bare `provider` summarizes all sets.
@@ -191,26 +199,29 @@ unless the set overrides it.)`;
  * Omitting the set name takes the sole-set default for a write/`--unset` (erroring
  * if several sets exist), and summarizes every set for a bare show (ADR-0055).
  *
- * A set holds one credential mode: `--profile` and `--keys` are mutually exclusive
- * — setting one clears the other on that set (endpoint/region are untouched).
+ * A set holds one credential mode: `--profile`, `--keys`, and `--roles-anywhere`
+ * are mutually exclusive — setting one clears the others on that set (endpoint and
+ * region are untouched; Roles Anywhere is AWS-only, so it refuses a set with a
+ * custom endpoint).
  *
  * @param {string} [setName] - A backup set to scope to; omit to target your only
  *   set (write/unset) or summarize all sets (show)
- * @param {object} [options]
- * @param {string} [options.profile] - The AWS profile name to set
- * @param {string} [options.endpoint] - The provider's S3 endpoint URL to set
- * @param {string} [options.region] - The region to set
- * @param {boolean} [options.keys] - Save an access key + secret (prompt/stdin)
- * @param {string} [options.unset] - Remove a setting: profile, endpoint, region, or keys
+ * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean,
+ *   "roles-anywhere"?: boolean, unset?: string }} [options] - `profile`/`endpoint`/
+ *   `region`/`keys` set a connection knob; `roles-anywhere` switches to the keyless
+ *   identity; `unset` removes one setting (profile, endpoint, region, keys, or
+ *   roles-anywhere).
  * @returns {Promise<string>} The status/confirmation text, for the render layer.
  */
 export async function provider(setName, options = {}) {
   const { profile, endpoint, region, keys, unset } = options;
+  const rolesAnywhere = options["roles-anywhere"];
   const setting =
     profile !== undefined ||
     endpoint !== undefined ||
     region !== undefined ||
-    keys;
+    keys ||
+    rolesAnywhere;
 
   if (unset !== undefined && setting) {
     throw new ParseArgsError(
@@ -239,7 +250,12 @@ export async function provider(setName, options = {}) {
     for (const key of envKeys) {
       removeEnvKey(scope.path, key);
     }
-    const what = unset === "keys" ? "access keys" : `AWS ${unset}`;
+    const what =
+      unset === "keys"
+        ? "access keys"
+        : unset === "roles-anywhere"
+          ? "Roles Anywhere setting"
+          : `AWS ${unset}`;
     return `Cleared the ${what} for ${scope.phrase}.`;
   }
 
@@ -249,29 +265,65 @@ export async function provider(setName, options = {}) {
     return text;
   }
 
-  // The knob-gathering (validate, prompt for keys, reject profile+keys) is shared
-  // with `setup` — see lib/provider.mjs. `provider` then applies the one-mode
-  // clearing below, which `setup` doesn't need (its set is brand new).
-  const { updates, summary } = await gatherProviderConfig(options);
-
-  // Enforce the one-mode rule against what's already on disk: writing a profile
-  // clears any access keys, and writing keys clears any profile (endpoint and
-  // region are orthogonal connection knobs — left alone). Read the current values
-  // first so the confirmation can name what was replaced.
+  // Roles Anywhere is AWS-only (ADR-0057), so it can't apply to a set already
+  // pointed at a custom S3 endpoint. Fail fast with the exact fix (ADR-0030),
+  // before prompting or writing anything.
   const current = parseEnvFile(scope.path);
-  /** @type {string[]} */
-  let clear = [];
-  let replaced = "";
-  if (
-    profile !== undefined &&
-    (current.AWS_ACCESS_KEY_ID || current.AWS_SECRET_ACCESS_KEY)
-  ) {
-    clear = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
-    replaced = ", replacing its access keys";
-  } else if (keys && current.AWS_PROFILE) {
-    clear = ["AWS_PROFILE"];
-    replaced = `, replacing its profile '${current.AWS_PROFILE}'`;
+  const setEndpoint = customEndpoint(current);
+  if (rolesAnywhere && setEndpoint) {
+    throw new ParseArgsError(
+      `Set '${scope.name}' points at a custom S3 endpoint (${setEndpoint}), and\n` +
+        `Roles Anywhere is AWS-only. Clear the endpoint first:\n` +
+        `  s3cab provider --unset endpoint ${scope.name}`,
+    );
   }
+
+  // The knob-gathering (validate, prompt for keys, reject two credential modes at
+  // once) is shared with `setup` — see lib/provider.mjs. `provider` then applies
+  // the one-mode clearing below, which `setup` doesn't need (its set is brand new).
+  const { updates, summary } = await gatherProviderConfig({
+    profile,
+    endpoint,
+    region,
+    keys,
+    rolesAnywhere,
+  });
+
+  // Enforce the one-mode rule against what's already on disk: a set holds exactly
+  // one credential mode (profile / keys / Roles Anywhere, ADR-0055/0057), so
+  // setting one clears the other two (endpoint and region are orthogonal
+  // connection knobs — left alone). Name what was replaced, for the confirmation.
+  const newMode = rolesAnywhere
+    ? "ra"
+    : profile !== undefined
+      ? "profile"
+      : keys
+        ? "keys"
+        : undefined;
+  /** @type {string[]} */
+  const clear = [];
+  /** @type {string[]} */
+  const replacedParts = [];
+  if (newMode) {
+    if (
+      newMode !== "keys" &&
+      (current.AWS_ACCESS_KEY_ID || current.AWS_SECRET_ACCESS_KEY)
+    ) {
+      clear.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY");
+      replacedParts.push("its access keys");
+    }
+    if (newMode !== "profile" && current.AWS_PROFILE) {
+      clear.push("AWS_PROFILE");
+      replacedParts.push(`its profile '${current.AWS_PROFILE}'`);
+    }
+    if (newMode !== "ra" && current[RA_MARKER]) {
+      clear.push(RA_MARKER);
+      replacedParts.push("its Roles Anywhere setting");
+    }
+  }
+  const replaced = replacedParts.length
+    ? `, replacing ${replacedParts.join(" and ")}`
+    : "";
 
   // The set's directory already exists (resolveScope resolved it); mkdir is a
   // harmless owner-only guard. The env file may carry secrets (see lib/env-file.mjs).

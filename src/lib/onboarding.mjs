@@ -363,11 +363,11 @@ export function awsIamPlan({ bucket, region, profile }) {
  *   1. deploy the template (bucket + trust anchor + role + profile, all keyless);
  *   2. capture the three ARNs into the local identity with a read-only
  *      `--save --from-stack` (ADR-0056 — CloudFormation resolves the inter-resource
- *      references, so there is nothing to copy-paste).
+ *      references, so there is nothing to copy-paste);
+ *   3. point a backup set at the identity (`setup`/`provider --roles-anywhere`).
  *
- * The runtime signer that *uses* this identity for backups is Phase B (ADR-0057);
- * the closing note says so plainly rather than implying `backup` works over RA
- * today (the target-vs-built honesty rule).
+ * The runtime signer that *uses* this identity for backups is built (Phase B,
+ * ADR-0057): step 3's set then authenticates with the certificate for every backup.
  * @param {object} params
  * @param {string} params.bucket
  * @param {string} params.region
@@ -407,9 +407,13 @@ export function awsRolesAnywherePlan({
       `   reads the stack you just deployed, creates nothing):\n` +
       `   s3cab aws --roles-anywhere --save --from-stack ${stack}${rf}`,
 
-    `Once a backup set targets this identity, s3cab authenticates with the\n` +
-      `certificate and receives short-lived AWS credentials — no long-lived key.\n` +
-      `(The set wiring and runtime signer land next; see docs/design/roles-anywhere.md.)`,
+    `3. Point a backup set at this identity — at creation:\n` +
+      `   s3cab setup <name> <directory>... --bucket ${bucket} --roles-anywhere\n` +
+      `   or switch an existing set:\n` +
+      `   s3cab provider --roles-anywhere <set>`,
+
+    `s3cab then authenticates with the certificate and receives short-lived AWS\n` +
+      `credentials for every backup — no long-lived key ever on disk.`,
   ];
   return blocks.join("\n\n");
 }

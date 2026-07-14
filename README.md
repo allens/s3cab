@@ -176,9 +176,9 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
    set's file for you: `s3cab provider --profile <name>` for an AWS profile,
    `--endpoint <url> --region <r>` for an S3-compatible provider, and `--keys` for an access
    key + secret (prompted or piped — never flags). `s3cab setup` takes the **same** knobs, so a
-   new set can be pointed at its provider in one command. A set signs in **one** way — a profile
-   *or* keys, not both — so setting one clears the other. Long-lived provider keys needn't sit in
-   plaintext — the
+   new set can be pointed at its provider in one command. A set signs in **one** way — a profile,
+   access keys, *or* keyless Roles Anywhere (below), not several — so setting one clears the
+   others. Long-lived provider keys needn't sit in plaintext — the
    [cloud-bucket guide](guide/aws.md#keeping-the-secret-out-of-plaintext) shows how to serve
    them from a secret manager through a `credential_process` profile.
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
@@ -188,6 +188,19 @@ If neither is configured, s3cab stops and tells you what to do. Run **`s3cab hel
 for the full details. s3cab has no sign-in flow of its own and stores no credentials: AWS
 IAM Identity Center (SSO) users sign in with the AWS CLI's `aws sso login`, and s3cab picks
 the session up automatically through the standard chain.
+
+**Keyless access with IAM Roles Anywhere (AWS, recommended).** Instead of a long-lived
+access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
+session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
+certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and
+prints a CloudFormation template; after deploying it and capturing the ARNs
+(`--save --from-stack`), point a set at it with `s3cab setup … --roles-anywhere` or
+`s3cab provider --roles-anywhere <set>`. The durable secret never travels, only a ~1-hour token
+flows to AWS, and the trust anchor gives you central revocation. It's a best-effort win, not a
+vault: a leaked `0600` key file is about as exposed as a leaked access key against file theft —
+the real backstop is the soft-delete-only policy, so even a stolen identity can't destroy backup
+history. The [cloud-bucket guide](guide/aws.md#--roles-anywhere--keyless-certificate-based-access)
+has the full model.
 
 ## Quick start
 

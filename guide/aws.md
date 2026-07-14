@@ -28,8 +28,7 @@ anything happens.
   instead of the default IAM-user one: generate the local CA + client certificate
   and print its CloudFormation template (see [Identity options](#identity-options)).
   Recommended. Combine with `--save --from-stack <stack>` to capture the deployed
-  stack's ARNs. (Setup is built; the runtime signer that uses the identity for
-  backups lands next.)
+  stack's ARNs.
 
 It emits a **CloudFormation template** — a single declarative file describing the
 bucket, its least-privilege policy, and the s3cab identity — which you deploy with
@@ -139,10 +138,51 @@ ARNs back into the local identity:
 Re-running the first step reuses the existing identity (it never silently mints a
 new CA, which would orphan the deployed trust anchor).
 
-> **Runtime signer pending.** Setup (the steps above) is built. Wiring a backup
-> set to authenticate through this identity — the native SigV4-X509 signer — lands
-> next; until then, use the default IAM-user path for live backups. See the
-> [subsystem design](https://github.com/allens/s3cab/blob/main/docs/design/roles-anywhere.md).
+Then point a backup set at the identity — either as you create it, or by switching
+an existing set:
+
+```console
+> s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
+> s3cab provider --roles-anywhere <set>          # switch an existing set
+```
+
+From then on s3cab signs a short request with the client certificate, receives
+short-lived AWS credentials, and refreshes them automatically before they expire —
+so a backup runs with no long-lived key anywhere on disk. (Roles Anywhere is
+AWS-only, so it can't be combined with a custom `--endpoint`.)
+
+#### Why it's better than an access key — and the honest caveat
+
+The advantages are real, but none of them is "the local secret is better
+protected" — so it's worth being precise about what you do and don't gain:
+
+- **The durable secret never travels.** The client private key is generated
+  locally, never displayed, never sent to AWS (only the public CA is uploaded, as
+  the trust anchor). An access-key secret, by contrast, is _designed_ to be shown
+  once and pasted around — shell history, clipboard, config sync.
+- **What flows to AWS, logs, and process memory is a ~1-hour session token**, not a
+  permanent key. A token scraped from a log is game-over for an hour, not forever.
+- **Central revocation.** Disable or delete the trust anchor and every session from
+  that CA dies immediately — nothing to rotate on the machine. Roles Anywhere also
+  supports importing a CRL to revoke one specific client certificate.
+- **AWS-side scoping** — session-duration caps, scoped session policies, and the
+  certificate as the logged CloudTrail identity.
+
+The honest caveat: **against pure file exfiltration, the `0600` PEM on disk is only
+marginally better than an access key.** If someone steals `client.key`, they can
+mint fresh short-lived credentials repeatedly for the certificate's life (or until
+you disable the trust anchor) — "short-lived credentials" does not rescue a
+long-lived _signing key_. True machine-binding would need an OS keystore/TPM, which
+s3cab deliberately doesn't require (see
+[ADR-0058](https://github.com/allens/s3cab/blob/main/docs/adr/0058-roles-anywhere-cert-generation.md)).
+
+What actually bounds the damage is the same backstop as everywhere in s3cab: the
+least-privilege policy is **soft-delete-only** (`DeleteObject`, never
+`DeleteObjectVersion`) on a versioned, `Retain`-protected bucket, so even a fully
+compromised identity **cannot permanently destroy your backup history** — a leaked
+key is "rotate the trust anchor," not "backups gone." Keep the key file `0600`,
+watch CloudTrail's `CreateSession` events, and you have detection plus a bounded
+blast radius.
 
 ### AWS IAM Identity Center (SSO)
 

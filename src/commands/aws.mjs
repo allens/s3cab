@@ -128,7 +128,11 @@ async function saveRolesAnywhere(stackName, region) {
   return `Saved the Roles Anywhere ARNs from stack "${stackName}" (region ${region})
 to your machine identity at ${tildeify(dir)}/env.
 
-Your keyless identity is now fully configured. Once a backup set targets it,
-s3cab authenticates with the certificate and receives short-lived AWS
-credentials — no long-lived key.`;
+Your keyless identity is now fully configured. Point a backup set at it — at
+creation:
+  s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
+or switch an existing set:
+  s3cab provider --roles-anywhere <set>
+s3cab then authenticates with the certificate and receives short-lived AWS
+credentials for every backup — no long-lived key.`;
 }

@@ -343,9 +343,15 @@ Full guide: https://github.com/allens/s3cab#authentication`,
         description:
           "Save an access key + secret — prompts at a terminal, or reads two lines from stdin (never flags)",
       },
+      "roles-anywhere": {
+        type: "boolean",
+        description:
+          "Switch the set to the keyless Roles Anywhere identity (AWS-only; set it up with 's3cab aws --roles-anywhere')",
+      },
       unset: {
         type: "string",
-        description: "Remove a setting: profile, endpoint, region, or keys",
+        description:
+          "Remove a setting: profile, endpoint, region, keys, or roles-anywhere",
       },
     },
     exec: (options, [set] = []) => provider(set, options),
@@ -388,6 +394,11 @@ Full guide: https://github.com/allens/s3cab#authentication`,
         type: "boolean",
         description:
           "Save an access key + secret — prompts at a terminal, or reads two lines from stdin (never flags)",
+      },
+      "roles-anywhere": {
+        type: "boolean",
+        description:
+          "Point the set at the keyless Roles Anywhere identity (set it up first with 's3cab aws --roles-anywhere')",
       },
     },
     exec: (options, [name, ...directories] = []) =>

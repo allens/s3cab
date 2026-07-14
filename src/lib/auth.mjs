@@ -2,6 +2,12 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { listProfiles } from "./aws-profiles.mjs";
 import { customEndpoint, loadedSet } from "./env.mjs";
 import { tildeify } from "./home.mjs";
+import {
+  createSession,
+  isRolesAnywhereMode,
+  machineIdentityDir,
+  readSigningIdentity,
+} from "./roles-anywhere.mjs";
 
 // AWS credential resolution. This is the single source of truth for *how* s3cab
 // obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`) hands
@@ -19,6 +25,13 @@ import { tildeify } from "./home.mjs";
 // Interactive SSO sign-in is deliberately *not* s3cab's job: `aws sso login`
 // (or any other tool that feeds the standard chain) handles it, and s3cab picks
 // the session up via step 1.
+//
+// A fourth source slots in ahead of the chain (ADR-0057): when the loaded set is
+// in Roles Anywhere mode (its `S3CAB_RA` marker, merged into the environment by
+// `loadSet`), the native SigV4-X509 signer (src/lib/roles-anywhere.mjs) mints
+// short-lived STS credentials from the machine's certificate identity instead of
+// the standard chain. It returns credentials with an `expiration`, so the SDK's
+// own provider-memoization refreshes them before expiry — no caching of our own.
 
 /**
  * The chain's own message, trimmed and indented to sit under a label — the same
@@ -33,9 +46,11 @@ const reasonFrom = (cause) =>
 
 /**
  * Classify a set's credential situation into the parts that vary per case — the
- * line-1 annotation, an optional leading diagnosis (the "aha"), and the fix block
- * — which {@link noCredentialsError} drops into a constant frame. The four cases
- * are decided by what the *set* declares (ADR-0055), wording per ADR-0030:
+ * line-1 annotation, an optional leading diagnosis (the "aha"), an optional
+ * `source` (what {@link noCredentialsError}'s "looked in" step 2 names, defaulting
+ * to the ambient AWS chain), and the fix block — which drops into a constant frame.
+ * The cases are decided by what the *set* declares (ADR-0055), wording per ADR-0030:
+ *   - Roles Anywhere marker but the machine identity is missing/broken → set it up / repair it;
  *   - a profile absent from `~/.aws` → the missing "aha": create it / point elsewhere;
  *   - a profile present (or `~/.aws` unreadable) → it produced nothing: SSO sign-in / check keys;
  *   - a custom endpoint (non-AWS) but no keys → save the provider's key pair;
@@ -47,9 +62,30 @@ const reasonFrom = (cause) =>
  * @param {string[]} [knownProfiles] - Profiles in `~/.aws`; `undefined` when the
  *   config couldn't be read, so we don't claim a profile is absent.
  * @param {string} [endpoint] - The custom S3 endpoint, if any (its presence means "not AWS").
- * @returns {{ annotation: string, diagnosis?: string, fix: string }}
+ * @param {boolean} [rolesAnywhere] - The set is in Roles Anywhere mode (the marker
+ *   is set) but this machine's certificate identity is absent or incomplete.
+ * @returns {{ annotation: string, diagnosis?: string, source?: string, fix: string }}
  */
-const credentialCase = (set, profile, knownProfiles, endpoint) => {
+const credentialCase = (
+  set,
+  profile,
+  knownProfiles,
+  endpoint,
+  rolesAnywhere,
+) => {
+  if (rolesAnywhere) {
+    return {
+      annotation: "Roles Anywhere",
+      diagnosis: `Set '${set.name}' uses Roles Anywhere (keyless), but this machine's
+certificate identity is missing, incomplete, or its ARNs were never captured.`,
+      source: `your machine's Roles Anywhere identity
+     (${tildeify(machineIdentityDir())})`,
+      fix: `To set it up (or repair it), generate the identity and emit its template:
+  s3cab aws <bucket> --roles-anywhere
+then deploy the printed template and capture the stack's ARNs:
+  s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>`,
+    };
+  }
   if (profile) {
     if (knownProfiles && !knownProfiles.includes(profile)) {
       return {
@@ -128,29 +164,36 @@ Run 's3cab help provider' for details.`,
  * S3CAB_DEBUG (`cause` kept for that path). The set and the `~/.aws` cross-check
  * are gathered by the async caller (`resolveCredentials`) and passed in, so this
  * factory stays sync.
- * @param {unknown} cause - The error thrown by the standard chain.
+ * @param {unknown} cause - The error thrown by the standard chain (or, in RA mode,
+ *   the "identity missing/broken" error {@link resolveCredentials} raises).
  * @param {{ set?: { name: string, envPath: string }, profile?: string,
- *   knownProfiles?: string[], endpoint?: string }} [ctx]
+ *   knownProfiles?: string[], endpoint?: string, rolesAnywhere?: boolean }} [ctx]
  */
 export const noCredentialsError = (cause, ctx = {}) => {
   const reason = reasonFrom(cause);
-  const { set, profile, knownProfiles, endpoint } = ctx;
+  const { set, profile, knownProfiles, endpoint, rolesAnywhere } = ctx;
   if (!set) {
     return ambientCredentialsError(cause, reason);
   }
-  const { annotation, diagnosis, fix } = credentialCase(
+  const { annotation, diagnosis, source, fix } = credentialCase(
     set,
     profile,
     knownProfiles,
     endpoint,
+    rolesAnywhere,
   );
+  // Step 2 of "looked in" is the second place s3cab consulted — the ambient AWS
+  // chain by default, or (RA mode) the machine's certificate identity.
+  const lookedIn =
+    source ??
+    `your standard AWS setup (~/.aws/config, ~/.aws/credentials, or AWS_*
+     in your environment)`;
   const message = [
     `No credentials found for set '${set.name}'.`,
     diagnosis,
     `s3cab looked in:
   1. the set's own settings:  ${tildeify(set.envPath)}   (${annotation})
-  2. your standard AWS setup (~/.aws/config, ~/.aws/credentials, or AWS_*
-     in your environment), which reported:
+  2. ${lookedIn}, which reported:
      ${reason}`,
     fix,
     `Run 's3cab help provider' for details.`,
@@ -355,6 +398,30 @@ yours did. Sync your system clock, then run the command again.`,
 const standardChain = fromNodeProviderChain();
 
 /**
+ * The Roles Anywhere credential source (ADR-0057): read the machine's certificate
+ * identity, sign a `CreateSession`, and return the short-lived STS credentials with
+ * their `expiration` so the SDK refreshes them before expiry. When the set is in RA
+ * mode but the identity is absent or incomplete, raise the actionable
+ * "RA identity missing/broken" error (the fifth `credentialCase`) rather than a
+ * raw read failure.
+ * @returns {Promise<import("@aws-sdk/types").AwsCredentialIdentity>}
+ */
+const resolveRolesAnywhereCredentials = async () => {
+  const identity = readSigningIdentity();
+  if (!identity) {
+    throw noCredentialsError(
+      new Error(
+        `No usable Roles Anywhere certificate identity at ${tildeify(machineIdentityDir())}.`,
+      ),
+      { set: loadedSet(), rolesAnywhere: true },
+    );
+  }
+  const credentials = await createSession(identity);
+  // Field names already match AwsCredentialIdentity; only expiration needs a Date.
+  return { ...credentials, expiration: new Date(credentials.expiration) };
+};
+
+/**
  * The credential provider s3cab hands to its AWS clients. Implements the
  * resolution order above: the standard chain, after the command's `loadEnv` has
  * already merged any s3cab env files into the environment the chain reads; if it
@@ -365,6 +432,9 @@ const standardChain = fromNodeProviderChain();
  * @type {import("@aws-sdk/types").AwsCredentialIdentityProvider}
  */
 export const resolveCredentials = async (awsIdentityProperties) => {
+  if (isRolesAnywhereMode()) {
+    return resolveRolesAnywhereCredentials();
+  }
   try {
     return await standardChain(awsIdentityProperties);
   } catch (error) {
