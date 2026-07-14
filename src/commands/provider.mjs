@@ -6,7 +6,7 @@ import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { gatherProviderConfig, keyTail } from "../lib/provider.mjs";
-import { RA_MARKER } from "../lib/roles-anywhere.mjs";
+import { RA_MARKER, isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
@@ -92,7 +92,7 @@ async function describeScope(scope, { withShellNote = true } = {}) {
   const endpoint = customEndpoint(values);
   const region = values.AWS_REGION;
   const keyId = values.AWS_ACCESS_KEY_ID;
-  const rolesAnywhere = values[RA_MARKER] === "1";
+  const rolesAnywhere = isRolesAnywhereMode(values);
   if (!profile && !endpoint && !region && !keyId && !rolesAnywhere) {
     return {
       ambient: true,
@@ -316,7 +316,7 @@ export async function provider(setName, options = {}) {
       clear.push("AWS_PROFILE");
       replacedParts.push(`its profile '${current.AWS_PROFILE}'`);
     }
-    if (newMode !== "ra" && current[RA_MARKER]) {
+    if (newMode !== "ra" && isRolesAnywhereMode(current)) {
       clear.push(RA_MARKER);
       replacedParts.push("its Roles Anywhere setting");
     }
