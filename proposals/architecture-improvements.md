@@ -31,27 +31,23 @@ that surfaced it and when it was last verified against the source.
 Surfaced 2026-07-14 (seventh pass) over the Roles Anywhere subsystem (ADR-0055–0058, PRs
 #186–#191) — the churn since the 2026-07-10 empty. The subsystem is mostly deep (the
 SigV4-X509 signer is the in-repo exemplar of the pure-core/thin-I/O pattern). **A and B
-landed together in [PR #192](https://github.com/allens/s3cab/pull/192)** (run log below): the
-pure `arnsFromOutputs` extraction plus the single-sourced `ARN_ENV` contract, with a
-template↔reader contract test. The three that remain all sit on the **credential-mode
+landed in [PR #192](https://github.com/allens/s3cab/pull/192)** (pure `arnsFromOutputs` +
+single-sourced `ARN_ENV` contract) **and D in [PR #193](https://github.com/allens/s3cab/pull/193)**
+(the RA-aware `authNotice`) — run log below. Two remain, both on the **credential-mode
 surface** (letters kept stable for reference):
 
 - **C — a pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier**
   (**Worth exploring — ADR-0055 tension, flag it**). "Which mode is this set in?" is re-derived
-  from raw env at 5+ sites (auth.mjs:435 route + :69–126 `credentialCase`; provider.mjs:296–322
-  `newMode`, :88–129 `describeScope`, :164–181 `shellNote`; s3.mjs authNotice). Stringly-typed
-  and inconsistent: flag/key `"roles-anywhere"`/`RA_MARKER`, internal literal `"ra"`, boolean
-  `rolesAnywhere`; and the marker read drifts (`=== "1"` vs a loose truthy at provider.mjs:319 —
-  `S3CAB_RA=0` reads not-RA everywhere *except* clear-on-replace, a latent bug). A **read-only**
-  classifier concentrates the derivations and kills the drift. ADR-0055 keeps auth "a bag of
-  `AWS_*`"; a read-only adapter over the bag is arguably new surface, not a restructure — but a
-  decision, not an obvious win. **Do not** fold the write-side mode-clearing in (that drags the
-  file-write across the seam and *fails* the deletion test — verified).
-- **D — teach `authNotice` the RA mode** (**Strong**). authNotice (s3.mjs:70–82) knows only
-  profile/endpoint/generic; an RA-mode set has neither, so every RA command prints the anonymous
-  `"Contacting the cloud…"`, silently degrading the docstring's promise for the one mode where
-  the identity *is* known. No `s3.test.mjs` RA case. Standalone-cheap; cheaper as the first
-  beneficiary of C (it is C's concrete symptom). Consistent with ADR-0057.
+  from raw env at several sites (auth.mjs:435 route + :69–126 `credentialCase`; provider.mjs:296–322
+  `newMode`, :88–129 `describeScope`, :164–181 `shellNote`; and s3.mjs's `client()` now feeds
+  `authNotice` via `isRolesAnywhereMode()` since #193). Stringly-typed and inconsistent: flag/key
+  `"roles-anywhere"`/`RA_MARKER`, internal literal `"ra"`, boolean `rolesAnywhere`; and the marker
+  read drifts (`=== "1"` vs a loose truthy at provider.mjs:319 — `S3CAB_RA=0` reads not-RA
+  everywhere *except* clear-on-replace, a latent bug). A **read-only** classifier concentrates the
+  derivations and kills the drift. ADR-0055 keeps auth "a bag of `AWS_*`"; a read-only adapter over
+  the bag is arguably new surface, not a restructure — but a decision, not an obvious win. **Do
+  not** fold the write-side mode-clearing in (that drags the file-write across the seam and *fails*
+  the deletion test — verified).
 - **E — consolidate the RA onboarding recipe prose** (**Worth exploring**). `saveRolesAnywhere`
   (aws.mjs:126–138) hand-writes ~7 lines near-verbatim to `awsRolesAnywherePlan`'s close
   (onboarding.mjs:410–416) — while aws.mjs's own header says the recipe text lives in
@@ -260,7 +256,16 @@ least once; re-open only if the stated reason no longer holds.
   template emits every Output name the reader expects — chosen over a shared symbol (grilling
   decision) so the template stays readable literal YAML and no `onboarding → roles-anywhere`
   edge appears (ADR-0006: a test guard, not machinery; the asymmetric `RoleArn ← Role.Arn`
-  GetAtt meant a shared symbol would only own half the pairing anyway). Three opens remain (C,
-  D, E) — all on the credential-mode surface; **D is C's concrete symptom**, so the likely order
-  is D (Strong, cheap) then C (the deeper classifier, ADR-0055 tension to grill), with E as a
+  GetAtt meant a shared symbol would only own half the pairing anyway). Three opens remained (C,
+  D, E) — all on the credential-mode surface; **D is C's concrete symptom**, so the order taken
+  was D (Strong, cheap) then C (the deeper classifier, ADR-0055 tension to grill), with E as a
   ride-along whenever the recipe prose is next touched.
+- **2026-07-14 — D landed** ([PR #193](https://github.com/allens/s3cab/pull/193)). *Teach
+  `authNotice` the RA mode*: an RA-mode set carries no `AWS_PROFILE` and (RA is AWS-only) no
+  endpoint, so `authNotice` fell through to the anonymous `"Contacting the cloud…"` for every
+  Roles Anywhere command — degrading its "which identity?" promise for the one mode where the
+  identity is known. Added an RA-first branch (`"Using Roles Anywhere (keyless)"`) fed by
+  `isRolesAnywhereMode()` from `client()`; `authNotice` stays pure (receives the boolean, never
+  reads env), RA takes precedence over any hand-left profile/endpoint (mirrors `resolveCredentials`'
+  RA-before-chain check), plus the missing `s3.test.mjs` RA case. C and E remain open; C is next
+  (grilled before building — the ADR-0055 read-only-classifier decision), E a ride-along.
