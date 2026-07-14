@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { X509Certificate, createHash, verify } from "node:crypto";
-import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -546,6 +552,26 @@ describe("isRolesAnywhereMode / readSigningIdentity", () => {
       join(machineIdentityDir(), "env"),
       "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nAWS_REGION=eu-west-1\n", // no profile/role
     );
+    assert.equal(readSigningIdentity(), undefined);
+  });
+
+  it("returns undefined (not a throw) when a present file is unreadable/corrupt", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    writeFileSync(
+      join(machineIdentityDir(), "env"),
+      "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
+        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+    );
+    // Replace client.key with a *directory* — it still "exists" (so the identity
+    // reads as complete), but reading it throws EISDIR. A cross-platform stand-in
+    // for any unreadable/corrupt file; the caller must get undefined, not a crash.
+    const clientKey = join(machineIdentityDir(), "client.key");
+    unlinkSync(clientKey);
+    mkdirSync(clientKey);
+    assert.equal(machineIdentityExists(), true); // all four paths still present
+    assert.doesNotThrow(() => readSigningIdentity());
     assert.equal(readSigningIdentity(), undefined);
   });
 });

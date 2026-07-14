@@ -540,35 +540,44 @@ export const isRolesAnywhereMode = (env = process.env) =>
 
 /**
  * Read the machine RA identity the signer signs with, or `undefined` when it is
- * absent or incomplete — no identity files, or the env file is missing an ARN or
- * the region (a set in RA mode whose `--save` step never ran). The signer's inputs
- * come from the **machine identity**, not the set (the set carries only the
- * marker): the two certs/keys live beside the `env` file under
- * `~/.s3cab/roles-anywhere/`. Returning `undefined` (not throwing) lets the
- * credential layer raise the actionable "RA identity missing/broken" error
- * (auth.mjs, ADR-0030) rather than an opaque read failure here.
+ * absent, incomplete, **or unreadable/corrupt** — no identity files, the env file
+ * missing an ARN or the region (a set in RA mode whose `--save` step never ran), or
+ * a file that exists but can't be read/parsed (EACCES, a malformed `env`). The
+ * signer's inputs come from the **machine identity**, not the set (the set carries
+ * only the marker): the two certs/keys live beside the `env` file under
+ * `~/.s3cab/roles-anywhere/`. Returning `undefined` in every "not usable" case (not
+ * throwing) lets the credential layer raise the actionable "RA identity
+ * missing/broken" error (auth.mjs, ADR-0030) — whose remedy, regenerate, fits a
+ * corrupt identity too — rather than an opaque read/parse failure here.
  * @returns {SigningIdentity | undefined}
  */
 export function readSigningIdentity() {
   if (!machineIdentityExists()) {
     return undefined;
   }
-  const env = parseEnvFile(identityEnvPath());
-  const trustAnchorArn = env.S3CAB_RA_TRUST_ANCHOR_ARN;
-  const profileArn = env.S3CAB_RA_PROFILE_ARN;
-  const roleArn = env.S3CAB_RA_ROLE_ARN;
-  const region = env.AWS_REGION;
-  if (!trustAnchorArn || !profileArn || !roleArn || !region) {
+  try {
+    const env = parseEnvFile(identityEnvPath());
+    const trustAnchorArn = env.S3CAB_RA_TRUST_ANCHOR_ARN;
+    const profileArn = env.S3CAB_RA_PROFILE_ARN;
+    const roleArn = env.S3CAB_RA_ROLE_ARN;
+    const region = env.AWS_REGION;
+    if (!trustAnchorArn || !profileArn || !roleArn || !region) {
+      return undefined;
+    }
+    return {
+      region,
+      certPem: readFileSync(identityPath("client.pem"), "utf8"),
+      keyPem: readFileSync(identityPath("client.key"), "utf8"),
+      trustAnchorArn,
+      profileArn,
+      roleArn,
+    };
+  } catch {
+    // Present-but-unreadable/corrupt (EACCES, a directory where a file should be,
+    // a malformed env) is "broken", not "readable" — treat it as no usable
+    // identity so the caller gives the regenerate guidance, not a raw error.
     return undefined;
   }
-  return {
-    region,
-    certPem: readFileSync(identityPath("client.pem"), "utf8"),
-    keyPem: readFileSync(identityPath("client.key"), "utf8"),
-    trustAnchorArn,
-    profileArn,
-    roleArn,
-  };
 }
 
 // ── The native SigV4-X509 signer (Phase B) ────────────────────────────────────

@@ -117,8 +117,9 @@ const rolesAnywhereNotReadyError = (bucket) =>
     `Set up the keyless Roles Anywhere identity before creating a set that uses it.\n` +
       `This machine has no complete Roles Anywhere identity yet. Run:\n` +
       `  s3cab aws ${bucket} --roles-anywhere\n` +
-      `then deploy the printed template and capture its ARNs:\n` +
-      `  s3cab aws --roles-anywhere --save --from-stack s3cab-${bucket}`,
+      `then deploy the printed template and capture its ARNs (use the stack name\n` +
+      `you deployed it under):\n` +
+      `  s3cab aws --roles-anywhere --save --from-stack <stack>`,
   );
 
 /**
