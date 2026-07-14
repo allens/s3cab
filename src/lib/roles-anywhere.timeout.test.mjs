@@ -10,8 +10,8 @@ import { describe, it, mock } from "node:test";
 // this clean. Asserts the observable contract: a connected-but-silent endpoint
 // rejects with an actionable error instead of hanging the command forever.
 
-/** The options the mocked `request` was last called with (for assertion). */
-let lastOptions;
+/** The `timeout` the mocked `request` was last called with (for assertion). */
+let lastTimeout = /** @type {number | undefined} */ (undefined);
 
 mock.module("node:https", {
   exports: {
@@ -19,10 +19,10 @@ mock.module("node:https", {
      * A fake `https.request` whose socket never answers: `end()` fires `timeout`
      * (the inactivity signal), and `destroy(err)` surfaces as an `error` — exactly
      * the sequence the real socket produces when the SUT aborts on timeout.
-     * @param {object} options
+     * @param {import("node:https").RequestOptions} options
      */
     request(options) {
-      lastOptions = options;
+      lastTimeout = options.timeout;
       const req = Object.assign(new EventEmitter(), {
         write() {},
         end() {
@@ -63,7 +63,9 @@ describe("createSession timeout", () => {
     );
     assert.match(error.message, /rolesanywhere\.eu-west-1\.amazonaws\.com/);
     // A bounded, non-zero timeout was actually set on the request.
-    assert.equal(typeof lastOptions.timeout, "number");
-    assert.ok(lastOptions.timeout > 0 && lastOptions.timeout <= 30_000);
+    assert.ok(
+      lastTimeout !== undefined && lastTimeout > 0 && lastTimeout <= 30_000,
+      `expected a bounded timeout, got ${lastTimeout}`,
+    );
   });
 });
