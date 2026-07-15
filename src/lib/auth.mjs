@@ -1,5 +1,5 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { listProfiles } from "./aws-profiles.mjs";
+import { parseKnownFiles } from "@smithy/shared-ini-file-loader";
 import { customEndpoint, loadedSet } from "./env.mjs";
 import { tildeify } from "./home.mjs";
 import {
@@ -420,6 +420,31 @@ const resolveRolesAnywhereCredentials = async () => {
   // Field names already match AwsCredentialIdentity; only expiration needs a Date.
   return { ...credentials, expiration: new Date(credentials.expiration) };
 };
+
+/**
+ * The names of every profile defined in the user's AWS shared config files
+ * (`~/.aws/config` + `~/.aws/credentials`), sorted — the typo-catcher a command
+ * uses to validate a `--profile` name at config time, catching a mistake then
+ * rather than as a surprise on the next cloud op. An absent config yields `[]`
+ * (the parser tolerates missing files); `undefined` means the files could not be
+ * read at all — the signal for the caller to *skip* validation silently rather
+ * than wrongly report "no profiles". Validation is advisory and must never block
+ * a user from setting their own config.
+ *
+ * Uses the canonical AWS-family INI parser, which handles the `[profile X]`
+ * (config) vs `[X]` (credentials) section-name asymmetry, merges both files, and
+ * honours the AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE overrides — so we
+ * never hard-code ~/.aws paths or re-implement the INI quirks. Read-only, like
+ * everything here (s3cab never *writes* ~/.aws — see the module header).
+ * @returns {Promise<string[] | undefined>}
+ */
+export async function listProfiles() {
+  try {
+    return Object.keys(await parseKnownFiles({})).sort();
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The credential provider s3cab hands to its AWS clients. Implements the
