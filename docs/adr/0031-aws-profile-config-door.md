@@ -48,7 +48,7 @@ originally sketched (`s3cab aws --profile <name> [<set>]`).
 
 When `aws --profile <name>` is given, s3cab checks the name against the profiles
 defined in `~/.aws/config` + `~/.aws/credentials` (via `@smithy/shared-ini-file-loader`'s
-`parseKnownFiles`, in `src/lib/aws-profiles.mjs`) and **warns, listing the available
+`parseKnownFiles`, in `src/lib/auth.mjs`) and **warns, listing the available
 profiles, if the name is unknown — but still writes it.** This catches a typo at
 config time instead of as a surprise on the next cloud op.
 
