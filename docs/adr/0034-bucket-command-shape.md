@@ -62,14 +62,14 @@ lifecycle) and **(2)** the policy are *identity-agnostic* — identical for ever
 the identity step forks, into the IAM-user default, the `--sso` recipe (B-light = reuse your
 sign-in, plus a separated advanced dedicated-permission-set block), and the non-AWS path (no
 IAM, so a `~/.s3cab/env` template instead of a policy). The plan text lives in pure, testable
-generators in [src/lib/onboarding.mjs](../../src/lib/onboarding.mjs); the command is a thin
+generators in [src/lib/aws.mjs](../../src/lib/aws.mjs); the command is a thin
 porcelain that resolves region/profile/endpoint, routes, and writes to stdout
 ([0010](0010-cli-output-conventions.md)) — the plan *is* the result.
 
 ## Consequences
 
 - A new top-level command and one `src/commands/` file (one export — [0023](0023-porcelain-plumbing-lib-layers.md)),
-  plus the `lib/onboarding.mjs` generators.
+  plus the `lib/aws.mjs` generators.
 - Purely local/offline: no S3, no credentials needed to *run* it, so the whole plan can be read
   before any credential exists.
 - `--run` (an optional future mode that would *actively* perform the non-secret bucket steps) and

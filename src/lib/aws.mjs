@@ -392,7 +392,7 @@ export function awsRolesAnywherePlan({
  * captures a deployed stack's ARNs into the local identity (src/commands/aws.mjs):
  * it names the file it wrote and the next step — pointing a backup set at the
  * now-complete identity (ADR-0030, goal-framed). Pure text, so it lives here with
- * the other recipe prose (aws.mjs's "recipe text lives in ../lib/aws.mjs"
+ * the other recipe prose (aws.mjs's "recipe text lives in src/lib/aws.mjs"
  * invariant) and is unit-testable without the `--save` I/O.
  * @param {{ stackName: string, region: string, dir: string }} params - `dir` is
  *   the identity directory as a display path (the caller passes `tildeify(dir)`).

@@ -93,7 +93,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 
 3. **`bucketPolicy` is AWS-only.** It emits `arn:aws:s3:::` ARNs and AWS IAM JSON, meaningless
    off AWS. Carries an AWS-only doc note; emitted by the `aws` onboarding command
-   ([../../src/lib/onboarding.mjs](../../src/lib/onboarding.mjs)). Provider-aware onboarding
+   ([../../src/lib/aws.mjs](../../src/lib/aws.mjs)). Provider-aware onboarding
    is deferred.
 
 4. **Gate the default integrity checksum off-AWS.** ✅ **Done.** Recent AWS SDK v3
