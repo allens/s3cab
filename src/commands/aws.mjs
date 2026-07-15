@@ -8,8 +8,9 @@ import {
   awsRolesAnywherePlan,
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
-  validateAwsBucketName,
-} from "../lib/onboarding.mjs";
+  IAM_USER_NAME_MAX,
+  IAM_USER_PREFIX_LEN,
+} from "../lib/aws.mjs";
 import { ensureMachineIdentity } from "../lib/roles-anywhere.mjs";
 import { saveArnsFromStack } from "../lib/stack-arns.mjs";
 import { s3cabDir, tildeify } from "../lib/home.mjs";
@@ -35,7 +36,7 @@ import { validateBucketName } from "../lib/sets.mjs";
 // recipe points there in a line. A custom endpoint (AWS_ENDPOINT_URL*) means "not
 // AWS", so the command points at `s3cab help provider` — the non-AWS steps live
 // there — instead of printing IAM JSON that can't apply. The recipe text lives in
-// src/lib/onboarding.mjs (pure, unit-testable); cert gen lives in
+// src/lib/aws.mjs (pure, unit-testable); cert gen lives in
 // src/lib/roles-anywhere.mjs; the `--save` ARN capture — the one non-S3 AWS API
 // call, so the one CloudFormation dependency — lives in src/lib/stack-arns.mjs, a
 // module nothing but this command imports (ADR-0059 keeps provisioning here).
@@ -101,10 +102,14 @@ Wasabi, MinIO, …), run:
   }
 
   requireArg(name, "bucket");
-  validateBucketName(name);
   // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
-  // it has stricter name rules than the permissive global validator (ADR-0056).
-  validateAwsBucketName(name);
+  // it tightens the permissive global validator (ADR-0056): the CloudFormation
+  // stack name rejects dots, and the derived IAM user name (`s3cab-user-<bucket>`)
+  // must fit AWS's 64-char cap.
+  validateBucketName(name, {
+    allowDots: false,
+    maxLength: IAM_USER_NAME_MAX - IAM_USER_PREFIX_LEN,
+  });
 
   // The keyless Roles Anywhere path (ADR-0057/0058): generate the machine identity
   // locally (once — reused on re-run so the CA never silently changes) and write
@@ -155,7 +160,7 @@ function writeTemplate(bucket, template) {
 /**
  * The `--save --from-stack` body: capture the stack's RA ARNs into the local
  * identity, then confirm. The confirmation prose lives with the other recipe text
- * in onboarding.mjs (`awsSaveConfirmation`, pure + unit-testable — this file's
+ * in ../lib/aws.mjs (`awsSaveConfirmation`, pure + unit-testable — this file's
  * header invariant); here we only do the I/O and hand it the display path.
  * @param {string} stackName
  * @param {string} region

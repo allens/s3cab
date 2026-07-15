@@ -211,9 +211,18 @@ export function validateSetName(name) {
  * IP-form, …): s3cab also targets non-AWS S3 providers (R2/B2/…) whose rules
  * differ, so an over-strict check would reject valid names (#8). The provider
  * rejects a truly malformed name at first use with its own error.
+ *
+ * A caller that *does* have provider-specific limits passes them as options —
+ * `aws` sets `allowDots: false` and a `maxLength` because it derives named
+ * CloudFormation/IAM resources from the bucket. The checks stay provider-neutral
+ * (the message states the constraint, not why); the caller owns the "why".
  * @param {string} bucket
+ * @param {{ allowDots?: boolean, maxLength?: number }} [options]
  */
-export function validateBucketName(bucket) {
+export function validateBucketName(
+  bucket,
+  { allowDots = true, maxLength = Infinity } = {},
+) {
   if (bucket === "") {
     throw new ValidationError(
       `No bucket name given. ` +
@@ -237,6 +246,18 @@ export function validateBucketName(bucket) {
     throw new ValidationError(
       `Invalid bucket name: ${bucket}\n` +
         `Give a plain bucket name with no surrounding whitespace.`,
+    );
+  }
+  if (!allowDots && bucket.includes(".")) {
+    throw new ValidationError(
+      `Invalid bucket name: ${bucket}\n` +
+        `Give a bucket name without dots, e.g. ${bucket.replaceAll(".", "-")}.`,
+    );
+  }
+  if (bucket.length > maxLength) {
+    throw new ValidationError(
+      `Invalid bucket name: ${bucket}\n` +
+        `Give a bucket name of ${maxLength} characters or fewer (this is ${bucket.length}).`,
     );
   }
 }

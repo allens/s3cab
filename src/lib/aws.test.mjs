@@ -7,8 +7,7 @@ import {
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
   backupLifecycle,
-  validateAwsBucketName,
-} from "./onboarding.mjs";
+} from "./aws.mjs";
 import { ARN_ENV } from "./roles-anywhere.mjs";
 
 // A throwaway, well-formed PEM stand-in for the CA bundle these functions embed —
@@ -320,33 +319,5 @@ describe("awsSaveConfirmation", () => {
     );
     assert.match(out, /s3cab provider --roles-anywhere <set>/);
     assert.match(out, /short-lived AWS\n?credentials for every backup/);
-  });
-});
-
-describe("validateAwsBucketName", () => {
-  it("accepts an ordinary lowercase-hyphen bucket name", () => {
-    assert.doesNotThrow(() => validateAwsBucketName("my-backups"));
-  });
-
-  it("rejects a dotted name — CloudFormation stack names can't contain dots", () => {
-    assert.throws(() => validateAwsBucketName("com.example.backups"), {
-      name: "ValidationError",
-      message: /stack name .* can't contain dots/,
-    });
-  });
-
-  it("suggests a dot-free replacement in the error", () => {
-    assert.throws(() => validateAwsBucketName("my.backups"), {
-      message: /my-backups/,
-    });
-  });
-
-  it("rejects a name that pushes the IAM user name past 64 characters", () => {
-    // "s3cab-user-" is 11 chars, so 54+ overflows; 53 is the last that fits.
-    assert.throws(() => validateAwsBucketName("a".repeat(54)), {
-      name: "ValidationError",
-      message: /64-character limit/,
-    });
-    assert.doesNotThrow(() => validateAwsBucketName("a".repeat(53)));
   });
 });
