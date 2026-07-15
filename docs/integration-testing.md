@@ -1,9 +1,12 @@
 # Running the S3 integration tests
 
 s3cab's test suite has a tier of **real-S3 integration tests** — they round-trip against
-an actual bucket (backup → restore, listing, verified download). They are **opt-in**:
-each is gated on the `S3CAB_TEST_BUCKET` environment variable and is skipped (with a
-message) when it is unset, so a plain `npm test` with no credentials stays green.
+an actual bucket (backup → restore, listing, verified download). They are **opt-in**: a
+plain `npm test` runs only the hermetic unit + e2e suites and never globs them, so it
+stays green with no credentials. You opt in by running `npm run test:integration` (or
+`test:all`) — and once you do, a real bucket is **required**: with `S3CAB_TEST_BUCKET`
+unset the run **fails fast** with an actionable error rather than silently skipping
+(hard-fail > passing off having tested nothing — [ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md)).
 
 This guide is the **how**: first **[local development](#local-development)** (run them on
 your machine), then **[continuous integration](#continuous-integration-github-actions)**
@@ -18,7 +21,7 @@ your machine), then **[continuous integration](#continuous-integration-github-ac
 
 | Input | Notes |
 | --- | --- |
-| `S3CAB_TEST_BUCKET` | the bucket to test against — its presence flips the gated suites on |
+| `S3CAB_TEST_BUCKET` | the bucket to test against — **required** for `test:integration`/`test:all` (an unset value fails the run fast, it does not skip) |
 | AWS credentials | resolved from your AWS config (profile / SSO / env), with `Get/Put/Delete` on objects + `ListBucket` |
 | `AWS_REGION` | the bucket's region (defaults to `us-east-1`) |
 
@@ -44,6 +47,13 @@ node scripts/setup-test-bucket.mjs your-test-bucket
 Region comes from `AWS_REGION` / `AWS_DEFAULT_REGION` (default `us-east-1`); the script is
 idempotent. Prefer raw `aws` CLI, or not in a clone? See the
 [appendix](#appendix-create-the-bucket-by-hand).
+
+> **Use a dedicated, throwaway name — never a real backup bucket.** The test lifecycle
+> expires *current* objects after 1 day (the deliberate opposite of a backup bucket's
+> *noncurrent*-only expiry). The script applies that rule even to a bucket you **already
+> own**, so running it against — or pointing `S3CAB_TEST_BUCKET` at — a bucket holding
+> real backups would set them to auto-delete. If a real backup bucket and a test bucket
+> share one account, keep the names unmistakably distinct.
 
 ---
 
@@ -81,7 +91,9 @@ works, no credential juggling:
 For least privilege, point `AWS_PROFILE` at an identity scoped to just the test bucket
 (`Get/Put/Delete` + `ListBucket` — the [same policy CI uses](#1-least-privilege-iam-policy));
 your normal admin/PowerUser profile works too. Prefer not to keep a `.env.test`? Set those
-three variables in your shell instead and run `npm test`.
+three variables in your shell instead and run `npm run test:integration` (a plain
+`npm test` never globs the integration folder, so it won't run them however the
+environment is set).
 
 ---
 
@@ -230,7 +242,7 @@ s3-integration:
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: us-east-1
-    - run: npm test
+    - run: npm run test:integration
       env:
         S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
 ```
