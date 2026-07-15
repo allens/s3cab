@@ -196,6 +196,18 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does), then bare
   `{Foo}` in annotations — the modern TS-supported style (TS 5.5+). An unused `@import` name is
   flagged by the type check, so they don't rot.
+- **Quarantine AWS provisioning to the `aws` command — the *provider boundary*
+  ([ADR-0059](docs/adr/0059-aws-provisioning-boundary-static-imports.md)).** Only `aws` may depend
+  on the AWS CLI or a non-S3 AWS **provisioning** API (CloudFormation/IAM); the data plane is
+  S3-only and auth is the pluggable seam, so both stay provider-agnostic (a future non-AWS
+  onboarding command is `aws`'s sibling, not a branch in the core). The lever for keeping a heavy
+  provisioning dep off the hot path is **placement, not a lazy `import()`** — put it in a module
+  only its user imports (worked example: CloudFormation is statically imported by
+  `lib/stack-arns.mjs`, which nothing but `commands/aws.mjs` imports). No blanket ban on runtime
+  `import()`: prefer a static import (it's `tsc`-checked, and esbuild bundles literal/glob
+  `import()` fine anyway), but a dynamic one is fine with a reason — the only real trap is a
+  *computed-specifier* import of our own code, which loses `tsc` checking (ADR-0059's rejected
+  registry dispatcher). Common sense + review, not a rule.
 - **Don't bury `await` in a larger expression — give it its own line and a name.** The two
   smells: **member/index access on an awaited result** (`(await read(…)).entries`,
   `(await xs())[0]`) and **a compound `if`/`while`/`&&`/`||` condition** containing the await.

@@ -10,10 +10,8 @@ import {
   awsSaveConfirmation,
   validateAwsBucketName,
 } from "../lib/onboarding.mjs";
-import {
-  ensureMachineIdentity,
-  saveArnsFromStack,
-} from "../lib/roles-anywhere.mjs";
+import { ensureMachineIdentity } from "../lib/roles-anywhere.mjs";
+import { saveArnsFromStack } from "../lib/stack-arns.mjs";
 import { s3cabDir, tildeify } from "../lib/home.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 
@@ -37,8 +35,10 @@ import { validateBucketName } from "../lib/sets.mjs";
 // recipe points there in a line. A custom endpoint (AWS_ENDPOINT_URL*) means "not
 // AWS", so the command points at `s3cab help provider` — the non-AWS steps live
 // there — instead of printing IAM JSON that can't apply. The recipe text lives in
-// src/lib/onboarding.mjs (pure, unit-testable); cert gen + ARN capture live in
-// src/lib/roles-anywhere.mjs.
+// src/lib/onboarding.mjs (pure, unit-testable); cert gen lives in
+// src/lib/roles-anywhere.mjs; the `--save` ARN capture — the one non-S3 AWS API
+// call, so the one CloudFormation dependency — lives in src/lib/stack-arns.mjs, a
+// module nothing but this command imports (ADR-0059 keeps provisioning here).
 
 /**
  * Set up an S3 bucket as an s3cab backup destination: write the CloudFormation
