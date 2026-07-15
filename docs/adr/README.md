@@ -79,6 +79,7 @@ ADR as a live constraint.
 - [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(proposed; amends 0032/0033/0035)*
 - [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted & implemented — both setup and the runtime signer ship; beside 0055/0015; design in docs/design/roles-anywhere.md)*
 - [0058](0058-roles-anywhere-cert-generation.md) — Roles Anywhere certs: hand-rolled ASN.1 DER (zero-dep), client key stored as a 0600 PEM (pins the Phase B signer's key interface) *(accepted — cert generator validated by live spike; resolves 0057's open cert-gen/storage sub-decision)*
+- [0059](0059-aws-provisioning-boundary-static-imports.md) — AWS provisioning (CloudFormation/IAM) is quarantined to the `aws` command; data plane is S3-only, auth is the pluggable seam; static imports over lazy loading (placement, not `import()`, is the lever — zero runtime dynamic imports) *(accepted & implemented; extends 0015/0056/0057, applies 0006)*
 
 ### Build, release & tooling
 
