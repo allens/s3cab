@@ -21,7 +21,7 @@ a dynamic import*.
   at all. Available to every command.
 - **Auth plane — credential acquisition, pluggable.** `@aws-sdk/credential-providers`,
   `@smithy/shared-ini-file-loader`, and (for Roles Anywhere) `@smithy/signature-v4`, in
-  `src/lib/auth.mjs` / `aws-profiles.mjs` / `roles-anywhere.mjs`. These are AWS-specific but
+  `src/lib/auth.mjs` / `roles-anywhere.mjs`. These are AWS-specific but
   intrinsic to *authenticating to S3 itself* ([0015](0015-standard-aws-credential-chain.md)), so
   they legitimately run on every remote command. A non-AWS provider slots its own (usually static
   keys) into the same seam. **This is why the boundary is not "no non-S3 AWS API off the `aws`

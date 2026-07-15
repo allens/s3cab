@@ -58,7 +58,7 @@ s3cab signs in to it". `auth` covered only the credential slice.
 3. **`aws` is AWS-only.** It keeps the IAM/SSO recipes (where its name is honest) and its
    final step becomes `s3cab provider --profile …`. With a custom endpoint set it no
    longer guesses: it points at `s3cab help provider` instead of printing IAM JSON.
-   `nonAwsPlan` is deleted from `src/lib/onboarding.mjs`.
+   `nonAwsPlan` is deleted from `src/lib/aws.mjs`.
 4. **The no-credentials guidance becomes endpoint-aware** (`credentialGuidance`,
    [src/lib/auth.mjs](../../src/lib/auth.mjs)): with a custom endpoint set and no profile,
    the first advice is `s3cab provider --keys` — not "point s3cab at an AWS profile",

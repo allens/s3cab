@@ -105,5 +105,5 @@ anchor/role/profile carry no such guard — regenerable.
 
 ## Consequences
 
-`awsIamPlan`/`awsSsoPlan` (`src/lib/onboarding.mjs`) change from command text to a CF template;
+`awsIamPlan`/`awsSsoPlan` (`src/lib/aws.mjs`) change from command text to a CF template;
 `awsSsoPlan` is removed. Non-AWS providers keep the `help provider` redirect.

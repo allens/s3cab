@@ -1,4 +1,3 @@
-import { ValidationError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
 import { bucketPolicy } from "./s3.mjs";
 
@@ -9,7 +8,7 @@ import { bucketPolicy } from "./s3.mjs";
 // (`awsIamPlan`/`awsRolesAnywherePlan`) it prints, pointing the user at that file.
 // Pure text — no AWS calls, no I/O (the command owns the file write) — which is
 // what makes the command generative (ADR-0032/0056) and unit-testable without a
-// client (src/lib/onboarding.test.mjs). The command (src/commands/aws.mjs) resolves
+// client (src/lib/aws.test.mjs). The command (src/commands/aws.mjs) resolves
 // region/profile/endpoint, writes the template, and prints what these return.
 //
 // Why a declarative template, not an imperative `aws` command list (ADR-0056):
@@ -107,47 +106,10 @@ const trustAnchorName = (bucket) => `s3cab-trust-anchor-${bucket}`;
  */
 const profileName = (bucket) => `s3cab-profile-${bucket}`;
 
-/** IAM's hard cap on a user name — the binding length limit here (below). */
-const IAM_NAME_MAX = 64;
-
-/**
- * The AWS-onboarding-specific bucket-name checks, on top of the permissive global
- * `validateBucketName` (sets.mjs, provider-neutral by design). The CloudFormation
- * template derives named resources from the bucket (ADR-0056), and two AWS
- * *control-plane* limits — which bite only here, never on non-AWS providers like
- * R2/B2/Wasabi — would otherwise surface as an opaque `aws cloudformation deploy`
- * failure well after the recipe was printed:
- *
- *   - **Dots** — CloudFormation stack names (`s3cab-<bucket>`) must match
- *     `[A-Za-z][-A-Za-z0-9]*`, so no dots. (Dots are fine for the S3 bucket, the
- *     IAM user, and the policy — only the *stack* name rejects them.)
- *   - **Length** — IAM user names (`s3cab-user-<bucket>`) cap at 64 characters.
- *
- * Fail fast with the real reason (ADR-0030) instead of emitting a template that
- * can't deploy. Kept AWS-scoped on purpose: a dotted or long bucket name is
- * perfectly valid on the non-AWS providers s3cab also targets, so the global
- * validator stays permissive (its rationale) and only `aws` applies these.
- * @param {string} bucket
- */
-export function validateAwsBucketName(bucket) {
-  if (bucket.includes(".")) {
-    throw new ValidationError(
-      `That bucket name can't be used for AWS onboarding — the CloudFormation\n` +
-        `stack name "${stackName(bucket)}" can't contain dots.\n` +
-        `Use a bucket name without dots, e.g.\n` +
-        `   ${bucket.replaceAll(".", "-")}`,
-    );
-  }
-  const user = userName(bucket);
-  if (user.length > IAM_NAME_MAX) {
-    const max = IAM_NAME_MAX - userName("").length;
-    throw new ValidationError(
-      `That bucket name can't be used for AWS onboarding — the IAM user name\n` +
-        `"${user}" would exceed AWS's ${IAM_NAME_MAX}-character limit (it is ${user.length}).\n` +
-        `Use a bucket name of ${max} characters or fewer.`,
-    );
-  }
-}
+/** AWS's hard cap on an IAM user name. */
+export const IAM_USER_NAME_MAX = 64;
+/** Length of the `s3cab-user-` prefix we prepend to derive the IAM user name. */
+export const IAM_USER_PREFIX_LEN = userName("").length;
 
 /**
  * The ` --profile <name>` suffix interpolated into the generated `aws` commands
@@ -430,7 +392,7 @@ export function awsRolesAnywherePlan({
  * captures a deployed stack's ARNs into the local identity (src/commands/aws.mjs):
  * it names the file it wrote and the next step — pointing a backup set at the
  * now-complete identity (ADR-0030, goal-framed). Pure text, so it lives here with
- * the other recipe prose (aws.mjs's "recipe text lives in onboarding.mjs"
+ * the other recipe prose (aws.mjs's "recipe text lives in src/lib/aws.mjs"
  * invariant) and is unit-testable without the `--save` I/O.
  * @param {{ stackName: string, region: string, dir: string }} params - `dir` is
  *   the identity directory as a display path (the caller passes `tildeify(dir)`).

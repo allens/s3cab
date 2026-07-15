@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { listProfiles } from "../lib/aws-profiles.mjs";
+import { listProfiles } from "../lib/auth.mjs";
 import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
 import { tildeify } from "../lib/home.mjs";
@@ -18,7 +18,7 @@ import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 // file (`~/.s3cab/sets/<set>/env`) — the single s3cab config layer (ADR-0055); the
 // machine-wide default is your ambient AWS setup, not an s3cab file. It never
 // touches `~/.aws` to *write*; profile validation only *reads* it
-// (aws-profiles.mjs). Purely local — no S3, no credentials, no client.
+// (`listProfiles`, auth.mjs). Purely local — no S3, no credentials, no client.
 //
 // Keys are never taken via flags (they'd leak into shell history and the
 // process table — the auth design's standing non-goal): `--keys` prompts at a

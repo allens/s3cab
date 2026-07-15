@@ -445,7 +445,7 @@ export function ensureMachineIdentity() {
  * **output name** paired with the identity `env` **key** it lands in (design doc +
  * auth.md). Every side of the round-trip reads it, so the three names can't drift:
  * {@link arnsFromOutputs} maps outputs → env keys through it, {@link readSigningIdentity}
- * reads the identity's ARNs back through its values, and an `onboarding.test.mjs`
+ * reads the identity's ARNs back through its values, and an `aws.test.mjs`
  * contract test asserts the RA template emits exactly these output names — a rename
  * here that the template misses would otherwise fail `--save` silently.
  */

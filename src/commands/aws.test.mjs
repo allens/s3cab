@@ -9,7 +9,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // Tests for the `aws` command: the *routing* (which recipe it returns, or the
 // usage refusals) and argument validation. The recipe/template text itself is
-// asserted in src/lib/onboarding.test.mjs, and cert gen + ARN capture in
+// asserted in src/lib/aws.test.mjs, and cert gen + ARN capture in
 // src/lib/roles-anywhere.test.mjs; here we only check the command reacts to its
 // flags + the AWS_ENDPOINT_URL* / AWS_REGION environment. The command is async
 // (--save makes a read-only AWS call) and returns its text; the dispatcher prints
@@ -147,7 +147,7 @@ describe("aws validation", () => {
   it("rejects an AWS-incompatible bucket name (dots break the stack name)", async () => {
     await assert.rejects(aws("com.example.backups"), {
       name: "ValidationError",
-      message: /can't contain dots/,
+      message: /without dots/,
     });
   });
 });

@@ -1,4 +1,4 @@
-import { listProfiles } from "./aws-profiles.mjs";
+import { listProfiles } from "./auth.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
 import { RA_MARKER } from "./roles-anywhere.mjs";

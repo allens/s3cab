@@ -177,6 +177,31 @@ describe("validateBucketName", () => {
     );
     assert.throws(() => validateBucketName(" bucket "), /whitespace/);
   });
+
+  it("allows dots and any length by default", () => {
+    validateBucketName("com.example.backups");
+    validateBucketName("a".repeat(200));
+  });
+
+  it("rejects dots when allowDots is false, suggesting a dot-free name", () => {
+    assert.throws(
+      () => validateBucketName("com.example.backups", { allowDots: false }),
+      (e) =>
+        e instanceof ValidationError &&
+        /without dots/.test(e.message) &&
+        /com-example-backups/.test(e.message),
+    );
+  });
+
+  it("rejects a name longer than maxLength, but accepts one at the limit", () => {
+    assert.throws(
+      () => validateBucketName("a".repeat(54), { maxLength: 53 }),
+      /53 characters or fewer \(this is 54\)/,
+    );
+    assert.doesNotThrow(() =>
+      validateBucketName("a".repeat(53), { maxLength: 53 }),
+    );
+  });
 });
 
 describe("set store", () => {
