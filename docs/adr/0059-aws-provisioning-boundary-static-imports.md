@@ -37,11 +37,13 @@ This generalizes to a second provider: `aws` is the first *provider-onboarding* 
 future `r2`/`b2` would be its sibling — each an island; the shared core never learns provider
 identity beyond the endpoint.
 
-## Static imports over lazy loading — placement is the lever
+## Placement over deferral — why this dep is statically imported
 
-s3cab has **zero runtime dynamic imports**. The default is a static `import`, which `tsc`
-checks at build time; a dynamic `import()` of our own code (`./commands/${name}.mjs`) would trade
-that away for a magic string, and a lazy third-party import earns its keep only when the dep is
+This is *not* a blanket rule against runtime `import()` (an earlier draft's overreach, rooted in a
+mistaken belief that esbuild drops dynamic imports — it does not). The default is a static
+`import` because `tsc` checks it; a dynamic `import()` is fine with a reason, and the only real
+trap is a *computed-specifier* import of our own code (`./commands/${name}.mjs`), which trades
+that checking for a magic string. A lazy third-party import earns its keep only when the dep is
 **heavy AND on a rarely-taken, localized path**. `@aws-sdk/client-cloudformation` is the one dep
 that clears that bar (one call site, the `aws --save` flow only) — yet it is **statically**
 imported, because the right lever is *where the code lives*, not deferral:
