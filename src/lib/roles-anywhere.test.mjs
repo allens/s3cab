@@ -10,7 +10,6 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { parseEnv } from "node:util";
 import {
   arnsFromOutputs,
   buildIdentity,
@@ -21,7 +20,6 @@ import {
   machineIdentityExists,
   parseSessionResponse,
   readSigningIdentity,
-  saveArnsFromStack,
 } from "./roles-anywhere.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -244,91 +242,9 @@ describe("arnsFromOutputs", () => {
   });
 });
 
-describe("saveArnsFromStack", () => {
-  it("refuses when no identity has been generated yet", async () => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    await assert.rejects(
-      saveArnsFromStack({ stackName: "s3cab-foo", region: "eu-west-1" }),
-      { name: "ValidationError", message: /No Roles Anywhere identity/ },
-    );
-  });
-
-  // The output→env-key mapping is unit-tested mock-free in `arnsFromOutputs` above;
-  // this covers only the wrapper's own I/O — that it persists what the mapping
-  // produced (plus the region) into the identity env file.
-  it("persists the mapped ARNs + region into the identity env file", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    ensureMachineIdentity();
-
-    t.mock.module("@aws-sdk/client-cloudformation", {
-      exports: {
-        CloudFormationClient: class {
-          async send() {
-            return {
-              Stacks: [
-                {
-                  Outputs: [
-                    {
-                      OutputKey: "TrustAnchorArn",
-                      OutputValue: "arn:aws:ta/1",
-                    },
-                    {
-                      OutputKey: "ProfileArn",
-                      OutputValue: "arn:aws:profile/2",
-                    },
-                    { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
-                  ],
-                },
-              ],
-            };
-          }
-        },
-        DescribeStacksCommand: class {
-          constructor(/** @type {object} */ input) {
-            this.input = input;
-          }
-        },
-      },
-    });
-
-    await saveArnsFromStack({ stackName: "s3cab-foo", region: "eu-west-1" });
-
-    const env = parseEnv(
-      readFileSync(join(machineIdentityDir(), "env"), "utf8"),
-    );
-    assert.equal(env.S3CAB_RA_TRUST_ANCHOR_ARN, "arn:aws:ta/1");
-    assert.equal(env.S3CAB_RA_PROFILE_ARN, "arn:aws:profile/2");
-    assert.equal(env.S3CAB_RA_ROLE_ARN, "arn:aws:role/3");
-    assert.equal(env.AWS_REGION, "eu-west-1");
-  });
-
-  it("errors constructively when the stack is missing the RA outputs", async (t) => {
-    await using dir = await mkTmpDir();
-    useTempHome(dir.path);
-    ensureMachineIdentity();
-
-    t.mock.module("@aws-sdk/client-cloudformation", {
-      exports: {
-        CloudFormationClient: class {
-          async send() {
-            return { Stacks: [{ Outputs: [] }] }; // e.g. the IAM-user stack
-          }
-        },
-        DescribeStacksCommand: class {},
-      },
-    });
-
-    await assert.rejects(
-      saveArnsFromStack({ stackName: "s3cab-foo", region: "eu-west-1" }),
-      {
-        name: "ValidationError",
-        message: /missing the Roles Anywhere outputs/,
-      },
-    );
-  });
-});
+// saveArnsFromStack moved to stack-arns.mjs (the aws-only CloudFormation boundary,
+// ADR-0059); its tests live in stack-arns.test.mjs. The pure output→env-key mapping
+// it composes, `arnsFromOutputs`, stays here (above) and is tested mock-free.
 
 // The signer (Phase B) is the one genuinely bespoke bit of AWS crypto, so it is
 // tested against an INDEPENDENT reference (`reference()` below): the SigV4-X509
