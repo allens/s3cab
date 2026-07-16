@@ -209,7 +209,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
         type: "string",
         short: "p",
         description:
-          "An admin AWS profile to drop into the printed aws commands (--profile <name>)",
+          "An admin AWS profile, dropped into the printed aws commands and used by --save to read the stack",
       },
       region: {
         type: "string",
