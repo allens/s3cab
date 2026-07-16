@@ -140,6 +140,15 @@ describe("usage", () => {
     }
   });
 
+  it("compare help drops the retired →→/== notation", () => {
+    // Guards the specific drift this test file exists to catch: compare's
+    // renderer prints moves as `old → new` and copies as `(duplicate of …)`,
+    // so its --help must never reintroduce the old `→→`/`==` microsyntax (now
+    // confined to compare.test.mjs's internal assertion notation). A negative
+    // pin only — the positive wording is free to be reworded.
+    assert.doesNotMatch(usage(commands, "compare"), /→→|==/);
+  });
+
   it("style.heading decorates section headings only, not their content", () => {
     // The dispatcher passes { heading: bold } when stdout is an interactive
     // terminal (lib/style.mjs); usage() itself never decides — plain default.

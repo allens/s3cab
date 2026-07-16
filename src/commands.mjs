@@ -69,6 +69,7 @@ export const commands = {
   snapshot: {
     group: "Snapshots",
     summary: "Take a snapshot of a backup set",
+    examples: ["s3cab snapshot", "s3cab snapshot photos"],
     args: {
       set: {
         description: "The backup set to snapshot (default: the only set)",
@@ -112,8 +113,8 @@ export const commands = {
     summary: "Show what changed between two snapshots",
     examples: ["s3cab compare", "s3cab compare photos --since 2025-11-11T0830"],
     description: `The report compares file content (SHA-256 hashes), never timestamps.
-'old.txt → new.txt' is a rename, '→→' a move to another directory, and
-'new.txt == old.txt' a copy of content that already existed.
+Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
+content already existed elsewhere is noted '(duplicate of ...)'.
 Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
     args: {
       set: {
@@ -137,6 +138,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",
+    examples: ["s3cab status", "s3cab status photos"],
     args: {
       set: {
         description: "The backup set to report on (default: the only set)",
@@ -207,7 +209,7 @@ Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
         type: "string",
         short: "p",
         description:
-          "An admin AWS profile to drop into the printed aws commands (--profile <name>)",
+          "An admin AWS profile, dropped into the printed aws commands and used by --save to read the stack",
       },
       region: {
         type: "string",
@@ -526,6 +528,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
   hashes: {
     group: "Advanced",
     summary: "List a repository's stored object hashes (one per line)",
+    examples: ["s3cab hashes my-backups", "s3cab hashes my-backups > have.txt"],
     args: {
       bucket: {
         required: true,
@@ -582,6 +585,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
+    examples: ["s3cab tree", "s3cab tree photos"],
     args: {
       set: { description: "The backup set to list (default: the only set)" },
     },
@@ -590,6 +594,7 @@ Full guide: https://github.com/allens/s3cab#authentication`,
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",
+    examples: ["s3cab prop C:\\Users\\me\\Photos\\beach.jpg"],
     args: {
       file: { required: true, description: "The file to inspect" },
     },
