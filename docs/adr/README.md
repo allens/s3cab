@@ -21,6 +21,17 @@ ADR as a live constraint.
 
 ## Index
 
+> **Find the governing decision _before_ you change the code, not after.** For any structural
+> change — module placement, a command's shape or name, auth/credentials, output/errors,
+> snapshot/backup behaviour, the storage format — scan the matching group below and **read the
+> ADR that owns it**. Two traps this index exists to prevent: (1) reasoning from memory and
+> missing the ADR entirely (e.g. AWS module placement is governed by
+> [0059](0059-aws-provisioning-boundary-static-imports.md)); (2) treating an ADR as more fixed
+> than it is — read the ADR itself, since some leave explicit future doors open (e.g.
+> [0032](0032-generative-onboarding-not-active-provisioning.md) records generative onboarding as
+> the v1 choice with an optional active `--run` left open). A decision is a live constraint
+> **unless its status line or body says otherwise**.
+
 ### Design philosophy (foundational)
 
 - [0001](0001-file-level-content-addressable-dedup.md) — File-level content-addressable dedup with SHA-256
@@ -36,46 +47,64 @@ ADR as a live constraint.
 - [0008](0008-gpl-3-license.md) — GPL-3.0-or-later license
 - [0009](0009-cla-not-dco.md) — Contributions take a CLA, not a DCO
 
-### Architecture & CLI
+### Code & command structure
 
-- [0010](0010-cli-output-conventions.md) — CLI output: JSON.stringify, stream discipline, env-gated debug *(stdout default inverted by 0043 — JSON now behind `--json`)*
 - [0011](0011-validation-in-command-functions.md) — Argument validation lives in the command functions
 - [0012](0012-consumer-vocabulary-naming.md) — Consumer-vocabulary command and flag naming
-- [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout *(namespace shape partly superseded by 0024)*
-- [0014](0014-backup-sets.md) — Backup sets are the unit of snapshot/backup/restore *(identity model partly superseded by 0024)*
-- [0015](0015-standard-aws-credential-chain.md) — Standard AWS credential chain; bespoke SSO login removed
-- [0022](0022-prepare-remote-set-front-door.md) — Env is loaded at the entry point; the set layer goes through the `loadSet` door
 - [0023](0023-porcelain-plumbing-lib-layers.md) — Commands are porcelain or plumbing, over a shared lib
-- [0024](0024-set-name-is-the-whole-identity.md) — A backup set's name is its whole identity
-- [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
-- [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets
-- [0027](0027-compare-local-only-adoption-syncs-manifests.md) — `compare` is local-only; adoption syncs the manifests
-- [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
-- [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
-- [0030](0030-error-message-guidelines.md) — Error messages follow a fixed in-house standard
-- [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035, 0041, then 0047 — now `provider`)*
-- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active *(delivery form amended by 0056 — a CloudFormation template, still generative)*
-- [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop *(refined by 0056 — managed policy, SSE-S3, DeletionPolicy Retain)*
+
+### CLI command surface & lifecycle
+
 - [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command *(command name superseded by 0035 — now `aws`)*
 - [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 and 0047 — now `provider`; point 1 amended by 0047 — `aws` is AWS-only; `--sso` fork dropped by 0056)*
 - [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
-- [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
-- [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
-- [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
-- [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide *(name superseded by 0047 — now `provider`)*
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set *(objects-cache rewrite dropped by 0045; the finding-model correction landed 2026-07-05 and is folded into the ADR)*
-- [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
 - [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045)*
-- [0045](0045-change-detection-local-baseline-list-fallback.md) — Change detection: drop the objects cache; baseline = local snapshot + on-demand LIST + conditional-PUT backstop *(engine implemented; companion to 0044)*
-- [0047](0047-provider-command-neutral-config-door.md) — `provider`: the neutral connection-config door (profile/endpoint/region/keys); `aws` narrows to AWS-only
-- [0048](0048-snapshot-lock-atomic-temp-file.md) — Snapshot concurrency lock: the temp file created atomically (`wx`); stale locks removed manually
-- [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent
-- [0051](0051-native-separator-in-user-path-files.md) — User-facing path files (the starter `exclude.txt`) use the native separator; `/` stays an internal matching form
 - [0052](0052-retire-setup-update-mode.md) — Retire `setup`'s update mode; a set's directories are edited in the public `dirs.txt` *(partly supersedes 0036 §2 — the upsert's update half)*
 - [0053](0053-reattach-command.md) — Split `setup --inherit` into its own `reattach` command; `setup` is create-only *(resolves 0036's deferred "`--inherit` stays a flag" item)*
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
+
+### Output, errors & rendering
+
+- [0010](0010-cli-output-conventions.md) — CLI output: JSON.stringify, stream discipline, env-gated debug *(stdout default inverted by 0043 — JSON now behind `--json`)*
+- [0030](0030-error-message-guidelines.md) — Error messages follow a fixed in-house standard
+- [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
+- [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
+- [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
+
+### Storage model, identity & home
+
+- [0013](0013-one-repository-one-bucket.md) — One s3cab repository == one bucket, fixed layout *(namespace shape partly superseded by 0024)*
+- [0014](0014-backup-sets.md) — Backup sets are the unit of snapshot/backup/restore *(identity model partly superseded by 0024)*
+- [0024](0024-set-name-is-the-whole-identity.md) — A backup set's name is its whole identity
+- [0026](0026-bucket-required-at-setup.md) — A bucket is required at setup; no local-only sets
+- [0039](0039-home-is-dot-s3cab-not-xdg.md) — The s3cab home is `~/.s3cab` on every OS, not XDG or AppData
+
+### Snapshot / backup / restore engine
+
+- [0027](0027-compare-local-only-adoption-syncs-manifests.md) — `compare` is local-only; adoption syncs the manifests
+- [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
+- [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
+- [0045](0045-change-detection-local-baseline-list-fallback.md) — Change detection: drop the objects cache; baseline = local snapshot + on-demand LIST + conditional-PUT backstop *(engine implemented; companion to 0044)*
+- [0048](0048-snapshot-lock-atomic-temp-file.md) — Snapshot concurrency lock: the temp file created atomically (`wx`); stale locks removed manually
+- [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent
+- [0051](0051-native-separator-in-user-path-files.md) — User-facing path files (the starter `exclude.txt`) use the native separator; `/` stays an internal matching form
+
+### Auth, credentials & connection config
+
+- [0015](0015-standard-aws-credential-chain.md) — Standard AWS credential chain; bespoke SSO login removed
+- [0022](0022-prepare-remote-set-front-door.md) — Env is loaded at the entry point; the set layer goes through the `loadSet` door
+- [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
+- [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035, 0041, then 0047 — now `provider`)*
+- [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide *(name superseded by 0047 — now `provider`)*
+- [0047](0047-provider-command-neutral-config-door.md) — `provider`: the neutral connection-config door (profile/endpoint/region/keys); `aws` narrows to AWS-only
 - [0055](0055-per-set-credentials-one-mode.md) — Per-set credentials: drop the user env layer (set > shell); each set is one credential mode (profile XOR keys XOR ambient) *(implemented; partly supersedes 0025, amends 0022)*
+
+### AWS onboarding & the provisioning boundary
+
+- [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active *(delivery form amended by 0056 — a CloudFormation template, still generative; an active `--run` is left open, not built)*
+- [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop *(refined by 0056 — managed policy, SSE-S3, DeletionPolicy Retain)*
 - [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(proposed; amends 0032/0033/0035)*
 - [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted & implemented — both setup and the runtime signer ship; beside 0055/0015; design in docs/design/roles-anywhere.md)*
 - [0058](0058-roles-anywhere-cert-generation.md) — Roles Anywhere certs: hand-rolled ASN.1 DER (zero-dep), client key stored as a 0600 PEM (pins the Phase B signer's key interface) *(accepted — cert generator validated by live spike; resolves 0057's open cert-gen/storage sub-decision)*

@@ -36,6 +36,19 @@ links the *builder's* glibc, so a newer image would refuse to start on older dis
 glibc floor; constrains only the build matrix, not test jobs). The binary is plainly `s3cab`
 on every platform; the per-platform tag belongs on the release *archive*, not the executable.
 
+## Distribution: signing, labels, platforms
+
+The full release matrix is validated on real runners (build → smoke-test → archive → macOS
+ad-hoc sign → npm publish → GitHub Release). Three deliberate distribution choices:
+
+- **macOS is ad-hoc signed, not notarized.** Notarization needs a paid Apple Developer ID;
+  ad-hoc signing is enough to *run*, and the README documents the `xattr` workaround for
+  Gatekeeper on browser downloads. Skipped to avoid the cost.
+- **The archive tag is `macos`, not `darwin`** — friendlier on a download page;
+  `test/e2e.test.mjs` maps `process.platform` to the label.
+- **Only `macos-arm64` ships.** Intel Macs are legacy — those users have `npm` or the portable
+  bundle; adding Intel later is one `sea/` config + one `macos-13` matrix row.
+
 ## CI vs release — two workflows, deliberately split
 
 `ci.yml` is the everyday gate (every push/PR): a **three-OS test matrix** (the code branches
