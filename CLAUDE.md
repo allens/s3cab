@@ -394,9 +394,11 @@ own doc comment.
   [src/lib/atomic-file.mjs](src/lib/atomic-file.mjs) (`writeFileAtomic`, where design #1's hash
   check is enforced). Auth splits in two: *credential resolution* is `resolveCredentials` in
   [src/lib/auth.mjs](src/lib/auth.mjs) ([ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)),
-  and *env-file layering* is `loadEnv`/`loadSet` in [src/lib/env.mjs](src/lib/env.mjs) — the
-  **user** layer loaded once at the entry point, the **set** layer added by the `loadSet` door
-  each set command routes through ([ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md));
+  and *env-file layering* is `loadEnv`/`loadSet` in [src/lib/env.mjs](src/lib/env.mjs) — one
+  s3cab layer, the **set**'s env file, applied over the shell by the `loadSet` door each set
+  command routes through ([ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md);
+  [ADR-0055](docs/adr/0055-per-set-credentials-one-mode.md) dropped the former user layer, so
+  `loadEnv` now only marks the environment initialized);
   both specified in [docs/design/auth.md](docs/design/auth.md).
 - **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, not a library, and
   the entry point runs dispatch as a top-level side-effect (unsafe to `import`). The

@@ -106,7 +106,6 @@ the API**, and some of them you are expected to edit directly in a text editor:
 
 ```
 ~/.s3cab/
-  env                    # your defaults: AWS profile / region / endpoint
   sets/
     photos/
       dirs.txt           # member directories, one absolute path per line — yours to edit

@@ -128,8 +128,9 @@ ADR-0053), inherit (the retired flag name), adopt, clone, migrate, take-over.
 **Verify**:
 The porcelain verb that checks backups are complete and undamaged without downloading
 anything: every object a set's snapshots reference must exist in the object store, at its
-recorded size. Set-scoped — it answers "is this backup restorable?" per named set (every
-set when none is named) — and it never writes to the remote.
+recorded size. Takes the repository's *bucket* (`s3cab verify <bucket>`, ADR-0042) and checks
+every set sharing it, answering "is this backup restorable?" with findings reported per set —
+and it never writes to the remote.
 _Avoid_: check, fsck, audit, scrub, validate.
 
 **Cleanup**:

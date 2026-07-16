@@ -41,10 +41,11 @@ That covers all of your future contributions. There is no form to fill in or sen
 
 ## Changes to the S3 path
 
-Most of the suite runs offline with no credentials. The real-S3 round-trips
-(backup→restore, listing, verified download) are **gated** on `S3CAB_TEST_BUCKET` and
-are skipped (with a message) without it — and a fork PR can't run them in CI, because GitHub gives a
-fork-triggered run no credentials by design.
+Most of the suite runs offline with no credentials — plain `npm test` never touches S3.
+The real-S3 round-trips (backup→restore, listing, verified download) are **opt-in**: run
+`npm run test:integration` with `S3CAB_TEST_BUCKET` set (an opt-in run without a bucket
+fails fast rather than silently skipping). A fork PR can't run them in CI, because GitHub
+gives a fork-triggered run no credentials by design.
 
 So if your change touches the S3 path — [`src/lib/s3.mjs`](src/lib/s3.mjs),
 [`src/lib/remote.mjs`](src/lib/remote.mjs), or the `backup` / `restore` / `status`
