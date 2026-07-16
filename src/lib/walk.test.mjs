@@ -112,15 +112,23 @@ describe("walkDirs", () => {
     assert.deepStrictEqual(found, ["a/1.txt", "a/sub/2.txt", "b/3.txt"]);
   });
 
-  it("errors clearly when member roots overlap", async () => {
+  it("errors clearly when member roots overlap, naming the duplicate file", async () => {
     await using dir = await mkTmpDir();
     write(dir.path, "top.txt");
     write(dir.path, "inner/deep.txt");
     const inner = join(dir.path, "inner");
+    const duplicate = join(realpathSync.native(dir.path), "inner", "deep.txt");
 
     // A nested root re-walks files the outer root already yielded; the error
-    // names the cause (overlapping directories) rather than a bare invariant.
-    assert.throws(() => walkDirs([dir.path, inner], []), /overlap/);
+    // names the cause (overlapping directories) rather than a bare invariant,
+    // and points at the offending file so the user can see which roots collide.
+    assert.throws(
+      () => walkDirs([dir.path, inner], []),
+      (err) =>
+        err instanceof Error &&
+        /overlap/.test(err.message) &&
+        err.message.includes(duplicate),
+    );
   });
 
   it("applies patterns relative to each root", async () => {

@@ -93,6 +93,12 @@ export function walkDirs(dirs, patterns) {
 
   /** @type {string[]} */
   const files = [];
+  // Every path kept so far, across *all* roots — a file reached twice means the
+  // set's member directories overlap (one nested under another). Checked as each
+  // file arrives so an overlapping set fails at the first duplicate, not after a
+  // full walk (minutes, on a big set).
+  /** @type {Set<string>} */
+  const seen = new Set();
   /** @type {ExclusionRecord[]} */
   const excluded = [];
   /** @type {ExclusionRecord[]} */
@@ -114,6 +120,16 @@ export function walkDirs(dirs, patterns) {
     );
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
+      if (seen.has(path)) {
+        // Name the offender so the user can fix dirs.txt, rather than failing
+        // with a bare "duplicates" invariant.
+        throw new Error(
+          `File found under more than one of the set's directories: ${path}\n` +
+            `The set's directories overlap (one is nested under another). Edit the ` +
+            `set's dirs.txt so its directories don't contain one another.`,
+        );
+      }
+      seen.add(path);
       files.push(path);
       // Redraw every 500 files (after the push, so the count reflects files
       // actually found — never a misleading "Found 0 files..." first line).
@@ -130,21 +146,6 @@ export function walkDirs(dirs, patterns) {
     progress.update(summary);
   } else {
     console.warn(summary);
-  }
-
-  // A file reached by more than one root means the set's member directories
-  // overlap (one nested under another) — name the offender so the user can fix
-  // dirs.txt, rather than failing with a bare "duplicates" invariant.
-  const seen = new Set();
-  for (const path of files) {
-    if (seen.has(path)) {
-      throw new Error(
-        `File found under more than one of the set's directories: ${path}\n` +
-          `The set's directories overlap (one is nested under another). Edit the ` +
-          `set's dirs.txt so its directories don't contain one another.`,
-      );
-    }
-    seen.add(path);
   }
 
   return { files, excluded, skipped };
