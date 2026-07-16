@@ -113,6 +113,7 @@ back. To pull an _older_ version, add `--snapshot <name>`; to recover everything
 disaster-recovery case), run `restore` with no paths. By default `restore` leaves files that
 still exist untouched — your accidental deletions come back while everything else stays put —
 so pass `--overwrite` when you actually want to replace what's there.
+[guide/restore.md](guide/restore.md) covers all of it.
 
 ### Watching what changes between backups
 
@@ -174,11 +175,12 @@ locations they were backed up from; pass `--output <dir>` to recover under a dir
 choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is how
 you restore a backup whose original paths don't fit this machine — a different drive layout,
 or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
-`s3cab reattach <set> --bucket <bucket>` — then `restore`.
+`s3cab reattach <set> --bucket <bucket>` — then `restore`. The full walkthrough is in
+[guide/restore.md](guide/restore.md).
 
-Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
-and `upload`, also work already — advanced building blocks covered under
-[Cloud repositories](#cloud-repositories).)
+Run any command with `--help` to see its options, or browse the [guides](guide/) for the
+fuller treatment. (Two cloud plumbing commands, `hashes` and `upload`, also work already —
+advanced building blocks covered under [Cloud repositories](#cloud-repositories).)
 
 ### Coming next
 
