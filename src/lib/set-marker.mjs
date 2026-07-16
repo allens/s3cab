@@ -1,4 +1,5 @@
 import { parseEnv } from "node:util";
+import { parseLines } from "./read-lines.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 
 // The remote `sets/<set>/` area of an s3cab repository: a backup set's published
@@ -125,8 +126,9 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
 
 /**
  * Read a set's published config back from its remote marker — what `reattach`
- * recreates the local set from. `dirs` is parsed like the local `dirs.txt` (one
- * absolute path per non-blank line); `exclude` is the verbatim file text, or
+ * recreates the local set from. `dirs` is parsed like the local `dirs.txt`
+ * (parseLines: comments and blank lines dropped); `exclude` is the verbatim
+ * file text, or
  * `undefined` if the set has none remotely — an empty `exclude.txt` (which
  * `pushSetConfig` never writes, but a hand-made one could) normalizes to
  * `undefined` too, so "no excludes" has one representation.
@@ -136,10 +138,7 @@ export async function pushSetConfig(bucket, set, { dirs, exclude }) {
  */
 export async function readSetConfig(bucket, set) {
   const dirsText = await getText(fileUri(bucket, set, "dirs.txt"));
-  const dirs = (dirsText ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const dirs = parseLines(dirsText ?? "");
   const excludeText = await getText(fileUri(bucket, set, "exclude.txt"));
   const exclude = excludeText || undefined;
   return { dirs, exclude };
