@@ -4,6 +4,7 @@ import { parseEnv } from "node:util";
 import { isENOENT, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
+import { parseLines } from "./read-lines.mjs";
 
 // The backup-set store (docs/design/backup.md): one directory per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
@@ -329,10 +330,7 @@ export function readSet(name) {
           : NO_SETS_MESSAGE),
     );
   }
-  const dirs = (readTextFile(setDirsPath(name)) ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const dirs = parseLines(readTextFile(setDirsPath(name)) ?? "");
   const envText = readTextFile(setEnvPath(name));
   const env = envText === undefined ? {} : parseEnv(envText);
   const bucket = env.S3CAB_BUCKET;

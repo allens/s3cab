@@ -299,6 +299,21 @@ describe("set store", () => {
     assert.equal(updated.bucket, "new");
   });
 
+  it("readSet drops comment and blank lines in dirs.txt", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    // The file is the API: a user comments a directory out rather than deleting
+    // the line. A kept `# …` line would be walked as a literal path and abort
+    // the walk as "not available".
+    const { dirsPath } = writeSet("photos", {
+      dirs: ["C:\\Photos"],
+      bucket: "b",
+    });
+    writeFileSync(dirsPath, "# C:\\Retired\n\nC:\\Photos\n  # indented note\n");
+
+    assert.deepEqual(readSet("photos").dirs, ["C:\\Photos"]);
+  });
+
   it("readSet throws for an unknown set", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
