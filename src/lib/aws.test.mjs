@@ -272,6 +272,16 @@ describe("awsRolesAnywherePlan", () => {
     );
   });
 
+  it("interpolates --profile into both the deploy and the --save commands", () => {
+    const out = plan({ profile: "admin" });
+    assert.match(out, /--capabilities CAPABILITY_NAMED_IAM.*--profile admin/);
+    assert.match(out, /--from-stack s3cab-my-backups.*--profile admin/);
+  });
+
+  it("omits the profile flag when none is given", () => {
+    assert.doesNotMatch(plan(), /--profile/);
+  });
+
   it("points at the written template file, not an inline copy (ADR-0056)", () => {
     const out = plan();
     assert.match(

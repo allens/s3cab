@@ -32,17 +32,18 @@ import {
  * Read a deployed onboarding stack's three RA ARNs and persist them (plus the
  * region) into the machine identity's `env` file — the `--save --from-stack` step
  * (ADR-0056/0057). Read-only: a single `DescribeStacks` via
- * `@aws-sdk/client-cloudformation`, using the deployer's ambient credentials (the
- * same admin creds that just ran `cloudformation deploy`); it creates nothing.
+ * `@aws-sdk/client-cloudformation`, authenticated by `profile` when given (the
+ * same admin profile the recipe's step 1 deployed the stack with), else the
+ * deployer's ambient credentials; it creates nothing.
  *
  * The identity must already have been generated (its dir holds the env file), so a
  * missing identity is a constructive error (ADR-0030) rather than an opaque write
  * failure. Likewise a stack whose outputs are absent (wrong stack, or the IAM-user
  * template) points the user at the right command.
- * @param {{ stackName: string, region: string }} params
+ * @param {{ stackName: string, region: string, profile?: string }} params
  * @returns {Promise<{ dir: string, arns: Record<string, string>, region: string }>}
  */
-export async function saveArnsFromStack({ stackName, region }) {
+export async function saveArnsFromStack({ stackName, region, profile }) {
   if (!machineIdentityExists()) {
     throw new ValidationError(
       `No Roles Anywhere identity found at ${tildeify(machineIdentityDir())}.\n` +
@@ -51,7 +52,7 @@ export async function saveArnsFromStack({ stackName, region }) {
     );
   }
 
-  const client = new CloudFormationClient({ region });
+  const client = new CloudFormationClient({ region, profile });
   const response = await client.send(
     new DescribeStacksCommand({ StackName: stackName }),
   );

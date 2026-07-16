@@ -112,9 +112,10 @@ export const IAM_USER_NAME_MAX = 64;
 export const IAM_USER_PREFIX_LEN = userName("").length;
 
 /**
- * The ` --profile <name>` suffix interpolated into the generated `aws` commands
- * when `--profile` was passed (output sugar only — never used to authenticate;
- * the command is offline), or `""` otherwise.
+ * The ` --profile <name>` suffix interpolated into the generated commands when
+ * `--profile` was passed, or `""` otherwise. Pure text here (recipe generation
+ * is offline); the printed `s3cab aws --save` step carries it forward, where it
+ * authenticates the DescribeStacks read (src/lib/stack-arns.mjs).
  * @param {string} [profile]
  */
 const profileFlag = (profile) => (profile ? ` --profile ${profile}` : "");
@@ -374,7 +375,7 @@ export function awsRolesAnywherePlan({
 
     `2. Capture the stack's ARNs into your local identity (read-only — it only\n` +
       `   reads the stack you just deployed, creates nothing):\n` +
-      `   s3cab aws --roles-anywhere --save --from-stack ${stack}${rf}`,
+      `   s3cab aws --roles-anywhere --save --from-stack ${stack}${rf}${pf}`,
 
     `3. Point a backup set at this identity — at creation:\n` +
       `   s3cab setup <name> <directory>... --bucket ${bucket} --roles-anywhere\n` +
