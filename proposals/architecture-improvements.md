@@ -28,32 +28,51 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
-Surfaced 2026-07-14 (seventh pass) over the Roles Anywhere subsystem (ADR-0055–0058, PRs
-#186–#191) — the churn since the 2026-07-10 empty. The subsystem is mostly deep (the
-SigV4-X509 signer is the in-repo exemplar of the pure-core/thin-I/O pattern). **A and B
-landed in [PR #192](https://github.com/allens/s3cab/pull/192)** (pure `arnsFromOutputs` +
-single-sourced `ARN_ENV` contract), **D in [PR #193](https://github.com/allens/s3cab/pull/193)**
-(the RA-aware `authNotice`), **and C — as its narrow marker-drift fix — in
-[PR #194](https://github.com/allens/s3cab/pull/194)** (both `provider.mjs` marker reads routed
-through the canonical `isRolesAnywhereMode`); the fuller `credentialMode()` classifier C
-originally floated was **declined** (see Rejected & parked), **and E — the pure
-`awsSaveConfirmation` relocation — in [PR #195](https://github.com/allens/s3cab/pull/195)**. Run
-log below.
+Surfaced 2026-07-16 (eighth pass) — a **whole-`src/` simplification-focused read** (user brief:
+clear + concise, fewer lines/branches/indirections, hunt bugs en route), every production module
+read in full at HEAD `b072f93`. Verdict: the codebase is genuinely deep after seven passes —
+no module fails the deletion test — so this pass's candidates are *simplifications inside
+interfaces*, not new seams. Everything Strong landed same-day — both bugs fixed (the
+`dirs.txt` comment-line bug → [PR #201](https://github.com/allens/s3cab/pull/201), which was
+also candidate B; the `aws --save --profile` drop →
+[PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
+[PR #202](https://github.com/allens/s3cab/pull/202)** (run log below). C–E remain open.
 
-_The seventh-pass open list is now empty: every candidate either landed (A/B/#192, D/#193,
-C/#194, E/#195) or was parked (the `credentialMode()` classifier, below). The next
-`/improve-codebase-architecture` run starts from the source and the rejected list, not from
-stale entries._
+- **C (Worth exploring) — drop `objectExists`'s metadata heuristic.**
+  [src/lib/s3.mjs:476–489](../src/lib/s3.mjs): the multipart no-clobber preflight treats a
+  200 HEAD **with no custom metadata** as "absent" and lets the upload proceed — where the
+  conditional PUT rejects anyway, *after the full multipart body has been sent*. Any successful
+  HEAD should count as present: identical outcome (the conditional PUT stays the real guard),
+  one branch fewer, and no wasted body upload when the store holds a metadata-less object
+  (another tool's PUT, an older s3cab).
+- **D (Worth exploring) — fail the walk at the first duplicate file.**
+  [src/lib/walk.mjs:137–149](../src/lib/walk.mjs): the overlapping-member-dirs check is a full
+  second pass over `files` after the walk completes — minutes of walking on a big set before the
+  error. Move the `seen` check inline in the collect loop: fails at the first duplicate, second
+  pass deleted. (A pre-walk root-containment check was considered and **rejected**: exclude
+  patterns can make nested roots a legitimately working config today, so only the file-level
+  check is faithful.)
+- **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
+  `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
+  owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
+  get-or-insert at three sites (183–186, 253–262) where compare.mjs already uses
+  `Map.prototype.getOrInsertComputed`; `commands/upload.mjs:131–134`'s trailing "Specify what to
+  upload" throw belongs in the fail-fast validation block at the top; `render.mjs` defines two
+  differently-shaped local `paint` helpers (compare 85–89, verify 455) — one module-private
+  helper serves both.
 
-**Examined & left alone this pass** (not candidates — skip next run): the SigV4-X509 signer
-(the exemplar to cite, not fix); the RA credential arm's unit-test gap (coverage, not a boundary
-— ADR-0020; the `new Date(expiration)` shaping could be cheaply covered); the dead
-`buildSignedRequest` RSA branch (ADR-0058 discusses key type, parity is cheap — characterize);
-`readSigningIdentity`'s catch-all conflating not-usable with crashed (marginal); moving
-`saveArnsFromStack` off `roles-anywhere.mjs` (would leak the identity's env-file layout — keep);
-`set-marker.mjs` pure parsing behind S3 I/O (tangential, mild); `aws-profiles.mjs` shallow
-wrapper (inlining *moves* the sentinel — legit thin adapter); the region-default dup with
-`scripts/setup-test-bucket.mjs` (minor).
+**Examined & left alone this pass** (not candidates — skip next run): `referencedObjects` *not*
+filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
+(filtering the scan would make cleanup treat a non-canonical set's objects as orphans; the
+lister only feeds display/discovery); the trust-on-write `upload --snapshot <old>` staleness
+window (a design stance — recorded in [engine-robustness.md](engine-robustness.md), not a
+candidate); list.mjs's summary branch re-doing the `--latest` slice inline (trivial);
+`clientConfig`'s `??` vs the aws command's `||` on the region default (empty-string edge,
+trivial); pluralization hand-rolls outside render.mjs's `plural` (marginal); snapshot.mjs's
+floor-based percent arithmetic (a simpler spelling changes rounding — not worth it); the
+render/help/error/auth/RA modules generally (read in full: deep, cleanly seamed — auth.mjs's
+error taxonomy and the snapshot-file grammar module are exemplars alongside the SigV4-X509
+signer).
 
 ---
 
@@ -287,3 +306,39 @@ least once; re-open only if the stated reason no longer holds.
   pure `awsSaveConfirmation({ stackName, region, dir })` (byte-identical string, first unit
   coverage); the marginal step-3 dedup was skipped (ADR-0006/#5). **This emptied the seventh-pass
   open list** — every candidate landed or was parked.
+- **2026-07-16 — eighth pass** (user-directed: architecture review + tdd lens, **tuned to code
+  simplification** — clear/concise, fewer lines/branches/indirections, bug-hunt en route). Run
+  inline (no Explore agents): every production module under `src/` read in full at HEAD
+  `b072f93`, plus a test-quality sample (lib/upload.test.mjs, commands/backup.test.mjs — both
+  strong: seam-based, behavior-driven, independent literals). The open list had sat empty since
+  2026-07-14. **Two bugs found** → [bugs.md](bugs.md): `dirs.txt` `#`-comments walked as
+  directories (readSet/readSetConfig vs parseLines's own doc), and `aws --save --profile`
+  silently dropping the profile (stack-arns builds its client with `{ region }` only). **Five
+  candidates recorded above (A–E)**, all simplifications behind existing interfaces rather than
+  new seams — the standout being **A: `backup` re-derives the fresh-name + baseline its own
+  `snapshot()` call already returned as `CompareResult.until`/`.since`** (the in-code comment
+  claiming otherwise is false), a pure deletion that makes the pair consistent by construction.
+  Ride-along doc fixes: the stale `emptyBucket` bullet deleted from engine-robustness.md
+  (retired in PR #167) and the trust-on-write staleness note recorded there. Top pick: **A**,
+  with **B** (the bug-fixing dedup) as the natural same-session second. Overwrote the HTML
+  report in place.
+- **2026-07-16 — B landed** ([PR #201](https://github.com/allens/s3cab/pull/201)). *One
+  line-parsing rule for `dirs.txt`*: `readSet` and
+  `readSetConfig` now route through `parseLines`, making its own doc ("the shape a set's
+  exclude.txt and dirs.txt are read as at runtime") finally true — the comment-line bug fixed
+  and the duplicated split/trim/filter deleted. Built test-first, one red unit per reader:
+  sets.test.mjs hand-edits a `dirs.txt` with `#`/blank lines; set-marker.test.mjs gained the
+  objects.test.mjs-style `s3.mjs` module mock (its first behaviour coverage outside the
+  integration suite). The bugs.md entry is deleted (bugs go when fixed).
+- **2026-07-16 — A landed** ([PR #202](https://github.com/allens/s3cab/pull/202)). *`backup`
+  takes the fresh name + baseline from `snapshot()`'s diff*: `{ until, since }` destructured
+  from the returned `CompareResult` — both `listSnapshotNames` read-backs, the "No snapshot was
+  produced" guard, and the false "returns its diff, not the name" comment deleted (net −10
+  lines); backup↔snapshot now agree by construction. The grilled caveat sharpened into a real
+  fix: an `S3CAB_DEBUG` same-minute overwrite makes the diff's `since` the fresh name itself,
+  and diffing the snapshot against itself would plan zero objects and break
+  objects-first/snapshot-last — a `since === until` (or null) baseline now falls back to the
+  first-backup store LIST, with its own test. Built test-first (mocked `snapshot()` returns its
+  real contract; the stub-file machinery deleted); a Copilot comment moved the test's inline
+  `import("…").CompareResult` to the house `@import` tag. **This closes the eighth pass's
+  Strong tier** — C/D/E remain open above.

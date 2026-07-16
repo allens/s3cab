@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>s3cab · Architecture review · 2026-07-14</title>
+    <title>s3cab · Architecture review · 2026-07-16</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
     <script>
@@ -15,413 +15,226 @@
       .card { scroll-margin-top: 1rem; }
       .badge-strong { background:#065f46; color:#d1fae5; }
       .badge-worth { background:#78350f; color:#fed7aa; }
-      .badge-spec  { background:#3730a3; color:#c7d2fe; }
+      .badge-bug   { background:#7f1d1d; color:#fecaca; }
       .before { background:#3f1d1d; border-color:#b91c1c; }
       .after  { background:#0f2f22; border-color:#059669; }
-      .adrwarn { background:#422006; border-color:#d97706; }
-      .chip { background:#1e293b; border:1px solid #334155; }
     </style>
   </head>
   <body class="bg-slate-950 text-slate-200">
-    <div class="max-w-6xl mx-auto px-6 py-10">
-      <header class="mb-10 border-b border-slate-800 pb-6">
-        <div class="flex items-center gap-3 mb-2">
-          <span class="text-3xl">🧱</span>
-          <h1 class="text-3xl font-bold text-white">s3cab · Architecture review</h1>
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <header class="space-y-3">
+        <h1 class="text-3xl font-bold text-slate-50">s3cab — architecture review, eighth pass</h1>
+        <p class="text-slate-400 text-sm">2026-07-16 · HEAD <span class="mono">b072f93</span> · whole-<span class="mono">src/</span> read, simplification-tuned (user brief: clear + concise — fewer lines, branches, indirections — and hunt bugs). Durable capture: <span class="mono">proposals/architecture-improvements.md</span>; defects: <span class="mono">proposals/bugs.md</span>.</p>
+        <p class="text-slate-300 text-sm max-w-3xl">Verdict: after seven passes the modules are <strong>deep</strong> — no module fails the deletion test, and the seams (render layer, snapshot grammar, SDK boundary, credential resolution) hold. What this pass found is <em>re-derivation and dead branches inside interfaces</em>: five candidates, all deletions or one-rule unifications, plus <strong>two bugs</strong>.</p>
+        <div class="flex gap-2 text-xs">
+          <span class="px-2 py-1 rounded badge-bug">2 bugs → bugs.md</span>
+          <span class="px-2 py-1 rounded badge-strong">2 strong</span>
+          <span class="px-2 py-1 rounded badge-worth">2 worth exploring</span>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300">1 cleanup bundle</span>
         </div>
-        <p class="text-slate-400">
-          Seventh pass · <span class="mono">2026-07-14</span> · HEAD <span class="mono">2b48495</span> (#191, Roles Anywhere Phase B).
-          Deepening opportunities — more behaviour behind a smaller interface, at a clean seam, testable through that interface.
-        </p>
-        <p class="text-slate-500 mt-3 text-sm">
-          The open-candidate list was emptied on 2026-07-10. This run explores the un-reviewed churn since:
-          the entire <strong>Roles Anywhere credential subsystem</strong> (ADR-0055–0058, PRs #186–#191) —
-          <span class="mono">roles-anywhere.mjs</span> (879 lines, the largest lib file),
-          <span class="mono">onboarding.mjs</span>, the fourth credential mode in <span class="mono">auth.mjs</span>,
-          and the <span class="mono">aws</span> command. Three parallel explorers plus an independent read of the core.
-        </p>
       </header>
 
-      <!-- Verdict banner -->
-      <section class="mb-10 rounded-lg border border-emerald-800 bg-emerald-950/40 p-5">
-        <h2 class="text-lg font-semibold text-emerald-300 mb-2">Headline: the new subsystem is mostly <em>deep</em></h2>
-        <p class="text-slate-300 text-sm leading-relaxed">
-          <span class="mono">roles-anywhere.mjs</span> is a genuinely deep module — ~700 lines of DER / X.509 / SigV4-X509
-          machinery behind ~11 small exports, with the ~180-line DER encoder fully private. The <strong>signer path is the
-          in-repo exemplar</strong> of the pattern this project keeps <em>missing</em>: a thin I/O core
-          (<span class="mono">createSession</span>) flanked by two extracted, unit-tested pure functions
-          (<span class="mono">buildSignedRequest</span>, <span class="mono">parseSessionResponse</span>).
-          <span class="mono">onboarding.mjs</span> is likewise pure text-generation, asserted directly with zero mocking.
-          The friction is concentrated in <strong>one adjacent function, one implicit cross-module contract, and the
-          scatter of "which credential mode is this set in?"</strong> — not in the core design.
-        </p>
+      <!-- Bugs -->
+      <section class="space-y-4">
+        <h2 class="text-xl font-semibold text-red-300">Bugs found en route</h2>
+        <div class="grid md:grid-cols-2 gap-4">
+          <article class="rounded-lg border border-red-900 bg-red-950/40 p-4 space-y-2">
+            <h3 class="font-semibold text-red-200">A <span class="mono">#</span> comment in <span class="mono">dirs.txt</span> is walked as a directory</h3>
+            <p class="text-sm text-slate-300"><span class="mono">readSet</span> and <span class="mono">readSetConfig</span> keep <span class="mono">#</span> lines; the next walk aborts with <em>&ldquo;These directories &hellip; aren't available:&nbsp;# old drive&rdquo;</em>. <span class="mono">parseLines</span> even documents itself as the rule both files are read by — a unification that never happened. Candidate B carries the fix.</p>
+          </article>
+          <article class="rounded-lg border border-red-900 bg-red-950/40 p-4 space-y-2">
+            <h3 class="font-semibold text-red-200"><span class="mono">aws --save --profile &lt;p&gt;</span> silently drops the profile</h3>
+            <p class="text-sm text-slate-300"><span class="mono">stack-arns.mjs</span> builds its CloudFormation client with <span class="mono">{ region }</span> only, so the DescribeStacks read runs on ambient credentials — the admin profile the user just deployed with is accepted and ignored. Honor it (v3 clients take a <span class="mono">profile</span> option) or reject the combination.</p>
+          </article>
+        </div>
       </section>
 
-      <!-- Contents -->
-      <nav class="mb-10 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-        <a href="#a" class="chip rounded px-3 py-2 hover:bg-slate-800">A · Extract pure <span class="mono">arnsFromOutputs</span> <span class="badge-strong px-2 py-0.5 rounded text-xs ml-1">Strong · top pick</span></a>
-        <a href="#d" class="chip rounded px-3 py-2 hover:bg-slate-800">D · Teach <span class="mono">authNotice</span> the RA mode <span class="badge-strong px-2 py-0.5 rounded text-xs ml-1">Strong</span></a>
-        <a href="#b" class="chip rounded px-3 py-2 hover:bg-slate-800">B · One RA stack-output ↔ env contract <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
-        <a href="#c" class="chip rounded px-3 py-2 hover:bg-slate-800">C · A pure <span class="mono">credentialMode()</span> classifier <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
-        <a href="#e" class="chip rounded px-3 py-2 hover:bg-slate-800">E · Consolidate RA recipe prose <span class="badge-worth px-2 py-0.5 rounded text-xs ml-1">Worth exploring</span></a>
-        <a href="#examined" class="chip rounded px-3 py-2 hover:bg-slate-800">Examined &amp; left alone (not candidates)</a>
-      </nav>
+      <!-- Candidates -->
+      <section id="candidates" class="space-y-10">
+        <h2 class="text-xl font-semibold text-slate-100">Candidates</h2>
 
-      <!-- ============ CANDIDATE A ============ -->
-      <section id="a" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 class="text-2xl font-bold text-white">A · Extract a pure <span class="mono">arnsFromOutputs</span></h2>
-            <p class="text-slate-400 text-sm mt-1">The stack-output → env-record mapping is trapped behind the CloudFormation SDK call.</p>
+        <!-- A -->
+        <article id="cand-a" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="text-lg font-semibold text-slate-50">A — <span class="mono">backup</span> re-derives what <span class="mono">snapshot()</span> already returned</h3>
+            <span class="px-2 py-0.5 rounded text-xs badge-strong">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-400">in-process</span>
           </div>
-          <span class="badge-strong px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Strong · top pick</span>
-        </div>
+          <p class="mono text-sm text-slate-400">src/commands/backup.mjs:47&ndash;57 · src/lib/compare.mjs (the CompareResult contract)</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border p-4 before">
+              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — three reads of one fact</p>
+              <pre class="mermaid">
+flowchart TB
+  S["snapshot(set)"] -->|"CompareResult (until, since) — discarded"| B["backup"]
+  B -->|"listSnapshotNames latest"| D[("snapshots dir")]
+  B -->|"listSnapshotNames().find(n &lt; name)"| D
+  B -->|"guard: 'No snapshot was produced'"| B
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class D leak
+              </pre>
+            </div>
+            <div class="rounded-lg border p-4 after">
+              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — the interface already carries it</p>
+              <pre class="mermaid">
+flowchart TB
+  S["snapshot(set)"] -->|"{ until, since } destructured"| B["backup → upload(until, since)"]
+  classDef deep fill:#064e3b,stroke:#059669,stroke-width:3px;
+  class S,B deep
+              </pre>
+            </div>
+          </div>
+          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> After <span class="mono">await snapshot(&hellip;)</span>, backup reads the fresh name back off disk and re-derives the baseline with a second directory read — but the <span class="mono">CompareResult</span> it just discarded carries both: <span class="mono">until</span> <em>is</em> the fresh name, <span class="mono">since</span> <em>is</em> the previous latest. The in-code comment claiming &ldquo;snapshot() returns its diff, not the name&rdquo; is false.</p>
+          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> <span class="mono">const { until, since } = await snapshot(&hellip;)</span> — delete both reads, the guard, and the stale comment (~10 lines).</p>
+          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
+            <li>Locality: backup&harr;snapshot agree by construction</li>
+            <li>Two directory reads and one guard deleted</li>
+            <li>Interface unchanged; tests feed CompareResults</li>
+          </ul>
+          <div class="rounded border border-amber-800 bg-amber-950/40 p-3 text-xs text-amber-200">Grill first: the <span class="mono">S3CAB_DEBUG</span> same-minute-overwrite edge (diff's <span class="mono">since</span> can equal <span class="mono">until</span>) — debug-only; both forms already die on the immutable-snapshot PUT.</div>
+        </article>
 
-        <div class="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
-            <ul class="text-slate-400 space-y-0.5 mono text-xs">
-              <li>src/lib/roles-anywhere.mjs:465–505 (<span class="text-slate-200">saveArnsFromStack</span>)</li>
-              <li>&nbsp;&nbsp;pure part: 482–501</li>
-              <li>src/lib/roles-anywhere.test.mjs:211–285 (mock.module)</li>
-            </ul>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
-            <p class="text-slate-400">
-              <span class="mono">saveArnsFromStack</span> fuses three concerns: an identity-exists precondition (I/O),
-              a lazy SDK import + <span class="mono">DescribeStacks</span> (I/O), and a <strong>pure</strong> step —
-              iterate <span class="mono">Outputs</span>, map <span class="mono">OutputKey</span> → the three
-              <span class="mono">S3CAB_RA_*</span> env keys, compute the <span class="mono">missing</span> list.
-              That pure "given outputs, produce the env record or the missing-key list" logic — the part a reviewer
-              actually cares about — is reachable only by mocking the whole
-              <span class="mono">@aws-sdk/client-cloudformation</span> module. This is the project's named recurring
-              weakness verbatim: <em>plan/execute interleaving pushing pure decision logic behind I/O-only test access.</em>
-            </p>
+        <!-- B -->
+        <article id="cand-b" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="text-lg font-semibold text-slate-50">B — one line-parsing rule for <span class="mono">dirs.txt</span></h3>
+            <span class="px-2 py-0.5 rounded text-xs badge-strong">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs badge-bug">fixes a bug</span>
           </div>
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
-            <p class="text-slate-400">
-              Extract <span class="mono">arnsFromOutputs(outputs) → { arns, missing }</span> as a pure exported
-              function. <span class="mono">saveArnsFromStack</span> shrinks to fetch-and-delegate: precondition →
-              <span class="mono">DescribeStacks</span> → <span class="mono">arnsFromOutputs</span> → throw-or-write.
-            </p>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
-            <p class="text-slate-400">
-              <strong>Locality:</strong> the output-shape knowledge (which is a contract with the template) sits in one
-              named unit. <strong>Leverage:</strong> the missing-outputs branch — today only hit through a mocked SDK —
-              becomes a plain array-in, object-out unit test. It follows the exact split the signer already models
-              (<span class="mono">parseSessionResponse</span> beside <span class="mono">createSession</span>).
-              Convergent: <strong>two independent explorers</strong> surfaced this as their #1/#2.
-            </p>
-          </div>
-        </div>
+          <p class="mono text-sm text-slate-400">src/lib/sets.mjs:332&ndash;335 · src/lib/set-marker.mjs:139&ndash;142 · src/lib/read-lines.mjs</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border p-4 before">
+              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — three spellings, one lies</p>
+              <pre class="mono text-xs leading-relaxed text-slate-300">exclude.txt ──▶ parseLines()      # comments dropped ✓
+dirs.txt (local)  ──▶ split/trim   # "#…" kept ✗
+dirs.txt (remote) ──▶ split/trim   # "#…" kept ✗
 
-        <div class="grid md:grid-cols-2 gap-4 mt-5">
-          <div class="before border rounded-lg p-4">
-            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before — shallow: pure logic welded to I/O</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">saveArnsFromStack({stackName, region})
-┌─────────────────────────────────────┐
-│ ✓ identity-exists check       (I/O)  │
-│ ✓ import CFN client           (I/O)  │
-│ ✓ DescribeStacks              (I/O)  │
-│ ▓ map Outputs → S3CAB_RA_*   (pure) │ ◀─ only
-│ ▓ compute `missing` list     (pure) │ ◀─ reachable
-│ ✓ updateEnvFile               (I/O)  │    via mock
-└─────────────────────────────────────┘
-  test → mock.module(@aws-sdk/…) 🧪❌</pre>
-          </div>
-          <div class="after border rounded-lg p-4">
-            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After — the pure core lifts out</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">arnsFromOutputs(outputs) → {arns, missing}
-┌─────────────────────────────────────┐
-│ ▓ map + validate      (pure, export) │ ◀─ test with
-└─────────────────────────────────────┘    a plain array 🧪✅
+read-lines.mjs doc: "the shape …
+exclude.txt AND dirs.txt are read as"  ← false</pre>
+            </div>
+            <div class="rounded-lg border p-4 after">
+              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — one rule, doc true</p>
+              <pre class="mono text-xs leading-relaxed text-slate-300">exclude.txt ──┐
+dirs.txt (local) ──┤──▶ parseLines()
+dirs.txt (remote) ─┘
 
-saveArnsFromStack({stackName, region})
-┌─────────────────────────────────────┐
-│ ✓ precondition · DescribeStacks (I/O)│
-│ → arnsFromOutputs(outputs)           │
-│ ✓ throw-or-updateEnvFile        (I/O)│
-└─────────────────────────────────────┘</pre>
+comments + blanks dropped everywhere;
+absolute paths never start with "#"</pre>
+            </div>
           </div>
-        </div>
-        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: <strong>passes</strong> — concentrates the mapping+validation into a directly testable unit; no complexity moves. Zero ADR tension (implements the ADR-0056 <span class="mono">--save --from-stack</span> step; a helper doesn't touch the decision).</p>
+          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> Two hand-rolled copies of the parse keep <span class="mono">#</span> lines, so a commented-out directory aborts the walk with a baffling error — and the shared primitive's doc claims it already owns this.</p>
+          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Route both <span class="mono">dirs.txt</span> readers through <span class="mono">parseLines</span>.</p>
+          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
+            <li>Bug fixed; comments usable in dirs.txt</li>
+            <li>~6 duplicated lines deleted</li>
+            <li>Leverage: one rule decides &ldquo;active line&rdquo;</li>
+          </ul>
+        </article>
+
+        <!-- C -->
+        <article id="cand-c" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="text-lg font-semibold text-slate-50">C — drop <span class="mono">objectExists</span>'s metadata heuristic</h3>
+            <span class="px-2 py-0.5 rounded text-xs badge-worth">Worth exploring</span>
+          </div>
+          <p class="mono text-sm text-slate-400">src/lib/s3.mjs:476&ndash;489 (the multipart no-clobber preflight)</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border p-4 before">
+              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — a branch that can only waste bytes</p>
+              <pre class="mermaid">
+sequenceDiagram
+  participant P as putFile
+  participant S3
+  P->>S3: HEAD (200, no custom metadata)
+  Note over P: treated as "absent"
+  P->>S3: multipart upload — full body sent
+  S3-->>P: PreconditionFailed (IfNoneMatch)
+  Note over P: return false — same answer, N MB later
+              </pre>
+            </div>
+            <div class="rounded-lg border p-4 after">
+              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — any 200 HEAD is present</p>
+              <pre class="mermaid">
+sequenceDiagram
+  participant P as putFile
+  participant S3
+  P->>S3: HEAD (200)
+  Note over P: return false — skip upload
+  Note over P,S3: conditional PUT stays the real guard
+              </pre>
+            </div>
+          </div>
+          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> The &ldquo;exists but has no metadata &rarr; treat as absent&rdquo; branch reaches the identical outcome the conditional PUT would give — after uploading the whole multipart body first.</p>
+          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Any successful HEAD counts as present; delete the metadata inspection.</p>
+          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
+            <li>One branch fewer, same guarantees</li>
+            <li>No wasted body upload on metadata-less objects</li>
+          </ul>
+        </article>
+
+        <!-- D -->
+        <article id="cand-d" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="text-lg font-semibold text-slate-50">D — fail the walk at the first duplicate file</h3>
+            <span class="px-2 py-0.5 rounded text-xs badge-worth">Worth exploring</span>
+          </div>
+          <p class="mono text-sm text-slate-400">src/lib/walk.mjs:137&ndash;149</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border p-4 before">
+              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — walk everything, then re-scan</p>
+              <pre class="mono text-xs leading-relaxed text-slate-300">walk root 1 ▸▸▸▸▸▸▸▸ (minutes)
+walk root 2 ▸▸▸▸▸▸▸▸ (minutes)
+second pass over files[]  ← Set built here
+   └─ throw "directories overlap"</pre>
+            </div>
+            <div class="rounded-lg border p-4 after">
+              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — inline check, first dup throws</p>
+              <pre class="mono text-xs leading-relaxed text-slate-300">walk root 1 ▸▸▸▸▸▸▸▸
+walk root 2 ▸✗ throw at first duplicate
+   (second pass deleted)</pre>
+            </div>
+          </div>
+          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> Overlapping member dirs are only reported after the entire walk — a wasted multi-minute pass on a big set — via a second full loop.</p>
+          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Move the <span class="mono">seen</span> check into the collect loop. <em>Rejected alternative:</em> a pre-walk root-containment check — exclude patterns can make nested roots a working config today, so only the file-level check is faithful.</p>
+        </article>
+
+        <!-- E -->
+        <article id="cand-e" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-3">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="text-lg font-semibold text-slate-50">E — small-cleanups bundle (ride-alongs, next touch of each file)</h3>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300">cleanups</span>
+          </div>
+          <ul class="text-sm text-slate-300 list-disc pl-5 space-y-2">
+            <li><span class="mono">commands/provider.mjs:307&ndash;323</span> — the mode-switch clear list re-spells env keys the <span class="mono">knobs</span> table already owns; <span class="mono">clear.push(...knobs.keys)</span> kills the rename-drift risk.</li>
+            <li><span class="mono">lib/remote.mjs:183&ndash;186, 253&ndash;262</span> — three hand-rolled get-or-insert blocks where compare.mjs already uses <span class="mono">Map.prototype.getOrInsertComputed</span>.</li>
+            <li><span class="mono">commands/upload.mjs:131&ndash;134</span> — the trailing &ldquo;Specify what to upload&rdquo; throw belongs in the fail-fast validation block at the top.</li>
+            <li><span class="mono">render.mjs:85&ndash;89, 455</span> — two differently-shaped local <span class="mono">paint</span> helpers; one module-private helper serves both.</li>
+          </ul>
+        </article>
       </section>
 
-      <!-- ============ CANDIDATE D ============ -->
-      <section id="d" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 class="text-2xl font-bold text-white">D · Teach <span class="mono">authNotice</span> the Roles Anywhere mode</h2>
-            <p class="text-slate-400 text-sm mt-1">A user-visible promise silently degrades for exactly the new mode.</p>
-          </div>
-          <span class="badge-strong px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Strong</span>
-        </div>
-        <div class="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
-            <ul class="text-slate-400 space-y-0.5 mono text-xs">
-              <li>src/lib/s3.mjs:70–82 (<span class="text-slate-200">authNotice</span>)</li>
-              <li>src/lib/s3.mjs:155–161 (its caller <span class="text-slate-200">client()</span>)</li>
-              <li>src/lib/s3.test.mjs:277–327 (no RA case)</li>
-            </ul>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
-            <p class="text-slate-400">
-              <span class="mono">authNotice</span> knows three shapes — profile, endpoint, generic fallback.
-              <span class="mono">client()</span> feeds it <span class="mono">{profile, profileSource, endpoint}</span>.
-              But an RA-mode set carries <em>no</em> profile and (RA is AWS-only, mutually exclusive with a custom
-              endpoint) <em>no</em> endpoint — so every Roles Anywhere command prints the anonymous
-              <span class="mono">"Contacting the cloud…"</span>. The docstring's promise — <em>"'which account am I about
-              to touch?' never needs guessing"</em> — degrades for the one mode where the identity <em>is</em> known
-              (<span class="mono">isRolesAnywhereMode()</span>). The fourth mode was added to the resolver without
-              widening its paired notice (or its tests).
-            </p>
-          </div>
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
-            <p class="text-slate-400">
-              Pass an RA signal into <span class="mono">authNotice</span> (or, once candidate&nbsp;C lands, the resolved
-              mode) so it can print e.g. <span class="mono">"Using Roles Anywhere (keyless)"</span>. Add the missing
-              <span class="mono">s3.test.mjs</span> case.
-            </p>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
-            <p class="text-slate-400">
-              Closes a defect-shaped gap in the SDK boundary's one job. <strong>Standalone-cheap</strong> today; even
-              cheaper as the first beneficiary of a <span class="mono">credentialMode()</span> concept (C) — which is
-              why this is the concrete symptom that motivates C.
-            </p>
-          </div>
-        </div>
-        <div class="grid md:grid-cols-2 gap-4 mt-5">
-          <div class="before border rounded-lg p-4">
-            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">$ s3cab backup work
-Contacting the cloud…          ◀─ anonymous
-… (RA-mode set: no profile, no endpoint)</pre>
-          </div>
-          <div class="after border rounded-lg p-4">
-            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">$ s3cab backup work
-Using Roles Anywhere (keyless)  ◀─ traceable</pre>
-          </div>
-        </div>
-        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: n/a (widening, not a boundary). ✓ ADR: consistent with ADR-0057 — the notice simply wasn't widened alongside <span class="mono">resolveCredentials</span>.</p>
-      </section>
-
-      <!-- ============ CANDIDATE B ============ -->
-      <section id="b" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 class="text-2xl font-bold text-white">B · One RA stack-output ↔ identity-env contract</h2>
-            <p class="text-slate-400 text-sm mt-1">Three ARN key names, spelled by hand in three files — an implicit contract held together by matching string literals.</p>
-          </div>
-          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
-        </div>
-        <div class="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
-            <ul class="text-slate-400 space-y-0.5 mono text-xs">
-              <li>onboarding.mjs:299–305 — template <span class="text-slate-200">Outputs</span> (producer)</li>
-              <li>roles-anywhere.mjs:445–449 — <span class="text-slate-200">ARN_ENV</span> (map)</li>
-              <li>roles-anywhere.mjs:559–566 — <span class="text-slate-200">readSigningIdentity</span> (read)</li>
-            </ul>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
-            <p class="text-slate-400">
-              The names <span class="mono">TrustAnchorArn / ProfileArn / RoleArn</span> and their env twins
-              <span class="mono">S3CAB_RA_*</span> exist only as matching literals in three spots.
-              <span class="mono">onboarding.mjs</span> doesn't import from <span class="mono">roles-anywhere.mjs</span>,
-              so nothing binds them. Rename an Output and <span class="mono">--save</span> silently fails with
-              "missing the Roles Anywhere outputs" — an error that even <em>blames the user's stack</em>. Within
-              <span class="mono">roles-anywhere.mjs</span> the env keys are then spelled twice more: <span class="mono">ARN_ENV</span>
-              values (write) vs literal property reads in <span class="mono">readSigningIdentity</span> (read).
-            </p>
-          </div>
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
-            <p class="text-slate-400">
-              Promote the three (output-name → env-key) pairs to one shared constant, consumed by the template
-              generator, <span class="mono">arnsFromOutputs</span> (candidate&nbsp;A), and
-              <span class="mono">readSigningIdentity</span>. The template's <span class="mono">Outputs:</span> block and
-              the reader then can't drift.
-            </p>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
-            <p class="text-slate-400">
-              <strong>Locality:</strong> the round-trip contract becomes one symbol instead of a tacit convention.
-              Pairs naturally with A (both touch the same seam) — A makes the mapping testable, B makes the vocabulary
-              single-sourced.
-            </p>
-          </div>
-        </div>
-        <div class="mt-5 rounded-lg border border-slate-700 bg-slate-950/60 p-4">
-          <div class="mermaid">
-flowchart LR
-  subgraph now["Today — matched literals, no binding"]
-    T1["onboarding.mjs<br/>Outputs: TrustAnchorArn…"] -. "must equal (untyped)" .-> M1["roles-anywhere.mjs<br/>ARN_ENV keys"]
-    M1 -. "must equal (untyped)" .-> R1["readSigningIdentity<br/>env.S3CAB_RA_* reads"]
-  end
-          </div>
-          <div class="mermaid">
-flowchart LR
-  subgraph after["After — one shared symbol"]
-    C["RA_ARN_CONTRACT<br/>(output → env-key pairs)"]
-    C --> T2["template Outputs"]
-    C --> A2["arnsFromOutputs"]
-    C --> R2["readSigningIdentity"]
-  end
-          </div>
-        </div>
-        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: neither side deletes, but the shared vocabulary belongs in one place — extracting it <strong>concentrates</strong> the contract. ✓ ADR-0056 defines the pair but doesn't force a shared symbol.</p>
-      </section>
-
-      <!-- ============ CANDIDATE C ============ -->
-      <section id="c" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 class="text-2xl font-bold text-white">C · A pure <span class="mono">credentialMode()</span> classifier</h2>
-            <p class="text-slate-400 text-sm mt-1">"Which of the four modes is this set in?" is re-derived from raw env keys at five-plus sites, with three internal spellings of the concept.</p>
-          </div>
-          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
-        </div>
-
-        <div class="adrwarn border rounded-lg p-3 mb-4 text-sm">
-          <span class="text-amber-300 font-semibold">⚠ Sits on the ADR-0055 line.</span>
-          <span class="text-amber-100/80">ADR-0055 keeps auth as "a bag of <span class="mono">AWS_*</span> variables handed to the chain," and a prior review parked <em>restructuring</em> the config layer. A <strong>read-only classifier</strong> is arguably new surface (an adapter over the bag), not a restructure — but this is a decision, not an obvious win. <strong>Do not</strong> fold the write-side mode-clearing into it (that would drag the file-write across the seam and <em>fail</em> the deletion test — one explorer verified this).</span>
-        </div>
-
-        <div class="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">The scatter</h3>
-            <ul class="text-slate-400 space-y-0.5 mono text-xs">
-              <li>auth.mjs:435 — <span class="text-slate-200">isRolesAnywhereMode()</span> route</li>
-              <li>auth.mjs:69–126 — <span class="text-slate-200">credentialCase</span> (5th case)</li>
-              <li>commands/provider.mjs:296–322 — <span class="text-slate-200">newMode</span> (<span class="text-amber-300">"ra"</span>)</li>
-              <li>commands/provider.mjs:88–129 — <span class="text-slate-200">describeScope</span></li>
-              <li>commands/provider.mjs:164–181 — <span class="text-slate-200">shellNote</span></li>
-              <li>s3.mjs:70–82 — <span class="text-slate-200">authNotice</span> (RA-blind, cand. D)</li>
-            </ul>
-          </div>
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Problem</h3>
-            <p class="text-slate-400">
-              No function answers "which mode does this set declare?" Each site re-derives it from raw env keys, so
-              adding RA meant adding a fourth arm to every one. The concept is <strong>stringly-typed and inconsistent</strong>:
-              the flag/key is <span class="mono">"roles-anywhere"</span>/<span class="mono">RA_MARKER</span>, the internal
-              literal is <span class="mono">"ra"</span>, callers elsewhere use a <span class="mono">rolesAnywhere</span> boolean.
-              And the marker read drifts: <span class="mono">=== "1"</span> in two places but a loose
-              <span class="mono">truthy</span> at provider.mjs:319 — so <span class="mono">S3CAB_RA=0</span> reads as
-              not-RA everywhere <em>except</em> the clear-on-replace path (latent bug).
-            </p>
-          </div>
-        </div>
-
-        <div class="grid md:grid-cols-2 gap-4 mt-5">
-          <div class="before border rounded-lg p-4">
-            <div class="text-red-300 font-semibold text-xs uppercase tracking-wide mb-2">Before — every reader re-derives</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">env bag {AWS_PROFILE, AWS_ENDPOINT…,
-         AWS_ACCESS_KEY_ID, S3CAB_RA}
-   │  │  │  │  │
-   ▼  ▼  ▼  ▼  ▼   (5+ ad-hoc derivations)
-authNotice  credentialCase  newMode
-describeScope  shellNote  isRolesAnywhereMode
-   "ra" / "roles-anywhere" / rolesAnywhere
-   === "1"  vs  truthy   ◀─ drift</pre>
-          </div>
-          <div class="after border rounded-lg p-4">
-            <div class="text-emerald-300 font-semibold text-xs uppercase tracking-wide mb-2">After — one classifier</div>
-            <pre class="mono text-xs text-slate-300 leading-relaxed">credentialMode(env)
-  → "profile" | "keys" | "ra" | "ambient"
-       │
-       ▼  (one pure, unit-tested source)
-authNotice · credentialCase · describeScope
-shellNote · resolveCredentials
-   one spelling · one marker rule</pre>
-          </div>
-        </div>
-        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: a read-only classifier <strong>concentrates</strong> five derivations into one pure function and kills the naming/truthiness drift — <em>provided</em> the execute-side clearing stays put. Biggest leverage here, but the most contentious; grill the ADR-0055 boundary first.</p>
-      </section>
-
-      <!-- ============ CANDIDATE E ============ -->
-      <section id="e" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/60 p-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 class="text-2xl font-bold text-white">E · Consolidate the RA onboarding recipe prose</h2>
-            <p class="text-slate-400 text-sm mt-1">The porcelain hand-writes recipe text that its own header says lives (pure, unit-tested) in <span class="mono">onboarding.mjs</span>.</p>
-          </div>
-          <span class="badge-worth px-3 py-1 rounded text-sm font-semibold whitespace-nowrap">Worth exploring</span>
-        </div>
-        <div class="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Files</h3>
-            <ul class="text-slate-400 space-y-0.5 mono text-xs">
-              <li>commands/aws.mjs:126–138 (<span class="text-slate-200">saveRolesAnywhere</span> confirmation)</li>
-              <li>onboarding.mjs:410–416 (near-verbatim closing)</li>
-              <li>setup.mjs:115–123 (<span class="text-slate-200">rolesAnywhereNotReadyError</span>)</li>
-              <li>roles-anywhere.mjs:467–471 (precondition error)</li>
-            </ul>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Problem</h3>
-            <p class="text-slate-400">
-              <span class="mono">saveRolesAnywhere</span> inlines ~7 lines of "point a backup set at it" wiring prose
-              near-verbatim to the close of <span class="mono">awsRolesAnywherePlan</span> — while <span class="mono">aws.mjs</span>'s
-              own header comment claims "the recipe text lives in <span class="mono">onboarding.mjs</span> (pure,
-              unit-testable)." The command string <span class="mono">s3cab aws --roles-anywhere --save --from-stack …</span>
-              recurs in four files. Understanding "how a bucket gets onboarded via RA" means bouncing
-              <span class="mono">aws → roles-anywhere → onboarding → setup</span>.
-            </p>
-          </div>
-          <div>
-            <h3 class="font-semibold text-slate-300 mb-1">Solution</h3>
-            <p class="text-slate-400">
-              Move the save-confirmation into an <span class="mono">awsSaveConfirmation({dir})</span> generator in
-              <span class="mono">onboarding.mjs</span>; have the duplicated command strings reference shared
-              name-builders (<span class="mono">stackName</span> et al. already exist there).
-            </p>
-            <h3 class="font-semibold text-slate-300 mb-1 mt-3">Benefits</h3>
-            <p class="text-slate-400">
-              <strong>Locality:</strong> all recipe prose back in its one pure, unit-tested home, restoring the invariant
-              the header already asserts. The confirmation string — today reachable only through the async I/O path —
-              becomes directly testable.
-            </p>
-          </div>
-        </div>
-        <p class="text-emerald-400/80 text-xs mt-3">✓ Deletion test: partial — the human-in-the-loop workflow is inherently multi-command, so it doesn't fully collapse, but the duplicated <em>strings</em> concentrate. ✓ ADR-0056/0034 (thin porcelain, "the plan is the result").</p>
-      </section>
-
-      <!-- ============ EXAMINED, NOT CANDIDATES ============ -->
-      <section id="examined" class="card mb-10 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
-        <h2 class="text-xl font-bold text-white mb-3">Examined &amp; left alone</h2>
-        <p class="text-slate-400 text-sm mb-4">Verified against source and judged <em>not</em> deepening candidates — recorded so the next run skips them.</p>
-        <ul class="space-y-3 text-sm text-slate-400">
-          <li><strong class="text-slate-200">The SigV4-X509 signer — cite as the exemplar.</strong> <span class="mono">createSession</span> is a thin I/O core flanked by pure, independently-tested <span class="mono">buildSignedRequest</span> + <span class="mono">parseSessionResponse</span>; the socket-timeout concern is isolated in its own <span class="mono">node:https</span>-mocking test file. This <em>is</em> the pattern candidate A is missing.</li>
-          <li><strong class="text-slate-200">RA credential arm untested at unit level</strong> (auth.mjs:409–422, 434–437). The one bespoke credential arm s3cab owns is exercised only by the gated integration suite; the <span class="mono">new Date(expiration)</span> shaping could be cheaply unit-covered. A <em>coverage</em> observation (ADR-0020: judged by review), not a module boundary — worth a test, not a refactor.</li>
-          <li><strong class="text-slate-200">The <span class="mono">buildSignedRequest</span> RSA branch</strong> (roles-anywhere.mjs:674–683) is dead relative to the codebase (<span class="mono">buildIdentity</span> only emits P-256) — but ADR-0058 discusses key type and reference-helper parity is cheap. Characterize, don't act.</li>
-          <li><strong class="text-slate-200"><span class="mono">readSigningIdentity</span>'s catch-all</strong> (575–580) conflates "not usable" with "crashed" — a genuine bug in the read path is reframed as setup advice. Defensible &amp; documented; narrowing it moves nothing. Marginal.</li>
-          <li><strong class="text-slate-200"><span class="mono">saveArnsFromStack</span>'s CloudFormation dependency</strong> gives the crypto/storage module control-plane knowledge — but it writes the identity's private <span class="mono">env</span>, which only this module owns. Moving it out would leak the file layout. Keep.</li>
-          <li><strong class="text-slate-200"><span class="mono">set-marker.mjs</span> pure parsing behind S3 I/O</strong> (listRemoteSets / readRemoteInfo) — same shape as A but tangential to onboarding; mild, and it's <span class="mono">setup</span>'s remote marker, not a credential seam.</li>
-          <li><strong class="text-slate-200"><span class="mono">aws-profiles.mjs</span> shallow wrapper</strong> — interface ≈ body, but inlining <em>moves</em> the try/catch + <span class="mono">undefined</span>-sentinel into its one caller. A legitimate thin adapter over the SDK parser. Not a deletion candidate.</li>
-          <li><strong class="text-slate-200">Region-default chain</strong> (aws.mjs:73–77) duplicates <span class="mono">scripts/setup-test-bucket.mjs</span>. Minor policy dup.</li>
+      <!-- Examined & left alone -->
+      <section class="space-y-3">
+        <h2 class="text-xl font-semibold text-slate-100">Examined &amp; left alone</h2>
+        <ul class="text-sm text-slate-400 list-disc pl-5 space-y-1">
+          <li><span class="mono">referencedObjects</span> not filtering set names while <span class="mono">listRemoteSets</span> does — <strong class="text-slate-200">load-bearing asymmetry</strong>: filtering the scan would make cleanup orphan a non-canonical set's objects.</li>
+          <li>Trust-on-write staleness of <span class="mono">upload --snapshot &lt;old&gt;</span> — a design stance, recorded in engine-robustness.md.</li>
+          <li>list.mjs's inline <span class="mono">--latest</span> slice; <span class="mono">??</span>-vs-<span class="mono">||</span> region defaults; pluralization hand-rolls; snapshot's floor-percent arithmetic — all trivial.</li>
+          <li>render / help / error / auth / snapshot-grammar / RA modules: read in full, deep, cleanly seamed. Exemplars: auth.mjs's error taxonomy, snapshot-file.mjs's writer-owned grammar, the SigV4-X509 signer.</li>
         </ul>
+        <p class="text-sm text-slate-400">Test sample (tdd lens): <span class="mono">lib/upload.test.mjs</span>, <span class="mono">commands/backup.test.mjs</span> — seam-based, behavior-driven, independent expected values. No anti-patterns found.</p>
       </section>
 
-      <!-- ============ TOP RECOMMENDATION ============ -->
-      <section class="mb-6 rounded-lg border-2 border-emerald-700 bg-emerald-950/30 p-6">
-        <h2 class="text-2xl font-bold text-emerald-300 mb-3">⭐ Top recommendation</h2>
-        <p class="text-slate-200 leading-relaxed">
-          Tackle <strong>A (extract <span class="mono">arnsFromOutputs</span>)</strong> first. It is the one finding two
-          independent explorers converged on, it is the textbook instance of this project's <em>named</em> recurring
-          weakness (pure logic reachable only through mocked I/O), it has the smallest blast radius, zero ADR tension,
-          and an immediate test win — and it follows the split the signer in the same module already models.
-          <strong>B</strong> rides along naturally (same seam: A makes the mapping testable, B single-sources the ARN
-          vocabulary). <strong>D</strong> (RA-blind <span class="mono">authNotice</span>) is a cheap, user-visible
-          defect fix and the concrete symptom that motivates the deeper, more contentious <strong>C</strong>
-          (a pure <span class="mono">credentialMode()</span> classifier) — grill C's ADR-0055 boundary before committing
-          to it. <strong>E</strong> is a tidy locality win whenever the recipe prose is next touched.
-        </p>
+      <!-- Top recommendation -->
+      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-700 bg-emerald-950/40 p-6 space-y-2">
+        <h2 class="text-xl font-semibold text-emerald-200">Top recommendation</h2>
+        <p class="text-sm text-slate-200"><a href="#cand-a" class="underline text-emerald-300 font-semibold">A — stop re-deriving snapshot's result in backup</a>: a pure deletion (~10 lines, two directory reads, one guard, one false comment) that makes the backup&harr;snapshot pair consistent by construction. <a href="#cand-b" class="underline text-emerald-300">B</a> is the natural same-session second — it fixes a real bug while deleting duplication.</p>
       </section>
 
-      <footer class="text-slate-600 text-xs border-t border-slate-800 pt-4">
-        Generated by <span class="mono">/improve-codebase-architecture</span> · seventh pass · 2026-07-14 ·
-        three parallel Explore agents + independent core read. Loads Tailwind + Mermaid from public CDNs (needs network).
-        Durable capture: <span class="mono">proposals/architecture-improvements.md</span>.
+      <footer class="text-xs text-slate-600 pt-4 border-t border-slate-800">
+        Eighth pass · 2026-07-16 · durable capture in proposals/architecture-improvements.md · bugs in proposals/bugs.md · this file is latest-only (git history keeps prior reports).
       </footer>
-    </div>
+    </main>
   </body>
 </html>
