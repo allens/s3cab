@@ -53,6 +53,13 @@ behaviour undermine the whole premise.
    vocabulary → CONTEXT.md; the non-obvious *why* → an ADR; fuller design → docs/design/; the
    user *contract* → README/guide/; how to work here → this file. Developer setup → the README.
 
+**Who user-facing prose is for** is settled in
+[ADR-0012](docs/adr/0012-consumer-vocabulary-naming.md) ¶1 and governs **prose, not just command
+names** — read it before writing user docs. A *casual but technical* reader: can stand up an
+S3-compatible bucket with keys and permissions, but doesn't live in git. So plain language
+throughout (Nielsen #9), genuinely technical terms kept rather than contorted, no niche acronyms
+— "consumer vocabulary" is **not** the average person in the street.
+
 **Within the user-facing half, placement follows a doctrine:** README/`guide/` carry everything
 needed *before trying s3cab* plus advanced depth (e.g. the format spec); the built-in CLI help
 topics (`helpTopics` in `src/help.mjs`) carry only what's needed *mid-task in a terminal*. The
