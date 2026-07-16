@@ -1,19 +1,17 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// Offline tests for `backup`'s orchestration — it takes a fresh snapshot, then
-// resolves the change-detection baseline and hands both to `upload()` (ADR-0044,
-// docs/design/backup.md): the set's previous local snapshot as `--since`, or
-// nothing on a first backup (→ `upload` LISTs). Then it best-effort re-publishes
-// the set's config to the remote marker (ADR-0052). The set resolver, snapshot
-// writer, `upload`, and `pushSetConfig` are faked at the module seam;
-// `listSnapshotNames` runs for real against a temp dir of datestamped stub files,
-// so the "which previous snapshot" logic under test is the real one. Mocks first,
-// then a dynamic import (objects.test.mjs ordering rule).
+// Offline tests for `backup`'s orchestration — it takes a fresh snapshot, whose
+// returned diff names both sides (the compareSnapshots contract): `until` IS the
+// fresh snapshot and `since` the previous local latest, the change-detection
+// baseline handed to `upload()` (ADR-0044, docs/design/backup.md). Nothing is
+// re-read from disk, so backup and snapshot can't disagree. Then it best-effort
+// re-publishes the set's config to the remote marker (ADR-0052). The set
+// resolver, snapshot command, `upload`, and `pushSetConfig` are faked at the
+// module seam. Mocks first, then a dynamic import (objects.test.mjs ordering rule).
 
 /** @type {{ name: string, bucket: string, snapshotsDir: string, dirs: string[] }} */
 let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "", dirs: [] };
@@ -25,8 +23,27 @@ let snapshotCalls = [];
 let pushCalls = [];
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
 let pushFails;
-/** @type {(() => void) | undefined} the file a fresh `snapshot()` writes */
-let onSnapshot;
+/** @type {import("../lib/compare.mjs").CompareResult} what the fake snapshot() returns */
+let snapshotResult;
+
+/**
+ * A minimal CompareResult, as `snapshot()` returns: only `until`/`since` are
+ * consumed by backup, the rest is the honest empty diff shape.
+ * @param {string} until
+ * @param {string | null} since
+ * @returns {import("../lib/compare.mjs").CompareResult}
+ */
+const diffResult = (until, since) => ({
+  setName: "photos",
+  dirs: [],
+  since,
+  until,
+  added: [],
+  moved: [],
+  modified: [],
+  deleted: [],
+  errors: [],
+});
 
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
@@ -50,7 +67,7 @@ mock.module("./snapshot.mjs", {
       /** @type {object} */ options,
     ) => {
       snapshotCalls.push([set, options]);
-      onSnapshot?.();
+      return snapshotResult;
     },
   },
 });
@@ -75,18 +92,17 @@ mock.module("./upload.mjs", {
 const { backup } = await import("./backup.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
-const stub = (/** @type {string} */ dir, /** @type {string} */ name) =>
-  writeFileSync(join(dir, `${name}.tsv.zst`), "");
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
 beforeEach(() => {
   savedEnv = { ...process.env };
+  fakeSet = { name: "photos", bucket: "b", snapshotsDir: "", dirs: [] };
   uploadCalls = [];
   snapshotCalls = [];
   pushCalls = [];
   pushFails = undefined;
-  onSnapshot = undefined;
+  snapshotResult = diffResult("2026-01-01T0900", null);
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
@@ -98,12 +114,8 @@ afterEach(() => {
 });
 
 describe("backup baseline resolution", () => {
-  it("takes a fresh snapshot, then hands upload the fresh name + prior latest as --since", async () => {
-    await using dir = await mkTmpDir();
-    stub(dir.path, "2026-01-01T0900");
-    fakeSet = { name: "photos", bucket: "b", snapshotsDir: dir.path, dirs: [] };
-    // A fresh snapshot() writes the newest file; backup reads its name back.
-    onSnapshot = () => stub(dir.path, "2026-01-02T0900");
+  it("hands upload the diff's fresh name (until) and previous latest (since)", async () => {
+    snapshotResult = diffResult("2026-01-02T0900", "2026-01-01T0900");
 
     const result = await backup("photos");
 
@@ -116,11 +128,20 @@ describe("backup baseline resolution", () => {
     assert.equal(result.snapshot, "2026-01-02T0900");
   });
 
-  it("passes no baseline on a first backup (only the fresh snapshot exists → upload LISTs)", async () => {
-    await using dir = await mkTmpDir();
-    fakeSet = { name: "photos", bucket: "b", snapshotsDir: dir.path, dirs: [] };
-    // First backup: the dir starts empty; snapshot() writes the only snapshot.
-    onSnapshot = () => stub(dir.path, "2026-01-01T0900");
+  it("passes no baseline on a first backup (the diff's since is null → upload LISTs)", async () => {
+    snapshotResult = diffResult("2026-01-01T0900", null);
+
+    await backup("photos");
+
+    assert.equal(uploadCalls[0]?.[1].snapshot, "2026-01-01T0900");
+    assert.equal(uploadCalls[0]?.[1].since, undefined);
+  });
+
+  it("passes no baseline when the diff's since is the fresh snapshot itself (S3CAB_DEBUG same-minute overwrite)", async () => {
+    // A same-minute overwrite makes the previous latest the fresh name; diffing
+    // the snapshot against itself would plan zero objects and break the
+    // objects-first/snapshot-last invariant — so backup falls back to the LIST.
+    snapshotResult = diffResult("2026-01-01T0900", "2026-01-01T0900");
 
     await backup("photos");
 
@@ -129,9 +150,7 @@ describe("backup baseline resolution", () => {
   });
 
   it("returns the upload result's counts under the backed-up set + snapshot", async () => {
-    await using dir = await mkTmpDir();
-    fakeSet = { name: "photos", bucket: "b", snapshotsDir: dir.path, dirs: [] };
-    onSnapshot = () => stub(dir.path, "2026-01-01T0900");
+    snapshotResult = diffResult("2026-01-01T0900", null);
 
     const result = await backup("photos");
 
@@ -151,10 +170,9 @@ describe("backup config re-sync (ADR-0052)", () => {
     fakeSet = {
       name: "photos",
       bucket: "b",
-      snapshotsDir: dir.path,
+      snapshotsDir: "",
       dirs: ["/home/me/Photos"],
     };
-    onSnapshot = () => stub(dir.path, "2026-01-01T0900");
 
     await backup("photos");
 
@@ -166,8 +184,6 @@ describe("backup config re-sync (ADR-0052)", () => {
   it("warns but does not fail the backup when the config re-sync fails (best-effort)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    fakeSet = { name: "photos", bucket: "b", snapshotsDir: dir.path, dirs: [] };
-    onSnapshot = () => stub(dir.path, "2026-01-01T0900");
     pushFails = () => {
       throw new Error("marker push failed");
     };

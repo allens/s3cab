@@ -1,7 +1,6 @@
 import { loadSet } from "../lib/env.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
-import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { upload } from "./upload.mjs";
 
@@ -11,13 +10,15 @@ import { upload } from "./upload.mjs";
  * porcelain that composes the two plumbing commands; `backup` itself never hashes
  * (the snapshot already carries every hash) and never walks the filesystem.
  *
- * `backup`'s one piece of smarts is the change-detection baseline it resolves and
- * hands to `upload` explicitly (plumbing is predictable; porcelain is smart): the
- * set's **previous local snapshot** as `--since` (single-owner model — the local
- * history is authoritative), or, on a first backup with no previous snapshot,
- * nothing — `upload` then LISTs the store. The objects-first/snapshot-last
- * invariant and the conditional-PUT backstop both live in `upload`
- * (`uploadSnapshot`); `backup` merely composes (docs/design/backup.md).
+ * `backup`'s one piece of smarts is the change-detection baseline it hands to
+ * `upload` explicitly (plumbing is predictable; porcelain is smart): the set's
+ * **previous local snapshot** as `--since` (single-owner model — the local
+ * history is authoritative), taken straight from the snapshot's returned diff
+ * (`until` = the fresh snapshot, `since` = the previous latest — nothing re-read
+ * from disk), or, on a first backup with no previous snapshot, nothing —
+ * `upload` then LISTs the store. The objects-first/snapshot-last invariant and
+ * the conditional-PUT backstop both live in `upload` (`uploadSnapshot`);
+ * `backup` merely composes (docs/design/backup.md).
  *
  * @typedef {Object} BackupResult
  * @property {string} set - The set backed up
@@ -38,25 +39,22 @@ import { upload } from "./upload.mjs";
 export async function backup(setName, options = {}) {
   // Resolve the set and apply its env layer (its bucket's auth) over the ambient
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer). `upload` re-resolves it
-  // (idempotent); we resolve here for the snapshot-name lookup.
+  // (idempotent); we resolve here for the config re-sync below.
   const set = loadSet(setName);
-  const snapshotDir = set.snapshotsDir;
 
-  // Take a fresh snapshot, then read the name it wrote back — the latest local
-  // snapshot. (snapshot() returns its diff, not the name it generated, so read
-  // the name back rather than change that contract.)
-  await snapshot(set.name, options);
-  const name = listSnapshotNames(snapshotDir, { latest: true });
-  if (!name) {
-    throw new Error(`No snapshot was produced for set '${set.name}'.`);
-  }
+  // Take a fresh snapshot. Its returned diff names both sides (the
+  // compareSnapshots contract): `until` IS the fresh snapshot and `since` the
+  // previous local latest — the change-detection baseline — so nothing is
+  // re-read from disk and the two can't disagree.
+  const { until: name, since } = await snapshot(set.name, options);
 
-  // The change-detection baseline: the immediately-preceding local snapshot
-  // (names are timestamps, sorted newest-first, so the first name below the fresh
-  // one is its predecessor). Undefined on a first backup → `upload` LISTs.
-  const since = listSnapshotNames(snapshotDir).find((n) => n < name);
+  // `since` is null on a first backup (no baseline → `upload` LISTs the store).
+  // A same-minute overwrite (S3CAB_DEBUG) can make it the fresh name itself —
+  // no usable baseline either, so LIST rather than diff the snapshot against
+  // itself, which would plan zero objects and break objects-first/snapshot-last.
+  const baseline = since && since !== name ? since : undefined;
 
-  const result = await upload(set.name, { snapshot: name, since });
+  const result = await upload(set.name, { snapshot: name, since: baseline });
   if (result.mode !== "snapshot") {
     // Unreachable: a `--snapshot` upload always returns the snapshot-shaped
     // result. The guard narrows the union for the type checker (and would catch
