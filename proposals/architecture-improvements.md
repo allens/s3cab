@@ -36,7 +36,8 @@ interfaces*, not new seams. Everything Strong landed same-day — both bugs fixe
 `dirs.txt` comment-line bug → [PR #201](https://github.com/allens/s3cab/pull/201), which was
 also candidate B; the `aws --save --profile` drop →
 [PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
-[PR #202](https://github.com/allens/s3cab/pull/202)** (run log below). C–E remain open.
+[PR #202](https://github.com/allens/s3cab/pull/202)**, **D in [PR #TBD](https://github.com/allens/s3cab/pull/TBD)**
+(run log below). C and E remain open.
 
 - **C (Worth exploring) — drop `objectExists`'s metadata heuristic.**
   [src/lib/s3.mjs:476–489](../src/lib/s3.mjs): the multipart no-clobber preflight treats a
@@ -45,13 +46,6 @@ also candidate B; the `aws --save --profile` drop →
   HEAD should count as present: identical outcome (the conditional PUT stays the real guard),
   one branch fewer, and no wasted body upload when the store holds a metadata-less object
   (another tool's PUT, an older s3cab).
-- **D (Worth exploring) — fail the walk at the first duplicate file.**
-  [src/lib/walk.mjs:137–149](../src/lib/walk.mjs): the overlapping-member-dirs check is a full
-  second pass over `files` after the walk completes — minutes of walking on a big set before the
-  error. Move the `seen` check inline in the collect loop: fails at the first duplicate, second
-  pass deleted. (A pre-walk root-containment check was considered and **rejected**: exclude
-  patterns can make nested roots a legitimately working config today, so only the file-level
-  check is faithful.)
 - **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
   `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
   owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
@@ -342,3 +336,17 @@ least once; re-open only if the stated reason no longer holds.
   real contract; the stub-file machinery deleted); a Copilot comment moved the test's inline
   `import("…").CompareResult` to the house `@import` tag. **This closes the eighth pass's
   Strong tier** — C/D/E remain open above.
+- **2026-07-16 — D landed** ([PR #TBD](https://github.com/allens/s3cab/pull/TBD)). *Fail the walk
+  at the first duplicate file*: the overlapping-member-dirs check was a full second pass over
+  `files` after the walk had already finished, so an overlapping set paid for the **entire** walk
+  (minutes, on a big set) before erroring on a condition knowable the moment the duplicate is
+  reached. The `seen` Set now sits beside `files`, spans all roots, and is checked as each path
+  arrives — the first duplicate throws, and the second pass is deleted. Same error message,
+  deliberately: the existing overlap test was strengthened *first* to pin the **named duplicate
+  path** rather than just `/overlap/`, so the refactor couldn't silently reword it. Verified by
+  driving `walkDirs` over a 1200-file root with a nested root under it — it throws on the nested
+  root's *first* file, and the `using progress` disposal already covered the mid-loop throw (its
+  newline is `drawn`-gated, so the cursor lands on a fresh line; `progress.mjs`'s doc comment
+  states that contract explicitly). The pre-walk root-containment alternative stays **rejected**,
+  carried over from the retired entry: exclude patterns can make nested roots a legitimately
+  working config today, so only the file-level check is faithful. C and E remain open.
