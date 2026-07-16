@@ -36,16 +36,9 @@ interfaces*, not new seams. Everything Strong landed same-day — both bugs fixe
 `dirs.txt` comment-line bug → [PR #201](https://github.com/allens/s3cab/pull/201), which was
 also candidate B; the `aws --save --profile` drop →
 [PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
-[PR #202](https://github.com/allens/s3cab/pull/202)**, **D in [PR #204](https://github.com/allens/s3cab/pull/204)**
-(run log below). C and E remain open.
+[PR #202](https://github.com/allens/s3cab/pull/202)**, **C in [PR #203](https://github.com/allens/s3cab/pull/203)**,
+and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
 
-- **C (Worth exploring) — drop `objectExists`'s metadata heuristic.**
-  [src/lib/s3.mjs:476–489](../src/lib/s3.mjs): the multipart no-clobber preflight treats a
-  200 HEAD **with no custom metadata** as "absent" and lets the upload proceed — where the
-  conditional PUT rejects anyway, *after the full multipart body has been sent*. Any successful
-  HEAD should count as present: identical outcome (the conditional PUT stays the real guard),
-  one branch fewer, and no wasted body upload when the store holds a metadata-less object
-  (another tool's PUT, an older s3cab).
 - **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
   `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
   owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
@@ -59,8 +52,10 @@ also candidate B; the `aws --save --profile` drop →
 filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
 (filtering the scan would make cleanup treat a non-canonical set's objects as orphans; the
 lister only feeds display/discovery); the trust-on-write `upload --snapshot <old>` staleness
-window (a design stance — recorded in [engine-robustness.md](engine-robustness.md), not a
-candidate); list.mjs's summary branch re-doing the `--latest` slice inline (trivial);
+window (**not an architecture candidate — it is now tracked as a bug**, [bugs.md](bugs.md); this
+pass recorded it as "a deliberate design stance… not a defect", which was an AI-invented verdict
+nobody held — don't re-file it as a design stance); list.mjs's summary branch re-doing the
+`--latest` slice inline (trivial);
 `clientConfig`'s `??` vs the aws command's `||` on the region default (empty-string edge,
 trivial); pluralization hand-rolls outside render.mjs's `plural` (marginal); snapshot.mjs's
 floor-based percent arithmetic (a simpler spelling changes rounding — not worth it); the
@@ -87,6 +82,33 @@ least once; re-open only if the stated reason no longer holds.
   shipped already bounds the waste to the first root's walk rather than the whole set. Re-open
   only if nested roots become invalid *by decision* regardless of excludes — at which point the
   check is expressing a rule, not guessing at one.
+- **Parameterizing `putFile`'s no-clobber mechanism** (each caller picks HEAD-preflight *or*
+  conditional PUT) — explored at length 2026-07-16 alongside candidate C and **declined: the two
+  are not redundant, they are a deliberate division of labour.** `putFile` looks like it guards
+  no-clobber twice; it doesn't. The tempting shape (`objects.mjs` HEADs at every size and skips
+  `IfNoneMatch`; `upload.mjs` uses `IfNoneMatch` alone) loses on every axis:
+  - **`IfNoneMatch: "*"` is free and unraceable.** It rides a PUT we already send — zero extra
+    round trips — and S3 evaluates it *at the write*. HEAD-then-PUT is TOCTOU. For
+    `snapshots/<set>/<name>.tsv.zst` the key is a timestamp *name*, not a hash, so two machines
+    backing up one set in the same minute produce the same name with different content: losing
+    that race **silently destroys the other machine's snapshot**, and multi-machine sets are
+    designed for (ADR-0024/0026). Dropping it for objects removes a free net and buys a parameter.
+  - **The HEAD costs a round trip**, so it is size-gated — and `partSize` is not an arbitrary
+    threshold, it asks *"is the body expensive enough to be worth a round trip to maybe avoid?"*
+    `planUpload` has already excluded objects it knows are present, so `putFile` is called almost
+    only for genuinely-absent ones: nearly every HEAD would 404 and buy nothing. The plan loop is
+    **strictly sequential** (`for … await putObject`), so a HEAD per object on a 50k-file first
+    backup is +50k *serial* round trips — the per-file overhead the coding conventions warn about.
+  - **The threshold belongs where it lives.** It *is* `partSize`, an s3.mjs concept; `objects.mjs`
+    would need a second `stat` per file (or a `planUpload` contract change) to make the same call.
+  - **The callers do differ — but not in mechanism.** Only in what `false` *means*: benign dedup
+    for objects, a hard error for snapshots. That is already expressed caller-side; `putFile`
+    needn't know.
+
+  So: **HEAD = an optimization gated on body cost; conditional PUT = free correctness.** Re-open
+  only if the upload loop stops being sequential, or if `IfNoneMatch` proves unsupported on a
+  target off-AWS provider.
+
 - **A pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier** — declined
   during the 2026-07-14 grilling of candidate C. The premise (~5 sites re-derive one "which mode"
   question) does **not** survive source verification: the sites ask *distinct* per-layer questions
@@ -362,3 +384,28 @@ least once; re-open only if the stated reason no longer holds.
   states that contract explicitly). The pre-walk root-containment alternative stays **rejected** and
   now has its own entry above (exclude patterns can make nested roots a legitimately working
   config today, so only the file-level check is faithful). C and E remain open.
+- **2026-07-16 — C landed** ([PR #203](https://github.com/allens/s3cab/pull/203)). *Drop
+  `objectExists`'s metadata heuristic*: any successful
+  HEAD now counts as present, so a metadata-less object costs one HEAD instead of a full
+  multipart body the conditional PUT then rejects. `objectExists` is **inlined into `putFile`**
+  along the way — one module-private caller, and the boolean round-trip (`objectExists` returns
+  *true* so `putFile` returns *false*) read as a double negative. **The blame dug up the reason
+  the code never stated, and it refuted itself:** the heuristic is a fossil of the `getMetadata`
+  *parser*
+  ([#25](https://github.com/allens/s3cab/pull/25)) whose `null` meant "no metadata to parse",
+  not "object absent". That PR *correctly* dropped it, then restored it (`fix(s3): preserve
+  multipart no-clobber metadata check`) to satisfy a Copilot review claiming a metadata-less
+  object "would be overwritten" — but `IfNoneMatch: "*"` and the `PreconditionFailed` catch were
+  already in `putFile` **in that same commit**, so it never could be. Bug-for-bug compatibility
+  with dead code, preserved on a false premise. Built test-first: the wasted body is only
+  observable *as* wire traffic, so the new suite runs the real `client()`/SDK against a fake S3
+  on loopback and asserts the request sequence (`captureRequest` can't serve — it builds its own
+  client, bypassing the memoized one). The exactly-`partSize` fixture keeps lib-storage on the
+  single-`PutObject` path, so the fake needs no multipart choreography. The red run was the
+  proof: an 8.4MB body on the wire for an object already there. Two further captures ride along:
+  the **`putFile` no-clobber split** is now a standing rejection above (the HEAD and the
+  conditional PUT are a deliberate division of labour, not redundancy), and the discussion
+  surfaced a real defect — the snapshot→upload staleness window, filed in [bugs.md](bugs.md),
+  which this pass had recorded as "a deliberate design stance… not a defect", an AI-invented
+  verdict nobody held. The coverage audit it produced is captured as
+  [test-coverage.md](test-coverage.md). **Only E now remains open.**
