@@ -20,9 +20,14 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @type {import("@aws-sdk/client-cloudformation").Output[]} */
 let stackOutputs = [];
+/** @type {{ region?: string, profile?: string } | undefined} */
+let clientConfig;
 mock.module("@aws-sdk/client-cloudformation", {
   exports: {
     CloudFormationClient: class {
+      constructor(/** @type {object} */ config) {
+        clientConfig = config;
+      }
       async send() {
         return { Stacks: [{ Outputs: stackOutputs }] };
       }
@@ -43,6 +48,7 @@ let savedEnv;
 beforeEach(() => {
   savedEnv = { ...process.env };
   stackOutputs = [];
+  clientConfig = undefined;
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
@@ -85,6 +91,30 @@ describe("saveArnsFromStack", () => {
     assert.equal(env.S3CAB_RA_PROFILE_ARN, "arn:aws:profile/2");
     assert.equal(env.S3CAB_RA_ROLE_ARN, "arn:aws:role/3");
     assert.equal(env.AWS_REGION, "eu-west-1");
+    // No --profile → the client runs on ambient credentials, not a stale profile.
+    assert.deepEqual(clientConfig, { region: "eu-west-1", profile: undefined });
+  });
+
+  // The bug this guards against: `--save --from-stack … --profile <p>` used to
+  // build the client with `{ region }` only, so the DescribeStacks read silently
+  // ignored the admin profile the recipe's step 1 told the user to deploy with.
+  it("authenticates the stack read with the given profile", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    ensureMachineIdentity();
+    stackOutputs = [
+      { OutputKey: "TrustAnchorArn", OutputValue: "arn:aws:ta/1" },
+      { OutputKey: "ProfileArn", OutputValue: "arn:aws:profile/2" },
+      { OutputKey: "RoleArn", OutputValue: "arn:aws:role/3" },
+    ];
+
+    await saveArnsFromStack({
+      stackName: "s3cab-foo",
+      region: "eu-west-1",
+      profile: "admin",
+    });
+
+    assert.deepEqual(clientConfig, { region: "eu-west-1", profile: "admin" });
   });
 
   it("errors constructively when the stack is missing the RA outputs", async () => {

@@ -52,8 +52,9 @@ import { validateBucketName } from "../lib/sets.mjs";
  * @param {string} [name] - The bucket name to set up (not needed with `--save`)
  * @param {{ region?: string, profile?: string, "roles-anywhere"?: boolean, save?: boolean, "from-stack"?: string }} [options]
  *   - `region`: the bucket's AWS region (defaults to $AWS_REGION /
- *     $AWS_DEFAULT_REGION / us-east-1); `profile`: an admin AWS profile to
- *     interpolate into the printed `aws` commands; `roles-anywhere`: the keyless
+ *     $AWS_DEFAULT_REGION / us-east-1); `profile`: an admin AWS profile,
+ *     interpolated into the printed `aws` commands and used by `--save` to
+ *     authenticate the stack read; `roles-anywhere`: the keyless
  *     Roles Anywhere path (generate certs + write the RA template); `save` +
  *     `from-stack`: read a deployed stack's ARNs back into the local RA identity.
  * @returns {Promise<string>} The onboarding recipe or a confirmation, for the
@@ -98,7 +99,7 @@ Wasabi, MinIO, …), run:
         { argName: "from-stack" },
       );
     }
-    return await saveRolesAnywhere(stackName, region);
+    return await saveRolesAnywhere(stackName, region, profile);
   }
 
   requireArg(name, "bucket");
@@ -164,9 +165,10 @@ function writeTemplate(bucket, template) {
  * header invariant); here we only do the I/O and hand it the display path.
  * @param {string} stackName
  * @param {string} region
+ * @param {string} [profile] - An admin profile to authenticate the stack read.
  * @returns {Promise<string>}
  */
-async function saveRolesAnywhere(stackName, region) {
-  const { dir } = await saveArnsFromStack({ stackName, region });
+async function saveRolesAnywhere(stackName, region, profile) {
+  const { dir } = await saveArnsFromStack({ stackName, region, profile });
   return awsSaveConfirmation({ stackName, region, dir: tildeify(dir) });
 }
