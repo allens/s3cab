@@ -400,9 +400,9 @@ export async function putFile(path, uri, options = {}) {
   // No-clobber preflight, worth its round trip only once the body is multipart-sized:
   // one HEAD to avoid streaming a large body the conditional PUT below would reject
   // anyway. Any successful HEAD counts as present, whatever metadata the object
-  // carries — one another tool (or an older s3cab) PUT without `x-amz-meta-*` is
-  // still there. This is only an optimization; `IfNoneMatch: "*"` is the real guard,
-  // and unlike this it can't be raced.
+  // carries — an object another tool PUT without `x-amz-meta-*` is still there.
+  // This is only an optimization; `IfNoneMatch: "*"` is the real guard, and unlike
+  // this it can't be raced.
   if (noClobber && size >= partSize) {
     const { Bucket, Key } = parseS3Uri(uri);
     try {
@@ -462,9 +462,9 @@ export async function putFile(path, uri, options = {}) {
  * Whether an S3 error means the object isn't there. A GET on a missing key
  * returns `NoSuchKey`; a HEAD (and some S3-compatible providers) surface a 404 as
  * `NotFound` — both mean absent. The single spelling of "missing object" for this
- * SDK boundary, so callers (`objectExists`, `getText`, remote.mjs's referenced
- * scan) don't each repeat the SDK's names. Matched by `name`, like the other
- * s3.mjs guards (see error.mjs's header).
+ * SDK boundary, so callers (`putFile`'s preflight, `getText`, remote.mjs's
+ * referenced scan) don't each repeat the SDK's names. Matched by `name`, like the
+ * other s3.mjs guards (see error.mjs's header).
  * @param {unknown} error
  * @returns {boolean}
  */

@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
@@ -465,6 +467,14 @@ describe("isObjectNotFound", () => {
 /** Must match s3.mjs's private `partSize` — the multipart threshold the preflight gates on. */
 const PART_SIZE = 8 * 1024 * 1024;
 
+/** A sink that swallows whatever it's given — the `pipeline` end-stop for a body we only need read, not kept. */
+const discard = () =>
+  new Writable({
+    write(_chunk, _encoding, done) {
+      done();
+    },
+  });
+
 /** Env this suite owns; saved and restored so the request-shaping suites stay clean. */
 const AWS_VARS = [
   "AWS_ACCESS_KEY_ID",
@@ -496,7 +506,7 @@ describe("multipart --no-clobber preflight", () => {
     // small enough that lib-storage still sends it as a single PutObject — so the fake
     // needs no multipart choreography.
     writeFileSync(file, Buffer.alloc(PART_SIZE));
-    server = createServer((request, response) => {
+    server = createServer(async (request, response) => {
       // Path only — the SDK tags operations with a ?x-id= query we don't assert on.
       const [path] = (request.url ?? "").split("?");
       seen.push(`${request.method} ${path}`);
@@ -506,7 +516,11 @@ describe("multipart --no-clobber preflight", () => {
         response.end();
         return;
       }
-      request.resume(); // drain the uploaded body
+      // Read the body to the end before answering, as real S3 does. Replying early
+      // lets putFile resolve while the SDK is still writing, so teardown would race
+      // an in-flight upload. The body itself is never inspected — only that it was
+      // sent at all — so it drains to a sink that discards.
+      await pipeline(request, discard());
       response.writeHead(200, { etag: '"abc"' });
       response.end();
     });
@@ -555,9 +569,9 @@ describe("multipart --no-clobber preflight", () => {
     const wrote = await putFile(file, "s3://bucket/key", { noClobber: true });
     assert.equal(wrote, false);
     // The whole point of the preflight: a present object costs one HEAD, never the
-    // body. Any successful HEAD is "present" — an object another tool, or an older
-    // s3cab, PUT without x-amz-meta-* still counts (the conditional PUT would reject
-    // it anyway, but only after the full body had been sent).
+    // body. Any successful HEAD is "present" — an object another tool PUT without
+    // x-amz-meta-* still counts (the conditional PUT would reject it anyway, but
+    // only after the full body had been sent).
     assert.deepEqual(seen, ["HEAD /bucket/key"]);
   });
 
