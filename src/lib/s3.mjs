@@ -397,10 +397,21 @@ export async function putFile(path, uri, options = {}) {
 
   const { size, mtime } = statSync(path);
 
+  // No-clobber preflight, worth its round trip only once the body is multipart-sized:
+  // one HEAD to avoid streaming a large body the conditional PUT below would reject
+  // anyway. Any successful HEAD counts as present, whatever metadata the object
+  // carries — one another tool (or an older s3cab) PUT without `x-amz-meta-*` is
+  // still there. This is only an optimization; `IfNoneMatch: "*"` is the real guard,
+  // and unlike this it can't be raced.
   if (noClobber && size >= partSize) {
-    const exists = await objectExists(uri);
-    if (exists) {
+    const { Bucket, Key } = parseS3Uri(uri);
+    try {
+      await client().send(new HeadObjectCommand({ Bucket, Key }));
       return false;
+    } catch (error) {
+      if (!isObjectNotFound(error)) {
+        throw error;
+      }
     }
   }
 
@@ -462,30 +473,6 @@ export function isObjectNotFound(error) {
     Error.isError(error) &&
     (error.name === "NoSuchKey" || error.name === "NotFound")
   );
-}
-
-/**
- * Whether an object should count as existing for `putFile`'s multipart
- * `--no-clobber` preflight. A successful HEAD only counts when the object has
- * custom metadata: an object that exists but has none is treated as absent here
- * and left to the upload's conditional PUT (`IfNoneMatch: "*"`) to reject if
- * needed — the conditional PUT is the real guard, this is only a fast preflight.
- * @param {string} uri - The S3 URI.
- * @returns {Promise<boolean>}
- */
-async function objectExists(uri) {
-  const { Bucket, Key } = parseS3Uri(uri);
-  try {
-    const { Metadata } = await client().send(
-      new HeadObjectCommand({ Bucket, Key }),
-    );
-    return Object.keys(Metadata ?? {}).length > 0;
-  } catch (error) {
-    if (isObjectNotFound(error)) {
-      return false;
-    }
-    throw error;
-  }
 }
 
 /**

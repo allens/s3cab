@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   authNotice,
@@ -8,6 +12,7 @@ import {
   credentialErrorRelay,
   formatUploadProgress,
   isObjectNotFound,
+  putFile,
   putObjectParams,
 } from "./s3.mjs";
 
@@ -448,5 +453,118 @@ describe("isObjectNotFound", () => {
     assert.equal(isObjectNotFound(new Error("plain")), false);
     assert.equal(isObjectNotFound("NoSuchKey"), false);
     assert.equal(isObjectNotFound(undefined), false);
+  });
+});
+
+// putFile's multipart --no-clobber preflight, driven against a fake S3 on loopback.
+// "The body never went on the wire" is only observable *as* the wire traffic, so this
+// runs the real client()/SDK against a local server and records the requests it makes
+// — captureRequest() above can't serve here: it builds its own client, while putFile
+// goes through the module's memoized client(). Loopback only; no bucket, no network.
+
+/** Must match s3.mjs's private `partSize` — the multipart threshold the preflight gates on. */
+const PART_SIZE = 8 * 1024 * 1024;
+
+/** Env this suite owns; saved and restored so the request-shaping suites stay clean. */
+const AWS_VARS = [
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_PROFILE",
+  "AWS_REGION",
+  "__S3CAB_ENV_LOADED",
+];
+
+describe("multipart --no-clobber preflight", () => {
+  /** @type {import("node:http").Server} */
+  let server;
+  /** @type {string[]} The requests the fake S3 received, in order. */
+  let seen;
+  /** @type {number} The status the fake answers the preflight HEAD with. */
+  let headStatus;
+  /** @type {string} */
+  let dir;
+  /** @type {string} */
+  let file;
+  /** @type {Record<string, string | undefined>} */
+  let savedEnv;
+
+  before(async () => {
+    dir = mkdtempSync(join(tmpdir(), "s3cab-preflight-"));
+    file = join(dir, "big.bin");
+    // Exactly PART_SIZE: big enough to take the preflight branch (size >= partSize),
+    // small enough that lib-storage still sends it as a single PutObject — so the fake
+    // needs no multipart choreography.
+    writeFileSync(file, Buffer.alloc(PART_SIZE));
+    server = createServer((request, response) => {
+      // Path only — the SDK tags operations with a ?x-id= query we don't assert on.
+      const [path] = (request.url ?? "").split("?");
+      seen.push(`${request.method} ${path}`);
+      if (request.method === "HEAD") {
+        // No x-amz-meta-* headers: an object carrying NO custom metadata.
+        response.writeHead(headStatus, { etag: '"abc"' });
+        response.end();
+        return;
+      }
+      request.resume(); // drain the uploaded body
+      response.writeHead(200, { etag: '"abc"' });
+      response.end();
+    });
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    savedEnv = {};
+    for (const v of AWS_VARS) {
+      savedEnv[v] = process.env[v];
+    }
+    const { port } = /** @type {import("node:net").AddressInfo} */ (
+      server.address()
+    );
+    // An IP endpoint also puts the SDK in path-style addressing, so the fake sees
+    // /bucket/key rather than a virtual host it could never resolve.
+    process.env.AWS_ENDPOINT_URL_S3 = `http://127.0.0.1:${port}`;
+    process.env.AWS_ACCESS_KEY_ID = "test";
+    process.env.AWS_SECRET_ACCESS_KEY = "test";
+    delete process.env.AWS_SESSION_TOKEN;
+    delete process.env.AWS_PROFILE; // static env creds must beat any host profile
+    process.env.AWS_REGION = "us-east-1";
+    process.env.__S3CAB_ENV_LOADED = "1"; // client()'s ADR-0022 tripwire
+    seen = [];
+  });
+
+  afterEach(() => {
+    for (const v of AWS_VARS) {
+      if (savedEnv[v] === undefined) {
+        delete process.env[v];
+      } else {
+        process.env[v] = savedEnv[v];
+      }
+    }
+  });
+
+  it("skips the upload when the object exists but carries no custom metadata", async () => {
+    headStatus = 200;
+    const wrote = await putFile(file, "s3://bucket/key", { noClobber: true });
+    assert.equal(wrote, false);
+    // The whole point of the preflight: a present object costs one HEAD, never the
+    // body. Any successful HEAD is "present" — an object another tool, or an older
+    // s3cab, PUT without x-amz-meta-* still counts (the conditional PUT would reject
+    // it anyway, but only after the full body had been sent).
+    assert.deepEqual(seen, ["HEAD /bucket/key"]);
+  });
+
+  it("uploads when the object is absent", async () => {
+    headStatus = 404;
+    const wrote = await putFile(file, "s3://bucket/key", { noClobber: true });
+    assert.equal(wrote, true);
+    assert.deepEqual(seen, ["HEAD /bucket/key", "PUT /bucket/key"]);
   });
 });
