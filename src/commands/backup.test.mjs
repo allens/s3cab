@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
+/** @import { CompareResult } from "../lib/compare.mjs" */
+
 // Offline tests for `backup`'s orchestration — it takes a fresh snapshot, whose
 // returned diff names both sides (the compareSnapshots contract): `until` IS the
 // fresh snapshot and `since` the previous local latest, the change-detection
@@ -23,7 +25,7 @@ let snapshotCalls = [];
 let pushCalls = [];
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
 let pushFails;
-/** @type {import("../lib/compare.mjs").CompareResult} what the fake snapshot() returns */
+/** @type {CompareResult} what the fake snapshot() returns */
 let snapshotResult;
 
 /**
@@ -31,7 +33,7 @@ let snapshotResult;
  * consumed by backup, the rest is the honest empty diff shape.
  * @param {string} until
  * @param {string | null} since
- * @returns {import("../lib/compare.mjs").CompareResult}
+ * @returns {CompareResult}
  */
 const diffResult = (until, since) => ({
   setName: "photos",
