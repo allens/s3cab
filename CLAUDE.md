@@ -423,6 +423,18 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
+- **The top known correctness bug — pick this up next: a file changing on disk between snapshot
+  and upload silently stores wrong bytes under a hash.** `uploadSnapshot` PUTs each planned object
+  from the *current* file at the snapshot-recorded path, and the store trusts the caller's hash on
+  write, so object `<H>` can receive content that isn't `H` — the correct bytes are then never
+  stored, and the backup reports success. **Not confined to the `upload --snapshot <old>` plumbing
+  form:** the window for any one file is snapshot-time → *that file's* upload, and the plan loop is
+  strictly sequential, so on a large set the last objects go up hours later — a file edited during
+  a long backup is ordinary. The damage spreads along the **dedup graph** (object `H` is written
+  once; corrupt it and every snapshot and path resolving to `H` breaks), and surfaces only at
+  restore's integrity check. Full write-up, leading fix (an `lstat` size/mtime check per *planned*
+  upload), and why a HEAD-side `ContentLength` check is **not** a substitute:
+  [proposals/bugs.md](proposals/bugs.md).
 - **Roles Anywhere is built (both phases) but its live path is unverified end-to-end.** The
   runtime signer shipped in [PR #191](https://github.com/allens/s3cab/pull/191) (ADR-0057/0058),
   and the signer itself is proven byte-for-byte against the live-validated reference formula in a

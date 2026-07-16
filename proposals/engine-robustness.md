@@ -13,15 +13,10 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   ([docs/integration-testing.md](../docs/integration-testing.md)). (The *download* path,
   `getObject` → `writeFileAtomic` via `pipeline`, already propagates — #171 fixed it by dropping
   the old `S3ReadStream` wrapper; only the snapshot *reads* remain.)
-- **`upload --snapshot <old-name>` can store stale bytes under a hash.** The store trusts the
-  caller's hash on write (objects.mjs, the long-standing stance) and `uploadSnapshot` PUTs each
-  planned object from the *current* file at the snapshot-recorded path — fine for `backup`
-  (snapshot taken seconds earlier) but the manual plumbing form can upload a file that changed
-  since the snapshot, storing wrong content under the old hash (caught only at restore's
-  integrity check, or by `verify` if the size drifted). Cheap mitigation if it ever bites: an
-  `lstat` size/mtime staleness check per *planned* upload (only the objects actually being sent),
-  skipping-with-warning on drift. Recorded 2026-07-16; a deliberate design stance today, not a
-  defect.
+- **Stale bytes stored under a hash when a file changes between snapshot and upload** — moved to
+  [bugs.md](bugs.md) 2026-07-16: it's a defect, not an idea. (It was recorded here by the eighth
+  architecture pass as "a deliberate design stance… not a defect" — an AI-invented verdict nobody
+  held.)
 - **Stale temp-file recovery.** A crashed/interrupted snapshot leaves `.snapshot.tsv.zst` and
   every later snapshot fails until the user hand-deletes it. The wrinkle is that this temp file
   does **double duty** — it's both the orphan-on-death *and* the crude in-progress **lock**
