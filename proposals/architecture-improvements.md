@@ -75,6 +75,18 @@ signer).
 Recorded so future runs (and reviewers) skip them. Each was verified against the source at
 least once; re-open only if the stated reason no longer holds.
 
+- **A pre-walk root-containment check** (compare the set's realpath'd roots up front, reject when
+  one is a prefix of another) — rejected 2026-07-16 while building candidate D
+  ([PR #204](https://github.com/allens/s3cab/pull/204)). It looks like the strictly better fix —
+  fail *instantly*, before any walking — but it is **not faithful to the invariant**: containment
+  is a fact about path *shape*, whereas the thing that actually breaks a snapshot is a file
+  **reached twice**. Exclude patterns can make nested roots a legitimately working config today
+  (an outer root whose pattern drops the inner directory reaches no file twice), so a
+  containment check would reject a set that works — trading a real false-positive for latency on
+  a config that was never broken. The file-level check is the honest one, and the inline form D
+  shipped already bounds the waste to the first root's walk rather than the whole set. Re-open
+  only if nested roots become invalid *by decision* regardless of excludes — at which point the
+  check is expressing a rule, not guessing at one.
 - **A pure `credentialMode(env) → "profile" | "keys" | "ra" | "ambient"` classifier** — declined
   during the 2026-07-14 grilling of candidate C. The premise (~5 sites re-derive one "which mode"
   question) does **not** survive source verification: the sites ask *distinct* per-layer questions
@@ -347,6 +359,6 @@ least once; re-open only if the stated reason no longer holds.
   driving `walkDirs` over a 1200-file root with a nested root under it — it throws on the nested
   root's *first* file, and the `using progress` disposal already covered the mid-loop throw (its
   newline is `drawn`-gated, so the cursor lands on a fresh line; `progress.mjs`'s doc comment
-  states that contract explicitly). The pre-walk root-containment alternative stays **rejected**,
-  carried over from the retired entry: exclude patterns can make nested roots a legitimately
-  working config today, so only the file-level check is faithful. C and E remain open.
+  states that contract explicitly). The pre-walk root-containment alternative stays **rejected** and
+  now has its own entry above (exclude patterns can make nested roots a legitimately working
+  config today, so only the file-level check is faithful). C and E remain open.
