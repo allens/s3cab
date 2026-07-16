@@ -119,7 +119,9 @@ the API**, and some of them you are expected to edit directly in a text editor:
         2026-06-12T0915.tsv.zst    # same format as the bucket's copy, byte for byte
 ```
 
-Editing a set *is* editing these files; deleting the directory deletes the set. Note the
+Editing a set *is* editing these files; deleting the directory deletes the set. In both
+`dirs.txt` and `exclude.txt`, blank lines are ignored and a line starting with `#` is a
+comment — so a directory or pattern can be commented out rather than deleted. Note the
 deliberate asymmetry of weight: the **bucket is the keystone**. Everything local except
 `env` is recoverable *from* the remote — `reattach` pulls `dirs.txt`/`exclude.txt`
 back down and syncs the snapshot history — whereas nothing can rebuild a lost remote.
