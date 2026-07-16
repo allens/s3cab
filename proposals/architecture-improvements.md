@@ -36,7 +36,7 @@ interfaces*, not new seams. Everything Strong landed same-day — both bugs fixe
 `dirs.txt` comment-line bug → [PR #201](https://github.com/allens/s3cab/pull/201), which was
 also candidate B; the `aws --save --profile` drop →
 [PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
-[PR #202](https://github.com/allens/s3cab/pull/202)**, **D in [PR #TBD](https://github.com/allens/s3cab/pull/TBD)**
+[PR #202](https://github.com/allens/s3cab/pull/202)**, **D in [PR #204](https://github.com/allens/s3cab/pull/204)**
 (run log below). C and E remain open.
 
 - **C (Worth exploring) — drop `objectExists`'s metadata heuristic.**
@@ -336,7 +336,7 @@ least once; re-open only if the stated reason no longer holds.
   real contract; the stub-file machinery deleted); a Copilot comment moved the test's inline
   `import("…").CompareResult` to the house `@import` tag. **This closes the eighth pass's
   Strong tier** — C/D/E remain open above.
-- **2026-07-16 — D landed** ([PR #TBD](https://github.com/allens/s3cab/pull/TBD)). *Fail the walk
+- **2026-07-16 — D landed** ([PR #204](https://github.com/allens/s3cab/pull/204)). *Fail the walk
   at the first duplicate file*: the overlapping-member-dirs check was a full second pass over
   `files` after the walk had already finished, so an overlapping set paid for the **entire** walk
   (minutes, on a big set) before erroring on a condition knowable the moment the duplicate is
