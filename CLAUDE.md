@@ -16,15 +16,12 @@ purpose-built homes — see the map below.
 | **Ideas we might do** (rough → detailed; deleted when done/abandoned) | [proposals/](proposals/) | A bucket of provisional ideas — important stuff down to pipe dreams, *not* of record. Grouped into theme-based "epic" files (`output-ux.md`, `performance.md`, …), with [misc.md](proposals/misc.md) for the unsorted and [bugs.md](proposals/bugs.md) the interim defect tracker (→ GitHub Issues, gone by release). See [proposals/README.md](proposals/README.md). |
 | **How to work here** (AI/contributor rules) | this file | Working conventions, coding conventions, architecture orientation, known gaps. |
 
-The top-level split is by **audience**: contributor/internal docs live under [docs/](docs/)
-(`adr/` = pinned *decisions*, `design/` = evolving subsystem *designs* — different in *kind*,
-hence sibling directories — loose `docs/*.md` = *how-tos*); user-facing prose is README +
-`guide/`. **The word "spec" is reserved** for the *format spec*,
-[guide/format.md](guide/format.md) — the recovery-grade stored-format contract, kept
-*user*-side because the format is a user-facing promise
-([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)); design docs are *designs*, not
-specs. ([CONTEXT.md](CONTEXT.md) stays at root; [proposals/](proposals/) sits outside `docs/`
-on purpose — provisional, *not* of record.)
+The split is by **audience**: contributor/internal docs under [docs/](docs/) (sibling `adr/`
+*decisions* vs `design/` *designs* — different in *kind* — plus loose *how-tos*), user-facing
+prose as README + `guide/`. **The word "spec" is reserved** for the *format spec*
+([guide/format.md](guide/format.md)) — kept user-side because the stored format is a user-facing
+promise ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)); design docs are *designs*, not
+specs.
 
 The seven foundational design principles, once numbered `#1`–`#7` here, are now
 [ADR-0001](docs/adr/0001-file-level-content-addressable-dedup.md)–[ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)
@@ -76,24 +73,20 @@ These are **defaults, not shackles:** if you think the context behind a rule has
 it is fine — encouraged, even, once in a while — to ask the user whether it still holds
 rather than assuming it is fixed forever.
 
-1. **Act only on an explicit go-ahead — your agreeing isn't authorization.** The default is to
-   do the work, show what changed, then *wait*. A go-ahead is per-request, never standing —
-   don't carry it forward; "you're right that X is better" ≠ "do X now." One principle, four
-   faces:
+1. **Act only on an explicit go-ahead — your agreeing isn't authorization.** Default: do the
+   work, show what changed, then *wait*. A go-ahead is per-request, never standing ("you're
+   right that X is better" ≠ "do X now"). One principle, four faces:
    - **Commits/pushes** — never `git commit`/`push` without an explicit "commit"/"pr" in that
      same message.
-   - **"Work through one by one"** — a strict per-step protocol: (a) propose the step and ask
-     any questions; (b) once agreed, make the changes and present the diff *uncommitted*; (c)
-     move on only when the user agrees, committing that step as you go (don't accumulate to the
-     end — that keeps per-step commits splittable). A batch go-ahead ("execute", "go ahead")
-     authorizes _starting_, not skipping the per-slice pause; run straight through only when
-     told ("don't pause").
-   - **"Review the PR comments"** — review them _with_ the user: assess each (valid / not /
-     nuance) with a suggested action, then stop and let them decide. Holds for _every_ wave; a
-     "fix and resolve" go-ahead is per-batch and never carries forward.
-   - **A question** ("why is it done this way?", "wouldn't X be simpler?") wants an *answer* —
-     explain, say whether their instinct is right, then **stop and offer**. Don't edit off the
-     back of a question.
+   - **"Work through one by one"** — per step: propose (+ any questions), present the diff
+     *uncommitted*, commit that step, move on only once agreed (don't accumulate to the end —
+     keeps commits splittable). A batch "go"/"execute" authorizes _starting_, not skipping the
+     per-slice pause; run straight through only when told ("don't pause").
+   - **"Review the PR comments"** — assess each _with_ the user (valid / not / nuance) + a
+     suggested action, then stop and let them decide. Every wave; a "fix and resolve" go-ahead
+     never carries forward.
+   - **A question** ("why this way?", "wouldn't X be simpler?") wants an *answer* — explain, say
+     whether their instinct is right, then **stop and offer**. Don't edit off the back of a question.
 2. **After non-trivial work, update the docs** so what you learned is shared at the project
    level. Put it in the right home (see the map above): a design decision → an ADR; vocabulary
    → CONTEXT.md; a working/coding rule → this file; never only in local memory. **But recording
@@ -200,14 +193,11 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   ([ADR-0059](docs/adr/0059-aws-provisioning-boundary-static-imports.md)).** Only `aws` may depend
   on the AWS CLI or a non-S3 AWS **provisioning** API (CloudFormation/IAM); the data plane is
   S3-only and auth is the pluggable seam, so both stay provider-agnostic (a future non-AWS
-  onboarding command is `aws`'s sibling, not a branch in the core). The lever for keeping a heavy
-  provisioning dep off the hot path is **placement, not a lazy `import()`** — put it in a module
-  only its user imports (worked example: CloudFormation is statically imported by
-  `lib/stack-arns.mjs`, which nothing but `commands/aws.mjs` imports). No blanket ban on runtime
-  `import()`: prefer a static import (it's `tsc`-checked, and esbuild bundles literal/glob
-  `import()` fine anyway), but a dynamic one is fine with a reason — the only real trap is a
-  *computed-specifier* import of our own code, which loses `tsc` checking (ADR-0059's rejected
-  registry dispatcher). Common sense + review, not a rule.
+  onboarding command is `aws`'s sibling, not a branch in the core). Keep a heavy provisioning dep
+  off the hot path by **placement, not a lazy `import()`** — a module only its user imports (e.g.
+  CloudFormation is statically imported by `lib/stack-arns.mjs`, imported by nothing but
+  `commands/aws.mjs`). Full rationale — the no-blanket-ban-on-dynamic-`import()` nuance and the
+  computed-specifier trap — is in ADR-0059.
 - **Don't bury `await` in a larger expression — give it its own line and a name.** The two
   smells: **member/index access on an awaited result** (`(await read(…)).entries`,
   `(await xs())[0]`) and **a compound `if`/`while`/`&&`/`||` condition** containing the await.
@@ -370,7 +360,13 @@ removed bespoke SSO `login` command and the standard-credential-chain model are 
 ## Architecture orientation
 
 The *decisions* behind the structure are in [docs/adr/](docs/adr/); this is just the map
-for finding your way around the code. The *what* is best read from the code itself:
+for finding your way around the code. **Before any structural change — module placement, a
+command's shape or name, auth/credentials, output/errors, the storage format — find the
+governing decision via the topic-grouped [ADR index](docs/adr/README.md) and read that ADR
+_first_. Don't reason from memory about whether a constraint exists or how fixed it is (some
+ADRs leave explicit doors open — e.g. [0032](docs/adr/0032-generative-onboarding-not-active-provisioning.md)'s
+optional active `--run`); the index exists to stop a live ADR being missed.** The *what* is
+best read from the code itself:
 [src/s3cab.mjs](src/s3cab.mjs) is an ~80-line entry point, the registry in
 [src/commands.mjs](src/commands.mjs) is the command list, and each command file carries its
 own doc comment.
@@ -436,36 +432,13 @@ Pre-release housekeeping and open decisions surfaced from the code:
   --roles-anywhere` → deploy → `--save --from-stack`), export `S3CAB_TEST_RA_HOME`, then
   `npm run test:integration`. Per-machine setup blocker for this box is tracked in local memory
   (the `local-real-s3-integration-testing` note); this is the *project-level* verification gap.
-- **Backup/restore/admin all built — retention policy remains** — the
-  five-slice plan in [docs/design/backup.md](docs/design/backup.md) is **complete** (slices 1–4
-  plus slice-5's `verify`/`delete`/`cleanup`; detail there). Still open from slice 5:
-  **retention-policy automation** (keep-last/daily/weekly/monthly on top of `delete`/`cleanup` —
-  deferred until real usage shows the shapes). The **versioning/ransomware user-doc note** is
-  **done** (README's versioning section + [guide/aws.md](guide/aws.md)'s soft-delete model).
-  Settled, **don't re-litigate**: the **everyday-vs-elevated delete-rights** question
-  ([ADR-0033](docs/adr/0033-bucket-onboarding-security-model.md) — the everyday identity keeps
-  `s3:DeleteObject`; the *soft-vs-permanent* seam, not delete-vs-no-delete, is the blast-radius
-  boundary, so `delete` runs under per-set creds); the **`upload` reshape** (ADR-0044/0045 —
-  `upload` unified/set-scoped, `backup` = `snapshot()` + `upload()` with `--since`, `backup
-  --snapshot` retired; a `node:sqlite` hash cache was spiked and **rejected** for the in-memory
-  `Map`, see [scripts/sqlite-hash-cache.mjs](scripts/sqlite-hash-cache.mjs)).
-  `compare` is local-only ([ADR-0027](docs/adr/0027-compare-local-only-adoption-syncs-manifests.md));
-  `reattach` (ADR-0053, split from `setup --inherit`) pulls a set's remote manifests down so a
-  fresh machine's `compare`/`list`/`restore` work on full history.
-- **Native-executable packaging works and is validated on real runners** (the full matrix
-  has run for real: binaries build, smoke-test, archive; macOS ad-hoc sign, npm publish,
-  and GitHub Release all succeed). ci.yml's `exe smoke` job also boots the Linux binary +
-  bundle on **every PR**, so artifact-only breakage no longer waits for a tag (see
-  [ADR-0016](docs/adr/0016-native-executable-build.md)).
-  Open items:
-  - **macOS notarization — deliberately skipped (costs money).** Ad-hoc signing is enough
-    to _run_; Gatekeeper-clean distribution would need a paid Apple Developer ID. The
-    README documents the `xattr` workaround for browser downloads.
-  - **macOS is labelled `macos`, not `darwin`,** in release-asset + `sea/` config names
-    (friendlier on a download); `test/e2e.test.mjs` maps `process.platform` to the label.
-  - **Only `macos-arm64` ships** — Intel Macs are legacy; those users have `npm` or the
-    portable bundle. Adding it later is one `sea/` config + one `macos-13` matrix row.
-  - **Drop esbuild** if Node ever bundles multi-file SEA inputs natively.
+- **Retention-policy automation is the one open piece of the backup plan** — keep-last /
+  daily / weekly / monthly on top of `delete`/`cleanup`; deferred until real usage shows the
+  shapes. The rest of the five-slice plan ([docs/design/backup.md](docs/design/backup.md)) is
+  built, and its settled sub-decisions (the delete-rights model, the `upload`/`backup` reshape,
+  `compare` local-only, `reattach`) now live in their ADRs — 0033 / 0044 / 0045 / 0027 / 0053.
+  (A `node:sqlite` hash cache was spiked and **rejected** for the in-memory `Map` — don't
+  re-try; see [scripts/sqlite-hash-cache.mjs](scripts/sqlite-hash-cache.mjs).)
 - **"Latest snapshot uncompressed" stays `S3CAB_DEBUG`-only — settled, don't re-litigate.**
   The `.snapshot.tsv` sidecar `snapshot` writes under debug ([src/commands/snapshot.mjs](src/commands/snapshot.mjs))
   is *not* promoted to an always-on transparency feature: the no-lock-in pillar
