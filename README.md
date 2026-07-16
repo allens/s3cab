@@ -47,6 +47,98 @@ is never locked in**:
 - **🧱 Modern, open building blocks.** Standard SHA-256 hashing, zstd compression, and a
   current Node.js runtime. Deliberately modern — but never proprietary.
 
+## Installing & running
+
+Pick whichever suits you — all three run the same tool. Then head to the
+[Quick start](#quick-start).
+
+- **npm** (needs [Node.js](https://nodejs.org) ≥ 26.3.0):
+
+  ```console
+  > npm install -g s3cab
+  ```
+
+- **Prebuilt binary** — download the archive for your platform from the
+  [Releases](https://github.com/allens/s3cab/releases) page and run `s3cab`. No Node.js
+  required. (See the [macOS note](#macos-note) below.)
+
+- **From source** (needs Node.js ≥ 26.3.0) — clone the repo and run the entry point
+  directly, substituting `node src/s3cab.mjs` for `s3cab` in any command:
+
+  ```console
+  > node src/s3cab.mjs --help
+  ```
+
+### macOS note
+
+The prebuilt macOS binary on the [Releases](https://github.com/allens/s3cab/releases) page
+is ad-hoc signed, so it runs, but it is **not notarized** (that needs a paid Apple Developer
+account). If you download the archive in a **web browser**, macOS may block it ("Apple could
+not verify…"). Clear the quarantine flag and run it:
+
+```console
+> xattr -dr com.apple.quarantine ./s3cab
+```
+
+Downloading via the terminal (`curl`/`wget`), installing with `npm`, or running the portable
+`s3cab.js` bundle on your own Node all sidestep this entirely — the latter two work on Intel
+Macs too.
+
+## Quick start
+
+You back up **directories**, grouped into a named **backup set**, to an **S3 bucket**.
+First you need the bucket: on AWS, `s3cab aws my-backups` prints a ready-to-deploy
+recipe (walkthrough in [guide/aws.md](guide/aws.md)); for Cloudflare R2, Backblaze B2,
+Wasabi, MinIO and the like, run `s3cab help provider`. With a bucket in hand:
+
+```console
+# 1. Create a backup set — a name, its directories, and the bucket to back up to.
+#    --keys prompts for your access key + secret (never passed as flags).
+> s3cab setup photos C:\Users\me\Photos --bucket my-backups --keys
+Set 'photos' → bucket 'my-backups'
+dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
+  C:\Users\me\Photos
+
+# 2. Back it up to the cloud. With one set, you can leave its name out.
+> s3cab backup
+Backed up 'photos' (snapshot 2025-11-12T0915): uploaded 1,240 objects.
+
+# 3. Deleted a file by accident? Get just that one back:
+> s3cab restore photos C:\Users\me\Photos\beach.jpg
+Restored 1 file from 'photos' (snapshot 2025-11-12T0915).
+```
+
+That's the whole loop: set up once, `backup` whenever, `restore` when you need something
+back. To pull an _older_ version, add `--snapshot <name>`; to recover everything (the
+disaster-recovery case), run `restore` with no paths. By default `restore` leaves files that
+still exist untouched — your accidental deletions come back while everything else stays put —
+so pass `--overwrite` when you actually want to replace what's there.
+
+### Watching what changes between backups
+
+`snapshot` records the current state of a set and shows what changed since the previous
+snapshot. Because it matches on content, a moved or renamed file is recognised as the _same_
+file, not a delete plus an add:
+
+```console
+> s3cab snapshot
+Generating new snapshot: 2025-11-12T0915
+photos: ~\Photos  2025-11-11T0830 → 2025-11-12T0915
+
+Added (1)
+  2025\new.jpg
+
+Moved (1)
+  2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
+
+1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812 KB changed
+```
+
+`list` shows your sets and their snapshots; `compare` diffs any two (`--since` picks an
+older one). How to read the report — the sections and the `(duplicate of …)` note — is in
+[guide/compare.md](guide/compare.md). Add `--json` to any command for machine-readable
+output ([guide/output.md](guide/output.md)).
+
 ## Status
 
 s3cab records and compares the state of your files, organised into **backup sets** (a
@@ -76,16 +168,12 @@ you have only one set you can leave the name out — plain `s3cab snapshot` just
 (`restore` is the deliberate exception: it always takes the set name.)
 
 The everyday use is **getting specific files back**: pass `paths…` to restore just part of a
-set, and `--snapshot <name>` to pull an _older_ version instead of the latest. By default
-`restore` leaves files that still exist untouched — your accidental deletions come back while
-everything else stays put — so pass `--overwrite` when you actually want to replace what's
-there.
-
-With no `paths…` it restores the **whole set** — the disaster-recovery backstop. Files go
-back to the locations they were backed up from; pass `--output <dir>` to recover under a
-directory you choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is
-how you restore a backup whose original paths don't fit this machine — a different drive
-layout, or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
+set, and `--snapshot <name>` to pull an _older_ version instead of the latest. With no
+`paths…` it restores the **whole set** — the disaster-recovery backstop. Files go back to the
+locations they were backed up from; pass `--output <dir>` to recover under a directory you
+choose instead (each backed-up directory lands as `<dir>/<directory-name>/…`), which is how
+you restore a backup whose original paths don't fit this machine — a different drive layout,
+or another OS. To recover onto a **fresh machine**, attach it to the existing backup —
 `s3cab reattach <set> --bucket <bucket>` — then `restore`.
 
 Run any command with `--help` to see its options. (Two cloud plumbing commands, `hashes`
@@ -95,15 +183,54 @@ and `upload`, also work already — advanced building blocks covered under
 ### Coming next
 
 The full command set now works — snapshot, compare, backup, restore, verify, delete, and
-cleanup (see [Status](#status)). What's next is **retention-policy automation** (keep-last /
-daily / weekly / monthly rules, built on top of the `delete` and `cleanup` primitives) — the
-shape will be designed once real usage shows what people need.
+cleanup (see above). What's next is **retention-policy automation** (keep-last / daily /
+weekly / monthly rules, built on top of the `delete` and `cleanup` primitives) — the shape
+will be designed once real usage shows what people need.
 
 (`list --remote`, `restore --output`, and `verify` already work. `compare` is local-only by
 design — adopting a set on a new machine pulls its snapshot history down, so a plain local
 `compare` covers the cloud copy too.)
 
-### Cloud repositories
+## How it works
+
+Running `snapshot` walks every directory in the set and writes one immutable snapshot file into
+the set's own directory under your home directory — never inside your backed-up files:
+
+```
+~/.s3cab/sets/photos/
+  dirs.txt                       # the directories that make up the set
+  env                            # the set's identity + (optional) cloud bucket
+  exclude.txt                    # optional: glob patterns for files to skip
+  snapshots/
+    2025-11-10T2104.tsv.zst      # one snapshot per run (zstd-compressed TSV)
+    2025-11-11T0830.tsv.zst
+```
+
+Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
+fixed-width leading columns so it stays readable, with the variable-length (and
+platform-native, absolute) path last. It opens with a header naming the set and each member
+directory, so a snapshot file is self-describing even found on its own:
+
+```
+#SNAPSHOT                                                            2025-11-11T08:30          photos
+#DIR                                                                                           C:\Users\me\Photos
+3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
+```
+
+To inspect a compressed snapshot by hand, decompress it with any zstd tool
+(`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
+story — no s3cab required. (The complete stored format is specified in
+[guide/format.md](guide/format.md).)
+
+Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
+set's directories; run `s3cab help exclude` for a quick reference, or see
+[guide/exclude.md](guide/exclude.md) for the full guide.
+
+> s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
+> goal for later. Snapshot paths are absolute and use the native OS path style.
+
+## Cloud repositories
 
 A cloud **repository** lives in its own S3 bucket — _one repository is one bucket_, not a
 directory inside a shared one. Inside, the structure is fixed and well-known, so anything
@@ -162,7 +289,7 @@ single-file re-upload:
 `backup`, which is just `snapshot` + `upload`. A set supplies its own bucket; `--bucket` is the
 raw escape hatch for seeding a file into a bucket that isn't one of your sets.)
 
-### Authentication
+## Authentication
 
 s3cab talks to S3 with your **existing AWS credentials** wherever possible, and never
 edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this order:
@@ -201,122 +328,6 @@ vault: a leaked `0600` key file is about as exposed as a leaked access key again
 the real backstop is the soft-delete-only policy, so even a stolen identity can't destroy backup
 history. The [cloud-bucket guide](guide/aws.md#--roles-anywhere--keyless-certificate-based-access)
 has the full model.
-
-## Quick start
-
-```console
-# Create a backup set (a name, the directories it contains, and the bucket to back up to):
-> s3cab setup photos C:\Users\me\Photos --bucket my-backups
-
-# Snapshot the set. With only one set, you can leave its name out:
-> s3cab snapshot
-Generating new snapshot: 2025-11-11T0830
-
-# ...add, move, or edit some files, then snapshot again —
-# s3cab reports what changed since last time:
-> s3cab snapshot
-Generating new snapshot: 2025-11-12T0915
-photos: ~/Pictures  2025-11-11T0830 → 2025-11-12T0915
-
-Added (1)
-  2025/new.jpg
-
-Moved (1)
-  2024/IMG_001.jpg → 2024/sorted/IMG_001.jpg
-
-1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812 KB changed
-
-# List your backup sets and their snapshots:
-> s3cab list
-photos:
-  2025-11-12T0915
-  2025-11-11T0830
-
-# Compare any two snapshots (defaults to the latest two; --since picks an older one):
-> s3cab compare --since 2025-11-11T0830
-```
-
-How to read the report — the sections and the `(duplicate of …)` note — is
-covered in [guide/compare.md](guide/compare.md). Add `--json` to any command for
-machine-readable output ([guide/output.md](guide/output.md)).
-
-## How it works
-
-Running `snapshot` walks every directory in the set and writes one immutable snapshot file into
-the set's own directory under your home directory — never inside your backed-up files:
-
-```
-~/.s3cab/sets/photos/
-  dirs.txt                       # the directories that make up the set
-  env                            # the set's identity + (optional) cloud bucket
-  exclude.txt                    # optional: glob patterns for files to skip
-  snapshots/
-    2025-11-10T2104.tsv.zst      # one snapshot per run (zstd-compressed TSV)
-    2025-11-11T0830.tsv.zst
-```
-
-Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
-fixed-width leading columns so it stays readable, with the variable-length (and
-platform-native, absolute) path last. It opens with a header naming the set and each member
-directory, so a snapshot file is self-describing even found on its own:
-
-```
-#SNAPSHOT                                                            2025-11-11T08:30          photos
-#DIR                                                                                           C:\Users\me\Photos
-3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
-```
-
-To inspect a compressed snapshot by hand, decompress it with any zstd tool
-(`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
-story — no s3cab required. (The complete stored format is specified in
-[guide/format.md](guide/format.md).)
-
-Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to each of the
-set's directories; run `s3cab help exclude` for a quick reference, or see
-[guide/exclude.md](guide/exclude.md) for the full guide.
-
-> s3cab is developed primarily for **Windows**; Linux and macOS support is a best-effort
-> goal for later. Snapshot paths are absolute and use the native OS path style.
-
-## Installing & running
-
-Pick whichever suits you — all three run the same tool:
-
-- **npm** (needs [Node.js](https://nodejs.org) ≥ 26.3.0):
-
-  ```console
-  > npm install -g s3cab
-  > s3cab setup photos C:\Users\me\Photos --bucket my-backups
-  > s3cab snapshot
-  ```
-
-- **Prebuilt binary** — download the archive for your platform from the
-  [Releases](https://github.com/allens/s3cab/releases) page and run `s3cab`. No Node.js
-  required. (See the macOS note below.)
-
-- **From source** (needs Node.js ≥ 26.3.0) — clone the repo and run the entry point
-  directly:
-
-  ```console
-  > node src/s3cab.mjs setup photos C:\Users\me\Photos --bucket my-backups
-  > node src/s3cab.mjs snapshot
-  ```
-
-### macOS note
-
-The prebuilt macOS binary on the [Releases](https://github.com/allens/s3cab/releases) page
-is ad-hoc signed, so it runs, but it is **not notarized** (that needs a paid Apple Developer
-account). If you download the archive in a **web browser**, macOS may block it ("Apple could
-not verify…"). Clear the quarantine flag and run it:
-
-```console
-> xattr -dr com.apple.quarantine ./s3cab
-```
-
-Downloading via the terminal (`curl`/`wget`), installing with `npm`, or running the portable
-`s3cab.js` bundle on your own Node all sidestep this entirely — the latter two work on Intel
-Macs too.
 
 ## License
 
