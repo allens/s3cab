@@ -36,16 +36,9 @@ interfaces*, not new seams. Everything Strong landed same-day — both bugs fixe
 `dirs.txt` comment-line bug → [PR #201](https://github.com/allens/s3cab/pull/201), which was
 also candidate B; the `aws --save --profile` drop →
 [PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
-[PR #202](https://github.com/allens/s3cab/pull/202)** (run log below). **C** has since landed
-too (run log). D–E remain open.
+[PR #202](https://github.com/allens/s3cab/pull/202)**, **C in [PR #203](https://github.com/allens/s3cab/pull/203)**,
+and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
 
-- **D (Worth exploring) — fail the walk at the first duplicate file.**
-  [src/lib/walk.mjs:137–149](../src/lib/walk.mjs): the overlapping-member-dirs check is a full
-  second pass over `files` after the walk completes — minutes of walking on a big set before the
-  error. Move the `seen` check inline in the collect loop: fails at the first duplicate, second
-  pass deleted. (A pre-walk root-containment check was considered and **rejected**: exclude
-  patterns can make nested roots a legitimately working config today, so only the file-level
-  check is faithful.)
 - **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
   `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
   owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
@@ -77,6 +70,18 @@ signer).
 Recorded so future runs (and reviewers) skip them. Each was verified against the source at
 least once; re-open only if the stated reason no longer holds.
 
+- **A pre-walk root-containment check** (compare the set's realpath'd roots up front, reject when
+  one is a prefix of another) — rejected 2026-07-16 while building candidate D
+  ([PR #204](https://github.com/allens/s3cab/pull/204)). It looks like the strictly better fix —
+  fail *instantly*, before any walking — but it is **not faithful to the invariant**: containment
+  is a fact about path *shape*, whereas the thing that actually breaks a snapshot is a file
+  **reached twice**. Exclude patterns can make nested roots a legitimately working config today
+  (an outer root whose pattern drops the inner directory reaches no file twice), so a
+  containment check would reject a set that works — trading a real false-positive for latency on
+  a config that was never broken. The file-level check is the honest one, and the inline form D
+  shipped already bounds the waste to the first root's walk rather than the whole set. Re-open
+  only if nested roots become invalid *by decision* regardless of excludes — at which point the
+  check is expressing a rule, not guessing at one.
 - **Parameterizing `putFile`'s no-clobber mechanism** (each caller picks HEAD-preflight *or*
   conditional PUT) — explored at length 2026-07-16 alongside candidate C and **declined: the two
   are not redundant, they are a deliberate division of labour.** `putFile` looks like it guards
@@ -365,7 +370,22 @@ least once; re-open only if the stated reason no longer holds.
   real contract; the stub-file machinery deleted); a Copilot comment moved the test's inline
   `import("…").CompareResult` to the house `@import` tag. **This closes the eighth pass's
   Strong tier** — C/D/E remain open above.
-- **2026-07-16 — C landed** (PR TBD). *Drop `objectExists`'s metadata heuristic*: any successful
+- **2026-07-16 — D landed** ([PR #204](https://github.com/allens/s3cab/pull/204)). *Fail the walk
+  at the first duplicate file*: the overlapping-member-dirs check was a full second pass over
+  `files` after the walk had already finished, so an overlapping set paid for the **entire** walk
+  (minutes, on a big set) before erroring on a condition knowable the moment the duplicate is
+  reached. The `seen` Set now sits beside `files`, spans all roots, and is checked as each path
+  arrives — the first duplicate throws, and the second pass is deleted. Same error message,
+  deliberately: the existing overlap test was strengthened *first* to pin the **named duplicate
+  path** rather than just `/overlap/`, so the refactor couldn't silently reword it. Verified by
+  driving `walkDirs` over a 1200-file root with a nested root under it — it throws on the nested
+  root's *first* file, and the `using progress` disposal already covered the mid-loop throw (its
+  newline is `drawn`-gated, so the cursor lands on a fresh line; `progress.mjs`'s doc comment
+  states that contract explicitly). The pre-walk root-containment alternative stays **rejected** and
+  now has its own entry above (exclude patterns can make nested roots a legitimately working
+  config today, so only the file-level check is faithful). C and E remain open.
+- **2026-07-16 — C landed** ([PR #203](https://github.com/allens/s3cab/pull/203)). *Drop
+  `objectExists`'s metadata heuristic*: any successful
   HEAD now counts as present, so a metadata-less object costs one HEAD instead of a full
   multipart body the conditional PUT then rejects. `objectExists` is **inlined into `putFile`**
   along the way — one module-private caller, and the boolean round-trip (`objectExists` returns
@@ -382,4 +402,10 @@ least once; re-open only if the stated reason no longer holds.
   on loopback and asserts the request sequence (`captureRequest` can't serve — it builds its own
   client, bypassing the memoized one). The exactly-`partSize` fixture keeps lib-storage on the
   single-`PutObject` path, so the fake needs no multipart choreography. The red run was the
-  proof: an 8.4MB body on the wire for an object already there.
+  proof: an 8.4MB body on the wire for an object already there. Two further captures ride along:
+  the **`putFile` no-clobber split** is now a standing rejection above (the HEAD and the
+  conditional PUT are a deliberate division of labour, not redundancy), and the discussion
+  surfaced a real defect — the snapshot→upload staleness window, filed in [bugs.md](bugs.md),
+  which this pass had recorded as "a deliberate design stance… not a defect", an AI-invented
+  verdict nobody held. The coverage audit it produced is captured as
+  [test-coverage.md](test-coverage.md). **Only E now remains open.**
