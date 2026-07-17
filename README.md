@@ -15,6 +15,14 @@ stopped keeping its short-lived version history. That everyday "I need that file
 job s3cab is built around. Restoring an _entire_ dataset after a disaster works too, but it's
 the rare backstop — the day-to-day use is recovering one file, or one old version.
 
+**The kind of data it's for:** the files that make up your digital life — photos, videos,
+documents, and the like. s3cab backs up each file as it sits on disk, so it suits data that
+holds still. For a live system — a database, a mail store, a running app — back up an _export_
+of it (a dump, an archive) rather than the working files the application keeps open and
+rewrites underneath you. If a file does change mid-backup, s3cab stops and names it rather than
+store a half-written copy; a one-off clash just needs a re-run, but a file that's forever in
+flux belongs in the set's [exclude](guide/exclude.md) list, not your backup.
+
 > ⚠️ **Pre-release, under active development.** The full command set works today —
 > snapshotting, comparing, backing up to S3, restoring, verifying, deleting snapshots, and
 > reclaiming storage (see [Status](#status)). What's left before 1.0 is polish and
