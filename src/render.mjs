@@ -65,6 +65,16 @@ export function renderSetup(set) {
 }
 
 /**
+ * Colouriser gate for a renderer: `painter(color)` yields a `paint` that
+ * applies a colouriser only when colour is enabled — headings paint on a TTY
+ * and stay plain when piped.
+ * @param {boolean} color
+ * @returns {(colourise: (text: string) => string) => (text: string) => string}
+ */
+const painter = (color) => (colourise) => (text) =>
+  color ? colourise(text) : text;
+
+/**
  * Render a `compare`/`snapshot` diff — the shared renderer both point at, since
  * they return the same `CompareResult` (ADR-0043). Fixed section order, only
  * non-empty sections shown, a count in each header, and a closing summary line.
@@ -83,12 +93,7 @@ export function renderCompareResult(result, { color = false } = {}) {
   const base = commonAncestor(result.dirs);
   /** @param {string} path */
   const shorten = (path) => (base ? relative(base, path) : path);
-  /** Apply a colouriser only when colour is enabled (headers only). */
-  const paint =
-    /** @param {(text: string) => string} colourise */
-    (colourise) =>
-      /** @param {string} text */
-      (text) => (color ? colourise(text) : text);
+  const paint = painter(color);
 
   const head = header(result, base);
 
@@ -463,8 +468,7 @@ export function renderStatus({ set, snapshot, backedUp, toUpload }) {
  */
 export function renderVerify(result, { color = false } = {}) {
   const { bucket, sets } = result;
-  /** Apply a colouriser only when colour is enabled. @param {(t: string) => string} c */
-  const paint = (c) => (/** @type {string} */ text) => (color ? c(text) : text);
+  const paint = painter(color);
 
   const findingSets = sets.filter(setHasFindings);
   const objectsChecked = sets.reduce((n, s) => n + s.referencedObjects, 0);
