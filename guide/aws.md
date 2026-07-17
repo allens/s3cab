@@ -191,8 +191,9 @@ blast radius.
 
 There is no separate SSO onboarding path (and no `--sso` flag). If you already sign
 in through IAM Identity Center with a broadly-privileged role that can reach the
-bucket, just create the bucket and point s3cab at your SSO profile — SSO flows
-through the standard AWS credential chain, which s3cab uses unchanged:
+bucket, just create the bucket — giving it the same versioning and lifecycle
+housekeeping as the stack's table above — and point s3cab at your SSO profile;
+SSO flows through the standard AWS credential chain, which s3cab uses unchanged:
 
 ```console
 > s3cab provider --profile <your-sso-profile>
@@ -217,10 +218,17 @@ The steps (also available offline via `s3cab help provider`):
 2. **Turn on object versioning** if the provider supports it — your safety net,
    so a deleted or overwritten backup stays recoverable. Not every provider
    offers it; skip this if yours doesn't.
-3. **Create an access key / token scoped to that bucket**, with read, write,
+3. **Add a cleanup rule for interrupted uploads** if the provider supports
+   lifecycle rules. Large files upload in pieces (a "multipart upload"), and an
+   upload that dies partway — a crash, a dropped connection — leaves its
+   already-uploaded pieces behind: invisible in the bucket's file listing, but
+   still billed. A lifecycle rule that aborts incomplete multipart uploads
+   after a day cleans them up automatically; most consoles name the rule close
+   to that. (Buckets created by the AWS recipe above get this rule built in.)
+4. **Create an access key / token scoped to that bucket**, with read, write,
    delete, and list on its objects. Where to do this differs by provider
    (R2: API Tokens; B2: Application Keys; Wasabi: sub-users).
-4. **Create the backup set, pointed at the provider in one command** — the
+5. **Create the backup set, pointed at the provider in one command** — the
    endpoint and region by flag, the key + secret at the prompt (never flags,
    which would leak into shell history; piping two lines to `--keys` works for
    scripts). Config is per-set, so it goes on the set as you create it:
