@@ -480,8 +480,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
 - **Stable doc URLs — resolved: GitHub `guide/*.md` paths are permanent (no website pre-1.0).**
   Help/footer/command text prints these URLs and a shipped binary freezes them, so the
   commitment is: **don't rename `guide/*.md` or move the repo slug** without updating the printed
-  URLs. One open outlier: the `auth` topic's footer points at the `#authentication` README
-  *anchor* (fragile if reworded) — fold a fix into the next auth-doc touch.
+  URLs. Every printed footer now targets a `guide/*.md` file (the last outlier — `provider`'s
+  footer pointing at a README *anchor* — was retargeted to `guide/auth.md`), so no printed URL
+  depends on a heading staying worded as it is.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
