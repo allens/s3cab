@@ -42,13 +42,54 @@ and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below)
 - **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
   `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
   owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
-  get-or-insert at three sites (183–186, 253–262) where compare.mjs already uses
+  get-or-insert at three sites (182–186, 252–265) where compare.mjs already uses
   `Map.prototype.getOrInsertComputed`; `commands/upload.mjs:131–134`'s trailing "Specify what to
   upload" throw belongs in the fail-fast validation block at the top; `render.mjs` defines two
   differently-shaped local `paint` helpers (compare 85–89, verify 455) — one module-private
   helper serves both.
 
-**Examined & left alone this pass** (not candidates — skip next run): `referencedObjects` *not*
+Surfaced 2026-07-17 (ninth pass) — C–E verification plus a fresh-eyes Explore sweep over the
+#199–#202 churn and the less-recently-examined modules (run log below); both findings verified
+against the source before recording, and the pass surfaced one live bug (→ [bugs.md](bugs.md)).
+
+- **F (Strong) — one read of a set's provider config: pure `readProviderConfig` beside its
+  write twin.** The "which provider knobs does this set's env file carry" mapping is spelled per
+  caller and has already drifted: [src/commands/provider.mjs:88–95](../src/commands/provider.mjs)
+  (`describeScope`) reads all five knobs, but [src/commands/list.mjs:123–131](../src/commands/list.mjs)
+  (`providerOverrides`) predates Roles Anywhere and reads four — so a keyless RA set shows **no
+  provider block** in `list <set>`, which [src/render.mjs:322–341](../src/render.mjs) documents
+  as "relies on the ambient AWS setup", while `provider <set>` correctly says "Roles Anywhere
+  (keyless)" (the bug in bugs.md). Deepening: a pure `readProviderConfig(values) → { profile,
+  endpoint, region, keyId, rolesAnywhere }` in [src/lib/provider.mjs](../src/lib/provider.mjs)
+  beside `gatherProviderConfig` (the accepted write twin, same five knobs); both commands consume
+  it and `providerOverrideLines` gains its RA line — the bug fixed by construction (narrow
+  alternative if F is declined: read `isRolesAnywhereMode(values)` in `providerOverrides` and add
+  the render line). **Distinct from the rejected `credentialMode()` classifier**: no mode enum —
+  both callers already read the *same five values* from the *same file*; ADR-0055's "bag of
+  `AWS_*`" is untouched. E's provider.mjs item rides along naturally (same file).
+  **Grilled 2026-07-17, decisions settled:** return the raw `keyId` (not a boolean — the only
+  shape that retires both callers' own reads; key IDs aren't secret, the secret never crosses);
+  the type is **`ProviderConfig`**, defined in lib/provider.mjs (list.mjs's `ProviderOverrides`
+  deleted; ends the `render → commands/list` type edge); `list`'s block gains
+  `sign-in: Roles Anywhere (keyless)` as its **first** line (RA-first mirrors precedence
+  everywhere; "sign-in" is the provider command's existing vocabulary) and its keys line
+  upgrades to match `provider` — `access keys: set (…XXXX)` via the shared `keyTail`;
+  ride-alongs **E-1** (provider.mjs `clear.push(...knobs.keys)`) and **E-4** (one `paint`
+  helper in render.mjs), each its own commit; tests red-first for the RA bug (render + list),
+  a new pure co-located `lib/provider.test.mjs` for the seam, `describeScope`'s existing tests
+  untouched as the refactor's net.
+- **G (Worth exploring) — export `snapshotFileName` so the filename grammar's construct
+  direction is owned too.** [src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs) centralizes
+  recognition/strip (`snapshotNames`, `normalizeSnapshotName`) and its module doc claims the
+  naming convention lives in one place — but six sites hand-spell `` `${name}.tsv.zst` ``
+  ([src/lib/remote.mjs](../src/lib/remote.mjs) 75, 121, 301–302;
+  [src/lib/upload.mjs](../src/lib/upload.mjs) 125–126). Export `snapshotFileName(name)` and the
+  six become compositions (`remoteSnapshotsPrefix(set) + snapshotFileName(name)`;
+  `join(dir, snapshotFileName(name))`) — prefix and extension each owned by their module. The
+  same de-leak compare.mjs got in PR #168 (`normalizeSnapshotName` moved home); aligns with
+  ADR-0028 (naming pulled *into* the writer — the opposite of the rejected codec split).
+
+**Examined & left alone (eighth pass)** (not candidates — skip future runs): `referencedObjects` *not*
 filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
 (filtering the scan would make cleanup treat a non-canonical set's objects as orphans; the
 lister only feeds display/discovery); the trust-on-write `upload --snapshot <old>` staleness
@@ -409,3 +450,17 @@ least once; re-open only if the stated reason no longer holds.
   which this pass had recorded as "a deliberate design stance… not a defect", an AI-invented
   verdict nobody held. The coverage audit it produced is captured as
   [test-coverage.md](test-coverage.md). **Only E now remains open.**
+- **2026-07-17 — ninth pass.** E re-verified at HEAD `80a45aa` — **holds** (anchors refreshed:
+  E's remote.mjs get-or-inserts 182–186/252–265). The #199–#202 churn
+  examined directly: backup.mjs post-#202 is clean thin porcelain (the `since === until` debug
+  edge handled); stack-arns's client-config `profile` is justified, not a candidate (onboarding
+  has no set env layer). One background Explore agent (fresh eyes, medium breadth, primed with
+  the standing rejections) swept the churn plus the less-examined modules and test tiers; both
+  its findings verified against the source and recorded as **F** and **G** above. En route it
+  caught a live drift bug — `list <set>` never surfaces Roles Anywhere mode (`providerOverrides`
+  predates RA, so a keyless RA set renders as "ambient") → recorded in [bugs.md](bugs.md), fixed
+  by construction if F lands. Found clean: the plan/execute discipline (`verifySet` /
+  `planCleanup` / `planRestore` / `planUpload` all pure), remote/objects prefix ownership (the
+  `.tsv.zst` literal in G is the sole leak), the config layer post-#201, and the test tiers per
+  ADR-0049 (the "mock at s3.mjs" line holds). Top pick: **F**. Overwrote the HTML report in
+  place.

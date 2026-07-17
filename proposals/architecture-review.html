@@ -3,238 +3,228 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>s3cab · Architecture review · 2026-07-16</title>
+    <title>Architecture review — s3cab (ninth pass)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-    <script>
-      mermaid.initialize({ startOnLoad: true, theme: "dark" });
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
     </script>
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
-      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-      .card { scroll-margin-top: 1rem; }
-      .badge-strong { background:#065f46; color:#d1fae5; }
-      .badge-worth { background:#78350f; color:#fed7aa; }
-      .badge-bug   { background:#7f1d1d; color:#fecaca; }
-      .before { background:#3f1d1d; border-color:#b91c1c; }
-      .after  { background:#0f2f22; border-color:#059669; }
+      .chip { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem; }
     </style>
   </head>
-  <body class="bg-slate-950 text-slate-200">
+  <body class="bg-stone-50 text-slate-900 font-sans">
     <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
-
       <header class="space-y-3">
-        <h1 class="text-3xl font-bold text-slate-50">s3cab — architecture review, eighth pass</h1>
-        <p class="text-slate-400 text-sm">2026-07-16 · HEAD <span class="mono">b072f93</span> · whole-<span class="mono">src/</span> read, simplification-tuned (user brief: clear + concise — fewer lines, branches, indirections — and hunt bugs). Durable capture: <span class="mono">proposals/architecture-improvements.md</span>; defects: <span class="mono">proposals/bugs.md</span>.</p>
-        <p class="text-slate-300 text-sm max-w-3xl">Verdict: after seven passes the modules are <strong>deep</strong> — no module fails the deletion test, and the seams (render layer, snapshot grammar, SDK boundary, credential resolution) hold. What this pass found is <em>re-derivation and dead branches inside interfaces</em>: five candidates, all deletions or one-rule unifications, plus <strong>two bugs</strong>.</p>
-        <div class="flex gap-2 text-xs">
-          <span class="px-2 py-1 rounded badge-bug">2 bugs → bugs.md</span>
-          <span class="px-2 py-1 rounded badge-strong">2 strong</span>
-          <span class="px-2 py-1 rounded badge-worth">2 worth exploring</span>
-          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300">1 cleanup bundle</span>
-        </div>
+        <h1 class="font-serif text-3xl">Architecture review — s3cab</h1>
+        <p class="text-sm text-slate-600">
+          Ninth pass · 2026-07-17 · HEAD <code class="font-mono">80a45aa</code> ·
+          re-verified the eighth-pass opens and explored the #199–#202 churn plus the
+          less-recently-examined modules fresh-eyes. C and D were verified still-open, then
+          landed same-day (#203/#204) — remaining open: <strong>F</strong> (Strong, new),
+          <strong>G</strong> (new), <strong>E</strong> (ride-alongs).
+        </p>
+        <p class="text-xs text-slate-500">
+          Legend: solid box = module · <span class="text-red-600">red</span> = leak/drift ·
+          dark box = deep module ·
+          <span class="inline-block px-1.5 rounded bg-emerald-100 text-emerald-800">Strong</span>
+          <span class="inline-block px-1.5 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+          <span class="inline-block px-1.5 rounded bg-slate-200 text-slate-700">Speculative</span>
+        </p>
       </header>
 
-      <!-- Bugs -->
-      <section class="space-y-4">
-        <h2 class="text-xl font-semibold text-red-300">Bugs found en route</h2>
-        <div class="grid md:grid-cols-2 gap-4">
-          <article class="rounded-lg border border-red-900 bg-red-950/40 p-4 space-y-2">
-            <h3 class="font-semibold text-red-200">A <span class="mono">#</span> comment in <span class="mono">dirs.txt</span> is walked as a directory</h3>
-            <p class="text-sm text-slate-300"><span class="mono">readSet</span> and <span class="mono">readSetConfig</span> keep <span class="mono">#</span> lines; the next walk aborts with <em>&ldquo;These directories &hellip; aren't available:&nbsp;# old drive&rdquo;</em>. <span class="mono">parseLines</span> even documents itself as the rule both files are read by — a unification that never happened. Candidate B carries the fix.</p>
-          </article>
-          <article class="rounded-lg border border-red-900 bg-red-950/40 p-4 space-y-2">
-            <h3 class="font-semibold text-red-200"><span class="mono">aws --save --profile &lt;p&gt;</span> silently drops the profile</h3>
-            <p class="text-sm text-slate-300"><span class="mono">stack-arns.mjs</span> builds its CloudFormation client with <span class="mono">{ region }</span> only, so the DescribeStacks read runs on ambient credentials — the admin profile the user just deployed with is accepted and ignored. Honor it (v3 clients take a <span class="mono">profile</span> option) or reject the combination.</p>
-          </article>
-        </div>
-      </section>
-
-      <!-- Candidates -->
       <section id="candidates" class="space-y-10">
-        <h2 class="text-xl font-semibold text-slate-100">Candidates</h2>
 
-        <!-- A -->
-        <article id="cand-a" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-lg font-semibold text-slate-50">A — <span class="mono">backup</span> re-derives what <span class="mono">snapshot()</span> already returned</h3>
-            <span class="px-2 py-0.5 rounded text-xs badge-strong">Strong</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-400">in-process</span>
+        <!-- ══════════════════════ F ══════════════════════ -->
+        <article id="cand-f" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-xl">F · One read of a set’s provider config</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">new this pass · grilled 2026-07-17, build in flight</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">in-process</span>
           </div>
-          <p class="mono text-sm text-slate-400">src/commands/backup.mjs:47&ndash;57 · src/lib/compare.mjs (the CompareResult contract)</p>
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/provider.mjs:109–170 · src/commands/list.mjs:123–131 ·
+            src/commands/provider.mjs:88–95 · src/render.mjs:322–341
+          </p>
+
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border p-4 before">
-              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — three reads of one fact</p>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">Before — the read mapping spelled per caller</p>
               <pre class="mermaid">
 flowchart TB
-  S["snapshot(set)"] -->|"CompareResult (until, since) — discarded"| B["backup"]
-  B -->|"listSnapshotNames latest"| D[("snapshots dir")]
-  B -->|"listSnapshotNames().find(n &lt; name)"| D
-  B -->|"guard: 'No snapshot was produced'"| B
+  L["list.mjs providerOverrides()<br/>4 knobs — RA missing"]
+  P["provider.mjs describeScope()<br/>5 knobs"]
+  W["lib/provider.mjs gatherProviderConfig()<br/>write direction, 5 knobs"]
+  ENV[("sets/&lt;set&gt;/env")]
+  L -- own mapping --> ENV
+  P -- own mapping --> ENV
+  W -- writes --> ENV
   classDef leak stroke:#dc2626,stroke-width:2px;
-  class D leak
+  class L leak
               </pre>
             </div>
-            <div class="rounded-lg border p-4 after">
-              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — the interface already carries it</p>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">After — one interface, both directions</p>
               <pre class="mermaid">
 flowchart TB
-  S["snapshot(set)"] -->|"{ until, since } destructured"| B["backup → upload(until, since)"]
-  classDef deep fill:#064e3b,stroke:#059669,stroke-width:3px;
-  class S,B deep
+  L2["list.mjs"]
+  P2["provider.mjs"]
+  R["lib/provider.mjs<br/>readProviderConfig() ⇄ gatherProviderConfig()<br/>the 5 knobs, one mapping"]
+  ENV2[("sets/&lt;set&gt;/env")]
+  L2 --> R
+  P2 --> R
+  R --> ENV2
+  classDef deep fill:#0f172a,color:#f8fafc,stroke:#0f172a;
+  class R deep
               </pre>
             </div>
           </div>
-          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> After <span class="mono">await snapshot(&hellip;)</span>, backup reads the fresh name back off disk and re-derives the baseline with a second directory read — but the <span class="mono">CompareResult</span> it just discarded carries both: <span class="mono">until</span> <em>is</em> the fresh name, <span class="mono">since</span> <em>is</em> the previous latest. The in-code comment claiming &ldquo;snapshot() returns its diff, not the name&rdquo; is false.</p>
-          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> <span class="mono">const { until, since } = await snapshot(&hellip;)</span> — delete both reads, the guard, and the stale comment (~10 lines).</p>
-          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
-            <li>Locality: backup&harr;snapshot agree by construction</li>
-            <li>Two directory reads and one guard deleted</li>
-            <li>Interface unchanged; tests feed CompareResults</li>
+
+          <p class="text-sm"><strong>Problem.</strong> “Which provider knobs does this set’s env file carry” is re-implemented by each caller, and the copies have already drifted: <code class="font-mono text-xs">providerOverrides</code> predates Roles Anywhere, so a keyless RA set renders <em>no provider block</em> in <code class="font-mono text-xs">list &lt;set&gt;</code> — documented to mean “relies on the ambient AWS setup” — while <code class="font-mono text-xs">provider &lt;set&gt;</code> correctly says “Roles Anywhere (keyless)”. A live bug (→ bugs.md).</p>
+          <p class="text-sm"><strong>Solution.</strong> A pure <code class="font-mono text-xs">readProviderConfig(values) → ProviderConfig</code> (<code class="font-mono text-xs">{ profile, endpoint, region, keyId, rolesAnywhere }</code>) in lib/provider.mjs beside its write twin; both commands consume it, and <code class="font-mono text-xs">providerOverrideLines</code> gains its RA line. Grilled decisions: raw <code class="font-mono text-xs">keyId</code> at the seam; type named <code class="font-mono text-xs">ProviderConfig</code>, owned by lib/provider.mjs; <code class="font-mono text-xs">sign-in: Roles Anywhere (keyless)</code> first in list’s block; list’s keys line matches provider (<code class="font-mono text-xs">set (…F7Q2)</code> via <code class="font-mono text-xs">keyTail</code>).</p>
+          <ul class="text-sm list-disc list-inside space-y-1">
+            <li>locality: knob mapping lives once</li>
+            <li>fixes the RA list bug by construction</li>
+            <li>leverage: next knob = one edit</li>
+            <li>read twin mirrors the accepted write seam</li>
           </ul>
-          <div class="rounded border border-amber-800 bg-amber-950/40 p-3 text-xs text-amber-200">Grill first: the <span class="mono">S3CAB_DEBUG</span> same-minute-overwrite edge (diff's <span class="mono">since</span> can equal <span class="mono">until</span>) — debug-only; both forms already die on the immutable-snapshot PUT.</div>
+          <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900">
+            Not the rejected <code class="font-mono text-xs">credentialMode()</code> classifier (2026-07-14): no mode enum — both callers already read the <em>same five values</em> from the <em>same file</em>; this names that one mapping. ADR-0055’s “auth is a bag of AWS_*” is untouched.
+          </div>
         </article>
 
-        <!-- B -->
-        <article id="cand-b" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-lg font-semibold text-slate-50">B — one line-parsing rule for <span class="mono">dirs.txt</span></h3>
-            <span class="px-2 py-0.5 rounded text-xs badge-strong">Strong</span>
-            <span class="px-2 py-0.5 rounded text-xs badge-bug">fixes a bug</span>
+        <!-- ══════════════════════ G ══════════════════════ -->
+        <article id="cand-g" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-xl">G · Give the snapshot filename grammar its constructor</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">new this pass</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">in-process</span>
           </div>
-          <p class="mono text-sm text-slate-400">src/lib/sets.mjs:332&ndash;335 · src/lib/set-marker.mjs:139&ndash;142 · src/lib/read-lines.mjs</p>
+          <p class="font-mono text-sm text-slate-600">
+            src/lib/snapshot-file.mjs:296–316 · src/lib/remote.mjs:75, 121, 301–302 · src/lib/upload.mjs:125–126
+          </p>
+
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border p-4 before">
-              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — three spellings, one lies</p>
-              <pre class="mono text-xs leading-relaxed text-slate-300">exclude.txt ──▶ parseLines()      # comments dropped ✓
-dirs.txt (local)  ──▶ split/trim   # "#…" kept ✗
-dirs.txt (remote) ──▶ split/trim   # "#…" kept ✗
-
-read-lines.mjs doc: "the shape …
-exclude.txt AND dirs.txt are read as"  ← false</pre>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">Before — strip owned, construct scattered</p>
+              <div class="space-y-2">
+                <div class="rounded bg-slate-900 text-slate-100 px-3 py-2">
+                  <p class="text-xs uppercase tracking-wider text-slate-400">snapshot-file.mjs (grammar owner)</p>
+                  <p class="chip">snapshotNames() · normalizeSnapshotName() — strip “.tsv.zst” ✓</p>
+                  <p class="chip text-red-300">name → filename constructor: none ✗</p>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:75 `${name}.tsv.zst`</span>
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:121 `${name}.tsv.zst`</span>
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:301 `${name}.tsv.zst`</span>
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:302 `${name}.tsv.zst`</span>
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">upload.mjs:125 `${name}.tsv.zst`</span>
+                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">upload.mjs:126 `${name}.tsv.zst`</span>
+                </div>
+              </div>
             </div>
-            <div class="rounded-lg border p-4 after">
-              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — one rule, doc true</p>
-              <pre class="mono text-xs leading-relaxed text-slate-300">exclude.txt ──┐
-dirs.txt (local) ──┤──▶ parseLines()
-dirs.txt (remote) ─┘
-
-comments + blanks dropped everywhere;
-absolute paths never start with "#"</pre>
+            <div class="rounded-lg border border-slate-200 p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">After — both directions behind the seam</p>
+              <div class="space-y-2">
+                <div class="rounded bg-slate-900 text-slate-100 px-3 py-2">
+                  <p class="text-xs uppercase tracking-wider text-slate-400">snapshot-file.mjs (grammar owner)</p>
+                  <p class="chip">snapshotNames() · normalizeSnapshotName() ✓</p>
+                  <p class="chip text-emerald-300">snapshotFileName(name) ✓</p>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span class="chip px-2 py-1 rounded border border-slate-300 text-slate-600">remoteSnapshotsPrefix(set) + snapshotFileName(name)</span>
+                  <span class="chip px-2 py-1 rounded border border-slate-300 text-slate-600">join(dir, snapshotFileName(name))</span>
+                </div>
+                <p class="text-xs text-slate-500">Prefix and extension each owned by their module; six literals become compositions.</p>
+              </div>
             </div>
           </div>
-          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> Two hand-rolled copies of the parse keep <span class="mono">#</span> lines, so a commented-out directory aborts the walk with a baffling error — and the shared primitive's doc claims it already owns this.</p>
-          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Route both <span class="mono">dirs.txt</span> readers through <span class="mono">parseLines</span>.</p>
-          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
-            <li>Bug fixed; comments usable in dirs.txt</li>
-            <li>~6 duplicated lines deleted</li>
-            <li>Leverage: one rule decides &ldquo;active line&rdquo;</li>
+
+          <p class="text-sm"><strong>Problem.</strong> snapshot-file.mjs centralizes the <em>recognition/strip</em> direction and its doc claims the naming convention lives in one place — but the <em>construct</em> direction is six hand-spelled <code class="font-mono text-xs">`${name}.tsv.zst`</code> literals across two modules: the grammar leaks across the seam, and a codec change is a six-site hunt.</p>
+          <p class="text-sm"><strong>Solution.</strong> Export <code class="font-mono text-xs">snapshotFileName(name)</code> from the owner; the six sites compose it with their own piece (S3 prefix, local dir).</p>
+          <ul class="text-sm list-disc list-inside space-y-1">
+            <li>the “one place” claim becomes true</li>
+            <li>locality: codec change = one edit</li>
+            <li>the de-leak compare.mjs already got (PR #168)</li>
           </ul>
+          <div class="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-900">
+            Aligns with ADR-0028 (naming pulled <em>into</em> the writer) — the opposite direction to the rejected codec split.
+          </div>
         </article>
 
-        <!-- C -->
-        <article id="cand-c" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-lg font-semibold text-slate-50">C — drop <span class="mono">objectExists</span>'s metadata heuristic</h3>
-            <span class="px-2 py-0.5 rounded text-xs badge-worth">Worth exploring</span>
-          </div>
-          <p class="mono text-sm text-slate-400">src/lib/s3.mjs:476&ndash;489 (the multipart no-clobber preflight)</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border p-4 before">
-              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — a branch that can only waste bytes</p>
-              <pre class="mermaid">
-sequenceDiagram
-  participant P as putFile
-  participant S3
-  P->>S3: HEAD (200, no custom metadata)
-  Note over P: treated as "absent"
-  P->>S3: multipart upload — full body sent
-  S3-->>P: PreconditionFailed (IfNoneMatch)
-  Note over P: return false — same answer, N MB later
-              </pre>
-            </div>
-            <div class="rounded-lg border p-4 after">
-              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — any 200 HEAD is present</p>
-              <pre class="mermaid">
-sequenceDiagram
-  participant P as putFile
-  participant S3
-  P->>S3: HEAD (200)
-  Note over P: return false — skip upload
-  Note over P,S3: conditional PUT stays the real guard
-              </pre>
-            </div>
-          </div>
-          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> The &ldquo;exists but has no metadata &rarr; treat as absent&rdquo; branch reaches the identical outcome the conditional PUT would give — after uploading the whole multipart body first.</p>
-          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Any successful HEAD counts as present; delete the metadata inspection.</p>
-          <ul class="text-sm text-emerald-200/90 list-disc pl-5 space-y-1">
-            <li>One branch fewer, same guarantees</li>
-            <li>No wasted body upload on metadata-less objects</li>
-          </ul>
-        </article>
+        <!-- ══════════════════════ landed while in flight ══════════════════════ -->
+        <section class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 space-y-1">
+          <h2 class="font-serif text-lg">Landed while this pass was in flight</h2>
+          <p class="text-sm text-slate-700">
+            <strong>C — any successful HEAD counts as present</strong> landed as
+            <a class="underline" href="https://github.com/allens/s3cab/pull/203">PR #203</a>
+            (the heuristic proved to be a fossil preserved on a false premise — see the run log in
+            architecture-improvements.md), and
+            <strong>D — fail the walk at the first duplicate</strong> as
+            <a class="underline" href="https://github.com/allens/s3cab/pull/204">PR #204</a>.
+            Both were verified still-open at this pass’s HEAD <code class="font-mono text-xs">80a45aa</code>,
+            then fixed the same day.
+          </p>
+        </section>
 
-        <!-- D -->
-        <article id="cand-d" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-lg font-semibold text-slate-50">D — fail the walk at the first duplicate file</h3>
-            <span class="px-2 py-0.5 rounded text-xs badge-worth">Worth exploring</span>
+        <!-- ══════════════════════ E ══════════════════════ -->
+        <article id="cand-e" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-xl">E · Small-cleanups bundle (ride-alongs)</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">carried (8th pass) — re-verified</span>
           </div>
-          <p class="mono text-sm text-slate-400">src/lib/walk.mjs:137&ndash;149</p>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border p-4 before">
-              <p class="text-xs uppercase tracking-wider text-red-300 mb-2">Before — walk everything, then re-scan</p>
-              <pre class="mono text-xs leading-relaxed text-slate-300">walk root 1 ▸▸▸▸▸▸▸▸ (minutes)
-walk root 2 ▸▸▸▸▸▸▸▸ (minutes)
-second pass over files[]  ← Set built here
-   └─ throw "directories overlap"</pre>
-            </div>
-            <div class="rounded-lg border p-4 after">
-              <p class="text-xs uppercase tracking-wider text-emerald-300 mb-2">After — inline check, first dup throws</p>
-              <pre class="mono text-xs leading-relaxed text-slate-300">walk root 1 ▸▸▸▸▸▸▸▸
-walk root 2 ▸✗ throw at first duplicate
-   (second pass deleted)</pre>
-            </div>
-          </div>
-          <p class="text-sm"><strong class="text-slate-100">Problem.</strong> Overlapping member dirs are only reported after the entire walk — a wasted multi-minute pass on a big set — via a second full loop.</p>
-          <p class="text-sm"><strong class="text-slate-100">Solution.</strong> Move the <span class="mono">seen</span> check into the collect loop. <em>Rejected alternative:</em> a pre-walk root-containment check — exclude patterns can make nested roots a working config today, so only the file-level check is faithful.</p>
-        </article>
+          <p class="text-sm text-slate-600">Each rides along with the next real touch of its file — not a standalone PR. Rows 1 and 4 ride with F’s PR (grilled decision); rows 2–3 stay parked.</p>
 
-        <!-- E -->
-        <article id="cand-e" class="card rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-3">
-          <div class="flex items-center gap-3 flex-wrap">
-            <h3 class="text-lg font-semibold text-slate-50">E — small-cleanups bundle (ride-alongs, next touch of each file)</h3>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300">cleanups</span>
+          <div class="divide-y divide-slate-100 text-sm">
+            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
+              <p class="font-mono text-xs text-slate-600">provider.mjs:307–322<br/><span class="text-slate-400">(rides with F)</span></p>
+              <p class="chip text-red-700">clear.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY") — re-spells the knobs table (39–47)</p>
+              <p class="chip text-emerald-700">clear.push(...knobs.keys) — rename-drift risk gone</p>
+            </div>
+            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
+              <p class="font-mono text-xs text-slate-600">remote.mjs:182–186, 252–265</p>
+              <p class="chip text-red-700">three hand-rolled “get, if-absent insert” blocks</p>
+              <p class="chip text-emerald-700">Map.prototype.getOrInsertComputed — compare.mjs:207 precedent</p>
+            </div>
+            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
+              <p class="font-mono text-xs text-slate-600">upload.mjs:131–134</p>
+              <p class="chip text-red-700">“Specify what to upload” thrown after both modes, at the bottom</p>
+              <p class="chip text-emerald-700">hoisted into the fail-fast validation block at the top</p>
+            </div>
+            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
+              <p class="font-mono text-xs text-slate-600">render.mjs:85–89 · 455<br/><span class="text-slate-400">(rides with F)</span></p>
+              <p class="chip text-red-700">two differently-spelled paint helpers (compare’s, verify’s)</p>
+              <p class="chip text-emerald-700">one module-private paint(color) serves both renderers</p>
+            </div>
           </div>
-          <ul class="text-sm text-slate-300 list-disc pl-5 space-y-2">
-            <li><span class="mono">commands/provider.mjs:307&ndash;323</span> — the mode-switch clear list re-spells env keys the <span class="mono">knobs</span> table already owns; <span class="mono">clear.push(...knobs.keys)</span> kills the rename-drift risk.</li>
-            <li><span class="mono">lib/remote.mjs:183&ndash;186, 253&ndash;262</span> — three hand-rolled get-or-insert blocks where compare.mjs already uses <span class="mono">Map.prototype.getOrInsertComputed</span>.</li>
-            <li><span class="mono">commands/upload.mjs:131&ndash;134</span> — the trailing &ldquo;Specify what to upload&rdquo; throw belongs in the fail-fast validation block at the top.</li>
-            <li><span class="mono">render.mjs:85&ndash;89, 455</span> — two differently-shaped local <span class="mono">paint</span> helpers; one module-private helper serves both.</li>
-          </ul>
         </article>
       </section>
 
-      <!-- Examined & left alone -->
-      <section class="space-y-3">
-        <h2 class="text-xl font-semibold text-slate-100">Examined &amp; left alone</h2>
-        <ul class="text-sm text-slate-400 list-disc pl-5 space-y-1">
-          <li><span class="mono">referencedObjects</span> not filtering set names while <span class="mono">listRemoteSets</span> does — <strong class="text-slate-200">load-bearing asymmetry</strong>: filtering the scan would make cleanup orphan a non-canonical set's objects.</li>
-          <li>Trust-on-write staleness of <span class="mono">upload --snapshot &lt;old&gt;</span> — a design stance, recorded in engine-robustness.md.</li>
-          <li>list.mjs's inline <span class="mono">--latest</span> slice; <span class="mono">??</span>-vs-<span class="mono">||</span> region defaults; pluralization hand-rolls; snapshot's floor-percent arithmetic — all trivial.</li>
-          <li>render / help / error / auth / snapshot-grammar / RA modules: read in full, deep, cleanly seamed. Exemplars: auth.mjs's error taxonomy, snapshot-file.mjs's writer-owned grammar, the SigV4-X509 signer.</li>
+      <!-- ══════════════════════ clean ══════════════════════ -->
+      <section class="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+        <h2 class="font-serif text-xl">Examined &amp; found clean this pass</h2>
+        <ul class="text-sm list-disc list-inside space-y-1 text-slate-700">
+          <li><strong>The #199–#202 churn:</strong> aws command + recipe prose + stack-arns (client-config <code class="font-mono text-xs">profile</code> is the #199 fix — justified: onboarding has no set env layer; CloudFormation stays quarantined per ADR-0059); backup.mjs post-#202 is thin porcelain with the <code class="font-mono text-xs">since === until</code> debug edge handled; sets/set-marker post-#201 read <code class="font-mono text-xs">dirs.txt</code> through <code class="font-mono text-xs">parseLines</code> everywhere.</li>
+          <li><strong>The recurring weakness is well-defended:</strong> <code class="font-mono text-xs">verifySet</code> / <code class="font-mono text-xs">planCleanup</code> / <code class="font-mono text-xs">planRestore</code> / <code class="font-mono text-xs">planUpload</code> are all pure and mock-free-testable; command shells stay thin.</li>
+          <li><strong>Remote engine prefix ownership holds</strong> (objects.mjs = <code class="font-mono text-xs">objects/</code>, remote.mjs = <code class="font-mono text-xs">snapshots/</code>) — the <code class="font-mono text-xs">.tsv.zst</code> literal (G) is the sole leak found.</li>
+          <li><strong>Test tiers</strong> match ADR-0049; the “mock at s3.mjs” line holds throughout.</li>
         </ul>
-        <p class="text-sm text-slate-400">Test sample (tdd lens): <span class="mono">lib/upload.test.mjs</span>, <span class="mono">commands/backup.test.mjs</span> — seam-based, behavior-driven, independent expected values. No anti-patterns found.</p>
       </section>
 
-      <!-- Top recommendation -->
-      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-700 bg-emerald-950/40 p-6 space-y-2">
-        <h2 class="text-xl font-semibold text-emerald-200">Top recommendation</h2>
-        <p class="text-sm text-slate-200"><a href="#cand-a" class="underline text-emerald-300 font-semibold">A — stop re-deriving snapshot's result in backup</a>: a pure deletion (~10 lines, two directory reads, one guard, one false comment) that makes the backup&harr;snapshot pair consistent by construction. <a href="#cand-b" class="underline text-emerald-300">B</a> is the natural same-session second — it fixes a real bug while deleting duplication.</p>
+      <!-- ══════════════════════ top rec ══════════════════════ -->
+      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-6 space-y-2">
+        <h2 class="font-serif text-xl">Top recommendation: F</h2>
+        <p class="text-sm">
+          <a href="#cand-f" class="underline decoration-emerald-400">One read of a set’s provider config</a> —
+          the only Strong: its evidence is a <em>realized</em> drift bug (a keyless Roles Anywhere set is
+          indistinguishable from an unconfigured one in <code class="font-mono text-xs">list</code>), the fix is a small pure
+          function with an accepted in-repo precedent (the write twin one seam down), and it retires the
+          read-side drift class permanently. E’s provider.mjs and render.mjs rows ride along.
+        </p>
       </section>
-
-      <footer class="text-xs text-slate-600 pt-4 border-t border-slate-800">
-        Eighth pass · 2026-07-16 · durable capture in proposals/architecture-improvements.md · bugs in proposals/bugs.md · this file is latest-only (git history keeps prior reports).
-      </footer>
     </main>
   </body>
 </html>
