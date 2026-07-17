@@ -13,6 +13,16 @@ to taste. It's yours to edit — s3cab never rewrites it after creation.
 > For a quick reference in the terminal, run `s3cab help exclude` — it carries
 > the same rules as this page, no browser needed.
 
+## Files that change during a backup
+
+s3cab backs up each file as it was when the backup started. If a file is still
+being rewritten while the backup runs — a live database, or a file another
+program still has open — s3cab stops and names that file rather than store a
+half-written copy under the wrong fingerprint. For a one-off collision, just run
+the backup again. For something that changes constantly, list it here so it's
+skipped from the start — a file that's always in flux isn't the kind of data
+s3cab is built to hold (back up an export of it instead).
+
 ## Globbing
 
 Patterns are matched against the path of each file or directory, relative to

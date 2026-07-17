@@ -127,4 +127,67 @@ describe("uploadSnapshot (real bucket)", () => {
       }
     }
   });
+
+  it("aborts when a file drifts mid-backup — no snapshot published, drifted object never stored", async () => {
+    await using dir = await mkTmpDir();
+    const set = `drift-${Date.now()}`;
+    const name = "2025-01-15T1030";
+
+    const contentDir = resolve(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const stable = join(contentDir, "stable.txt");
+    const drifting = join(contentDir, "drifting.txt");
+    // Unique content → unique hashes, so the shared store stays isolated.
+    writeFileSync(stable, `stable ${set}`);
+    writeFileSync(drifting, `original ${set}`);
+
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    // stable first, drifting second: the plan uploads stable, then hits drift.
+    await writeSnapshot(snapshotDir, name, [stable, drifting]);
+
+    const { entries } = await readSnapshot(snapshotDir, name);
+    const stableProps = entries.get(stable);
+    const driftProps = entries.get(drifting);
+    assert(stableProps && driftProps, "both files should be in the snapshot");
+    const stableHash = stableProps.hash;
+    const driftHash = driftProps.hash;
+
+    // The file changes after the snapshot but before its turn to upload.
+    writeFileSync(drifting, `changed, and now a longer body ${set}`);
+
+    try {
+      await assert.rejects(
+        () => uploadSnapshot({ bucket, set, snapshotDir, name }),
+        /changed or was removed/,
+      );
+
+      // The snapshot was withheld — nothing published, so the objects-first/
+      // snapshot-last invariant stays absolute (no snapshot references an
+      // object we couldn't store correctly).
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), []);
+
+      // The drifted file's current bytes were never PUT under the snapshot's
+      // old-content hash — the corruption this guard exists to prevent.
+      const driftKeys = [];
+      for await (const o of listObjects(
+        `s3://${bucket}/objects/${driftHash}`,
+      )) {
+        if (o.Key) {
+          driftKeys.push(o.Key);
+        }
+      }
+      assert.equal(
+        driftKeys.length,
+        0,
+        "the drifted object must not be stored",
+      );
+    } finally {
+      // stable.txt's object may have gone up before the abort (objects-first);
+      // delete whatever landed. No snapshot to remove — none was published.
+      for (const hash of [stableHash, driftHash]) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+    }
+  });
 });

@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempDisposable } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { planUpload } from "./upload.mjs";
+import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
+import { planUpload, uploadSnapshot } from "./upload.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+
+const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /**
  * Build a snapshot lookup from a path→hash map — only the hash matters to
@@ -84,5 +90,65 @@ describe("planUpload", () => {
     const baseline = lookup({ "old.txt": "h1" });
     const plan = await planUpload(target, { baseline, listed: ["h3"] });
     assert.deepEqual(plan, new Map([["h2", "b.txt"]]));
+  });
+});
+
+// The snapshot→upload staleness guard: a planned file that changed (or vanished)
+// since the snapshot must abort the run, never store its current bytes under the
+// snapshot's old-content hash (proposals/bugs.md). These stay hermetic — the
+// guard fires *before* any S3 call, so with a `--since` baseline (no store LIST)
+// and a drifted file, `uploadSnapshot` rejects without touching the bucket. The
+// dummy bucket would fail loudly with an unrelated error if a PUT were ever
+// reached, so matching the stale message proves the abort came from the guard.
+describe("uploadSnapshot drift guard", () => {
+  /**
+   * Snapshot one real file as the upload target, with an empty baseline so the
+   * file is planned (its hash isn't in the baseline). Returns the file path and
+   * the shared `uploadSnapshot` args (with `since`, so no store LIST runs).
+   * @param {string} dirPath - A temp dir to build the fixture in
+   */
+  const planOneFile = async (dirPath) => {
+    const contentDir = resolve(dirPath, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const file = join(contentDir, "photo.raw");
+    writeFileSync(file, "original bytes");
+
+    const snapshotDir = join(dirPath, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    const target = "2025-01-15T1030";
+    const baseline = "2025-01-15T1020";
+    await writeSnapshot(snapshotDir, baseline, []); // empty → target file planned
+    await writeSnapshot(snapshotDir, target, [file]);
+
+    return {
+      file,
+      args: {
+        bucket: "unused-drift-guard-bucket",
+        set: "drifty",
+        snapshotDir,
+        name: target,
+        since: baseline,
+      },
+    };
+  };
+
+  it("aborts when a planned file changed since the snapshot", async () => {
+    await using dir = await mkTmpDir();
+    const { file, args } = await planOneFile(dir.path);
+
+    // Rewrite with different-length content: size drifts even if the filesystem
+    // mtime resolution were too coarse to catch the edit on its own.
+    writeFileSync(file, "different, longer bytes");
+
+    await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
+  });
+
+  it("aborts when a planned file was removed since the snapshot", async () => {
+    await using dir = await mkTmpDir();
+    const { file, args } = await planOneFile(dir.path);
+
+    rmSync(file);
+
+    await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
   });
 });

@@ -1,4 +1,7 @@
+import assert from "node:assert";
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { isENOENT } from "./error.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
@@ -115,6 +118,32 @@ export async function uploadSnapshot({
 
   let uploaded = 0;
   for (const [hash, path] of plan) {
+    // Guard the snapshot→upload window: the store trusts the hash on write, so
+    // PUTting a file that changed since the snapshot would file its *current*
+    // bytes under the *old* content's hash — corrupting that object for every
+    // snapshot and path that dedups to it, surfacing only at restore
+    // (proposals/bugs.md). Re-check the planned file's size+mtime against what
+    // the snapshot recorded (the same staleness test `fileProps` uses to call a
+    // file unchanged) and abort rather than store mismatched bytes. First drift
+    // stops the run: objects already uploaded stay (content-addressed, reused on
+    // re-run), but no snapshot is published referencing an object we couldn't
+    // store correctly — the objects-first/snapshot-last invariant, kept absolute.
+    const recorded = target.get(path);
+    assert(recorded, `upload: planned path '${path}' absent from the snapshot`);
+    const current = await lstat(path).catch((error) => {
+      if (isENOENT(error)) {
+        return null; // removed since the snapshot — drift, handled below
+      }
+      throw error;
+    });
+    if (
+      !current ||
+      current.size !== recorded.size ||
+      current.mtime.toISOString() !== recorded.mtime
+    ) {
+      throw staleFileError(path, set);
+    }
+
     const didUpload = await putObject(bucket, hash, path);
     if (didUpload) {
       uploaded++;
@@ -134,3 +163,30 @@ export async function uploadSnapshot({
 
   return { name, candidates: plan.size, uploaded };
 }
+
+/**
+ * The "a file changed under us mid-backup" error `uploadSnapshot` raises when a
+ * planned file's on-disk size/mtime no longer matches what the snapshot
+ * recorded (or the file is gone). Uploading its current bytes would file them
+ * under the snapshot's *old*-content hash, corrupting that object across the
+ * dedup graph (proposals/bugs.md), so the run stops here. A named factory
+ * because the message is heavy and actionable (error.mjs taxonomy); a plain
+ * Error, caught by no one — it flows to the CLI top-level and exits non-zero.
+ * Wording follows ADR-0030: goal-framed headline, the fix as a copy-pasteable
+ * command, the durable option (exclude) with its guide link.
+ * @param {string} path - The file that changed since the snapshot
+ * @param {string} set - The set being backed up (names the re-run command)
+ * @returns {Error}
+ */
+const staleFileError = (path, set) =>
+  new Error(
+    `Can't back up '${path}' safely — it changed or was removed since it was ` +
+      `snapshotted, so it no longer matches what's being uploaded.\n\n` +
+      `s3cab stopped rather than store mismatched bytes under the snapshot's ` +
+      `fingerprint, which it could not have restored correctly later. Nothing ` +
+      `already uploaded is lost — take a fresh snapshot and back up again:\n` +
+      `  s3cab backup ${set}\n\n` +
+      `If a file changes this often — a live database, or a file another ` +
+      `program is still writing — it isn't a good fit for content-addressed ` +
+      `backup; exclude it from the set: https://s3cab.plantegral.com/guide/exclude`,
+  );
