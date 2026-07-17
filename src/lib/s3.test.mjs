@@ -107,11 +107,7 @@ afterEach(() => {
  * @returns {Promise<any>}
  */
 function putRequest() {
-  const params = putObjectParams("/example/file.txt", "s3://bucket/key", {
-    size: 5,
-    mtime: new Date(0),
-    noClobber: false,
-  });
+  const params = putObjectParams("s3://bucket/key", { noClobber: false });
   return captureRequest(
     clientConfig(),
     new PutObjectCommand({ ...params, Body: "hello" }),
@@ -151,17 +147,16 @@ describe("off-AWS upload request shaping (custom endpoint)", () => {
     );
   });
 
-  it("sends the portable metadata as single-prefixed x-amz-meta-* headers", async () => {
+  it("sends no x-amz-meta-* metadata at all", async () => {
     const request = await putRequest();
     const headers = amzHeaders(request);
-    assert.ok(
-      headers.includes("x-amz-meta-hostname"),
-      `expected single-prefixed metadata header: ${headers.join(", ")}`,
-    );
-    assert.ok(
-      // Metadata keys must be bare; pre-prefixing double-prefixes on the wire.
-      !headers.some((h) => h.startsWith("x-amz-meta-x-amz-meta-")),
-      `metadata header is double-prefixed: ${headers.join(", ")}`,
+    // An object under objects/<sha256> is content, not a file: dedup shares it across
+    // many paths, so per-file facts stamped here would name an arbitrary one of them.
+    // They also can't survive the wire — HTTP headers are Latin-1 (see the non-ASCII
+    // putFile test). The snapshot TSV is where per-file facts belong.
+    assert.deepEqual(
+      headers.filter((h) => h.startsWith("x-amz-meta-")),
+      [],
     );
   });
 });
@@ -458,11 +453,11 @@ describe("isObjectNotFound", () => {
   });
 });
 
-// putFile's multipart --no-clobber preflight, driven against a fake S3 on loopback.
-// "The body never went on the wire" is only observable *as* the wire traffic, so this
-// runs the real client()/SDK against a local server and records the requests it makes
-// — captureRequest() above can't serve here: it builds its own client, while putFile
-// goes through the module's memoized client(). Loopback only; no bucket, no network.
+// putFile, driven end-to-end against a fake S3 on loopback. What went on the wire is
+// only observable *as* the wire traffic, so this runs the real client()/SDK against a
+// local server and records the requests it makes — captureRequest() above can't serve
+// here: it builds its own client, while putFile goes through the module's memoized
+// client(). Loopback only; no bucket, no network.
 
 /** Must match s3.mjs's private `partSize` — the multipart threshold the preflight gates on. */
 const PART_SIZE = 8 * 1024 * 1024;
@@ -485,7 +480,7 @@ const AWS_VARS = [
   "__S3CAB_ENV_LOADED",
 ];
 
-describe("multipart --no-clobber preflight", () => {
+describe("putFile (fake S3 on loopback)", () => {
   /** @type {import("node:http").Server} */
   let server;
   /** @type {string[]} The requests the fake S3 received, in order. */
@@ -496,16 +491,22 @@ describe("multipart --no-clobber preflight", () => {
   let dir;
   /** @type {string} */
   let file;
+  /** @type {string} A path outside Latin-1 — the class HTTP headers cannot carry. */
+  let unicodeFile;
   /** @type {Record<string, string | undefined>} */
   let savedEnv;
 
   before(async () => {
-    dir = mkdtempSync(join(tmpdir(), "s3cab-preflight-"));
+    dir = mkdtempSync(join(tmpdir(), "s3cab-putfile-"));
     file = join(dir, "big.bin");
     // Exactly PART_SIZE: big enough to take the preflight branch (size >= partSize),
     // small enough that lib-storage still sends it as a single PutObject — so the fake
     // needs no multipart choreography.
     writeFileSync(file, Buffer.alloc(PART_SIZE));
+    // An accent and a CJK name together: ordinary filenames for most of the world, and
+    // both outside what an HTTP header value can hold.
+    unicodeFile = join(dir, "café-写真.jpg");
+    writeFileSync(unicodeFile, "x");
     server = createServer(async (request, response) => {
       // Path only — the SDK tags operations with a ?x-id= query we don't assert on.
       const [path] = (request.url ?? "").split("?");
@@ -580,5 +581,15 @@ describe("multipart --no-clobber preflight", () => {
     const wrote = await putFile(file, "s3://bucket/key", { noClobber: true });
     assert.equal(wrote, true);
     assert.deepEqual(seen, ["HEAD /bucket/key", "PUT /bucket/key"]);
+  });
+
+  it("uploads a file whose path is not ASCII", async () => {
+    // Nothing about the *request* may depend on the local path: S3 user metadata
+    // rides as HTTP headers, which cannot carry café/写真/emoji — Node rejects the
+    // header outright, so stamping the path onto the object made any such file
+    // unbackupable, and the error surfaced as a bare TypeError mid-backup.
+    const wrote = await putFile(unicodeFile, "s3://bucket/key", {});
+    assert.equal(wrote, true);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
   });
 });
