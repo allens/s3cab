@@ -56,8 +56,8 @@ long-lived *AWS* key.
 
 ### Cert-shape requirements (RA rejects the trust anchor / session otherwise)
 
-The live spike established these are **mandatory** — whatever generates the certs (see the open
-sub-decision) must emit exactly:
+The live spike established these are **mandatory** — the cert generator (the hand-rolled DER
+encoder below, [ADR-0058](../adr/0058-roles-anywhere-cert-generation.md)) must emit exactly:
 
 | Cert | Extensions |
 | --- | --- |

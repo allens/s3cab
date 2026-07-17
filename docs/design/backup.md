@@ -2,42 +2,16 @@
 
 ## Status
 
-Designed (2026-06-12), **implementation in progress**. Slices 1–4 are built. Slice 1 gave the set store (`src/lib/sets.mjs`), the set-management
-command (now split into `setup` + `list`, [ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)),
-and the set env layer in auth; slice 2 moved the local engine onto sets —
-`snapshot`/`list`/`compare`/`tree` take `[<set>]`, walk every member dir with the set's
-`exclude.txt`, write one snapshot (with `#SNAPSHOT` identity + `#DIR` headers) into
-`~/.s3cab/sets/<set>/snapshots/`, and `<dir>/.s3cab/` has retired. Slice 3 (PR #39) built
-the `snapshots/` remote half and the cloud porcelain: the remote repository engine
-(`src/lib/remote.mjs` — remote-snapshot listing/read, the upload-set diff
-`uploadCandidates`, the snapshot-last `uploadSnapshot`), plus `backup`, `status`, and
-`list --remote`. The `objects/<sha256>` half of the remote layout — `putObject` / verified
-`getObject` / `listObjectHashes` — is owned by
-`src/lib/objects.mjs` (extracted 2026-06-17 from where it had been scattered across
-`remote.mjs`/the plumbing commands; its lister is the `hashes` command — renamed from
-`objects` to free the name — and `upload` its writer). Slice 4's restore path (PR #44)
-added `restore` (`src/commands/restore.mjs`, on the verified `getObject`) and machine
-succession (`reattach`, via the remote `sets/<set>/` marker). `restore --output`
-re-rooting is now built too (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it
-used to drop; `reroot` in `restore.mjs` maps each member dir under `<output>/<basename>/…`).
-**Slice 5 is complete** — `verify` (`src/commands/verify.mjs` over `referencedObjects` in
-`remote.mjs`, `listStoredObjects` in `objects.mjs`, and the pure diff in
-`src/lib/verify.mjs`), `delete` (`src/commands/delete.mjs` over `deleteRemoteSnapshot`, with
-`src/lib/prompt.mjs`'s TTY-gated y/N confirm), and `cleanup` (`src/commands/cleanup.mjs` over
-`deleteStoredObject`, computing missing/damaged/orphan tallies directly from the same two
-enumerations as `verify` — the opposite `stored − referenced` difference; it works at hash
-level, so it needs none of verify's per-path problem model). Cleanup's diff core is the pure
-`planCleanup` in `src/lib/cleanup.mjs` — the `stored − referenced` orphan set (with the grace
-window) plus the missing/damaged/unreadable tallies, `now` injected and never throwing — the
-read-only twin of verify's `verifySet`, with the command left as an I/O + policy shell (the two
-abort interlocks, the wrong-size warn, the TTY prompt, the delete loop). Remaining is the
-versioning/ransomware user-doc note (deferred, tracked in "Open items"); the
-everyday-vs-elevated delete-rights question is **resolved** — the everyday identity's
-soft-delete grant is the settled model
-([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)), no policy split. (`compare --remote` was *dropped*,
-not built — [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md): `compare`
-stays local-only, and `reattach` instead syncs the set's snapshot files down so local
-`compare` works on a fresh machine.)
+Designed (2026-06-12), **fully implemented** — all five slices are built; of the design only
+retention-policy *automation* remains unbuilt (an "Open item"). The per-slice build history
+(PRs, what each slice delivered, what was dropped en route) lives with the
+[implementation plan](#implementation-plan) at the bottom, not here. The module map, in
+brief: the set store is `src/lib/sets.mjs`; the remote snapshot engine `src/lib/remote.mjs`;
+the `objects/<sha256>` store `src/lib/objects.mjs` (the `hashes` command is its lister,
+`upload` its writer); and the admin pair rests on two pure diff cores — `verifySet` in
+`src/lib/verify.mjs` and its read-only twin `planCleanup` in `src/lib/cleanup.mjs`
+(opposite set-differences of the same two enumerations) — with the commands as I/O + policy
+shells over them.
 
 On top of those original slices, the **2026-06-20 redesign has fully landed** (set name = whole
 identity, flattened `snapshots/<set>/`, the `setup` collision check + `reattach`, the
@@ -339,9 +313,9 @@ Consequences the design leans on:
 ## How `backup` computes the upload set
 
 `backup` operates on a snapshot file, so **all hashes are already known — `backup`
-never hashes a file**. (The snapshot-aware *hashing* skip — `upload.mjs`'s
-`--if-modified-from` TODO — is `snapshot`-time machinery via `prop`'s `lookup`, not
-`backup`'s concern.) The change-detection model
+never hashes a file**. (The snapshot-aware *hashing* skip is `snapshot`-time machinery
+via `prop`'s `lookup`; the old `upload --if-modified-from` idea was resolved into the
+`--since` baseline below, ADR-0044.) The change-detection model
 ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) makes the
 upload set scale with change size, not repo size. `backup` (porcelain) picks the
 baseline and hands it to the `upload` plumbing (which composes the `uploadSnapshot` lib):
@@ -574,11 +548,10 @@ missing.
   `delete` primitive; design after real usage shows the shapes people need.
 - **Interactive `setup` wizard** — explicitly post-milestone; the one-shot form plus
   good error messages is v1.
-- **auth.md update** — the dir env layer becomes the set layer when implemented.
-- **Doc updates at implementation** — README "How it works" (local layout moves to
-  `~/.s3cab/sets/`), guide/exclude.md (per-set file), help topics; plus the
-  versioning/ransomware recommendation. (The encryption non-goal statement is done —
-  it lives in the format spec.)
+
+(Items previously listed here and since done: the auth.md set-layer update, the README /
+guide/exclude.md / help-topic moves to `~/.s3cab/sets/`, and the versioning/ransomware
+user-doc note — now in README "Cloud repositories", guide/aws.md, and guide/maintenance.md.)
 
 ## Implementation plan
 
@@ -617,7 +590,9 @@ config, and test fixtures all move in this PR.
 ### Slice 3 — `backup` + `status` (the milestone) — **built (2026-06-13, PR #39)**
 
 S3 test strategy (decided): S3-touching code is covered by **gated integration tests
-against a real bucket** (`S3CAB_TEST_BUCKET`, skipped with a message when unset) rather
+against a real bucket** (`S3CAB_TEST_BUCKET`; originally skipped with a message when
+unset — [ADR-0049](../adr/0049-centralize-cross-cutting-test-tiers.md) later made an
+opt-in run without a bucket hard-fail instead) rather
 than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit
 tests. (Standing up the test bucket + CI credentials is a separate task.) Built
 bottom-up: remote-snapshot listing for a namespace → the snapshot-diff function
@@ -657,9 +632,10 @@ snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 All three admin commands are **built**: `verify` (completeness + size cross-check, `<bucket>`
 operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `delete` (snapshot removal,
 TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, dry-run default, single-pass
-`--delete` + y/N, 7-day grace window, damage interlock, local cache rewrite, the documented
-race warnings). The encryption-non-goal note is done (in the format spec); the
-versioning/ransomware user-doc note remains (deferred — see "Open items"). The
+`--delete` + y/N, 7-day grace window, damage interlock, the documented
+race warnings — and no local cache: ADR-0045 dropped it, so there is nothing to rewrite).
+The encryption-non-goal note is done (in the format spec), as is the
+versioning/ransomware user doc (README, guide/aws.md, guide/maintenance.md). The
 everyday-vs-elevated delete-rights question is resolved: no split — the everyday
 soft-delete grant is the settled model
 ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)).

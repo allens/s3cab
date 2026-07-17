@@ -13,9 +13,9 @@ judged by review, [ADR-0020](../adr/0020-coverage-review-not-gate.md).)
 The trigger was PR #44 (restore + adoption): the full data lifecycle now exists end-to-end
 — hash → snapshot → backup → restore — and **every seam a test strategy targets is built and
 stable**: `s3.mjs` (the single SDK boundary), the snapshot TSV parser, the set store
-(`sets.mjs`), the auth env-layering, and the remote engine (`remote.mjs`). The still-unbuilt
-commands (`verify`, `cleanup`, `delete`) add new _logic_ but **no new seams** — so the strategy
-won't be invalidated by them. (The `reattach` snapshot-file sync of
+(`sets.mjs`), the auth env-layering, and the remote engine (`remote.mjs`). The then-unbuilt
+commands (`verify`, `cleanup`, `delete` — all since built) added new _logic_ but **no new
+seams** — so the strategy survived them unchanged, as predicted. (The `reattach` snapshot-file sync of
 [0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md) adds one small new
 plumbing op — download-object-to-file — but still no new seam.)
 
@@ -152,6 +152,13 @@ scenario name where cross-cutting, a module name where clearest:
 - `test/integration/backup-restore-roundtrip.test.mjs` — the **`backup → restore` round-trip**
   (set up → backup → wipe originals → restore asserting byte-identical + mtime → skip →
   `--overwrite`). The single most valuable integration test.
+- `test/integration/upload.test.mjs` — the upload executor's S3 round-trip (the pure planner
+  is unit-covered by the co-located `upload.test.mjs`).
+- `test/integration/roles-anywhere.test.mjs` — the Roles Anywhere runtime path against the
+  **live** `CreateSession` endpoint (mocks can't exercise the SigV4-X509 exchange). Needs a
+  deployed trust anchor + `S3CAB_TEST_RA_HOME` on top of the bucket gate, so it skips where
+  the others run — the one suite with an extra gate (its live path is a known verification
+  gap; see CLAUDE.md → "Known gaps").
 
 All tear down via `deleteObject` in a `finally` (a set's marker files via the shared
 `cleanupSetMarker` in [`test/helpers/integration.mjs`](../../test/helpers/integration.mjs),

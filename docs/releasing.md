@@ -31,7 +31,11 @@ gh workflow run release.yml --ref main
 gh run watch        # or: gh run list --workflow=release.yml
 ```
 
-Green means the machinery still builds. The only things a dry run **cannot** prove are the two
+Green means the machinery still builds — and, when the `S3CAB_TEST_BUCKET` repo var is
+configured, that each platform's **built binary** passed the gated real-S3
+`setup → backup → restore` round-trip in the build job (the per-platform ship-gate,
+[ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md); without the var it's skipped and
+the dry run only proves the build). The only things a dry run **cannot** prove are the two
 skipped steps themselves — `gh release create` and `npm publish` (the OIDC trusted-publishing
 path); those only run on a real tag.
 

@@ -111,10 +111,11 @@ can open — while fork PRs get no credentials and skip) is in
 ### 1. Least-privilege IAM policy
 
 This is the **same** least-privilege policy s3cab's onboarding generates — `bucketPolicy()`
-in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` emits and the everyday backup
-identity is scoped to. With explicit verbs the backup and test policies are identical, so one
-definition serves both; on AWS (with no custom endpoint set), `s3cab aws your-test-bucket`
-prints exactly this JSON.
+in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as the managed policy in
+the CloudFormation template it writes (ADR-0056), and which the everyday backup identity is
+scoped to. With explicit verbs the backup and test policies are identical, so one definition
+serves both; to see it, open the template `s3cab aws your-test-bucket` writes, or read
+`bucketPolicy()` directly.
 
 Save as `policy.json` (substitute your bucket). The two-statement split matters: object
 actions target `…/*`, the bucket-level `ListBucket` targets the bare bucket ARN.

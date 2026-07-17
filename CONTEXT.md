@@ -101,8 +101,9 @@ _Avoid_: prefix, folder, scope.
 ### Cloud & commands
 
 **Remote**:
-The cloud (S3) side of a repository. The read commands point at it with a `--remote`/`-r`
-flag rather than separate verbs.
+The cloud (S3) side of a repository. A read command with both a local and a cloud mode
+points at it with a `--remote`/`-r` flag rather than a separate verb — today only `list`
+qualifies (`status` is inherently remote, `compare` deliberately local-only; ADR-0012).
 _Avoid_: cloud, server, target, destination.
 
 **Backup**:
@@ -137,7 +138,8 @@ _Avoid_: check, fsck, audit, scrub, validate.
 The porcelain verb that reclaims storage by deleting orphaned objects. It operates on the
 *bucket* (an object is deletable only when no snapshot from any set references it) and
 reports by default — deleting takes an explicit flag. The only command that removes
-objects, and the only one needing delete credentials.
+**stored objects** (deletion rights aren't unique to it — `delete` removes a snapshot file,
+and the everyday identity deliberately carries soft-delete, ADR-0033).
 _Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
