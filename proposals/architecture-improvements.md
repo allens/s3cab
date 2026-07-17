@@ -40,44 +40,18 @@ also candidate B; the `aws --save --profile` drop →
 and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
 
 - **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
-  `commands/provider.mjs:307–323` re-spells the env keys the `knobs` table (line 39) already
-  owns — `clear.push(...knobs.keys)` etc. kills the rename-drift risk; `lib/remote.mjs` hand-rolls
-  get-or-insert at three sites (182–186, 252–265) where compare.mjs already uses
-  `Map.prototype.getOrInsertComputed`; `commands/upload.mjs:131–134`'s trailing "Specify what to
-  upload" throw belongs in the fail-fast validation block at the top; `render.mjs` defines two
-  differently-shaped local `paint` helpers (compare 85–89, verify 455) — one module-private
-  helper serves both.
+  `lib/remote.mjs` hand-rolls get-or-insert at three sites (182–186, 252–265) where compare.mjs
+  already uses `Map.prototype.getOrInsertComputed`; `commands/upload.mjs:131–134`'s trailing
+  "Specify what to upload" throw belongs in the fail-fast validation block at the top. (The
+  bundle's provider.mjs and render.mjs items landed with F,
+  [PR #208](https://github.com/allens/s3cab/pull/208).)
 
 Surfaced 2026-07-17 (ninth pass) — C–E verification plus a fresh-eyes Explore sweep over the
-#199–#202 churn and the less-recently-examined modules (run log below); both findings verified
-against the source before recording, and the pass surfaced one live bug (→ [bugs.md](bugs.md)).
+#199–#202 churn and the less-recently-examined modules (run log below). Its Strong candidate
+**F landed same-day in [PR #208](https://github.com/allens/s3cab/pull/208)** (with E's
+provider.mjs and render.mjs ride-alongs), fixing the RA list bug it had surfaced; only G
+remains from this pass.
 
-- **F (Strong) — one read of a set's provider config: pure `readProviderConfig` beside its
-  write twin.** The "which provider knobs does this set's env file carry" mapping is spelled per
-  caller and has already drifted: [src/commands/provider.mjs:88–95](../src/commands/provider.mjs)
-  (`describeScope`) reads all five knobs, but [src/commands/list.mjs:123–131](../src/commands/list.mjs)
-  (`providerOverrides`) predates Roles Anywhere and reads four — so a keyless RA set shows **no
-  provider block** in `list <set>`, which [src/render.mjs:322–341](../src/render.mjs) documents
-  as "relies on the ambient AWS setup", while `provider <set>` correctly says "Roles Anywhere
-  (keyless)" (the bug in bugs.md). Deepening: a pure `readProviderConfig(values) → { profile,
-  endpoint, region, keyId, rolesAnywhere }` in [src/lib/provider.mjs](../src/lib/provider.mjs)
-  beside `gatherProviderConfig` (the accepted write twin, same five knobs); both commands consume
-  it and `providerOverrideLines` gains its RA line — the bug fixed by construction (narrow
-  alternative if F is declined: read `isRolesAnywhereMode(values)` in `providerOverrides` and add
-  the render line). **Distinct from the rejected `credentialMode()` classifier**: no mode enum —
-  both callers already read the *same five values* from the *same file*; ADR-0055's "bag of
-  `AWS_*`" is untouched. E's provider.mjs item rides along naturally (same file).
-  **Grilled 2026-07-17, decisions settled:** return the raw `keyId` (not a boolean — the only
-  shape that retires both callers' own reads; key IDs aren't secret, the secret never crosses);
-  the type is **`ProviderConfig`**, defined in lib/provider.mjs (list.mjs's `ProviderOverrides`
-  deleted; ends the `render → commands/list` type edge); `list`'s block gains
-  `sign-in: Roles Anywhere (keyless)` as its **first** line (RA-first mirrors precedence
-  everywhere; "sign-in" is the provider command's existing vocabulary) and its keys line
-  upgrades to match `provider` — `access keys: set (…XXXX)` via the shared `keyTail`;
-  ride-alongs **E-1** (provider.mjs `clear.push(...knobs.keys)`) and **E-4** (one `paint`
-  helper in render.mjs), each its own commit; tests red-first for the RA bug (render + list),
-  a new pure co-located `lib/provider.test.mjs` for the seam, `describeScope`'s existing tests
-  untouched as the refactor's net.
 - **G (Worth exploring) — export `snapshotFileName` so the filename grammar's construct
   direction is owned too.** [src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs) centralizes
   recognition/strip (`snapshotNames`, `normalizeSnapshotName`) and its module doc claims the
@@ -464,3 +438,17 @@ least once; re-open only if the stated reason no longer holds.
   `.tsv.zst` literal in G is the sole leak), the config layer post-#201, and the test tiers per
   ADR-0049 (the "mock at s3.mjs" line holds). Top pick: **F**. Overwrote the HTML report in
   place.
+- **2026-07-17 — F landed (+ E-1/E-4)** ([PR #208](https://github.com/allens/s3cab/pull/208),
+  grilled in-session then built red-first). *One read of a set's provider config*: pure
+  `readProviderConfig(values) → ProviderConfig` in lib/provider.mjs beside `gatherProviderConfig`
+  — the module is now the one home of the knob ↔ env-key mapping; `describeScope` and list's
+  `providerOverrides` both consume it, and the `ProviderOverrides` typedef moved home as
+  `ProviderConfig`, ending the `render → commands/list` type edge. The RA list bug fixed by
+  construction — `sign-in: Roles Anywhere (keyless)` now leads the provider block (RA-first,
+  like `authNotice`) and the keys line matches `provider` (`set (…MPLE)` via the shared
+  `keyTail`, a grilled consistency upgrade); its bugs.md entry is deleted. New pure
+  `lib/provider.test.mjs` covers the seam (incl. the degenerate `S3CAB_RA=0`);
+  `describeScope`'s tests passed untouched as the refactor's net. Ride-alongs landed as their
+  own commits: E-1 (clears via the `knobs` table) and E-4 (one `painter(color)` factory).
+  **Open list: E (its remote.mjs and upload.mjs items) + G.** Copilot review returned no
+  comments.

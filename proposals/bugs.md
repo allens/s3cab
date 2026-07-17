@@ -40,16 +40,3 @@
   `engine-robustness.md` as "a deliberate design stance today, not a defect" — an AI-invented
   verdict (commit 6d3b84f) that no one held. Reclassified as a bug 2026-07-16 on the owner's
   call.</sub>
-- **`list <set>` never reports a Roles Anywhere set's credential mode** (found 2026-07-17,
-  ninth architecture pass). `providerOverrides`
-  ([src/commands/list.mjs:123–131](../src/commands/list.mjs)) reads profile/endpoint/region/keys
-  but not the `S3CAB_RA` marker, and `providerOverrideLines`
-  ([src/render.mjs:329](../src/render.mjs)) has no RA line — so a keyless Roles Anywhere set
-  (env file: `S3CAB_BUCKET` + `S3CAB_RA` only) renders **no provider block**, whose documented
-  meaning is "relies on the ambient AWS setup"; with a region or endpoint present the block
-  shows those but still hides the sign-in mode. `provider <set>` gets it right ("Roles Anywhere
-  (keyless)", provider.mjs:95/107–109). Drift from the RA landing (#186–#191): the write path
-  and `describeScope` learned the fifth knob; `list`'s read copy didn't. Candidate **F** in
-  [architecture-improvements.md](architecture-improvements.md) fixes it by construction; the
-  narrow standalone fix is `isRolesAnywhereMode(values)` in `providerOverrides` plus the render
-  line.
