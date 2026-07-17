@@ -192,10 +192,20 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   co-resident helper. A symbol used only in its own file just stops being `export`ed (no move to
   `lib/` without a second caller — #5); cross-module types travel by `@typedef`/`@import`.
   Enforced by the `local/one-export-per-command` ESLint rule.
-- **Cross-module types use the JSDoc `@import` tag, not inline `import("…").Type`.** One
-  `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does), then bare
-  `{Foo}` in annotations — the modern TS-supported style (TS 5.5+). An unused `@import` name is
-  flagged by the type check, so they don't rot.
+- **Every imported type uses the JSDoc `@import` tag, not inline `import("…").Type` — and this
+  is universal, not just for the project's own modules.** A built-in (`node:stream`) or
+  third-party (`@aws-sdk/client-s3`) type earns a tag exactly like `./bar.mjs` does; you wouldn't
+  reach for inline `import("node:stream").Readable` in TypeScript just because the type crossed a
+  package boundary, and the `@import` tag *is* that top-of-file `import type`. One
+  `/** @import { Foo } from "./bar.mjs" */` near the top (as `remote.mjs` does), then bare `{Foo}`
+  in annotations — the modern TS-supported style (TS 5.5+). Two reasons it beats inline
+  everywhere: an unused `@import` name is flagged by the type check (inline can't rot-check), and
+  one declaration replaces a specifier repeated at every use site. Group a module's types into a
+  single tag. **Enforced by the `local/no-inline-import-type` ESLint rule** (it scans block
+  comments, so a dynamic `await import()` is untouched, and `typeof import("…").value` — the type
+  *of a value*, which `@import` can't express — is exempt). (The whole tree was swept to this in
+  the JSDoc-`@import` pass; the habit it removed — inline for external types, tags only for our
+  own — was accretion, never a decision.)
 - **Quarantine AWS provisioning to the `aws` command — the *provider boundary*
   ([ADR-0059](docs/adr/0059-aws-provisioning-boundary-static-imports.md)).** Only `aws` may depend
   on the AWS CLI or a non-S3 AWS **provisioning** API (CloudFormation/IAM); the data plane is

@@ -10,6 +10,8 @@
 // (abort on unreadable, refuse `--delete` on missing) is the command's, so the
 // plan is unit-testable by asserting on returned data, with no mocked seams.
 
+/** @import { ReferencedResult } from "./verify.mjs" */
+
 // An object younger than this is never an orphan (docs/design/backup.md, stated to
 // users in the format spec). Under objects-first/snapshot-last, an in-flight
 // backup's uploaded-but-not-yet-referenced objects are indistinguishable from
@@ -53,7 +55,7 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * different sizes across paths/snapshots; `verify` has the per-file detail).
  * Orphans honour the grace window measured from `now`; an object with no
  * `lastModified` is treated as brand new (protected) — the safe direction.
- * @param {Map<string, import("./verify.mjs").ReferencedResult>} referencedBySet - Per-set referenced enumeration (`referencedObjects`)
+ * @param {Map<string, ReferencedResult>} referencedBySet - Per-set referenced enumeration (`referencedObjects`)
  * @param {Map<string, { size: number, lastModified?: Date }>} stored - Stored objects: hash → size + age (`listStoredObjects`)
  * @param {{ now?: number }} [options] - `now` (ms) for the grace window; defaults to the wall clock
  * @returns {CleanupPlan}

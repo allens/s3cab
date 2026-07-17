@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
+/** @import { _Object } from "@aws-sdk/client-s3" */
+
 // This file mocks the s3.mjs and atomic-file.mjs seams, per docs/design/testing.md
 // ("mock at s3.mjs, not the AWS SDK"): the object store's listing logic and
 // `getObject`'s key-as-digest pairing run here with zero AWS, on every push. The
@@ -26,7 +28,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 let requestedUri;
 /** @type {{ destPath: string, options: object | undefined } | undefined} */
 let download;
-/** @type {import("@aws-sdk/client-s3")._Object[]} */
+/** @type {_Object[]} */
 let listedObjects = [];
 mock.module("./atomic-file.mjs", {
   exports: {

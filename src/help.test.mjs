@@ -3,11 +3,13 @@ import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
 import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
 
+/** @import { Command } from "./commands.mjs" */
+
 // usage() is a pure function over a registry (passed in, not imported), so it
 // can be exercised with a small synthetic registry — plus a couple of checks
 // against the real one to catch drift between the registry and its rendering.
 
-/** @type {Record<string, import("./commands.mjs").Command>} */
+/** @type {Record<string, Command>} */
 const fakeRegistry = {
   go: {
     summary: "Do the thing",
@@ -49,7 +51,7 @@ describe("usage", () => {
   });
 
   it("groups commands under headings, sticky until the next group", () => {
-    /** @type {Record<string, import("./commands.mjs").Command>} */
+    /** @type {Record<string, Command>} */
     const grouped = {
       a: {
         group: "First",
@@ -200,7 +202,7 @@ describe("synopsis", () => {
 });
 
 describe("argDescription", () => {
-  const go = /** @type {import("./commands.mjs").Command} */ (fakeRegistry.go);
+  const go = /** @type {Command} */ (fakeRegistry.go);
 
   it("finds a positional arg's description by plain name", () => {
     assert.equal(argDescription(go, "target"), "What to do it to");

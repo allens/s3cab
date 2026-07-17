@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
+/** @import { ReferencedResult } from "../lib/verify.mjs" */
+
 // Offline tests for verify's command orchestration — the glue on top of the pure
 // diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) are faked at
 // the lib seam so the per-set report, the { bucket, sets } shape, and the
@@ -9,7 +11,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // verify.test.mjs. Module-mock ordering (objects.test.mjs) applies: mocks first,
 // then a dynamic import of the command.
 
-/** @type {Map<string, import("../lib/verify.mjs").ReferencedResult>} referenced per set */
+/** @type {Map<string, ReferencedResult>} referenced per set */
 let referencedBySet = new Map();
 /** @type {{ hash: string, size: number }[]} */
 let storedObjects = [];

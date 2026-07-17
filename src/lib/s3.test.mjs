@@ -18,6 +18,10 @@ import {
   putObjectParams,
 } from "./s3.mjs";
 
+/** @import { S3ClientConfig } from "@aws-sdk/client-s3" */
+/** @import { Server } from "node:http" */
+/** @import { AddressInfo } from "node:net" */
+
 // Always-on, no-bucket guard for the non-AWS request shaping: an upload through a
 // custom endpoint must carry NO data-integrity checksum trailer, NO server-side
 // encryption, and NO storage-class header (several S3-compatible providers reject
@@ -31,7 +35,7 @@ import {
  * Send `command` through a client built from `config` plus a capturing
  * requestHandler (static creds, no network), and return the serialized HTTP
  * request the SDK would have sent.
- * @param {import("@aws-sdk/client-s3").S3ClientConfig} config
+ * @param {S3ClientConfig} config
  * @param {PutObjectCommand} command
  * @returns {Promise<any>}
  */
@@ -502,7 +506,7 @@ const AWS_VARS = [
 ];
 
 describe("putFile (fake S3 on loopback)", () => {
-  /** @type {import("node:http").Server} */
+  /** @type {Server} */
   let server;
   /** @type {string[]} The requests the fake S3 received, in order — normalized to
    * "METHOD /path" plus the query key that names the multipart operation
@@ -653,9 +657,7 @@ describe("putFile (fake S3 on loopback)", () => {
     for (const v of AWS_VARS) {
       savedEnv[v] = process.env[v];
     }
-    const { port } = /** @type {import("node:net").AddressInfo} */ (
-      server.address()
-    );
+    const { port } = /** @type {AddressInfo} */ (server.address());
     // An IP endpoint also puts the SDK in path-style addressing, so the fake sees
     // /bucket/key rather than a virtual host it could never resolve.
     process.env.AWS_ENDPOINT_URL_S3 = `http://127.0.0.1:${port}`;

@@ -1,6 +1,8 @@
 import { tildeify } from "./home.mjs";
 import { bucketPolicy } from "./s3.mjs";
 
+/** @import { BucketLifecycleConfiguration } from "@aws-sdk/client-s3" */
+
 // Generates the cloud-onboarding artifacts the `aws` command uses to stand up an S3
 // backup destination + a least-privilege identity for s3cab: the CloudFormation
 // **template** (`awsCloudFormationTemplate`/`awsRolesAnywhereTemplate`) the command
@@ -28,7 +30,7 @@ import { bucketPolicy } from "./s3.mjs";
  * expiry (docs/integration-testing.md / scripts/setup-test-bucket.mjs), which is
  * why the two lifecycles are never shared. The single source of the window values
  * the CloudFormation template embeds below (`awsCloudFormationTemplate`).
- * @returns {import("@aws-sdk/client-s3").BucketLifecycleConfiguration}
+ * @returns {BucketLifecycleConfiguration}
  */
 export const backupLifecycle = () => ({
   Rules: [

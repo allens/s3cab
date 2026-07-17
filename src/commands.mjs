@@ -33,8 +33,9 @@ import {
 } from "./render.mjs";
 
 /** @import { RenderContext } from "./render.mjs" */
+/** @import { ParseArgsOptionDescriptor } from "node:util" */
 
-/** @typedef {import('node:util').ParseArgsOptionDescriptor & { description?: string }} CommandOption */
+/** @typedef {ParseArgsOptionDescriptor & { description?: string }} CommandOption */
 /** @typedef {ReturnType<typeof import('node:util').parseArgs>["values"]} ParsedOptions */
 /** @typedef {string | string[] | object | undefined} CommandResult */
 

@@ -10,6 +10,8 @@ import {
 } from "./roles-anywhere.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
+/** @import { Output } from "@aws-sdk/client-cloudformation" */
+
 // stack-arns.mjs is the aws-only CloudFormation boundary (ADR-0059), so it STATICALLY
 // imports @aws-sdk/client-cloudformation — the seam mocked here. Per the house rule
 // (docs/design/testing.md, and objects.test.mjs): register the mock at module scope
@@ -18,7 +20,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // mock per file — the per-test DescribeStacks result varies through `stackOutputs`,
 // the mutable the fake `send()` reads, not a re-registered mock.
 
-/** @type {import("@aws-sdk/client-cloudformation").Output[]} */
+/** @type {Output[]} */
 let stackOutputs = [];
 /** @type {{ region?: string, profile?: string } | undefined} */
 let clientConfig;

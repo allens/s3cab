@@ -34,6 +34,9 @@ import { createProgress } from "./progress.mjs";
 import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
+/** @import { S3ClientConfig, _Object, PutObjectCommandInput } from "@aws-sdk/client-s3" */
+/** @import { Progress } from "@aws-sdk/lib-storage" */
+
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
 // behind one boundary localizes the one heavyweight dependency and lets the
@@ -101,7 +104,7 @@ export function authNotice({
  * in tests without a live client — no bucket, no network (src/lib/s3.test.mjs).
  * Reads `process.env` / `customEndpoint()` at call time (env is loaded up front —
  * ADR-0022).
- * @returns {import("@aws-sdk/client-s3").S3ClientConfig}
+ * @returns {S3ClientConfig}
  */
 export function clientConfig() {
   const endpoint = customEndpoint();
@@ -261,7 +264,7 @@ export function parseS3Uri(uri) {
  * List the objects stored under an `s3://bucket/prefix` URI. Takes a URI (not a
  * bare bucket) so it stays general — callers can list any bucket+prefix.
  * @param {string} uri - An S3 URI; its path is used as the key prefix.
- * @returns {AsyncGenerator<import("@aws-sdk/client-s3")._Object>}
+ * @returns {AsyncGenerator<_Object>}
  */
 export async function* listObjects(uri) {
   const { Bucket, Key: Prefix } = parseS3Uri(uri);
@@ -318,7 +321,7 @@ const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
  * key: the content-addressed hash is storage machinery of no interest to someone
  * backing up files (design #1), so the human-facing line names the file (the
  * file's stored hash is recorded in the snapshot manifest).
- * @param {import("@aws-sdk/lib-storage").Progress} progress
+ * @param {Progress} progress
  * @param {string} label - The local path of the file being uploaded
  * @returns {{ message: string, fill: number }}
  */
@@ -341,7 +344,7 @@ export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
  * every uploader — `putFile` (via `putObjectParams`) and `putText` — so the
  * gating rule lives in one place. `customEndpoint()` is read here, so the
  * caller's s3cab env must already be loaded.
- * @returns {Partial<import("@aws-sdk/client-s3").PutObjectCommandInput>}
+ * @returns {Partial<PutObjectCommandInput>}
  */
 const awsOnlyPutParams = () =>
   customEndpoint()
@@ -367,7 +370,7 @@ const awsOnlyPutParams = () =>
  * only honest home (guide/format.md).
  * @param {string} uri - The S3 URI.
  * @param {{ noClobber?: boolean }} [options]
- * @returns {import("@aws-sdk/client-s3").PutObjectCommandInput}
+ * @returns {PutObjectCommandInput}
  */
 export function putObjectParams(uri, { noClobber } = {}) {
   const { Bucket, Key } = parseS3Uri(uri);

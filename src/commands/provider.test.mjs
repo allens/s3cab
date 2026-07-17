@@ -7,6 +7,8 @@ import { parseEnvFile } from "../lib/env.mjs";
 import { readSet, writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
+/** @import { TestContext } from "node:test" */
+
 // Tests for the `provider` command (né `auth`, ADR-0047). Purely local: each test
 // points S3CAB_HOME at a temp dir (useTempHome), creates a set, and asserts on the
 // bytes left in that set's env file — the single config scope now the user layer
@@ -91,7 +93,7 @@ function useAwsConfig(
  * Capture console.warn for one test (t.mock auto-restores). `provider`'s
  * *result* is its return value (ADR-0043) — tests assert on that directly; only
  * the profile-typo notice still goes to stderr via `console.warn`.
- * @param {import("node:test").TestContext} t
+ * @param {TestContext} t
  */
 function captureWarn(t) {
   /** @type {string[]} */

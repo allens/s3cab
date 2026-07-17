@@ -18,6 +18,8 @@ import {
 } from "../../src/lib/s3.mjs";
 import { bucket } from "../helpers/integration.mjs";
 
+/** @import { Readable } from "node:stream" */
+
 // putFile's multipart path against real S3 (S3 test strategy, ADR-0019). The
 // loopback fake in src/lib/s3.test.mjs pins what requests lib-storage makes; a
 // fake can't prove *S3's* answers — that a multipart body lands intact, that a
@@ -31,7 +33,7 @@ const PART_SIZE = 8 * 1024 * 1024;
 /**
  * SHA-256 of a fully-read stream, so a round-trip is checked by content, not
  * just presence.
- * @param {import("node:stream").Readable} stream
+ * @param {Readable} stream
  * @returns {Promise<string>}
  */
 async function sha256(stream) {

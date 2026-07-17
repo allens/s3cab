@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { planUpload } from "./upload.mjs";
 
+/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+
 /**
  * Build a snapshot lookup from a path→hash map — only the hash matters to
  * `planUpload`, so size/mtime are filler.
  * @param {Record<string, string>} pathToHash
- * @returns {import("./snapshot-file.mjs").SnapshotEntries}
+ * @returns {SnapshotEntries}
  */
 const lookup = (pathToHash) =>
   new Map(
