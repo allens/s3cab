@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { listObjectHashes, putObject } from "./objects.mjs";
-import { remoteSnapshotsPrefix } from "./remote.mjs";
+import { remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
-import { readSnapshot } from "./snapshot-file.mjs";
+import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -122,14 +122,12 @@ export async function uploadSnapshot({
   }
 
   // The snapshot, last. No-clobber, and a duplicate remote name is an error.
-  const snapshotKey = `${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
-  const snapshotPath = join(snapshotDir, `${name}.tsv.zst`);
-  const wrote = await putFile(snapshotPath, `s3://${bucket}/${snapshotKey}`, {
-    noClobber: true,
-  });
+  const snapshotUri = remoteSnapshotUri(bucket, set, name);
+  const snapshotPath = join(snapshotDir, snapshotFileName(name));
+  const wrote = await putFile(snapshotPath, snapshotUri, { noClobber: true });
   if (!wrote) {
     throw new Error(
-      `Snapshot '${name}' is already backed up (s3://${bucket}/${snapshotKey}). ` +
+      `Snapshot '${name}' is already backed up (${snapshotUri}). ` +
         `Snapshots are immutable and never overwritten (docs/design/backup.md).`,
     );
   }

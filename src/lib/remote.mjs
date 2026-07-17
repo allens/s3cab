@@ -8,7 +8,11 @@ import {
   isObjectNotFound,
   listObjects,
 } from "./s3.mjs";
-import { parseSnapshotStream, snapshotNames } from "./snapshot-file.mjs";
+import {
+  parseSnapshotStream,
+  snapshotFileName,
+  snapshotNames,
+} from "./snapshot-file.mjs";
 import { isCorruptSnapshotError } from "./verify.mjs";
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
@@ -20,20 +24,37 @@ import { isCorruptSnapshotError } from "./verify.mjs";
 // `objects/<sha256>` store, owned by objects.mjs. This module owns the
 // `snapshots/` layout — the store's read/manage side (list, read, download,
 // delete, the referenced-union). The upload engine that composes both halves is
-// upload.mjs, which imports this module's prefix so the layout stays spelled in
-// one place; s3.mjs stays the generic SDK boundary (so it never learns the
-// layout, the same way objects.mjs owns OBJECTS_PREFIX for its half). The set
-// name is canonical `[a-z0-9-]+` (validateSetName), so it is a safe key segment
-// with no escaping.
+// upload.mjs, which addresses a snapshot through this module's
+// `remoteSnapshotUri` so the layout stays spelled in one place; s3.mjs stays the
+// generic SDK boundary (so it never learns the layout, the same way objects.mjs
+// owns OBJECTS_PREFIX for its half). The set name is canonical `[a-z0-9-]+`
+// (validateSetName), so it is a safe key segment with no escaping.
 
 const SNAPSHOTS_PREFIX = "snapshots/";
 
 /**
  * The S3 key prefix holding one set's remote snapshots: `snapshots/<set>/`.
+ * Production callers address a whole snapshot with {@link remoteSnapshotUri}
+ * rather than assembling keys; this stays exported for the listing loop and the
+ * integration suites that assert on remote keys.
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @returns {string}
  */
 export const remoteSnapshotsPrefix = (set) => `${SNAPSHOTS_PREFIX}${set}/`;
+
+/**
+ * The `s3://bucket/snapshots/<set>/<name>.tsv.zst` URI of one remote snapshot —
+ * this module's key layout composed with the snapshot writer's filename grammar
+ * ({@link snapshotFileName}), so neither is spelled at a call site. The twin of
+ * objects.mjs's `objectUri` for the `snapshots/` half; exported because upload.mjs
+ * addresses the snapshot it PUTs.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
+ * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @returns {string}
+ */
+export const remoteSnapshotUri = (bucket, set, name) =>
+  `s3://${bucket}/${remoteSnapshotsPrefix(set)}${snapshotFileName(name)}`;
 
 /**
  * List a set's remote snapshot names (newest first) — the snapshots stored
@@ -72,8 +93,7 @@ export async function listRemoteSnapshots(bucket, set) {
  * @returns {Promise<void>}
  */
 export async function deleteRemoteSnapshot(bucket, set, name) {
-  const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
-  await deleteObject(uri);
+  await deleteObject(remoteSnapshotUri(bucket, set, name));
 }
 
 /**
@@ -118,8 +138,7 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  * @returns {Promise<Snapshot>}
  */
 export async function readRemoteSnapshot(bucket, set, name) {
-  const uri = `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`;
-  const body = await getStream(uri);
+  const body = await getStream(remoteSnapshotUri(bucket, set, name));
   // Plain `.pipe` (as the local read path does): a `compose`/`pipeline` here
   // owns the stream lifecycle and, on completion, would destroy — and abort —
   // the live S3 request. Propagating a mid-download body error into the parser
@@ -296,10 +315,9 @@ export async function downloadRemoteSnapshots(bucket, set, snapshotDir) {
   }
 
   await mkdir(snapshotDir, { recursive: true });
-  const prefix = remoteSnapshotsPrefix(set);
   for (const name of names) {
-    const uri = `s3://${bucket}/${prefix}${name}.tsv.zst`;
-    const destPath = join(snapshotDir, `${name}.tsv.zst`);
+    const uri = remoteSnapshotUri(bucket, set, name);
+    const destPath = join(snapshotDir, snapshotFileName(name));
     await writeFileAtomic(destPath, await getStream(uri));
   }
   return names.length;
