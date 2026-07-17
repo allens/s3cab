@@ -95,7 +95,7 @@ export async function withSnapshotFile(
   { overwrite = false } = {},
 ) {
   mkdirSync(snapshotDir, { recursive: true });
-  const snapshotPath = resolve(snapshotDir, name + ".tsv.zst");
+  const snapshotPath = resolve(snapshotDir, snapshotFileName(name));
   if (!overwrite && existsSync(snapshotPath)) {
     throw new Error(
       `Snapshot '${name}' already exists in '${snapshotDir}'. A second ` +
@@ -290,6 +290,18 @@ export const snapshotName = () =>
   Temporal.Now.plainDateTimeISO()
     .toString({ smallestUnit: "minutes" })
     .replace(":", "");
+
+/**
+ * The filename a snapshot is stored as — its name plus the extension. The one
+ * place the extension is *constructed*, so the modules that address snapshot
+ * files (`remote.mjs`'s S3 keys, `upload.mjs`'s local reads) compose this
+ * instead of spelling the grammar they don't own. The `.tsv.zst` itself is a
+ * user-facing promise (guide/format.md, ADR-0002): a recoverer decompresses it
+ * with plain `zstd -d`.
+ * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @returns {string} e.g. `2026-06-12T0915.tsv.zst`
+ */
+export const snapshotFileName = (name) => `${name}.tsv.zst`;
 
 /**
  * Accept either a bare snapshot name (as `list` reports) or a full snapshot

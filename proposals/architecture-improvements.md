@@ -49,19 +49,8 @@ and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below)
 Surfaced 2026-07-17 (ninth pass) — C–E verification plus a fresh-eyes Explore sweep over the
 #199–#202 churn and the less-recently-examined modules (run log below). Its Strong candidate
 **F landed same-day in [PR #208](https://github.com/allens/s3cab/pull/208)** (with E's
-provider.mjs and render.mjs ride-alongs), fixing the RA list bug it had surfaced; only G
-remains from this pass.
-
-- **G (Worth exploring) — export `snapshotFileName` so the filename grammar's construct
-  direction is owned too.** [src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs) centralizes
-  recognition/strip (`snapshotNames`, `normalizeSnapshotName`) and its module doc claims the
-  naming convention lives in one place — but six sites hand-spell `` `${name}.tsv.zst` ``
-  ([src/lib/remote.mjs](../src/lib/remote.mjs) 75, 121, 301–302;
-  [src/lib/upload.mjs](../src/lib/upload.mjs) 125–126). Export `snapshotFileName(name)` and the
-  six become compositions (`remoteSnapshotsPrefix(set) + snapshotFileName(name)`;
-  `join(dir, snapshotFileName(name))`) — prefix and extension each owned by their module. The
-  same de-leak compare.mjs got in PR #168 (`normalizeSnapshotName` moved home); aligns with
-  ADR-0028 (naming pulled *into* the writer — the opposite of the rejected codec split).
+provider.mjs and render.mjs ride-alongs), fixing the RA list bug it had surfaced; **G landed in
+[PR #209](https://github.com/allens/s3cab/pull/209)**. Only E's two remaining items remain open.
 
 **Examined & left alone (eighth pass)** (not candidates — skip future runs): `referencedObjects` *not*
 filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
@@ -454,3 +443,19 @@ least once; re-open only if the stated reason no longer holds.
   own commits: E-1 (clears via the `knobs` table) and E-4 (one `painter(color)` factory).
   **Open list: E (its remote.mjs and upload.mjs items) + G.** Copilot review returned no
   comments.
+- **2026-07-17 — G landed** ([PR #209](https://github.com/allens/s3cab/pull/209), grilled
+  in-session then built). *Own the filename grammar's construct direction*:
+  `snapshotFileName(name)` exported from snapshot-file.mjs as the one place `.tsv.zst` is built
+  (the writer's own write path routed through it too), and `remoteSnapshotUri(bucket, set, name)`
+  added to remote.mjs — the twin of objects.mjs's `objectUri` — composing
+  `remoteSnapshotsPrefix` + `snapshotFileName`. The six hand-spelled literals across
+  remote.mjs/upload.mjs became compositions; upload's `snapshotKey` variable dissolved. New unit
+  tests spell the filename and full `snapshots/<set>/<name>.tsv.zst` URI out independently (both
+  are format-spec promises), and the **gated real-S3 suite ran green** (15 pass, the change
+  rewrites every remote snapshot URI). **Grilling shrank the candidate to its honest core** — the
+  recorded "one edit for a codec change" was false (five more extension literals live *inside*
+  snapshot-file.mjs, recognition/resolution/lock, deliberately left), so the real win is that the
+  grammar isn't spelled *outside* its owner; and the planned `remoteSnapshotsPrefix` export-drop
+  was abandoned once the integration-test callers surfaced (it was never G's substance). Copilot
+  review returned an overview only, no inline comments. **Open list: E's remaining two items**
+  (remote.mjs get-or-inserts, `commands/upload.mjs` trailing throw).

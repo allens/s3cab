@@ -10,6 +10,7 @@ import {
   normalizeSnapshotName,
   parseSnapshotStream,
   readSnapshot,
+  snapshotFileName,
   snapshotName,
   snapshotNames,
   withSnapshotFile,
@@ -199,6 +200,17 @@ describe("snapshotName", () => {
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
     assert.deepEqual(snapshotNames([`${name}.tsv.zst`]), [name]);
+  });
+});
+
+describe("snapshotFileName", () => {
+  it("appends the stored extension — the format spec's promise, spelled out", () => {
+    // The literal is written independently on purpose: `.tsv.zst` is a
+    // user-facing contract (guide/format.md), so changing it must fail here.
+    assert.equal(
+      snapshotFileName("2026-06-12T0915"),
+      "2026-06-12T0915.tsv.zst",
+    );
   });
 });
 
