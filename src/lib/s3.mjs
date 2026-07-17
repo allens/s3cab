@@ -11,7 +11,6 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import assert from "node:assert";
 import { createReadStream, statSync } from "node:fs";
-import { hostname, userInfo } from "node:os";
 import { Readable } from "node:stream";
 import {
   accessDeniedError,
@@ -354,32 +353,28 @@ const awsOnlyPutParams = () =>
 
 /**
  * Build the PutObject params for `putFile`: the off-AWS gating (`awsOnlyPutParams`)
- * plus the portable `x-amz-meta-*` metadata. Pure (no I/O) so the gating is
- * assertable without performing an upload — the caller supplies the `Body`
- * stream (src/lib/s3.test.mjs). `customEndpoint()` is read here, so the caller's
- * s3cab env must already be loaded.
- * @param {string} path - The local file path (recorded in the metadata).
+ * plus the conditional-PUT flag. Pure (no I/O) so the gating is assertable without
+ * performing an upload — the caller supplies the `Body` stream (src/lib/s3.test.mjs).
+ * `customEndpoint()` is read here, so the caller's s3cab env must already be loaded.
+ *
+ * Deliberately carries **no `x-amz-meta-*` metadata**. It once stamped each object
+ * with hostname/username/path/size/mtime/date; nothing ever read them, and they
+ * described the wrong thing — an object under `objects/<sha256>` is *content*, which
+ * dedup shares across many files, so per-file facts named whichever file happened to
+ * upload those bytes first. Worse, S3 user metadata rides as HTTP headers: a path
+ * outside Latin-1 (`café`, `写真`, an emoji) made Node reject the header and took the
+ * whole backup down with it. Per-file facts live in the snapshot TSV, which is their
+ * only honest home (guide/format.md).
  * @param {string} uri - The S3 URI.
- * @param {{ size: number, mtime: Date, noClobber?: boolean }} meta
+ * @param {{ noClobber?: boolean }} [options]
  * @returns {import("@aws-sdk/client-s3").PutObjectCommandInput}
  */
-export function putObjectParams(path, uri, { size, mtime, noClobber }) {
+export function putObjectParams(uri, { noClobber } = {}) {
   const { Bucket, Key } = parseS3Uri(uri);
   return {
     Bucket,
     Key,
-    // The x-amz-meta-* metadata below is portable, so it always goes.
     ...awsOnlyPutParams(),
-    Metadata: {
-      // Bare keys: S3/the SDK prefixes each with `x-amz-meta-` on the wire (these
-      // become x-amz-meta-hostname, …). Pre-prefixing here double-prefixes them.
-      hostname: hostname(),
-      username: userInfo().username,
-      path,
-      size: size.toString(),
-      mtime: mtime.toString(),
-      date: new Date().toISOString(),
-    },
     ...(noClobber ? { IfNoneMatch: "*" } : {}),
   };
 }
@@ -395,14 +390,13 @@ export function putObjectParams(path, uri, { size, mtime, noClobber }) {
 export async function putFile(path, uri, options = {}) {
   const { noClobber } = options;
 
-  const { size, mtime } = statSync(path);
+  const { size } = statSync(path);
 
   // No-clobber preflight, worth its round trip only once the body is multipart-sized:
   // one HEAD to avoid streaming a large body the conditional PUT below would reject
-  // anyway. Any successful HEAD counts as present, whatever metadata the object
-  // carries — an object another tool PUT without `x-amz-meta-*` is still there.
-  // This is only an optimization; `IfNoneMatch: "*"` is the real guard, and unlike
-  // this it can't be raced.
+  // anyway. Any successful HEAD counts as present, whatever the object looks like —
+  // an object another tool PUT is still there. This is only an optimization;
+  // `IfNoneMatch: "*"` is the real guard, and unlike this it can't be raced.
   if (noClobber && size >= partSize) {
     const { Bucket, Key } = parseS3Uri(uri);
     try {
@@ -419,7 +413,7 @@ export async function putFile(path, uri, options = {}) {
   const upload = new Upload({
     client: client(),
     params: {
-      ...putObjectParams(path, uri, { size, mtime, noClobber }),
+      ...putObjectParams(uri, { noClobber }),
       Body: createReadStream(path),
     },
     partSize,

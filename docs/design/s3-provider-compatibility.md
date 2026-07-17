@@ -89,7 +89,9 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 2. **Gate AWS-only upload options.** ✅ **Done.** `putFile` now omits
    `StorageClass: INTELLIGENT_TIERING` and `ServerSideEncryption: AES256` when a custom
    endpoint is set (R2 / B2 / Spaces reject them), and `client()` passes `followRegionRedirects`
-   only on AWS. The portable `x-amz-meta-*` object metadata is kept in all cases.
+   only on AWS. Objects carry **no `x-amz-meta-*` metadata** at all now — it was never read, and
+   because S3 user metadata rides as HTTP headers it could not carry a path outside Latin-1
+   (`café`, `写真`), failing the upload outright. So there is nothing left here to gate.
 
 3. **`bucketPolicy` is AWS-only.** It emits `arn:aws:s3:::` ARNs and AWS IAM JSON, meaningless
    off AWS. Carries an AWS-only doc note; emitted by the `aws` onboarding command
