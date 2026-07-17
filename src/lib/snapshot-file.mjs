@@ -9,6 +9,8 @@ import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { secondsSince } from "./format.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
+/** @import { Writable, Readable } from "node:stream" */
+/** @import { FileHandle } from "node:fs/promises" */
 
 // The snapshot TSV — this module is its sole writer and parser. The file-row
 // grammar (the tab-separated `hash`/`size`/`mtime`/`path` columns) is the
@@ -83,7 +85,7 @@ const ERROR = "#ERROR";
  * front, before any walking/hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
- * @param {(stream: import("node:stream").Writable) => Promise<void>} callbackFn - Callback receiving the write stream
+ * @param {(stream: Writable) => Promise<void>} callbackFn - Callback receiving the write stream
  * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
@@ -108,7 +110,7 @@ export async function withSnapshotFile(
   // Acquire the lock: `wx` creates the temp file only if absent, atomically —
   // the kernel enforces mutual exclusion, not a check-then-write racing it
   // (the seedStarterExclude pattern, lib/sets.mjs).
-  /** @type {import("node:fs/promises").FileHandle} */
+  /** @type {FileHandle} */
   let fd;
   try {
     fd = await open(tmpPath, "wx");
@@ -405,7 +407,7 @@ export async function readSnapshotFile(path) {
  * comment line are ignored on read. Local callers that only want the file lookup
  * take `.entries` (`readSnapshotFile`); the remote reader surfaces the whole
  * snapshot.
- * @param {import("node:stream").Readable} input - A decompressed snapshot TSV stream
+ * @param {Readable} input - A decompressed snapshot TSV stream
  * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
  */
 export async function parseSnapshotStream(input) {

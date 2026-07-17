@@ -3,6 +3,8 @@
 // the src/ root beside the entry point and registry (not in lib/) because it is
 // bespoke CLI-shell glue tied to the registry shape, not a reusable primitive.
 
+/** @import { CommandArg, Command } from "./commands.mjs" */
+
 // Help topics shown by `s3cab help <topic>` — cross-cutting guides with no
 // command to host them (command-specific depth lives in that command's registry
 // `description` instead, e.g. `aws`). A topic must never share a command's name
@@ -54,7 +56,7 @@ Full guide: https://s3cab.plantegral.com/guide/exclude`,
  * variadic → a trailing `...`. The registry stores the parts (ADR-0038); this
  * renders them, so args and options share one plain-keyed shape.
  * @param {string} name
- * @param {import("./commands.mjs").CommandArg} arg
+ * @param {CommandArg} arg
  * @returns {string}
  */
 const displayArg = (name, { required, variadic }) => {
@@ -68,7 +70,7 @@ const displayArg = (name, { required, variadic }) => {
  * those that declare none). Split out of usage() so a usage *error* prints just
  * this line plus a --help pointer, while --help prints the full arg/option tables
  * (ADR-0038).
- * @param {Record<string, import("./commands.mjs").Command>} commands
+ * @param {Record<string, Command>} commands
  * @param {string} commandName
  * @returns {string}
  */
@@ -87,7 +89,7 @@ export function synopsis(commands, commandName) {
  * whichever map holds it, no string-stripping (both are keyed by plain name).
  * Undefined when there is no argName (Node's own parse errors carry none) or the
  * name isn't found. Glosses a missing-arg error inline (ADR-0038).
- * @param {import("./commands.mjs").Command} command
+ * @param {Command} command
  * @param {string} [argName]
  * @returns {string | undefined}
  */
@@ -108,7 +110,7 @@ export function argDescription(command, argName) {
  * this stays a pure function — decoupled from the dispatcher and unit-testable
  * without firing the CLI. The caller prints it — `console.log` (stdout) for an
  * explicit help request, `console.error` (stderr) when shown as part of an error.
- * @param {Record<string, import("./commands.mjs").Command>} commands - The command registry
+ * @param {Record<string, Command>} commands - The command registry
  * @param {string} [commandName] - Command to describe; omit for top-level help
  * @param {{ heading?: (text: string) => string }} [style] - Section-heading
  *   decorator (e.g. lib/style.mjs `bold`); omitted → plain text. The caller

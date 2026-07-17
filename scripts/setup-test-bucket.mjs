@@ -27,6 +27,8 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
+/** @import { BucketLocationConstraint } from "@aws-sdk/client-s3" */
+
 const bucket = process.argv[2] ?? process.env.S3CAB_TEST_BUCKET;
 if (!bucket) {
   console.error(
@@ -43,8 +45,7 @@ const client = new S3Client({ region });
 // us-east-1 is the API default and must NOT carry a LocationConstraint (S3 rejects
 // it); every other region requires one. The cast keeps tsc happy with the SDK's
 // region enum while letting an arbitrary configured region through.
-const location =
-  /** @type {import("@aws-sdk/client-s3").BucketLocationConstraint} */ (region);
+const location = /** @type {BucketLocationConstraint} */ (region);
 const createInput =
   region === "us-east-1"
     ? { Bucket: bucket }

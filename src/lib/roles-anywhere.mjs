@@ -236,8 +236,8 @@ function certPem(der) {
  * @param {object} params
  * @param {string} params.subjectCn
  * @param {string} params.issuerCn
- * @param {import("node:crypto").KeyObject} params.subjectPublicKey
- * @param {import("node:crypto").KeyObject} params.issuerPrivateKey
+ * @param {KeyObject} params.subjectPublicKey
+ * @param {KeyObject} params.issuerPrivateKey
  * @param {Buffer[]} params.extensions - Pre-built Extension SEQUENCEs.
  * @param {number} params.years - Validity length.
  * @returns {string} The certificate PEM.
@@ -355,7 +355,7 @@ export function buildIdentity() {
     ],
   });
 
-  const pkcs8 = (/** @type {import("node:crypto").KeyObject} */ key) =>
+  const pkcs8 = (/** @type {KeyObject} */ key) =>
     key.export({ type: "pkcs8", format: "pem" }).toString();
 
   return {
@@ -465,7 +465,7 @@ export const ARN_ENV = {
  * aws-only CloudFormation boundary — ADR-0059), which alone has the stack/region
  * context ADR-0030's message needs. `Output` is a structural type, so a
  * plain `{ OutputKey, OutputValue }[]` (what the tests pass) satisfies it too.
- * @param {import("@aws-sdk/client-cloudformation").Output[]} outputs
+ * @param {Output[]} outputs
  * @returns {{ arns: Record<string, string>, missing: string[] }}
  */
 export function arnsFromOutputs(outputs) {
@@ -573,6 +573,8 @@ export function readSigningIdentity() {
 // to a byte-for-byte-identical reuse).
 
 /** @import { SignatureV4Init, SignatureV4CryptoInit } from "@smithy/signature-v4" */
+/** @import { KeyObject } from "node:crypto" */
+/** @import { Output } from "@aws-sdk/client-cloudformation" */
 
 /** The Roles Anywhere STS service id (the SigV4 scope + host component). */
 const RA_SERVICE = "rolesanywhere";

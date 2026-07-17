@@ -1,5 +1,8 @@
 import { createInterface } from "node:readline/promises";
 
+/** @import { Readable, Writable } from "node:stream" */
+/** @import { ReadStream } from "node:tty" */
+
 // s3cab's interactive prompts: the y/N confirmation the destructive commands
 // use (`delete`, `cleanup --delete`) and the line/hidden-line readers behind
 // `provider --keys` (ADR-0047 — secrets are never taken via flags, so the
@@ -18,8 +21,8 @@ import { createInterface } from "node:readline/promises";
  * @param {string} question - The prompt text
  * @param {object} [streams] - Overridable I/O (defaults wired to the process),
  *   the seam that lets a test drive the prompt without a real terminal.
- * @param {import("node:stream").Readable} [streams.input] - Where the answer is read (default stdin)
- * @param {import("node:stream").Writable} [streams.output] - Where the prompt is written (default stderr)
+ * @param {Readable} [streams.input] - Where the answer is read (default stdin)
+ * @param {Writable} [streams.output] - Where the prompt is written (default stderr)
  * @returns {Promise<string>} The line, trimmed
  */
 export async function promptLine(
@@ -53,7 +56,7 @@ export async function promptLine(
  * missing lines are simply absent from the result.
  * @param {number} count - How many lines to read
  * @param {object} [streams] - Overridable input, the test seam.
- * @param {import("node:stream").Readable} [streams.input]
+ * @param {Readable} [streams.input]
  * @returns {Promise<string[]>} Up to `count` lines, each trimmed
  */
 export async function stdinLines(count, { input = process.stdin } = {}) {
@@ -96,8 +99,8 @@ export async function promptYesNo(question, streams) {
  * (raw mode needs a TTY); the non-interactive path is `promptLine("")`.
  * @param {string} question - The prompt text (written to stderr)
  * @param {object} [streams] - Overridable I/O, the test seam.
- * @param {import("node:tty").ReadStream} [streams.input]
- * @param {import("node:stream").Writable} [streams.output]
+ * @param {ReadStream} [streams.input]
+ * @param {Writable} [streams.output]
  * @returns {Promise<string>} The line, trimmed
  */
 export function promptHidden(

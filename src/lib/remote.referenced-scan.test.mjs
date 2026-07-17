@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 
+/** @import { Readable } from "node:stream" */
+
 // Unit tests for referencedObjects' snapshot-read error handling, mocking the
 // s3.mjs seam (docs/design/testing.md: mock at s3.mjs, not the AWS SDK). Split from
 // the pure-function remote.test.mjs (ADR-0049 dotted aspect) because it needs the
@@ -13,7 +15,7 @@ import { describe, it, mock } from "node:test";
 
 // getStream's outcome is swapped per test via this hook; listObjects yields these
 // keys.
-/** @type {(uri: string) => Promise<import("node:stream").Readable>} */
+/** @type {(uri: string) => Promise<Readable>} */
 let onGetStream;
 /** @type {string[]} */
 let snapshotKeys;

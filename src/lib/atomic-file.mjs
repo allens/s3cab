@@ -4,6 +4,8 @@ import { rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 
+/** @import { Readable } from "node:stream" */
+
 // A hardened `fs.writeFile` for the download path: write a byte stream to a
 // local file *atomically* (temp sibling + rename) and, when a hash is given,
 // *verify* it before committing. It makes no S3/network call — the source
@@ -26,7 +28,7 @@ import { pipeline } from "node:stream/promises";
  * failure-path cleanup to risk masking the real error. `destPath`'s parent
  * directory must already exist (the temp file is a sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
- * @param {import("node:stream").Readable} source - The byte stream to write (typically `await getStream(uri)`)
+ * @param {Readable} source - The byte stream to write (typically `await getStream(uri)`)
  * @param {object} [options]
  * @param {string} [options.hash] - Expected content hash (lowercase hex); a mismatch throws, before the rename
  * @returns {Promise<void>}

@@ -22,6 +22,7 @@ import {
 } from "../lib/sets.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
+/** @import { SetInfo } from "../lib/set-marker.mjs" */
 
 /**
  * The set-creation verb (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053) —
@@ -156,7 +157,7 @@ const nowStamp = () =>
  * `reattach` as the way to take the set over on this machine.
  * @param {string} name
  * @param {string} bucket
- * @param {import("../lib/set-marker.mjs").SetInfo} [info]
+ * @param {SetInfo} [info]
  */
 const collisionError = (name, bucket, info) => {
   // Only the fields actually present — a corrupted/partial marker (empty OWNER

@@ -8,6 +8,8 @@ import {
   stdinLines,
 } from "./prompt.mjs";
 
+/** @import { ReadStream } from "node:tty" */
+
 // The prompts take injectable streams (their test seam), so parsing is
 // exercised without a real terminal. A sink swallows the prompt text.
 const sink = () => new Writable({ write: (_c, _e, cb) => cb() });
@@ -99,9 +101,7 @@ describe("promptHidden", () => {
       tty.write(chunk);
     }
     return {
-      tty: /** @type {import("node:tty").ReadStream} */ (
-        /** @type {unknown} */ (tty)
-      ),
+      tty: /** @type {ReadStream} */ (/** @type {unknown} */ (tty)),
       calls,
     };
   }

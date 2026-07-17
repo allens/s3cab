@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { describe, it, mock } from "node:test";
 
+/** @import { RequestOptions } from "node:https" */
+
 // The `createSession` request timeout, in its own file because it must mock
 // `node:https` *before* roles-anywhere.mjs binds `request` at import — the main
 // unit suite imports the module statically, so the mock has to precede a dynamic
@@ -19,7 +21,7 @@ mock.module("node:https", {
      * A fake `https.request` whose socket never answers: `end()` fires `timeout`
      * (the inactivity signal), and `destroy(err)` surfaces as an `error` — exactly
      * the sequence the real socket produces when the SUT aborts on timeout.
-     * @param {import("node:https").RequestOptions} options
+     * @param {RequestOptions} options
      */
     request(options) {
       lastTimeout = options.timeout;

@@ -9,6 +9,8 @@ import {
   readSigningIdentity,
 } from "./roles-anywhere.mjs";
 
+/** @import { AwsCredentialIdentity, AwsCredentialIdentityProvider } from "@aws-sdk/types" */
+
 // AWS credential resolution. This is the single source of truth for *how* s3cab
 // obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`) hands
 // `resolveCredentials` to its client. The model is specified in docs/design/auth.md.
@@ -404,7 +406,7 @@ const standardChain = fromNodeProviderChain();
  * mode but the identity is absent or incomplete, raise the actionable
  * "RA identity missing/broken" error (the fifth `credentialCase`) rather than a
  * raw read failure.
- * @returns {Promise<import("@aws-sdk/types").AwsCredentialIdentity>}
+ * @returns {Promise<AwsCredentialIdentity>}
  */
 const resolveRolesAnywhereCredentials = async () => {
   const identity = readSigningIdentity();
@@ -454,7 +456,7 @@ export async function listProfiles() {
  * resolving eagerly) lets the SDK cache and refresh expiration-aware credentials
  * itself.
  *
- * @type {import("@aws-sdk/types").AwsCredentialIdentityProvider}
+ * @type {AwsCredentialIdentityProvider}
  */
 export const resolveCredentials = async (awsIdentityProperties) => {
   if (isRolesAnywhereMode()) {

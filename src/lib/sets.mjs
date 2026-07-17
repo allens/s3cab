@@ -6,6 +6,8 @@ import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { parseLines } from "./read-lines.mjs";
 
+/** @import { Dirent } from "node:fs" */
+
 // The backup-set store (docs/design/backup.md): one directory per set under
 // `~/.s3cab/sets/<name>/`, holding plain-text files a user can read and edit
 // directly — `dirs.txt` (member directories, one absolute path per line) and
@@ -265,7 +267,7 @@ export function validateBucketName(
 
 /** The names of all backup sets (the directories under `~/.s3cab/sets`), sorted. */
 export function listSets() {
-  /** @type {import("node:fs").Dirent[]} */
+  /** @type {Dirent[]} */
   let entries;
   try {
     entries = readdirSync(setsRoot(), { withFileTypes: true });
