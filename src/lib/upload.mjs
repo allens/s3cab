@@ -180,9 +180,8 @@ export async function uploadSnapshot({
  */
 const staleFileError = (path, set) =>
   new Error(
-    `Can't back up '${path}' safely — it changed or was removed while the ` +
-      `backup was running, so it no longer matches what the snapshot recorded ` +
-      `a moment ago.\n\n` +
+    `Can't back up '${path}' safely — it changed or was removed since it was ` +
+      `snapshotted, so it no longer matches what's being uploaded.\n\n` +
       `s3cab stopped rather than store mismatched bytes under the snapshot's ` +
       `fingerprint, which it could not have restored correctly later. Nothing ` +
       `already uploaded is lost — take a fresh snapshot and back up again:\n` +
