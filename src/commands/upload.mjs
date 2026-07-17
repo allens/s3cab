@@ -120,7 +120,7 @@ export async function upload(setName, options = {}) {
   // The only mode left: the fail-fast block rejected "neither", and `--file`
   // returned. The assert pins that invariant (and narrows the type) — it can only
   // fire if a future edit weakens the guard above.
-  assert(snapshotName);
+  assert(snapshotName, "upload: snapshot mode reached without a snapshot name");
   const set = loadSet(setName);
   // uploadSnapshot reads the target first, so a missing --snapshot fails fast
   // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
