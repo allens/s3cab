@@ -249,7 +249,7 @@ How to write code that looks like the rest of the codebase. (These are *style* r
   `test` = unit + e2e (hermetic), `test:integration` = the folder, `test:all` = both. Full
   rationale: [test/README.md](test/README.md). (The `--experimental-test-module-mocks` flag
   exists for `objects.test.mjs`'s `mock.module` — [ADR-0019](docs/adr/0019-s3-test-strategy.md).)
-  Scratch → [scripts/](scripts/).
+  Dev scripts → [scripts/](scripts/).
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed**
   (measured: ~1.8× slower, 12s vs 7s). Node's default per-file isolation parallelizes test
   files across workers; one process loses that. The suite _is_ in-process-safe, so the flag is
@@ -356,8 +356,11 @@ it is, why, what works today, and what's coming; [CONTEXT.md](CONTEXT.md) define
 vocabulary. Treat the README's S3/backup descriptions as the _target_; treat `src/` as
 _what works now_. A few layout notes the README and code don't carry:
 
-- **Scratch and throwaway experiments go in [scripts/](scripts/)** — never a parked sandbox
-  under `src/` and never under `test/` (see the test-layout convention above).
+- **Standalone dev utilities live in [scripts/](scripts/)** — ad-hoc tools run by hand with
+  `node`, outside the package and the test suite: some are throwaway spikes, some are kept
+  tooling (the benchmarks, `setup-test-bucket.mjs`, preserved rejected spikes for reference).
+  Not "scratch" as in disposable — a script earns its place. Never a parked sandbox under
+  `src/`, never under `test/` (see the test-layout convention above).
 - **Snapshots no longer land in the repo tree.** Since backup-sets slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/` (outside any working copy), so `.gitignore` no longer
   needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
@@ -440,18 +443,6 @@ For how the structure is reasoned about and named, see
 
 Pre-release housekeeping and open decisions surfaced from the code:
 
-- **The top known correctness bug — pick this up next: a file changing on disk between snapshot
-  and upload silently stores wrong bytes under a hash.** `uploadSnapshot` PUTs each planned object
-  from the *current* file at the snapshot-recorded path, and the store trusts the caller's hash on
-  write, so object `<H>` can receive content that isn't `H` — the correct bytes are then never
-  stored, and the backup reports success. **Not confined to the `upload --snapshot <old>` plumbing
-  form:** the window for any one file is snapshot-time → *that file's* upload, and the plan loop is
-  strictly sequential, so on a large set the last objects go up hours later — a file edited during
-  a long backup is ordinary. The damage spreads along the **dedup graph** (object `H` is written
-  once; corrupt it and every snapshot and path resolving to `H` breaks), and surfaces only at
-  restore's integrity check. Full write-up, leading fix (an `lstat` size/mtime check per *planned*
-  upload), and why a HEAD-side `ContentLength` check is **not** a substitute:
-  [proposals/bugs.md](proposals/bugs.md).
 - **Roles Anywhere is built (both phases) but its live path is unverified end-to-end.** The
   runtime signer shipped in [PR #191](https://github.com/allens/s3cab/pull/191) (ADR-0057/0058),
   and the signer itself is proven byte-for-byte against the live-validated reference formula in a
