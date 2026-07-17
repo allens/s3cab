@@ -239,7 +239,10 @@ describe("helpTopics", () => {
     assert.match(exclude, /\*\*\/\s+zero or more/);
     assert.match(exclude, /one or more characters/);
     assert.match(exclude, /case-insensitive on Windows/);
-    assert.match(exclude, /guide\/exclude\.md/); // links the full online guide
+    // Links the full online guide on our own domain, never a github.com URL:
+    // a shipped binary freezes what it prints (CLAUDE.md, "Stable doc URLs").
+    assert.match(exclude, /https:\/\/s3cab\.plantegral\.com\/guide\/exclude/);
+    assert.doesNotMatch(exclude, /github\.com/);
   });
 
   it("auth/provider is a command description, not a topic (ADR-0041/0047)", () => {

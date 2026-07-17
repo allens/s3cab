@@ -477,12 +477,17 @@ Pre-release housekeeping and open decisions surfaced from the code:
   [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see
   [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)).
-- **Stable doc URLs — resolved: GitHub `guide/*.md` paths are permanent (no website pre-1.0).**
-  Help/footer/command text prints these URLs and a shipped binary freezes them, so the
-  commitment is: **don't rename `guide/*.md` or move the repo slug** without updating the printed
-  URLs. Every printed footer now targets a `guide/*.md` file (the last outlier — `provider`'s
-  footer pointing at a README *anchor* — was retargeted to `guide/auth.md`), so no printed URL
-  depends on a heading staying worded as it is.
+- **Stable doc URLs — settled: everything we print is `https://s3cab.plantegral.com/...`, never
+  a `github.com` link.** A shipped binary freezes its URLs and `setup`'s starter `exclude.txt`
+  writes one into a file s3cab never rewrites, so a printed URL can never be corrected for
+  anyone who already installed. GitHub blob URLs can't redirect; a domain we own always can —
+  it currently 302s to the `guide/*.md` files, and repointing it later carries every shipped
+  binary along. **So: print `s3cab.plantegral.com/guide/<topic>` for a guide (extension-less —
+  `.md` would weld the URL to the file format), never a raw repo link.** Two commitments follow:
+  **don't rename `guide/*.md`** (the redirect maps `/guide/<topic>` → `guide/<topic>.md`, so a
+  rename breaks shipped binaries), and the domain must keep resolving — it is load-bearing for
+  released software. The redirect config itself is *not* this repo's concern (it lives in the
+  private infra repo); only what we print is.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
   during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
   via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
