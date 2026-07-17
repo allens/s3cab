@@ -453,13 +453,34 @@ describe("isObjectNotFound", () => {
   });
 });
 
+describe("putObjectParams", () => {
+  it('makes the PUT conditional (IfNoneMatch: "*") only under noClobber', () => {
+    // The conditional PUT is no-clobber's correctness backstop (the HEAD
+    // preflight is only an optimization), so the flag must map to the param.
+    const guarded = putObjectParams("s3://bucket/key", { noClobber: true });
+    assert.equal(guarded.IfNoneMatch, "*");
+    // …and --force (or a caller passing nothing) must NOT carry it, or every
+    // overwrite would 412.
+    const forced = putObjectParams("s3://bucket/key", { noClobber: false });
+    assert.ok(!("IfNoneMatch" in forced));
+    const defaulted = putObjectParams("s3://bucket/key");
+    assert.ok(!("IfNoneMatch" in defaulted));
+  });
+});
+
 // putFile, driven end-to-end against a fake S3 on loopback. What went on the wire is
 // only observable *as* the wire traffic, so this runs the real client()/SDK against a
 // local server and records the requests it makes — captureRequest() above can't serve
 // here: it builds its own client, while putFile goes through the module's memoized
 // client(). Loopback only; no bucket, no network.
 
-/** Must match s3.mjs's private `partSize` — the multipart threshold the preflight gates on. */
+/**
+ * Must match s3.mjs's private `partSize` — the multipart threshold the preflight
+ * gates on. Duplicated on purpose: a `partSize` env knob for cheap multipart tests
+ * was considered and dropped (2026-07-16) — S3 enforces a 5 MiB minimum part size
+ * (`Upload.MIN_PART_SIZE`), so a tiny partSize could never serve the real-bucket
+ * tier, and a production knob that exists only for a fake isn't worth it (ADR-0006).
+ */
 const PART_SIZE = 8 * 1024 * 1024;
 
 /** A sink that swallows whatever it's given — the `pipeline` end-stop for a body we only need read, not kept. */
@@ -483,47 +504,139 @@ const AWS_VARS = [
 describe("putFile (fake S3 on loopback)", () => {
   /** @type {import("node:http").Server} */
   let server;
-  /** @type {string[]} The requests the fake S3 received, in order. */
+  /** @type {string[]} The requests the fake S3 received, in order — normalized to
+   * "METHOD /path" plus the query key that names the multipart operation
+   * (?uploads / ?uploadId / ?partNumber=N); the ?x-id= tag and uploadId values
+   * are dropped. */
   let seen;
+  /** @type {Map<string, string | undefined>} The If-None-Match header each
+   * normalized request carried — the observable form of the conditional guard. */
+  let conditions;
   /** @type {number} The status the fake answers the preflight HEAD with. */
   let headStatus;
+  /** @type {number} The status for a plain (single-shot) PutObject. */
+  let putStatus;
+  /** @type {number} The status for CompleteMultipartUpload. */
+  let completeStatus;
+  /** @type {number} Which UploadPart to refuse with AccessDenied (0 = none). */
+  let failPartNumber;
   /** @type {string} */
   let dir;
   /** @type {string} */
   let file;
+  /** @type {string} One byte past PART_SIZE — the smallest true multipart body. */
+  let multipartFile;
+  /** @type {string} Far below PART_SIZE — the preflight must never run for it. */
+  let smallFile;
   /** @type {string} A path outside Latin-1 — the class HTTP headers cannot carry. */
   let unicodeFile;
   /** @type {Record<string, string | undefined>} */
   let savedEnv;
 
+  /** The XML S3 answers PreconditionFailed / AccessDenied / multipart calls with. */
+  const errorXml = (/** @type {string} */ code) =>
+    `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${code}</Message></Error>`;
+
   before(async () => {
     dir = mkdtempSync(join(tmpdir(), "s3cab-putfile-"));
     file = join(dir, "big.bin");
     // Exactly PART_SIZE: big enough to take the preflight branch (size >= partSize),
-    // small enough that lib-storage still sends it as a single PutObject — so the fake
-    // needs no multipart choreography.
+    // small enough that lib-storage still sends it as a single PutObject — so these
+    // tests pin the single-shot boundary.
     writeFileSync(file, Buffer.alloc(PART_SIZE));
+    // PART_SIZE + 1: the smallest body that forces real multipart choreography
+    // (Create/UploadPart×2/Complete) — part 2 is a single byte, which S3 allows
+    // for a final part.
+    multipartFile = join(dir, "bigger.bin");
+    writeFileSync(multipartFile, Buffer.alloc(PART_SIZE + 1));
+    smallFile = join(dir, "small.bin");
+    writeFileSync(smallFile, "tiny");
     // An accent and a CJK name together: ordinary filenames for most of the world, and
     // both outside what an HTTP header value can hold.
     unicodeFile = join(dir, "café-写真.jpg");
     writeFileSync(unicodeFile, "x");
     server = createServer(async (request, response) => {
-      // Path only — the SDK tags operations with a ?x-id= query we don't assert on.
-      const [path] = (request.url ?? "").split("?");
-      seen.push(`${request.method} ${path}`);
+      const [path, query = ""] = (request.url ?? "").split("?");
+      const params = new URLSearchParams(query);
+      const partNumber = params.get("partNumber");
+      // One normalized line per operation. The uploadId *value* is noise (the
+      // fake mints it), as is the SDK's ?x-id= tag; the query *keys* are what
+      // distinguish the multipart operations from a plain PUT/DELETE.
+      const op =
+        request.method === "HEAD"
+          ? `HEAD ${path}`
+          : request.method === "POST" && params.has("uploads")
+            ? `POST ${path}?uploads`
+            : request.method === "POST"
+              ? `POST ${path}?uploadId`
+              : request.method === "DELETE"
+                ? `DELETE ${path}?uploadId`
+                : partNumber
+                  ? `PUT ${path}?partNumber=${partNumber}`
+                  : `PUT ${path}`;
+      seen.push(op);
+      conditions.set(op, request.headers["if-none-match"]);
+
       if (request.method === "HEAD") {
         // No x-amz-meta-* headers: an object carrying NO custom metadata.
         response.writeHead(headStatus, { etag: '"abc"' });
         response.end();
         return;
       }
-      // Read the body to the end before answering, as real S3 does. Replying early
-      // lets putFile resolve while the SDK is still writing, so teardown would race
-      // an in-flight upload. The body itself is never inspected — only that it was
-      // sent at all — so it drains to a sink that discards.
+      // Read the body to the end before answering — even before an error — as
+      // real S3 does. Replying early lets putFile resolve while the SDK is still
+      // writing, so teardown would race an in-flight upload. The body itself is
+      // never inspected — only that it was sent at all — so it drains to a sink
+      // that discards.
       await pipeline(request, discard());
-      response.writeHead(200, { etag: '"abc"' });
-      response.end();
+
+      /** @param {number} status @param {string} body */
+      const xml = (status, body) => {
+        response.writeHead(status, { "content-type": "application/xml" });
+        response.end(body);
+      };
+
+      if (op.endsWith("?uploads")) {
+        // CreateMultipartUpload
+        xml(
+          200,
+          `<?xml version="1.0" encoding="UTF-8"?><InitiateMultipartUploadResult>` +
+            `<Bucket>bucket</Bucket><Key>key</Key><UploadId>fake-upload-id</UploadId>` +
+            `</InitiateMultipartUploadResult>`,
+        );
+      } else if (partNumber) {
+        // UploadPart — refusable per-test with a non-retryable error (a
+        // retryable one would triple the request log under the SDK's default
+        // three attempts).
+        if (Number(partNumber) === failPartNumber) {
+          xml(403, errorXml("AccessDenied"));
+        } else {
+          response.writeHead(200, { etag: `"part-${partNumber}"` });
+          response.end();
+        }
+      } else if (request.method === "POST") {
+        // CompleteMultipartUpload — where IfNoneMatch is evaluated for multipart,
+        // i.e. only after every part is already uploaded.
+        if (completeStatus === 200) {
+          xml(
+            200,
+            `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult>` +
+              `<Location>http://127.0.0.1/bucket/key</Location><Bucket>bucket</Bucket>` +
+              `<Key>key</Key><ETag>"abc"</ETag></CompleteMultipartUploadResult>`,
+          );
+        } else {
+          xml(completeStatus, errorXml("PreconditionFailed"));
+        }
+      } else if (request.method === "DELETE") {
+        // AbortMultipartUpload
+        response.writeHead(204);
+        response.end();
+      } else if (putStatus === 200) {
+        response.writeHead(200, { etag: '"abc"' });
+        response.end();
+      } else {
+        xml(putStatus, errorXml("PreconditionFailed"));
+      }
     });
     await new Promise((resolve) =>
       server.listen(0, "127.0.0.1", () => resolve(undefined)),
@@ -553,6 +666,11 @@ describe("putFile (fake S3 on loopback)", () => {
     process.env.AWS_REGION = "us-east-1";
     process.env.__S3CAB_ENV_LOADED = "1"; // client()'s ADR-0022 tripwire
     seen = [];
+    conditions = new Map();
+    headStatus = 404;
+    putStatus = 200;
+    completeStatus = 200;
+    failPartNumber = 0;
   });
 
   afterEach(() => {
@@ -591,5 +709,126 @@ describe("putFile (fake S3 on loopback)", () => {
     const wrote = await putFile(unicodeFile, "s3://bucket/key", {});
     assert.equal(wrote, true);
     assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  // ——— The skip/accept matrix. Three layers decide whether bytes move: the
+  // plan (planUpload — covered in upload.test.mjs, putFile never called), the
+  // HEAD preflight (≥ partSize + noClobber only), and the conditional PUT
+  // (IfNoneMatch, the correctness backstop). These pin who answers at each
+  // size, in both directions, and that multipart never degrades to shipping
+  // the whole body just to learn the object already existed.
+
+  it("small + no-clobber, absent: one conditional PUT, no preflight", async () => {
+    const wrote = await putFile(smallFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, true);
+    // Below partSize the HEAD would cost more than it saves — the conditional
+    // PUT alone decides.
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+    assert.equal(conditions.get("PUT /bucket/key"), "*");
+  });
+
+  it("small + no-clobber, present: the conditional PUT itself refuses (412 → false)", async () => {
+    putStatus = 412;
+    const wrote = await putFile(smallFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    // The PreconditionFailed catch — the guard that stops a losing racer
+    // overwriting, and the one path to uploadSnapshot's "already backed up".
+    assert.equal(wrote, false);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("multipart-sized + no-clobber, present: one HEAD, never the body", async () => {
+    headStatus = 200;
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, false);
+    // The preflight's whole purpose: without it, a multipart no-clobber upload
+    // ships every part before Complete's IfNoneMatch finally answers 412.
+    assert.deepEqual(seen, ["HEAD /bucket/key"]);
+  });
+
+  it("multipart-sized + no-clobber, absent: full Create/Parts/Complete, guard on Complete", async () => {
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    assert.equal(wrote, true);
+    // HEAD first, then the multipart choreography — parts may interleave
+    // (lib-storage uploads them concurrently), so order-insensitive in the
+    // middle, but Create precedes parts and Complete comes last.
+    assert.equal(seen[0], "HEAD /bucket/key");
+    assert.equal(seen[1], "POST /bucket/key?uploads");
+    assert.deepEqual(seen.slice(2, -1).sort(), [
+      "PUT /bucket/key?partNumber=1",
+      "PUT /bucket/key?partNumber=2",
+    ]);
+    assert.equal(seen.at(-1), "POST /bucket/key?uploadId");
+    // Never a whole-body single PUT once past partSize…
+    assert.ok(!seen.includes("PUT /bucket/key"));
+    // …and the conditional guard rides on Complete (S3 evaluates IfNoneMatch
+    // there for multipart), so no-clobber stays raceproof even above partSize.
+    assert.equal(conditions.get("POST /bucket/key?uploadId"), "*");
+  });
+
+  it("multipart race: object appears after the HEAD — Complete's 412 reads as already-present", async () => {
+    completeStatus = 412;
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {
+      noClobber: true,
+    });
+    // Same benign "already there" answer as the small-file 412 — not an error.
+    assert.equal(wrote, false);
+    // The cost of losing this race is inherent: every part was already sent
+    // before the guard could answer. (Why the preflight exists at all.)
+    assert.ok(seen.includes("PUT /bucket/key?partNumber=2"));
+    // Pins a known limitation: lib-storage only auto-aborts on a *part*
+    // failure, so a failed Complete leaves the multipart upload open and its
+    // parts billed until aborted. The systemic answer is a bucket lifecycle
+    // rule — s3cab-provisioned buckets get one (backupLifecycle, lib/aws.mjs),
+    // and bring-your-own-bucket users are told to add it (guide/aws.md). If
+    // this assertion ever flips to an abort being sent, that guidance can
+    // soften.
+    assert.ok(!seen.some((line) => line.startsWith("DELETE ")));
+  });
+
+  it("force (noClobber off): no preflight, no condition, even at multipart size", async () => {
+    headStatus = 200; // present — and it must not matter
+    const wrote = await putFile(multipartFile, "s3://bucket/key", {});
+    assert.equal(wrote, true);
+    // --force means overwrite: nothing may ask first…
+    assert.ok(!seen.some((line) => line.startsWith("HEAD ")));
+    // …and nothing may make the write conditional, or the overwrite would 412.
+    assert.equal(conditions.get("POST /bucket/key?uploadId"), undefined);
+    assert.equal(seen.at(-1), "POST /bucket/key?uploadId");
+  });
+
+  it("a failing part aborts the multipart upload — no orphaned parts", async () => {
+    failPartNumber = 2;
+    await assert.rejects(
+      () => putFile(multipartFile, "s3://bucket/key", { noClobber: true }),
+      // The raw AccessDenied is relayed into the friendly permissions error
+      // (ADR-0037), original kept on cause — assert the cause so this stays
+      // about the wire, not the wording.
+      (/** @type {any} */ error) => error.cause?.name === "AccessDenied",
+    );
+    // lib-storage's leavePartsOnError defaults to false; putFile inherits that
+    // silently, so this is the assertion keeping the auto-abort we rely on —
+    // orphaned parts bill forever.
+    assert.deepEqual(
+      seen.filter((line) => line.startsWith("DELETE ")),
+      ["DELETE /bucket/key?uploadId"],
+    );
+  });
+
+  it("a HEAD failure that isn't not-found rethrows — never silently re-uploads", async () => {
+    headStatus = 403;
+    // AccessDenied must not read as "absent": treating it so would re-send
+    // bodies on every permissions hiccup and mask the real problem.
+    await assert.rejects(() =>
+      putFile(multipartFile, "s3://bucket/key", { noClobber: true }),
+    );
+    assert.deepEqual(seen, ["HEAD /bucket/key"]);
   });
 });
