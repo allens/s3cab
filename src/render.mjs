@@ -14,12 +14,14 @@
 import { dirname, relative, sep } from "node:path";
 import { formatByteValue } from "./lib/format.mjs";
 import { tildeify } from "./lib/home.mjs";
+import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
 import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
-/** @import { ListResult, ProviderOverrides } from "./commands/list.mjs" */
+/** @import { ListResult } from "./commands/list.mjs" */
+/** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
@@ -63,6 +65,16 @@ export function renderSetup(set) {
 }
 
 /**
+ * Colouriser gate for a renderer: `painter(color)` yields a `paint` that
+ * applies a colouriser only when colour is enabled — headings paint on a TTY
+ * and stay plain when piped.
+ * @param {boolean} color
+ * @returns {(colourise: (text: string) => string) => (text: string) => string}
+ */
+const painter = (color) => (colourise) => (text) =>
+  color ? colourise(text) : text;
+
+/**
  * Render a `compare`/`snapshot` diff — the shared renderer both point at, since
  * they return the same `CompareResult` (ADR-0043). Fixed section order, only
  * non-empty sections shown, a count in each header, and a closing summary line.
@@ -81,12 +93,7 @@ export function renderCompareResult(result, { color = false } = {}) {
   const base = commonAncestor(result.dirs);
   /** @param {string} path */
   const shorten = (path) => (base ? relative(base, path) : path);
-  /** Apply a colouriser only when colour is enabled (headers only). */
-  const paint =
-    /** @param {(text: string) => string} colourise */
-    (colourise) =>
-      /** @param {string} text */
-      (text) => (color ? colourise(text) : text);
+  const paint = painter(color);
 
   const head = header(result, base);
 
@@ -322,12 +329,22 @@ export function renderList(result) {
  * The set's own provider settings, as an indented block after the bucket —
  * where its backups actually go (ADR-0047). Rendered only when the set
  * carries provider settings of its own; a set relying on the ambient AWS setup
- * shows no block (the absence IS the answer). Key presence only, never the secret.
- * @param {ProviderOverrides} overrides
+ * shows no block (the absence IS the answer). The sign-in mode leads (RA-first,
+ * like `authNotice`); the key's tail names the key, never the secret.
+ * @param {ProviderConfig} overrides
  * @returns {string[]}
  */
-function providerOverrideLines({ profile, endpoint, region, keys }) {
+function providerOverrideLines({
+  profile,
+  endpoint,
+  region,
+  keyId,
+  rolesAnywhere,
+}) {
   const lines = [];
+  if (rolesAnywhere) {
+    lines.push(`  sign-in: Roles Anywhere (keyless)`);
+  }
   if (profile) {
     lines.push(`  AWS profile: ${profile}`);
   }
@@ -337,8 +354,8 @@ function providerOverrideLines({ profile, endpoint, region, keys }) {
   if (region) {
     lines.push(`  region: ${region}`);
   }
-  if (keys) {
-    lines.push(`  access keys: set`);
+  if (keyId) {
+    lines.push(`  access keys: set (${keyTail(keyId)})`);
   }
   return lines.length ? ["provider overrides:", ...lines] : [];
 }
@@ -451,8 +468,7 @@ export function renderStatus({ set, snapshot, backedUp, toUpload }) {
  */
 export function renderVerify(result, { color = false } = {}) {
   const { bucket, sets } = result;
-  /** Apply a colouriser only when colour is enabled. @param {(t: string) => string} c */
-  const paint = (c) => (/** @type {string} */ text) => (color ? c(text) : text);
+  const paint = painter(color);
 
   const findingSets = sets.filter(setHasFindings);
   const objectsChecked = sets.reduce((n, s) => n + s.referencedObjects, 0);

@@ -334,7 +334,7 @@ describe("renderList", () => {
     const text = renderList({
       mode: "detail",
       set: detailSet,
-      overrides: { keys: false },
+      overrides: { rolesAnywhere: false },
       snapshots: ["2026-05-12T0946"],
       remote: false,
     });
@@ -348,7 +348,7 @@ describe("renderList", () => {
     assert.doesNotMatch(text, /provider overrides/);
   });
 
-  it("shows the set's provider overrides after the bucket, key presence only", () => {
+  it("shows the set's provider overrides after the bucket — the key's tail, never the secret", () => {
     const detailSet = {
       ...set("docs", "my-bucket", []),
       dirsPath: "/d.txt",
@@ -361,7 +361,8 @@ describe("renderList", () => {
         profile: "work",
         endpoint: "https://acct.r2.cloudflarestorage.com",
         region: "auto",
-        keys: true,
+        keyId: "AKIAIOSFODNN7EXAMPLE",
+        rolesAnywhere: false,
       },
       snapshots: [],
       remote: false,
@@ -369,7 +370,29 @@ describe("renderList", () => {
 
     assert.match(
       text,
-      /bucket: my-bucket\nprovider overrides:\n {2}AWS profile: work\n {2}endpoint: https:\/\/acct\.r2\.cloudflarestorage\.com\n {2}region: auto\n {2}access keys: set\n/,
+      /bucket: my-bucket\nprovider overrides:\n {2}AWS profile: work\n {2}endpoint: https:\/\/acct\.r2\.cloudflarestorage\.com\n {2}region: auto\n {2}access keys: set \(…MPLE\)\n/,
+    );
+  });
+
+  it("shows Roles Anywhere as the sign-in, first in the block", () => {
+    const detailSet = {
+      ...set("docs", "my-bucket", []),
+      dirsPath: "/d.txt",
+      excludePath: "/e.txt",
+    };
+    const text = renderList({
+      mode: "detail",
+      set: detailSet,
+      overrides: { region: "eu-west-1", rolesAnywhere: true },
+      snapshots: [],
+      remote: false,
+    });
+
+    // The sign-in mode leads the block — RA-first, mirroring authNotice and
+    // resolveCredentials' RA-before-chain precedence.
+    assert.match(
+      text,
+      /bucket: my-bucket\nprovider overrides:\n {2}sign-in: Roles Anywhere \(keyless\)\n {2}region: eu-west-1\n/,
     );
   });
 
@@ -382,7 +405,7 @@ describe("renderList", () => {
     const text = renderList({
       mode: "detail",
       set: detailSet,
-      overrides: { keys: false },
+      overrides: { rolesAnywhere: false },
       snapshots: [],
       remote: true,
     });
