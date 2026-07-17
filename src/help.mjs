@@ -45,7 +45,7 @@ Examples:
   Tests/**/*.js      .js files anywhere under Tests
   **/log.txt         a file named log.txt in any directory
 
-Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md`,
+Full guide: https://s3cab.plantegral.com/guide/exclude`,
 };
 
 /**
@@ -208,7 +208,7 @@ export function usage(commands, commandName, style) {
       `Run 's3cab help <topic>' for a guide (topics: ${Object.keys(helpTopics).join(", ")}).`,
       "Set the S3CAB_DEBUG environment variable for verbose debug output.",
       "",
-      "Full documentation: https://github.com/allens/s3cab",
+      "Full documentation: https://s3cab.plantegral.com",
     );
   }
 
