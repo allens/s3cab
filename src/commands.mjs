@@ -318,7 +318,7 @@ s3cab names the cause and shows the raw error. By cause:
     - macOS:   sudo sntp -sS time.apple.com
     - Linux:   sudo timedatectl set-ntp true
 
-Full guide: https://github.com/allens/s3cab#authentication`,
+Full guide: https://github.com/allens/s3cab/blob/main/guide/auth.md`,
     args: {
       set: {
         description:
