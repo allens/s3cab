@@ -314,10 +314,12 @@ edits `~/.aws/config` or `~/.aws/credentials`. It resolves credentials in this o
 2. the **standard AWS credential chain** — `AWS_PROFILE`, shared profiles (including SSO
    sessions from `aws sso login` and `credential_process`), and `AWS_*` environment variables.
 
-If neither is configured, s3cab stops and tells you what to do. Run **`s3cab help provider`**
-for the full details. s3cab has no sign-in flow of its own and stores no credentials: AWS
-IAM Identity Center (SSO) users sign in with the AWS CLI's `aws sso login`, and s3cab picks
-the session up automatically through the standard chain.
+If neither is configured, s3cab stops and tells you what to do. s3cab has no sign-in flow of
+its own and stores no credentials: AWS IAM Identity Center (SSO) users sign in with the AWS
+CLI's `aws sso login`, and s3cab picks the session up automatically through the standard
+chain. The full picture — the four sign-in modes, where s3cab looks, and what to do when the
+server rejects your credentials — is in [guide/auth.md](guide/auth.md); `s3cab help provider`
+has the same material in the terminal.
 
 **Keyless access with IAM Roles Anywhere (AWS, recommended).** Instead of a long-lived
 access key, a set can authenticate with an X.509 client certificate and receive **short-lived**
