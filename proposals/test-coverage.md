@@ -16,7 +16,8 @@ suite** — see "Where each case belongs".
 | First backup LISTs the store; `--since` diffs the local previous snapshot | `test/integration/uploadSnapshot` (real bucket) |
 | `putText` `IfNoneMatch` atomicity — first writer wins, second loses (ADR-0024) | `test/integration/set-marker` (real bucket) |
 | Backup → restore round trip, incl. real stream teardown (the #171 `ABORT_ERR` class) | `test/integration/backup-restore-roundtrip` |
-| Off-AWS / AWS request shaping (SSE, checksum, storage-class, `x-amz-meta-*`) | `src/lib/s3.test.mjs` units on `putObjectParams` |
+| Off-AWS / AWS request shaping (SSE, checksum, storage-class); objects carry no metadata | `src/lib/s3.test.mjs` units on `putObjectParams` |
+| A non-ASCII local path uploads (the header-encoding trap) | `src/lib/s3.test.mjs`, loopback fake |
 | `putFile` ≥ `partSize`, no-clobber, object **present** → skip, **no body on the wire** | `src/lib/s3.test.mjs`, loopback fake (#203) |
 | `putFile` ≥ `partSize`, no-clobber, object **absent** → single `PutObject` | `src/lib/s3.test.mjs`, loopback fake (#203) |
 

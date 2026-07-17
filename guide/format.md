@@ -27,7 +27,11 @@ s3://my-backup-bucket/
 
 - **`objects/`** is the content-addressed store: one object per unique file content, keyed
   by the lowercase-hex SHA-256 of its bytes. Identical content — under any name, from any
-  set or machine — is stored exactly once, bucket-wide.
+  set or machine — is stored exactly once, bucket-wide. Objects carry **no metadata**: an
+  object is *content*, and the same bytes may be a dozen different files, so there is no one
+  name, date or owner to record. **The snapshot is the index** — it is what maps a name to a
+  hash. Keep one: given only `objects/`, you have your data but no way to tell what any of it
+  was. (This is why snapshots are immutable and never overwritten.)
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
   local timestamp (`2026-06-12T0915.tsv.zst`). A remote snapshot file is **byte-identical**
   to its local counterpart — uploaded as-is, one format everywhere.
