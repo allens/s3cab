@@ -1,7 +1,8 @@
 import { listProfiles } from "./auth.mjs";
+import { customEndpoint } from "./env.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
-import { RA_MARKER } from "./roles-anywhere.mjs";
+import { RA_MARKER, isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 // Shared logic behind the provider *connection knobs* — the `--profile` /
@@ -12,7 +13,9 @@ import { isInteractive } from "./style.mjs";
 // (create one) turn these options into validated `AWS_*` values with
 // `gatherProviderConfig`, then apply them their own way — `provider` writes the
 // set's env file; `setup` populates the environment for its remote claim and
-// persists them on a win. This module only *reads and validates* the options
+// persists them on a win. `readProviderConfig` is the write path's read twin —
+// a parsed env bag back to the same five knobs — making this module the one
+// home of the knob ↔ env-key mapping. This module only reads and validates
 // (prompting for the secret); it never writes a file.
 
 /**
@@ -167,4 +170,35 @@ export async function gatherProviderConfig({
     summary.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
   }
   return { updates, summary };
+}
+
+/**
+ * The provider connection knobs a set's env file carries — the read twin of
+ * {@link gatherProviderConfig}, and with it the one home of the knob ↔ env-key
+ * mapping. Absent fields fall through to the ambient AWS setup. `keyId` names
+ * the key (IDs are not secret — see {@link keyTail}); the secret never crosses.
+ * @typedef {Object} ProviderConfig
+ * @property {string} [profile]
+ * @property {string} [endpoint]
+ * @property {string} [region]
+ * @property {string} [keyId]
+ * @property {boolean} rolesAnywhere
+ */
+
+/**
+ * Read the provider connection knobs from a parsed env bag (`parseEnvFile`) —
+ * pure, so "which knobs does this set carry" is asked one way everywhere
+ * (`provider`'s status view, `list`'s detail block) instead of each caller
+ * re-spelling the env keys.
+ * @param {NodeJS.Dict<string>} values
+ * @returns {ProviderConfig}
+ */
+export function readProviderConfig(values) {
+  return {
+    profile: values.AWS_PROFILE,
+    endpoint: customEndpoint(values),
+    region: values.AWS_REGION,
+    keyId: values.AWS_ACCESS_KEY_ID,
+    rolesAnywhere: isRolesAnywhereMode(values),
+  };
 }

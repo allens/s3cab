@@ -1,8 +1,10 @@
-import { customEndpoint, loadSet, parseEnvFile } from "../lib/env.mjs";
+import { loadSet, parseEnvFile } from "../lib/env.mjs";
+import { readProviderConfig } from "../lib/provider.mjs";
 import { listRemoteSnapshots } from "../lib/remote.mjs";
 import { listSets, readSet } from "../lib/sets.mjs";
 import { listSnapshotNames } from "../lib/snapshot-file.mjs";
 
+/** @import { ProviderConfig } from "../lib/provider.mjs" */
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
 /**
@@ -21,23 +23,13 @@ import { listSnapshotNames } from "../lib/snapshot-file.mjs";
  * @property {SetSnapshots[]} sets
  */
 /**
- * The provider settings a set's own env file carries (ADR-0047) — absent fields
- * fall through to your ambient AWS setup. `keys` is presence only, never the
- * secret.
- * @typedef {Object} ProviderOverrides
- * @property {string} [profile]
- * @property {string} [endpoint]
- * @property {string} [region]
- * @property {boolean} keys
- */
-/**
  * The single-set detail view — the whole `BackupSet` (config + derived paths),
  * its provider overrides, and its snapshots, local or (with `--remote`) the
  * set's cloud backups.
  * @typedef {Object} ListDetail
  * @property {"detail"} mode
  * @property {BackupSet} set
- * @property {ProviderOverrides} overrides
+ * @property {ProviderConfig} overrides
  * @property {string[]} snapshots
  * @property {boolean} remote
  */
@@ -116,18 +108,12 @@ export async function list(setName, options = {}) {
  * The provider settings this set's own env file carries (its layer only — the
  * effective merged view is the use-time notice's job), so the detail view shows
  * *where its backups go* beside the bucket without a separate `provider <set>`
- * query. Reads the same file `provider` writes; key presence only.
+ * query. Reads the same file `provider` writes, through the same one mapping.
  * @param {BackupSet} set
- * @returns {ProviderOverrides}
+ * @returns {ProviderConfig}
  */
 function providerOverrides(set) {
-  const values = parseEnvFile(set.envPath);
-  return {
-    profile: values.AWS_PROFILE,
-    endpoint: customEndpoint(values),
-    region: values.AWS_REGION,
-    keys: Boolean(values.AWS_ACCESS_KEY_ID),
-  };
+  return readProviderConfig(parseEnvFile(set.envPath));
 }
 
 /**

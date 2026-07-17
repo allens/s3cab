@@ -125,11 +125,12 @@ describe("list", () => {
       profile: undefined,
       endpoint: undefined,
       region: undefined,
-      keys: false,
+      keyId: undefined,
+      rolesAnywhere: false,
     });
   });
 
-  it("surfaces the set's provider overrides, key presence only", async () => {
+  it("surfaces the set's provider overrides, never the secret", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     seedSet("docs", ["/data/docs"], "my-bucket", []);
@@ -147,9 +148,22 @@ describe("list", () => {
       profile: "work",
       endpoint: "https://s3.example", // the _S3 ?? plain fallback, one spelling
       region: undefined,
-      keys: true, // presence only —
+      keyId: "id", // the ID names the key —
+      rolesAnywhere: false,
     });
     assert.doesNotMatch(JSON.stringify(result), /hunter2/); // — never the secret
+  });
+
+  it("reports Roles Anywhere as the set's sign-in mode", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    seedSet("docs", ["/data/docs"], "my-bucket", []);
+    writeFileSync(readSet("docs").envPath, "S3CAB_RA=1\n", { flag: "a" });
+
+    const result = await list("docs");
+
+    assert(result.mode === "detail");
+    assert.equal(result.overrides.rolesAnywhere, true);
   });
 
   it("rejects an unknown named set", async () => {

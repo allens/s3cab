@@ -5,7 +5,11 @@ import { removeEnvKey, updateEnvFile } from "../lib/env-file.mjs";
 import { customEndpoint, parseEnvFile } from "../lib/env.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
-import { gatherProviderConfig, keyTail } from "../lib/provider.mjs";
+import {
+  gatherProviderConfig,
+  keyTail,
+  readProviderConfig,
+} from "../lib/provider.mjs";
 import { RA_MARKER, isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 
@@ -87,12 +91,8 @@ function resolveScope(setName) {
  */
 async function describeScope(scope, { withShellNote = true } = {}) {
   const { path, phrase } = scope;
-  const values = parseEnvFile(path);
-  const profile = values.AWS_PROFILE;
-  const endpoint = customEndpoint(values);
-  const region = values.AWS_REGION;
-  const keyId = values.AWS_ACCESS_KEY_ID;
-  const rolesAnywhere = isRolesAnywhereMode(values);
+  const { profile, endpoint, region, keyId, rolesAnywhere } =
+    readProviderConfig(parseEnvFile(path));
   if (!profile && !endpoint && !region && !keyId && !rolesAnywhere) {
     return {
       ambient: true,
