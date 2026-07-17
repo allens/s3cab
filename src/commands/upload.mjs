@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { loadSet } from "../lib/env.mjs";
 import { ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
@@ -93,6 +94,14 @@ export async function upload(setName, options = {}) {
   if (since && !snapshotName) {
     throw new ParseArgsError("--since applies only to --snapshot uploads.");
   }
+  // A target flag is the whole point — neither mode selected is nothing to do.
+  // (After the `bucket && !file` check above, so `--bucket` alone keeps its more
+  // specific "add --file" message.)
+  if (!file && !snapshotName) {
+    throw new ParseArgsError(
+      "Specify what to upload: --file <path> or --snapshot <name>.",
+    );
+  }
 
   // ── Single-object mode ──────────────────────────────────────────────────
   if (file) {
@@ -107,29 +116,26 @@ export async function upload(setName, options = {}) {
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
 
-  // ── Snapshot mode ───────────────────────────────────────────────────────
-  if (snapshotName) {
-    const set = loadSet(setName);
-    // uploadSnapshot reads the target first, so a missing --snapshot fails fast
-    // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
-    const { candidates, uploaded } = await uploadSnapshot({
-      bucket: set.bucket,
-      set: set.name,
-      snapshotDir: set.snapshotsDir,
-      name: snapshotName,
-      since,
-    });
-    return {
-      mode: "snapshot",
-      set: set.name,
-      snapshot: snapshotName,
-      candidates,
-      uploaded,
-    };
-  }
-
-  // Neither target flag — nothing to upload.
-  throw new ParseArgsError(
-    "Specify what to upload: --file <path> or --snapshot <name>.",
-  );
+  // ── Snapshot mode ─────────────────────────────────────────────────────────
+  // The only mode left: the fail-fast block rejected "neither", and `--file`
+  // returned. The assert pins that invariant (and narrows the type) — it can only
+  // fire if a future edit weakens the guard above.
+  assert(snapshotName);
+  const set = loadSet(setName);
+  // uploadSnapshot reads the target first, so a missing --snapshot fails fast
+  // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
+  const { candidates, uploaded } = await uploadSnapshot({
+    bucket: set.bucket,
+    set: set.name,
+    snapshotDir: set.snapshotsDir,
+    name: snapshotName,
+    since,
+  });
+  return {
+    mode: "snapshot",
+    set: set.name,
+    snapshot: snapshotName,
+    candidates,
+    uploaded,
+  };
 }
