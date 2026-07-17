@@ -263,7 +263,8 @@ noncurrent version, so a mistake — or a leaked key — can add to your backup 
 permanently destroy its history. `s3cab aws` turns versioning on for you; if you set a bucket
 up by hand, enable it yourself. The trade-off is that reclaimed space frees only once a
 lifecycle rule expires those noncurrent versions — [guide/aws.md](guide/aws.md) walks through
-the full model.
+the full model, and [guide/maintenance.md](guide/maintenance.md) covers keeping a repository
+healthy over time (`verify` / `delete` / `cleanup`).
 
 The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is composition:
