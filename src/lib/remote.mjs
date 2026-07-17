@@ -198,11 +198,7 @@ export async function referencedObjects(bucket) {
     if (!file) {
       continue;
     } // a `snapshots/<set>/` folder marker
-    let files = filesBySet.get(set);
-    if (!files) {
-      filesBySet.set(set, (files = []));
-    }
-    files.push(file);
+    filesBySet.getOrInsertComputed(set, () => []).push(file);
   }
 
   /** @type {Map<string, ReferencedResult>} */
@@ -269,16 +265,13 @@ async function readSetReferenced(bucket, set, names) {
     snapshotsChecked++;
 
     for (const [path, { hash, size }] of snapshot.entries) {
-      let entry = referenced.get(hash);
-      if (!entry) {
-        entry = { paths: new Map() };
-        referenced.set(hash, entry);
-      }
-      let ref = entry.paths.get(path);
-      if (!ref) {
-        ref = { sizes: new Set(), snapshots: new Set() };
-        entry.paths.set(path, ref);
-      }
+      const entry = referenced.getOrInsertComputed(hash, () => ({
+        paths: new Map(),
+      }));
+      const ref = entry.paths.getOrInsertComputed(path, () => ({
+        sizes: new Set(),
+        snapshots: new Set(),
+      }));
       ref.sizes.add(size);
       ref.snapshots.add(name);
     }

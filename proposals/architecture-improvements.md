@@ -39,18 +39,12 @@ also candidate B; the `aws --save --profile` drop →
 [PR #202](https://github.com/allens/s3cab/pull/202)**, **C in [PR #203](https://github.com/allens/s3cab/pull/203)**,
 and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
 
-- **E (Small-cleanups bundle, ride-alongs for the next touch of each file):**
-  `lib/remote.mjs` hand-rolls get-or-insert at three sites (182–186, 252–265) where compare.mjs
-  already uses `Map.prototype.getOrInsertComputed`; `commands/upload.mjs:131–134`'s trailing
-  "Specify what to upload" throw belongs in the fail-fast validation block at the top. (The
-  bundle's provider.mjs and render.mjs items landed with F,
-  [PR #208](https://github.com/allens/s3cab/pull/208).)
-
-Surfaced 2026-07-17 (ninth pass) — C–E verification plus a fresh-eyes Explore sweep over the
-#199–#202 churn and the less-recently-examined modules (run log below). Its Strong candidate
-**F landed same-day in [PR #208](https://github.com/allens/s3cab/pull/208)** (with E's
-provider.mjs and render.mjs ride-alongs), fixing the RA list bug it had surfaced; **G landed in
-[PR #209](https://github.com/allens/s3cab/pull/209)**. Only E's two remaining items remain open.
+_The open list is empty._ The eighth and ninth passes (A–G) have all landed or parked; the
+eighth-pass E bundle's four items are all in — provider.mjs and render.mjs with F
+([PR #208](https://github.com/allens/s3cab/pull/208)), remote.mjs and commands/upload.mjs with the
+E-bundle finish ([PR #211](https://github.com/allens/s3cab/pull/211)). The next
+`/improve-codebase-architecture` run starts fresh (verify the rejected/parked list below first,
+then explore).
 
 **Examined & left alone (eighth pass)** (not candidates — skip future runs): `referencedObjects` *not*
 filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
@@ -459,3 +453,16 @@ least once; re-open only if the stated reason no longer holds.
   was abandoned once the integration-test callers surfaced (it was never G's substance). Copilot
   review returned an overview only, no inline comments. **Open list: E's remaining two items**
   (remote.mjs get-or-inserts, `commands/upload.mjs` trailing throw).
+- **2026-07-17 — the E bundle finished** ([PR #211](https://github.com/allens/s3cab/pull/211)),
+  landing its last two items and **emptying the open list**. *`refactor(remote)`*: the referenced
+  scan's three hand-rolled get-or-inserts (`filesBySet`, `referenced` by hash, `entry.paths` by
+  path) fold into `Map.prototype.getOrInsertComputed` — the `filesBySet` site to one line, the two
+  nested ones lose their temp-and-guard; `remote.referenced-scan.test.mjs` is the net, and the
+  gated real-S3 suite ran green (the scan is an S3 read path). *`refactor(upload)`*: the dangling
+  "specify what to upload" throw moves up beside the other six `ParseArgsError` checks (ADR-0011)
+  — **verification earned its keep**: the move wasn't free as the entry implied, since with the
+  throw gone from the tail TS no longer narrows `snapshotName`, so an `assert(snapshotName, …)`
+  now pins that invariant (line-neutral; the win is validation locality, not fewer lines). A
+  Copilot comment then asked the assert to carry a message — accepted, matching snapshot-file.mjs's
+  house style for invariant asserts. Provider.mjs/render.mjs (E's other two) had already landed
+  with F. **This closes the eighth and ninth passes entirely — no open candidates remain.**
