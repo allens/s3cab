@@ -122,7 +122,7 @@ export const starterExclude = `# Files and directories this backup set skips —
 # '${sep}' separates directories. '**${sep}' matches any depth; a trailing
 # '${sep}' matches a directory and everything in it. Blank lines and # comments
 # are ignored. Syntax help: 's3cab help exclude'
-# Full guide: https://github.com/allens/s3cab/blob/main/guide/exclude.md
+# Full guide: https://s3cab.plantegral.com/guide/exclude
 
 # Regenerable dependency trees and VCS metadata — huge and/or already on your remote
 ${nativePattern("**/node_modules/")}

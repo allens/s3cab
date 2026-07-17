@@ -84,7 +84,14 @@ describe("starterExclude", () => {
 
   it("header points at the help topic and the online guide (discovery hook)", () => {
     assert.match(starterExclude, /'s3cab help exclude'/);
-    assert.match(starterExclude, /guide\/exclude\.md/);
+    // Our own domain, never a github.com URL. This one is written into the
+    // user's exclude.txt, which s3cab never rewrites — so it outlives even a
+    // binary upgrade (CLAUDE.md, "Stable doc URLs").
+    assert.match(
+      starterExclude,
+      /https:\/\/s3cab\.plantegral\.com\/guide\/exclude/,
+    );
+    assert.doesNotMatch(starterExclude, /github\.com/);
   });
 });
 

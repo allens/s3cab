@@ -115,7 +115,7 @@ export const commands = {
     description: `The report compares file content (SHA-256 hashes), never timestamps.
 Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
 content already existed elsewhere is noted '(duplicate of ...)'.
-Full guide: https://github.com/allens/s3cab/blob/main/guide/compare.md`,
+Full guide: https://s3cab.plantegral.com/guide/compare`,
     args: {
       set: {
         description:
@@ -182,7 +182,7 @@ chain — no separate setup; see 's3cab help provider'.
 Then create a backup set in it:
   s3cab setup <name> <directory>... --bucket <bucket>
 
-Full guide: https://github.com/allens/s3cab/blob/main/guide/aws.md`,
+Full guide: https://s3cab.plantegral.com/guide/aws`,
     args: {
       bucket: {
         required: true,
@@ -318,7 +318,7 @@ s3cab names the cause and shows the raw error. By cause:
     - macOS:   sudo sntp -sS time.apple.com
     - Linux:   sudo timedatectl set-ntp true
 
-Full guide: https://github.com/allens/s3cab/blob/main/guide/auth.md`,
+Full guide: https://s3cab.plantegral.com/guide/auth`,
     args: {
       set: {
         description:
