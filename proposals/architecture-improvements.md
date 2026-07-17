@@ -422,8 +422,10 @@ least once; re-open only if the stated reason no longer holds.
   conditional PUT are a deliberate division of labour, not redundancy), and the discussion
   surfaced a real defect — the snapshot→upload staleness window, filed in [bugs.md](bugs.md),
   which this pass had recorded as "a deliberate design stance… not a defect", an AI-invented
-  verdict nobody held. The coverage audit it produced is captured as
-  [test-coverage.md](test-coverage.md). **Only E now remains open.**
+  verdict nobody held. The coverage audit it produced was captured as `test-coverage.md`
+  (since worked through and deleted, 2026-07-17: the skip/accept matrix is now pinned across
+  the loopback fake in `src/lib/s3.test.mjs` — grown real multipart choreography — and
+  `test/integration/s3.test.mjs`). **Only E now remains open.**
 - **2026-07-17 — ninth pass.** E re-verified at HEAD `80a45aa` — **holds** (anchors refreshed:
   E's remote.mjs get-or-inserts 182–186/252–265). The #199–#202 churn
   examined directly: backup.mjs post-#202 is clean thin porcelain (the `since === until` debug
