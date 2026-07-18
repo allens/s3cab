@@ -300,7 +300,17 @@ const PROGRESS_BAR_RANGE = 20;
 // Width to pad each humanized size to. "999.9GB" is 7 chars, so 8 aligns every
 // realistic per-file size; a rarer giant just nudges its own line's path right.
 const SIZE_COL = 8;
-const partSize = 8 * 1024 * 1024; // AWS CLI's default multipart_chunksize
+// Multipart upload tuning — measured against a real bucket from three network
+// distances, not guessed (ADR-0060). `partSize` is the chunk each part carries;
+// `queueSize` is how many parts fly concurrently. Their product is the bytes *in
+// flight*, and that is the lever: it has to cover the link's bandwidth-delay
+// product (speed × round-trip time) before the pipe fills. lib-storage's default
+// queueSize of 4 is the binding constraint — it left roughly half the throughput
+// unused on every link measured. Both self-scale down: concurrency is
+// `min(queueSize, partCount)` and buffered bytes never exceed the file, so a
+// small file neither engages the deep queue nor pays for it.
+const partSize = 16 * 1024 * 1024;
+const queueSize = 32;
 
 /**
  * Build the upload-progress line (pure): an ASCII bar and the humanized byte
@@ -420,6 +430,7 @@ export async function putFile(path, uri, options = {}) {
       Body: createReadStream(path),
     },
     partSize,
+    queueSize,
   });
 
   // The in-place byte bar (interactive only; the TTY gate and the closing
