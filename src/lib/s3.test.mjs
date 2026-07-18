@@ -484,8 +484,13 @@ describe("putObjectParams", () => {
  * was considered and dropped (2026-07-16) — S3 enforces a 5 MiB minimum part size
  * (`Upload.MIN_PART_SIZE`), so a tiny partSize could never serve the real-bucket
  * tier, and a production knob that exists only for a fake isn't worth it (ADR-0006).
+ *
+ * The duplication is not merely cosmetic: the sizes below are cut *from* it, so
+ * these suites pin the real `partSize` behaviourally. A file of exactly PART_SIZE
+ * must go as one PUT and PART_SIZE + 1 as exactly two parts — both assertions
+ * break if s3.mjs's value moves without this one (ADR-0060 raised it to 16 MiB).
  */
-const PART_SIZE = 8 * 1024 * 1024;
+const PART_SIZE = 16 * 1024 * 1024;
 
 /** A sink that swallows whatever it's given — the `pipeline` end-stop for a body we only need read, not kept. */
 const discard = () =>
