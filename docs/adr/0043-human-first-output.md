@@ -71,6 +71,6 @@ yet, there is no frozen JSON contract to protect — so the inversion is free to
 - Migration ran through a **temporary** optional-`render` + JSON fallback that the final
   slice deleted (flipping `render` to required, `tsc`-enforced). `verify`'s output became
   file-centric (list the affected files, hash hidden), built on the corrected `verify` finding
-  model (`proposals/engine-robustness.md`) that landed first.
+  model ([ADR-0042](0042-verify-bucket-operand.md)) that landed first.
 - The two follow-on docs are done: [guide/output.md](../../guide/output.md) documents `--json`,
   and this ADR's `Status` is now `accepted … implemented`.

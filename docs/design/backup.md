@@ -521,8 +521,8 @@ unreadable snapshots. **Orphans are not reported here.** Objects no snapshot ref
 threaten restorability — so orphan reporting lives in `cleanup`'s non-destructive mode
 (above), where the unreadable-snapshot caveat is a hard safety gate rather than the
 advisory `orphanObjectsExact` upper-bound flag it once was in verify. That move is why
-verify's result no longer carries a stored-object total or an orphan count (ADR-0042,
-`cloud-cleanup.md`). **Exit 1 when any set has findings** (0 = verified clean; 2 stays bad
+verify's result no longer carries a stored-object total or an orphan count (ADR-0042).
+**Exit 1 when any set has findings** (0 = verified clean; 2 stays bad
 input), so `s3cab verify <bucket> || alert` is the cron idiom — no dedicated exit code until
 a script actually needs to distinguish "damaged" from "check failed".
 

@@ -37,7 +37,7 @@ wildcard would silently re-grant `DeleteObjectVersion` and dissolve the seam.
 **Per-prefix scoping was considered and parked.** Append-only on `objects/`+`snapshots/` with
 delete confined to `sets/` would be a tighter policy, but with versioning as the backstop the
 marginal gain is small and it adds policy surface. Revisit only if identities split or
-versioning is dropped. (Recorded in [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md)
+versioning is dropped. (Recorded in [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md)
 as future work.)
 
 ## 3. Versioning ON is the backstop that makes the above safe
@@ -67,4 +67,4 @@ lifecycle — see [0032](0032-generative-onboarding-not-active-provisioning.md).
 - `DeleteObject` being in the everyday policy is intentional, not an over-grant — the
   soft/permanent split, not the presence of *a* delete verb, is the security boundary.
 - A future **cleanup** (mark-and-sweep GC) command runs on this same everyday key — all
-  soft-deletes, versioning-backstopped (see [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md)).
+  soft-deletes, versioning-backstopped (see [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md)).

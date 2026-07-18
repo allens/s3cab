@@ -74,4 +74,4 @@ porcelain that resolves region/profile/endpoint, routes, and writes to stdout
   before any credential exists.
 - `--run` (an optional future mode that would *actively* perform the non-secret bucket steps) and
   a future **cleanup** command are out of scope — recorded in
-  [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
+  [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md).

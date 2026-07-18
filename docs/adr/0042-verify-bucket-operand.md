@@ -24,7 +24,7 @@ the full design (finding classes, report, ordering invariant) is in
 > computes them, and the upper-bound exactness flag is gone with them; in `cleanup` the
 > unreadable-snapshot caveat is a real safety gate (never delete what a snapshot you couldn't
 > read might reference), not an advisory hint. **verify's result is now just `{ bucket, sets }`.**
-> See [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
+> See [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md).
 
 ## Context
 

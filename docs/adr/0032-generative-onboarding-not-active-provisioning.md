@@ -54,4 +54,4 @@ create the bucket — it already has the SDK?".
   integration-testing docs also reference (the dogfood decision, now built — see
   [0033](0033-bucket-onboarding-security-model.md)).
 - An optional future `--run` mode (actively performing the non-secret bucket steps) stays open
-  but out of scope — recorded in [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md).
+  but out of scope — recorded in [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md).
