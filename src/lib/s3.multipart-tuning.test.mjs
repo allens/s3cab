@@ -70,6 +70,10 @@ describe("putFile multipart tuning (ADR-0060)", () => {
   after(() => {
     rmSync(dir, { recursive: true, force: true });
     delete process.env.__S3CAB_ENV_LOADED;
+    // The global `mock` (unlike a test's `t.mock`) is never auto-restored, so
+    // the console.warn stub would outlive this suite and silently swallow
+    // warnings from anything added to this file later.
+    mock.restoreAll();
   });
 
   it("drives the uploader with 16 MiB parts, 32 concurrent — 512 MiB in flight", async () => {

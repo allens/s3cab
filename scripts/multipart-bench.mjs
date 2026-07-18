@@ -97,20 +97,52 @@ const region =
   process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1";
 
 /**
+ * Every tunable is a positive count or size, so anything else is a typo, not a
+ * setting. Rejected loudly at parse time because the failure is otherwise
+ * silent-but-plausible: a NaN `reps` runs zero rounds and then reports median 0
+ * with an Infinity–-Infinity spread, which reads as a result rather than a
+ * mistake.
+ * @param {string} name - The env var, so the error names what to fix.
+ * @param {number} value
+ * @returns {number}
+ */
+function positive(name, value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    console.error(`${name}: expected a positive number (got "${value}")`);
+    process.exit(2);
+  }
+  return value;
+}
+
+/**
  * Parse a comma-separated number list env var, or fall back.
+ * @param {string} name
  * @param {string | undefined} raw
  * @param {number[]} fallback
  * @returns {number[]}
  */
-const numList = (raw, fallback) =>
-  raw ? raw.split(",").map((n) => Number(n.trim())) : fallback;
+const numList = (name, raw, fallback) =>
+  raw ? raw.split(",").map((n) => positive(name, Number(n.trim()))) : fallback;
 
-const sizesMb = numList(process.env.S3CAB_BENCH_SIZE_MB, [1024]);
-const partSizes = numList(process.env.S3CAB_BENCH_PARTS, [16, 32]).map((n) =>
-  Math.round(n * MB),
+const sizesMb = numList(
+  "S3CAB_BENCH_SIZE_MB",
+  process.env.S3CAB_BENCH_SIZE_MB,
+  [1024],
 );
-const queueSizes = numList(process.env.S3CAB_BENCH_QUEUES, [8, 16, 32]);
-const reps = Number(process.env.S3CAB_BENCH_REPS ?? "3");
+const partSizes = numList(
+  "S3CAB_BENCH_PARTS",
+  process.env.S3CAB_BENCH_PARTS,
+  [16, 32],
+).map((n) => Math.round(n * MB));
+const queueSizes = numList(
+  "S3CAB_BENCH_QUEUES",
+  process.env.S3CAB_BENCH_QUEUES,
+  [8, 16, 32],
+);
+const reps = positive(
+  "S3CAB_BENCH_REPS",
+  Number(process.env.S3CAB_BENCH_REPS ?? "3"),
+);
 
 // followRegionRedirects lets the client auto-correct to the bucket's real region
 // via S3's 301 (as src/lib/s3.mjs does), so a bucket outside the default region

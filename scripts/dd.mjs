@@ -60,11 +60,15 @@ export function writeRandomFile(path, size) {
 
 if (import.meta.main) {
   const path = process.argv[2];
-  if (!path) {
-    console.error("usage: node scripts/dd.mjs <path> [sizeMB]");
+  const sizeMb = Number(process.argv[3] ?? "100");
+  // Reject a non-numeric size rather than letting NaN through: `remaining > 0`
+  // would be false immediately, so it would write a silent ZERO-byte file and
+  // report success — and a benchmark run against that measures nothing while
+  // looking fine.
+  if (!path || !Number.isFinite(sizeMb) || sizeMb <= 0) {
+    console.error("usage: node scripts/dd.mjs <path> [sizeMB]  (sizeMB > 0)");
     process.exit(2);
   }
-  const sizeMb = Number(process.argv[3] ?? "100");
   await writeRandomFile(path, sizeMb * MB);
   console.log(`wrote ${sizeMb} MB of random bytes to ${path}`);
 }
