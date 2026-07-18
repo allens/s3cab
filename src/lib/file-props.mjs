@@ -51,7 +51,10 @@ export async function fileProps(path, lookup) {
   let hash;
   // Slurp small files (one-shot crypto.hash) and stream larger ones to bound
   // memory. The 5 MB boundary was chosen empirically on real data; worth
-  // re-measuring during any future perf pass (see CLAUDE.md "Known gaps").
+  // re-measuring during any future perf pass (proposals/performance.md).
+  // The stream path deliberately takes Node's default highWaterMark — an
+  // explicit 8 MB read buffer here was measured to buy nothing for SHA-256 and
+  // was dropped as a relic. Don't reintroduce one without a measurement.
   if (size >= 5_000_000) {
     const hasher = createHash("sha256");
     await pipeline(createReadStream(path), hasher);

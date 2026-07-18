@@ -135,7 +135,11 @@ rather than assuming it is fixed forever.
    Q&A work** stays in the main tree — plus two things that go **straight to `main`, no worktree
    and no PR**: **doc-only changes** (Markdown/prose: `docs/`, `guide/`, README, CONTEXT.md,
    ADRs, this file, `proposals/`) and **`.claude` config** (`settings.json`/`settings.local.json`;
-   validate via `update-config` first) — nothing under `src/`. Feature work instead lands on the
+   validate via `update-config` first). **A comment-only edit under `src/` counts as doc-only**
+   — same category, same straight-to-`main` path: prose that happens to live in a `.mjs` file
+   changes no behaviour, and a code comment is often the *right* home for a settled rationale
+   (the one place someone about to undo it will look). Anything that changes code, however
+   small, still takes a worktree. Feature work instead lands on the
    worktree branch → one PR, with `main` left at `origin/main`. In any main-tree edit, stage only
    the files _you_ changed (`git add <path>`, never `-A`/`.`) so you don't sweep up another
    session's in-flight work, and still commit only on an explicit go-ahead (#1).
@@ -461,13 +465,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   `compare` local-only, `reattach`) now live in their ADRs — 0033 / 0044 / 0045 / 0027 / 0053.
   (A `node:sqlite` hash cache was spiked and **rejected** for the in-memory `Map` — don't
   re-try; see [scripts/sqlite-hash-cache.mjs](scripts/sqlite-hash-cache.mjs).)
-- **"Latest snapshot uncompressed" stays `S3CAB_DEBUG`-only — settled, don't re-litigate.**
-  The `.snapshot.tsv` sidecar `snapshot` writes under debug ([src/commands/snapshot.mjs](src/commands/snapshot.mjs))
-  is *not* promoted to an always-on transparency feature: the no-lock-in pillar
-  ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)) is already met by the standard,
-  tool-decompressible `.tsv.zst` (`zstd -d`, documented in [guide/format.md](guide/format.md)),
-  so an always-uncompressed second artifact per snapshot would be cost for no gain
-  ([ADR-0006](docs/adr/0006-minimal-code.md)/#5). The ~7-line debug-gated sidecar stays as-is.
 - **Type check runs in CI; coverage is reported but not gated** (the ci.yml Linux `lint`
   job): `npm run typecheck` plus a `test:coverage:report` run that **prints** the coverage
   table as advisory output ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)). One
