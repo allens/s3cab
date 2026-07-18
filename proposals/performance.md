@@ -23,4 +23,7 @@ of files). Watch for per-file overhead — small costs mount up.
   as pages arrive (a million-object bucket is plausible for a photo library).
 - **Re-measure the 5 MB slurp/stream hash boundary** in `prop.mjs` during any perf pass. Files
   ≥ 5 MB stream through a hash; smaller ones slurp via one-shot `crypto.hash`. The cutoff was
-  chosen empirically but predates the one-shot path, so the optimum may have moved.
+  chosen empirically on real data but predates the one-shot path, so the optimum may have
+  moved. (The already-settled half — why the stream path takes Node's default `highWaterMark`
+  rather than an explicit 8 MB buffer — is a comment at the code in `lib/file-props.mjs`,
+  where anyone tempted to reintroduce one will actually see it.)

@@ -474,10 +474,9 @@ Pre-release housekeeping and open decisions surfaced from the code:
   standing trap: the coverage flags must **precede** the glob positionals — the
   `npm run test -- --experimental-test-coverage` shape collects nothing and exits 0, so
   don't reintroduce it (package.json can't carry a comment saying so; this is the warning).
-- **Revisit plain-JS-vs-TypeScript** now that Node runs TS natively (see
-  [ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md)).
 - **Define behaviour** for paths containing tabs/newlines in the TSV (see
-  [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)).
+  [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)) — tracked with the other open format
+  questions in [proposals/snapshot-format.md](proposals/snapshot-format.md).
 - **Stable doc URLs — settled: everything we print is `https://s3cab.plantegral.com/...`, never
   a `github.com` link.** A shipped binary freezes its URLs and `setup`'s starter `exclude.txt`
   writes one into a file s3cab never rewrites, so a printed URL can never be corrected for
@@ -490,8 +489,5 @@ Pre-release housekeeping and open decisions surfaced from the code:
   released software. The redirect config itself is *not* this repo's concern (it lives in the
   private infra repo); only what we print is.
 - **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
-  during any future perf/test pass. Files ≥ 5 MB stream through a hash; smaller ones slurp
-  via one-shot `crypto.hash`. The 5 MB cutoff was chosen empirically on real data but
-  predates the one-shot-hash path, so the optimum may have moved. (`streamHash`'s old
-  explicit 8 MB buffer was already dropped as a relic — reads now use Node's default
-  `highWaterMark`, with no measured loss for SHA-256.)
+  during any future perf/test pass — details in
+  [proposals/performance.md](proposals/performance.md).
