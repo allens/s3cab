@@ -1,7 +1,9 @@
 # `forget` removes snapshots; `delete` moves to path-scoped content removal
 
-**Status:** proposed (settled 2026-07-19 in a grilling session; not yet built — delivery plan
-in [proposals/forget-and-delete.md](../../proposals/forget-and-delete.md)). Reasoned under the
+**Status:** accepted (settled 2026-07-19 in a grilling session) — the `forget` rename is
+**implemented** (PR #218, with the prerequisite baseline-trust fix in #220 and `restore`'s
+graceful degrade in #219); the path-scoped `delete` is **not yet built** (delivery plan in
+[proposals/forget-and-delete.md](../../proposals/forget-and-delete.md)). Reasoned under the
 **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the `cli-design` skill)
 and [0012](0012-consumer-vocabulary-naming.md).
 

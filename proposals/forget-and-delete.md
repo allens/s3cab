@@ -38,13 +38,12 @@ deleted as their PRs land (lasting knowledge moves to ADRs / docs/design/ / guid
 | --- | --- | --- |
 | ~~**A**~~ | ~~The baseline-trust bug fix ([bugs.md](bugs.md))~~ **— landed** (trust the baseline iff it still exists remotely; one HEAD in `uploadSnapshot`, miss → LIST fallback) | — |
 | ~~**B**~~ | ~~Rename `delete`→`forget` **+** the `unrestorable` sweep~~ **— landed** | — |
-| **C** | `restore` degrades gracefully on a missing object (standalone robustness — today one missing object aborts the whole run mid-loop, [src/commands/restore.mjs](../src/commands/restore.mjs) has no catch around `getObject`) | — |
-| **D** | The new `delete`: deletion record + purge computation + `verify` partition + `restore` record-awareness + `backup` record-subtraction + format-spec section + CONTEXT.md repairs + confirmation UX | A, B, C merged |
+| ~~**C**~~ | ~~`restore` degrades gracefully on a missing object~~ **— landed** (absent object → per-file skip, all unproduced paths reported at the end, exit 1; integrity/operational errors still abort; no deletion-record awareness — that is D's) | — |
+| **D** | The new `delete`: deletion record + purge computation + `verify` partition + `restore` record-awareness + `backup` record-subtraction + format-spec section + CONTEXT.md repairs + confirmation UX | A, B, C merged ✓ |
 
-**Parallelism:** C (`commands/restore.mjs`) is the one slice still open before D. A and B
-have landed. D is strictly last.
+**A, B and C have all landed (PRs #220, #218, #219) — D is unblocked.**
 
-Each session: worktree + PR + Copilot review; D touches the S3 read/write
+The D session: worktree + PR + Copilot review; it touches the S3 read/write
 path → run `npm run test:integration` before push; scope every rename from a fresh `grep`,
 not from this file.
 

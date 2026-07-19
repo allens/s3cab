@@ -4,7 +4,10 @@
 (see *Delivery* below). Answers the question [0040](0040-restore-requires-set-name.md) deferred
 ("a future `verify`/`delete` shape should weigh the same question when built"). Reasoned
 under the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the
-`cli-design` skill).
+`cli-design` skill). **Naming note:** the `delete` throughout this ADR is the snapshot-removal
+command, since renamed **`forget`** by [0063](0063-forget-snapshots-delete-paths.md) (which
+also reassigns `delete` to a new path-scoped operation); the shape decided here carries over
+to `forget` unchanged, and applies to the new `delete` too (paths as the bulk operand).
 
 > **The command this ADR calls `delete` is now `forget`**
 > ([0063](0063-forget-snapshots-delete-paths.md) freed `delete` for path-scoped content
