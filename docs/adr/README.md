@@ -64,6 +64,7 @@ ADR as a live constraint.
 - [0052](0052-retire-setup-update-mode.md) — Retire `setup`'s update mode; a set's directories are edited in the public `dirs.txt` *(partly supersedes 0036 §2 — the upsert's update half)*
 - [0053](0053-reattach-command.md) — Split `setup --inherit` into its own `reattach` command; `setup` is create-only *(resolves 0036's deferred "`--inherit` stays a flag" item)*
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
+- [0063](0063-forget-snapshots-delete-paths.md) — `forget` removes snapshots (renaming today's `delete`); `delete` moves to path-scoped content removal *(proposed — settled, not yet built; delivery plan in proposals/forget-and-delete.md)*
 
 ### Output, errors & rendering
 
