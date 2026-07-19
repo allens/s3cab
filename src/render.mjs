@@ -622,20 +622,31 @@ export function renderUpload(result) {
 
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
- * snapshot, then the existing files left untouched (the full list, never
- * truncated: each is a file the user asked for and didn't get, so name them all
- * and point at --overwrite). An empty selection that wrote and skipped nothing
- * says so plainly rather than emitting blank output.
+ * snapshot, then the existing files left untouched, then any file whose content
+ * the bucket no longer holds. Both lists are given in full, never truncated:
+ * each entry is a file the user asked for and didn't get, so name them all and
+ * say what to do about it (`--overwrite` for the skipped, `verify` for the
+ * missing — ADR-0030's constructive fix). The missing block comes last so it is
+ * what remains on screen after a long run, and its exit code is set by the
+ * command. An empty selection that did nothing at all says so plainly rather
+ * than emitting blank output.
  * @param {RestoreResult} result
  * @returns {string}
  */
-export function renderRestore({ set, snapshot, restored, skipped }) {
+export function renderRestore({
+  set,
+  bucket,
+  snapshot,
+  restored,
+  skipped,
+  missing,
+}) {
   const sections = [];
   // The count line carries the set/snapshot context, so it leads whenever
   // anything happened — including the wrote-nothing-but-skipped case (every
   // requested file already existed), where "Restored 0 files" keeps that context
   // above the skipped list rather than starting cold on "Skipped …".
-  if (restored.length || skipped.length) {
+  if (restored.length || skipped.length || missing.length) {
     sections.push(
       `Restored ${count(restored.length)} ${plural(restored.length, "file")} ` +
         `from '${set}' (snapshot ${snapshot}).`,
@@ -646,6 +657,22 @@ export function renderRestore({ set, snapshot, restored, skipped }) {
       `Skipped ${count(skipped.length)} existing ` +
       `${plural(skipped.length, "file")} (rerun with --overwrite to replace):`;
     sections.push([heading, ...skipped.map((path) => `  ${path}`)].join("\n"));
+  }
+  if (missing.length) {
+    const heading =
+      `Could not restore ${count(missing.length)} ` +
+      `${plural(missing.length, "file")} — the backup no longer holds ` +
+      `${missing.length === 1 ? "its" : "their"} contents:`;
+    sections.push(
+      [
+        heading,
+        ...missing.map((path) => `  ${path}`),
+        "",
+        "The rest of the restore finished. To check the other backups in this bucket:",
+        "",
+        `  s3cab verify ${bucket}`,
+      ].join("\n"),
+    );
   }
   if (sections.length === 0) {
     return `Nothing to restore from '${set}' (snapshot ${snapshot}).`;

@@ -22,6 +22,7 @@ import {
 /** @import { CompareResult } from "./lib/compare.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
+/** @import { RestoreResult } from "./commands/restore.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so
 // the header's `~` shortening is exercised, platform-correct.
@@ -708,14 +709,27 @@ describe("renderUpload", () => {
   });
 });
 
+/**
+ * A RestoreResult with sensible defaults, overlaid by `over` — keeps each test
+ * to the fields it cares about.
+ * @param {Partial<RestoreResult>} over
+ * @returns {RestoreResult}
+ */
+const restoreResult = (over) => ({
+  set: "photos",
+  bucket: "my-backups",
+  snapshot: "2026-07-04T1000",
+  restored: [],
+  skipped: [],
+  missing: [],
+  ...over,
+});
+
 describe("renderRestore", () => {
   it("summarizes the written files by set and snapshot", () => {
-    const text = renderRestore({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      restored: ["/home/me/a.jpg", "/home/me/b.jpg"],
-      skipped: [],
-    });
+    const text = renderRestore(
+      restoreResult({ restored: ["/home/me/a.jpg", "/home/me/b.jpg"] }),
+    );
     assert.equal(
       text,
       "Restored 2 files from 'photos' (snapshot 2026-07-04T1000).",
@@ -723,12 +737,12 @@ describe("renderRestore", () => {
   });
 
   it("lists every skipped existing file in full, pointing at --overwrite", () => {
-    const text = renderRestore({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      restored: ["/home/me/a.jpg"],
-      skipped: ["/home/me/b.jpg", "/home/me/c.jpg"],
-    });
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/a.jpg"],
+        skipped: ["/home/me/b.jpg", "/home/me/c.jpg"],
+      }),
+    );
     assert.match(
       text,
       /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
@@ -742,12 +756,7 @@ describe("renderRestore", () => {
   it("keeps the set/snapshot context when everything requested was skipped", () => {
     // restored empty but skipped non-empty (the files existed, no --overwrite):
     // still lead with the count line so the snapshot context isn't lost.
-    const text = renderRestore({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      restored: [],
-      skipped: ["/home/me/b.jpg"],
-    });
+    const text = renderRestore(restoreResult({ skipped: ["/home/me/b.jpg"] }));
     assert.match(
       text,
       /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
@@ -759,15 +768,44 @@ describe("renderRestore", () => {
   });
 
   it("reports an empty selection plainly instead of blank output", () => {
-    const text = renderRestore({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      restored: [],
-      skipped: [],
-    });
+    const text = renderRestore(restoreResult({}));
     assert.equal(
       text,
       "Nothing to restore from 'photos' (snapshot 2026-07-04T1000).",
+    );
+  });
+
+  it("names every file the bucket could not supply, and how to check the rest", () => {
+    // The missing block comes last (what's left on screen) and carries the
+    // copy-pasteable next step, ADR-0030.
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/a.jpg"],
+        missing: ["/home/me/b.jpg", "/home/me/c.jpg"],
+      }),
+    );
+    assert.match(
+      text,
+      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nCould not restore 2 files — the backup no longer holds their contents:\n {2}\/home\/me\/b\.jpg\n {2}\/home\/me\/c\.jpg\n/,
+    );
+    assert.match(text, /\n {2}s3cab verify my-backups$/);
+  });
+
+  it("keeps the set/snapshot context when every requested file was missing", () => {
+    // Nothing written and nothing skipped must not read as "Nothing to restore"
+    // — that would hide a failed restore behind an empty-selection message.
+    const text = renderRestore(restoreResult({ missing: ["/home/me/b.jpg"] }));
+    assert.match(
+      text,
+      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nCould not restore 1 file — the backup no longer holds its contents:\n/,
     );
   });
 });

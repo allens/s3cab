@@ -126,4 +126,61 @@ describe("backup → restore round trip (real bucket)", () => {
       await cleanupSetMarker(setName);
     }
   });
+
+  it("skips a file whose object is gone from the bucket and restores the rest", async () => {
+    // The mocked unit tests (src/commands/restore.missing-object.test.mjs) fake
+    // getObject outright, so only a real bucket proves what this depends on: that
+    // a GET on an absent key surfaces as `NoSuchKey` all the way out through
+    // getStream → writeFileAtomic, rather than as some wrapped stream error. That
+    // is the mock-vs-real gap #171's ABORT_ERR fell into.
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    const setName = `rtm${Date.now()}`;
+
+    const srcDir = join(dir.path, "Photos");
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, "kept.jpg"), `kept ${setName}`);
+    writeFileSync(join(srcDir, "gone.jpg"), `gone ${setName}`);
+
+    const set = await setup([srcDir], { set: setName, bucket });
+    assert.ok(set);
+    const { snapshot } = await backup(setName);
+
+    const { entries } = await readSnapshot(set.snapshotsDir, snapshot);
+    const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
+    const gonePath = [...entries.keys()].find((p) => p.endsWith("gone.jpg"));
+    assert.ok(gonePath, "the snapshot recorded gone.jpg");
+    const goneHash = /** @type {string} */ (entries.get(gonePath)?.hash);
+
+    const savedExitCode = process.exitCode;
+    try {
+      // Remove exactly one object behind the snapshot's back — an out-of-band
+      // deletion, the case a lifecycle rule or a hand-tidied bucket produces.
+      await deleteObject(`s3://${bucket}/objects/${goneHash}`);
+      rmSync(srcDir, { recursive: true, force: true });
+
+      const result = await restore([], { set: setName });
+
+      assert.deepEqual(result.missing, [gonePath], "the casualty is reported");
+      assert.equal(result.restored.length, entries.size - 1);
+      assert.equal(process.exitCode, 1, "a partial restore exits non-zero");
+      // The point of the whole change: everything else is on disk anyway.
+      for (const dest of result.restored) {
+        assert.equal(
+          sha256(dest),
+          entries.get(dest)?.hash,
+          `content of ${dest}`,
+        );
+      }
+    } finally {
+      process.exitCode = savedExitCode; // never leak it to the runner
+      for (const hash of hashes) {
+        await deleteObject(`s3://${bucket}/objects/${hash}`);
+      }
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+      );
+      await cleanupSetMarker(setName);
+    }
+  });
 });

@@ -8,6 +8,7 @@ import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
+import { isObjectNotFound } from "../lib/s3.mjs";
 
 // The `restore` command (docs/design/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
@@ -26,9 +27,18 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * Each object is fetched and integrity-checked by `getObject` (its SHA-256
  * must match the snapshot's hash), then given the snapshot's mtime — required, since
  * the snapshot diff is mtime-based. Content shared across several paths (moved
- * or duplicated files) is downloaded once and copied to the rest. The snapshot-
- * last upload invariant guarantees every referenced object exists, so there is
- * no pre-flight; a genuinely missing object surfaces as a failed download.
+ * or duplicated files) is downloaded once and copied to the rest.
+ *
+ * The snapshot-last upload invariant means every referenced object should exist,
+ * so there is no pre-flight — but when one is **absent from the bucket anyway**
+ * (an out-of-band deletion, a lifecycle rule, a broken invariant) that file is
+ * **skipped and the run continues**, with every missing path reported together at
+ * the end and **exit 1**. Aborting on the first one was the worse failure: a
+ * disaster recovery would stop dead partway through, leaving the thousands of
+ * intact files unrestored until the user retried past each casualty in turn. Only
+ * a genuinely missing object degrades this way — an integrity mismatch or any
+ * other failure (network, credentials) still aborts, since those are wrong about
+ * the *run*, not about one file.
  *
  * `--output <dir>` re-roots instead of restoring to original locations: each
  * member directory's contents land under `<dir>/<root-basename>/…` (see `reroot`).
@@ -45,9 +55,11 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  *
  * @typedef {Object} RestoreResult
  * @property {string} set - The set restored
+ * @property {string} bucket - The repository bucket it was restored from
  * @property {string} snapshot - The snapshot restored from
  * @property {string[]} restored - Paths written
  * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
+ * @property {string[]} missing - Paths not restored because their content is absent from the bucket
  *
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
  * @param {{ set?: string, snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options] - `set` (required) is the backup set to restore
@@ -120,6 +132,14 @@ export async function restore(paths = [], options = {}) {
   const restored = [];
   /** @type {string[]} */
   const skipped = [];
+  /** @type {string[]} */
+  const missing = [];
+  // Hashes whose fetch found nothing. `planRestore` points each repeat of a hash
+  // at wherever the *first* one landed, so a failed fetch would leave every later
+  // `copy` of that content reading a file that was never written — they are the
+  // same casualty, and are recorded as missing rather than attempted.
+  /** @type {Set<string>} */
+  const missingHashes = new Set();
 
   // On a terminal the counter overwrites itself in place; redirected, each
   // update is its own plain line (`logLines`) — the TTY gate, the in-place
@@ -130,22 +150,38 @@ export async function restore(paths = [], options = {}) {
   using progress = createProgress(stderr, { logLines: true });
   let done = 0;
   for (const step of plan) {
+    const hash = /** @type {string} */ (step.hash);
     if (step.action === "skip") {
       skipped.push(step.dest);
+    } else if (missingHashes.has(hash)) {
+      missing.push(step.dest);
     } else {
       mkdirSync(dirname(step.dest), { recursive: true });
+      let found = true;
       if (step.action === "copy") {
         await copyFile(/** @type {string} */ (step.from), step.dest);
       } else {
-        await getObject(
-          set.bucket,
-          /** @type {string} */ (step.hash),
-          step.dest,
-        );
+        try {
+          await getObject(set.bucket, hash, step.dest);
+        } catch (error) {
+          // Absent content, and only that: `isObjectNotFound` is the s3.mjs
+          // spelling of "the key isn't there". Anything else — a hash mismatch
+          // from writeFileAtomic, a network or credentials failure — is not
+          // this one file's problem, so it propagates and aborts the run.
+          if (!isObjectNotFound(error)) {
+            throw error;
+          }
+          found = false;
+        }
       }
-      const when = new Date(/** @type {string} */ (step.mtime));
-      await utimes(step.dest, when, when);
-      restored.push(step.dest);
+      if (found) {
+        const when = new Date(/** @type {string} */ (step.mtime));
+        await utimes(step.dest, when, when);
+        restored.push(step.dest);
+      } else {
+        missingHashes.add(hash);
+        missing.push(step.dest);
+      }
     }
 
     done++;
@@ -154,5 +190,19 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  return { set: set.name, snapshot: name, restored, skipped };
+  // Anything unrestorable → exit 1, the same way `verify` reports findings: set
+  // process.exitCode rather than throw, so the run's report — including every
+  // file that *was* restored — still prints.
+  if (missing.length) {
+    process.exitCode = 1;
+  }
+
+  return {
+    set: set.name,
+    bucket: set.bucket,
+    snapshot: name,
+    restored,
+    skipped,
+    missing,
+  };
 }

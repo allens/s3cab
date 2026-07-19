@@ -159,12 +159,47 @@ first, then restore:
   recorded, so a later `snapshot` sees it as unchanged rather than as new work.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
   copied, or a directory you'd moved — is fetched once and copied locally to the rest.
-- **Everything referenced is there.** A snapshot only ever reaches the bucket _after_ every
-  object it references, so any snapshot you can see is complete and restorable. That
-  invariant is part of the [format spec](format.md).
+- **Everything referenced should be there.** A snapshot only ever reaches the bucket _after_
+  every object it references, so any snapshot you can see is complete and restorable. That
+  invariant is part of the [format spec](format.md) — and if something has removed content
+  from the bucket behind s3cab's back, the next section is what you'll see.
 
 Progress prints to stderr (`Restoring 250/1240...`), so it stays out of piped or redirected
 output. For the machine-readable result, add `--json` — see [output formats](output.md).
+
+## If some content is missing from the backup
+
+Content can go missing from a bucket for reasons that have nothing to do with s3cab — a
+lifecycle rule that expired objects, someone tidying the bucket by hand, a partly restored
+bucket after an incident. When a file's content isn't there, restore **skips that file and
+carries on with the rest**, then lists everything it couldn't produce:
+
+```console
+> s3cab restore --set photos
+Restored 1,238 files from 'photos' (snapshot 2026-06-12T0915).
+
+Could not restore 2 files — the backup no longer holds their contents:
+  C:\Users\me\Photos\2019\hike.jpg
+  C:\Users\me\Photos\2019\summit.jpg
+
+The rest of the restore finished. To check the other backups in this bucket:
+
+  s3cab verify my-backups
+```
+
+The run exits non-zero, so a scripted restore can't mistake this for a clean one — but the
+1,238 files that _were_ recoverable are on disk. Stopping at the first casualty would be the
+worse outcome in exactly the situation you most need the backup.
+
+`s3cab verify <bucket>` is the follow-up: it checks every snapshot in the repository against
+what's actually stored, so you learn whether two files or two thousand are affected. Note
+that an older snapshot won't help if it recorded the _same_ content — identical content is
+stored once ([format spec](format.md)) — but it will if the file changed since.
+
+This graceful skip covers **absent** content only. A file whose content is there but
+**damaged** still fails the integrity check and stops the run, loudly: a corrupt object is a
+different problem from a missing one, and quietly writing a wrong file is exactly what s3cab
+refuses to do.
 
 ## If there's nothing to restore
 

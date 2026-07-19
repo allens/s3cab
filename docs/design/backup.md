@@ -223,6 +223,19 @@ positional `paths…` filter what is restored. Restored files get their snapshot
 under `output\<root-basename>\` — shallow and human-readable. Two roots sharing a
 basename is detected up front and errors with guidance (rare, actionable).
 
+**A missing object degrades, it doesn't abort.** The objects-first/snapshot-last invariant
+says every referenced object exists, so there is no pre-flight — but when one is absent
+anyway (an out-of-band deletion, a lifecycle rule, a broken invariant), that file is skipped,
+the run continues, and every unproduced path is reported together at the end with **exit 1**
+(the `verify` pattern: `process.exitCode`, so the report still prints). Aborting mid-loop was
+the worse failure mode — a disaster recovery would stop dead partway through, leaving the
+intact majority unrestored until the user retried past each casualty in turn. The degrade is
+scoped to *absent* content (`isObjectNotFound`); an integrity mismatch or an operational
+error (network, credentials) is wrong about the run rather than one file, and still aborts.
+Because `planRestore` points repeats of a hash at wherever the first copy landed, a failed
+fetch also marks its dependent `copy` steps missing rather than reading a file that was never
+written.
+
 ### `forget` — remove remote snapshots (**built**)
 
 > **Named `delete` until [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md)**, which
