@@ -303,6 +303,7 @@ export function listSets() {
  * @property {string} name - The local handle, local directory name, and remote namespace — one `[a-z0-9-]+` string (ADR-0024)
  * @property {string[]} dirs - Member directories (absolute paths, from `dirs.txt`)
  * @property {string} bucket - The bound S3 bucket (`S3CAB_BUCKET` in the set's env). Every set is bound at creation (ADR-0026), so this is never absent — `readSet` enforces it.
+ * @property {string} dir - The set's own directory, `~/.s3cab/sets/<name>/` (derived from `name`) — for state that belongs to the set but has no dedicated field, e.g. `delete`'s audit records
  * @property {string} snapshotsDir - The set's snapshot store, `~/.s3cab/sets/<name>/snapshots/` (derived from `name`)
  * @property {string} dirsPath - The set's member-directories file, `~/.s3cab/sets/<name>/dirs.txt` (derived from `name`)
  * @property {string} excludePath - The set's exclude file, `~/.s3cab/sets/<name>/exclude.txt` (derived from `name`)
@@ -349,6 +350,7 @@ export function readSet(name) {
     name,
     dirs,
     bucket,
+    dir: setDir(name),
     snapshotsDir: setSnapshotsDir(name),
     dirsPath: setDirsPath(name),
     excludePath: setExcludePath(name),

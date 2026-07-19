@@ -498,6 +498,7 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
     examples: [
       "s3cab delete --set photos 2026-06-12T0915",
       "s3cab delete --set photos 2026-06-12T0915 2026-06-19T0902",
+      "s3cab delete --set photos 2026-06-12T0915 --force",
     ],
     args: {
       snapshot: {
@@ -511,6 +512,12 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
         type: "string",
         short: "S",
         description: "The backup set the snapshot belongs to (required)",
+      },
+      force: {
+        type: "boolean",
+        short: "f",
+        description:
+          "Skip the orphan check and the confirmation (default: report what would be left unreferenced, then ask)",
       },
     },
     exec: (options, snapshots = []) => deleteSnapshot(snapshots, options),

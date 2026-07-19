@@ -60,22 +60,91 @@ A snapshot is a point in time. When you don't want to keep one any more:
 
 ```console
 > s3cab delete --set photos 2026-05-01T0800
+Orphan preview — what no snapshot would reference once these are gone:
+
+  2026-05-01T0800   3,201 files   12.4GB
+                  ───────────────────────
+  total orphaned    3,201 files   12.4GB
+
+Full list:
+  C:\Users\me\.s3cab\delete-orphans-preview.txt
 Delete snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
 Snapshot '2026-05-01T0800' deleted from set 'photos'.
 ```
 
-Name as many as you like in one run — it's one question, not one per snapshot:
+Before it asks, `delete` works out **what you'd be the last to hold** — content that, once
+these snapshots are gone, nothing anywhere in the bucket still references. The counts go on
+screen and the full list of files goes in a file, always, whose path is the last thing
+printed. It's written before the question, so answering **no** still leaves you the list to
+read — fix your selection and run again without waiting for the check twice.
+
+Careful with what that list is, though: it's what would become **reclaimable**, not what's
+about to be deleted. `delete` removes snapshots and nothing else, so every file on it stays
+stored — and stays on your bill — until a `cleanup`.
+
+Name as many as you like in one run — it's one question, not one per snapshot, and the
+preview covers the whole selection:
 
 ```console
 > s3cab delete --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
+Orphan preview — what no snapshot would reference once these are gone:
+
+  2026-05-01T0800             3,201 files   12.4GB
+  2026-05-08T0800               118 files    412MB
+  2026-05-15T0800                 0 files       0B
+  shared across 3 snapshots     842 files    3.1GB
+                              ───────────────────────
+  total orphaned              4,161 files   15.9GB
+
+Full list:
+  C:\Users\me\.s3cab\delete-orphans-preview.txt
 Delete 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
 3 snapshots deleted from set 'photos'.
 ```
 
+The **shared** line is content that more than one of the snapshots you named holds, and
+nothing else does — it's only orphaned because they're all going together. Delete any one of
+them alone and it stays referenced. That's why the check looks at the whole list at once
+rather than one snapshot at a time.
+
+Two things worth knowing about the numbers. They're **bucket-wide**: if another backup set
+stores the same file, it isn't counted, because deleting this snapshot doesn't leave it
+unreferenced. And **files and sizes don't scale together** — s3cab stores one copy of
+identical content however many files point at it, so a thousand orphaned copies of one file
+free the space of one.
+
+Working the list out means reading every snapshot in the bucket, which takes a moment on a
+large repository. That's the reason to name several snapshots in one run: it's one read for
+the batch, not one per snapshot. If you don't want it — you know what you're deleting, or
+you're in a script where nothing reads the output — **`--force`** skips the check and the
+confirmation together:
+
+```console
+> s3cab delete --set photos 2026-05-01T0800 --force
+```
+
+### The two files it leaves behind
+
+The preview above is `~/.s3cab/delete-orphans-preview.txt`, and it's replaced every time
+you run a check — it's there to help you answer the question in front of you, and it's of no
+use once you have.
+
+Once you say **yes**, though, s3cab also keeps a permanent copy in the set's own folder:
+
+```
+~/.s3cab/sets/photos/delete-orphans-2026-05-01T080213.txt
+```
+
+That one is a record of what you deleted and what it cost you, and it isn't overwritten or
+tidied up — it's there for the day you wonder where a file went. They're small text files;
+delete them yourself whenever you like. A `--force` run keeps a record too, saying plainly
+that the check was skipped, so a bypass never leaves a silent gap.
+
 `delete` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now
 unreferenced is a whole-repository question. Reclaiming it is `cleanup`'s job, which `delete`
-reminds you of when it finishes.
+reminds you of when it finishes. The preview tells you what *would* be reclaimable; `cleanup`
+is what actually frees it.
 
 It asks first, at a terminal, naming exactly what it's about to remove. In a script (no
 terminal) it proceeds — naming the snapshots is explicit enough, and blocking a script on a

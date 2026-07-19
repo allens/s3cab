@@ -167,7 +167,7 @@ them back**. You create a set once, then the commands act on it:
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
 | `s3cab restore --set <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
 | `s3cab verify <bucket>`       | Check a repository's backups are complete and undamaged — every referenced file is stored, at the right size (findings reported per set). |
-| `s3cab delete --set <set> <snapshot>…` | Delete snapshots from a backup (confirms once; leaves the files they referenced for `cleanup` to reclaim). |
+| `s3cab delete --set <set> <snapshot>…` | Delete snapshots from a backup (previews what would be left unreferenced, then confirms once; leaves the files themselves for `cleanup` to reclaim). |
 | `s3cab cleanup <bucket>`      | Reclaim storage held by objects no snapshot references — a dry run by default; `--delete` actually removes them. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |

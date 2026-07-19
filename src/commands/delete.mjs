@@ -1,8 +1,56 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
+import { s3cabDir } from "../lib/home.mjs";
+import {
+  formatForcedReport,
+  formatOrphanReport,
+  formatOrphanSummary,
+  planOrphans,
+} from "../lib/orphans.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
-import { deleteRemoteSnapshot, listRemoteSnapshots } from "../lib/remote.mjs";
+import {
+  deleteRemoteSnapshot,
+  listRemoteSnapshots,
+  referencedObjects,
+} from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
+
+// The **preview**: a transient decision aid, overwritten every run, in the s3cab
+// root because it belongs to no set for longer than one command
+// (docs/design/snapshot-deletion.md).
+const PREVIEW_FILE = "delete-orphans-preview.txt";
+
+/**
+ * The **audit record** written into the set's own directory once a deletion
+ * actually happens: `delete-orphans-<timestamp>.txt`. These accumulate on
+ * purpose — the preview is a decision aid and is worthless once decided, but a
+ * record of a destructive act is an audit trail, and audit trails are supposed to
+ * accumulate. No cap: they are a few KB of text against a tool that moves
+ * gigabytes, and a tool whose whole subject is "you decide what to retain" should
+ * not quietly prune the user's own records.
+ *
+ * **Second** precision, unlike snapshot names' minute precision. A snapshot
+ * refuses a same-minute collision loudly; this would silently overwrite a record
+ * that — unlike a snapshot — cannot be reproduced, because the snapshots it
+ * described are already gone. Seconds costs nothing and removes the case.
+ * @param {string} timestamp
+ * @returns {string}
+ */
+const auditFile = (timestamp) => `delete-orphans-${timestamp}.txt`;
+
+/**
+ * "Now" at second precision with the colons dropped (`2026-05-01T080213`) —
+ * the same shape as a snapshot name (`snapshotName`, minute precision), one unit
+ * finer. Local time, matching snapshot names.
+ * @returns {string}
+ */
+const auditTimestamp = () =>
+  Temporal.Now.plainDateTimeISO()
+    .toString({ smallestUnit: "seconds" })
+    .replaceAll(":", "");
 
 /**
  * Remove remote snapshots — the retention **primitive** (docs/design/backup.md).
@@ -14,11 +62,33 @@ import { isInteractive } from "../lib/style.mjs";
  *
  * Snapshots are the **bulk operand** and the set is addressed by `--set`
  * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
- * several snapshots go in one run because the orphan check still to be built on
- * top of this is a whole-bucket scan, and one run pays it once
- * (docs/design/snapshot-deletion.md). That check, its report file and `--force`
- * are **not built yet** — today's run deletes what it is given, after one
- * confirmation.
+ * several snapshots go in one run because the **orphan check** below is a
+ * whole-bucket scan, and one run pays it once (docs/design/snapshot-deletion.md).
+ *
+ * **The orphan check** reports, before deleting, which stored content would be
+ * left with no snapshot referencing it — the information `cleanup`'s dry run only
+ * gives you *afterwards*, as hash counts with no paths. It is inescapably a
+ * whole-bucket snapshot read (`referencedObjects`): dedup is global across sets
+ * (ADR-0013), so answering from this set's own snapshots would report content as
+ * orphaned that another set still needs. The summary goes to stdout ending with a
+ * file path; the confirmation comes last on stderr. Note the check reports what
+ * would become *reclaimable*, not what `delete` removes: `delete` never touches
+ * `objects/`, so every file it names stays stored (and billed) until `cleanup`.
+ *
+ * **Two files, two purposes** (docs/design/snapshot-deletion.md). The full path
+ * list is always written — it is computed anyway, and forgetting a `>` here costs
+ * a second full scan:
+ *  - the **preview**, `~/.s3cab/delete-orphans-preview.txt`, overwritten each
+ *    run and written *before* the prompt, so declining still leaves you the list
+ *    to read and re-run against without paying for a second scan;
+ *  - the **audit record**, `~/.s3cab/sets/<set>/delete-orphans-<timestamp>.txt`,
+ *    written only once a deletion actually happens, and kept.
+ *
+ * `--force`/`-f` skips the check and the confirmation **together** — skipping the
+ * check leaves the prompt nothing useful to say (matching `rm -f` and
+ * `upload --force`). It still writes an audit record, one that says the analysis
+ * was skipped: a trail that silently omits the runs which bypassed the safety is
+ * worse than one that names the gap.
  *
  * The set is **required** — no sole-set default, matching `restore`
  * ([ADR-0040](../../docs/adr/0040-restore-requires-set-name.md)): a destructive
@@ -36,12 +106,13 @@ import { isInteractive } from "../lib/style.mjs";
  * @property {boolean} deleted - False only when the user declined the confirmation
  *
  * @param {string[]} [snapshots] - The snapshots to delete — the bulk operand (at least one)
- * @param {{ set?: string }} [options] - `set` = the backup set they belong to (required)
+ * @param {{ set?: string, force?: boolean }} [options] - `set` = the backup set they belong to (required); `force` skips the check and the confirmation
  * @returns {Promise<DeleteResult>}
  */
 export async function deleteSnapshot(snapshots = [], options = {}) {
   requireArg(options.set, "set");
   requireArg(snapshots.length, "snapshot");
+  const force = Boolean(options.force);
 
   // Resolve the set and apply its env layer (its bucket + auth) over the ambient
   // shell (ADR-0022/0055 — the one s3cab layer).
@@ -65,11 +136,51 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
     );
   }
 
+  // One timestamp for the whole run, so the audit filename and the `generated:`
+  // line inside it agree by construction (the same reason `snapshotName` reads the
+  // clock once).
+  const timestamp = auditTimestamp();
+  const context = {
+    set: set.name,
+    bucket: set.bucket,
+    snapshots,
+    generated: timestamp,
+  };
+  const auditPath = join(set.dir, auditFile(timestamp));
+
+  // The orphan check — the whole-bucket scan, skipped only by --force. It runs
+  // regardless of the TTY: a non-interactive run gets no prompt but still leaves
+  // the report behind, which is the half of this that survives the terminal.
+  /** @type {string | undefined} */
+  let report;
+  if (!force) {
+    const referencedBySet = await referencedObjects(set.bucket);
+    const plan = planOrphans(referencedBySet, {
+      set: set.name,
+      snapshots,
+      remoteSnapshots: remote,
+    });
+    report = formatOrphanReport(plan, context);
+
+    // The preview lands *before* the prompt, so declining still leaves the list
+    // on disk to read and re-run against — without paying for a second scan.
+    const previewPath = join(s3cabDir(), PREVIEW_FILE);
+    await mkdir(s3cabDir(), { recursive: true });
+    await writeFile(previewPath, report);
+
+    // The summary is the command's *pre-decision* output, so it goes to stdout
+    // here rather than through `render` (ADR-0043), which only runs once the
+    // command has returned — by which point the deletion has happened.
+    console.log(
+      formatOrphanSummary(plan, { set: set.name, reportPath: previewPath }),
+    );
+  }
+
   // TTY → confirm; non-interactive → proceed on the explicitly named snapshots.
   // **One prompt covers the whole run** (docs/design/snapshot-deletion.md): N
   // prompts in a feature built for bulk work is the pattern that trains people to
-  // hold down `y`.
-  if (isInteractive(process.stdin)) {
+  // hold down `y`. --force skips this with the check, the two travelling together.
+  if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
       `Delete ${describe(snapshots)} from set '${set.name}' (bucket ${set.bucket})? This cannot be undone.`,
     );
@@ -85,14 +196,24 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
     await deleteRemoteSnapshot(set.bucket, set.name, name);
   }
 
+  // The deletion happened, so it earns an audit record — kept, unlike the
+  // preview. A `--force` run has no analysis to record, so it files the stub that
+  // says so rather than nothing at all. Written *after* the deletes: the record
+  // states what was deleted, and a run that threw part-way through has a
+  // different story than this file would tell.
+  await mkdir(set.dir, { recursive: true });
+  await writeFile(auditPath, report ?? formatForcedReport(context));
+
   // The objects the snapshots referenced are still stored — point at `cleanup`,
-  // which reclaims whatever nothing references any more. Guidance → stderr.
-  // Saying *how much* is reclaimable is the orphan check's job, still to come
-  // (docs/design/snapshot-deletion.md).
+  // which reclaims whatever nothing references any more. Guidance → stderr. *How
+  // much* is reclaimable was the orphan preview's job above (and is in the audit
+  // record); repeating it here would restate a number the user has just answered
+  // a prompt about, and it is unavailable under --force anyway.
   console.warn(
     `Deleted ${describe(snapshots)} from set '${set.name}'.\n` +
       `Objects they referenced are still stored; reclaim unreferenced ones with: ` +
-      `s3cab cleanup ${set.bucket}`,
+      `s3cab cleanup ${set.bucket}\n` +
+      `Record of this deletion:\n  ${auditPath}`,
   );
 
   return { set: set.name, snapshots, deleted: true };
