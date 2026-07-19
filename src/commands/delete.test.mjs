@@ -1,15 +1,32 @@
 import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
-// Offline tests for `delete`: the S3 reads/writes (listRemoteSnapshots,
-// deleteRemoteSnapshot), the set resolver (loadSet), and the prompt are faked at
-// the lib seam, and the TTY gate is driven via process.stdin.isTTY — so the
-// required-arg guards, the existence check, and the confirm/skip logic are locked
-// down without a bucket or a terminal. The real delete is covered by
-// test/integration/remote.test.mjs's gated round-trip. Mocks first, then a dynamic import.
+import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-/** @type {{ name: string, bucket: string }} */
-let fakeSet = { name: "photos", bucket: "b1" };
+/** @import { ReferencedResult } from "../lib/verify.mjs" */
+
+// Offline tests for `delete`: the S3 reads/writes (listRemoteSnapshots,
+// deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the
+// prompt are faked at the lib seam, and the TTY gate is driven via
+// process.stdin.isTTY — so the required-arg guards, the existence check, the
+// orphan check's wiring, and the confirm/skip logic are locked down without a
+// bucket or a terminal. The orphan *computation* is tested pure in
+// lib/orphans.test.mjs; what's asserted here is the command's part — that the
+// check runs, the report lands on disk, and --force skips both halves. The real
+// delete is covered by test/integration/remote.test.mjs's gated round-trip.
+// Mocks first, then a dynamic import.
+
+/** @type {{ name: string, bucket: string, dir: string }} */
+let fakeSet = { name: "photos", bucket: "b1", dir: "" };
 /** @type {string[]} */
 let remoteSnapshots = [];
 /** @type {[string, string, string][]} */
@@ -18,6 +35,59 @@ let deleteCalls = [];
 let promptAnswer = false;
 /** @type {number} */
 let promptCalls = 0;
+/** @type {number} */
+let referencedCalls = 0;
+/** @type {Map<string, ReferencedResult>} */
+let referenced = new Map();
+
+/**
+ * One set holding two files: `a.jpg` only in the older snapshot, `b.jpg` in both
+ * — so deleting the older alone orphans `a.jpg`, and deleting both adds `b.jpg`
+ * as *shared*. Rebuilt per test (the maps are mutable), and swappable by any test
+ * that needs a different bucket: `mock.module` can only be called once per
+ * specifier, so the *data* is the seam, not a second mock.
+ * @returns {Map<string, ReferencedResult>}
+ */
+const fakeReferenced = () =>
+  new Map([
+    [
+      "photos",
+      {
+        referenced: new Map([
+          [
+            "h1",
+            {
+              paths: new Map([
+                [
+                  "a.jpg",
+                  {
+                    sizes: new Set([500]),
+                    snapshots: new Set(["2026-06-11T0915"]),
+                  },
+                ],
+              ]),
+            },
+          ],
+          [
+            "h2",
+            {
+              paths: new Map([
+                [
+                  "b.jpg",
+                  {
+                    sizes: new Set([300]),
+                    snapshots: new Set(["2026-06-11T0915", "2026-06-12T0915"]),
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+        snapshotsChecked: 2,
+        unreadable: [],
+      },
+    ],
+  ]);
 
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
@@ -25,6 +95,10 @@ mock.module("../lib/env.mjs", {
 mock.module("../lib/remote.mjs", {
   exports: {
     listRemoteSnapshots: async () => remoteSnapshots,
+    referencedObjects: async () => {
+      referencedCalls++;
+      return referenced;
+    },
     deleteRemoteSnapshot: async (
       /** @type {string} */ bucket,
       /** @type {string} */ set,
@@ -50,17 +124,62 @@ const stdin = /** @type {{ isTTY?: boolean }} */ (process.stdin);
 
 /** @type {boolean | undefined} */
 let savedTTY;
+/** @type {string | undefined} */
+let savedHome;
+/** @type {string} */
+let tmp;
+/** @type {string} */
+let home;
+/** @type {string[]} */
+let stdout = [];
+const realLog = console.log;
+
 beforeEach(() => {
   savedTTY = stdin.isTTY;
-  fakeSet = { name: "photos", bucket: "b1" };
+  savedHome = process.env.S3CAB_HOME;
+  // The orphan check always writes its report, so every run needs a home to
+  // write into — a temp one, so no test touches the real ~/.s3cab.
+  tmp = mkdtempSync(join(tmpdir(), "s3cab-delete-"));
+  home = useTempHome(tmp);
+  fakeSet = {
+    name: "photos",
+    bucket: "b1",
+    dir: join(home, ".s3cab", "sets", "photos"),
+  };
   remoteSnapshots = ["2026-06-12T0915", "2026-06-11T0915"];
   deleteCalls = [];
   promptAnswer = false;
   promptCalls = 0;
+  referencedCalls = 0;
+  referenced = fakeReferenced();
+  stdout = [];
+  console.log = (/** @type {unknown[]} */ ...args) =>
+    stdout.push(args.join(" "));
 });
 afterEach(() => {
+  console.log = realLog;
   stdin.isTTY = savedTTY;
+  if (savedHome === undefined) {
+    delete process.env.S3CAB_HOME;
+  } else {
+    process.env.S3CAB_HOME = savedHome;
+  }
+  rmSync(tmp, { recursive: true, force: true });
 });
+
+/** The transient preview, overwritten every checked run. */
+const previewPath = () => join(home, ".s3cab", "delete-orphans-preview.txt");
+
+/**
+ * The audit records in the set's directory. Named with a timestamp minted inside
+ * the command, so tests find them by listing rather than predicting the clock.
+ * @returns {string[]} full paths, sorted
+ */
+const auditRecords = () =>
+  (existsSync(fakeSet.dir) ? readdirSync(fakeSet.dir) : [])
+    .filter((f) => f.startsWith("delete-orphans-"))
+    .sort()
+    .map((f) => join(fakeSet.dir, f));
 
 describe("delete command", () => {
   it("requires --set", async () => {
@@ -157,5 +276,151 @@ describe("delete command", () => {
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
     assert.equal(result.deleted, false);
+  });
+
+  describe("the orphan check", () => {
+    it("writes the preview and summarises it on stdout before the prompt", async () => {
+      stdin.isTTY = true;
+      promptAnswer = true;
+      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+
+      // a.jpg loses its last reference; b.jpg survives in 2026-06-12T0915.
+      const preview = readFileSync(previewPath(), "utf8");
+      const rows = preview.split("\n").filter((l) => l && !l.startsWith("#"));
+      assert.deepEqual(rows, ["2026-06-11T0915\ta.jpg"]);
+      // The trustworthy total is the header's, files and objects apart.
+      assert.match(preview, /# 1 file, holding 500B across 1 stored object\./);
+
+      const summary = stdout.join("\n");
+      assert.match(summary, /^ {2}total orphaned +1 file +500B$/m);
+      // The preview's absolute path lands last, on its own indented line.
+      assert.equal(summary.split("\n").at(-1), `  ${previewPath()}`);
+    });
+
+    it("is bucket-wide, so another set's reference keeps content off the list", async () => {
+      // Not a re-test of planOrphans — this asserts the *command* hands it the
+      // whole bucket rather than the target set's own snapshots (ADR-0013). A
+      // second set references a.jpg's content, so deleting the only photos
+      // snapshot that holds it orphans nothing.
+      referenced.set("docs", {
+        referenced: new Map([
+          [
+            "h1",
+            {
+              paths: new Map([
+                [
+                  "copy.jpg",
+                  { sizes: new Set([500]), snapshots: new Set(["d1"]) },
+                ],
+              ]),
+            },
+          ],
+        ]),
+        snapshotsChecked: 1,
+        unreadable: [],
+      });
+
+      stdin.isTTY = false;
+      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+
+      const rows = readFileSync(previewPath(), "utf8")
+        .split("\n")
+        .filter((l) => l && !l.startsWith("#"));
+      assert.deepEqual(rows, [], "a.jpg is still referenced by set 'docs'");
+      assert.match(stdout.join("\n"), /nothing would be orphaned/);
+    });
+
+    it("computes over the whole selection, so shared content shows as shared", async () => {
+      stdin.isTTY = false;
+      await deleteSnapshot(["2026-06-11T0915", "2026-06-12T0915"], {
+        set: "photos",
+      });
+
+      const summary = stdout.join("\n");
+      // b.jpg is orphaned only because both snapshots go — the shared line.
+      assert.match(summary, /shared across 2 snapshots\s+1 file\s+300B/);
+      assert.match(summary, /total orphaned\s+2 files\s+800B/);
+      // Both snapshots are the set's whole remote history.
+      assert.match(summary, /last remote snapshot of set 'photos'/);
+    });
+
+    it("runs the check without prompting when non-interactive", async () => {
+      // The files are the half of this that survives a scripted run.
+      stdin.isTTY = false;
+      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+
+      assert.equal(promptCalls, 0);
+      assert.equal(referencedCalls, 1);
+      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
+      assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
+    });
+  });
+
+  describe("the audit trail", () => {
+    it("keeps a record in the set's directory once the deletion happens", async () => {
+      stdin.isTTY = true;
+      promptAnswer = true;
+      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+
+      const records = auditRecords();
+      assert.equal(records.length, 1);
+      // Second precision, so two runs a minute apart can't overwrite one another.
+      assert.match(
+        records[0] ?? "",
+        /delete-orphans-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
+      );
+      // It holds the same list as the preview did.
+      assert.match(readFileSync(records[0] ?? "", "utf8"), /a\.jpg/);
+    });
+
+    it("keeps no record when the user declines — but the preview survives", async () => {
+      // Declining still leaves the list to read and re-run against, without
+      // paying for a second scan.
+      stdin.isTTY = true;
+      promptAnswer = false;
+      const result = await deleteSnapshot(["2026-06-11T0915"], {
+        set: "photos",
+      });
+
+      assert.equal(result.deleted, false);
+      assert.deepEqual(auditRecords(), [], "nothing was deleted, so no record");
+      assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
+    });
+
+    it("records a non-interactive run, which deleted without being asked", async () => {
+      stdin.isTTY = false;
+      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+
+      assert.equal(auditRecords().length, 1);
+    });
+
+    it("--force skips the check and the confirmation together, but still files a record", async () => {
+      // The two travel together: skipping the check leaves the prompt nothing
+      // useful to say (docs/design/snapshot-deletion.md). The record is still
+      // written — a trail that silently omits the runs which bypassed the safety
+      // is worse than one that names the gap.
+      stdin.isTTY = true;
+      promptAnswer = false; // would cancel, if it were ever asked
+      const result = await deleteSnapshot(["2026-06-11T0915"], {
+        set: "photos",
+        force: true,
+      });
+
+      assert.equal(referencedCalls, 0, "no whole-bucket scan");
+      assert.equal(promptCalls, 0, "no confirmation");
+      assert.deepEqual(stdout, [], "no preview on stdout");
+      assert.throws(
+        () => readFileSync(previewPath(), "utf8"),
+        "no preview file",
+      );
+      assert.equal(result.deleted, true);
+      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
+
+      const records = auditRecords();
+      assert.equal(records.length, 1);
+      const record = readFileSync(records[0] ?? "", "utf8");
+      assert.match(record, /no orphan analysis \(--force\)/);
+      assert.match(record, /never computed/);
+    });
   });
 });
