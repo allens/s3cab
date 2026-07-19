@@ -654,7 +654,7 @@ export function renderRestore({ set, snapshot, restored, skipped }) {
 }
 
 /**
- * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshot
+ * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshots
  * were removed. The reclaim-with-cleanup hint and the cancel notice are stderr
  * guidance the command already emitted (kept there, not folded in); this is only
  * the result line. `deleted: false` means the user declined the confirmation.
