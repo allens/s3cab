@@ -35,12 +35,33 @@ future "platform / release" epic).
   is an adjective ("the unreferenced objects" is fine, but longer);
   [ADR-0012](../docs/adr/0012-consumer-vocabulary-naming.md) permits keeping genuinely
   technical terms rather than contorting them. **Deliberately not done inside the orphan-check
-  workstream** — a rename across CONTEXT.md, `cleanup`, `render`, the guide and backup.md
-  landing inside a feature diff makes that diff unreviewable; it wants its own commit.
-  **Open sub-question to settle first:** what exactly an *orphaned file* is — (a) no snapshot
-  lists this path any more, or (b) no snapshot lists it **and** its content is now
-  unreferenced. `delete`'s report is (b); (a) is the larger set and arguably the more natural
-  reading of the word. Both may deserve names.
+  workstream** (PR #217) — a rename landing inside a feature diff makes that diff
+  unreviewable; it wants its own commit.
+
+  **Settle this first — what an _orphaned file_ is.** (a) no snapshot lists this path any
+  more, or (b) no snapshot lists it **and** its content is now unreferenced. `delete`'s report
+  is (b); (a) is the larger set and arguably the more natural reading. Both may deserve names.
+  The constraint that decides it: **`verify` already calls a file whose content is absent from
+  the store `missing`** (a `problem` value in verify.mjs, documented in
+  [guide/maintenance.md](../guide/maintenance.md)), so part of the file-side space is named
+  already — check what is genuinely vacant before moving `orphan` into it.
+
+  **Scope, measured (2026-07-19):** 37 files mention `orphan`, ~185 occurrences in `.mjs`
+  alone. The heaviest carriers are `src/lib/orphans.mjs` + its test (a whole module named for
+  the term, added by #217 — and note `planOrphans` computes *objects* that become unreferenced
+  while reporting them as *files*, so the split cuts straight through it),
+  `src/lib/cleanup.mjs` (`orphanHashes`), `src/commands/cleanup.mjs` (`orphanObjects`),
+  `src/render.mjs`, `src/commands/delete.mjs`, plus [CONTEXT.md](../CONTEXT.md),
+  [backup.md](../docs/design/backup.md),
+  [snapshot-deletion.md](../docs/design/snapshot-deletion.md) and
+  [guide/maintenance.md](../guide/maintenance.md). Sweep by `grep`, not from memory — the
+  earlier estimate in this note listed five files and was badly short.
+
+  **It is a breaking change to the JSON contract, not only prose.** `--json` emits the raw
+  result structure (s3cab.mjs), so `CleanupResult.orphanObjects` is a *field name* anyone
+  scripting against `s3cab cleanup --json` depends on. Pre-1.0 gives free rein (CLAUDE.md #5),
+  but the rename must be taken as a deliberate output-contract break, not slipped through as a
+  tidy-up.
 - **`scripts/`: empty-a-versioned-bucket helper for manual testing** (write fresh when asked).
   The deleted `emptyBucket` in s3.mjs was meant for this but never did it — a plain per-key
   `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs
