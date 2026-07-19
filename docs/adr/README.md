@@ -91,6 +91,7 @@ ADR as a live constraint.
 - [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent
 - [0051](0051-native-separator-in-user-path-files.md) — User-facing path files (the starter `exclude.txt`) use the native separator; `/` stays an internal matching form
 - [0061](0061-debug-only-uncompressed-snapshot-sidecar.md) — The uncompressed `.snapshot.tsv` sidecar stays `S3CAB_DEBUG`-only; no-lock-in is already met by the standard `.tsv.zst` *(accepted; applies 0002/0006)*
+- [0062](0062-bulk-operands-positional-addressing-by-flag.md) — Bulk operands are positional, addressing moves to `--set`/`-S` (`delete`/`restore`/`setup`); `-s` stays `--snapshot` *(accepted, not yet implemented; answers 0040's deferred question; design in docs/design/snapshot-deletion.md)*
 - [0060](0060-multipart-tuning-in-flight-bytes.md) — Multipart tuning: 16 MiB parts × 32 concurrent (512 MiB in flight); bytes in flight are the lever, more streams beat bigger parts, and the unset `queueSize` (lib-storage's 4) was the real culprit *(accepted & implemented; measured from three network distances — benchmark kept as an ad-hoc script)*
 
 ### Auth, credentials & connection config
