@@ -20,48 +20,43 @@ future "platform / release" epic).
   name TBD — `--no-manifest` / `--objects-only`). Deferred from the upload epic (ADR-0044) per
   #7 — no use has appeared. Harmless if added: orphan objects with no manifest are the *safe*
   direction (wasted space, not corruption).
-- **Split the vocabulary: `orphan` for the _file_ side, `unreferenced` for the _object_ side.**
-  Today [CONTEXT.md](../CONTEXT.md) defines **orphan** as an *object* nothing references, and
-  `cleanup` is built on it (`orphanHashes`, `orphanObjects`), as are the guide and
-  [backup.md](../docs/design/backup.md). The proposal is to move `orphan` to files and call the
-  object state **unreferenced**. Three arguments for it: the glossary already defines orphan
-  *by* the word unreferenced ("an object that no snapshot **references** any more"), which
-  usually means the defining word is the better term; the two are genuinely **different states
-  in a many-to-one relationship** — a file can lose its last reference while its object stays
-  referenced by another set, and "the orphan is still referenced" is unsayable in one
-  vocabulary; and the split matches audience, since the guide talks in files and `cleanup`
-  talks in storage, so a skim-reader picks up which world they are in from the term alone.
-  Against: `orphan` is the conventional term in this space and is a noun where `unreferenced`
-  is an adjective ("the unreferenced objects" is fine, but longer);
-  [ADR-0012](../docs/adr/0012-consumer-vocabulary-naming.md) permits keeping genuinely
-  technical terms rather than contorting them. **Deliberately not done inside the orphan-check
-  workstream** (PR #217) — a rename landing inside a feature diff makes that diff
-  unreviewable; it wants its own commit.
+- **New vocabulary: `unrestorable` for the file side; `orphan` stays object-only —
+  grilled 2026-07-19 with `/grilling`, replacing an earlier swap proposal.** That earlier idea
+  (move `orphan` to files, coin **unreferenced** for objects) was grilled on the premise first
+  and didn't survive it: the object-side convention argument doesn't hold up (git/docker
+  actually favor "unreachable"/"dangling" over "orphan" for storage objects), and there turns
+  out to be no second reference-counted entity to name — a **path** has no persistent stored
+  identity of its own (no `paths/<path>` object; it exists only as row-content inside snapshot
+  files), so it cannot "lose a reference" the way an **object** can.
+  [`orphans.mjs`](../src/lib/orphans.mjs)'s `planOrphans` was never computing a second state; it
+  renders the *same* orphan-object state by path instead of hash, because a hash means nothing
+  to a person.
 
-  **Settle this first — what an _orphaned file_ is.** (a) no snapshot lists this path any
-  more, or (b) no snapshot lists it **and** its content is now unreferenced. `delete`'s report
-  is (b); (a) is the larger set and arguably the more natural reading. Both may deserve names.
-  The constraint that decides it: **`verify` already calls a file whose content is absent from
-  the store `missing`** (a `problem` value in verify.mjs, documented in
-  [guide/maintenance.md](../guide/maintenance.md)), so part of the file-side space is named
-  already — check what is genuinely vacant before moving `orphan` into it.
+  What `delete`'s report actually needs to name is a **user consequence**, not a storage fact:
+  which paths `restore` can never produce again once these snapshots are gone. "Orphan" imports
+  the wrong layer (object accounting) onto that. The replacement, **`unrestorable`**, hooks onto
+  the **Restore** entry already in [CONTEXT.md](../CONTEXT.md) instead of borrowing `cleanup`'s
+  vocabulary: *a path no surviving snapshot lists, so `restore` can no longer produce it.*
+  `orphan`'s existing CONTEXT.md definition is untouched; `unrestorable` would be a new entry
+  cross-referencing both `Orphan` and `Restore`. The computation in `planOrphans` doesn't need
+  to change — bucket-wide hash-reference survival is still accepted as the right practical
+  answer, even though in a rare case it can call a path unrestorable while its content is
+  technically still retrievable under a different path or snapshot — only what's exposed does.
 
-  **Scope, measured (2026-07-19):** 37 files mention `orphan`, ~185 occurrences in `.mjs`
-  alone. The heaviest carriers are `src/lib/orphans.mjs` + its test (a whole module named for
-  the term, added by #217 — and note `planOrphans` computes *objects* that become unreferenced
-  while reporting them as *files*, so the split cuts straight through it),
-  `src/lib/cleanup.mjs` (`orphanHashes`), `src/commands/cleanup.mjs` (`orphanObjects`),
-  `src/render.mjs`, `src/commands/delete.mjs`, plus [CONTEXT.md](../CONTEXT.md),
-  [backup.md](../docs/design/backup.md),
-  [snapshot-deletion.md](../docs/design/snapshot-deletion.md) and
-  [guide/maintenance.md](../guide/maintenance.md). Sweep by `grep`, not from memory — the
-  earlier estimate in this note listed five files and was badly short.
-
-  **It is a breaking change to the JSON contract, not only prose.** `--json` emits the raw
-  result structure (s3cab.mjs), so `CleanupResult.orphanObjects` is a *field name* anyone
-  scripting against `s3cab cleanup --json` depends on. Pre-1.0 gives free rein (CLAUDE.md #5),
-  but the rename must be taken as a deliberate output-contract break, not slipped through as a
-  tidy-up.
+  **Scope, if it proceeds to code:** confined to
+  [`src/lib/orphans.mjs`](../src/lib/orphans.mjs) (module + types — `planOrphans` →
+  `planUnrestorable`, `OrphanPlan` → `UnrestorablePlan` — and its test),
+  [`src/commands/delete.mjs`](../src/commands/delete.mjs)'s use of it, the stdout header
+  ("Orphan preview" → something in the unrestorable family), the report filenames
+  (`delete-orphans-preview.txt` → `delete-unrestorable-preview.txt`,
+  `delete-orphans-<timestamp>.txt` → `delete-unrestorable-<timestamp>.txt`), delete's section of
+  [guide/maintenance.md](../guide/maintenance.md), and
+  [snapshot-deletion.md](../docs/design/snapshot-deletion.md). Does **not** touch `cleanup`,
+  `CleanupResult.orphanObjects`, [`src/lib/cleanup.mjs`](../src/lib/cleanup.mjs), `objects.mjs`,
+  or the object-store half of the guide — no JSON-contract break, nowhere near the
+  ~185-occurrence/37-file scope the swap proposal measured. Needs a worktree + PR (CLAUDE.md
+  #7 — this is code, not doc-only); rescope from a fresh `grep` at build time, not from this
+  note.
 - **`scripts/`: empty-a-versioned-bucket helper for manual testing** (write fresh when asked).
   The deleted `emptyBucket` in s3.mjs was meant for this but never did it — a plain per-key
   `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs
