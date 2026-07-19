@@ -126,3 +126,23 @@ all: the command's output is the summary on stdout, and the file is a side artif
 relocates rather than redirects. That was weighed and judged not worth a bespoke flag name —
 but it is the argument to revisit if the report ever grows into something other than "the
 long form of what you just read".
+
+### Amendment: that condition was met — `delete` has no `-o`
+
+**Superseded when the orphan check was built** ([snapshot-deletion.md](../design/snapshot-deletion.md)).
+The report did grow into something else: **two artifacts with different lifecycles** — a
+transient preview at `~/.s3cab/delete-orphans-preview.txt`, and a kept audit record at
+`~/.s3cab/sets/<set>/delete-orphans-<timestamp>.txt`.
+
+That dissolves the flag's justification rather than merely weakening it. `-o` existed because
+two concurrent deletes would clobber the single file; the audit trail solves that properly,
+since the record of each deletion is preserved and only the transient preview is overwritten
+— and nothing of value is lost when it is. A flag that relocates a file which is rewritten
+every run and read within seconds is a surface with no use behind it, so it goes
+([ADR-0006](0006-minimal-code.md)).
+
+**`delete` therefore takes `--set`/`-S` and `--force`/`-f`, and no `--output`.** The
+file-vs-directory asymmetry this section defends is retired with it: `-o` now means a
+directory on `restore` and nothing anywhere else. The reasoning above is kept rather than
+deleted because it remains the right answer *if* a future command wants a `-o` naming a file
+— the conclusion held; its premise expired.
