@@ -313,7 +313,7 @@ export function awsIamPlan({ bucket, region, profile, templatePath }) {
 
     `3. Create your backup set and store the key on it in one step (paste the\n` +
       `   key + secret from step 2 when prompted):\n` +
-      `   s3cab setup <name> <directory>... --bucket ${bucket} --keys`,
+      `   s3cab setup --set <name> --bucket ${bucket} --keys <directory>...`,
 
     `Prefer no long-lived key? Re-run with --roles-anywhere for keyless,\n` +
       `certificate-based access (recommended).`,
@@ -380,7 +380,7 @@ export function awsRolesAnywherePlan({
       `   s3cab aws --roles-anywhere --save --from-stack ${stack}${rf}${pf}`,
 
     `3. Point a backup set at this identity — at creation:\n` +
-      `   s3cab setup <name> <directory>... --bucket ${bucket} --roles-anywhere\n` +
+      `   s3cab setup --set <name> --bucket ${bucket} --roles-anywhere <directory>...\n` +
       `   or switch an existing set:\n` +
       `   s3cab provider --roles-anywhere <set>`,
 
@@ -407,7 +407,7 @@ to your machine identity at ${dir}/env.
 
 Your keyless identity is now fully configured. Point a backup set at it — at
 creation:
-  s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
+  s3cab setup --set <name> --bucket <bucket> --roles-anywhere <directory>...
 or switch an existing set:
   s3cab provider --roles-anywhere <set>
 s3cab then authenticates with the certificate and receives short-lived AWS

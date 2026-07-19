@@ -1,7 +1,7 @@
 # Bulk operands are positional; a command's addressing moves to `--set`
 
-**Status:** accepted (design settled 2026-07-19 in a grilling session) — **not yet
-implemented.** Answers the question [0040](0040-restore-requires-set-name.md) deferred
+**Status:** accepted (design settled 2026-07-19 in a grilling session) — **implemented**
+(see *Delivery* below). Answers the question [0040](0040-restore-requires-set-name.md) deferred
 ("a future `verify`/`delete` shape should weigh the same question when built"). Reasoned
 under the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the
 `cli-design` skill).
@@ -91,3 +91,38 @@ both flags coexist**. `-s` keeps its established meaning there and in `upload`; 
 - The missing-argument error for a required `--set` should name `-S, --set`; today usage
   errors show the long form only. That is a separate, unrecorded gap — see
   [proposals/output-ux.md](../../proposals/output-ux.md).
+
+## Delivery
+
+**One ADR, not two.** Splitting this so `restore`/`setup` moved separately from `delete` was
+weighed and rejected: the decision's whole content is the *rule*, and the rule is what
+explains all three commands. Two ADRs would either duplicate it or leave one of them stating
+a shape with no reason behind it. What *is* separable is delivery, and it is separated here:
+
+- **All three commands moved their addressing to `--set` in one change**, and `delete`'s
+  snapshots are genuinely variadic from the start: it validates every name, prompts once for
+  the whole run, then deletes them in order.
+- **What `delete` still owes** is [snapshot-deletion.md](../design/snapshot-deletion.md)'s
+  *analysis*, not its shape: the whole-bucket orphan check, the report file, `-o` and
+  `--force`. That design's confirmation model (one prompt, non-interactive proceeds) is
+  already what ships.
+- The distinction that matters: **operand count is this ADR's decision** and lands here; the
+  expensive check built *on top of* several operands is a feature, and lands with the design.
+  Whole-selection validation before any deletion is not optional either way — a bad third name
+  must never leave the first two already gone.
+
+## `-o` means a file on `delete` and a directory on `restore` — accepted
+
+`restore -o` names a directory to re-root under; the designed `delete -o` names the file the
+orphan report is written to. **Keep both as `-o`/`--output`.** `-o` is among the most
+entrenched conventions in the ecosystem and its operand *type* is command-determined
+everywhere it appears (`curl -o file`, `gcc -o file`); no invocation ever carries both
+meanings at once, so the ambiguity is never in front of a user — the worst case is a
+wrong-type path rejected immediately. Renaming `restore -o` breaks a shipped, documented flag
+to buy nothing, and giving `delete` a `--report` instead costs it the flag people try first.
+
+The genuinely arguable point is not the asymmetry but whether `delete`'s file is *output* at
+all: the command's output is the summary on stdout, and the file is a side artifact `-o`
+relocates rather than redirects. That was weighed and judged not worth a bespoke flag name —
+but it is the argument to revisit if the report ever grows into something other than "the
+long form of what you just read".

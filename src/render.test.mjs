@@ -777,10 +777,23 @@ describe("renderDelete", () => {
     assert.equal(
       renderDelete({
         set: "photos",
-        snapshot: "2026-06-12T0915",
+        snapshots: ["2026-06-12T0915"],
         deleted: true,
       }),
       "Snapshot '2026-06-12T0915' deleted from set 'photos'.",
+    );
+  });
+
+  it("counts a multi-snapshot deletion rather than listing them again", () => {
+    // The names were just echoed in the confirmation prompt; the result line is
+    // the tally.
+    assert.equal(
+      renderDelete({
+        set: "photos",
+        snapshots: ["2026-06-12T0915", "2026-06-19T0902"],
+        deleted: true,
+      }),
+      "2 snapshots deleted from set 'photos'.",
     );
   });
 
@@ -788,7 +801,7 @@ describe("renderDelete", () => {
     assert.equal(
       renderDelete({
         set: "photos",
-        snapshot: "2026-06-12T0915",
+        snapshots: ["2026-06-12T0915"],
         deleted: false,
       }),
       "Snapshot '2026-06-12T0915' kept — deletion cancelled.",

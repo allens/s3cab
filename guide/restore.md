@@ -8,7 +8,7 @@ everyday one to the rare backstop:
 - **everything**, onto a working or a replacement machine — the disaster-recovery case.
 
 ```console
-> s3cab restore photos C:\Users\me\Photos\beach.jpg
+> s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Restored 1 file from 'photos' (snapshot 2026-06-12T0915).
 ```
 
@@ -16,10 +16,12 @@ Restore always reads from the **cloud**, never a local snapshot: a local snapsho
 only hashes, and the file _contents_ live solely in the bucket's `objects/` store. That is
 why there is no `--remote` flag — there is nothing else it could mean.
 
-The set name is **required** — `s3cab restore photos …`, never a bare `s3cab restore`, even
+The set is **required** — `s3cab restore --set photos …`, never a bare `s3cab restore`, even
 if you only have one set. Every other command defaults to your only set; restore deliberately
-doesn't ([ADR-0040](https://github.com/allens/s3cab/blob/main/docs/adr/0040-restore-requires-set-name.md)),
-because a leading optional set name would be ambiguous with a leading path.
+doesn't ([ADR-0040](https://github.com/allens/s3cab/blob/main/docs/adr/0040-restore-requires-set-name.md)):
+a destructive-adjacent command shouldn't guess its target. It is named by `--set` because the
+paths are what you list — a command's bulk operand takes the positionals, and its addressing
+moves to a flag ([ADR-0062](https://github.com/allens/s3cab/blob/main/docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)).
 
 ## Choosing what to restore
 
@@ -28,13 +30,13 @@ that down:
 
 ```console
 # One file
-> s3cab restore photos C:\Users\me\Photos\beach.jpg
+> s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 
 # A whole directory (everything under it)
-> s3cab restore photos C:\Users\me\Photos\2024
+> s3cab restore --set photos C:\Users\me\Photos\2024
 
 # Several at once
-> s3cab restore photos C:\Users\me\Photos\2024 C:\Users\me\Photos\beach.jpg
+> s3cab restore --set photos C:\Users\me\Photos\2024 C:\Users\me\Photos\beach.jpg
 ```
 
 Three rules worth knowing:
@@ -51,7 +53,7 @@ Three rules worth knowing:
 If nothing matches, restore stops rather than silently doing nothing:
 
 ```console
-> s3cab restore photos C:\Users\me\Photos\nope.jpg
+> s3cab restore --set photos C:\Users\me\Photos\nope.jpg
 No files in snapshot '2026-06-12T0915' matched: C:\Users\me\Photos\nope.jpg
 ```
 
@@ -62,7 +64,7 @@ older snapshot with `--snapshot` (`-s`) — the names are what `s3cab list <set>
 prints:
 
 ```console
-> s3cab restore photos C:\Users\me\Photos\report.pdf --snapshot 2026-05-01T0800
+> s3cab restore --set photos C:\Users\me\Photos\report.pdf --snapshot 2026-05-01T0800
 Restored 1 file from 'photos' (snapshot 2026-05-01T0800).
 ```
 
@@ -75,7 +77,7 @@ A snapshot name that doesn't exist is an error listing the real ones, so a typo 
 quietly restore the wrong thing:
 
 ```console
-> s3cab restore photos --snapshot 2026-05-01
+> s3cab restore --set photos --snapshot 2026-05-01
 Snapshot '2026-05-01' not found for set 'photos'.
 Available snapshots (newest first):
   2026-06-12T0915
@@ -87,7 +89,7 @@ Available snapshots (newest first):
 By default restore **skips any file that already exists** and tells you which:
 
 ```console
-> s3cab restore photos
+> s3cab restore --set photos
 Restored 2 files from 'photos' (snapshot 2026-06-12T0915).
 
 Skipped 1 existing file (rerun with --overwrite to replace):
@@ -95,14 +97,14 @@ Skipped 1 existing file (rerun with --overwrite to replace):
 ```
 
 This is the behaviour that makes restore safe to reach for. Your accidental deletion comes
-back; everything you've worked on since stays exactly as it is. A full `s3cab restore photos`
+back; everything you've worked on since stays exactly as it is. A full `s3cab restore --set photos`
 after deleting one directory does the obvious right thing — it refills the gap and leaves the
 rest alone.
 
 Pass `--overwrite` when you genuinely want the backup's copy to win:
 
 ```console
-> s3cab restore photos C:\Users\me\Photos\report.pdf --overwrite
+> s3cab restore --set photos C:\Users\me\Photos\report.pdf --overwrite
 ```
 
 The skipped list is never truncated — each entry is a file you asked for and didn't get, so
@@ -114,7 +116,7 @@ restore names them all.
 to the original locations. Each backed-up directory lands under its own name:
 
 ```console
-> s3cab restore photos --output D:\recovered
+> s3cab restore --set photos --output D:\recovered
 ```
 
 A set covering `C:\Users\me\Photos` restores to `D:\recovered\Photos\…`. It's shallow and
@@ -142,7 +144,7 @@ first, then restore:
 
 ```console
 > s3cab reattach photos --bucket my-backups
-> s3cab restore photos
+> s3cab restore --set photos
 ```
 
 `reattach` pulls the set's _configuration and snapshot history_ down — not the files. It's
@@ -167,7 +169,7 @@ output. For the machine-readable result, add `--json` — see [output formats](o
 ## If there's nothing to restore
 
 ```console
-> s3cab restore photos
+> s3cab restore --set photos
 No backups for set 'photos'. Back one up with: s3cab backup photos
 ```
 

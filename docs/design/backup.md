@@ -128,7 +128,7 @@ its public `dirs.txt`, edited directly like `exclude.txt`, so re-running `setup`
 already exists here is refused ([ADR-0052](../adr/0052-retire-setup-update-mode.md)).
 
 ```
-s3cab setup <set> <dir>... --bucket <bucket>
+s3cab setup --set <set> --bucket <bucket> <dir>...
 ```
 
 **`--bucket` is required** ([ADR-0026](../adr/0026-bucket-required-at-setup.md)): a set is
@@ -211,7 +211,7 @@ just composes.
 
 ### `restore` — put files back, never destructively by default
 
-`s3cab restore [<set>] [paths…]` restores to **original locations** (the snapshot's
+`s3cab restore --set <set> [paths…]` restores to **original locations** (the snapshot's
 absolute paths) but **never touches an existing file** — existing files are reported as
 skipped; `--overwrite` replaces them. So the disaster-recovery case (empty disk) and the
 "I deleted a directory" case both just work, and a careless restore can't destroy newer
@@ -230,11 +230,11 @@ basename is detected up front and errors with guidance (rare, actionable).
 > [snapshot-deletion.md](snapshot-deletion.md) ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md))
 > and **not yet built**. This section describes what ships today.
 
-`s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
-*primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
+`s3cab delete --set <set> <snapshot>...` removes remote snapshots — the retention
+*primitive*. It deletes only the snapshots; reclaiming the objects only it referenced is
 `cleanup`'s job (the command's output says so). It never touches `objects/`. On a TTY it confirms
 with a y/N prompt naming the snapshot and set — the same confirmation pattern as
-`cleanup --delete`; non-interactive runs proceed on the explicit flag. Retention
+`cleanup --delete`; non-interactive runs proceed on the explicitly named snapshot. Retention
 *policy* (keep the last 12 monthlies, …) comes later, on top of this primitive. (Local
 snapshots need no command: the files are the API — delete the file.)
 

@@ -63,23 +63,58 @@ afterEach(() => {
 });
 
 describe("delete command", () => {
-  it("requires a set name", async () => {
+  it("requires --set", async () => {
+    // The snapshot is the operand; the set is addressed by a flag (ADR-0062).
     await assert.rejects(
-      () => deleteSnapshot(undefined, { snapshot: "2026-06-12T0915" }),
-      /Missing required argument: <set>/,
+      () => deleteSnapshot(["2026-06-12T0915"], {}),
+      /Missing required argument: --set/,
     );
   });
 
-  it("requires --snapshot", async () => {
+  it("requires a snapshot operand", async () => {
     await assert.rejects(
-      () => deleteSnapshot("photos", {}),
-      /Missing required argument: --snapshot/,
+      () => deleteSnapshot([], { set: "photos" }),
+      /Missing required argument: <snapshot>/,
     );
+  });
+
+  it("deletes several snapshots in one run, after a single prompt", async () => {
+    // Snapshots are the bulk operand (ADR-0062): one run, one confirmation.
+    stdin.isTTY = true;
+    promptAnswer = true;
+    const result = await deleteSnapshot(
+      ["2026-06-12T0915", "2026-06-11T0915"],
+      { set: "photos" },
+    );
+
+    assert.equal(promptCalls, 1);
+    assert.deepEqual(deleteCalls, [
+      ["b1", "photos", "2026-06-12T0915"],
+      ["b1", "photos", "2026-06-11T0915"],
+    ]);
+    assert.deepEqual(result, {
+      set: "photos",
+      snapshots: ["2026-06-12T0915", "2026-06-11T0915"],
+      deleted: true,
+    });
+  });
+
+  it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {
+    // The whole selection is checked up front: a bad third name must not leave
+    // the first two already deleted (the deletions are not undoable).
+    await assert.rejects(
+      () =>
+        deleteSnapshot(["2026-06-12T0915", "2099-01-01T0000"], {
+          set: "photos",
+        }),
+      /Snapshot '2099-01-01T0000' is not backed up for set 'photos'/,
+    );
+    assert.equal(deleteCalls.length, 0);
   });
 
   it("errors helpfully when the snapshot isn't backed up", async () => {
     await assert.rejects(
-      () => deleteSnapshot("photos", { snapshot: "2099-01-01T0000" }),
+      () => deleteSnapshot(["2099-01-01T0000"], { set: "photos" }),
       /not backed up for set 'photos'[\s\S]*s3cab list photos --remote/,
     );
     assert.equal(deleteCalls.length, 0);
@@ -87,15 +122,15 @@ describe("delete command", () => {
 
   it("deletes without prompting when non-interactive", async () => {
     stdin.isTTY = false;
-    const result = await deleteSnapshot("photos", {
-      snapshot: "2026-06-12T0915",
+    const result = await deleteSnapshot(["2026-06-12T0915"], {
+      set: "photos",
     });
 
     assert.equal(promptCalls, 0);
     assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-12T0915"]]);
     assert.deepEqual(result, {
       set: "photos",
-      snapshot: "2026-06-12T0915",
+      snapshots: ["2026-06-12T0915"],
       deleted: true,
     });
   });
@@ -103,8 +138,8 @@ describe("delete command", () => {
   it("deletes on a TTY when the user confirms", async () => {
     stdin.isTTY = true;
     promptAnswer = true;
-    const result = await deleteSnapshot("photos", {
-      snapshot: "2026-06-12T0915",
+    const result = await deleteSnapshot(["2026-06-12T0915"], {
+      set: "photos",
     });
 
     assert.equal(promptCalls, 1);
@@ -115,8 +150,8 @@ describe("delete command", () => {
   it("deletes nothing on a TTY when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;
-    const result = await deleteSnapshot("photos", {
-      snapshot: "2026-06-12T0915",
+    const result = await deleteSnapshot(["2026-06-12T0915"], {
+      set: "photos",
     });
 
     assert.equal(promptCalls, 1);

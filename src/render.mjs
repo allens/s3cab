@@ -654,17 +654,21 @@ export function renderRestore({ set, snapshot, restored, skipped }) {
 }
 
 /**
- * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshot
- * was removed. The reclaim-with-cleanup hint and the cancel notice are stderr
+ * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshots
+ * were removed. The reclaim-with-cleanup hint and the cancel notice are stderr
  * guidance the command already emitted (kept there, not folded in); this is only
  * the result line. `deleted: false` means the user declined the confirmation.
  * @param {DeleteResult} result
  * @returns {string}
  */
-export function renderDelete({ set, snapshot, deleted }) {
+export function renderDelete({ set, snapshots, deleted }) {
+  const what =
+    snapshots.length === 1
+      ? `Snapshot '${snapshots[0]}'`
+      : `${snapshots.length} snapshots`;
   return deleted
-    ? `Snapshot '${snapshot}' deleted from set '${set}'.`
-    : `Snapshot '${snapshot}' kept — deletion cancelled.`;
+    ? `${what} deleted from set '${set}'.`
+    : `${what} kept — deletion cancelled.`;
 }
 
 /**

@@ -123,7 +123,8 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
 
       // The claim itself authenticates through the certificate (RA mode), proving
       // the signer end-to-end before a single object is uploaded.
-      const set = await setup(setName, [srcDir], {
+      const set = await setup([srcDir], {
+        set: setName,
         bucket,
         "roles-anywhere": true,
       });
@@ -135,7 +136,7 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
 
       try {
         rmSync(srcDir, { recursive: true, force: true });
-        const restored = await restore(setName);
+        const restored = await restore([], { set: setName });
         assert.equal(restored.snapshot, snapshot);
         assert.equal(restored.restored.length, entries.size);
         for (const [path, props] of entries) {

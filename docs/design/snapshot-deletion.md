@@ -3,9 +3,12 @@
 ## Status
 
 **Designed 2026-07-19 (a grilling session) — not built.** Everything below describes the
-*target*; `src/` is what works now. Today's `delete` removes one snapshot named by
-`--snapshot` and performs no orphan analysis. The command shape this design assumes is
-[ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md).
+*target*; `src/` is what works now. The **shape** below has shipped
+([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)): `delete` takes
+several snapshots as its positional operand, addresses the set with `--set`, validates every
+name before deleting any, and confirms once for the whole run. What it does **not** yet do is
+the part this design is actually about — the orphan check, the report file, `-o` and
+`--force`.
 
 ## Purpose
 
@@ -172,6 +175,9 @@ there would be evidence rather than a guess.
 ## Open
 
 - **The artifact's filename.** `~/.s3cab/last-delete.txt` is provisional.
+- ~~Whether `-o` meaning a *file* here and a *directory* on `restore` is tolerable.~~
+  **Settled: it is** — see [ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)'s
+  closing section. `-o`/`--output` on both.
 - **Whether `--force` should also be spelled `--no-check`** for self-documentation, at the
   cost of a mouthful and of diverging from `upload --force`.
 - **Retention policy** (keep-last / daily / weekly / monthly) remains deferred — it is the

@@ -181,7 +181,7 @@ with AWS IAM Identity Center (SSO)? It works through the standard credential
 chain — no separate setup; see 's3cab help provider'.
 
 Then create a backup set in it:
-  s3cab setup <name> <directory>... --bucket <bucket>
+  s3cab setup --set <name> --bucket <bucket> <directory>...
 
 Full guide: https://s3cab.plantegral.com/guide/aws`,
     args: {
@@ -244,7 +244,7 @@ MinIO, …):
    delete, and list on its objects (R2: API Tokens; B2: Application Keys;
    Wasabi: sub-users).
 4. Create the backup set, pointed at the provider in one command:
-     s3cab setup <name> <dir>... --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys
+     s3cab setup --set <name> --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys <dir>...
    (--keys asks for the key + secret; some providers need a real region,
    e.g. us-east-1. Change these later with 's3cab provider'. s3cab drops
    AWS-only request features automatically when a custom endpoint is set.)
@@ -362,18 +362,22 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
   },
   setup: {
     summary: "Create a backup set",
-    examples: ["s3cab setup photos C:\\Users\\me\\Photos --bucket my-backups"],
+    examples: [
+      "s3cab setup --set photos --bucket my-backups C:\\Users\\me\\Photos",
+    ],
     args: {
-      set: {
-        required: true,
-        description: "The backup set to create",
-      },
       directory: {
+        required: true,
         variadic: true,
         description: "The directories that make up the set",
       },
     },
     options: {
+      set: {
+        type: "string",
+        short: "S",
+        description: "The backup set to create (required)",
+      },
       bucket: {
         type: "string",
         short: "b",
@@ -404,8 +408,7 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
           "Point the set at the keyless Roles Anywhere identity (set it up first with 's3cab aws --roles-anywhere')",
       },
     },
-    exec: (options, [name, ...directories] = []) =>
-      setup(name, directories, options),
+    exec: (options, directories = []) => setup(directories, options),
     render: renderSetup,
   },
   reattach: {
@@ -443,12 +446,11 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
   restore: {
     summary: "Restore files from a backup",
     examples: [
-      "s3cab restore photos",
-      "s3cab restore photos C:\\Users\\me\\Photos\\beach.jpg",
-      "s3cab restore photos --output D:\\recovered",
+      "s3cab restore --set photos",
+      "s3cab restore --set photos C:\\Users\\me\\Photos\\beach.jpg",
+      "s3cab restore --set photos --output D:\\recovered",
     ],
     args: {
-      set: { required: true, description: "The backup set to restore" },
       path: {
         variadic: true,
         description:
@@ -456,6 +458,11 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
       },
     },
     options: {
+      set: {
+        type: "string",
+        short: "S",
+        description: "The backup set to restore (required)",
+      },
       snapshot: {
         type: "string",
         short: "s",
@@ -471,7 +478,7 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
         description: `Restore under this directory (as <output>${sep}<directory-name>${sep}…) instead of the original locations`,
       },
     },
-    exec: (options, [set, ...paths] = []) => restore(set, paths, options),
+    exec: (options, paths = []) => restore(paths, options),
     render: renderRestore,
   },
   verify: {
@@ -487,22 +494,26 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
     render: renderVerify,
   },
   delete: {
-    summary: "Delete one snapshot from a backup",
-    examples: ["s3cab delete photos --snapshot 2026-06-12T0915"],
+    summary: "Delete snapshots from a backup",
+    examples: [
+      "s3cab delete --set photos 2026-06-12T0915",
+      "s3cab delete --set photos 2026-06-12T0915 2026-06-19T0902",
+    ],
     args: {
-      set: {
+      snapshot: {
         required: true,
-        description: "The backup set the snapshot belongs to",
+        variadic: true,
+        description: "Which snapshots to delete",
       },
     },
     options: {
-      snapshot: {
+      set: {
         type: "string",
-        short: "s",
-        description: "Which snapshot to delete (required)",
+        short: "S",
+        description: "The backup set the snapshot belongs to (required)",
       },
     },
-    exec: (options, [set] = []) => deleteSnapshot(set, options),
+    exec: (options, snapshots = []) => deleteSnapshot(snapshots, options),
     render: renderDelete,
   },
   cleanup: {

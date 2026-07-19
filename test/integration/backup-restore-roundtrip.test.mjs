@@ -60,7 +60,7 @@ describe("backup → restore round trip (real bucket)", () => {
     writeFileSync(beach, `beach ${setName}`);
     writeFileSync(ski, `ski ${setName}`);
 
-    const set = await setup(setName, [srcDir], { bucket });
+    const set = await setup([srcDir], { set: setName, bucket });
     assert.ok(set); // creating a set returns it
     const { snapshot } = await backup(setName);
 
@@ -73,7 +73,7 @@ describe("backup → restore round trip (real bucket)", () => {
     try {
       // Wipe the originals, then restore to their original locations.
       rmSync(srcDir, { recursive: true, force: true });
-      const r1 = await restore(setName);
+      const r1 = await restore([], { set: setName });
       assert.equal(r1.snapshot, snapshot);
       assert.equal(r1.skipped.length, 0);
       assert.equal(r1.restored.length, entries.size);
@@ -87,7 +87,7 @@ describe("backup → restore round trip (real bucket)", () => {
       }
 
       // A second restore touches nothing — every file now exists.
-      const r2 = await restore(setName);
+      const r2 = await restore([], { set: setName });
       assert.equal(r2.restored.length, 0);
       assert.equal(r2.skipped.length, entries.size);
 
@@ -96,14 +96,14 @@ describe("backup → restore round trip (real bucket)", () => {
       assert.ok(first, "snapshot has at least one entry");
       const [firstPath, firstProps] = first;
       writeFileSync(firstPath, "locally changed since the backup");
-      const r3 = await restore(setName, [], { overwrite: true });
+      const r3 = await restore([], { set: setName, overwrite: true });
       assert.equal(r3.skipped.length, 0);
       assert.equal(sha256(firstPath), firstProps.hash);
 
       // --output re-roots the same backup under a chosen directory, as
       // <output>/<source-basename>/… — independent of the originals.
       const outDir = join(dir.path, "restored");
-      const r4 = await restore(setName, [], { output: outDir });
+      const r4 = await restore([], { set: setName, output: outDir });
       assert.equal(r4.skipped.length, 0);
       assert.equal(r4.restored.length, entries.size);
       const wantHashes = new Set([...entries.values()].map((p) => p.hash));

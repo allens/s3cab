@@ -144,7 +144,9 @@ _Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
 The verb that *creates a new backup set* on this machine (ADR-0036, ADR-0052, ADR-0053):
-`s3cab setup <set> <directory>... --bucket <b>` claims the name and binds the set to its bucket.
+`s3cab setup --set <set> --bucket <b> <directory>...` claims the name and binds the set to its bucket.
+(The directories are the bulk operand, so they take the positionals and the set is addressed by a
+flag — [ADR-0062](docs/adr/0062-bulk-operands-positional-addressing-by-flag.md).)
 A bucket is required, and it touches S3 (the collision check). There is no update mode — a set's
 directories live in its public `dirs.txt`, edited directly (like `exclude.txt`), so re-running
 `setup` on a set that already exists here is refused; adopting an existing *remote* set is

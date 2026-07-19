@@ -192,11 +192,21 @@ describe("synopsis", () => {
     );
   });
 
-  it("renders a variadic optional positional with brackets and an ellipsis", () => {
-    // Guards the real setup shape: <set> required, [<directory>...] optional variadic.
+  it("renders a required variadic positional with an ellipsis and no brackets", () => {
+    // Guards the real setup shape (ADR-0062): the directories are the bulk
+    // operand and are required, so `<directory>...` — the set moved to --set.
     assert.equal(
       synopsis(commands, "setup"),
-      "Usage: s3cab setup [options] <set> [<directory>...]",
+      "Usage: s3cab setup [options] <directory>...",
+    );
+  });
+
+  it("renders a variadic optional positional with brackets and an ellipsis", () => {
+    // The real restore shape: paths are the bulk operand but optional (none =
+    // restore everything), so they bracket.
+    assert.equal(
+      synopsis(commands, "restore"),
+      "Usage: s3cab restore [options] [<path>...]",
     );
   });
 });

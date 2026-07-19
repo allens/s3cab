@@ -75,6 +75,27 @@ export function requireArg(value, name) {
 }
 
 /**
+ * The same assertion for a required *option* — the twin of {@link requireArg} for
+ * a flag rather than a positional, so the message renders `--set` where the
+ * positional form renders `<set>`. Both carry the plain name as `argName`, which
+ * the dispatcher looks up across a command's args *and* options (ADR-0038), so a
+ * flag glosses exactly like a positional does. Required options exist because a
+ * command with a bulk positional operand addresses its target by flag
+ * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
+ * `--set` on `setup`/`restore`/`delete`, and `--bucket` on `setup`.
+ * @param {unknown} value - The option value to check
+ * @param {string} name - The option's plain name, e.g. `set`
+ * @returns {asserts value}
+ */
+export function requireOption(value, name) {
+  if (!value) {
+    throw new ParseArgsError(`Missing required argument: --${name}`, {
+      argName: name,
+    });
+  }
+}
+
+/**
  * Whether an error should print command usage alongside its message — our own
  * ParseArgsError, or any of Node parseArgs' argument failures (unknown option,
  * but also a missing/invalid option value, e.g. `--bucket` with no value). Both

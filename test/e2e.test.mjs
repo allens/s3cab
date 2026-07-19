@@ -197,26 +197,27 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Missing required argument: <bucket>/);
   });
 
-  it("delete without a set is a usage error, before any S3 touch", async () => {
+  it("delete without --set is a usage error, before any S3 touch", async () => {
+    // The set is addressed by a flag now; the snapshot is the operand (ADR-0062).
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     mkdirSync(home);
 
-    const { status, stderr } = runWithHome(home, "delete");
+    const { status, stderr } = runWithHome(home, "delete", "2026-06-12T0915");
     assert.strictEqual(status, 2);
-    assert.match(stderr, /Missing required argument: <set>/);
+    assert.match(stderr, /Missing required argument: --set/);
   });
 
-  it("delete without --snapshot is a usage error, before any S3 touch", async () => {
-    // The snapshot check runs before the set is resolved, so this fails fast even
-    // with no set on disk.
+  it("delete without a snapshot operand is a usage error, before any S3 touch", async () => {
+    // Both argument checks run before the set is resolved, so this fails fast
+    // even with no set on disk.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     mkdirSync(home);
 
-    const { status, stderr } = runWithHome(home, "delete", "photos");
+    const { status, stderr } = runWithHome(home, "delete", "--set", "photos");
     assert.strictEqual(status, 2);
-    assert.match(stderr, /Missing required argument: --snapshot/);
+    assert.match(stderr, /Missing required argument: <snapshot>/);
   });
 
   it("cleanup without a bucket is a usage error, before any S3 touch", async () => {
@@ -240,7 +241,13 @@ describe("cli (e2e)", () => {
     mkdirSync(home);
     mkdirSync(data);
 
-    const { status, stderr } = runWithHome(home, "setup", "files", data);
+    const { status, stderr } = runWithHome(
+      home,
+      "setup",
+      "--set",
+      "files",
+      data,
+    );
     assert.strictEqual(status, 2); // usage error (missing required option)
     assert.match(stderr, /Missing required argument: --bucket/);
   });
@@ -252,7 +259,13 @@ describe("cli (e2e)", () => {
     mkdirSync(home);
     mkdirSync(photos);
 
-    const { status, stderr } = runWithHome(home, "setup", "My Photos", photos);
+    const { status, stderr } = runWithHome(
+      home,
+      "setup",
+      "--set",
+      "My Photos",
+      photos,
+    );
 
     assert.strictEqual(status, 2); // bad input value (validation error)
     assert.match(stderr, /lowercase letters, digits, and hyphens/);

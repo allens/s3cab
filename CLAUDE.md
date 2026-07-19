@@ -370,7 +370,7 @@ _what works now_. A few layout notes the README and code don't carry:
   needs the old root-anchored `/.s3cab/snapshots/` rule — only the `/.s3cab/env*` secret
   guards remain for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt) template.
 - **The repo dogfoods itself via a set:** [.s3cab/exclude.txt](.s3cab/exclude.txt) is kept
-  as a ready-made exclude template — to snapshot this repo, `s3cab setup s3cab . --bucket <bucket>`
+  as a ready-made exclude template — to snapshot this repo, `s3cab setup --set s3cab --bucket <bucket> .`
   then copy those patterns into `~/.s3cab/sets/s3cab/exclude.txt`. (It can't live in the repo and be
   wired automatically now that excludes are per-set under `~/.s3cab`.)
 

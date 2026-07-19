@@ -49,8 +49,10 @@ describe("setup (offline validation)", () => {
     useTempHome(dir.path);
 
     await assert.rejects(
-      () => setup(undefined, [], { bucket: "b" }),
-      /Missing required argument: <set>/,
+      // Named by --set, not a positional: the directories are the bulk operand
+      // (ADR-0062), so the set moved to a flag.
+      () => setup([], { bucket: "b" }),
+      /Missing required argument: --set/,
     );
   });
 
@@ -59,7 +61,7 @@ describe("setup (offline validation)", () => {
     withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("photos", []),
+      () => setup([], { set: "photos" }),
       /Missing required argument: <directory>/,
     );
   });
@@ -69,7 +71,7 @@ describe("setup (offline validation)", () => {
     const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("photos", [photos]),
+      () => setup([photos], { set: "photos" }),
       /Missing required argument: --bucket/,
     );
   });
@@ -79,7 +81,7 @@ describe("setup (offline validation)", () => {
     const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("My Photos", [photos], { bucket: "b" }),
+      () => setup([photos], { set: "My Photos", bucket: "b" }),
       /Invalid set name: My Photos[\s\S]*lowercase letters, digits, and hyphens[\s\S]*Try: my-photos/,
     );
   });
@@ -89,7 +91,7 @@ describe("setup (offline validation)", () => {
     const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("photos", [photos], { bucket: "s3://my-bucket" }),
+      () => setup([photos], { set: "photos", bucket: "s3://my-bucket" }),
       /Invalid bucket name[\s\S]*not a URL/,
     );
   });
@@ -99,7 +101,7 @@ describe("setup (offline validation)", () => {
     const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("photos", [photos], { bucket: "" }),
+      () => setup([photos], { set: "photos", bucket: "" }),
       /No bucket name given/,
     );
   });
@@ -113,11 +115,11 @@ describe("setup (offline validation)", () => {
     // Directory resolution runs before the --bucket check, so a bad directory
     // reports itself regardless of whether a bucket was given.
     await assert.rejects(
-      () => setup("photos", [join(dir.path, "nope")]),
+      () => setup([join(dir.path, "nope")], { set: "photos" }),
       /Directory not found: /,
     );
     await assert.rejects(
-      () => setup("photos", [photos, file]),
+      () => setup([photos, file], { set: "photos" }),
       /Not a directory: /,
     );
   });
@@ -130,7 +132,12 @@ describe("setup (offline validation)", () => {
     // runs before the remote claim — so this fails offline, no name is claimed.
     await assert.rejects(
       () =>
-        setup("photos", [photos], { bucket: "b", profile: "work", keys: true }),
+        setup([photos], {
+          set: "photos",
+          bucket: "b",
+          profile: "work",
+          keys: true,
+        }),
       /Set one way to sign in, not a profile and access keys/,
     );
   });
@@ -144,7 +151,8 @@ describe("setup (offline validation)", () => {
     // recipe, so no name is claimed on a half-built identity (ADR-0057).
     await assert.rejects(
       () =>
-        setup("photos", [photos], {
+        setup([photos], {
+          set: "photos",
           bucket: "my-backups",
           "roles-anywhere": true,
         }),
@@ -157,7 +165,8 @@ describe("setup (offline validation)", () => {
     const { photos } = withMemberDir(dir.path);
 
     await assert.rejects(
-      () => setup("photos", [photos], { bucket: "b", endpoint: "not-a-url" }),
+      () =>
+        setup([photos], { set: "photos", bucket: "b", endpoint: "not-a-url" }),
       /Give the endpoint as a full URL/,
     );
   });
@@ -171,7 +180,7 @@ describe("setup (offline validation)", () => {
     // Re-running setup on it is refused — pointing at the public dirs.txt and at
     // creating a new set, not silently re-pointing the existing one.
     await assert.rejects(
-      () => setup("photos", [photos], { bucket: "my-bucket" }),
+      () => setup([photos], { set: "photos", bucket: "my-bucket" }),
       /already exists on this machine[\s\S]*dirs\.txt[\s\S]*create a new set/,
     );
   });

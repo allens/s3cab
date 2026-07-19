@@ -65,7 +65,7 @@ const displayArg = (name, { required, variadic }) => {
 };
 
 /**
- * The one-line command shape — `Usage: s3cab setup [options] <set> [<directory>...]`.
+ * The one-line command shape — `Usage: s3cab setup [options] <directory>...`.
  * Every command accepts `[options]` (the dispatcher answers -h/--help even for
  * those that declare none). Split out of usage() so a usage *error* prints just
  * this line plus a --help pointer, while --help prints the full arg/option tables
