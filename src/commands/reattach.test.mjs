@@ -36,7 +36,7 @@ describe("reattach (offline validation)", () => {
 
     await assert.rejects(
       () => reattach(undefined, [], { bucket: "b" }),
-      /Missing required argument: <set>/,
+      /Missing required argument: set/,
     );
   });
 

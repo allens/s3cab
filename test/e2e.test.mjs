@@ -205,7 +205,9 @@ describe("cli (e2e)", () => {
 
     const { status, stderr } = runWithHome(home, "delete", "2026-06-12T0915");
     assert.strictEqual(status, 2);
-    assert.match(stderr, /Missing required argument: --set/);
+    // Both spellings, straight from the registry — a user who missed `--set`
+    // learns `-S` exists here rather than only from `--help` (ADR-0038).
+    assert.match(stderr, /Missing required argument: -S, --set/);
   });
 
   it("delete without a snapshot operand is a usage error, before any S3 touch", async () => {
@@ -249,7 +251,7 @@ describe("cli (e2e)", () => {
       data,
     );
     assert.strictEqual(status, 2); // usage error (missing required option)
-    assert.match(stderr, /Missing required argument: --bucket/);
+    assert.match(stderr, /Missing required argument: -b, --bucket/);
   });
 
   it("setup rejects an invalid set name with the rule and a suggestion", async () => {

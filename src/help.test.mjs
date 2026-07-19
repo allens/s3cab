@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
-import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
+import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import { ParseArgsError, missingArgError } from "./lib/error.mjs";
 
 /** @import { Command } from "./commands.mjs" */
 
@@ -211,20 +212,73 @@ describe("synopsis", () => {
   });
 });
 
-describe("argDescription", () => {
+// The error line the dispatcher prints, asserted whole — the arg's spelling and
+// its description are looked up by module-private helpers, so this is the seam
+// where their output is actually observable (ADR-0038).
+describe("errorMessage", () => {
   const go = /** @type {Command} */ (fakeRegistry.go);
 
-  it("finds a positional arg's description by plain name", () => {
-    assert.equal(argDescription(go, "target"), "What to do it to");
+  it("spells a missing option with both its forms when it has a short one", () => {
+    assert.equal(
+      errorMessage(go, missingArgError("fast")),
+      "Missing required argument: -f, --fast — Do it quickly",
+    );
   });
 
-  it("finds an option's description by plain name", () => {
-    assert.equal(argDescription(go, "mode"), "How to do it");
+  it("spells a short-less option with its long form alone", () => {
+    assert.equal(
+      errorMessage(go, missingArgError("mode")),
+      "Missing required argument: --mode — How to do it",
+    );
   });
 
-  it("is undefined for an unknown name or a missing argName", () => {
-    assert.equal(argDescription(go, "nope"), undefined);
-    assert.equal(argDescription(go, undefined), undefined);
+  it("spells a positional bare, without its optional/variadic decoration", () => {
+    // `[<extra>]` would contradict "Missing required argument:" — the error is
+    // about the absence, so the brackets are noise here.
+    assert.equal(
+      errorMessage(go, missingArgError("target")),
+      "Missing required argument: <target> — What to do it to",
+    );
+    assert.equal(
+      errorMessage(go, missingArgError("extra")),
+      "Missing required argument: <extra> — Optional extra",
+    );
+  });
+
+  it("leaves the error's own message alone for a name the registry lacks", () => {
+    // A throw site and the registry disagreeing is a bug; don't invent a
+    // spelling for it, and don't dangle an em dash with nothing after it.
+    assert.equal(
+      errorMessage(go, missingArgError("nope")),
+      "Missing required argument: nope",
+    );
+  });
+
+  it("leaves a usage error that names no single arg unchanged", () => {
+    // Our flag conflicts and Node's own parse failures carry no argName.
+    assert.equal(
+      errorMessage(go, new ParseArgsError("Pass either a set or --bucket")),
+      "Pass either a set or --bucket",
+    );
+  });
+
+  it("leaves an ordinary runtime error unchanged", () => {
+    assert.equal(
+      errorMessage(go, new Error("Bucket not found")),
+      "Bucket not found",
+    );
+  });
+
+  it("stringifies a thrown non-error", () => {
+    assert.equal(errorMessage(go, "just a string"), "just a string");
+  });
+
+  it("matches the real registry's --bucket, short form included", () => {
+    const setup = /** @type {Command} */ (commands.setup);
+    assert.match(
+      errorMessage(setup, missingArgError("bucket")),
+      /^Missing required argument: -b, --bucket — /,
+    );
   });
 });
 

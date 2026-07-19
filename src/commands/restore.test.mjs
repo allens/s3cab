@@ -12,7 +12,7 @@ describe("restore arguments", () => {
     // Named by --set, not a positional: the paths are the bulk operand (ADR-0062).
     await assert.rejects(restore([]), {
       code: "ERR_PARSE_ARGS",
-      message: "Missing required argument: --set",
+      message: "Missing required argument: set",
     });
   });
 
@@ -21,7 +21,7 @@ describe("restore arguments", () => {
     // would have restored a set named after the path. It must be a usage error.
     await assert.rejects(restore(["C:\\Users\\me\\Photos\\beach.jpg"]), {
       code: "ERR_PARSE_ARGS",
-      message: "Missing required argument: --set",
+      message: "Missing required argument: set",
     });
   });
 });

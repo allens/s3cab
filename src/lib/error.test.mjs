@@ -22,7 +22,7 @@ describe("requireArg", () => {
   it("throws ParseArgsError when value is absent, wrapping the plain name", () => {
     assert.throws(() => requireArg(undefined, "bucket"), {
       code: "ERR_PARSE_ARGS",
-      message: "Missing required argument: <bucket>",
+      message: "Missing required argument: bucket",
     });
   });
 

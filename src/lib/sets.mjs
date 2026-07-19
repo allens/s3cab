@@ -361,7 +361,7 @@ export function readSet(name) {
  * step (ADR-0030). Exported so `list`'s empty case prints the same words, since
  * the two messages had drifted ("configured." vs "yet."). `--bucket` is included
  * because `setup` requires it (ADR-0026): omitting it dead-ended a first-timer at
- * `Missing required argument: --bucket`.
+ * `Missing required argument: -b, --bucket`.
  */
 export const NO_SETS_MESSAGE =
   "No backup sets yet.\nCreate one with: s3cab setup --set <set> --bucket <bucket> <directory>...";

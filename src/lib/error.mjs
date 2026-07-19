@@ -58,40 +58,45 @@ export class ValidationError extends Error {
 }
 
 /**
- * Assert a required positional argument is present, throwing a usage error if it
- * is missing or empty. Takes the arg's *plain* name (e.g. `bucket`) — the display
- * form `<bucket>` is rendered here, and the plain name rides on the error as
- * `argName` so the dispatcher can gloss it with the registry description (ADR-0038).
- * @param {unknown} value - The positional value to check
+ * The missing-argument sentence, given an argument's *display* form. One home for
+ * the wording, two callers: {@link missingArgError} composes it from the plain
+ * name at the throw site, and the dispatcher recomposes it from the registry's
+ * spelling — `<snapshot>` for a positional, `-b, --bucket` for a flag (ADR-0038).
+ * A command module can't render that spelling itself: it would have to import the
+ * registry that imports it.
+ * @param {string} display - The argument as shown to the user, e.g. `-b, --bucket`
+ * @returns {string}
+ */
+export const missingArg = (display) => `Missing required argument: ${display}`;
+
+/**
+ * The "you left out a required argument" usage error, carrying the arg's *plain*
+ * name (e.g. `bucket`) as `argName` so the dispatcher can spell it from the
+ * registry and gloss it with its description (ADR-0038). The message here uses the
+ * bare name as its fallback spelling — every CLI path re-renders it, so the
+ * undecorated form surfaces only to a direct caller (a unit test).
+ * @param {string} name - The argument's plain name, e.g. `bucket`
+ * @returns {ParseArgsError}
+ */
+export const missingArgError = (name) =>
+  new ParseArgsError(missingArg(name), { argName: name });
+
+/**
+ * Assert a required argument is present, throwing {@link missingArgError} if it is
+ * missing or empty. Covers positionals *and* options with one helper: the two used
+ * to differ only in the decoration they wrote into the message (`<set>` vs
+ * `--set`), and that now comes from the registry, which already knows which map
+ * the name lives in. Required options exist because a command with a bulk
+ * positional operand addresses its target by flag
+ * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
+ * `--set` on `setup`/`restore`/`delete`, and `--bucket` on `setup`.
+ * @param {unknown} value - The value to check
  * @param {string} name - The argument's plain name, e.g. `bucket`
  * @returns {asserts value}
  */
 export function requireArg(value, name) {
   if (!value) {
-    throw new ParseArgsError(`Missing required argument: <${name}>`, {
-      argName: name,
-    });
-  }
-}
-
-/**
- * The same assertion for a required *option* — the twin of {@link requireArg} for
- * a flag rather than a positional, so the message renders `--set` where the
- * positional form renders `<set>`. Both carry the plain name as `argName`, which
- * the dispatcher looks up across a command's args *and* options (ADR-0038), so a
- * flag glosses exactly like a positional does. Required options exist because a
- * command with a bulk positional operand addresses its target by flag
- * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
- * `--set` on `setup`/`restore`/`delete`, and `--bucket` on `setup`.
- * @param {unknown} value - The option value to check
- * @param {string} name - The option's plain name, e.g. `set`
- * @returns {asserts value}
- */
-export function requireOption(value, name) {
-  if (!value) {
-    throw new ParseArgsError(`Missing required argument: --${name}`, {
-      argName: name,
-    });
+    throw missingArgError(name);
   }
 }
 

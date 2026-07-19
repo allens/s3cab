@@ -67,14 +67,14 @@ describe("delete command", () => {
     // The snapshot is the operand; the set is addressed by a flag (ADR-0062).
     await assert.rejects(
       () => deleteSnapshot(["2026-06-12T0915"], {}),
-      /Missing required argument: --set/,
+      /Missing required argument: set/,
     );
   });
 
   it("requires a snapshot operand", async () => {
     await assert.rejects(
       () => deleteSnapshot([], { set: "photos" }),
-      /Missing required argument: <snapshot>/,
+      /Missing required argument: snapshot/,
     );
   });
 

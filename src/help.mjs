@@ -1,9 +1,15 @@
-// Help rendering for the CLI shell: the `s3cab help <topic>` topics and the
-// `usage()` generator that turns the command registry into help text. Lives at
+// Help rendering for the CLI shell: the `s3cab help <topic>` topics, the
+// `usage()` generator that turns the command registry into help text, and
+// `errorMessage()`, which spells a usage error from that same registry. Lives at
 // the src/ root beside the entry point and registry (not in lib/) because it is
 // bespoke CLI-shell glue tied to the registry shape, not a reusable primitive.
+//
+// The lib/error.mjs import is safe against the no-SDK rule below: error.mjs
+// imports nothing at all.
 
-/** @import { CommandArg, Command } from "./commands.mjs" */
+import { ParseArgsError, missingArg } from "./lib/error.mjs";
+
+/** @import { CommandArg, CommandOption, Command } from "./commands.mjs" */
 
 // Help topics shown by `s3cab help <topic>` — cross-cutting guides with no
 // command to host them (command-specific depth lives in that command's registry
@@ -65,6 +71,18 @@ const displayArg = (name, { required, variadic }) => {
 };
 
 /**
+ * The display form of an option — both spellings when it has a short form
+ * (`-b, --bucket`), the long one alone otherwise. Shared by the `--help` options
+ * table and the missing-argument error line (ADR-0038), so a flag is spelled the
+ * same wherever the user meets it.
+ * @param {string} name
+ * @param {CommandOption} option
+ * @returns {string}
+ */
+const displayOption = (name, { short }) =>
+  short ? `-${short}, --${name}` : `--${name}`;
+
+/**
  * The one-line command shape — `Usage: s3cab setup [options] <directory>...`.
  * Every command accepts `[options]` (the dispatcher answers -h/--help even for
  * those that declare none). Split out of usage() so a usage *error* prints just
@@ -84,23 +102,72 @@ export function synopsis(commands, commandName) {
 }
 
 /**
+ * How a missing argument is spelled back to the user, looked up by its plain name
+ * across the command's positional args and its options — the same exact-match walk
+ * `argDescription` does. A positional renders bare (`<snapshot>`): the error is
+ * *about* its absence, so `displayArg`'s optional/variadic decoration
+ * (`[<snapshot>...]`) would contradict the sentence. An option renders both its
+ * spellings (`-b, --bucket`), which is the whole point of sourcing this from the
+ * registry — the short form is otherwise discoverable only via `--help`.
+ * Undefined when the name isn't in the registry, leaving the error's own message
+ * to stand (ADR-0038). Internal to `errorMessage`, its only caller.
+ * @param {Command} command
+ * @param {string} argName
+ * @returns {string | undefined}
+ */
+function argDisplay(command, argName) {
+  if (command.args?.[argName]) {
+    return `<${argName}>`;
+  }
+  const option = command.options?.[argName];
+  return option ? displayOption(argName, option) : undefined;
+}
+
+/**
  * The registry description for a missing argument, matched by its plain name
  * across the command's positional args and its options — an exact hit in
  * whichever map holds it, no string-stripping (both are keyed by plain name).
- * Undefined when there is no argName (Node's own parse errors carry none) or the
- * name isn't found. Glosses a missing-arg error inline (ADR-0038).
+ * Undefined when the name isn't found. Glosses a missing-arg error inline
+ * (ADR-0038). Internal to `errorMessage`, its only caller.
  * @param {Command} command
- * @param {string} [argName]
+ * @param {string} argName
  * @returns {string | undefined}
  */
-export function argDescription(command, argName) {
-  if (!argName) {
-    return undefined;
-  }
+function argDescription(command, argName) {
   return (
     command.args?.[argName]?.description ??
     command.options?.[argName]?.description
   );
+}
+
+/**
+ * The text the dispatcher prints after `ERROR:`. A missing-argument error is
+ * re-spelled from the registry — the arg's display form plus its description
+ * (`-b, --bucket — The S3 bucket to back this set up to`) — which is how a flag's
+ * short form reaches the error line at all; the throw site knows only the plain
+ * name. Every other error, including the usage errors that name no single arg
+ * (our flag conflicts, Node's own parse failures), prints its own message
+ * unchanged. ADR-0038.
+ *
+ * `argName` rides on `ParseArgsError` alone, so the instanceof both narrows the
+ * type and scopes the re-spelling to errors that opted into it. A name the
+ * registry doesn't hold falls through to the error's message rather than
+ * inventing a spelling — that only happens if a throw site and the registry
+ * disagree, which is a bug, not a user error.
+ * @param {Command} command
+ * @param {unknown} error
+ * @returns {string}
+ */
+export function errorMessage(command, error) {
+  const message = Error.isError(error) ? error.message : String(error);
+  const argName = error instanceof ParseArgsError ? error.argName : undefined;
+  if (!argName) {
+    return message;
+  }
+  const display = argDisplay(command, argName);
+  const description = argDescription(command, argName);
+  const line = display ? missingArg(display) : message;
+  return description ? `${line} — ${description}` : line;
 }
 
 /**
@@ -151,11 +218,11 @@ export function usage(commands, commandName, style) {
     }
 
     lines.push(heading("Options:"));
-    for (const [name, { short, description = "" }] of Object.entries(
-      options ?? {},
-    )) {
-      const flags = short ? `-${short}, --${name}` : `--${name}`;
-      lines.push(`  ${flags}`.padEnd(24) + description);
+    for (const [name, option] of Object.entries(options ?? {})) {
+      lines.push(
+        `  ${displayOption(name, option)}`.padEnd(24) +
+          (option.description ?? ""),
+      );
     }
     lines.push(`  -h, --help`.padEnd(24) + "Show this help", "");
 

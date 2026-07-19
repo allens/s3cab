@@ -1,5 +1,5 @@
 import { loadSet } from "../lib/env.mjs";
-import { requireArg, requireOption } from "../lib/error.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { deleteRemoteSnapshot, listRemoteSnapshots } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
@@ -40,7 +40,7 @@ import { isInteractive } from "../lib/style.mjs";
  * @returns {Promise<DeleteResult>}
  */
 export async function deleteSnapshot(snapshots = [], options = {}) {
-  requireOption(options.set, "set");
+  requireArg(options.set, "set");
   requireArg(snapshots.length, "snapshot");
 
   // Resolve the set and apply its env layer (its bucket + auth) over the ambient

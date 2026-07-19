@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { loadSet } from "../lib/env.mjs";
-import { ParseArgsError } from "../lib/error.mjs";
+import { ParseArgsError, missingArgError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
@@ -71,9 +71,7 @@ export async function upload(setName, options = {}) {
     );
   }
   if (!bucket && !setName) {
-    throw new ParseArgsError("Missing required argument: <set>", {
-      argName: "set",
-    });
+    throw missingArgError("set");
   }
   if (file && snapshotName) {
     // The two modes are mutually exclusive (ADR-0044 §2). Without this, `if

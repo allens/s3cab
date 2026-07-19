@@ -1,7 +1,8 @@
 # Usage errors show the synopsis + the missing arg's description, not the full help block
 
 **Status:** accepted (design decided via a grilling session 2026-07-01) —
-**implemented** (2026-07-01). Sits in the CLI-output lineage of
+**implemented** (2026-07-01), **amended 2026-07-19** (point 6: the arg's *spelling*
+is registry-driven too, so a flag shows its short form). Sits in the CLI-output lineage of
 [0010](0010-cli-output-conventions.md) (stream discipline) and
 [0030](0030-error-message-guidelines.md) (message wording); reasoned under the
 **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the
@@ -25,11 +26,15 @@ so the fix is a single CLI-wide convention rather than a `setup` patch.
 1. **A usage error prints three parts, nothing more:**
 
    ```
-   ERROR: Missing required argument: --bucket — The S3 bucket to back this set up to, set when you first create it
+   ERROR: Missing required argument: -b, --bucket — The S3 bucket to back this set up to
 
-   Usage: s3cab setup [options] <set> [<directory>...]
+   Usage: s3cab setup [options] <directory>...
    Run 's3cab setup --help' for details.
    ```
+
+   (Both spellings on the flag per the 2026-07-19 amendment, point 6; the synopsis
+   reflects [0062](0062-bulk-operands-positional-addressing-by-flag.md) moving the set
+   to `--set`.)
 
    The **error line** (message + the missing arg's description), a **one-line
    synopsis**, and a **`--help` pointer**. The full `Arguments:`/`Options:` description
@@ -75,6 +80,32 @@ so the fix is a single CLI-wide convention rather than a `setup` patch.
    **exact** hit in whichever map holds the name — no string-stripping. `ParseArgsError`
    gains an `argName`; `requireArg` sets it; the dispatcher renders the description via the
    registry. Positional args and options finally have one shape.
+
+6. **(Amendment, 2026-07-19.) The missing arg's *spelling* is single-sourced from the
+   registry as well — so an option shows both its forms, `-b, --bucket`.** The original
+   decision single-sourced the arg's *description* (point 3) but left its display form
+   hand-written at each throw site, which meant the error named only the long flag; the
+   `-b` was discoverable only via `--help`. A user reported the friction (2026-07-18):
+   *"it complains I haven't used `--bucket` without letting me know I could have used
+   `-b`."* This was never actually decided against — the omission is collateral from
+   moving the `Options:` **table** (where `-b, --bucket` rendered) behind `--help`. The
+   *non-uniformity* argument for the status quo — not every option has a short, so the
+   line renders inconsistently — is weak: the `--help` table already renders that same
+   mixed shape, and clig.dev's advice is to teach the shorter form at the point of
+   friction. The error line is the one shown under point 1.
+
+   **Positionals still render bare** (`<snapshot>`, never `[<snapshot>...]`): the
+   sentence is *about* the argument's absence, so `displayArg`'s optional/variadic
+   decoration would contradict it. Only options gain anything here.
+
+   This **removes** machinery rather than adding it. The dispatcher already looked the
+   arg up in the registry for its description, so `short` was in hand; the decorated
+   name was the one part still hand-written downstream. With the spelling sourced from
+   the registry, `requireArg` and `requireOption` — split apart only because they wrote
+   `<set>` versus `--set` into the message — **collapse back into one `requireArg`**,
+   and the three hand-written `Missing required argument: …` throws become a
+   `missingArgError(name)` factory. The registry already knows which map a name lives
+   in; nothing else needed to.
 
 ## Rejected alternatives
 
@@ -129,6 +160,30 @@ command needs no error-wording work. It touches:
 - **Tests** — the assertions pinning the old message shape
   (e.g. [src/commands/setup.test.mjs](../../src/commands/setup.test.mjs) checking the
   `<set>` mini-synopsis inside the thrown message) move to the new output.
+
+**The 2026-07-19 amendment (point 6) touches:**
+
+- **[src/help.mjs](../../src/help.mjs)** — a `displayOption()` shared by the `--help`
+  options table and the error line, so a flag is spelled the same wherever the user meets
+  it; private `argDisplay()`/`argDescription()` lookups; and `errorMessage(command, error)`,
+  which owns the whole text after `ERROR:`. Composing it *here* rather than in the
+  dispatcher keeps registry presentation in the module that already does registry
+  presentation, and leaves the two lookups module-private with one exported seam — which is
+  also the honest place to test them, since the composed line is what a user sees.
+- **[src/lib/error.mjs](../../src/lib/error.mjs)** — `requireArg`/`requireOption` merge back
+  into one `requireArg`, beside a `missingArg()` wording helper and a `missingArgError()`
+  factory that absorbs the hand-written throws.
+- **[src/s3cab.mjs](../../src/s3cab.mjs)** — the `catch` block returns to three statements:
+  print the message, print the usage tail if `isUsageError`, set the exit code. Scoping the
+  re-spelling to `error instanceof ParseArgsError` (the only type carrying `argName`) also
+  retired the `/** @type {{ argName?: string }} */` cast.
+
+The thrown message keeps the *bare* name (`Missing required argument: bucket`). It is not a
+second rendering of the error — the dispatcher always replaces it — so it surfaces in only
+two places: a unit test calling a command function directly, and the case where a throw site
+names an arg the registry doesn't hold, which is a bug rather than a user error. That split
+is why the command unit tests assert plain names while the e2e suite pins the rendered
+`-b, --bucket`.
 
 **The `options` typedef shoehorn is kept, deliberately.**
 `CommandOption = ParseArgsOptionDescriptor & { description }` is not a hack: `parseArgs`
