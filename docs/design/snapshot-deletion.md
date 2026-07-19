@@ -1,37 +1,38 @@
-# Snapshot deletion and the orphan check
+# Snapshot removal and the unrestorable check
 
 ## Status
 
 **Designed 2026-07-19 (a grilling session) — built.** The **shape** shipped first
-([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)): `delete` takes
+([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)): `forget` takes
 several snapshots as its positional operand, addresses the set with `--set`, validates every
 name before deleting any, and confirms once for the whole run. The part this design is
-actually about — the orphan check, its report files and `--force` — followed, and the
+actually about — the unrestorable check, its report files and `--force` — followed, and the
 questions once listed under **Open** are settled in place below (including `-o`, which was
 dropped rather than kept — see the amendment note below and in ADR-0062).
 
 Where it lives: the computation and its two output shapes are
-[src/lib/orphans.mjs](../../src/lib/orphans.mjs), pure and non-throwing so they are
+[src/lib/unrestorable.mjs](../../src/lib/unrestorable.mjs), pure and non-throwing so they are
 unit-tested by asserting on returned data with no mocked seams (the split `planCleanup`
 already keeps with `cleanup`); the S3 read, the file write and the confirmation policy are
-[src/commands/delete.mjs](../../src/commands/delete.mjs).
+[src/commands/forget.mjs](../../src/commands/forget.mjs).
 
 ## Purpose
 
-`delete` is the retention **primitive** — it removes a remote snapshot, and `cleanup` later
+`forget` is the retention **primitive** — it removes a remote snapshot, and `cleanup` later
 reclaims objects nothing references any more ([backup.md](backup.md)). Today it tells you
 nothing about what you are about to lose. This design adds the missing half: **before
-deleting, report which stored content would be left with no snapshot referencing it.**
+removing, report which files no surviving snapshot would hold — the ones `restore` could
+never produce again.**
 
-The information flow is currently backwards. You learn what a deletion orphaned *afterwards*,
+The information flow is currently backwards. You learn what a removal cost you *afterwards*,
 from `cleanup`'s dry run, as hash counts with no paths. A preview at the moment of decision is
-where it belongs — particularly for the deletion that takes out a set's last snapshot, which
-orphans everything unique to that set.
+where it belongs — particularly for the removal that takes out a set's last snapshot, which
+loses everything unique to that set.
 
 ## The shape
 
 ```
-s3cab delete --set <set> <snapshot>...  [--force]
+s3cab forget --set <set> <snapshot>...  [--force]
 ```
 
 Snapshots are the bulk operand; the set is addressing ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)).
@@ -48,7 +49,7 @@ Two properties make this the only correct formulation:
 
 - **It is bucket-wide.** Dedup is global across sets ([ADR-0013](../adr/0013-one-repository-one-bucket.md)),
   so another set can reference the same content. Answering from the target set's own snapshots
-  would report content as orphaned that another set still needs — the fastest way to make a
+  would report files as unrestorable that another set still holds — the fastest way to make a
   deletion preview lie.
 - **It is computed over the whole selection at once, not per snapshot.** Content referenced by
   two of the named snapshots and nothing else is orphaned only when *both* go. Evaluating each
@@ -82,7 +83,7 @@ That single fact drives three decisions:
   One run over several snapshots pays it once — the reason snapshots became the bulk operand.
 - **The full detail is written to a file, not left to shell redirection.** Forgetting `>` on
   an instant command is an annoyance; here it costs a second full scan. See below.
-- **`delete` and `cleanup` stay separate commands** (below).
+- **`forget` and `cleanup` stay separate commands** (below).
 
 ## Output
 
@@ -90,16 +91,16 @@ Two streams and two artifacts, following [ADR-0010](../adr/0010-cli-output-conve
 stream discipline and its **never truncate** principle.
 
 **What the file is** is worth stating exactly, because it is easy to misread: it lists what
-the deletion would leave **unreferenced**, not what `delete` removes. `delete` never touches
+the removal would leave **unrestorable**, not what `forget` removes. `forget` never touches
 `objects/`, so every file it names stays stored — and billed — until a `cleanup`. The report
 is a *reclaimable-space forecast*, not a manifest of things about to vanish.
 
 - **The full path list → a file**, always written, since it is computed anyway. There are
   **two of them, with different lifecycles**:
-  - the **preview**, `~/.s3cab/delete-orphans-preview.txt` — a transient decision aid,
+  - the **preview**, `~/.s3cab/forget-unrestorable-preview.txt` — a transient decision aid,
     overwritten every run, written *before* the prompt so that declining still leaves the
     list on disk to read and re-run against without paying for a second scan;
-  - the **audit record**, `~/.s3cab/sets/<set>/delete-orphans-<timestamp>.txt` — written
+  - the **audit record**, `~/.s3cab/sets/<set>/forget-unrestorable-<timestamp>.txt` — written
     only once a deletion actually happens, and **kept**.
 
   The split reverses this design's original "one file, no naming scheme" position, and the
@@ -113,7 +114,7 @@ is a *reclaimable-space forecast*, not a manifest of things about to vanish.
   Scoped **by set**, and by *location* rather than by filename: the set directory already
   holds that set's `snapshots/`, `exclude.txt` and `env`, so the scoping is free and needs no
   name mangling. Set rather than bucket because the deletion is set-scoped, two sets in one
-  bucket produce genuinely different orphan lists, and set names are validated `[a-z0-9-]+`
+  bucket produce genuinely different unrestorable lists, and set names are validated `[a-z0-9-]+`
   ([ADR-0024](../adr/0024-set-name-is-identity.md)) so they are safe path segments.
 
   **Second** precision in the timestamp, one unit finer than snapshot names' minute
@@ -130,26 +131,26 @@ is a *reclaimable-space forecast*, not a manifest of things about to vanish.
   the primary environment; "pipe it somewhere" is not a substitute for a discoverable file.
 - **The confirmation → stderr**, last, so it is the final thing on screen above the prompt.
 
-### The summary breaks orphans down per snapshot
+### The summary breaks the loss down per snapshot
 
 Each orphaned hash is referenced by one or more of the named snapshots. Count them:
 
 - referenced by **exactly one** → attribute it to that snapshot
-- referenced by **two or more** → a **shared** line: content orphaned only because all of
+- referenced by **two or more** → a **shared** line: content lost only because all of
   them are going
 
 ```
-Orphan preview — what no snapshot would reference once these are gone:
+Unrestorable preview — what you could no longer restore once these are gone:
 
   2026-06-12T0915             3,201 files   12.4GB
   2026-06-19T0902               118 files    412MB
   2026-07-03T1140                 0 files       0B
   shared across 3 snapshots     842 files    3.1GB
                               ───────────────────────
-  total orphaned              4,161 files   15.9GB
+  total unrestorable          4,161 files   15.9GB
 
 Full list:
-  C:\Users\me\.s3cab\delete-orphans-preview.txt
+  C:\Users\me\.s3cab\forget-unrestorable-preview.txt
 ```
 
 Two counting rules the table depends on, both worth stating because they make the columns
@@ -192,17 +193,17 @@ holds looks orphaned when it is not. `cleanup` treats this as an abort ([interlo
 #1](backup.md)) and is right to: it **deletes** off the back of those numbers, so a wrong
 orphan set destroys live data.
 
-`delete` is the opposite case and takes the opposite decision — **warn, name the snapshots,
+`forget` is the opposite case and takes the opposite decision — **warn, name the snapshots,
 and carry on.** Nothing is deleted from `objects/` here; the preview is advisory, and the
 deletion the user asked for is unaffected by whether some *other* set's snapshot is damaged.
 Refusing would let one damaged snapshot anywhere in the bucket block every deletion in it,
 which is a worse failure than an overstated number the warning already flags. The direction
 of the error is stated, not just its existence: the preview can only **overstate** what is
-orphaned, never understate it, so acting on it is still safe.
+unrestorable, never understate it, so acting on it is still safe.
 
 ### The last snapshot of a set
 
-Deleting a set's last remote snapshot orphans everything unique to that set and is the most
+Forgetting a set's last remote snapshot loses everything unique to that set and is the most
 consequential form of this operation. It gets an explicit line saying so — the signal belongs
 in **what is said, not in how much**: a distinct warning naming the set is likelier to stop
 someone than a longer list they scroll past. (The full list is in the file either way, never
@@ -212,7 +213,7 @@ truncated.)
 
 **One prompt covering the whole run**, on a TTY, after the summary. Non-interactive runs
 proceed — naming specific snapshots is explicit intent, and clig.dev forbids blocking a
-script on a prompt (unchanged from today's `delete`).
+script on a prompt (unchanged from today's `forget`).
 
 Per-snapshot prompting was considered and rejected: it means N prompts in a feature built for
 bulk work, which is the pattern that trains people to hold down `y`. The cost of one prompt is
@@ -223,7 +224,7 @@ the scan again. The report is what lets you check the list before committing.
 The two travel together because skipping the check leaves the prompt nothing useful to say;
 this matches `rm -f` and the existing `upload --force` ("bypass the protective default").
 
-## Why `delete` and `cleanup` do not merge
+## Why `forget` and `cleanup` do not merge
 
 The check costs what `cleanup`'s scan costs, which invites folding them into one command.
 Rejected, for three reasons:
@@ -235,36 +236,36 @@ Rejected, for three reasons:
    with the space arriving a week later via a `cleanup` you still have to remember.
 2. **It would drag `cleanup`'s concurrency hazard into a common command.** `cleanup` must not
    run while a backup is running ([proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md));
-   `delete` has no such hazard — it touches one snapshot object and never `objects/`.
-3. **The operands differ.** `delete` is set-scoped; `cleanup` is bucket-scoped, deliberately
+   `forget` has no such hazard — it touches one snapshot object and never `objects/`.
+3. **The operands differ.** `forget` is set-scoped; `cleanup` is bucket-scoped, deliberately
    symmetric with `verify` ([ADR-0042](../adr/0042-verify-bucket-operand.md)).
 
-And the saving is smaller than it looks. A housekeeping session today is: delete (scan),
-delete (scan), delete (scan), cleanup (scan) — four scans. **Accepting multiple snapshots per
+And the saving is smaller than it looks. A housekeeping session today is: forget (scan),
+forget (scan), forget (scan), cleanup (scan) — four scans. **Accepting multiple snapshots per
 run collapses that to two**; merging would take it from two to one. The bulk operand captures
 most of the prize for almost none of the cost.
 
-What is kept from the merge instinct is a **precise handoff**. `delete` already points at
+What is kept from the merge instinct is a **precise handoff**. `forget` already points at
 `cleanup`; with the check in hand it *could* also say how much is reclaimable now and how
 much is grace-held, instead of a vague "objects may still be stored". **Not built** — that
 split needs each object's `lastModified`, which means a second whole-bucket enumeration
 (`objects/`, the LIST `cleanup` does), doubling the cost of the check to refine a number the
-user is not acting on at this moment. The preview says what would be orphaned; `cleanup` says
+user is not acting on at this moment. The preview says what would become unrestorable; `cleanup` says
 what is reclaimable *today*. Revisit if the two-command handoff proves confusing in use.
 
 If the two-scans-per-session ever genuinely hurts, the smallest fix is a chain flag on
-`delete` that runs the sweep in the same process reusing the scan — additive, and by then
+`forget` that runs the sweep in the same process reusing the scan — additive, and by then
 there would be evidence rather than a guess.
 
 ## Settled while building
 
-- **The artifact's filenames — provisional `last-delete.txt` rejected as too vague.** The
-  names are now `delete-orphans-preview.txt` and `delete-orphans-<timestamp>.txt`, each
-  saying outright what it holds. Rejected along the way: `last-delete-snapshot-orphaned-files.txt`,
-  which **garden-paths** — "delete-snapshot-orphaned-files" parses as an imperative,
-  *"delete the snapshot-orphaned files"*, so the name reads as a list of things to remove,
+- **The artifact's filenames — provisional `last-forget.txt` rejected as too vague.** The
+  names are now `forget-unrestorable-preview.txt` and `forget-unrestorable-<timestamp>.txt`, each
+  saying outright what it holds. Rejected along the way: `last-forget-snapshot-orphaned-files.txt`,
+  which **garden-paths** — "forget-snapshot-orphaned-files" parses as an imperative,
+  *"forget the snapshot-orphaned files"*, so the name reads as a list of things to remove,
   which is precisely the misunderstanding the report must not create (see the Output
-  section: `delete` removes none of them). `.txt` rather than `.tsv` although the body is
+  section: `forget` removes none of them). `.txt` rather than `.tsv` although the body is
   tab-separated: it is written to be *read*, and `.txt` opens in an editor rather than a
   spreadsheet. Both live under `s3cabDir()`, so `S3CAB_HOME` relocates them with the rest of
   s3cab's local state.
@@ -278,7 +279,7 @@ there would be evidence rather than a guess.
   category (bypass the safety) rather than one member of it.
 
 - ~~Whether `-o` meaning a *file* here and a *directory* on `restore` is tolerable.~~
-  ~~**Settled: it is.**~~ **Superseded: `delete` has no `-o` at all.**
+  ~~**Settled: it is.**~~ **Superseded: `forget` has no `-o` at all.**
   [ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)'s closing section
   kept `-o` but named the condition that would reopen it — *"if the report ever grows into
   something other than 'the long form of what you just read'"*. It did, in this design: the
@@ -290,14 +291,14 @@ there would be evidence rather than a guess.
 
 - **Vocabulary deferred, deliberately — since settled elsewhere.** A proposal to move
   **orphan** to the *file* side came up while building and was **not actioned here** (a rename
-  landing inside a feature diff makes that diff unreviewable), so this design uses `orphan` in
-  both the file and object sense. The subsequent grilling session rejected that swap and
-  settled a different resolution — `orphan` stays object-only; the file-side consequence is
-  named **unrestorable**; and the command itself is renamed `forget` — recorded in
-  [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md) with the delivery plan in
-  [proposals/forget-and-delete.md](../../proposals/forget-and-delete.md). This document
-  predates that rename and still says `delete`/orphan throughout; it is corrected when the
-  rename PR lands.
+  landing inside a feature diff makes that diff unreviewable). The subsequent grilling session
+  rejected that swap on its premise — there is no second reference-counted entity, since a path
+  has no stored identity of its own — and settled a different resolution, recorded in
+  [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md): **`orphan` stays object-only**
+  (`cleanup`'s storage-accounting word), the *file-side consequence* of that same state is named
+  **unrestorable**, and the command itself became `forget`. Both have since landed, and this
+  document uses that vocabulary throughout — object-level maths still says "orphaned" where it
+  is talking about hashes, which is exactly the distinction.
 
 ## Open
 

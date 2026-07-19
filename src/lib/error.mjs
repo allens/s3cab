@@ -102,7 +102,7 @@ export class MissingArgError extends ParseArgsError {
  * the name lives in. Required options exist because a command with a bulk
  * positional operand addresses its target by flag
  * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
- * `--set` on `setup`/`restore`/`delete`, and `--bucket` on `setup`.
+ * `--set` on `setup`/`restore`/`forget`, and `--bucket` on `setup`.
  * @param {unknown} value - The value to check
  * @param {string} name - The argument's plain name, e.g. `bucket`
  * @returns {asserts value}

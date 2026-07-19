@@ -46,8 +46,19 @@ _Avoid_: blob store, CAS pool.
 An object in the object store that no snapshot references any more — reachable from nothing, so
 safe to delete to reclaim space. An object becomes an orphan only once the last snapshot
 pointing at it is gone, which is why pruning old snapshots is the precondition for reclaiming
-object storage.
-_Avoid_: garbage, dangling, unreachable (the precise term is orphan).
+object storage. Strictly **object-side** — `cleanup`'s word. The same state seen from the
+user's side is **unrestorable**.
+_Avoid_: garbage, dangling, unreachable (the precise term is orphan); using it of a *file*
+(that is **unrestorable**).
+
+**Unrestorable**:
+A file **restore** can no longer produce, because no surviving snapshot holds its content.
+The user-facing consequence of **orphan**, read through the Restore vocabulary rather than
+`cleanup`'s storage accounting — one state, two vantage points: the *object* is orphaned, the
+*file* is unrestorable. What `forget`'s pre-removal check reports, since the question a user
+is answering is "am I about to lose the last copy of this file", not "what is the reference
+count" ([ADR-0063](docs/adr/0063-forget-snapshots-delete-paths.md)).
+_Avoid_: unreferenced, orphaned file (orphan is object-side only), lost, gone.
 
 **Grace window**:
 The 7-day immunity every stored object has from deletion, measured from its upload time:
@@ -134,11 +145,21 @@ every set sharing it, answering "is this backup restorable?" with findings repor
 and it never writes to the remote.
 _Avoid_: check, fsck, audit, scrub, validate.
 
+**Forget** (the command):
+The porcelain verb that removes named remote snapshots from a set
+(`s3cab forget --set <set> <snapshot>...`, [ADR-0063](docs/adr/0063-forget-snapshots-delete-paths.md)).
+It removes only the snapshot files — the content they referenced stays in the object store
+until **cleanup** reclaims what nothing references any more. The repository forgets the
+*moment*; the stuff remains until swept. Previews what the removal would orphan, then confirms
+once for the whole run.
+_Avoid_: delete (the retired command name — now reserved for path-scoped content removal),
+retire (**succession**'s word, see Reattach), prune, expire, drop.
+
 **Cleanup**:
 The porcelain verb that reclaims storage by deleting orphaned objects. It operates on the
 *bucket* (an object is deletable only when no snapshot from any set references it) and
 reports by default — deleting takes an explicit flag. The only command that removes
-**stored objects** (deletion rights aren't unique to it — `delete` removes a snapshot file,
+**stored objects** (deletion rights aren't unique to it — `forget` removes a snapshot file,
 and the everyday identity deliberately carries soft-delete, ADR-0033).
 _Avoid_: gc, prune, purge, vacuum.
 

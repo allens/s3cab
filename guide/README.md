@@ -16,7 +16,7 @@ pages are the sit-down read.
 - **[Exclude rules](exclude.md)** — the glob patterns that keep files out of a backup set.
   (Quick reference: `s3cab help exclude`.)
 - **[Looking after a backup](maintenance.md)** — checking backups are still restorable
-  (`verify`), dropping snapshots (`delete`), reclaiming storage (`cleanup`), and why bucket
+  (`verify`), dropping snapshots (`forget`), reclaiming storage (`cleanup`), and why bucket
   versioning makes all of it safe to get wrong.
 
 ## Setting up

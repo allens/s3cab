@@ -197,27 +197,27 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Missing required argument: <bucket>/);
   });
 
-  it("delete without --set is a usage error, before any S3 touch", async () => {
+  it("forget without --set is a usage error, before any S3 touch", async () => {
     // The set is addressed by a flag now; the snapshot is the operand (ADR-0062).
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     mkdirSync(home);
 
-    const { status, stderr } = runWithHome(home, "delete", "2026-06-12T0915");
+    const { status, stderr } = runWithHome(home, "forget", "2026-06-12T0915");
     assert.strictEqual(status, 2);
     // Both spellings, straight from the registry — a user who missed `--set`
     // learns `-S` exists here rather than only from `--help` (ADR-0038).
     assert.match(stderr, /Missing required argument: -S, --set/);
   });
 
-  it("delete without a snapshot operand is a usage error, before any S3 touch", async () => {
+  it("forget without a snapshot operand is a usage error, before any S3 touch", async () => {
     // Both argument checks run before the set is resolved, so this fails fast
     // even with no set on disk.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");
     mkdirSync(home);
 
-    const { status, stderr } = runWithHome(home, "delete", "--set", "photos");
+    const { status, stderr } = runWithHome(home, "forget", "--set", "photos");
     assert.strictEqual(status, 2);
     assert.match(stderr, /Missing required argument: <snapshot>/);
   });

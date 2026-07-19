@@ -28,7 +28,7 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 /** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { UploadResult } from "./commands/upload.mjs" */
 /** @import { RestoreResult } from "./commands/restore.mjs" */
-/** @import { DeleteResult } from "./commands/delete.mjs" */
+/** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /**
  * @import {
@@ -654,21 +654,21 @@ export function renderRestore({ set, snapshot, restored, skipped }) {
 }
 
 /**
- * Confirm a `delete` (ADR-0043) — the stdout record of whether the named snapshots
+ * Confirm a `forget` (ADR-0043) — the stdout record of whether the named snapshots
  * were removed. The reclaim-with-cleanup hint and the cancel notice are stderr
  * guidance the command already emitted (kept there, not folded in); this is only
- * the result line. `deleted: false` means the user declined the confirmation.
- * @param {DeleteResult} result
+ * the result line. `forgotten: false` means the user declined the confirmation.
+ * @param {ForgetResult} result
  * @returns {string}
  */
-export function renderDelete({ set, snapshots, deleted }) {
+export function renderForget({ set, snapshots, forgotten }) {
   const what =
     snapshots.length === 1
       ? `Snapshot '${snapshots[0]}'`
       : `${snapshots.length} snapshots`;
-  return deleted
-    ? `${what} deleted from set '${set}'.`
-    : `${what} kept — deletion cancelled.`;
+  return forgotten
+    ? `${what} forgotten from set '${set}'.`
+    : `${what} kept — nothing was removed.`;
 }
 
 /**

@@ -6,10 +6,10 @@ import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
 import {
   formatForcedReport,
-  formatOrphanReport,
-  formatOrphanSummary,
-  planOrphans,
-} from "../lib/orphans.mjs";
+  formatUnrestorableReport,
+  formatUnrestorableSummary,
+  planUnrestorable,
+} from "../lib/unrestorable.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import {
   deleteRemoteSnapshot,
@@ -21,11 +21,11 @@ import { isInteractive } from "../lib/style.mjs";
 // The **preview**: a transient decision aid, overwritten every run, in the s3cab
 // root because it belongs to no set for longer than one command
 // (docs/design/snapshot-deletion.md).
-const PREVIEW_FILE = "delete-orphans-preview.txt";
+const PREVIEW_FILE = "forget-unrestorable-preview.txt";
 
 /**
  * The **audit record** written into the set's own directory once a deletion
- * actually happens: `delete-orphans-<timestamp>.txt`. These accumulate on
+ * actually happens: `forget-unrestorable-<timestamp>.txt`. These accumulate on
  * purpose — the preview is a decision aid and is worthless once decided, but a
  * record of a destructive act is an audit trail, and audit trails are supposed to
  * accumulate. No cap: they are a few KB of text against a tool that moves
@@ -39,7 +39,7 @@ const PREVIEW_FILE = "delete-orphans-preview.txt";
  * @param {string} timestamp
  * @returns {string}
  */
-const auditFile = (timestamp) => `delete-orphans-${timestamp}.txt`;
+const auditFile = (timestamp) => `forget-unrestorable-${timestamp}.txt`;
 
 /**
  * "Now" at second precision with the colons dropped (`2026-05-01T080213`) —
@@ -54,34 +54,42 @@ const auditTimestamp = () =>
 
 /**
  * Remove remote snapshots — the retention **primitive** (docs/design/backup.md).
- * `s3cab delete --set <set> <snapshot>...` deletes just those snapshot objects
+ * `s3cab forget --set <set> <snapshot>...` deletes just those snapshot objects
  * from `snapshots/<set>/`; the file content they referenced stays under `objects/`.
  * Reclaiming objects nothing references any more is `cleanup`'s job (the output
- * says so), so `delete` never touches `objects/`. (Local snapshots need no
+ * says so), so `forget` never touches `objects/`. (Local snapshots need no
  * command: the files are the API — delete the file.)
+ *
+ * The verb is `forget` because the command removes only the *record of a moment*
+ * and leaves the content standing until `cleanup` sweeps it
+ * ([ADR-0063](../../docs/adr/0063-forget-snapshots-delete-paths.md), matching
+ * restic); `delete` is reserved for path-scoped content removal.
  *
  * Snapshots are the **bulk operand** and the set is addressed by `--set`
  * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)):
- * several snapshots go in one run because the **orphan check** below is a
+ * several snapshots go in one run because the **unrestorable check** below is a
  * whole-bucket scan, and one run pays it once (docs/design/snapshot-deletion.md).
  *
- * **The orphan check** reports, before deleting, which stored content would be
- * left with no snapshot referencing it — the information `cleanup`'s dry run only
- * gives you *afterwards*, as hash counts with no paths. It is inescapably a
+ * **The unrestorable check** reports, before removing, which files no surviving
+ * snapshot would hold — so `restore` could no longer produce them. It is the
+ * information `cleanup`'s dry run only gives you *afterwards*, as hash counts with
+ * no paths. (The vocabulary is ADR-0063's: `orphan` stays object-side, `cleanup`'s
+ * word; this names the *user* consequence of the same state.) It is inescapably a
  * whole-bucket snapshot read (`referencedObjects`): dedup is global across sets
  * (ADR-0013), so answering from this set's own snapshots would report content as
- * orphaned that another set still needs. The summary goes to stdout ending with a
- * file path; the confirmation comes last on stderr. Note the check reports what
- * would become *reclaimable*, not what `delete` removes: `delete` never touches
- * `objects/`, so every file it names stays stored (and billed) until `cleanup`.
+ * unrestorable that another set still holds. The summary goes to stdout ending with
+ * a file path; the confirmation comes last on stderr. Note the check reports what
+ * would become *unrestorable* (and so *reclaimable*), not what `forget` removes:
+ * `forget` never touches `objects/`, so every file it names stays stored (and
+ * billed) until `cleanup`.
  *
  * **Two files, two purposes** (docs/design/snapshot-deletion.md). The full path
  * list is always written — it is computed anyway, and forgetting a `>` here costs
  * a second full scan:
- *  - the **preview**, `~/.s3cab/delete-orphans-preview.txt`, overwritten each
+ *  - the **preview**, `~/.s3cab/forget-unrestorable-preview.txt`, overwritten each
  *    run and written *before* the prompt, so declining still leaves you the list
  *    to read and re-run against without paying for a second scan;
- *  - the **audit record**, `~/.s3cab/sets/<set>/delete-orphans-<timestamp>.txt`,
+ *  - the **audit record**, `~/.s3cab/sets/<set>/forget-unrestorable-<timestamp>.txt`,
  *    written only once a deletion actually happens, and kept.
  *
  * `--force`/`-f` skips the check and the confirmation **together** — skipping the
@@ -100,16 +108,16 @@ const auditTimestamp = () =>
  * typo gets a helpful error (and the prompt names real targets) rather than a
  * silent no-op (`DeleteObject` is idempotent) — and never a half-done run.
  *
- * @typedef {Object} DeleteResult
+ * @typedef {Object} ForgetResult
  * @property {string} set - The set the snapshots belonged to
- * @property {string[]} snapshots - The snapshots named for deletion, in the order given
- * @property {boolean} deleted - False only when the user declined the confirmation
+ * @property {string[]} snapshots - The snapshots named for removal, in the order given
+ * @property {boolean} forgotten - False only when the user declined the confirmation
  *
- * @param {string[]} [snapshots] - The snapshots to delete — the bulk operand (at least one)
+ * @param {string[]} [snapshots] - The snapshots to forget — the bulk operand (at least one)
  * @param {{ set?: string, force?: boolean }} [options] - `set` = the backup set they belong to (required); `force` skips the check and the confirmation
- * @returns {Promise<DeleteResult>}
+ * @returns {Promise<ForgetResult>}
  */
-export async function deleteSnapshot(snapshots = [], options = {}) {
+export async function forget(snapshots = [], options = {}) {
   requireArg(options.set, "set");
   requireArg(snapshots.length, "snapshot");
   const force = Boolean(options.force);
@@ -148,19 +156,19 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
   };
   const auditPath = join(set.dir, auditFile(timestamp));
 
-  // The orphan check — the whole-bucket scan, skipped only by --force. It runs
+  // The unrestorable check — the whole-bucket scan, skipped only by --force. It runs
   // regardless of the TTY: a non-interactive run gets no prompt but still leaves
   // the report behind, which is the half of this that survives the terminal.
   /** @type {string | undefined} */
   let report;
   if (!force) {
     const referencedBySet = await referencedObjects(set.bucket);
-    const plan = planOrphans(referencedBySet, {
+    const plan = planUnrestorable(referencedBySet, {
       set: set.name,
       snapshots,
       remoteSnapshots: remote,
     });
-    report = formatOrphanReport(plan, context);
+    report = formatUnrestorableReport(plan, context);
 
     // The preview lands *before* the prompt, so declining still leaves the list
     // on disk to read and re-run against — without paying for a second scan.
@@ -172,7 +180,10 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
     // here rather than through `render` (ADR-0043), which only runs once the
     // command has returned — by which point the deletion has happened.
     console.log(
-      formatOrphanSummary(plan, { set: set.name, reportPath: previewPath }),
+      formatUnrestorableSummary(plan, {
+        set: set.name,
+        reportPath: previewPath,
+      }),
     );
   }
 
@@ -182,13 +193,13 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
   // hold down `y`. --force skips this with the check, the two travelling together.
   if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
-      `Delete ${describe(snapshots)} from set '${set.name}' (bucket ${set.bucket})? This cannot be undone.`,
+      `Forget ${describe(snapshots)} from set '${set.name}' (bucket ${set.bucket})? This cannot be undone.`,
     );
     if (!ok) {
       // Cancelling is a normal outcome, not an error — exit 0. Guidance to
-      // stderr; the result on stdout records that nothing was deleted.
-      console.warn("Cancelled — nothing was deleted.");
-      return { set: set.name, snapshots, deleted: false };
+      // stderr; the result on stdout records that nothing was removed.
+      console.warn("Cancelled — nothing was removed.");
+      return { set: set.name, snapshots, forgotten: false };
     }
   }
 
@@ -196,27 +207,27 @@ export async function deleteSnapshot(snapshots = [], options = {}) {
     await deleteRemoteSnapshot(set.bucket, set.name, name);
   }
 
-  // The deletion happened, so it earns an audit record — kept, unlike the
+  // The removal happened, so it earns an audit record — kept, unlike the
   // preview. A `--force` run has no analysis to record, so it files the stub that
   // says so rather than nothing at all. Written *after* the deletes: the record
-  // states what was deleted, and a run that threw part-way through has a
+  // states what was forgotten, and a run that threw part-way through has a
   // different story than this file would tell.
   await mkdir(set.dir, { recursive: true });
   await writeFile(auditPath, report ?? formatForcedReport(context));
 
   // The objects the snapshots referenced are still stored — point at `cleanup`,
   // which reclaims whatever nothing references any more. Guidance → stderr. *How
-  // much* is reclaimable was the orphan preview's job above (and is in the audit
-  // record); repeating it here would restate a number the user has just answered
-  // a prompt about, and it is unavailable under --force anyway.
+  // much* is reclaimable was the unrestorable preview's job above (and is in the
+  // audit record); repeating it here would restate a number the user has just
+  // answered a prompt about, and it is unavailable under --force anyway.
   console.warn(
-    `Deleted ${describe(snapshots)} from set '${set.name}'.\n` +
+    `Forgot ${describe(snapshots)} from set '${set.name}'.\n` +
       `Objects they referenced are still stored; reclaim unreferenced ones with: ` +
       `s3cab cleanup ${set.bucket}\n` +
-      `Record of this deletion:\n  ${auditPath}`,
+      `Record of this removal:\n  ${auditPath}`,
   );
 
-  return { set: set.name, snapshots, deleted: true };
+  return { set: set.name, snapshots, forgotten: true };
 }
 
 /**

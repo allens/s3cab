@@ -6,7 +6,7 @@ import {
   renderBackup,
   renderCleanup,
   renderCompareResult,
-  renderDelete,
+  renderForget,
   renderLines,
   renderList,
   renderProp,
@@ -772,39 +772,39 @@ describe("renderRestore", () => {
   });
 });
 
-describe("renderDelete", () => {
-  it("records a deleted snapshot", () => {
+describe("renderForget", () => {
+  it("records a forgotten snapshot", () => {
     assert.equal(
-      renderDelete({
+      renderForget({
         set: "photos",
         snapshots: ["2026-06-12T0915"],
-        deleted: true,
+        forgotten: true,
       }),
-      "Snapshot '2026-06-12T0915' deleted from set 'photos'.",
+      "Snapshot '2026-06-12T0915' forgotten from set 'photos'.",
     );
   });
 
-  it("counts a multi-snapshot deletion rather than listing them again", () => {
+  it("counts a multi-snapshot removal rather than listing them again", () => {
     // The names were just echoed in the confirmation prompt; the result line is
     // the tally.
     assert.equal(
-      renderDelete({
+      renderForget({
         set: "photos",
         snapshots: ["2026-06-12T0915", "2026-06-19T0902"],
-        deleted: true,
+        forgotten: true,
       }),
-      "2 snapshots deleted from set 'photos'.",
+      "2 snapshots forgotten from set 'photos'.",
     );
   });
 
-  it("records a declined deletion as kept", () => {
+  it("records a declined removal as kept", () => {
     assert.equal(
-      renderDelete({
+      renderForget({
         set: "photos",
         snapshots: ["2026-06-12T0915"],
-        deleted: false,
+        forgotten: false,
       }),
-      "Snapshot '2026-06-12T0915' kept — deletion cancelled.",
+      "Snapshot '2026-06-12T0915' kept — nothing was removed.",
     );
   });
 });

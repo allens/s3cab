@@ -6,6 +6,11 @@
 under the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the
 `cli-design` skill).
 
+> **The command this ADR calls `delete` is now `forget`**
+> ([0063](0063-forget-snapshots-delete-paths.md) freed `delete` for path-scoped content
+> removal). The shape decided here is unchanged and applies to `forget`; the old name is
+> kept below as the record of what was decided when.
+
 ## Context
 
 `delete` is gaining the ability to name **several snapshots in one run** (see

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { backup } from "../../src/commands/backup.mjs";
-import { deleteSnapshot } from "../../src/commands/delete.mjs";
+import { forget } from "../../src/commands/forget.mjs";
 import { setup } from "../../src/commands/setup.mjs";
 import { deleteObject } from "../../src/lib/s3.mjs";
 import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
@@ -16,15 +16,15 @@ import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 
-// `delete`'s orphan check against a real bucket (docs/design/snapshot-deletion.md).
-// The *computation* is unit-tested pure in src/lib/orphans.test.mjs; what needs a
+// `forget`'s unrestorable check against a real bucket (docs/design/snapshot-deletion.md).
+// The *computation* is unit-tested pure in src/lib/unrestorable.test.mjs; what needs a
 // real bucket is the read path it sits on — the check reads and decompresses every
 // snapshot in the bucket via `referencedObjects`, and CLAUDE.md is explicit that
 // mocked S3 bodies can't exercise real stream teardown (a unit-green path that
 // aborts a live GetObject is the failure mode this tier exists to catch, #171).
 //
 // So this drives the whole command: two seeded snapshots through the real upload
-// path, then a real delete, asserting on both files it leaves behind — the
+// path, then a real forget, asserting on both files it leaves behind — the
 // transient preview and the kept audit record.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -81,8 +81,8 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("delete --set (orphan check, real bucket)", () => {
-  it("reads every snapshot in the bucket and reports what the deletion would orphan", async () => {
+describe("forget --set (unrestorable check, real bucket)", () => {
+  it("reads every snapshot in the bucket and reports what the removal would lose", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
     const set = `orph-${Date.now()}`;
@@ -127,25 +127,25 @@ describe("delete --set (orphan check, real bucket)", () => {
       hashes.push(...(await hashesOf(set, snapshots)));
 
       // The real run: reads and decompresses every snapshot in the bucket.
-      const result = await deleteSnapshot([firstName], { set });
-      assert.equal(result.deleted, true);
+      const result = await forget([firstName], { set });
+      assert.equal(result.forgotten, true);
 
       // The preview, in the s3cab root, overwritten each run.
-      const preview = join(home, ".s3cab", "delete-orphans-preview.txt");
+      const preview = join(home, ".s3cab", "forget-unrestorable-preview.txt");
       const body = readFileSync(preview, "utf8");
       const rows = body.split("\n").filter((l) => l && !l.startsWith("#"));
       assert.equal(
         rows.length,
         1,
-        `one orphaned path, got: ${rows.join(" | ")}`,
+        `one unrestorable file, got: ${rows.join(" | ")}`,
       );
       assert.match(rows[0] ?? "", /drop\.txt$/);
       assert.doesNotMatch(body, /keep\.txt/);
 
-      // The audit record, kept in the set's own directory now the delete landed.
+      // The audit record, kept in the set's own directory now the removal landed.
       const { dir: setDir } = readSet(set);
       const records = readdirSync(setDir).filter((f) =>
-        f.startsWith("delete-orphans-"),
+        f.startsWith("forget-unrestorable-"),
       );
       assert.equal(records.length, 1, "one deletion, one record");
       assert.match(
@@ -155,7 +155,7 @@ describe("delete --set (orphan check, real bucket)", () => {
 
       // The summary names the preview, on its own indented last line.
       const summary = stdout.join("\n");
-      assert.match(summary, /Orphan preview/);
+      assert.match(summary, /Unrestorable preview/);
       assert.equal(summary.split("\n").at(-1), `  ${preview}`);
     } finally {
       for (const name of snapshots) {
@@ -191,14 +191,14 @@ describe("delete --set (orphan check, real bucket)", () => {
       hashes.push(...(await hashesOf(set, [name])));
 
       const { dir: setDir } = readSet(set);
-      const result = await deleteSnapshot([name], { set, force: true });
+      const result = await forget([name], { set, force: true });
 
-      assert.equal(result.deleted, true);
+      assert.equal(result.forgotten, true);
       assert.deepEqual(stdout, [], "--force prints no preview");
       assert.throws(
         () =>
           readFileSync(
-            join(home, ".s3cab", "delete-orphans-preview.txt"),
+            join(home, ".s3cab", "forget-unrestorable-preview.txt"),
             "utf8",
           ),
         "--force writes no preview",
@@ -206,12 +206,12 @@ describe("delete --set (orphan check, real bucket)", () => {
 
       // The record still lands, and is honest that the analysis is missing.
       const records = readdirSync(setDir).filter((f) =>
-        f.startsWith("delete-orphans-"),
+        f.startsWith("forget-unrestorable-"),
       );
       assert.equal(records.length, 1);
       assert.match(
         readFileSync(join(setDir, records[0] ?? ""), "utf8"),
-        /no orphan analysis \(--force\)/,
+        /no unrestorable check \(--force\)/,
       );
       name = undefined; // already deleted; nothing to clean up
     } finally {
