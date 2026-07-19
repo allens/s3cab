@@ -36,10 +36,19 @@
   necessarily forcing local and remote into lockstep generally (which may not be achievable in
   a single-owner-with-occasional-remote-deletion model anyway).
 
-  **Not yet explored:** whether `delete` should invalidate/touch the corresponding local
-  snapshot file, whether `planUpload`'s baseline path needs a cheap live existence check
-  (defeating the point of skipping the LIST), or something else. No fix designed yet — filed to
-  capture the defect before it's lost in the purge-design discussion that surfaced it.
+  **Candidate fix (proposed, not settled):** trust the baseline **iff it still exists
+  remotely**. The objects-first/snapshot-last invariant means a remote snapshot's presence
+  proves its objects were stored, and `cleanup` never deletes referenced objects — so one
+  cheap HEAD on the baseline snapshot before `planUpload` trusts it closes the hole; on a
+  miss, fall back to the LIST path a first backup already takes. Confirm this shape (or a
+  better one) before building.
+
+  **Interlock with the deletion rework
+  ([forget-and-delete.md](forget-and-delete.md), ADR-0063):** this fix is a **hard
+  prerequisite** for the path-scoped `delete` — that command deletes objects recent baselines
+  still believe stored, making this bug trigger without the delete/cleanup dance. And the
+  candidate fix's invariant is exactly what path-deletion breaks, so that PR must extend the
+  fix by also subtracting deletion-record hashes from any baseline.
 
 <sub>Last cleared 2026-07-17: the snapshot→upload staleness corruption (a file changing on
 disk between its snapshot and its upload, PUT under the wrong hash) was fixed by aborting the
