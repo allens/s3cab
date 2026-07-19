@@ -225,6 +225,11 @@ basename is detected up front and errors with guidance (rare, actionable).
 
 ### `delete` — remove one remote snapshot (**built**)
 
+> **Being redesigned:** the orphan check, multiple snapshots per run, and the
+> `--set <set> <snapshot>...` shape are designed in
+> [snapshot-deletion.md](snapshot-deletion.md) ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md))
+> and **not yet built**. This section describes what ships today.
+
 `s3cab delete <set> --snapshot <name>` removes a single remote snapshot — the retention
 *primitive*. It deletes only the snapshot; reclaiming the objects only it referenced is
 `cleanup`'s job (the command's output says so). It never touches `objects/`. On a TTY it confirms
