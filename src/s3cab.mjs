@@ -5,7 +5,7 @@ import pkg from "../package.json" with { type: "json" };
 import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
-import { argDescription, helpTopics, synopsis, usage } from "./help.mjs";
+import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
 import { loadEnv } from "./lib/env.mjs";
 import { isInputError, isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
@@ -107,23 +107,13 @@ try {
   // structural usage error, and pick the exit code by input-vs-runtime. Exit-code
   // convention: 2 for bad input (args/options/values — the argparse/getopt
   // convention), 1 for any other runtime failure. (Success is 0; an unknown
-  // command exits 127 above, the shell's "command not found".)
-  const usageErr = isUsageError(error);
-  const message = Error.isError(error) ? error.message : String(error);
-  // Gloss a missing-arg usage error with the arg's registry description. Usage
-  // errors that name no single arg — our flag-conflict / bad-value ParseArgsErrors
-  // and Node's own parse failures — carry no argName, so no gloss (ADR-0038).
-  const argName = usageErr
-    ? /** @type {{ argName?: string }} */ (error).argName
-    : undefined;
-  const description = argName ? argDescription(command, argName) : undefined;
-  console.error(
-    "ERROR:",
-    debug ? error : description ? `${message} — ${description}` : message,
-  );
+  // command exits 127 above, the shell's "command not found".) `errorMessage`
+  // owns the text — a missing argument is spelled from the registry (ADR-0038);
+  // debug prints the error object whole instead, stack and all.
+  console.error("ERROR:", debug ? error : errorMessage(command, error));
   // A usage error prints the one-line synopsis + a --help pointer, not the full
   // arg/option tables (those live behind --help) — ADR-0038.
-  if (usageErr) {
+  if (isUsageError(error)) {
     console.error();
     console.error(synopsis(commands, commandName));
     console.error(`Run 's3cab ${commandName} --help' for details.`);

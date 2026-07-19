@@ -70,7 +70,7 @@ afterEach(() => {
 
 describe("verify command", () => {
   it("requires a bucket, failing fast before any S3 touch", async () => {
-    await assert.rejects(() => verify(), /Missing required argument: <bucket>/);
+    await assert.rejects(() => verify(), /Missing required argument: bucket/);
   });
 
   it("reports a clean bucket and leaves the exit code untouched", async () => {

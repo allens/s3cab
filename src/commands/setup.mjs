@@ -1,12 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
-import {
-  ParseArgsError,
-  isENOENT,
-  requireArg,
-  requireOption,
-} from "../lib/error.mjs";
+import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
 import { readSigningIdentity } from "../lib/roles-anywhere.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
@@ -73,11 +68,9 @@ import {
 export async function setup(directories = [], options = {}) {
   const name = options.set;
   if (name === undefined) {
-    // A distinct undefined-check (not requireOption) so an *empty* string still
+    // A distinct undefined-check (not requireArg) so an *empty* string still
     // routes to validateSetName below as invalid, not "missing".
-    throw new ParseArgsError("Missing required argument: --set", {
-      argName: "set",
-    });
+    throw new MissingArgError("set");
   }
 
   validateSetName(name);
@@ -198,7 +191,7 @@ async function create(name, directories, options) {
   // Resolve directories (local, cheap) before the --bucket check so a bad directory
   // reports "Directory not found" regardless of whether a bucket was given.
   const dirs = resolveDirectories(directories);
-  requireOption(options.bucket, "bucket");
+  requireArg(options.bucket, "bucket");
   const bucket = options.bucket;
 
   // Roles Anywhere is a *machine* identity generated up front by

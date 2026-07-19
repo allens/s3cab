@@ -52,7 +52,7 @@ describe("setup (offline validation)", () => {
       // Named by --set, not a positional: the directories are the bulk operand
       // (ADR-0062), so the set moved to a flag.
       () => setup([], { bucket: "b" }),
-      /Missing required argument: --set/,
+      /Missing required argument: set/,
     );
   });
 
@@ -62,7 +62,7 @@ describe("setup (offline validation)", () => {
 
     await assert.rejects(
       () => setup([], { set: "photos" }),
-      /Missing required argument: <directory>/,
+      /Missing required argument: directory/,
     );
   });
 
@@ -72,7 +72,7 @@ describe("setup (offline validation)", () => {
 
     await assert.rejects(
       () => setup([photos], { set: "photos" }),
-      /Missing required argument: --bucket/,
+      /Missing required argument: bucket/,
     );
   });
 

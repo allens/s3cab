@@ -3,7 +3,7 @@ import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { loadSet } from "../lib/env.mjs";
-import { requireOption } from "../lib/error.mjs";
+import { requireArg } from "../lib/error.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
@@ -54,7 +54,7 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * @returns {Promise<RestoreResult>}
  */
 export async function restore(paths = [], options = {}) {
-  requireOption(options.set, "set");
+  requireArg(options.set, "set");
   const set = loadSet(options.set);
 
   // One listing picks the source and validates `--snapshot` against what's

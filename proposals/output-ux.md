@@ -6,23 +6,6 @@ to its own build spec, now **implemented** and deleted; the decision lives in
 [ADR-0043](../docs/adr/0043-human-first-output.md). This file keeps the surrounding output/UX
 niceties.
 
-- **Show the short form in missing-argument errors.** Today a missing flag reports
-  `Missing required argument: --bucket — <description>`; the `-b` is discoverable only via
-  `--help`. User-reported friction (2026-07-18): "it complains I haven't used `--bucket`
-  without letting me know I could have used `-b`."
-  - **This was never actually decided.** [ADR-0038](../docs/adr/0038-usage-error-synopsis-not-full-help.md)
-    governs usage errors and never mentions short forms — the omission is collateral from
-    moving the `Options:` **table** (where `-b, --bucket` rendered) to `--help` only. Some
-    past session argued against it; the reasoning was not recorded. The best reconstruction
-    is *non-uniformity* (not every option has a short, so the line renders inconsistently),
-    echoing the ADR's own "uniform beats special-cased". That argument looks weak: `--help`
-    already renders that same mixed shape without complaint.
-  - **The fix removes a hardcoding rather than adding machinery.** The dispatcher already
-    looks the arg up in the registry to render its description, so `short` is in hand; the
-    `--bucket` text is currently hand-written into the throw in `setup.mjs`, so making it
-    registry-driven single-sources it — the direction ADR-0038 was already pushing.
-  - Gets more relevant once `--set`/`-S` becomes a required flag on `delete`/`restore`/`setup`.
-  - Amend ADR-0038 with a short "shorts are shown too" note when it lands.
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say
   "unknown topic" and list the valid ones.

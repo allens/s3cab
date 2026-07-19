@@ -85,7 +85,7 @@ describe("upload validation", () => {
   it("requires an explicit set when there is no --bucket (no sole-set default)", async () => {
     await assert.rejects(
       upload(undefined, { file: "f" }),
-      /Missing required argument: <set>/,
+      /Missing required argument: set/,
     );
     assert.deepEqual(loadSetCalls, []); // never even resolves a set
   });

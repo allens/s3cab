@@ -205,7 +205,9 @@ describe("cli (e2e)", () => {
 
     const { status, stderr } = runWithHome(home, "delete", "2026-06-12T0915");
     assert.strictEqual(status, 2);
-    assert.match(stderr, /Missing required argument: --set/);
+    // Both spellings, straight from the registry — a user who missed `--set`
+    // learns `-S` exists here rather than only from `--help` (ADR-0038).
+    assert.match(stderr, /Missing required argument: -S, --set/);
   });
 
   it("delete without a snapshot operand is a usage error, before any S3 touch", async () => {
@@ -249,7 +251,28 @@ describe("cli (e2e)", () => {
       data,
     );
     assert.strictEqual(status, 2); // usage error (missing required option)
-    assert.match(stderr, /Missing required argument: --bucket/);
+    assert.match(stderr, /Missing required argument: -b, --bucket/);
+  });
+
+  it("aws --save keeps its own wording, not a missing-argument rewrite", async () => {
+    // A usage error may name an arg (`from-stack`) purely to earn the registry
+    // description gloss — that must not license rewriting it into "Missing
+    // required argument: --from-stack", which would drop the actual problem:
+    // --save is what needs --from-stack. Only a MissingArgError is re-spelled
+    // (ADR-0038). Fails fast before any AWS touch, so this stays hermetic.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(
+      home,
+      "aws",
+      "--roles-anywhere",
+      "--save",
+    );
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /--save needs --from-stack <stack>/);
+    assert.doesNotMatch(stderr, /Missing required argument/);
   });
 
   it("setup rejects an invalid set name with the rule and a suggestion", async () => {

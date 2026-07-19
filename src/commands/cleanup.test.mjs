@@ -91,10 +91,7 @@ afterEach(() => {
 
 describe("cleanup command", () => {
   it("requires a bucket", async () => {
-    await assert.rejects(
-      () => cleanup(),
-      /Missing required argument: <bucket>/,
-    );
+    await assert.rejects(() => cleanup(), /Missing required argument: bucket/);
   });
 
   it("dry run reports orphans past the grace window without deleting", async () => {
