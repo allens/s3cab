@@ -18,9 +18,9 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the
 // prompt are faked at the lib seam, and the TTY gate is driven via
 // process.stdin.isTTY — so the required-arg guards, the existence check, the
-// orphan check's wiring, and the confirm/skip logic are locked down without a
+// unrestorable check's wiring, and the confirm/skip logic are locked down without a
 // bucket or a terminal. The orphan *computation* is tested pure in
-// lib/orphans.test.mjs; what's asserted here is the command's part — that the
+// lib/unrestorable.test.mjs; what's asserted here is the command's part — that the
 // check runs, the report lands on disk, and --force skips both halves. The real
 // removal is covered by test/integration/remote.test.mjs's gated round-trip.
 // Mocks first, then a dynamic import.
@@ -137,7 +137,7 @@ const realLog = console.log;
 beforeEach(() => {
   savedTTY = stdin.isTTY;
   savedHome = process.env.S3CAB_HOME;
-  // The orphan check always writes its report, so every run needs a home to
+  // The unrestorable check always writes its report, so every run needs a home to
   // write into — a temp one, so no test touches the real ~/.s3cab.
   tmp = mkdtempSync(join(tmpdir(), "s3cab-forget-"));
   home = useTempHome(tmp);
@@ -168,7 +168,8 @@ afterEach(() => {
 });
 
 /** The transient preview, overwritten every checked run. */
-const previewPath = () => join(home, ".s3cab", "forget-orphans-preview.txt");
+const previewPath = () =>
+  join(home, ".s3cab", "forget-unrestorable-preview.txt");
 
 /**
  * The audit records in the set's directory. Named with a timestamp minted inside
@@ -177,7 +178,7 @@ const previewPath = () => join(home, ".s3cab", "forget-orphans-preview.txt");
  */
 const auditRecords = () =>
   (existsSync(fakeSet.dir) ? readdirSync(fakeSet.dir) : [])
-    .filter((f) => f.startsWith("forget-orphans-"))
+    .filter((f) => f.startsWith("forget-unrestorable-"))
     .sort()
     .map((f) => join(fakeSet.dir, f));
 
@@ -277,7 +278,7 @@ describe("forget command", () => {
     assert.equal(result.forgotten, false);
   });
 
-  describe("the orphan check", () => {
+  describe("the unrestorable check", () => {
     it("writes the preview and summarises it on stdout before the prompt", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
@@ -291,13 +292,13 @@ describe("forget command", () => {
       assert.match(preview, /# 1 file, holding 500B across 1 stored object\./);
 
       const summary = stdout.join("\n");
-      assert.match(summary, /^ {2}total orphaned +1 file +500B$/m);
+      assert.match(summary, /^ {2}total unrestorable +1 file +500B$/m);
       // The preview's absolute path lands last, on its own indented line.
       assert.equal(summary.split("\n").at(-1), `  ${previewPath()}`);
     });
 
     it("is bucket-wide, so another set's reference keeps content off the list", async () => {
-      // Not a re-test of planOrphans — this asserts the *command* hands it the
+      // Not a re-test of planUnrestorable — this asserts the *command* hands it the
       // whole bucket rather than the target set's own snapshots (ADR-0013). A
       // second set references a.jpg's content, so deleting the only photos
       // snapshot that holds it orphans nothing.
@@ -326,7 +327,7 @@ describe("forget command", () => {
         .split("\n")
         .filter((l) => l && !l.startsWith("#"));
       assert.deepEqual(rows, [], "a.jpg is still referenced by set 'docs'");
-      assert.match(stdout.join("\n"), /nothing would be orphaned/);
+      assert.match(stdout.join("\n"), /nothing would become unrestorable/);
     });
 
     it("computes over the whole selection, so shared content shows as shared", async () => {
@@ -338,7 +339,7 @@ describe("forget command", () => {
       const summary = stdout.join("\n");
       // b.jpg is orphaned only because both snapshots go — the shared line.
       assert.match(summary, /shared across 2 snapshots\s+1 file\s+300B/);
-      assert.match(summary, /total orphaned\s+2 files\s+800B/);
+      assert.match(summary, /total unrestorable\s+2 files\s+800B/);
       // Both snapshots are the set's whole remote history.
       assert.match(summary, /last remote snapshot of set 'photos'/);
     });
@@ -366,7 +367,7 @@ describe("forget command", () => {
       // Second precision, so two runs a minute apart can't overwrite one another.
       assert.match(
         records[0] ?? "",
-        /forget-orphans-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
+        /forget-unrestorable-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
       );
       // It holds the same list as the preview did.
       assert.match(readFileSync(records[0] ?? "", "utf8"), /a\.jpg/);
@@ -418,7 +419,7 @@ describe("forget command", () => {
       const records = auditRecords();
       assert.equal(records.length, 1);
       const record = readFileSync(records[0] ?? "", "utf8");
-      assert.match(record, /no orphan analysis \(--force\)/);
+      assert.match(record, /no unrestorable check \(--force\)/);
       assert.match(record, /never computed/);
     });
   });

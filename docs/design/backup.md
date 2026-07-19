@@ -226,7 +226,7 @@ basename is detected up front and errors with guidance (rare, actionable).
 ### `forget` — remove remote snapshots (**built**)
 
 > **Named `delete` until [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md)**, which
-> freed `delete` for path-scoped content removal. The orphan check, multiple snapshots per
+> freed `delete` for path-scoped content removal. The unrestorable check, multiple snapshots per
 > run, and the `--set <set> <snapshot>...` shape are designed in
 > [snapshot-deletion.md](snapshot-deletion.md)
 > ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)) and built.

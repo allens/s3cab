@@ -35,14 +35,15 @@ deleted as their PRs land (lasting knowledge moves to ADRs / docs/design/ / guid
 | PR | What | Depends on |
 | --- | --- | --- |
 | **A** | The baseline-trust bug fix ([bugs.md](bugs.md)) | fix-shape confirmation (sketch below) |
-| **B** | Rename `delete`→`forget` **+** the `unrestorable` sweep (below) — two commits, one PR (same files, same guide prose) | — |
+| ~~**B**~~ | ~~Rename `delete`→`forget` **+** the `unrestorable` sweep~~ **— landed** | — |
 | **C** | `restore` degrades gracefully on a missing object (standalone robustness — today one missing object aborts the whole run mid-loop, [src/commands/restore.mjs](../src/commands/restore.mjs) has no catch around `getObject`) | — |
 | **D** | The new `delete`: deletion record + purge computation + `verify` partition + `restore` record-awareness + `backup` record-subtraction + format-spec section + CONTEXT.md repairs + confirmation UX | A, B, C merged |
 
-**Parallelism:** A, B, C touch disjoint files (A: `lib/upload.mjs`/`backup.mjs`; B:
-`commands/delete.mjs`, `lib/orphans.mjs`, guide, design docs; C: `commands/restore.mjs`) — all
-three can run concurrently as separate worktree sessions branched from `origin/main`. D is
-strictly last. Each session: worktree + PR + Copilot review; A and D touch the S3 read/write
+**Parallelism:** A and C touch disjoint files (A: `lib/upload.mjs`/`backup.mjs`; C:
+`commands/restore.mjs`), so both can run concurrently as separate worktree sessions branched
+from `origin/main`. B has landed. D is strictly last.
+
+Each session: worktree + PR + Copilot review; A and D touch the S3 read/write
 path → run `npm run test:integration` before push; scope every rename from a fresh `grep`,
 not from this file.
 
@@ -57,28 +58,6 @@ existence check (HEAD) on the baseline before `planUpload` trusts it; on failure
 the LIST path a first backup already takes. Note the invariant this leans on is exactly what
 the new `delete` breaks — which is why PR D must extend the fix by also subtracting
 deletion-record hashes from any baseline (interlock recorded in bugs.md).
-
-### PR B — the `unrestorable` sweep (verdict grilled 2026-07-19, moved here from misc.md)
-
-The original proposal — swap `orphan` to files and coin "unreferenced" for objects — was
-grilled on its premise and **rejected**: there is no second reference-counted entity (a path
-has no stored identity of its own; only objects carry a reference count), and
-`planOrphans` renders the *same* orphan-object state by path, not a second state. What
-`delete`'s (→ `forget`'s) report actually names is a **user consequence**: *a path no
-surviving snapshot lists, so `restore` can no longer produce it* — **unrestorable**, hooking
-onto the existing **Restore** vocabulary instead of borrowing `cleanup`'s storage-accounting
-word. `orphan` stays exactly as CONTEXT.md defines it (object-side, `cleanup`'s domain);
-`CleanupResult.orphanObjects` and the ~185-occurrence object-side surface are untouched.
-
-Scope (rename + sweep together): `commands/delete.mjs` → `forget.mjs`, registry/render/tests,
-`lib/orphans.mjs` module + exports (`planOrphans` → `planUnrestorable`, `OrphanPlan` →
-`UnrestorablePlan`), the stdout header ("Orphan preview" → unrestorable family), report
-filenames → `forget-unrestorable-preview.txt` / `forget-unrestorable-<timestamp>.txt`
-(command-prefix provenance principle, settled when the files were named), the forget/delete
-sections of [guide/maintenance.md](../guide/maintenance.md),
-[snapshot-deletion.md](../docs/design/snapshot-deletion.md),
-[backup.md](../docs/design/backup.md)'s retention-primitive prose, and CONTEXT.md (**Forget**
-entry; **Unrestorable** entry cross-referencing Orphan and Restore).
 
 ### PR D — the deletion record and its consumers
 

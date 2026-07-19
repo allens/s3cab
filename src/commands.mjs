@@ -517,7 +517,7 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
         type: "boolean",
         short: "f",
         description:
-          "Skip the orphan check and the confirmation (default: report what would be left unreferenced, then ask)",
+          "Skip the unrestorable check and the confirmation (default: report what you could no longer restore, then ask)",
       },
     },
     exec: (options, snapshots = []) => forget(snapshots, options),

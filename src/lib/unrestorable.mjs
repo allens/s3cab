@@ -1,86 +1,93 @@
 import { formatByteValue } from "./format.mjs";
 
-// The pure core of `forget`'s **orphan check** (docs/design/snapshot-deletion.md):
+// The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
 // given the bucket's referenced enumeration (`referencedObjects` in remote.mjs)
-// and the snapshots a run is about to forget, work out what content would be left
-// with no snapshot referencing it — plus the two shapes the command prints, the
-// stdout summary and the report file's body. No S3, no filesystem, no clock: the
-// command owns the I/O and the policy, so all of this is unit-testable by
-// asserting on returned strings and data, with no mocked seams (the same split
-// `planCleanup` keeps with `cleanup`).
+// and the snapshots a run is about to forget, work out which files no surviving
+// snapshot would hold — so `restore` could no longer produce them — plus the two
+// shapes the command prints, the stdout summary and the report file's body. No S3,
+// no filesystem, no clock: the command owns the I/O and the policy, so all of this
+// is unit-testable by asserting on returned strings and data, with no mocked seams
+// (the same split `planCleanup` keeps with `cleanup`).
+//
+// **Unrestorable, not orphaned** (ADR-0063's vocabulary verdict). `orphan` stays
+// object-side, `cleanup`'s storage-accounting word (CONTEXT.md) — and the hashes
+// below genuinely do become orphans, which is why the computation still says so.
+// What this module *reports* is the user consequence of that state, read through
+// the **Restore** vocabulary: a file no surviving snapshot lists. One state, two
+// vantage points; the user is deciding about files, not about reference counts.
 //
 // Sibling of cleanup.mjs, deliberately not folded into it: `cleanup` answers
 // "what does *nothing* reference *now*" over `stored − referenced`, while this
-// answers "what would nothing reference *after* a hypothetical deletion" over
-// `referenced − referenced`. Same vocabulary, different question, no shared
-// computation — and `planCleanup` is explicitly left alone (see that design's box).
+// answers "what would nothing reference *after* a hypothetical removal" over
+// `referenced − referenced`. Different question, no shared computation — and
+// `planCleanup` is explicitly left alone (see that design's box).
 
 /** @import { ReferencedResult } from "./verify.mjs" */
 
 /**
- * One selected snapshot's share of the orphans: the content that **only** it
- * references among the selection, and so is attributable to it alone.
- * @typedef {Object} SnapshotOrphans
+ * One selected snapshot's share: the content that **only** it references among
+ * the selection, and so is attributable to it alone.
+ * @typedef {Object} SnapshotUnrestorable
  * @property {string} snapshot - The snapshot name, as the user gave it
- * @property {number} files - Paths that would lose their last reference
+ * @property {number} files - Files that would lose their last reference
  * @property {number} bytes - Bytes the underlying objects hold (counted once per object)
  */
 
 /**
- * What a deletion would orphan. `bySnapshot` attributes content referenced by
- * exactly one of the selected snapshots to that snapshot; content referenced by
- * two or more lands in `shared*` — it is orphaned only because all of them are
- * going, and naming that category is what stops the per-snapshot rows summing to
- * less than the total with no explanation.
+ * What a removal would leave unrestorable. `bySnapshot` attributes content
+ * referenced by exactly one of the selected snapshots to that snapshot; content
+ * referenced by two or more lands in `shared*` — it goes only because all of them
+ * are going, and naming that category is what stops the per-snapshot rows summing
+ * to less than the total with no explanation.
  *
  * Counts are **files** (paths), because that is what a user is deciding about and
  * what the report file lists; bytes are counted **once per object**, because
  * content-addressed dedup stores one copy however many paths point at it — so
  * `files` and `bytes` deliberately do not scale together.
- * @typedef {Object} OrphanPlan
- * @property {SnapshotOrphans[]} bySnapshot - Per selected snapshot, in the order given
- * @property {number} sharedFiles - Files orphaned only because several selected snapshots go together
+ * @typedef {Object} UnrestorablePlan
+ * @property {SnapshotUnrestorable[]} bySnapshot - Per selected snapshot, in the order given
+ * @property {number} sharedFiles - Files lost only because several selected snapshots go together
  * @property {number} sharedBytes - Bytes those hold
- * @property {number} totalFiles - Every orphaned path
+ * @property {number} totalFiles - Every unrestorable file
  * @property {number} totalBytes - Every orphaned object's size, counted once each
- * @property {number} totalObjects - Distinct orphaned objects
+ * @property {number} totalObjects - Distinct objects left orphaned (the reclaimable ones)
  * @property {boolean} lastOfSet - The selection takes out the set's last remote snapshot
- * @property {OrphanEntry[]} entries - Every orphaned path, for the report file
+ * @property {UnrestorableEntry[]} entries - Every unrestorable file, for the report file
  * @property {{ set: string, snapshot: string, reason: string }[]} unreadable - Snapshots that would not read
  */
 
 /**
- * One orphaned path in the report file. No size: sizes belong to *objects*, not
- * paths, and the report is a per-path list — see `formatOrphanReport`.
- * @typedef {Object} OrphanEntry
+ * One unrestorable file in the report. No size: sizes belong to *objects*, not
+ * paths, and the report is a per-file list — see `formatUnrestorableReport`.
+ * @typedef {Object} UnrestorableEntry
  * @property {string} path - The path the content was stored under
  * @property {string[]} snapshots - Which of the selected snapshots referenced it, sorted
  */
 
 /**
- * Compute what forgetting `snapshots` from `set` would orphan.
+ * Compute what forgetting `snapshots` from `set` would leave unrestorable.
  *
  * Two properties make this the only correct formulation
  * (docs/design/snapshot-deletion.md), and both are load-bearing here:
  *
  * - **Bucket-wide.** Dedup is global across sets (ADR-0013), so another set can
  *   reference the same content. `referencedBySet` is the whole bucket for exactly
- *   this reason — answering from the target set alone would report content as
- *   orphaned that another set still needs, which is the fastest way to make a
- *   deletion preview lie.
+ *   this reason — answering from the target set alone would report files as
+ *   unrestorable that another set still holds, which is the fastest way to make a
+ *   preview lie.
  * - **Over the whole selection at once.** Content two of the named snapshots share
- *   and nothing else references is orphaned only when *both* go; evaluating each
- *   snapshot independently against the current state reports zero for each while
- *   deleting both orphans it.
+ *   and nothing else references goes only when *both* go; evaluating each snapshot
+ *   independently against the current state reports zero for each while removing
+ *   both loses it.
  *
  * Pure and non-throwing: `unreadable` is passed through as data, and what to do
  * about it is the command's call (a warning there, not the abort `cleanup` makes —
  * `forget` never acts on this set, it only shows it).
  * @param {Map<string, ReferencedResult>} referencedBySet - The bucket's per-set referenced enumeration (`referencedObjects`)
  * @param {{ set: string, snapshots: string[], remoteSnapshots: string[] }} selection - The target set, the snapshots to forget, and every snapshot that set has remotely
- * @returns {OrphanPlan}
+ * @returns {UnrestorablePlan}
  */
-export function planOrphans(
+export function planUnrestorable(
   referencedBySet,
   { set, snapshots, remoteSnapshots },
 ) {
@@ -129,11 +136,11 @@ export function planOrphans(
   // references *within the selection* is what makes this order-independent, where
   // charging each hash to the last snapshot that released it would shift with
   // argument order.
-  /** @type {Map<string, SnapshotOrphans>} */
+  /** @type {Map<string, SnapshotUnrestorable>} */
   const bySnapshot = new Map(
     snapshots.map((name) => [name, { snapshot: name, files: 0, bytes: 0 }]),
   );
-  /** @type {OrphanEntry[]} */
+  /** @type {UnrestorableEntry[]} */
   const entries = [];
   let sharedFiles = 0;
   let sharedBytes = 0;
@@ -214,21 +221,21 @@ export function planOrphans(
  * pasted straight into an editor or Explorer — the copy-pasteable style ADR-0030
  * already requires for fixes, and the reason the file beats "pipe it somewhere"
  * on Windows, the primary environment.
- * @param {OrphanPlan} plan
+ * @param {UnrestorablePlan} plan
  * @param {{ set: string, reportPath: string }} context - The set being forgotten from, and where the full list was written
  * @returns {string}
  */
-export function formatOrphanSummary(plan, { set, reportPath }) {
+export function formatUnrestorableSummary(plan, { set, reportPath }) {
   const lines = [];
 
   if (plan.totalFiles === 0) {
     lines.push(
-      `Orphan preview — nothing would be orphaned. Every file these snapshots ` +
-        `reference is also referenced elsewhere.`,
+      `Unrestorable preview — nothing would become unrestorable. Every file ` +
+        `these snapshots hold is also held elsewhere.`,
     );
   } else {
     lines.push(
-      `Orphan preview — what no snapshot would reference once these are gone:`,
+      `Unrestorable preview — what you could no longer restore once these are gone:`,
       ``,
     );
 
@@ -245,7 +252,7 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
         plan.sharedBytes,
       ]);
     }
-    rows.push(["total orphaned", plan.totalFiles, plan.totalBytes]);
+    rows.push(["total unrestorable", plan.totalFiles, plan.totalBytes]);
 
     // Right-align the numbers so the magnitudes line up — the column being
     // compared is the one being scanned.
@@ -273,7 +280,7 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
   if (plan.lastOfSet) {
     lines.push(
       ``,
-      `This is the last remote snapshot of set '${set}' — deleting it orphans ` +
+      `This is the last remote snapshot of set '${set}' — forgetting it loses ` +
         `everything the set alone was keeping, and leaves nothing to restore from.`,
     );
   }
@@ -282,13 +289,13 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
     // Not `cleanup`'s abort: nothing is removed off the back of these numbers, so
     // an incomplete preview is a caveat to state, not a reason to refuse. The
     // direction of the error matters and is worth saying — an unread snapshot's
-    // references are unknown, so content it alone holds is listed as orphaned
-    // when it is not.
+    // references are unknown, so content it alone holds is listed as
+    // unrestorable when it is not.
     const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
     lines.push(
       ``,
       `Warning: ${where.length} snapshot(s) would not read, so their references ` +
-        `are unknown and this preview may overstate what is orphaned ` +
+        `are unknown and this preview may overstate what becomes unrestorable ` +
         `(${where.join(", ")}).`,
       `Check them with: s3cab verify`,
     );
@@ -300,7 +307,7 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
 
 /**
  * The report file's body: a header recording what the run was and what it
- * totalled, then one tab-separated row per orphaned path — the snapshots that
+ * totalled, then one tab-separated row per unrestorable file — the snapshots that
  * referenced it, then the path, so the ragged column is last. Never truncated
  * (ADR-0010); this is the artifact the summary's counts abbreviate.
  *
@@ -310,16 +317,16 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
  * stores one copy for however many paths point at it, so summing the column
  * overstates the space involved. The one trustworthy figure is the total, and it
  * belongs in the header where it cannot be summed into something wrong.
- * @param {OrphanPlan} plan
+ * @param {UnrestorablePlan} plan
  * @param {{ set: string, bucket: string, snapshots: string[], generated: string }} context
  * @returns {string}
  */
-export function formatOrphanReport(
+export function formatUnrestorableReport(
   plan,
   { set, bucket, snapshots, generated },
 ) {
   const header = [
-    `# s3cab forget — files that would be left with nothing referencing them`,
+    `# s3cab forget — files you would no longer be able to restore`,
     `# generated:  ${generated}`,
     `# set:        ${set}`,
     `# bucket:     ${bucket}`,
@@ -330,8 +337,9 @@ export function formatOrphanReport(
     `# (Fewer objects than files: identical content is stored once, however many`,
     `# files hold it — so the space freed is the object total, not the file count.)`,
     `#`,
-    `# Deleting those snapshots leaves the files below with nothing referencing`,
-    `# them. Reclaim the space with: s3cab cleanup ${bucket}`,
+    `# Forgetting those snapshots leaves no snapshot holding the files below, so`,
+    `# restore can no longer produce them. Reclaim the space with:`,
+    `#   s3cab cleanup ${bucket}`,
     `#`,
     `# referenced-by\tpath`,
   ];
@@ -343,7 +351,7 @@ export function formatOrphanReport(
 
 /**
  * The audit record for a `--force` run, which skipped the check — so there is no
- * orphan list to write, only the fact that a deletion happened without one.
+ * file list to write, only the fact that a removal happened without one.
  * Recorded anyway: an audit trail that silently omits the runs that bypassed the
  * safety is worse than one that names the gap.
  * @param {{ set: string, bucket: string, snapshots: string[], generated: string }} context
@@ -352,14 +360,14 @@ export function formatOrphanReport(
 export function formatForcedReport({ set, bucket, snapshots, generated }) {
   return (
     [
-      `# s3cab forget — no orphan analysis (--force)`,
+      `# s3cab forget — no unrestorable check (--force)`,
       `# generated:  ${generated}`,
       `# set:        ${set}`,
       `# bucket:     ${bucket}`,
       `# snapshots:  ${snapshots.join(", ")}`,
       `#`,
-      `# --force skipped the orphan check, so what these snapshots left`,
-      `# unreferenced was never computed, and cannot be worked out from here`,
+      `# --force skipped the unrestorable check, so what these snapshots were`,
+      `# the last to hold was never computed, and cannot be worked out from here`,
       `# now that they are gone.`,
       `#`,
       `# To see what is unreferenced in the bucket today: s3cab cleanup ${bucket}`,

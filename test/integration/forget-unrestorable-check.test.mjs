@@ -16,8 +16,8 @@ import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 
-// `forget`'s orphan check against a real bucket (docs/design/snapshot-deletion.md).
-// The *computation* is unit-tested pure in src/lib/orphans.test.mjs; what needs a
+// `forget`'s unrestorable check against a real bucket (docs/design/snapshot-deletion.md).
+// The *computation* is unit-tested pure in src/lib/unrestorable.test.mjs; what needs a
 // real bucket is the read path it sits on — the check reads and decompresses every
 // snapshot in the bucket via `referencedObjects`, and CLAUDE.md is explicit that
 // mocked S3 bodies can't exercise real stream teardown (a unit-green path that
@@ -81,8 +81,8 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("forget --set (orphan check, real bucket)", () => {
-  it("reads every snapshot in the bucket and reports what the deletion would orphan", async () => {
+describe("forget --set (unrestorable check, real bucket)", () => {
+  it("reads every snapshot in the bucket and reports what the removal would lose", async () => {
     await using dir = await mkTmpDir();
     const home = useTempHome(dir.path);
     const set = `orph-${Date.now()}`;
@@ -131,13 +131,13 @@ describe("forget --set (orphan check, real bucket)", () => {
       assert.equal(result.forgotten, true);
 
       // The preview, in the s3cab root, overwritten each run.
-      const preview = join(home, ".s3cab", "forget-orphans-preview.txt");
+      const preview = join(home, ".s3cab", "forget-unrestorable-preview.txt");
       const body = readFileSync(preview, "utf8");
       const rows = body.split("\n").filter((l) => l && !l.startsWith("#"));
       assert.equal(
         rows.length,
         1,
-        `one orphaned path, got: ${rows.join(" | ")}`,
+        `one unrestorable file, got: ${rows.join(" | ")}`,
       );
       assert.match(rows[0] ?? "", /drop\.txt$/);
       assert.doesNotMatch(body, /keep\.txt/);
@@ -145,7 +145,7 @@ describe("forget --set (orphan check, real bucket)", () => {
       // The audit record, kept in the set's own directory now the removal landed.
       const { dir: setDir } = readSet(set);
       const records = readdirSync(setDir).filter((f) =>
-        f.startsWith("forget-orphans-"),
+        f.startsWith("forget-unrestorable-"),
       );
       assert.equal(records.length, 1, "one deletion, one record");
       assert.match(
@@ -155,7 +155,7 @@ describe("forget --set (orphan check, real bucket)", () => {
 
       // The summary names the preview, on its own indented last line.
       const summary = stdout.join("\n");
-      assert.match(summary, /Orphan preview/);
+      assert.match(summary, /Unrestorable preview/);
       assert.equal(summary.split("\n").at(-1), `  ${preview}`);
     } finally {
       for (const name of snapshots) {
@@ -198,7 +198,7 @@ describe("forget --set (orphan check, real bucket)", () => {
       assert.throws(
         () =>
           readFileSync(
-            join(home, ".s3cab", "forget-orphans-preview.txt"),
+            join(home, ".s3cab", "forget-unrestorable-preview.txt"),
             "utf8",
           ),
         "--force writes no preview",
@@ -206,12 +206,12 @@ describe("forget --set (orphan check, real bucket)", () => {
 
       // The record still lands, and is honest that the analysis is missing.
       const records = readdirSync(setDir).filter((f) =>
-        f.startsWith("forget-orphans-"),
+        f.startsWith("forget-unrestorable-"),
       );
       assert.equal(records.length, 1);
       assert.match(
         readFileSync(join(setDir, records[0] ?? ""), "utf8"),
-        /no orphan analysis \(--force\)/,
+        /no unrestorable check \(--force\)/,
       );
       name = undefined; // already deleted; nothing to clean up
     } finally {
