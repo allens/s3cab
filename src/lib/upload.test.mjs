@@ -1,12 +1,66 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import crypto from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
-import { planUpload, uploadSnapshot } from "./upload.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+
+// This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
+// not the AWS SDK"): the baseline-trust check (one HEAD before the baseline is
+// believed) and the drift guard run here with zero AWS, on every push. The
+// recorded `putFiles`/`headUris`/`listedPrefixes` are the assertions' evidence
+// of exactly which remote calls a run made. Module mocking has a load-bearing
+// ordering rule (see objects.test.mjs): the mock is registered first and
+// upload.mjs is imported dynamically below — there is deliberately no static
+// import of it. The runner needs `--experimental-test-module-mocks`.
+
+/** Whether the mocked `objectExists` reports the remote baseline present. */
+let baselineExists = true;
+/** @type {string[]} URIs HEADed via `objectExists`. */
+let headUris = [];
+/** @type {{ path: string, uri: string }[]} PUTs, in call order. */
+let putFiles = [];
+/** @type {string[]} Hashes the mocked store LIST yields under `objects/`. */
+let storeHashes = [];
+/** @type {string[]} Prefix URIs LISTed — empty when no LIST fallback ran. */
+let listedPrefixes = [];
+mock.module("./s3.mjs", {
+  exports: {
+    objectExists: async (/** @type {string} */ uri) => {
+      headUris.push(uri);
+      return baselineExists;
+    },
+    putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
+      putFiles.push({ path, uri });
+      return true;
+    },
+    listObjects: async function* (/** @type {string} */ uri) {
+      listedPrefixes.push(uri);
+      for (const hash of storeHashes) {
+        yield { Key: `objects/${hash}` };
+      }
+    },
+    // Imported by modules in upload.mjs's graph (objects.mjs, remote.mjs);
+    // no test here reaches them.
+    getStream: async () => {
+      throw new Error("unexpected getStream in upload tests");
+    },
+    deleteObject: async () => {},
+    isObjectNotFound: () => false,
+  },
+});
+const { planUpload, uploadSnapshot } = await import("./upload.mjs");
+
+beforeEach(() => {
+  baselineExists = true;
+  headUris = [];
+  putFiles = [];
+  storeHashes = [];
+  listedPrefixes = [];
+});
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -93,18 +147,115 @@ describe("planUpload", () => {
   });
 });
 
+/**
+ * Snapshot one real file as the upload target, plus a baseline snapshot of the
+ * same file — so the target's one hash is in the baseline, and whether it gets
+ * planned is decided entirely by whether the baseline is trusted. Returns the
+ * file path, its content hash, and the shared `uploadSnapshot` args.
+ * @param {string} dirPath - A temp dir to build the fixture in
+ */
+const oneFileFixture = async (dirPath) => {
+  const contentDir = resolve(dirPath, "content");
+  mkdirSync(contentDir, { recursive: true });
+  const file = join(contentDir, "photo.raw");
+  writeFileSync(file, "original bytes");
+  const hash = crypto.hash("sha256", readFileSync(file), "hex");
+
+  const snapshotDir = join(dirPath, "snapshots");
+  mkdirSync(snapshotDir, { recursive: true });
+  const target = "2025-01-15T1030";
+  const baseline = "2025-01-15T1020";
+  await writeSnapshot(snapshotDir, baseline, [file]);
+  await writeSnapshot(snapshotDir, target, [file]);
+
+  return {
+    file,
+    hash,
+    args: {
+      bucket: "trust-bucket",
+      set: "trusty",
+      snapshotDir,
+      name: target,
+      since: baseline,
+    },
+  };
+};
+
+// The baseline-trust check (proposals/bugs.md, the HIGH baseline-trust bug):
+// a `--since` baseline is believed iff its snapshot still exists remotely —
+// presence proves its objects were stored (objects-first/snapshot-last) and
+// cleanup never deletes referenced objects. A baseline forgotten remotely may
+// claim more is stored than is, and a hash it wrongly skips never reaches the
+// conditional-PUT backstop — so on a miss the baseline is dropped entirely and
+// the store is LISTed, as a first backup would.
+describe("uploadSnapshot baseline trust", () => {
+  it("trusts a baseline that still exists remotely — no object PUT, no store LIST", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+
+    const result = await uploadSnapshot(args);
+
+    // The one HEAD, on the baseline's remote snapshot URI.
+    assert.deepEqual(headUris, [
+      `s3://trust-bucket/snapshots/trusty/${args.since}.tsv.zst`,
+    ]);
+    assert.deepEqual(listedPrefixes, []);
+    // Nothing planned; the only PUT is the snapshot itself, last and alone.
+    assert.deepEqual(
+      putFiles.map(({ uri }) => uri),
+      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
+    );
+    assert.equal(result.candidates, 0);
+  });
+
+  it("distrusts a baseline gone from the cloud — LISTs the store and re-plans its objects", async () => {
+    await using dir = await mkTmpDir();
+    const { file, hash, args } = await oneFileFixture(dir.path);
+
+    baselineExists = false; // forgotten remotely (or never uploaded)
+    const result = await uploadSnapshot(args);
+
+    // Fallback ran: the store was LISTed, the stale baseline's skip was not
+    // honoured, and the object was uploaded before the snapshot (objects
+    // first, snapshot last).
+    assert.deepEqual(listedPrefixes, ["s3://trust-bucket/objects/"]);
+    assert.deepEqual(putFiles, [
+      { path: file, uri: `s3://trust-bucket/objects/${hash}` },
+      {
+        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+      },
+    ]);
+    assert.equal(result.candidates, 1);
+    assert.equal(result.uploaded, 1);
+  });
+
+  it("the LIST fallback still skips objects the store genuinely has", async () => {
+    await using dir = await mkTmpDir();
+    const { hash, args } = await oneFileFixture(dir.path);
+
+    baselineExists = false;
+    storeHashes = [hash]; // the object survived (still referenced elsewhere)
+    const result = await uploadSnapshot(args);
+
+    assert.deepEqual(
+      putFiles.map(({ uri }) => uri),
+      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
+    );
+    assert.equal(result.candidates, 0);
+  });
+});
+
 // The snapshot→upload staleness guard: a planned file that changed (or vanished)
 // since the snapshot must abort the run, never store its current bytes under the
-// snapshot's old-content hash (proposals/bugs.md). These stay hermetic — the
-// guard fires *before* any S3 call, so with a `--since` baseline (no store LIST)
-// and a drifted file, `uploadSnapshot` rejects without touching the bucket. The
-// dummy bucket would fail loudly with an unrelated error if a PUT were ever
-// reached, so matching the stale message proves the abort came from the guard.
+// snapshot's old-content hash (proposals/bugs.md). The guard fires before any
+// PUT, so a drifted file rejects with `putFiles` still empty — no object stored,
+// no snapshot published.
 describe("uploadSnapshot drift guard", () => {
   /**
    * Snapshot one real file as the upload target, with an empty baseline so the
    * file is planned (its hash isn't in the baseline). Returns the file path and
-   * the shared `uploadSnapshot` args (with `since`, so no store LIST runs).
+   * the shared `uploadSnapshot` args.
    * @param {string} dirPath - A temp dir to build the fixture in
    */
   const planOneFile = async (dirPath) => {
@@ -123,7 +274,7 @@ describe("uploadSnapshot drift guard", () => {
     return {
       file,
       args: {
-        bucket: "unused-drift-guard-bucket",
+        bucket: "drift-guard-bucket",
         set: "drifty",
         snapshotDir,
         name: target,
@@ -141,6 +292,7 @@ describe("uploadSnapshot drift guard", () => {
     writeFileSync(file, "different, longer bytes");
 
     await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
+    assert.deepEqual(putFiles, []);
   });
 
   it("aborts when a planned file was removed since the snapshot", async () => {
@@ -150,5 +302,6 @@ describe("uploadSnapshot drift guard", () => {
     rmSync(file);
 
     await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
+    assert.deepEqual(putFiles, []);
   });
 });

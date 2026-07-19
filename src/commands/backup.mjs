@@ -12,8 +12,10 @@ import { upload } from "./upload.mjs";
  *
  * `backup`'s one piece of smarts is the change-detection baseline it hands to
  * `upload` explicitly (plumbing is predictable; porcelain is smart): the set's
- * **previous local snapshot** as `--since` (single-owner model — the local
- * history is authoritative), taken straight from the snapshot's returned diff
+ * **previous local snapshot** as `--since` (single-owner model — local history
+ * is authoritative *about what was snapshotted*; whether it's still stored is
+ * verified by `upload`'s baseline-trust check, proposals/bugs.md), taken
+ * straight from the snapshot's returned diff
  * (`until` = the fresh snapshot, `since` = the previous latest — nothing re-read
  * from disk), or, on a first backup with no previous snapshot, nothing —
  * `upload` then LISTs the store. The objects-first/snapshot-last invariant and

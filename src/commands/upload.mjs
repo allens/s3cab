@@ -21,7 +21,9 @@ import { prop } from "./prop.mjs";
  * - **A snapshot's objects** — `upload <set> --snapshot <name>`: upload every object the
  *   snapshot references, then the snapshot file **last** (the objects-first/snapshot-last
  *   invariant, owned here so `backup` merely composes). `--since <baseline>` skips objects
- *   already in that baseline snapshot; with no `--since`, snapshot mode `LIST`s the store once.
+ *   already in that baseline snapshot — trusted only after `uploadSnapshot` confirms the
+ *   baseline still exists remotely, else it LISTs instead (the baseline-trust check,
+ *   proposals/bugs.md); with no `--since`, snapshot mode `LIST`s the store once.
  *   `upload` performs **no** snapshot lookup — not "latest" nor "previous"; resolving which
  *   snapshot to upload or diff against is `backup`'s (porcelain) job. `--force`/`--bucket` are
  *   rejected here (force must never touch the immutable snapshot file; a snapshot always needs a set).

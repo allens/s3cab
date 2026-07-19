@@ -411,14 +411,9 @@ export async function putFile(path, uri, options = {}) {
   // an object another tool PUT is still there. This is only an optimization;
   // `IfNoneMatch: "*"` is the real guard, and unlike this it can't be raced.
   if (noClobber && size >= partSize) {
-    const { Bucket, Key } = parseS3Uri(uri);
-    try {
-      await client().send(new HeadObjectCommand({ Bucket, Key }));
+    const exists = await objectExists(uri);
+    if (exists) {
       return false;
-    } catch (error) {
-      if (!isObjectNotFound(error)) {
-        throw error;
-      }
     }
   }
 
@@ -481,6 +476,29 @@ export function isObjectNotFound(error) {
     Error.isError(error) &&
     (error.name === "NoSuchKey" || error.name === "NotFound")
   );
+}
+
+/**
+ * Whether an object exists — one HEAD, absence mapped through
+ * {@link isObjectNotFound}, anything else (network/auth) rethrown. The generic
+ * existence question at this SDK boundary: `putFile`'s multipart preflight and
+ * upload.mjs's baseline-trust check (is the baseline snapshot still stored?)
+ * both ask it. A successful HEAD says nothing about the object's content —
+ * present is present, whoever put it.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @returns {Promise<boolean>}
+ */
+export async function objectExists(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  try {
+    await client().send(new HeadObjectCommand({ Bucket, Key }));
+    return true;
+  } catch (error) {
+    if (isObjectNotFound(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 /**
