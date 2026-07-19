@@ -14,7 +14,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @import { ReferencedResult } from "../lib/verify.mjs" */
 
-// Offline tests for `delete`: the S3 reads/writes (listRemoteSnapshots,
+// Offline tests for `forget`: the S3 reads/writes (listRemoteSnapshots,
 // deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the
 // prompt are faked at the lib seam, and the TTY gate is driven via
 // process.stdin.isTTY — so the required-arg guards, the existence check, the
@@ -22,7 +22,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // bucket or a terminal. The orphan *computation* is tested pure in
 // lib/orphans.test.mjs; what's asserted here is the command's part — that the
 // check runs, the report lands on disk, and --force skips both halves. The real
-// delete is covered by test/integration/remote.test.mjs's gated round-trip.
+// removal is covered by test/integration/remote.test.mjs's gated round-trip.
 // Mocks first, then a dynamic import.
 
 /** @type {{ name: string, bucket: string, dir: string }} */
@@ -117,7 +117,7 @@ mock.module("../lib/prompt.mjs", {
   },
 });
 
-const { deleteSnapshot } = await import("./delete.mjs");
+const { forget } = await import("./forget.mjs");
 
 // isInteractive() reads .isTTY off the stream; poke it directly to drive the gate.
 const stdin = /** @type {{ isTTY?: boolean }} */ (process.stdin);
@@ -139,7 +139,7 @@ beforeEach(() => {
   savedHome = process.env.S3CAB_HOME;
   // The orphan check always writes its report, so every run needs a home to
   // write into — a temp one, so no test touches the real ~/.s3cab.
-  tmp = mkdtempSync(join(tmpdir(), "s3cab-delete-"));
+  tmp = mkdtempSync(join(tmpdir(), "s3cab-forget-"));
   home = useTempHome(tmp);
   fakeSet = {
     name: "photos",
@@ -168,7 +168,7 @@ afterEach(() => {
 });
 
 /** The transient preview, overwritten every checked run. */
-const previewPath = () => join(home, ".s3cab", "delete-orphans-preview.txt");
+const previewPath = () => join(home, ".s3cab", "forget-orphans-preview.txt");
 
 /**
  * The audit records in the set's directory. Named with a timestamp minted inside
@@ -177,22 +177,22 @@ const previewPath = () => join(home, ".s3cab", "delete-orphans-preview.txt");
  */
 const auditRecords = () =>
   (existsSync(fakeSet.dir) ? readdirSync(fakeSet.dir) : [])
-    .filter((f) => f.startsWith("delete-orphans-"))
+    .filter((f) => f.startsWith("forget-orphans-"))
     .sort()
     .map((f) => join(fakeSet.dir, f));
 
-describe("delete command", () => {
+describe("forget command", () => {
   it("requires --set", async () => {
     // The snapshot is the operand; the set is addressed by a flag (ADR-0062).
     await assert.rejects(
-      () => deleteSnapshot(["2026-06-12T0915"], {}),
+      () => forget(["2026-06-12T0915"], {}),
       /Missing required argument: set/,
     );
   });
 
   it("requires a snapshot operand", async () => {
     await assert.rejects(
-      () => deleteSnapshot([], { set: "photos" }),
+      () => forget([], { set: "photos" }),
       /Missing required argument: snapshot/,
     );
   });
@@ -201,10 +201,9 @@ describe("delete command", () => {
     // Snapshots are the bulk operand (ADR-0062): one run, one confirmation.
     stdin.isTTY = true;
     promptAnswer = true;
-    const result = await deleteSnapshot(
-      ["2026-06-12T0915", "2026-06-11T0915"],
-      { set: "photos" },
-    );
+    const result = await forget(["2026-06-12T0915", "2026-06-11T0915"], {
+      set: "photos",
+    });
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, [
@@ -214,7 +213,7 @@ describe("delete command", () => {
     assert.deepEqual(result, {
       set: "photos",
       snapshots: ["2026-06-12T0915", "2026-06-11T0915"],
-      deleted: true,
+      forgotten: true,
     });
   });
 
@@ -223,7 +222,7 @@ describe("delete command", () => {
     // the first two already deleted (the deletions are not undoable).
     await assert.rejects(
       () =>
-        deleteSnapshot(["2026-06-12T0915", "2099-01-01T0000"], {
+        forget(["2026-06-12T0915", "2099-01-01T0000"], {
           set: "photos",
         }),
       /Snapshot '2099-01-01T0000' is not backed up for set 'photos'/,
@@ -233,7 +232,7 @@ describe("delete command", () => {
 
   it("errors helpfully when the snapshot isn't backed up", async () => {
     await assert.rejects(
-      () => deleteSnapshot(["2099-01-01T0000"], { set: "photos" }),
+      () => forget(["2099-01-01T0000"], { set: "photos" }),
       /not backed up for set 'photos'[\s\S]*s3cab list photos --remote/,
     );
     assert.equal(deleteCalls.length, 0);
@@ -241,7 +240,7 @@ describe("delete command", () => {
 
   it("deletes without prompting when non-interactive", async () => {
     stdin.isTTY = false;
-    const result = await deleteSnapshot(["2026-06-12T0915"], {
+    const result = await forget(["2026-06-12T0915"], {
       set: "photos",
     });
 
@@ -250,39 +249,39 @@ describe("delete command", () => {
     assert.deepEqual(result, {
       set: "photos",
       snapshots: ["2026-06-12T0915"],
-      deleted: true,
+      forgotten: true,
     });
   });
 
   it("deletes on a TTY when the user confirms", async () => {
     stdin.isTTY = true;
     promptAnswer = true;
-    const result = await deleteSnapshot(["2026-06-12T0915"], {
+    const result = await forget(["2026-06-12T0915"], {
       set: "photos",
     });
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-12T0915"]]);
-    assert.equal(result.deleted, true);
+    assert.equal(result.forgotten, true);
   });
 
   it("deletes nothing on a TTY when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;
-    const result = await deleteSnapshot(["2026-06-12T0915"], {
+    const result = await forget(["2026-06-12T0915"], {
       set: "photos",
     });
 
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
-    assert.equal(result.deleted, false);
+    assert.equal(result.forgotten, false);
   });
 
   describe("the orphan check", () => {
     it("writes the preview and summarises it on stdout before the prompt", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
-      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos" });
 
       // a.jpg loses its last reference; b.jpg survives in 2026-06-12T0915.
       const preview = readFileSync(previewPath(), "utf8");
@@ -321,7 +320,7 @@ describe("delete command", () => {
       });
 
       stdin.isTTY = false;
-      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos" });
 
       const rows = readFileSync(previewPath(), "utf8")
         .split("\n")
@@ -332,7 +331,7 @@ describe("delete command", () => {
 
     it("computes over the whole selection, so shared content shows as shared", async () => {
       stdin.isTTY = false;
-      await deleteSnapshot(["2026-06-11T0915", "2026-06-12T0915"], {
+      await forget(["2026-06-11T0915", "2026-06-12T0915"], {
         set: "photos",
       });
 
@@ -347,7 +346,7 @@ describe("delete command", () => {
     it("runs the check without prompting when non-interactive", async () => {
       // The files are the half of this that survives a scripted run.
       stdin.isTTY = false;
-      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos" });
 
       assert.equal(promptCalls, 0);
       assert.equal(referencedCalls, 1);
@@ -360,14 +359,14 @@ describe("delete command", () => {
     it("keeps a record in the set's directory once the deletion happens", async () => {
       stdin.isTTY = true;
       promptAnswer = true;
-      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos" });
 
       const records = auditRecords();
       assert.equal(records.length, 1);
       // Second precision, so two runs a minute apart can't overwrite one another.
       assert.match(
         records[0] ?? "",
-        /delete-orphans-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
+        /forget-orphans-\d{4}-\d{2}-\d{2}T\d{6}\.txt$/,
       );
       // It holds the same list as the preview did.
       assert.match(readFileSync(records[0] ?? "", "utf8"), /a\.jpg/);
@@ -378,18 +377,18 @@ describe("delete command", () => {
       // paying for a second scan.
       stdin.isTTY = true;
       promptAnswer = false;
-      const result = await deleteSnapshot(["2026-06-11T0915"], {
+      const result = await forget(["2026-06-11T0915"], {
         set: "photos",
       });
 
-      assert.equal(result.deleted, false);
-      assert.deepEqual(auditRecords(), [], "nothing was deleted, so no record");
+      assert.equal(result.forgotten, false);
+      assert.deepEqual(auditRecords(), [], "nothing was removed, so no record");
       assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
     });
 
     it("records a non-interactive run, which deleted without being asked", async () => {
       stdin.isTTY = false;
-      await deleteSnapshot(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos" });
 
       assert.equal(auditRecords().length, 1);
     });
@@ -401,7 +400,7 @@ describe("delete command", () => {
       // is worse than one that names the gap.
       stdin.isTTY = true;
       promptAnswer = false; // would cancel, if it were ever asked
-      const result = await deleteSnapshot(["2026-06-11T0915"], {
+      const result = await forget(["2026-06-11T0915"], {
         set: "photos",
         force: true,
       });
@@ -413,7 +412,7 @@ describe("delete command", () => {
         () => readFileSync(previewPath(), "utf8"),
         "no preview file",
       );
-      assert.equal(result.deleted, true);
+      assert.equal(result.forgotten, true);
       assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
 
       const records = auditRecords();

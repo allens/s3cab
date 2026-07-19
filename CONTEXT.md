@@ -134,11 +134,21 @@ every set sharing it, answering "is this backup restorable?" with findings repor
 and it never writes to the remote.
 _Avoid_: check, fsck, audit, scrub, validate.
 
+**Forget** (the command):
+The porcelain verb that removes named remote snapshots from a set
+(`s3cab forget --set <set> <snapshot>...`, [ADR-0063](docs/adr/0063-forget-snapshots-delete-paths.md)).
+It removes only the snapshot files — the content they referenced stays in the object store
+until **cleanup** reclaims what nothing references any more. The repository forgets the
+*moment*; the stuff remains until swept. Previews what the removal would orphan, then confirms
+once for the whole run.
+_Avoid_: delete (the retired command name — now reserved for path-scoped content removal),
+retire (**succession**'s word, see Reattach), prune, expire, drop.
+
 **Cleanup**:
 The porcelain verb that reclaims storage by deleting orphaned objects. It operates on the
 *bucket* (an object is deletable only when no snapshot from any set references it) and
 reports by default — deleting takes an explicit flag. The only command that removes
-**stored objects** (deletion rights aren't unique to it — `delete` removes a snapshot file,
+**stored objects** (deletion rights aren't unique to it — `forget` removes a snapshot file,
 and the everyday identity deliberately carries soft-delete, ADR-0033).
 _Avoid_: gc, prune, purge, vacuum.
 

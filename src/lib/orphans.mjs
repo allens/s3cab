@@ -1,8 +1,8 @@
 import { formatByteValue } from "./format.mjs";
 
-// The pure core of `delete`'s **orphan check** (docs/design/snapshot-deletion.md):
+// The pure core of `forget`'s **orphan check** (docs/design/snapshot-deletion.md):
 // given the bucket's referenced enumeration (`referencedObjects` in remote.mjs)
-// and the snapshots a run is about to delete, work out what content would be left
+// and the snapshots a run is about to forget, work out what content would be left
 // with no snapshot referencing it — plus the two shapes the command prints, the
 // stdout summary and the report file's body. No S3, no filesystem, no clock: the
 // command owns the I/O and the policy, so all of this is unit-testable by
@@ -58,7 +58,7 @@ import { formatByteValue } from "./format.mjs";
  */
 
 /**
- * Compute what deleting `snapshots` from `set` would orphan.
+ * Compute what forgetting `snapshots` from `set` would orphan.
  *
  * Two properties make this the only correct formulation
  * (docs/design/snapshot-deletion.md), and both are load-bearing here:
@@ -75,9 +75,9 @@ import { formatByteValue } from "./format.mjs";
  *
  * Pure and non-throwing: `unreadable` is passed through as data, and what to do
  * about it is the command's call (a warning there, not the abort `cleanup` makes —
- * `delete` never acts on this set, it only shows it).
+ * `forget` never acts on this set, it only shows it).
  * @param {Map<string, ReferencedResult>} referencedBySet - The bucket's per-set referenced enumeration (`referencedObjects`)
- * @param {{ set: string, snapshots: string[], remoteSnapshots: string[] }} selection - The target set, the snapshots to delete, and every snapshot that set has remotely
+ * @param {{ set: string, snapshots: string[], remoteSnapshots: string[] }} selection - The target set, the snapshots to forget, and every snapshot that set has remotely
  * @returns {OrphanPlan}
  */
 export function planOrphans(
@@ -215,7 +215,7 @@ export function planOrphans(
  * already requires for fixes, and the reason the file beats "pipe it somewhere"
  * on Windows, the primary environment.
  * @param {OrphanPlan} plan
- * @param {{ set: string, reportPath: string }} context - The set being deleted from, and where the full list was written
+ * @param {{ set: string, reportPath: string }} context - The set being forgotten from, and where the full list was written
  * @returns {string}
  */
 export function formatOrphanSummary(plan, { set, reportPath }) {
@@ -279,7 +279,7 @@ export function formatOrphanSummary(plan, { set, reportPath }) {
   }
 
   if (plan.unreadable.length > 0) {
-    // Not `cleanup`'s abort: nothing is deleted off the back of these numbers, so
+    // Not `cleanup`'s abort: nothing is removed off the back of these numbers, so
     // an incomplete preview is a caveat to state, not a reason to refuse. The
     // direction of the error matters and is worth saying — an unread snapshot's
     // references are unknown, so content it alone holds is listed as orphaned
@@ -319,7 +319,7 @@ export function formatOrphanReport(
   { set, bucket, snapshots, generated },
 ) {
   const header = [
-    `# s3cab delete — files that would be left with nothing referencing them`,
+    `# s3cab forget — files that would be left with nothing referencing them`,
     `# generated:  ${generated}`,
     `# set:        ${set}`,
     `# bucket:     ${bucket}`,
@@ -352,7 +352,7 @@ export function formatOrphanReport(
 export function formatForcedReport({ set, bucket, snapshots, generated }) {
   return (
     [
-      `# s3cab delete — no orphan analysis (--force)`,
+      `# s3cab forget — no orphan analysis (--force)`,
       `# generated:  ${generated}`,
       `# set:        ${set}`,
       `# bucket:     ${bucket}`,

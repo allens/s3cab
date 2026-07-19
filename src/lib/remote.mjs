@@ -80,7 +80,7 @@ export async function listRemoteSnapshots(bucket, set) {
 
 /**
  * Delete one of a set's remote snapshots — `snapshots/<set>/<name>.tsv.zst` — the
- * remote half of the `delete` retention primitive (docs/design/backup.md). It
+ * remote half of the `forget` retention primitive (docs/design/backup.md). It
  * removes **only** the snapshot object; the content it referenced stays under
  * `objects/` (reclaiming what nothing references any more is `cleanup`'s job), so
  * this never touches `objects/`. Composes the

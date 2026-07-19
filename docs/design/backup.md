@@ -223,14 +223,15 @@ positional `paths…` filter what is restored. Restored files get their snapshot
 under `output\<root-basename>\` — shallow and human-readable. Two roots sharing a
 basename is detected up front and errors with guidance (rare, actionable).
 
-### `delete` — remove one remote snapshot (**built**)
+### `forget` — remove remote snapshots (**built**)
 
-> **Being redesigned:** the orphan check, multiple snapshots per run, and the
-> `--set <set> <snapshot>...` shape are designed in
-> [snapshot-deletion.md](snapshot-deletion.md) ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md))
-> and **not yet built**. This section describes what ships today.
+> **Named `delete` until [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md)**, which
+> freed `delete` for path-scoped content removal. The orphan check, multiple snapshots per
+> run, and the `--set <set> <snapshot>...` shape are designed in
+> [snapshot-deletion.md](snapshot-deletion.md)
+> ([ADR-0062](../adr/0062-bulk-operands-positional-addressing-by-flag.md)) and built.
 
-`s3cab delete --set <set> <snapshot>...` removes remote snapshots — the retention
+`s3cab forget --set <set> <snapshot>...` removes remote snapshots — the retention
 *primitive*. It deletes only the snapshots; reclaiming the objects only it referenced is
 `cleanup`'s job (the command's output says so). It never touches `objects/`. On a TTY it confirms
 with a y/N prompt naming the snapshot and set — the same confirmation pattern as
@@ -422,7 +423,7 @@ the [format spec](../../guide/format.md)), not implementation choice:
   the orphans and the space they hold. `--delete` computes once, prints the same report,
   confirms with y/N on a TTY (non-interactive runs proceed on the explicit flag), and
   deletes from memory — no second enumeration. These y/N confirmations (here and on
-  `delete`) are **s3cab's first interactive prompts** — deliberate: the destructive pair
+  `forget`) are **s3cab's first interactive prompts** — deliberate: the destructive pair
   earns them, and they follow clig.dev's rules — TTY-gated, never blocking a script, and
   never *required* (the explicit flag is the non-interactive answer). (A persisted
   **runlist** — dry-run saves
@@ -459,7 +460,7 @@ the [format spec](../../guide/format.md)), not implementation choice:
   for this audience; instead: **don't run cleanup while a backup is running**, and
   cleanup's output says so. Do not "optimize away" the grace window or this warning.
 - **Retention is the real driver.** The deletion *primitive* ships with this milestone
-  (the `delete` command above); retention *policy* automation is deferred and will sit
+  (the `forget` command above); retention *policy* automation is deferred and will sit
   on top of it. Until snapshots get deleted, the only garbage is crash orphans —
   negligible. The name `cleanup` is consumer vocabulary on purpose (not `gc`/`prune`).
 - **First command to need `DeleteObject`.** Everything else needs only Put/Get/List. The
@@ -473,7 +474,7 @@ the [format spec](../../guide/format.md)), not implementation choice:
 - **Versioned buckets (document only — decided):** s3cab neither requires nor manages
   bucket versioning / Object Lock. User docs will recommend enabling versioning as
   ransomware protection, and note the interplay: on a versioned bucket
-  `delete`/`cleanup` create delete markers, so true reclamation needs a lifecycle rule.
+  `forget`/`cleanup` create delete markers, so true reclamation needs a lifecycle rule.
   Revisit when cleanup is built.
 
 ### `verify` (settled 2026-07-03, **built**)
@@ -550,7 +551,7 @@ missing.
   SHA-256 checksums are *composite* for multipart uploads; a full-object algorithm such
   as CRC64NVME may be the workable variant.)
 - **Retention policy automation** — keep-last/daily/weekly/monthly rules on top of the
-  `delete` primitive; design after real usage shows the shapes people need.
+  `forget` primitive; design after real usage shows the shapes people need.
 - **Interactive `setup` wizard** — explicitly post-milestone; the one-shot form plus
   good error messages is v1.
 
@@ -635,7 +636,7 @@ snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 ### Slice 5 — Admin pair
 
 All three admin commands are **built**: `verify` (completeness + size cross-check, `<bucket>`
-operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `delete` (snapshot removal,
+operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `forget` (snapshot removal,
 TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, dry-run default, single-pass
 `--delete` + y/N, 7-day grace window, damage interlock, the documented
 race warnings — and no local cache: ADR-0045 dropped it, so there is nothing to rewrite).

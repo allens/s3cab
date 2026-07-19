@@ -459,7 +459,7 @@ Pre-release housekeeping and open decisions surfaced from the code:
   `npm run test:integration`. Per-machine setup blocker for this box is tracked in local memory
   (the `local-real-s3-integration-testing` note); this is the *project-level* verification gap.
 - **Retention-policy automation is the one open piece of the backup plan** — keep-last /
-  daily / weekly / monthly on top of `delete`/`cleanup`; deferred until real usage shows the
+  daily / weekly / monthly on top of `forget`/`cleanup`; deferred until real usage shows the
   shapes. The rest of the five-slice plan ([docs/design/backup.md](docs/design/backup.md)) is
   built, and its settled sub-decisions (the delete-rights model, the `upload`/`backup` reshape,
   `compare` local-only, `reattach`) now live in their ADRs — 0033 / 0044 / 0045 / 0027 / 0053.

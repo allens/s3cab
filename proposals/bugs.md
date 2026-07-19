@@ -6,7 +6,7 @@
 > known bugs* at ship. After that, file bugs as GitHub Issues, not here.
 
 - **HIGH — `backup` can publish a snapshot referencing an object `cleanup` already deleted,
-  because its change-detection trusts local history that `delete` never updates.** Found
+  because its change-detection trusts local history that `forget` never updates.** Found
   2026-07-19 while discussing a path-scoped purge idea (`proposals/misc.md`).
 
   **Mechanism.** `backup`'s upload step is documented as a "single-owner model — local history
@@ -14,14 +14,14 @@
   baseline, `planUpload` decides what's "already stored" **purely from the local previous
   snapshot's hashes** ([src/lib/upload.mjs:47-71](../src/lib/upload.mjs)) — no live remote
   check. The conditional-PUT backstop only protects hashes that make it into the plan; a hash
-  skipped via the baseline is never attempted, so the backstop never sees it. `delete`
-  ([src/commands/delete.mjs](../src/commands/delete.mjs)) only touches remote snapshots — it
+  skipped via the baseline is never attempted, so the backstop never sees it. `forget`
+  ([src/commands/forget.mjs](../src/commands/forget.mjs)) only touches remote snapshots — it
   never updates or removes the corresponding local snapshot file (`snapshots/<set>/` locally),
   by design ("Local snapshots need no command: the files are the API — delete the file").
 
-  **Repro.** Back up a set (path P, hash H uploaded). `delete` that remote snapshot. Once past
+  **Repro.** Back up a set (path P, hash H uploaded). `forget` that remote snapshot. Once past
   the grace window, `cleanup --delete` removes H from `objects/` (it's now a true orphan). The
-  local snapshot file for the deleted remote snapshot is still on disk, untouched. Back up
+  local snapshot file for the forgotten remote snapshot is still on disk, untouched. Back up
   again with P unchanged (same size/mtime): `snapshot` reuses H from the stale local baseline
   without re-hashing; `backup` passes that same local snapshot as `--since`; `planUpload` sees H
   in the baseline and skips it. The new snapshot gets published referencing H, which no longer
@@ -46,7 +46,7 @@
   **Interlock with the deletion rework
   ([forget-and-delete.md](forget-and-delete.md), ADR-0063):** this fix is a **hard
   prerequisite** for the path-scoped `delete` — that command deletes objects recent baselines
-  still believe stored, making this bug trigger without the delete/cleanup dance. And the
+  still believe stored, making this bug trigger without the forget/cleanup dance. And the
   candidate fix's invariant is exactly what path-deletion breaks, so that PR must extend the
   fix by also subtracting deletion-record hashes from any baseline.
 

@@ -1,7 +1,7 @@
 # Looking after a backup
 
 Three commands keep a repository healthy over the years: **`verify`** checks your backups are
-still restorable, **`delete`** removes a snapshot you no longer want, and **`cleanup`**
+still restorable, **`forget`** removes a snapshot you no longer want, and **`cleanup`**
 reclaims the storage that frees up. Alongside them sits the thing that makes all of it safe to
 get wrong — **bucket versioning**.
 
@@ -54,12 +54,12 @@ Findings are rare and mean something genuinely went wrong — a bucket edited by
 a lifecycle rule that expired live objects, or storage damage. Versioning is what gets you out
 of it: the previous version of the object is usually still there.
 
-## Removing snapshots (`delete`)
+## Removing snapshots (`forget`)
 
 A snapshot is a point in time. When you don't want to keep one any more:
 
 ```console
-> s3cab delete --set photos 2026-05-01T0800
+> s3cab forget --set photos 2026-05-01T0800
 Orphan preview — what no snapshot would reference once these are gone:
 
   2026-05-01T0800   3,201 files   12.4GB
@@ -67,26 +67,26 @@ Orphan preview — what no snapshot would reference once these are gone:
   total orphaned    3,201 files   12.4GB
 
 Full list:
-  C:\Users\me\.s3cab\delete-orphans-preview.txt
-Delete snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
-Snapshot '2026-05-01T0800' deleted from set 'photos'.
+  C:\Users\me\.s3cab\forget-orphans-preview.txt
+Forget snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
+Snapshot '2026-05-01T0800' forgotten from set 'photos'.
 ```
 
-Before it asks, `delete` works out **what you'd be the last to hold** — content that, once
+Before it asks, `forget` works out **what you'd be the last to hold** — content that, once
 these snapshots are gone, nothing anywhere in the bucket still references. The counts go on
 screen and the full list of files goes in a file, always, whose path is the last thing
 printed. It's written before the question, so answering **no** still leaves you the list to
 read — fix your selection and run again without waiting for the check twice.
 
 Careful with what that list is, though: it's what would become **reclaimable**, not what's
-about to be deleted. `delete` removes snapshots and nothing else, so every file on it stays
+about to be deleted. `forget` removes snapshots and nothing else, so every file on it stays
 stored — and stays on your bill — until a `cleanup`.
 
 Name as many as you like in one run — it's one question, not one per snapshot, and the
 preview covers the whole selection:
 
 ```console
-> s3cab delete --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
+> s3cab forget --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
 Orphan preview — what no snapshot would reference once these are gone:
 
   2026-05-01T0800             3,201 files   12.4GB
@@ -97,13 +97,13 @@ Orphan preview — what no snapshot would reference once these are gone:
   total orphaned              4,161 files   15.9GB
 
 Full list:
-  C:\Users\me\.s3cab\delete-orphans-preview.txt
-Delete 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
-3 snapshots deleted from set 'photos'.
+  C:\Users\me\.s3cab\forget-orphans-preview.txt
+Forget 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
+3 snapshots forgotten from set 'photos'.
 ```
 
 The **shared** line is content that more than one of the snapshots you named holds, and
-nothing else does — it's only orphaned because they're all going together. Delete any one of
+nothing else does — it's only orphaned because they're all going together. Forget any one of
 them alone and it stays referenced. That's why the check looks at the whole list at once
 rather than one snapshot at a time.
 
@@ -120,29 +120,29 @@ you're in a script where nothing reads the output — **`--force`** skips the ch
 confirmation together:
 
 ```console
-> s3cab delete --set photos 2026-05-01T0800 --force
+> s3cab forget --set photos 2026-05-01T0800 --force
 ```
 
 ### The two files it leaves behind
 
-The preview above is `~/.s3cab/delete-orphans-preview.txt`, and it's replaced every time
+The preview above is `~/.s3cab/forget-orphans-preview.txt`, and it's replaced every time
 you run a check — it's there to help you answer the question in front of you, and it's of no
 use once you have.
 
 Once you say **yes**, though, s3cab also keeps a permanent copy in the set's own folder:
 
 ```
-~/.s3cab/sets/photos/delete-orphans-2026-05-01T080213.txt
+~/.s3cab/sets/photos/forget-orphans-2026-05-01T080213.txt
 ```
 
-That one is a record of what you deleted and what it cost you, and it isn't overwritten or
+That one is a record of what you forgot and what it cost you, and it isn't overwritten or
 tidied up — it's there for the day you wonder where a file went. They're small text files;
 delete them yourself whenever you like. A `--force` run keeps a record too, saying plainly
 that the check was skipped, so a bypass never leaves a silent gap.
 
-`delete` removes only the snapshots themselves — **the files they referenced stay stored**. That's
+`forget` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now
-unreferenced is a whole-repository question. Reclaiming it is `cleanup`'s job, which `delete`
+unreferenced is a whole-repository question. Reclaiming it is `cleanup`'s job, which `forget`
 reminds you of when it finishes. The preview tells you what *would* be reclaimable; `cleanup`
 is what actually frees it.
 
@@ -150,14 +150,14 @@ It asks first, at a terminal, naming exactly what it's about to remove. In a scr
 terminal) it proceeds — naming the snapshots is explicit enough, and blocking a script on a
 prompt would be worse. Like `restore`, it always takes `--set`: a destructive command
 should never guess its target. Every name is checked against what's really backed up
-**before anything is deleted**, so a typo is an error listing the real ones — never a
+**before anything is removed**, so a typo is an error listing the real ones — never a
 half-finished run that already removed the names before it.
 
 Local snapshots need no command at all — the files are the API. Delete the file.
 
 ## Reclaiming storage (`cleanup`)
 
-Deleting snapshots doesn't free space by itself. Once nothing references a piece of content,
+Forgetting snapshots doesn't free space by itself. Once nothing references a piece of content,
 it becomes an **orphan** — still stored, paid for, pointed at by nothing. `cleanup` finds
 them:
 
@@ -175,7 +175,7 @@ Dry run — nothing deleted. Reclaim with: s3cab cleanup my-backups --delete
 Delete 312 orphaned object(s) (1.4 GB) from bucket 'my-backups'? This cannot be undone. [y/N]
 ```
 
-Orphans come from exactly two places: snapshots you deleted, and backups that crashed
+Orphans come from exactly two places: snapshots you forgot, and backups that crashed
 part-way (uploads that landed before the run stopped). Both are harmless — they only cost
 storage.
 
@@ -204,7 +204,7 @@ Everything it deletes is an orphan — content some live snapshot needs is never
 do it yourself. It is the single thing that converts every mistake on this page from permanent
 to recoverable.
 
-With versioning on, both `delete` and `cleanup --delete` issue **soft** deletes: S3 writes a
+With versioning on, both `forget` and `cleanup --delete` issue **soft** deletes: S3 writes a
 delete marker and the bytes live on as a noncurrent version. So a `cleanup --delete` you
 regret, a snapshot you shouldn't have dropped — even a leaked key used maliciously — can be
 recovered. The least-privilege identity `s3cab aws` generates is deliberately allowed to
@@ -226,8 +226,8 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | --------------- | ------------------------------------- | ------------------------------------------ |
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
-| When space matters | `s3cab delete` old snapshots (several at once), then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
+| When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
 
 Automatic retention rules — keep-last, daily/weekly/monthly — aren't built yet. They'll be
-built on top of `delete` and `cleanup` once real usage shows the shapes people actually want.
+built on top of `forget` and `cleanup` once real usage shows the shapes people actually want.
 Until then, retention is you deciding which snapshots to drop.

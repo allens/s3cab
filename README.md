@@ -167,7 +167,7 @@ them back**. You create a set once, then the commands act on it:
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
 | `s3cab restore --set <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
 | `s3cab verify <bucket>`       | Check a repository's backups are complete and undamaged — every referenced file is stored, at the right size (findings reported per set). |
-| `s3cab delete --set <set> <snapshot>…` | Delete snapshots from a backup (previews what would be left unreferenced, then confirms once; leaves the files themselves for `cleanup` to reclaim). |
+| `s3cab forget --set <set> <snapshot>…` | Remove snapshots from a backup (previews what would be left unreferenced, then confirms once; leaves the files themselves for `cleanup` to reclaim). |
 | `s3cab cleanup <bucket>`      | Reclaim storage held by objects no snapshot references — a dry run by default; `--delete` actually removes them. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
@@ -194,7 +194,7 @@ advanced building blocks covered under [Cloud repositories](#cloud-repositories)
 
 The full command set now works — snapshot, compare, backup, restore, verify, delete, and
 cleanup (see above). What's next is **retention-policy automation** (keep-last / daily /
-weekly / monthly rules, built on top of the `delete` and `cleanup` primitives) — the shape
+weekly / monthly rules, built on top of the `forget` and `cleanup` primitives) — the shape
 will be designed once real usage shows what people need.
 
 (`list --remote`, `restore --output`, and `verify` already work. `compare` is local-only by
@@ -265,14 +265,14 @@ the repository layout, the snapshot-file grammar, and a recover-by-hand walkthro
 written down in [guide/format.md](guide/format.md), **the format spec**.
 
 **Turn on bucket versioning** — it is your ransomware and fat-finger backstop. With versioning
-on, `s3cab delete` (drop a snapshot) and `s3cab cleanup` (reclaim unreferenced objects) issue
+on, `s3cab forget` (drop a snapshot) and `s3cab cleanup` (reclaim unreferenced objects) issue
 only _soft_ deletes: they write a delete marker and the bytes live on as a recoverable
 noncurrent version, so a mistake — or a leaked key — can add to your backup but can never
 permanently destroy its history. `s3cab aws` turns versioning on for you; if you set a bucket
 up by hand, enable it yourself. The trade-off is that reclaimed space frees only once a
 lifecycle rule expires those noncurrent versions — [guide/aws.md](guide/aws.md) walks through
 the full model, and [guide/maintenance.md](guide/maintenance.md) covers keeping a repository
-healthy over time (`verify` / `delete` / `cleanup`).
+healthy over time (`verify` / `forget` / `cleanup`).
 
 The `hashes` command lists a repository's stored object hashes, **one per line**. It's an
 advanced/diagnostic command — most people never run it directly; its real job is composition:

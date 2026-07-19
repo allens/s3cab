@@ -14,7 +14,7 @@ The trigger was PR #44 (restore + adoption): the full data lifecycle now exists 
 — hash → snapshot → backup → restore — and **every seam a test strategy targets is built and
 stable**: `s3.mjs` (the single SDK boundary), the snapshot TSV parser, the set store
 (`sets.mjs`), the auth env-layering, and the remote engine (`remote.mjs`). The then-unbuilt
-commands (`verify`, `cleanup`, `delete` — all since built) added new _logic_ but **no new
+commands (`verify`, `cleanup`, `forget` — all since built) added new _logic_ but **no new
 seams** — so the strategy survived them unchanged, as predicted. (The `reattach` snapshot-file sync of
 [0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md) adds one small new
 plumbing op — download-object-to-file — but still no new seam.)

@@ -2,7 +2,7 @@ import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
-import { deleteSnapshot } from "./commands/delete.mjs";
+import { forget } from "./commands/forget.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
 import { prop } from "./commands/prop.mjs";
@@ -20,7 +20,7 @@ import {
   renderBackup,
   renderCleanup,
   renderCompareResult,
-  renderDelete,
+  renderForget,
   renderLines,
   renderList,
   renderProp,
@@ -493,18 +493,18 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
     exec: (_options, [bucket] = []) => verify(bucket),
     render: renderVerify,
   },
-  delete: {
-    summary: "Delete snapshots from a backup",
+  forget: {
+    summary: "Remove snapshots from a backup",
     examples: [
-      "s3cab delete --set photos 2026-06-12T0915",
-      "s3cab delete --set photos 2026-06-12T0915 2026-06-19T0902",
-      "s3cab delete --set photos 2026-06-12T0915 --force",
+      "s3cab forget --set photos 2026-06-12T0915",
+      "s3cab forget --set photos 2026-06-12T0915 2026-06-19T0902",
+      "s3cab forget --set photos 2026-06-12T0915 --force",
     ],
     args: {
       snapshot: {
         required: true,
         variadic: true,
-        description: "Which snapshots to delete",
+        description: "Which snapshots to forget",
       },
     },
     options: {
@@ -520,8 +520,8 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
           "Skip the orphan check and the confirmation (default: report what would be left unreferenced, then ask)",
       },
     },
-    exec: (options, snapshots = []) => deleteSnapshot(snapshots, options),
-    render: renderDelete,
+    exec: (options, snapshots = []) => forget(snapshots, options),
+    render: renderForget,
   },
   cleanup: {
     summary: "Reclaim storage held by objects no snapshot references",
