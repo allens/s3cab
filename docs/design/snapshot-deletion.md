@@ -288,12 +288,16 @@ there would be evidence rather than a guess.
   preview is overwritten. Dropping it also retires the file-vs-directory asymmetry with
   `restore -o` that the ADR had to argue its way out of. See that ADR's amendment.
 
-- **Vocabulary deferred, deliberately.** A proposal to move **orphan** to the *file* side and
-  call the object state **unreferenced** came up while building and is recorded in
-  [proposals/misc.md](../../proposals/misc.md) — **not actioned here**. A rename spanning
-  CONTEXT.md, `cleanup`, `render`, the guide and [backup.md](backup.md), landing inside a
-  feature diff, makes that diff unreviewable. This design therefore uses `orphan` in both the
-  file and object sense, as the current glossary does.
+- **Vocabulary deferred, deliberately — since settled elsewhere.** A proposal to move
+  **orphan** to the *file* side came up while building and was **not actioned here** (a rename
+  landing inside a feature diff makes that diff unreviewable), so this design uses `orphan` in
+  both the file and object sense. The subsequent grilling session rejected that swap and
+  settled a different resolution — `orphan` stays object-only; the file-side consequence is
+  named **unrestorable**; and the command itself is renamed `forget` — recorded in
+  [ADR-0063](../adr/0063-forget-snapshots-delete-paths.md) with the delivery plan in
+  [proposals/forget-and-delete.md](../../proposals/forget-and-delete.md). This document
+  predates that rename and still says `delete`/orphan throughout; it is corrected when the
+  rename PR lands.
 
 ## Open
 
