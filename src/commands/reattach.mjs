@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { ParseArgsError, missingArgError } from "../lib/error.mjs";
+import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   listRemoteSets,
@@ -48,7 +48,7 @@ export async function reattach(name, directories = [], options = {}) {
   if (name === undefined) {
     // A distinct undefined-check (not requireArg) so an *empty* string still
     // routes to validateSetName below as invalid, not "missing".
-    throw missingArgError("set");
+    throw new MissingArgError("set");
   }
   validateSetName(name);
   if (options.bucket !== undefined) {

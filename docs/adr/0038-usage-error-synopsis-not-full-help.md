@@ -46,9 +46,12 @@ so the fix is a single CLI-wide convention rather than a `setup` patch.
 2. **Scope: only the `isUsageError` set gets the synopsis + pointer** — our own
    `ParseArgsError` (a missing arg, or a flag conflict / bad flag value that names no
    single arg — e.g. `--profile` with `--unset`) and Node's foreign `ERR_PARSE_ARGS*`
-   family (unknown option, missing option value). Only the missing-arg case carries an
+   family (unknown option, missing option value). The missing-arg case carries an
    `argName` and gets the inline description; the rest print the synopsis + pointer with
-   just their own message. `ValidationError` (bad set/bucket *value*) and plain
+   just their own message. (**Corrected 2026-07-19:** this originally said *only* the
+   missing-arg case carries an `argName`, which was never true — `aws` sets it on its
+   `--save needs --from-stack` error to earn the same description gloss. Naming an arg
+   asks for a *gloss*, not a *rewrite*; point 6 makes that distinction structural.) `ValidationError` (bad set/bucket *value*) and plain
    runtime errors stay **message-only**: they already carry their own tailored fix, so a
    synopsis would be noise. An unknown *command* keeps printing the full command **list**
    (there is no single command to point `--help` at — the list *is* the help).
@@ -171,8 +174,12 @@ command needs no error-wording work. It touches:
   presentation, and leaves the two lookups module-private with one exported seam — which is
   also the honest place to test them, since the composed line is what a user sees.
 - **[src/lib/error.mjs](../../src/lib/error.mjs)** — `requireArg`/`requireOption` merge back
-  into one `requireArg`, beside a `missingArg()` wording helper and a `missingArgError()`
-  factory that absorbs the hand-written throws.
+  into one `requireArg`, beside a `missingArg()` wording helper and a `MissingArgError`
+  subclass that absorbs the hand-written throws. The subclass is what licenses the rewrite:
+  `argName` alone means "gloss me", and other errors set it for exactly that (point 2), so
+  identity — not a field — has to separate the two. This is the taxonomy in that file's own
+  header applied literally: a subclass is earned when a catch site branches on type, which
+  `errorMessage` now does.
 - **[src/s3cab.mjs](../../src/s3cab.mjs)** — the `catch` block returns to three statements:
   print the message, print the usage tail if `isUsageError`, set the exit code. Scoping the
   re-spelling to `error instanceof ParseArgsError` (the only type carrying `argName`) also

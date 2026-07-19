@@ -254,6 +254,27 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Missing required argument: -b, --bucket/);
   });
 
+  it("aws --save keeps its own wording, not a missing-argument rewrite", async () => {
+    // A usage error may name an arg (`from-stack`) purely to earn the registry
+    // description gloss — that must not license rewriting it into "Missing
+    // required argument: --from-stack", which would drop the actual problem:
+    // --save is what needs --from-stack. Only a MissingArgError is re-spelled
+    // (ADR-0038). Fails fast before any AWS touch, so this stays hermetic.
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const home = join(dir.path, "home");
+    mkdirSync(home);
+
+    const { status, stderr } = runWithHome(
+      home,
+      "aws",
+      "--roles-anywhere",
+      "--save",
+    );
+    assert.strictEqual(status, 2);
+    assert.match(stderr, /--save needs --from-stack <stack>/);
+    assert.doesNotMatch(stderr, /Missing required argument/);
+  });
+
   it("setup rejects an invalid set name with the rule and a suggestion", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");

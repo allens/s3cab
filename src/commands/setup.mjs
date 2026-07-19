@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
-import { isENOENT, missingArgError, requireArg } from "../lib/error.mjs";
+import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
 import { readSigningIdentity } from "../lib/roles-anywhere.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
@@ -70,7 +70,7 @@ export async function setup(directories = [], options = {}) {
   if (name === undefined) {
     // A distinct undefined-check (not requireArg) so an *empty* string still
     // routes to validateSetName below as invalid, not "missing".
-    throw missingArgError("set");
+    throw new MissingArgError("set");
   }
 
   validateSetName(name);

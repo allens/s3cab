@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
 import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
-import { ParseArgsError, missingArgError } from "./lib/error.mjs";
+import { MissingArgError, ParseArgsError } from "./lib/error.mjs";
 
 /** @import { Command } from "./commands.mjs" */
 
@@ -220,14 +220,14 @@ describe("errorMessage", () => {
 
   it("spells a missing option with both its forms when it has a short one", () => {
     assert.equal(
-      errorMessage(go, missingArgError("fast")),
+      errorMessage(go, new MissingArgError("fast")),
       "Missing required argument: -f, --fast — Do it quickly",
     );
   });
 
   it("spells a short-less option with its long form alone", () => {
     assert.equal(
-      errorMessage(go, missingArgError("mode")),
+      errorMessage(go, new MissingArgError("mode")),
       "Missing required argument: --mode — How to do it",
     );
   });
@@ -236,11 +236,11 @@ describe("errorMessage", () => {
     // `[<extra>]` would contradict "Missing required argument:" — the error is
     // about the absence, so the brackets are noise here.
     assert.equal(
-      errorMessage(go, missingArgError("target")),
+      errorMessage(go, new MissingArgError("target")),
       "Missing required argument: <target> — What to do it to",
     );
     assert.equal(
-      errorMessage(go, missingArgError("extra")),
+      errorMessage(go, new MissingArgError("extra")),
       "Missing required argument: <extra> — Optional extra",
     );
   });
@@ -249,7 +249,7 @@ describe("errorMessage", () => {
     // A throw site and the registry disagreeing is a bug; don't invent a
     // spelling for it, and don't dangle an em dash with nothing after it.
     assert.equal(
-      errorMessage(go, missingArgError("nope")),
+      errorMessage(go, new MissingArgError("nope")),
       "Missing required argument: nope",
     );
   });
@@ -259,6 +259,21 @@ describe("errorMessage", () => {
     assert.equal(
       errorMessage(go, new ParseArgsError("Pass either a set or --bucket")),
       "Pass either a set or --bucket",
+    );
+  });
+
+  it("never rewrites a non-missing error that names an arg for context", () => {
+    // Naming an arg buys the description gloss, nothing more — only a
+    // MissingArgError may be re-spelled. Rewriting this to "Missing required
+    // argument: --mode" would assert something false (the user's mistake is the
+    // combination, not an absent flag) and lose the wording that explains it.
+    // The live case is aws's `--save needs --from-stack`, pinned in e2e.
+    assert.equal(
+      errorMessage(
+        go,
+        new ParseArgsError("--fast needs --mode <mode>", { argName: "mode" }),
+      ),
+      "--fast needs --mode <mode> — How to do it",
     );
   });
 
@@ -276,7 +291,7 @@ describe("errorMessage", () => {
   it("matches the real registry's --bucket, short form included", () => {
     const setup = /** @type {Command} */ (commands.setup);
     assert.match(
-      errorMessage(setup, missingArgError("bucket")),
+      errorMessage(setup, new MissingArgError("bucket")),
       /^Missing required argument: -b, --bucket — /,
     );
   });

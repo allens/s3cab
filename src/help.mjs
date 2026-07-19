@@ -7,7 +7,7 @@
 // The lib/error.mjs import is safe against the no-SDK rule below: error.mjs
 // imports nothing at all.
 
-import { ParseArgsError, missingArg } from "./lib/error.mjs";
+import { MissingArgError, ParseArgsError, missingArg } from "./lib/error.mjs";
 
 /** @import { CommandArg, CommandOption, Command } from "./commands.mjs" */
 
@@ -149,10 +149,13 @@ function argDescription(command, argName) {
  * (our flag conflicts, Node's own parse failures), prints its own message
  * unchanged. ADR-0038.
  *
- * `argName` rides on `ParseArgsError` alone, so the instanceof both narrows the
- * type and scopes the re-spelling to errors that opted into it. A name the
- * registry doesn't hold falls through to the error's message rather than
- * inventing a spelling — that only happens if a throw site and the registry
+ * **Naming an arg buys a gloss, not a rewrite.** Only a `MissingArgError` is
+ * re-spelled; any other `ParseArgsError` that sets `argName` keeps its own
+ * wording and merely gains the description — `aws`'s `--save needs --from-stack`
+ * names the arg for context, and rewriting it to "Missing required argument:
+ * --from-stack" would lose the very thing that makes it useful. A name the
+ * registry doesn't hold also falls through to the error's message rather than
+ * inventing a spelling; that only happens if a throw site and the registry
  * disagree, which is a bug, not a user error.
  * @param {Command} command
  * @param {unknown} error
@@ -164,9 +167,10 @@ export function errorMessage(command, error) {
   if (!argName) {
     return message;
   }
-  const display = argDisplay(command, argName);
-  const description = argDescription(command, argName);
+  const display =
+    error instanceof MissingArgError ? argDisplay(command, argName) : undefined;
   const line = display ? missingArg(display) : message;
+  const description = argDescription(command, argName);
   return description ? `${line} — ${description}` : line;
 }
 

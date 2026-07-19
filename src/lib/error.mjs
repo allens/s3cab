@@ -2,11 +2,13 @@
 // orthogonal questions, not an inconsistency:
 //
 //   1. Is the error caught by *type* at some catch site to branch behaviour?
-//        yes → an Error *subclass* (this file's `ParseArgsError`, `ValidationError`),
-//              so the catch can `instanceof` it. `ParseArgsError` also guarantees a
-//              discriminator (`code`) across many throw sites by setting it once in
-//              the constructor. Reserve a subclass for owned types whose identity is
-//              read — both here drive the CLI's exit code (`isInputError` → 2).
+//        yes → an Error *subclass* (this file's `ParseArgsError`, `MissingArgError`,
+//              `ValidationError`), so the catch can `instanceof` it. `ParseArgsError`
+//              also guarantees a discriminator (`code`) across many throw sites by
+//              setting it once in the constructor. Reserve a subclass for owned types
+//              whose identity is read — `ParseArgsError`/`ValidationError` drive the
+//              CLI's exit code (`isInputError` → 2), and `MissingArgError` decides
+//              whether the dispatcher may re-spell the message (ADR-0038).
 //        no  → a plain `Error`; nothing inspects its type, it just flows to the
 //              CLI's top-level catch (src/s3cab.mjs) which prints `message`.
 //   2. (plain-Error branch only) Is the message heavy / actionable / reused?
@@ -32,7 +34,10 @@ export class ParseArgsError extends Error {
     /**
      * The registry arg this concerns (plain name, e.g. `set`/`bucket`), so the
      * dispatcher can gloss the error with its description (ADR-0038). Undefined
-     * for generic parse failures that name no single arg.
+     * for generic parse failures that name no single arg. Naming an arg is *only*
+     * a request for that gloss — it does not license rewriting the message, which
+     * is what {@link MissingArgError} exists to signal (`aws` names `from-stack`
+     * on its `--save needs --from-stack` error and must keep its own wording).
      * @type {string | undefined}
      */
     this.argName = options?.argName;
@@ -59,7 +64,7 @@ export class ValidationError extends Error {
 
 /**
  * The missing-argument sentence, given an argument's *display* form. One home for
- * the wording, two callers: {@link missingArgError} composes it from the plain
+ * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's
  * spelling — `<snapshot>` for a positional, `-b, --bucket` for a flag (ADR-0038).
  * A command module can't render that spelling itself: it would have to import the
@@ -70,19 +75,27 @@ export class ValidationError extends Error {
 export const missingArg = (display) => `Missing required argument: ${display}`;
 
 /**
- * The "you left out a required argument" usage error, carrying the arg's *plain*
- * name (e.g. `bucket`) as `argName` so the dispatcher can spell it from the
- * registry and gloss it with its description (ADR-0038). The message here uses the
- * bare name as its fallback spelling — every CLI path re-renders it, so the
- * undecorated form surfaces only to a direct caller (a unit test).
- * @param {string} name - The argument's plain name, e.g. `bucket`
- * @returns {ParseArgsError}
+ * "You left out a required argument" — the one usage error the dispatcher is
+ * allowed to *rewrite*, re-spelling the arg from the registry so a flag shows its
+ * short form (ADR-0038). That permission is the whole reason this is a subclass
+ * rather than a `ParseArgsError` with a flag set: `argName` alone means only
+ * "gloss me with this arg's description", and other errors set it for exactly
+ * that (`aws`'s `--save needs --from-stack`), so identity is what separates the
+ * two. The message stores the *bare* name; every CLI path replaces it, so the
+ * undecorated form surfaces only to a direct caller (a unit test) or when the
+ * name isn't in the registry at all, which is a bug rather than a user error.
  */
-export const missingArgError = (name) =>
-  new ParseArgsError(missingArg(name), { argName: name });
+export class MissingArgError extends ParseArgsError {
+  /**
+   * @param {string} name - The argument's plain name, e.g. `bucket`
+   */
+  constructor(name) {
+    super(missingArg(name), { argName: name });
+  }
+}
 
 /**
- * Assert a required argument is present, throwing {@link missingArgError} if it is
+ * Assert a required argument is present, throwing {@link MissingArgError} if it is
  * missing or empty. Covers positionals *and* options with one helper: the two used
  * to differ only in the decoration they wrote into the message (`<set>` vs
  * `--set`), and that now comes from the registry, which already knows which map
@@ -96,7 +109,7 @@ export const missingArgError = (name) =>
  */
 export function requireArg(value, name) {
   if (!value) {
-    throw missingArgError(name);
+    throw new MissingArgError(name);
   }
 }
 
