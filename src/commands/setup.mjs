@@ -1,7 +1,12 @@
 import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
-import { ParseArgsError, isENOENT, requireArg } from "../lib/error.mjs";
+import {
+  ParseArgsError,
+  isENOENT,
+  requireArg,
+  requireOption,
+} from "../lib/error.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
 import { readSigningIdentity } from "../lib/roles-anywhere.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
@@ -39,7 +44,7 @@ import {
  * mutation. A set's name is its whole identity (ADR-0024) — local handle, local
  * directory, and remote namespace.
  *
- * `setup <name> <directory>... --bucket <b>` claims the name in the bucket
+ * `setup --set <name> --bucket <b> <directory>...` claims the name in the bucket
  * ("first person wins") by atomically writing the remote `info` marker, then
  * writes the local set and publishes its config (`dirs.txt`/`exclude.txt`) to
  * `sets/<name>/`. A name already claimed by another machine is refused with the
@@ -55,19 +60,22 @@ import {
  * `--roles-anywhere` points the set at the machine's keyless certificate identity
  * (which `s3cab aws --roles-anywhere` must already have stood up — ADR-0057).
  *
- * @param {string} [name] - The set's name (required)
- * @param {string[]} [directories] - The member directories (required)
- * @param {{ bucket?: string, profile?: string, endpoint?: string, region?: string,
- *   keys?: boolean, "roles-anywhere"?: boolean }} [options] - `bucket` (required)
- *   is the destination; `profile`/`endpoint`/`region`/`keys`/`roles-anywhere` are
- *   the provider knobs shared with `provider` — how the set signs in.
+ * @param {string[]} [directories] - The member directories (required) — the bulk
+ *   operand, so they are the positionals and the set is addressed by `--set`
+ *   ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md))
+ * @param {{ set?: string, bucket?: string, profile?: string, endpoint?: string,
+ *   region?: string, keys?: boolean, "roles-anywhere"?: boolean }} [options] -
+ *   `set` (required) names the set and `bucket` (required) is its destination;
+ *   `profile`/`endpoint`/`region`/`keys`/`roles-anywhere` are the provider knobs
+ *   shared with `provider` — how the set signs in.
  * @returns {Promise<BackupSet>} The set as stored
  */
-export async function setup(name, directories = [], options = {}) {
+export async function setup(directories = [], options = {}) {
+  const name = options.set;
   if (name === undefined) {
-    // A distinct undefined-check (not requireArg) so an *empty* string still
+    // A distinct undefined-check (not requireOption) so an *empty* string still
     // routes to validateSetName below as invalid, not "missing".
-    throw new ParseArgsError("Missing required argument: <set>", {
+    throw new ParseArgsError("Missing required argument: --set", {
       argName: "set",
     });
   }
@@ -102,7 +110,7 @@ const existsError = (name) => {
       `  ${set.dirsPath}   (directories)\n` +
       `  ${set.excludePath}   (exclude patterns)\n` +
       `To back up a different set of directories, create a new set:\n` +
-      `  s3cab setup <new-name> <directory>... --bucket ${set.bucket}`,
+      `  s3cab setup --set <new-name> --bucket ${set.bucket} <directory>...`,
   );
 };
 
@@ -190,15 +198,7 @@ async function create(name, directories, options) {
   // Resolve directories (local, cheap) before the --bucket check so a bad directory
   // reports "Directory not found" regardless of whether a bucket was given.
   const dirs = resolveDirectories(directories);
-  if (!options.bucket) {
-    // A missing required argument (like the missing-directory check), so
-    // ParseArgsError — the CLI prints usage. `--bucket` is an option, not a
-    // positional, so it's spelled out here rather than via requireArg; argName
-    // lets the dispatcher gloss it with the registry description (ADR-0038).
-    throw new ParseArgsError("Missing required argument: --bucket", {
-      argName: "bucket",
-    });
-  }
+  requireOption(options.bucket, "bucket");
   const bucket = options.bucket;
 
   // Roles Anywhere is a *machine* identity generated up front by

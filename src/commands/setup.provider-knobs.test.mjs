@@ -81,7 +81,8 @@ describe("setup provider knobs", () => {
     stdin.isTTY = false; // --keys reads two piped lines
     promptLines = ["AKIAEXAMPLE", "sooper-secret"];
 
-    await setup("photos", [photos], {
+    await setup([photos], {
+      set: "photos",
       bucket: "my-bucket",
       endpoint: "https://acct.r2.cloudflarestorage.com",
       region: "auto",
@@ -115,7 +116,11 @@ describe("setup provider knobs", () => {
     process.env.AWS_CONFIG_FILE = cfg;
     process.env.AWS_SHARED_CREDENTIALS_FILE = join(dir.path, "none");
 
-    await setup("photos", [photos], { bucket: "my-bucket", profile: "work" });
+    await setup([photos], {
+      set: "photos",
+      bucket: "my-bucket",
+      profile: "work",
+    });
 
     assert.equal(envAtClaim?.AWS_PROFILE, "work");
     assert.equal(parseEnvFile(readSet("photos").envPath).AWS_PROFILE, "work");
@@ -130,7 +135,8 @@ describe("setup provider knobs", () => {
 
     await assert.rejects(
       () =>
-        setup("photos", [photos], {
+        setup([photos], {
+          set: "photos",
           bucket: "my-bucket",
           endpoint: "https://acct.r2.cloudflarestorage.com",
           keys: true,

@@ -3,7 +3,7 @@ import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { loadSet } from "../lib/env.mjs";
-import { requireArg } from "../lib/error.mjs";
+import { requireOption } from "../lib/error.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
@@ -36,10 +36,12 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * different drive layout, or another OS entirely — and is the only mode that
  * accepts non-absolute-on-this-platform paths.
  *
- * The set must have an existing remote backup. Unlike the everyday commands,
- * `<set>` is required — no sole-set default (ADR-0040): restore is the rare,
+ * The set must have an existing remote backup. Unlike the everyday commands, the
+ * set is required — no sole-set default (ADR-0040): restore is the rare,
  * carefully considered command, and requiring the name removes the set-or-path
- * ambiguity a leading optional positional would create.
+ * ambiguity a leading optional positional would create. It is named by `--set`
+ * rather than a positional because the paths are the bulk operand
+ * ([ADR-0062](../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)).
  *
  * @typedef {Object} RestoreResult
  * @property {string} set - The set restored
@@ -47,14 +49,13 @@ import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
  * @property {string[]} restored - Paths written
  * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
  *
- * @param {string} [setName] - Backup set to restore (required)
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
- * @param {{ snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options]
+ * @param {{ set?: string, snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options] - `set` (required) is the backup set to restore
  * @returns {Promise<RestoreResult>}
  */
-export async function restore(setName, paths = [], options = {}) {
-  requireArg(setName, "set");
-  const set = loadSet(setName);
+export async function restore(paths = [], options = {}) {
+  requireOption(options.set, "set");
+  const set = loadSet(options.set);
 
   // One listing picks the source and validates `--snapshot` against what's
   // really there (newest first), so a bad name errors loudly with the choices

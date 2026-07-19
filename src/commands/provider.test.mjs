@@ -707,6 +707,6 @@ describe("provider (show)", () => {
     const out = await provider(undefined, {});
 
     assert.match(out, /No backup sets yet/);
-    assert.match(out, /s3cab setup <set>/);
+    assert.match(out, /s3cab setup --set <set>/);
   });
 });

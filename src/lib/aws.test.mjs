@@ -325,7 +325,7 @@ describe("awsSaveConfirmation", () => {
   it("points a backup set at the now-complete identity (create and switch)", () => {
     assert.match(
       out,
-      /s3cab setup <name> <directory>\.\.\. --bucket <bucket> --roles-anywhere/,
+      /s3cab setup --set <name> --bucket <bucket> --roles-anywhere <directory>\.\.\./,
     );
     assert.match(out, /s3cab provider --roles-anywhere <set>/);
     assert.match(out, /short-lived AWS\n?credentials for every backup/);

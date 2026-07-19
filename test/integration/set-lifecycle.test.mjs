@@ -45,7 +45,7 @@ describe("setup (real bucket)", () => {
     mkdirSync(content, { recursive: true });
 
     try {
-      const set = await setup(name, [content], { bucket });
+      const set = await setup([content], { set: name, bucket });
       assert.equal(set?.name, name);
       assert.equal(set?.bucket, bucket);
       assert.deepEqual(set?.dirs, [realpathSync.native(content)]);
@@ -76,12 +76,12 @@ describe("setup (real bucket)", () => {
     try {
       // Machine A claims the name.
       useTempHome(join(dir.path, "a"));
-      await setup(name, [content], { bucket });
+      await setup([content], { set: name, bucket });
 
       // Machine B (a fresh local home, same bucket) is refused.
       useTempHome(join(dir.path, "b"));
       await assert.rejects(
-        () => setup(name, [content], { bucket }),
+        () => setup([content], { set: name, bucket }),
         /already set up[\s\S]*reattach/,
       );
     } finally {
@@ -98,7 +98,7 @@ describe("setup (real bucket)", () => {
     try {
       // Machine A creates it.
       useTempHome(join(dir.path, "a"));
-      await setup(name, [content], { bucket });
+      await setup([content], { set: name, bucket });
       const before = await readRemoteInfo(bucket, name);
 
       // Machine B reattaches — no directories, recreated from the remote config.
