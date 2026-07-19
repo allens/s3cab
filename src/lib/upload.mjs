@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { isENOENT } from "./error.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
-import { putFile } from "./s3.mjs";
+import { objectExists, putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
@@ -25,18 +25,20 @@ import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
  *
  * The plan is the target's hashes minus what's already stored
  * (docs/design/backup.md), subtracted from whichever sources the caller has:
- * - `baseline` — a snapshot whose objects were stored when it was uploaded:
- *   the set's previous **local** snapshot for `backup` (single-owner model —
- *   local history is authoritative), or the latest **remote** snapshot for
- *   `status`'s read-only estimate. Content-keyed, so a file that merely moved
- *   or was renamed is *not* re-uploaded (design #1).
+ * - `baseline` — a snapshot whose objects are **known stored**: the set's
+ *   previous local snapshot for `backup` — only after `uploadSnapshot`'s
+ *   remote-existence check has vouched for it — or the latest **remote**
+ *   snapshot for `status`'s read-only estimate. Content-keyed, so a file that
+ *   merely moved or was renamed is *not* re-uploaded (design #1).
  * - `listed` — the stored hashes from a one-time LIST of the object store (a
- *   first backup, which has no baseline). An (async) iterable, streamed with
+ *   first backup, or a distrusted baseline). An (async) iterable, streamed with
  *   delete-as-you-scan so peak memory scales with the snapshot, never the
  *   (possibly huge) bucket — why this is not a materialized Set.
- * Both may be given; with neither, everything is planned. Either way the
- * conditional PUT (`noClobber`) stays the correctness backstop — the plan is
- * an optimization, never load-bearing.
+ * Both may be given; with neither, everything is planned. The conditional PUT
+ * (`noClobber`) backstops only the hashes that make it *into* the plan — a
+ * hash a stale baseline wrongly subtracts is never attempted at all, which is
+ * why the caller must vouch for the baseline (proposals/bugs.md, the
+ * baseline-trust bug).
  * @param {SnapshotEntries} target - The snapshot being backed up
  * @param {object} [stored] - What's already stored, by whichever source is known
  * @param {SnapshotEntries} [stored.baseline] - Snapshot to diff against
@@ -79,8 +81,10 @@ export async function planUpload(target, { baseline, listed } = {}) {
  * walks the filesystem.
  *
  * What to PUT is `planUpload`'s decision; this executes the plan. With `since`,
- * the plan diffs against that previous local snapshot (no network read); with
- * no `since` (a first backup) the object store is LISTed once instead. The
+ * one HEAD checks the baseline still exists remotely — trusted, the plan diffs
+ * against that previous local snapshot; distrusted (forgotten remotely, or
+ * never uploaded), the baseline is dropped and the store is LISTed as if this
+ * were a first backup. With no `since`, the LIST likewise. The
  * snapshot is uploaded no-clobber too, but here a name that already exists
  * remotely is an **error**, never an overwrite (snapshots are immutable,
  * docs/design/backup.md).
@@ -104,13 +108,36 @@ export async function uploadSnapshot({
 }) {
   const { entries: target } = await readSnapshot(snapshotDir, name);
 
+  // Trust the baseline iff it still exists remotely (proposals/bugs.md, HIGH).
+  // The objects-first/snapshot-last invariant makes a remote snapshot's presence
+  // proof its objects were stored, and cleanup never deletes referenced objects
+  // — so a baseline still in the cloud is a trustworthy skip-list. One that
+  // isn't (forgotten remotely, or taken locally but never uploaded) may claim
+  // more is stored than is; a hash it wrongly skips never reaches the
+  // conditional-PUT backstop, so the published snapshot would reference a
+  // missing object. On a miss, drop the baseline entirely — its skips are
+  // exactly the untrusted data — and LIST the store instead, like a first backup.
+  /** @type {SnapshotEntries | undefined} */
+  let baseline;
+  if (since) {
+    const trusted = await objectExists(remoteSnapshotUri(bucket, set, since));
+    if (trusted) {
+      const { entries } = await readSnapshot(snapshotDir, since);
+      baseline = entries;
+    } else {
+      console.warn(
+        `Baseline snapshot '${since}' is no longer in the cloud — ` +
+          `checking what's stored instead.`,
+      );
+    }
+  }
+
   /** @type {Map<string, string>} */
   let plan;
-  if (since) {
-    const { entries: baseline } = await readSnapshot(snapshotDir, since);
+  if (baseline) {
     plan = await planUpload(target, { baseline });
   } else {
-    // First backup — no local baseline; LIST the store once instead.
+    // No trustworthy baseline — LIST the store once instead.
     // Announce it: a large store can take a moment.
     console.warn("Scanning existing objects…");
     plan = await planUpload(target, { listed: listObjectHashes(bucket) });

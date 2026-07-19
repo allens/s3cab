@@ -128,6 +128,84 @@ describe("uploadSnapshot (real bucket)", () => {
     }
   });
 
+  it("re-uploads an object its forgotten baseline claimed stored — the baseline-trust check", async () => {
+    // The HIGH baseline-trust bug (proposals/bugs.md): backup, forget that
+    // remote snapshot, cleanup deletes its now-orphan object — then a second
+    // backup of the unchanged file used to trust the stale local baseline,
+    // skip the object, and publish a snapshot referencing a missing object.
+    // The fix HEADs the baseline: gone remotely → distrust it, LIST instead.
+    await using dir = await mkTmpDir();
+    const set = `trust-${Date.now()}`;
+    const first = "2025-01-15T1030";
+    const second = "2025-01-15T1130";
+
+    const contentDir = resolve(dir.path, "content");
+    mkdirSync(contentDir, { recursive: true });
+    const file = join(contentDir, "kept.txt");
+    // Unique content → unique hash, so the shared store stays isolated.
+    writeFileSync(file, `kept ${set}`);
+
+    const snapshotDir = join(dir.path, "snapshots");
+    mkdirSync(snapshotDir, { recursive: true });
+    // The file is unchanged between the snapshots — the second records the
+    // same hash without re-reading, exactly the repro's stale-baseline shape.
+    await writeSnapshot(snapshotDir, first, [file]);
+    await writeSnapshot(snapshotDir, second, [file]);
+
+    const { entries } = await readSnapshot(snapshotDir, first);
+    const props = entries.get(file);
+    assert(props, "the file should be in the snapshot");
+    const hash = props.hash;
+
+    try {
+      // Backup one: the object and the snapshot go up.
+      const firstResult = await uploadSnapshot({
+        bucket,
+        set,
+        snapshotDir,
+        name: first,
+      });
+      assert.equal(firstResult.uploaded, 1);
+
+      // Forget the remote snapshot, then "cleanup" its now-orphan object —
+      // the delete/cleanup dance, done directly. Local history is untouched.
+      await deleteObject(
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${first}.tsv.zst`,
+      );
+      await deleteObject(`s3://${bucket}/objects/${hash}`);
+
+      // Backup two, unchanged file, --since the forgotten baseline: the
+      // baseline must be distrusted and the object re-uploaded — never a
+      // published snapshot referencing a missing object.
+      const secondResult = await uploadSnapshot({
+        bucket,
+        set,
+        snapshotDir,
+        name: second,
+        since: first,
+      });
+      assert.equal(secondResult.candidates, 1);
+      assert.equal(secondResult.uploaded, 1);
+
+      // The published snapshot's object really is back in the store.
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), [second]);
+      const keys = [];
+      for await (const o of listObjects(`s3://${bucket}/objects/${hash}`)) {
+        if (o.Key) {
+          keys.push(o.Key);
+        }
+      }
+      assert.deepEqual(keys, [`objects/${hash}`]);
+    } finally {
+      await deleteObject(`s3://${bucket}/objects/${hash}`);
+      for (const name of [first, second]) {
+        await deleteObject(
+          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+        );
+      }
+    }
+  });
+
   it("aborts when a file drifts mid-backup — no snapshot published, drifted object never stored", async () => {
     await using dir = await mkTmpDir();
     const set = `drift-${Date.now()}`;
