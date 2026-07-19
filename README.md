@@ -102,7 +102,7 @@ Wasabi, MinIO and the like, run `s3cab help provider`. With a bucket in hand:
 ```console
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.
 #    --keys prompts for your access key + secret (never passed as flags).
-> s3cab setup photos C:\Users\me\Photos --bucket my-backups --keys
+> s3cab setup --set photos --bucket my-backups --keys C:\Users\me\Photos
 Set 'photos' → bucket 'my-backups'
 dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
   C:\Users\me\Photos
@@ -112,7 +112,7 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
 Backed up 'photos' (snapshot 2025-11-12T0915): uploaded 1,240 objects.
 
 # 3. Deleted a file by accident? Get just that one back:
-> s3cab restore photos C:\Users\me\Photos\beach.jpg
+> s3cab restore --set photos C:\Users\me\Photos\beach.jpg
 Restored 1 file from 'photos' (snapshot 2025-11-12T0915).
 ```
 
@@ -158,16 +158,16 @@ them back**. You create a set once, then the commands act on it:
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | `s3cab aws <bucket>`          | Write a CloudFormation template (+ print the steps) to stand up an **AWS** S3 bucket + locked-down identity as a backup destination ([guide](guide/aws.md)). |
 | `s3cab provider`              | Set, clear, or show how s3cab connects to your storage provider — an AWS profile, or a custom endpoint/region/keys for any S3-compatible provider ([non-AWS setup](guide/aws.md#non-aws-providers)). |
-| `s3cab setup <set> <directory>…` | Create a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
+| `s3cab setup --set <set> <directory>…` | Create a **backup set** (`--bucket` binds its cloud destination); its directories then live in an editable `dirs.txt`. |
 | `s3cab reattach <set>`       | Attach this machine to a set that already exists in the cloud — a replacement/recovery machine (`--bucket` holds it). Pulls its config + history, not the files (that's `restore`). |
 | `s3cab snapshot [<set>]`      | Take a snapshot of a set, then show what changed since the previous one.      |
 | `s3cab list [<set>]`          | List your backup sets and their snapshots — a named set in detail, or its cloud backups with `--remote`. |
 | `s3cab compare [<set>]`       | Show what changed between two snapshots (added / moved / modified / deleted). |
 | `s3cab backup [<set>]`        | Take a fresh snapshot and upload it (and the files it references) to S3.       |
 | `s3cab status [<set>]`        | Show what is backed up and what a backup would upload.                        |
-| `s3cab restore <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
+| `s3cab restore --set <set> [paths…]` | Recover from a set's cloud backup — specific paths or the whole set; skips existing files. |
 | `s3cab verify <bucket>`       | Check a repository's backups are complete and undamaged — every referenced file is stored, at the right size (findings reported per set). |
-| `s3cab delete <set> --snapshot <name>` | Delete one snapshot from a backup (confirms first; leaves the files it referenced for `cleanup` to reclaim). |
+| `s3cab delete --set <set> <snapshot>…` | Delete snapshots from a backup (confirms once; leaves the files they referenced for `cleanup` to reclaim). |
 | `s3cab cleanup <bucket>`      | Reclaim storage held by objects no snapshot references — a dry run by default; `--delete` actually removes them. |
 | `s3cab tree [<set>]`          | List the files a snapshot of the set would include, honouring exclude rules.  |
 | `s3cab prop <file>`           | Show the hash, size, and modified time of a single file.                      |
@@ -334,7 +334,7 @@ access key, a set can authenticate with an X.509 client certificate and receive 
 session credentials. `s3cab aws <bucket> --roles-anywhere` generates a machine-level CA + client
 certificate under `~/.s3cab/roles-anywhere/` (the private key never leaves your machine) and
 writes a CloudFormation template to `~/.s3cab/<bucket>.yaml`; after deploying it and capturing the ARNs
-(`--save --from-stack`), point a set at it with `s3cab setup … --roles-anywhere` or
+(`--save --from-stack`), point a set at it with `s3cab setup --set … --roles-anywhere` or
 `s3cab provider --roles-anywhere <set>`. The durable secret never travels, only a ~1-hour token
 flows to AWS, and the trust anchor gives you central revocation. It's a best-effort win, not a
 vault: a leaked `0600` key file is about as exposed as a leaked access key against file theft —

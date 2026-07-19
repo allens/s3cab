@@ -108,7 +108,7 @@ your first backup set and store the key on it in one step — `setup` is the
 initial-config door (`--keys` prompts for the key + secret, never taken as flags):
 
 ```console
-> s3cab setup <name> <directory>... --bucket <bucket> --keys
+> s3cab setup --set <name> --bucket <bucket> --keys <directory>...
 ```
 
 > AWS now steers even basic users toward short-lived credentials over standalone
@@ -145,7 +145,7 @@ Then point a backup set at the identity — either as you create it, or by switc
 an existing set:
 
 ```console
-> s3cab setup <name> <directory>... --bucket <bucket> --roles-anywhere
+> s3cab setup --set <name> --bucket <bucket> --roles-anywhere <directory>...
 > s3cab provider --roles-anywhere <set>          # switch an existing set
 ```
 
@@ -234,7 +234,7 @@ The steps (also available offline via `s3cab help provider`):
    scripts). Config is per-set, so it goes on the set as you create it:
 
    ```console
-   > s3cab setup <name> <directory>... --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys
+   > s3cab setup --set <name> --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys <directory>...
    Access key ID: …
    Secret access key (hidden):
    ```

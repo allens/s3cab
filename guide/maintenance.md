@@ -54,26 +54,35 @@ Findings are rare and mean something genuinely went wrong — a bucket edited by
 a lifecycle rule that expired live objects, or storage damage. Versioning is what gets you out
 of it: the previous version of the object is usually still there.
 
-## Removing a snapshot (`delete`)
+## Removing snapshots (`delete`)
 
 A snapshot is a point in time. When you don't want to keep one any more:
 
 ```console
-> s3cab delete photos --snapshot 2026-05-01T0800
+> s3cab delete --set photos 2026-05-01T0800
 Delete snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
 Snapshot '2026-05-01T0800' deleted from set 'photos'.
 ```
 
-`delete` removes only the snapshot itself — **the files it referenced stay stored**. That's
+Name as many as you like in one run — it's one question, not one per snapshot:
+
+```console
+> s3cab delete --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
+Delete 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
+3 snapshots deleted from set 'photos'.
+```
+
+`delete` removes only the snapshots themselves — **the files they referenced stay stored**. That's
 deliberate: other snapshots probably reference the same content, and working out what's now
 unreferenced is a whole-repository question. Reclaiming it is `cleanup`'s job, which `delete`
 reminds you of when it finishes.
 
 It asks first, at a terminal, naming exactly what it's about to remove. In a script (no
-terminal) it proceeds — naming `--snapshot` is explicit enough, and blocking a script on a
-prompt would be worse. Like `restore`, it always takes the set name: a destructive command
-should never guess its target. A snapshot name that doesn't exist is an error listing the real
-ones, so a typo can't quietly do nothing.
+terminal) it proceeds — naming the snapshots is explicit enough, and blocking a script on a
+prompt would be worse. Like `restore`, it always takes `--set`: a destructive command
+should never guess its target. Every name is checked against what's really backed up
+**before anything is deleted**, so a typo is an error listing the real ones — never a
+half-finished run that already removed the names before it.
 
 Local snapshots need no command at all — the files are the API. Delete the file.
 
@@ -148,7 +157,7 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | --------------- | ------------------------------------- | ------------------------------------------ |
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
-| When space matters | `s3cab delete` old snapshots, then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
+| When space matters | `s3cab delete` old snapshots (several at once), then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
 
 Automatic retention rules — keep-last, daily/weekly/monthly — aren't built yet. They'll be
 built on top of `delete` and `cleanup` once real usage shows the shapes people actually want.

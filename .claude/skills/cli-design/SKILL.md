@@ -47,9 +47,13 @@ violation is a review finding (the `/review` Standards axis + Copilot).
 - **Prefer flags to positional args** — named parameters are clearer and leave
   room to grow. Reserve positionals for the one obvious primary input.
 - **Multiple positionals of the *same* kind are fine** for bulk actions and
-  globbing (`rm a b c`; s3cab `setup <set> <directory>...`). **Avoid multiple
-  positionals of *different* kinds** unless it's a memorable primary action
-  (`cp src dest`).
+  globbing (`rm a b c`; s3cab `setup --set <set> <directory>...`). **Avoid
+  multiple positionals of *different* kinds** unless it's a memorable primary
+  action (`cp src dest`). s3cab resolves the two together in
+  [ADR-0062](../../../docs/adr/0062-bulk-operands-positional-addressing-by-flag.md):
+  a command with a **bulk operand** puts that operand in the positionals and
+  moves its addressing to a flag (`--set`); a command with only addressing keeps
+  it positional (`s3cab backup [<set>]`).
 - **Offer long and short forms;** restrict single-letter flags to common options
   (especially at top level) to keep the namespace clean.
 - **Use the conventional flag names** so they behave as users expect:
