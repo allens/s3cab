@@ -648,19 +648,34 @@ describe("renderVerify", () => {
     );
   });
 
-  it("summarizes many deletion dates instead of listing them all", () => {
-    const dates = ["2026-05-01T0900", "2026-06-01T0900", "2026-07-19T1422"];
+  it("summarizes many deletion dates, reporting the true latest regardless of path order", () => {
+    // `expectedMissing` arrives path-sorted (verifySet), so the newest deletion
+    // can sit anywhere in the list. Here the newest date is on the
+    // alphabetically-first path: taking the raw encounter order's last element
+    // would report the *oldest*-looking "latest" — the dates must be sorted.
     const text = renderVerify(
       {
         bucket: "b",
         sets: [
           report({
             set: "media",
-            expectedMissing: dates.map((deletedOn, i) => ({
-              path: `/data/${i}.mov`,
-              snapshots: ["s1"],
-              deletedOn,
-            })),
+            expectedMissing: [
+              {
+                path: "/data/a.mov",
+                snapshots: ["s1"],
+                deletedOn: "2026-07-19T1422",
+              },
+              {
+                path: "/data/b.mov",
+                snapshots: ["s1"],
+                deletedOn: "2026-05-01T0900",
+              },
+              {
+                path: "/data/c.mov",
+                snapshots: ["s1"],
+                deletedOn: "2026-06-01T0900",
+              },
+            ],
           }),
         ],
       },

@@ -490,7 +490,13 @@ export function renderVerify(result, { color = false } = {}) {
   const deletedLines = sets
     .filter((set) => set.expectedMissing.length > 0)
     .map((set) => {
-      const dates = [...new Set(set.expectedMissing.map((e) => e.deletedOn))];
+      // Sort the distinct dates chronologically (lexicographic == chronological
+      // for `YYYY-MM-DDTHHMM`) — `expectedMissing` is path-ordered, so the raw
+      // encounter order would make `.at(-1)` the last file alphabetically, not
+      // the newest deletion.
+      const dates = [
+        ...new Set(set.expectedMissing.map((e) => e.deletedOn)),
+      ].sort();
       const when =
         dates.length <= 2
           ? `deleted ${dates.join(", ")}`

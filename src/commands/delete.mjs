@@ -235,7 +235,9 @@ export async function deletePaths(paths = [], options = {}) {
   }
 
   if (plan.deletable.length === 0) {
-    console.warn(`Nothing was deleted.`);
+    // The summary above already said why nothing is deletable (survivors, or
+    // no match), and the renderer prints the stdout result line — so there is
+    // no stderr note to add here that wouldn't just duplicate it.
     return result;
   }
 
