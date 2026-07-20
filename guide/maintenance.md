@@ -129,8 +129,8 @@ free the space of one.
 Working the list out means reading every snapshot in the bucket, which takes a moment on a
 large repository. That's the reason to name several snapshots in one run: it's one read for
 the batch, not one per snapshot. If you don't want it — you know what you're deleting, or
-you're in a script where nothing reads the output — **`--force`** skips the check and the
-confirmation together:
+you're in a script (where it's required: there's no terminal to answer the prompt) —
+**`--force`** skips the check and the confirmation together:
 
 ```console
 > s3cab forget --set photos 2026-05-01T0800 --force
@@ -160,9 +160,9 @@ reminds you of when it finishes. The preview tells you what *would* be reclaimab
 is what actually frees it.
 
 It asks first, at a terminal, naming exactly what it's about to remove. In a script (no
-terminal) it proceeds — naming the snapshots is explicit enough, and blocking a script on a
-prompt would be worse. Like `restore`, it always takes `--set`: a destructive command
-should never guess its target. Every name is checked against what's really backed up
+terminal) it refuses unless you pass `--force` — the same explicit-intent rule the other
+destructive commands follow, since blocking a script on a prompt would be worse. Like
+`restore`, it always takes `--set`: a destructive command should never guess its target. Every name is checked against what's really backed up
 **before anything is removed**, so a typo is an error listing the real ones — never a
 half-finished run that already removed the names before it.
 
@@ -255,15 +255,24 @@ them:
 ```console
 > s3cab cleanup my-backups
 my-backups: 48,210 objects stored, 312 orphaned (1.4 GB reclaimable)
-Dry run — nothing deleted. Reclaim with: s3cab cleanup my-backups --delete
+Delete 312 orphaned object(s) (1.4 GB) from bucket 'my-backups'? This cannot be undone. [y/N]
 ```
 
-**It's a dry run by default.** It tells you what it would remove and removes nothing. Add
-`--delete` to actually reclaim, which asks for confirmation at a terminal:
+**It asks before it acts.** At a terminal, `cleanup` reports what's orphaned and then asks
+to reclaim it — a plain `y/N`, because everything it removes is content nothing references
+any more. To look without touching anything, `-n` (`--dry-run`) reports and stops:
 
 ```console
-> s3cab cleanup my-backups --delete
-Delete 312 orphaned object(s) (1.4 GB) from bucket 'my-backups'? This cannot be undone. [y/N]
+> s3cab cleanup my-backups --dry-run
+my-backups: 48,210 objects stored, 312 orphaned (1.4 GB reclaimable)
+Dry run — nothing deleted. Re-run without --dry-run to reclaim.
+```
+
+In a script — no terminal to answer the prompt — state the intent with `--force`, which
+reclaims without asking:
+
+```console
+> s3cab cleanup my-backups --force
 ```
 
 Orphans come from exactly two places: snapshots you forgot, and backups that crashed
@@ -282,8 +291,8 @@ hedged:
 - **An unreadable snapshot stops the run** — both modes, even the dry run. If a snapshot won't
   read, its references are unknown, so everything it alone referenced would *look* orphaned.
   Rather than report numbers that are lies, `cleanup` stops and sends you to `verify`.
-- **Missing objects make `--delete` refuse.** If verify-style faults are already present, the
-  repository is losing data and this is not the moment to reclaim. The dry run still reports.
+- **Missing objects make reclaiming refuse.** If verify-style faults are already present, the
+  repository is losing data and this is not the moment to reclaim. A `--dry-run` still reports.
   (Content removed by `delete` doesn't count — its absence is recorded and deliberate.)
 - **Don't run cleanup while a backup is running.** The grace window covers the ordinary race,
   but this is the one rule it can't enforce for you.
@@ -297,9 +306,9 @@ Everything it deletes is an orphan — content some live snapshot needs is never
 do it yourself. It is the single thing that converts every mistake on this page from permanent
 to recoverable.
 
-With versioning on, `forget`, `delete`, and `cleanup --delete` all issue **soft** deletes:
-S3 writes a delete marker and the bytes live on as a noncurrent version. So a `cleanup
---delete` you regret, a `delete` that took more than you meant, a snapshot you shouldn't
+With versioning on, `forget`, `delete`, and `cleanup` all issue **soft** deletes:
+S3 writes a delete marker and the bytes live on as a noncurrent version. So a `cleanup`
+you regret, a `delete` that took more than you meant, a snapshot you shouldn't
 have dropped — even a leaked key used maliciously — can be recovered. The least-privilege identity `s3cab aws` generates is deliberately allowed to
 delete objects but **not** object *versions*, which means a stolen credential can add to your
 backup and can never permanently destroy its history.
@@ -319,7 +328,7 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | --------------- | ------------------------------------- | ------------------------------------------ |
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
-| When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
+| When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket>` | drop what you don't want, then reclaim it |
 | When one thing is the space | `s3cab delete --bucket <bucket> <path>` | drop that thing from every backup, keeping the snapshots |
 
 Automatic retention rules — keep-last, daily/weekly/monthly — aren't built yet. They'll be

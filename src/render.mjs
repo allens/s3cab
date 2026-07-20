@@ -774,7 +774,7 @@ export function renderDelete({
 /**
  * Confirm a `cleanup` (ADR-0043) — the run's counts, which are the command's
  * *result* (moved here from stderr, where only next-step guidance now remains). A
- * `--delete` run that reclaimed reports what it removed; every other run (dry run,
+ * run that reclaimed reports what it removed; every other run (dry run,
  * declined, or nothing to do) reports the inventory — stored total, orphans and
  * the space they hold, plus the grace-protected and (integrity-fault) missing
  * tallies when non-zero.

@@ -102,9 +102,12 @@ const auditTimestamp = () =>
  * ([ADR-0040](../../docs/adr/0040-restore-requires-set-name.md)): a destructive
  * command should never guess its target. On a **TTY** it confirms with a y/N
  * prompt naming the snapshots, set, and bucket (s3cab's first interactive prompt,
- * shared with `cleanup --delete`); a **non-interactive** run proceeds — naming
- * the snapshots is the explicit intent, and clig.dev forbids blocking a script on
- * a prompt. **Every** name is confirmed to exist before **any** is deleted, so a
+ * shared with `cleanup`); a **non-interactive** run refuses without `--force`
+ * (clig: fail with instructions, never block on a prompt) — the tool-wide
+ * destructive-command pattern
+ * ([ADR-0064](../../docs/adr/0064-path-scoped-delete-deletion-record.md)), so a
+ * scripted forget necessarily skips the check (the only non-interactive door,
+ * `--force`, skips it). **Every** name is confirmed to exist before **any** is deleted, so a
  * typo gets a helpful error (and the prompt names real targets) rather than a
  * silent no-op (`DeleteObject` is idempotent) — and never a half-done run.
  *
@@ -114,7 +117,7 @@ const auditTimestamp = () =>
  * @property {boolean} forgotten - False only when the user declined the confirmation
  *
  * @param {string[]} [snapshots] - The snapshots to forget — the bulk operand (at least one)
- * @param {{ set?: string, force?: boolean }} [options] - `set` = the backup set they belong to (required); `force` skips the check and the confirmation
+ * @param {{ set?: string, force?: boolean }} [options] - `set` = the backup set they belong to (required); `force` skips the check and the confirmation (and is required for non-interactive runs)
  * @returns {Promise<ForgetResult>}
  */
 export async function forget(snapshots = [], options = {}) {
@@ -125,6 +128,22 @@ export async function forget(snapshots = [], options = {}) {
   // Resolve the set and apply its env layer (its bucket + auth) over the ambient
   // shell (ADR-0022/0055 — the one s3cab layer).
   const set = loadSet(options.set);
+
+  // The non-interactive gate, up front — before the whole-bucket scan. Forgetting
+  // is destructive; with no terminal to confirm on, the intent must be explicit.
+  // --force is the only non-interactive door and it skips the unrestorable check
+  // too (the two travel together, rm -f), so a scripted forget files the "check
+  // skipped" record. This is the tool-wide destructive-command pattern (ADR-0064);
+  // before it, a bare non-interactive run proceeded.
+  if (!force && !isInteractive(process.stdin)) {
+    throw new Error(
+      `Forgetting snapshots from set '${set.name}' needs a confirmation, and ` +
+        `there is no terminal to ask on.\n` +
+        `State the intent explicitly and skip the prompt (and the unrestorable ` +
+        `check):\n` +
+        `  s3cab forget --set ${set.name} ${snapshots.join(" ")} --force`,
+    );
+  }
 
   // Confirm *every* named snapshot exists remotely before deleting *any*, so the
   // prompt names real targets and a typo is an actionable error rather than a
