@@ -25,3 +25,15 @@ future "platform / release" epic).
   `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs
   `ListObjectVersions` + per-`{Key, VersionId}` deletes so the bucket can actually be emptied
   and removed.
+- **`delete`'s participating-set scope has a silent completeness gap** (watch in real usage;
+  ADR-0064). Because scope is *the sets attached on this machine*, a set of yours you haven't
+  `reattach`-ed here **silently protects** its content — `delete` reclaims nothing for it, and
+  the only signal is the survivor line naming a set you recognize. This is the deliberate price
+  of the "can't break anyone else's restorability by construction" guarantee (an unattached set
+  is treated exactly like a stranger's, the fail-safe direction), and the preview does name the
+  keeper. But in genuine multi-machine use it will read as "why didn't it delete?", answered
+  only by `reattach <set>` + re-run. Only real usage tells whether that loop is acceptable or
+  wants smoothing (e.g. the preview naming the *unattached* sets a fuller-scope run would also
+  clear, or a `--include-set` escape). Do **not** "fix" it by scoping off the remote set list —
+  that would let one machine delete content another still wants, which is exactly what the
+  local-attachment-as-consent model prevents.
