@@ -13,7 +13,7 @@ import { MissingArgError, ParseArgsError, missingArg } from "./lib/error.mjs";
 
 // Help topics shown by `s3cab help <topic>` — cross-cutting guides with no
 // command to host them (command-specific depth lives in that command's registry
-// `description` instead, e.g. `aws`). A topic must never share a command's name
+// `details` instead, e.g. `aws`). A topic must never share a command's name
 // — `help <name>` checks topics first, and the disjointness is test-enforced
 // (help.test.mjs). Kept as plain strings — this module deliberately imports no
 // command/auth code, so rendering help never *requires* the AWS SDK. (Today the
@@ -21,7 +21,7 @@ import { MissingArgError, ParseArgsError, missingArg } from "./lib/error.mjs";
 // command registry; making dispatch lazy is deliberately deferred — see
 // proposals/performance.md.) The exclude text mirrors the matcher in
 // `src/commands/tree.mjs` (guide/exclude.md). The former auth topic lives on as
-// the `provider` command's registry description (ADR-0041, name per ADR-0047) —
+// the `provider` command's registry details (ADR-0041, name per ADR-0047) —
 // `help provider` reaches it via the `help <command>` routing.
 //
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
@@ -195,7 +195,7 @@ export function usage(commands, commandName, style) {
   const lines = [];
 
   if (command && commandName) {
-    const { args, options, summary, description, examples } = command;
+    const { args, options, summary, details, examples } = command;
 
     lines.push(synopsis(commands, commandName), "");
 
@@ -230,8 +230,8 @@ export function usage(commands, commandName, style) {
     }
     lines.push(`  -h, --help`.padEnd(24) + "Show this help", "");
 
-    if (description) {
-      lines.push(heading("Description:"), description, "");
+    if (details) {
+      lines.push(heading("Description:"), details, "");
     }
   } else {
     // Align summaries past the widest command name (+ 2-space indent + gutter).

@@ -23,7 +23,7 @@ const fakeRegistry = {
       fast: { type: "boolean", short: "f", description: "Do it quickly" },
       mode: { type: "string", description: "How to do it" },
     },
-    description: "Longer prose about doing the thing.",
+    details: "Longer prose about doing the thing.",
     exec: () => undefined,
     render: String,
   },
@@ -301,7 +301,7 @@ describe("helpTopics", () => {
   it("no topic shares a command's name", () => {
     // `help <name>` checks topics before commands, so a topic named after a
     // command would shadow that command's help. Command-specific depth belongs
-    // in the command's registry `description` (the aws topic was folded there);
+    // in the command's registry `details` (the aws topic was folded there);
     // topics are only for cross-cutting guides with no command to host them.
     for (const topic of Object.keys(helpTopics)) {
       assert.ok(
@@ -326,13 +326,13 @@ describe("helpTopics", () => {
     assert.doesNotMatch(exclude, /github\.com/);
   });
 
-  it("auth/provider is a command description, not a topic (ADR-0041/0047)", () => {
-    // The former auth topic folded into the command's registry description
+  it("auth/provider is a command's details, not a topic (ADR-0041/0047)", () => {
+    // The former auth topic folded into the command's registry details
     // (now `provider`); `help provider` reaches it via the `help <command>`
     // routing.
     assert.equal(helpTopics.auth, undefined);
     assert.equal(helpTopics.provider, undefined);
-    const provider = commands.provider?.description ?? "";
+    const provider = commands.provider?.details ?? "";
 
     assert.match(provider, /env files/);
     assert.match(provider, /standard AWS SDK credential chain/);
