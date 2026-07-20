@@ -30,6 +30,7 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 /** @import { RestoreResult } from "./commands/restore.mjs" */
 /** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
+/** @import { DeleteResult } from "./commands/delete.mjs" */
 /**
  * @import {
  *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError,
@@ -483,11 +484,32 @@ export function renderVerify(result, { color = false } = {}) {
     `${bucket}: ${count(sets.length)} ${plural(sets.length, "set")}, ` +
     `${count(objectsChecked)} ${plural(objectsChecked, "object")} checked — ${verdict}`;
 
-  if (findingSets.length === 0) {
-    return head;
+  // Deliberately deleted content (ADR-0064): context, not a finding — one line
+  // per affected set, so the run's clean verdict and the "why are these files
+  // gone" answer sit together without the deletion ringing the alarm forever.
+  const deletedLines = sets
+    .filter((set) => set.expectedMissing.length > 0)
+    .map((set) => {
+      const dates = [...new Set(set.expectedMissing.map((e) => e.deletedOn))];
+      const when =
+        dates.length <= 2
+          ? `deleted ${dates.join(", ")}`
+          : `${dates.length} deletions, latest ${dates.at(-1)}`;
+      return (
+        `  ${set.set}   ${count(set.expectedMissing.length)} ` +
+        `${plural(set.expectedMissing.length, "file")} deleted from backups ` +
+        `(s3cab delete — ${when}; expected, not damage)`
+      );
+    });
+
+  const parts = [head];
+  if (deletedLines.length) {
+    parts.push(deletedLines.join("\n"));
   }
-  const blocks = findingSets.map((set) => setFindings(set, paint));
-  return [head, ...blocks].join("\n\n");
+  if (findingSets.length > 0) {
+    parts.push(...findingSets.map((set) => setFindings(set, paint)));
+  }
+  return parts.join("\n\n");
 }
 
 /**
@@ -640,13 +662,14 @@ export function renderRestore({
   restored,
   skipped,
   missing,
+  deleted,
 }) {
   const sections = [];
   // The count line carries the set/snapshot context, so it leads whenever
   // anything happened — including the wrote-nothing-but-skipped case (every
   // requested file already existed), where "Restored 0 files" keeps that context
   // above the skipped list rather than starting cold on "Skipped …".
-  if (restored.length || skipped.length || missing.length) {
+  if (restored.length || skipped.length || missing.length || deleted.length) {
     sections.push(
       `Restored ${count(restored.length)} ${plural(restored.length, "file")} ` +
         `from '${set}' (snapshot ${snapshot}).`,
@@ -657,6 +680,22 @@ export function renderRestore({
       `Skipped ${count(skipped.length)} existing ` +
       `${plural(skipped.length, "file")} (rerun with --overwrite to replace):`;
     sections.push([heading, ...skipped.map((path) => `  ${path}`)].join("\n"));
+  }
+  if (deleted.length) {
+    // Deliberate removals (ADR-0064): the deletion record explains these, so
+    // they are context, not the alarm the missing block below is — and alone
+    // they leave exit 0.
+    const heading =
+      `Skipped ${count(deleted.length)} ${plural(deleted.length, "file")} ` +
+      `whose contents were deliberately deleted from the backups (s3cab delete):`;
+    sections.push(
+      [
+        heading,
+        ...deleted.map(
+          ({ path, deletedOn }) => `  ${path}  (deleted ${deletedOn})`,
+        ),
+      ].join("\n"),
+    );
   }
   if (missing.length) {
     const heading =
@@ -696,6 +735,34 @@ export function renderForget({ set, snapshots, forgotten }) {
   return forgotten
     ? `${what} forgotten from set '${set}'.`
     : `${what} kept — nothing was removed.`;
+}
+
+/**
+ * Confirm a `delete` (ADR-0043) — the stdout record of whether the named
+ * paths' content was removed. The preview summary, the record URI, and the
+ * cancel notice all went to their streams inside the command (the summary is
+ * pre-decision output, the rest stderr guidance); this is only the result
+ * line. `deleted: false` covers a dry run, a declined confirmation, and a
+ * nothing-to-delete run alike — in each case the summary above it already
+ * said which.
+ * @param {DeleteResult} result
+ * @returns {string}
+ */
+export function renderDelete({
+  bucket,
+  deletedObjects,
+  deletedFiles,
+  deletedBytes,
+  deleted,
+}) {
+  if (!deleted) {
+    return "Nothing was deleted.";
+  }
+  return (
+    `${bucket}: deleted ${count(deletedObjects)} ${plural(deletedObjects, "object")} ` +
+    `(${formatByteValue(deletedBytes)} across ${count(deletedFiles)} ` +
+    `${plural(deletedFiles, "file")}). Snapshots were not modified.`
+  );
 }
 
 /**

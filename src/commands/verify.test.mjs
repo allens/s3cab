@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 let referencedBySet = new Map();
 /** @type {{ hash: string, size: number }[]} */
 let storedObjects = [];
+/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
+let deletionRecords = new Map();
 
 mock.module("../lib/remote.mjs", {
   exports: {
@@ -28,6 +30,11 @@ mock.module("../lib/objects.mjs", {
         yield object;
       }
     },
+  },
+});
+mock.module("../lib/deletion-record.mjs", {
+  exports: {
+    readDeletionRecords: async () => deletionRecords,
   },
 });
 
@@ -63,6 +70,7 @@ beforeEach(() => {
   savedExitCode = process.exitCode;
   referencedBySet = new Map();
   storedObjects = [];
+  deletionRecords = new Map();
 });
 afterEach(() => {
   process.exitCode = savedExitCode; // never leak a set exit code to the runner
@@ -131,6 +139,43 @@ describe("verify command", () => {
     assert.ok(report);
     assert.deepEqual(report.problems, [
       { path: "/data/gone", problem: "missing", snapshots: ["s1"] },
+    ]);
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("reports a recorded deletion as expected-missing and leaves the exit code untouched", async () => {
+    referencedBySet.set("photos", ref({ gone: [10, ["s1"]] }));
+    storedObjects = []; // absent — but the record explains it
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+
+    const result = await verify("my-backups");
+
+    const [report] = result.sets;
+    assert.ok(report);
+    assert.deepEqual(report.problems, []);
+    assert.deepEqual(report.expectedMissing, [
+      { path: "/data/gone", snapshots: ["s1"], deletedOn: "2026-07-19T1422" },
+    ]);
+    // The whole point of the partition: `verify || alert` stays quiet after a
+    // deliberate delete.
+    assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("still exits 1 when an unexplained absence sits beside a recorded one", async () => {
+    referencedBySet.set(
+      "photos",
+      ref({ gone: [10, ["s1"]], lost: [20, ["s1"]] }),
+    );
+    storedObjects = [];
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+
+    const result = await verify("my-backups");
+
+    const [report] = result.sets;
+    assert.ok(report);
+    assert.equal(report.expectedMissing.length, 1);
+    assert.deepEqual(report.problems, [
+      { path: "/data/lost", problem: "missing", snapshots: ["s1"] },
     ]);
     assert.equal(process.exitCode, 1);
   });

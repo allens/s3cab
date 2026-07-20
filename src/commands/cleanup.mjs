@@ -1,4 +1,5 @@
 import { planCleanup } from "../lib/cleanup.mjs";
+import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
@@ -64,12 +65,18 @@ export async function cleanup(bucket, options = {}) {
     stored.set(hash, { size, lastModified });
   }
 
+  // The deletion records, read last (like verify): a referenced hash the
+  // record explains is deliberately absent (ADR-0064), not a missing-object
+  // integrity fault — without this, the first path-scoped `delete` would make
+  // interlock #2 refuse forever.
+  const deleted = await readDeletionRecords(bucket);
+
   // The whole diff — orphans (with the grace window), the delete-list, and the
   // missing/damaged/unreadable tallies — is one pure computation over the two
   // enumerations (planCleanup, cleanup.mjs; the read-only twin of verifySet).
   // Everything below is the command's job: turn the plan's data into aborts,
   // warnings, a prompt, and the deletes.
-  const plan = planCleanup(referencedBySet, stored);
+  const plan = planCleanup(referencedBySet, stored, { deleted });
   const { orphanHashes, missing, damaged, reclaimableBytes } = plan;
 
   // Interlock #1 (both modes): an unreadable snapshot makes the orphan set a lie

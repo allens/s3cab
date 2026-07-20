@@ -9,6 +9,7 @@ import {
   renderForget,
   renderLines,
   renderList,
+  renderDelete,
   renderProp,
   renderRestore,
   renderSetup,
@@ -500,6 +501,7 @@ const report = (over) => ({
   snapshotsChecked: 1,
   referencedObjects: 0,
   problems: [],
+  expectedMissing: [],
   unreadableSnapshots: [],
   ...over,
 });
@@ -613,6 +615,59 @@ describe("renderVerify", () => {
     assert.ok(coloured.includes(`${ESC}[31m`));
     assert.ok(coloured.includes(`${ESC}[1m`));
   });
+
+  it("reports deliberately deleted files as context under a clean verdict (ADR-0064)", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "media",
+            referencedObjects: 10,
+            expectedMissing: [
+              {
+                path: "/data/x.mov",
+                snapshots: ["s1"],
+                deletedOn: "2026-07-19T1422",
+              },
+              {
+                path: "/data/y.mov",
+                snapshots: ["s1"],
+                deletedOn: "2026-07-19T1422",
+              },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.match(text, /all verified ✓/);
+    assert.match(
+      text,
+      /\n {2}media {3}2 files deleted from backups \(s3cab delete — deleted 2026-07-19T1422; expected, not damage\)/,
+    );
+  });
+
+  it("summarizes many deletion dates instead of listing them all", () => {
+    const dates = ["2026-05-01T0900", "2026-06-01T0900", "2026-07-19T1422"];
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "media",
+            expectedMissing: dates.map((deletedOn, i) => ({
+              path: `/data/${i}.mov`,
+              snapshots: ["s1"],
+              deletedOn,
+            })),
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.match(text, /3 deletions, latest 2026-07-19T1422/);
+  });
 });
 
 describe("renderBackup", () => {
@@ -722,6 +777,7 @@ const restoreResult = (over) => ({
   restored: [],
   skipped: [],
   missing: [],
+  deleted: [],
   ...over,
 });
 
@@ -807,6 +863,56 @@ describe("renderRestore", () => {
       text,
       /\nCould not restore 1 file — the backup no longer holds its contents:\n/,
     );
+  });
+
+  it("lists deliberately deleted files with their dates, apart from the missing alarm (ADR-0064)", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/a.jpg"],
+        deleted: [{ path: "/home/me/x.env", deletedOn: "2026-07-19T1422" }],
+      }),
+    );
+    assert.match(
+      text,
+      /\nSkipped 1 file whose contents were deliberately deleted from the backups \(s3cab delete\):\n {2}\/home\/me\/x\.env {2}\(deleted 2026-07-19T1422\)/,
+    );
+    assert.doesNotMatch(text, /Could not restore/);
+  });
+});
+
+describe("renderDelete", () => {
+  it("confirms what a completed delete removed, and that snapshots stand", () => {
+    const text = renderDelete({
+      bucket: "my-backups",
+      paths: ["D:\\raw"],
+      sets: ["media"],
+      everywhere: false,
+      deletedObjects: 297,
+      deletedFiles: 312,
+      deletedBytes: 2_300_000,
+      survivors: 0,
+      deleted: true,
+    });
+    assert.equal(
+      text,
+      "my-backups: deleted 297 objects (2.3MB across 312 files). " +
+        "Snapshots were not modified.",
+    );
+  });
+
+  it("says nothing was deleted for a dry run / declined / nothing-to-do result", () => {
+    const text = renderDelete({
+      bucket: "my-backups",
+      paths: ["D:\\raw"],
+      sets: ["media"],
+      everywhere: false,
+      deletedObjects: 297,
+      deletedFiles: 312,
+      deletedBytes: 2_300_000,
+      survivors: 0,
+      deleted: false,
+    });
+    assert.equal(text, "Nothing was deleted.");
   });
 });
 

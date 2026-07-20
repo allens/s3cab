@@ -19,6 +19,8 @@ let storedObjects = [];
 let deleteCalls = [];
 let promptAnswer = false;
 let promptCalls = 0;
+/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
+let deletionRecords = new Map();
 
 mock.module("../lib/remote.mjs", {
   exports: { referencedObjects: async () => referencedBySet },
@@ -44,6 +46,11 @@ mock.module("../lib/prompt.mjs", {
       promptCalls++;
       return promptAnswer;
     },
+  },
+});
+mock.module("../lib/deletion-record.mjs", {
+  exports: {
+    readDeletionRecords: async () => deletionRecords,
   },
 });
 
@@ -84,6 +91,7 @@ beforeEach(() => {
   deleteCalls = [];
   promptAnswer = false;
   promptCalls = 0;
+  deletionRecords = new Map();
 });
 afterEach(() => {
   stdin.isTTY = savedTTY;
@@ -161,6 +169,22 @@ describe("cleanup command", () => {
       /Refusing to delete[\s\S]*missing[\s\S]*s3cab verify b/,
     );
     assert.deepEqual(deleteCalls, []);
+  });
+
+  it("--delete proceeds when every missing object is a recorded deletion (ADR-0064)", async () => {
+    // The absence is deliberate (s3cab delete wrote it into the record), so the
+    // repository is not "losing data" and the interlock must not trip forever.
+    referencedBySet.set("photos", ref(["kept", "gone"]));
+    storedObjects = [
+      { hash: "kept", size: 10, lastModified: daysAgo(30) },
+      { hash: "orphan", size: 100, lastModified: daysAgo(9) },
+    ];
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+
+    const result = await cleanup("b", { delete: true });
+
+    assert.equal(result.missingObjects, 0);
+    assert.deepEqual(deleteCalls, ["orphan"]);
   });
 
   it("aborts both modes on an unreadable snapshot", async () => {

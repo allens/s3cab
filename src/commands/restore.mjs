@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
+import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { createProgress } from "../lib/progress.mjs";
@@ -9,6 +10,8 @@ import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
 import { isObjectNotFound } from "../lib/s3.mjs";
+
+/** @import { RecordedDeletion } from "../lib/deletion-record.mjs" */
 
 // The `restore` command (docs/design/backup.md): pull a set's files back from the
 // cloud. Remote-only by nature — local snapshots record only hashes; the file
@@ -31,12 +34,17 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  *
  * The snapshot-last upload invariant means every referenced object should exist,
  * so there is no pre-flight — but when one is **absent from the bucket anyway**
- * (an out-of-band deletion, a lifecycle rule, a broken invariant) that file is
- * **skipped and the run continues**, with every missing path reported together at
- * the end and **exit 1**. Aborting on the first one was the worse failure: a
- * disaster recovery would stop dead partway through, leaving the thousands of
- * intact files unrestored until the user retried past each casualty in turn. Only
- * a genuinely missing object degrades this way — an integrity mismatch or any
+ * that file is **skipped and the run continues**, with every unproduced path
+ * reported together at the end. Aborting on the first one was the worse failure:
+ * a disaster recovery would stop dead partway through, leaving the thousands of
+ * intact files unrestored until the user retried past each casualty in turn.
+ * The **deletion record** (ADR-0064) then splits the absences: a recorded hash
+ * was **deliberately deleted** (`s3cab delete`) — reported with its date, and
+ * alone it leaves **exit 0** (deliberate ≠ fault, like `verify`) — while an
+ * unexplained absence (an out-of-band deletion, a lifecycle rule, a broken
+ * invariant) stays a loud `missing` with **exit 1**. The records are fetched
+ * lazily, on the first absent object, so the happy path pays nothing. Only a
+ * genuinely absent object degrades this way — an integrity mismatch or any
  * other failure (network, credentials) still aborts, since those are wrong about
  * the *run*, not about one file.
  *
@@ -59,7 +67,8 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * @property {string} snapshot - The snapshot restored from
  * @property {string[]} restored - Paths written
  * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
- * @property {string[]} missing - Paths not restored because their content is absent from the bucket
+ * @property {string[]} missing - Paths not restored because their content is absent with no explanation
+ * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
  * @param {{ set?: string, snapshot?: string, overwrite?: boolean, output?: string, debug?: boolean }} [options] - `set` (required) is the backup set to restore
@@ -134,12 +143,34 @@ export async function restore(paths = [], options = {}) {
   const skipped = [];
   /** @type {string[]} */
   const missing = [];
-  // Hashes whose fetch found nothing. `planRestore` points each repeat of a hash
-  // at wherever the *first* one landed, so a failed fetch would leave every later
-  // `copy` of that content reading a file that was never written — they are the
-  // same casualty, and are recorded as missing rather than attempted.
-  /** @type {Set<string>} */
-  const missingHashes = new Set();
+  /** @type {{ path: string, deletedOn: string }[]} */
+  const deleted = [];
+  // Hashes whose fetch found nothing, with the deletion record's explanation if
+  // it has one. `planRestore` points each repeat of a hash at wherever the
+  // *first* one landed, so a failed fetch would leave every later `copy` of that
+  // content reading a file that was never written — they are the same casualty,
+  // and are recorded (under the first fetch's classification) rather than
+  // attempted.
+  /** @type {Map<string, RecordedDeletion | undefined>} */
+  const absentHashes = new Map();
+  // The deletion records, fetched once and only if an object turns up absent —
+  // the happy path never pays for them.
+  /** @type {Map<string, RecordedDeletion> | undefined} */
+  let deletionRecords;
+  /** @param {string} hash */
+  const recordFor = async (hash) => {
+    deletionRecords ??= await readDeletionRecords(set.bucket);
+    return deletionRecords.get(hash);
+  };
+  /** @param {string} hash @param {string} dest */
+  const reportAbsent = (hash, dest) => {
+    const record = absentHashes.get(hash);
+    if (record) {
+      deleted.push({ path: dest, deletedOn: record.deletedOn });
+    } else {
+      missing.push(dest);
+    }
+  };
 
   // On a terminal the counter overwrites itself in place; redirected, each
   // update is its own plain line (`logLines`) — the TTY gate, the in-place
@@ -153,8 +184,8 @@ export async function restore(paths = [], options = {}) {
     const hash = /** @type {string} */ (step.hash);
     if (step.action === "skip") {
       skipped.push(step.dest);
-    } else if (missingHashes.has(hash)) {
-      missing.push(step.dest);
+    } else if (absentHashes.has(hash)) {
+      reportAbsent(hash, step.dest);
     } else {
       mkdirSync(dirname(step.dest), { recursive: true });
       let found = true;
@@ -179,8 +210,8 @@ export async function restore(paths = [], options = {}) {
         await utimes(step.dest, when, when);
         restored.push(step.dest);
       } else {
-        missingHashes.add(hash);
-        missing.push(step.dest);
+        absentHashes.set(hash, await recordFor(hash));
+        reportAbsent(hash, step.dest);
       }
     }
 
@@ -190,9 +221,11 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Anything unrestorable → exit 1, the same way `verify` reports findings: set
+  // Unexplained absence → exit 1, the same way `verify` reports findings: set
   // process.exitCode rather than throw, so the run's report — including every
-  // file that *was* restored — still prints.
+  // file that *was* restored — still prints. Deliberately-deleted skips alone
+  // leave exit 0 (ADR-0064): the record proves the gap is intended, and a
+  // scripted restore should not alarm on a decision its owner already made.
   if (missing.length) {
     process.exitCode = 1;
   }
@@ -204,5 +237,6 @@ export async function restore(paths = [], options = {}) {
     restored,
     skipped,
     missing,
+    deleted,
   };
 }

@@ -2,6 +2,7 @@ import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
+import { deletePaths } from "./commands/delete.mjs";
 import { forget } from "./commands/forget.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
@@ -20,6 +21,7 @@ import {
   renderBackup,
   renderCleanup,
   renderCompareResult,
+  renderDelete,
   renderForget,
   renderLines,
   renderList,
@@ -522,6 +524,67 @@ Full guide: https://s3cab.plantegral.com/guide/auth`,
     },
     exec: (options, snapshots = []) => forget(snapshots, options),
     render: renderForget,
+  },
+  delete: {
+    summary: "Delete named paths' content from every backup, permanently",
+    examples: [
+      "s3cab delete --bucket my-backups D:\\Media\\raw-footage",
+      "s3cab delete --bucket my-backups --dry-run D:\\Media\\raw-footage",
+      "s3cab delete --bucket my-backups --everywhere C:\\proj\\secret.env",
+    ],
+    description: `Removes the objects backing the named paths from the repository, across
+the whole backed-up history — "I have no use for this, stop paying to
+back it up", applied to backups already taken. Snapshots are never
+rewritten: a deletion record in the bucket (deletions/) marks the content
+as deliberately gone, so 'verify' reports it as expected rather than as
+damage and 'restore' skips it gracefully.
+
+Paths resolve through the sets attached on THIS machine that use the
+bucket. Content referenced outside the named paths — another path, or a
+set not attached here (another machine's, another user's) — always
+survives, and the preview names what kept it. --everywhere lifts that
+protection for the matched content (a leaked secret, a malware file):
+those exact objects are removed wherever they are referenced, and the
+summary names the affected sets.
+
+The full list is written to ~/.s3cab/delete-preview.txt before anything
+is decided. On a terminal you confirm by typing the bucket name; scripts
+must pass --force (the prompt is never required).
+
+Full guide: https://s3cab.plantegral.com/guide/maintenance`,
+    args: {
+      path: {
+        required: true,
+        variadic: true,
+        description: "The backed-up paths whose content to delete",
+      },
+    },
+    options: {
+      bucket: {
+        type: "string",
+        short: "b",
+        description: "The repository's S3 bucket (required)",
+      },
+      "dry-run": {
+        type: "boolean",
+        short: "n",
+        description:
+          "Preview what would be deleted (summary + full list file), delete nothing",
+      },
+      force: {
+        type: "boolean",
+        short: "f",
+        description:
+          "Skip the typed confirmation (required for non-interactive runs)",
+      },
+      everywhere: {
+        type: "boolean",
+        description:
+          "Also delete matched content that sets not attached here still reference (exact copies, everywhere)",
+      },
+    },
+    exec: (options, paths = []) => deletePaths(paths, options),
+    render: renderDelete,
   },
   cleanup: {
     summary: "Reclaim storage held by objects no snapshot references",
