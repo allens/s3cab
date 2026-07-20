@@ -23,6 +23,10 @@ const BUCKET = "my-backups";
 let failures = new Map();
 /** @type {string[]} Hashes `getObject` was actually asked for, in order. */
 let fetched = [];
+/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
+let deletionRecords = new Map();
+/** How many times the records were fetched — laziness evidence (0 on a clean run). */
+let recordReads = 0;
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -60,6 +64,14 @@ mock.module("../lib/s3.mjs", {
     // branch keys on its verdict.
     isObjectNotFound: (/** @type {unknown} */ e) =>
       Error.isError(e) && (e.name === "NoSuchKey" || e.name === "NotFound"),
+  },
+});
+mock.module("../lib/deletion-record.mjs", {
+  exports: {
+    readDeletionRecords: async () => {
+      recordReads++;
+      return deletionRecords;
+    },
   },
 });
 
@@ -103,6 +115,8 @@ beforeEach(() => {
   savedExitCode = process.exitCode;
   failures = new Map();
   fetched = [];
+  deletionRecords = new Map();
+  recordReads = 0;
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -162,5 +176,56 @@ describe("restore with an object missing from the bucket", () => {
     assert.deepEqual(result.missing, []);
     assert.equal(result.bucket, BUCKET);
     assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("never fetches the deletion records on a clean run — laziness is the happy path's price of zero", async () => {
+    await restore([], { set: "photos", output });
+    assert.equal(recordReads, 0);
+  });
+});
+
+describe("restore with deliberately deleted content (ADR-0064)", () => {
+  it("reports a recorded absence as deleted-with-date, not missing, and exits 0", async () => {
+    failures.set("bbb", named("NoSuchKey"));
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+
+    const result = await restore([], { set: "photos", output });
+
+    // Both paths of the deduped content are the same deliberate casualty —
+    // including the `copy` twin that was never attempted.
+    assert.deepEqual(result.deleted, [
+      { path: dest("gone.txt"), deletedOn: "2026-07-19T1422" },
+      { path: dest("gone-copy.txt"), deletedOn: "2026-07-19T1422" },
+    ]);
+    assert.deepEqual(result.missing, []);
+    // Deliberate ≠ fault: the record explains the gap, so the run is clean.
+    assert.equal(process.exitCode, savedExitCode);
+    // The rest still restored.
+    assert.equal(readFileSync(dest("last.txt"), "utf8"), "ccc");
+  });
+
+  it("fetches the records once, however many objects are absent", async () => {
+    failures.set("bbb", named("NoSuchKey"));
+    failures.set("ccc", named("NoSuchKey"));
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+
+    await restore([], { set: "photos", output });
+
+    assert.equal(recordReads, 1);
+  });
+
+  it("an unrecorded absence beside a recorded one still exits 1", async () => {
+    failures.set("bbb", named("NoSuchKey")); // recorded
+    failures.set("ccc", named("NoSuchKey")); // unexplained
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(
+      result.deleted.map((d) => d.path),
+      [dest("gone.txt"), dest("gone-copy.txt")],
+    );
+    assert.deepEqual(result.missing, [dest("last.txt")]);
+    assert.equal(process.exitCode, 1);
   });
 });

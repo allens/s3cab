@@ -78,7 +78,12 @@ export function isCorruptSnapshotError(error) {
  * actual stored object for its content (docs/design/backup.md, ADR-0042).
  *  - **missing** — the content's hash is absent from `stored` (the broken
  *    objects-first/snapshot-last invariant): every path referencing it is a
- *    problem, since none can be restored.
+ *    problem, since none can be restored. **Partitioned by the deletion record**
+ *    (ADR-0064): a hash the record explains is `expectedMissing` — deliberately
+ *    deleted, reported with its date, *not* a finding — while an unexplained one
+ *    stays the alarming problem it always was. A recorded hash that is stored
+ *    anyway (content re-backed-up after a delete) is simply present; the record
+ *    entry is moot and the normal checks apply.
  *  - **wrong-size** — the object is stored, but this path's recorded size ≠ the
  *    stored LIST size (a truncated/overwritten upload, or a torn snapshot-file row).
  *    Recorded per path, so a hash whose paths disagree on size (the old
@@ -88,20 +93,33 @@ export function isCorruptSnapshotError(error) {
  * @param {string} name - The set's name
  * @param {ReferencedResult} referencedResult - This set's referenced enumeration
  * @param {Map<string, number>} stored - Bucket's stored objects (hash → LIST size)
+ * @param {Map<string, { deletedOn: string }>} [deleted] - The repository's
+ *   deletion records (`readDeletionRecords`): hash → when it was deliberately deleted
  * @returns {SetReport}
  */
-export function verifySet(name, referencedResult, stored) {
+export function verifySet(name, referencedResult, stored, deleted = new Map()) {
   const { referenced, snapshotsChecked, unreadable } = referencedResult;
 
   /** @type {SetReport["problems"]} */
   const problems = [];
+  /** @type {SetReport["expectedMissing"]} */
+  const expectedMissing = [];
 
   for (const [hash, entry] of referenced) {
     const storedSize = stored.get(hash);
     for (const [path, { sizes, snapshots }] of entry.paths) {
       const snaps = [...snapshots].sort();
       if (storedSize === undefined) {
-        problems.push({ path, problem: "missing", snapshots: snaps });
+        const record = deleted.get(hash);
+        if (record) {
+          expectedMissing.push({
+            path,
+            snapshots: snaps,
+            deletedOn: record.deletedOn,
+          });
+        } else {
+          problems.push({ path, problem: "missing", snapshots: snaps });
+        }
         continue;
       }
       // Every recorded size for this path is checked against the one stored
@@ -133,11 +151,17 @@ export function verifySet(name, referencedResult, stored) {
       a.snapshots.join(",").localeCompare(b.snapshots.join(",")),
   );
 
+  expectedMissing.sort(
+    (a, b) =>
+      a.path.localeCompare(b.path) || a.deletedOn.localeCompare(b.deletedOn),
+  );
+
   return {
     set: name,
     snapshotsChecked,
     referencedObjects: referenced.size,
     problems,
+    expectedMissing,
     unreadableSnapshots: unreadable,
   };
 }
@@ -150,18 +174,27 @@ export function verifySet(name, referencedResult, stored) {
  * files, and hashes never surface (docs/design/backup.md, ADR-0042).
  * `unreadableSnapshots` stays separate because it is not file-shaped — a corrupt
  * snapshot file has no file list to annotate, only a lost restore point.
+ *
+ * `expectedMissing` is a separate field, deliberately **not** a `problems` row
+ * (ADR-0064): a deliberately deleted file is context, not damage, so
+ * `setHasFindings` needs no carve-out and a `--json` consumer can't mistake it
+ * for a fault. One row per path, with the deletion record's date.
  * @typedef {Object} SetReport
  * @property {string} set
  * @property {number} snapshotsChecked - Snapshots read successfully
  * @property {number} referencedObjects - Distinct object hashes referenced
  * @property {{ path: string, problem: "missing" | "wrong-size", snapshots: string[], recordedSize?: number, storedSize?: number }[]} problems
+ * @property {{ path: string, snapshots: string[], deletedOn: string }[]} expectedMissing
  * @property {{ snapshot: string, reason: string }[]} unreadableSnapshots
  */
 
 /**
  * Whether a set's report carries any finding — what drives verify's exit code
  * (any finding in any named set → exit 1, ADR-0042). Both a per-path problem and
- * an unreadable snapshot count; a clean set has neither.
+ * an unreadable snapshot count; a clean set has neither. `expectedMissing` never
+ * counts (ADR-0064): a recorded deletion is permanent, deliberate state, and
+ * exiting 1 on it forever would train the user to ignore the `verify || alert`
+ * alarm — deliberate ≠ fault.
  * @param {SetReport} report
  * @returns {boolean}
  */

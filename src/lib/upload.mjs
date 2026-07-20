@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { readDeletionRecords } from "./deletion-record.mjs";
 import { isENOENT } from "./error.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
@@ -39,19 +40,33 @@ import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
  * hash a stale baseline wrongly subtracts is never attempted at all, which is
  * why the caller must vouch for the baseline (proposals/bugs.md, the
  * baseline-trust bug).
+ *
+ * `deleted` — hashes the repository's deletion record marks deliberately
+ * removed (ADR-0064) — punches holes in the baseline's word: a baseline may
+ * truthfully say "that was stored when I was uploaded" about content a later
+ * `delete` removed, so those hashes are never trusted as stored and re-enter
+ * the plan (the file, if still present locally, is simply re-uploaded). The
+ * `listed` path needs no such subtraction — a LIST reports the store as it is.
  * @param {SnapshotEntries} target - The snapshot being backed up
  * @param {object} [stored] - What's already stored, by whichever source is known
  * @param {SnapshotEntries} [stored.baseline] - Snapshot to diff against
  * @param {AsyncIterable<string> | Iterable<string>} [stored.listed] - Stored
  *   object hashes from a LIST of the store
+ * @param {Iterable<string>} [stored.deleted] - Hashes deliberately deleted from
+ *   the store (the deletion record) — never subtracted via the baseline
  * @returns {Promise<Map<string, string>>} hash → the local path to upload it from
  */
-export async function planUpload(target, { baseline, listed } = {}) {
+export async function planUpload(target, { baseline, listed, deleted } = {}) {
   /** @type {Set<string>} */
   const have = new Set();
   if (baseline) {
     for (const { hash } of baseline.values()) {
       have.add(hash);
+    }
+    if (deleted) {
+      for (const hash of deleted) {
+        have.delete(hash);
+      }
     }
   }
 
@@ -82,9 +97,10 @@ export async function planUpload(target, { baseline, listed } = {}) {
  *
  * What to PUT is `planUpload`'s decision; this executes the plan. With `since`,
  * one HEAD checks the baseline still exists remotely — trusted, the plan diffs
- * against that previous local snapshot; distrusted (forgotten remotely, or
- * never uploaded), the baseline is dropped and the store is LISTed as if this
- * were a first backup. With no `since`, the LIST likewise. The
+ * against that previous local snapshot *minus* any hashes the deletion record
+ * says were deliberately removed since (ADR-0064); distrusted (forgotten
+ * remotely, or never uploaded), the baseline is dropped and the store is
+ * LISTed as if this were a first backup. With no `since`, the LIST likewise. The
  * snapshot is uploaded no-clobber too, but here a name that already exists
  * remotely is an **error**, never an overwrite (snapshots are immutable,
  * docs/design/backup.md).
@@ -135,7 +151,14 @@ export async function uploadSnapshot({
   /** @type {Map<string, string>} */
   let plan;
   if (baseline) {
-    plan = await planUpload(target, { baseline });
+    // The PR-A interlock's other half (ADR-0064): existing remotely proves the
+    // baseline's objects were stored *then*; the deletion record says which of
+    // them a later `delete` removed since. Subtract those, or the baseline
+    // wrongly vouches for deleted content and the published snapshot references
+    // missing objects. One LIST of `deletions/` — empty, and free, for the
+    // repositories that never ran `delete`.
+    const deleted = await readDeletionRecords(bucket);
+    plan = await planUpload(target, { baseline, deleted: deleted.keys() });
   } else {
     // No trustworthy baseline — LIST the store once instead.
     // Announce it: a large store can take a moment.

@@ -64,7 +64,8 @@ ADR as a live constraint.
 - [0052](0052-retire-setup-update-mode.md) — Retire `setup`'s update mode; a set's directories are edited in the public `dirs.txt` *(partly supersedes 0036 §2 — the upsert's update half)*
 - [0053](0053-reattach-command.md) — Split `setup --inherit` into its own `reattach` command; `setup` is create-only *(resolves 0036's deferred "`--inherit` stays a flag" item)*
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
-- [0063](0063-forget-snapshots-delete-paths.md) — `forget` removes snapshots (renaming the old `delete`); `delete` moves to path-scoped content removal *(accepted — the `forget` rename is implemented; the path-scoped `delete` is not yet built; delivery plan in proposals/forget-and-delete.md)*
+- [0063](0063-forget-snapshots-delete-paths.md) — `forget` removes snapshots (renaming the old `delete`); `delete` moves to path-scoped content removal *(implemented; the `--set` addressing line is amended by 0064 — `delete` addresses the bucket)*
+- [0064](0064-path-scoped-delete-deletion-record.md) — Path-scoped `delete`: participating-set scope, the `deletions/` record, `--everywhere`, and the tool-wide destructive-command pattern (act by default, `-n` previews, non-TTY needs `--force`) *(amends 0063's shape line; the cleanup/forget conversion to the pattern is follow-up work)*
 
 ### Output, errors & rendering
 

@@ -11,5 +11,6 @@ publishing a snapshot referencing a deleted object) was fixed by trusting the ba
 it still exists remotely**: `uploadSnapshot` HEADs the baseline's remote snapshot before
 believing it, and on a miss drops the baseline and LISTs the store as a first backup would.
 The same check also covers a baseline snapshotted locally but never uploaded. The deletion
-rework's interlock (PR D must additionally subtract deletion-record hashes from any baseline)
-is recorded in [forget-and-delete.md](forget-and-delete.md).</sub>
+rework's interlock — subtracting deletion-record hashes from any trusted baseline — landed
+with the path-scoped `delete`
+([ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md)).</sub>

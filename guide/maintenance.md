@@ -1,9 +1,10 @@
 # Looking after a backup
 
-Three commands keep a repository healthy over the years: **`verify`** checks your backups are
-still restorable, **`forget`** removes a snapshot you no longer want, and **`cleanup`**
-reclaims the storage that frees up. Alongside them sits the thing that makes all of it safe to
-get wrong — **bucket versioning**.
+Four commands keep a repository healthy over the years: **`verify`** checks your backups are
+still restorable, **`forget`** removes a snapshot you no longer want, **`delete`** removes a
+file or folder you no longer want from *every* backup, and **`cleanup`** reclaims the
+storage that frees up. Alongside them sits the thing that makes all of it safe to get wrong
+— **bucket versioning**.
 
 You can ignore this page for a long time. Backups just accumulate, and that's fine. Come back
 when you want to know they're sound, or when the bill starts to matter.
@@ -53,6 +54,17 @@ which is why `cleanup` refuses to run at all until it's resolved (see below).
 Findings are rare and mean something genuinely went wrong — a bucket edited by another tool,
 a lifecycle rule that expired live objects, or storage damage. Versioning is what gets you out
 of it: the previous version of the object is usually still there.
+
+One absence is *not* a finding: files you removed with `delete` (below). Those are reported
+separately, with the date they were deleted, and don't affect the exit code — a decision you
+made on purpose shouldn't ring the alarm forever:
+
+```console
+> s3cab verify my-backups
+my-backups: 3 sets, 47,913 objects checked — all verified ✓
+
+  photos   312 files deleted from backups (s3cab delete — deleted 2026-07-19T1422; expected, not damage)
+```
 
 ## Removing snapshots (`forget`)
 
@@ -156,6 +168,84 @@ half-finished run that already removed the names before it.
 
 Local snapshots need no command at all — the files are the API. Delete the file.
 
+## Deleting files from every backup (`delete`)
+
+`forget` drops a *moment*; `delete` drops a *thing*. When a file or folder turns out to be
+something you'll never want back — raw footage you've finished with, a huge download that
+slipped into a backed-up folder — excluding it only stops *future* backups. `delete`
+removes its content from the backups you've already taken:
+
+```console
+> s3cab delete --bucket my-backups C:\Users\me\Photos\raw-footage
+Delete preview — files no backup could restore once this content is gone:
+
+  C:\Users\me\Photos\raw-footage    312 files   48.1GB
+                                  ─────────────────────
+  total                             312 files   48.1GB   (297 stored objects)
+
+Sets losing these files: photos (312 files)
+
+Full list:
+  C:\Users\me\.s3cab\delete-preview.txt
+
+This permanently removes the content above from every backup in 'my-backups'.
+Type the bucket name to proceed: my-backups
+Deleted 297 object(s). Snapshots were not modified.
+```
+
+This is the most destructive thing s3cab can do — it removes content that your snapshots
+still reference — so it has the strongest confirmation in the tool: you type the bucket
+name back, not just `y`. Before asking, it shows exactly what would go, writes the full
+list to a file, and names every set that loses files. `--dry-run` (`-n`) shows all of that
+and stops; scripts must state their intent with `--force` (there's no prompt to answer
+without a terminal).
+
+Three things to understand about what it does:
+
+- **Your snapshots are not rewritten.** Every snapshot file stays exactly as it was — an
+  accurate record of what the disk looked like that day. The *content* behind the named
+  paths is what's removed, and a **deletion record** is written into the bucket
+  (`deletions/`) saying so. That record is why the rest of the tool stays calm: `verify`
+  reports the gap as expected rather than as damage, and `restore` skips those files
+  gracefully, telling you when they were deleted.
+- **Anything still wanted elsewhere survives.** Content is only removed when *nothing
+  outside the paths you named* references it — not another folder, not another backup set,
+  not a set belonging to someone else sharing the bucket. The preview tells you what
+  survives and why ("still referenced by set `desktop-media`"). Your named paths reach
+  across all the sets *attached on this machine*; a set of yours that isn't attached here
+  protects its content until you `reattach` it and run again.
+- **It frees space directly.** Unlike `forget`, there's nothing left for `cleanup` to sweep
+  — the objects themselves are deleted (softly: versioning keeps them recoverable for the
+  usual window, below).
+
+One flag changes the rules, for one scenario: **`--everywhere`**. If you've backed up
+something that must be gone wherever it is — a file with a leaked password or key in it, a
+malware download — the normal "someone else still references it" protection is exactly what
+you don't want. `--everywhere` deletes the matched content even where other sets still
+reference it, and warns you loudly about which sets that breaks. It matches exact content
+only: an edited copy is different bytes and stays.
+
+If you back up the file again later, it simply re-uploads on the next `backup` — deleting
+is never a ban, just a removal.
+
+### Under the hood
+
+What a `delete` run actually does, in order:
+
+1. Works out which of this machine's sets use the bucket — the named paths are resolved
+   against *their* snapshots.
+2. Reads every snapshot of every set in the bucket (the same whole-repository read `forget`
+   and `cleanup` do — nothing is downloaded except the small snapshot files).
+3. For each piece of content under your named paths, checks every reference to it,
+   bucket-wide. Any reference outside your selection keeps it alive; only content
+   referenced *nowhere else* is marked for deletion (`--everywhere` skips this check for
+   the matched content).
+4. Prints the summary, writes the full list to `~/.s3cab/delete-preview.txt`, and asks for
+   the typed confirmation (`--dry-run` stops here).
+5. Writes the deletion record to `deletions/<timestamp>.tsv` in the bucket — *before*
+   deleting anything, so even a run that dies halfway leaves every gap explained.
+6. Deletes the objects. Snapshots, as ever, untouched.
+
 ## Reclaiming storage (`cleanup`)
 
 Forgetting snapshots doesn't free space by itself. Once nothing references a piece of content,
@@ -182,7 +272,8 @@ storage.
 
 ### The safety rules
 
-`cleanup` is the only command that removes file content, so it's hedged:
+`cleanup` removes file content (it and `delete` are the only two commands that do), so it's
+hedged:
 
 - **Recent objects are never touched.** Any object younger than **7 days** is left alone, even
   if nothing references it. A backup uploads content *before* the snapshot that references it,
@@ -193,6 +284,7 @@ storage.
   Rather than report numbers that are lies, `cleanup` stops and sends you to `verify`.
 - **Missing objects make `--delete` refuse.** If verify-style faults are already present, the
   repository is losing data and this is not the moment to reclaim. The dry run still reports.
+  (Content removed by `delete` doesn't count — its absence is recorded and deliberate.)
 - **Don't run cleanup while a backup is running.** The grace window covers the ordinary race,
   but this is the one rule it can't enforce for you.
 
@@ -205,10 +297,10 @@ Everything it deletes is an orphan — content some live snapshot needs is never
 do it yourself. It is the single thing that converts every mistake on this page from permanent
 to recoverable.
 
-With versioning on, both `forget` and `cleanup --delete` issue **soft** deletes: S3 writes a
-delete marker and the bytes live on as a noncurrent version. So a `cleanup --delete` you
-regret, a snapshot you shouldn't have dropped — even a leaked key used maliciously — can be
-recovered. The least-privilege identity `s3cab aws` generates is deliberately allowed to
+With versioning on, `forget`, `delete`, and `cleanup --delete` all issue **soft** deletes:
+S3 writes a delete marker and the bytes live on as a noncurrent version. So a `cleanup
+--delete` you regret, a `delete` that took more than you meant, a snapshot you shouldn't
+have dropped — even a leaked key used maliciously — can be recovered. The least-privilege identity `s3cab aws` generates is deliberately allowed to
 delete objects but **not** object *versions*, which means a stolen credential can add to your
 backup and can never permanently destroy its history.
 
@@ -228,6 +320,7 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
 | When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket> --delete` | drop what you don't want, then reclaim it |
+| When one thing is the space | `s3cab delete --bucket <bucket> <path>` | drop that thing from every backup, keeping the snapshots |
 
 Automatic retention rules — keep-last, daily/weekly/monthly — aren't built yet. They'll be
 built on top of `forget` and `cleanup` once real usage shows the shapes people actually want.

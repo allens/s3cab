@@ -69,9 +69,19 @@ _Avoid_: TTL, retention period (retention is about snapshots; the grace window i
 
 **Repository**:
 One S3 bucket holding the whole backup: the `objects/` object store plus the `snapshots/`
-tree. **One bucket is exactly one repository** — the layout is fixed by convention, not an
-arbitrary prefix.
+tree (and, once a **delete** has run, the `deletions/` record). **One bucket is exactly one
+repository** — the layout is fixed by convention, not an arbitrary prefix.
 _Avoid_: repo (the git sense), archive, vault.
+
+**Deletion record**:
+The repository-level record of deliberate content removal: one plain TSV per `delete` run
+under `deletions/<timestamp>.tsv`, listing every reference the deleted objects had
+([ADR-0064](docs/adr/0064-path-scoped-delete-deletion-record.md), format spec). It is what
+lets the tooling tell *deliberately gone* from *corrupted*: `verify` reports a recorded hash
+as **expected-missing** (context, exit 0) rather than damage, `restore` skips it gracefully
+with its date, and `backup`/`cleanup` subtract recorded hashes from their baselines and
+interlocks. One artifact, machine-parsed *and* the human audit trail; never overwritten.
+_Avoid_: tombstone (jargon), audit log (it is also machine-consumed), manifest.
 
 **Format spec**:
 The user-facing contract for everything s3cab stores — the repository layout, the
@@ -152,15 +162,31 @@ It removes only the snapshot files — the content they referenced stays in the 
 until **cleanup** reclaims what nothing references any more. The repository forgets the
 *moment*; the stuff remains until swept. Previews what the removal would orphan, then confirms
 once for the whole run.
-_Avoid_: delete (the retired command name — now reserved for path-scoped content removal),
-retire (**succession**'s word, see Reattach), prune, expire, drop.
+_Avoid_: delete (its retired name — **delete** is now the path-scoped content-removal
+command), retire (**succession**'s word, see Reattach), prune, expire, drop.
+
+**Delete** (the command):
+The porcelain verb that removes named *paths'* content from the whole backed-up history —
+"I have no use for this, stop paying to back it up", applied to backups already taken
+(`s3cab delete --bucket <b> <path>...`,
+[ADR-0063](docs/adr/0063-forget-snapshots-delete-paths.md)/[0064](docs/adr/0064-path-scoped-delete-deletion-record.md)).
+Snapshots are never rewritten: the backing objects are removed and a **deletion record**
+marks them deliberately gone — the removed content is simply **deleted** (not
+**unrestorable**, which stays `forget`'s preview word for content a snapshot removal would
+strand). Scope is the machine's participating sets; any outside reference protects an
+object, and `--everywhere` lifts that protection for the matched content. The tool's most
+destructive command — the strongest confirmation (type the bucket name).
+_Avoid_: purge, expunge, remove (say delete); using it of snapshot removal (that is
+**forget**).
 
 **Cleanup**:
 The porcelain verb that reclaims storage by deleting orphaned objects. It operates on the
 *bucket* (an object is deletable only when no snapshot from any set references it) and
-reports by default — deleting takes an explicit flag. The only command that removes
-**stored objects** (deletion rights aren't unique to it — `forget` removes a snapshot file,
-and the everyday identity deliberately carries soft-delete, ADR-0033).
+reports by default — deleting takes an explicit flag. One of exactly two commands that
+remove **stored objects** — the janitorial one, sweeping what nothing references, where
+**delete** removes content live snapshots still reference (deletion rights aren't unique to
+them — `forget` removes a snapshot file, and the everyday identity deliberately carries
+soft-delete, ADR-0033).
 _Avoid_: gc, prune, purge, vacuum.
 
 **Setup** (the command):
