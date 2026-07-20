@@ -140,7 +140,8 @@ export async function cleanup(bucket, options = {}) {
   if (dryRun) {
     console.warn(
       orphanHashes.length > 0
-        ? `Dry run — nothing deleted. Re-run without --dry-run to reclaim.`
+        ? `Dry run — nothing deleted. Re-run without --dry-run to reclaim ` +
+            `(add --force when there's no terminal).`
         : `Dry run — no orphans to reclaim.`,
     );
     return report;

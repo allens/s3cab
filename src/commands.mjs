@@ -478,7 +478,7 @@ export const commands = {
         type: "boolean",
         short: "f",
         description:
-          "Skip the confirmation (required for non-interactive runs)",
+          "Skip the confirmation (required for a non-interactive reclaim; not needed with --dry-run)",
       },
     },
     exec: (options, [bucket] = []) => cleanup(bucket, options),
