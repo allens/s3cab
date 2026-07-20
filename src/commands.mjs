@@ -20,6 +20,7 @@ import { verify } from "./commands/verify.mjs";
 import {
   awsDetails,
   compareDetails,
+  deleteDetails,
   providerDetails,
 } from "./command-details.mjs";
 import {
@@ -418,26 +419,7 @@ export const commands = {
       "s3cab delete --bucket my-backups --dry-run D:\\Media\\raw-footage",
       "s3cab delete --bucket my-backups --everywhere C:\\proj\\secret.env",
     ],
-    description: `Removes the objects backing the named paths from the repository, across
-the whole backed-up history — "I have no use for this, stop paying to
-back it up", applied to backups already taken. Snapshots are never
-rewritten: a deletion record in the bucket (deletions/) marks the content
-as deliberately gone, so 'verify' reports it as expected rather than as
-damage and 'restore' skips it gracefully.
-
-Paths resolve through the sets attached on THIS machine that use the
-bucket. Content referenced outside the named paths — another path, or a
-set not attached here (another machine's, another user's) — always
-survives, and the preview names what kept it. --everywhere lifts that
-protection for the matched content (a leaked secret, a malware file):
-those exact objects are removed wherever they are referenced, and the
-summary names the affected sets.
-
-The full list is written to ~/.s3cab/delete-preview.txt before anything
-is decided. On a terminal you confirm by typing the bucket name; scripts
-must pass --force (the prompt is never required).
-
-Full guide: https://s3cab.plantegral.com/guide/maintenance`,
+    details: deleteDetails,
     args: {
       path: {
         required: true,
