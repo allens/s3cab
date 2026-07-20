@@ -25,6 +25,10 @@ future "platform / release" epic).
   `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs
   `ListObjectVersions` + per-`{Key, VersionId}` deletes so the bucket can actually be emptied
   and removed.
+- **A "which snapshots contain this path" query command** (floated in the deletion-rework
+  epic, deferred). Standalone value — "where does this file still live?" — but `delete`'s and
+  `forget`'s previews already answer most of it in passing, so it earns a command only if the
+  standalone question comes up in real use. Revisit on demand.
 - **`delete`'s participating-set scope has a silent completeness gap** (watch in real usage;
   ADR-0064). Because scope is *the sets attached on this machine*, a set of yours you haven't
   `reattach`-ed here **silently protects** its content — `delete` reclaims nothing for it, and

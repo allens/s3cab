@@ -18,10 +18,11 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the
 // prompt are faked at the lib seam, and the TTY gate is driven via
 // process.stdin.isTTY — so the required-arg guards, the existence check, the
-// unrestorable check's wiring, and the confirm/skip logic are locked down without a
-// bucket or a terminal. The orphan *computation* is tested pure in
-// lib/unrestorable.test.mjs; what's asserted here is the command's part — that the
-// check runs, the report lands on disk, and --force skips both halves. The real
+// unrestorable check's wiring, the non-interactive `--force` gate, and the
+// confirm/skip logic are locked down without a bucket or a terminal. The orphan
+// *computation* is tested pure in lib/unrestorable.test.mjs; what's asserted here
+// is the command's part — that the check runs, the report lands on disk, and
+// --force skips both halves (ADR-0064's destructive-command pattern). The real
 // removal is covered by test/integration/remote.test.mjs's gated round-trip.
 // Mocks first, then a dynamic import.
 
@@ -136,6 +137,7 @@ const realLog = console.log;
 
 beforeEach(() => {
   savedTTY = stdin.isTTY;
+  stdin.isTTY = false; // non-interactive by default → a run needs --force
   savedHome = process.env.S3CAB_HOME;
   // The unrestorable check always writes its report, so every run needs a home to
   // write into — a temp one, so no test touches the real ~/.s3cab.
@@ -220,7 +222,9 @@ describe("forget command", () => {
 
   it("validates every name before deleting any, so a typo late in the list costs nothing", async () => {
     // The whole selection is checked up front: a bad third name must not leave
-    // the first two already deleted (the deletions are not undoable).
+    // the first two already deleted (the deletions are not undoable). A terminal,
+    // so the run is past the non-interactive gate and reaches the existence check.
+    stdin.isTTY = true;
     await assert.rejects(
       () =>
         forget(["2026-06-12T0915", "2099-01-01T0000"], {
@@ -232,6 +236,7 @@ describe("forget command", () => {
   });
 
   it("errors helpfully when the snapshot isn't backed up", async () => {
+    stdin.isTTY = true;
     await assert.rejects(
       () => forget(["2099-01-01T0000"], { set: "photos" }),
       /not backed up for set 'photos'[\s\S]*s3cab list photos --remote/,
@@ -239,19 +244,17 @@ describe("forget command", () => {
     assert.equal(deleteCalls.length, 0);
   });
 
-  it("deletes without prompting when non-interactive", async () => {
+  it("refuses a non-interactive run without --force", async () => {
+    // The destructive-command pattern (ADR-0064): with no terminal to confirm
+    // on, the intent must be explicit. The refusal is up front — no scan, no
+    // delete — and names the exact --force invocation.
     stdin.isTTY = false;
-    const result = await forget(["2026-06-12T0915"], {
-      set: "photos",
-    });
-
-    assert.equal(promptCalls, 0);
-    assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-12T0915"]]);
-    assert.deepEqual(result, {
-      set: "photos",
-      snapshots: ["2026-06-12T0915"],
-      forgotten: true,
-    });
+    await assert.rejects(
+      () => forget(["2026-06-12T0915"], { set: "photos" }),
+      /no terminal to ask on[\s\S]*forget --set photos 2026-06-12T0915 --force/,
+    );
+    assert.equal(referencedCalls, 0);
+    assert.deepEqual(deleteCalls, []);
   });
 
   it("deletes on a TTY when the user confirms", async () => {
@@ -320,7 +323,8 @@ describe("forget command", () => {
         unreadable: [],
       });
 
-      stdin.isTTY = false;
+      stdin.isTTY = true;
+      promptAnswer = true;
       await forget(["2026-06-11T0915"], { set: "photos" });
 
       const rows = readFileSync(previewPath(), "utf8")
@@ -331,7 +335,8 @@ describe("forget command", () => {
     });
 
     it("computes over the whole selection, so shared content shows as shared", async () => {
-      stdin.isTTY = false;
+      stdin.isTTY = true;
+      promptAnswer = true;
       await forget(["2026-06-11T0915", "2026-06-12T0915"], {
         set: "photos",
       });
@@ -342,17 +347,6 @@ describe("forget command", () => {
       assert.match(summary, /total unrestorable\s+2 files\s+800B/);
       // Both snapshots are the set's whole remote history.
       assert.match(summary, /last remote snapshot of set 'photos'/);
-    });
-
-    it("runs the check without prompting when non-interactive", async () => {
-      // The files are the half of this that survives a scripted run.
-      stdin.isTTY = false;
-      await forget(["2026-06-11T0915"], { set: "photos" });
-
-      assert.equal(promptCalls, 0);
-      assert.equal(referencedCalls, 1);
-      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
-      assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
     });
   });
 
@@ -387,11 +381,20 @@ describe("forget command", () => {
       assert.match(readFileSync(previewPath(), "utf8"), /a\.jpg/);
     });
 
-    it("records a non-interactive run, which deleted without being asked", async () => {
+    it("records a non-interactive --force run (the scripted path), which skipped the check", async () => {
+      // --force is the only non-interactive door; it skips the whole-bucket scan
+      // and files the "check skipped" stub record.
       stdin.isTTY = false;
-      await forget(["2026-06-11T0915"], { set: "photos" });
+      await forget(["2026-06-11T0915"], { set: "photos", force: true });
 
-      assert.equal(auditRecords().length, 1);
+      assert.equal(referencedCalls, 0, "no whole-bucket scan");
+      assert.deepEqual(deleteCalls, [["b1", "photos", "2026-06-11T0915"]]);
+      const records = auditRecords();
+      assert.equal(records.length, 1);
+      assert.match(
+        readFileSync(records[0] ?? "", "utf8"),
+        /no unrestorable check \(--force\)/,
+      );
     });
 
     it("--force skips the check and the confirmation together, but still files a record", async () => {

@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises";
 /** @import { ReadStream } from "node:tty" */
 
 // s3cab's interactive prompts: the y/N confirmation the destructive commands
-// use (`delete`, `cleanup --delete`) and the line/hidden-line readers behind
+// use (`cleanup`, `forget`) and the line/hidden-line readers behind `delete` and
 // `provider --keys` (ADR-0047 — secrets are never taken via flags, so the
 // prompt/stdin pair is the sanctioned entry). The clig.dev rules the cli-design
 // skill distils: **prompt only when stdin is a terminal** (the caller gates on

@@ -22,15 +22,21 @@ import { isInteractive } from "../lib/style.mjs";
  * through the standard chain (like `hashes`/`upload`), where the elevated
  * delete-capable identity lives — not the least-privilege per-set env.
  *
- * **Dry run by default; `--delete` reclaims** (single pass — computes once,
- * confirms, deletes from the set already in memory, no second enumeration). Two
- * damage interlocks (docs/design/backup.md): an **unreadable snapshot aborts both
- * modes** (its references are unknown, so the orphan numbers would be lies —
- * triage with `verify` first), and **missing objects make `--delete` refuse**
- * (the repository is already losing data; don't compound it). The **7-day grace
+ * **Acts by default; `-n`/`--dry-run` previews; `-f`/`--force` skips the prompt**
+ * (single pass — computes once, confirms, deletes from the set already in memory,
+ * no second enumeration). Non-interactive runs refuse without `--force` (clig:
+ * fail with instructions, never block on a prompt) — the tool-wide
+ * destructive-command pattern
+ * ([ADR-0064](../../docs/adr/0064-path-scoped-delete-deletion-record.md)) `delete`
+ * also follows, here with the gentler y/N tier: cleanup removes only orphans past
+ * the grace window, never content a live snapshot references. Two damage
+ * interlocks (docs/design/backup.md): an **unreadable snapshot aborts both modes**
+ * (its references are unknown, so the orphan numbers would be lies — triage with
+ * `verify` first), and **missing objects make the act path refuse** (the
+ * repository is already losing data; don't compound it). The **7-day grace
  * window** protects objects too young to be sure aren't an in-flight backup's.
  *
- * `--delete` warns that cleanup must not run while a backup is (a documented,
+ * Reclaiming warns that cleanup must not run while a backup is (a documented,
  * accepted race — see the design). It reclaims only orphans (`stored −
  * referenced` across every set), so a valid snapshot's objects are never touched.
  *
@@ -45,12 +51,28 @@ import { isInteractive } from "../lib/style.mjs";
  * @property {number} deleted - How many were actually removed (0 on a dry run or a declined confirmation)
  *
  * @param {string} [bucket] - The repository's S3 bucket to clean up (required)
- * @param {{ delete?: boolean }} [options] - `--delete` reclaims; default is a dry run
+ * @param {{ "dry-run"?: boolean, force?: boolean }} [options] - acts by default; `-n`/`--dry-run` previews, `-f`/`--force` skips the prompt (and is required non-interactively)
  * @returns {Promise<CleanupResult>}
  */
 export async function cleanup(bucket, options = {}) {
   requireArg(bucket, "bucket");
-  const doDelete = Boolean(options.delete);
+  const dryRun = Boolean(options["dry-run"]);
+  const force = Boolean(options.force);
+
+  // The non-interactive gate, up front — before the expensive scan, so a
+  // misconfigured cron job fails in milliseconds with the fix, not minutes in.
+  // Acting deletes objects; with no terminal to confirm on, the intent must be
+  // explicit (--force). Mirrors delete (ADR-0064's destructive-command pattern).
+  if (!dryRun && !force && !isInteractive(process.stdin)) {
+    throw new Error(
+      `Reclaiming storage deletes objects, and there is no terminal to ` +
+        `confirm on.\n` +
+        `Preview what would be reclaimed:\n` +
+        `  s3cab cleanup ${bucket} --dry-run\n` +
+        `Or reclaim without a prompt:\n` +
+        `  s3cab cleanup ${bucket} --force`,
+    );
+  }
 
   // Ordering invariant: read every snapshot BEFORE the objects LIST, so a backup
   // finishing mid-run only adds unreferenced objects (protected by the grace
@@ -115,16 +137,16 @@ export async function cleanup(bucket, options = {}) {
   // The counts report (stored/orphaned/reclaimable + the grace/missing tallies)
   // is the command's *result* — it renders to stdout via renderCleanup (ADR-0043),
   // so it isn't restated here. stderr carries only next-step guidance.
-  if (!doDelete) {
+  if (dryRun) {
     console.warn(
       orphanHashes.length > 0
-        ? `Dry run — nothing deleted. Reclaim with: s3cab cleanup ${bucket} --delete`
+        ? `Dry run — nothing deleted. Re-run without --dry-run to reclaim.`
         : `Dry run — no orphans to reclaim.`,
     );
     return report;
   }
 
-  // Interlock #2 (--delete only): missing objects mean the repo is already losing
+  // Interlock #2 (act path only): missing objects mean the repo is already losing
   // data — refuse, so cleanup never compounds a loss. Fix with verify first.
   if (missing > 0) {
     throw new Error(
@@ -139,8 +161,9 @@ export async function cleanup(bucket, options = {}) {
     return report;
   }
 
-  // Confirm on a TTY; a non-interactive run proceeds on the explicit --delete.
-  if (isInteractive(process.stdin)) {
+  // Confirm on a TTY unless --force; a non-interactive run reached here only via
+  // --force (the up-front gate refuses otherwise), so this is the y/N for a human.
+  if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
       `Delete ${orphanHashes.length} orphaned object(s) ` +
         `(${formatByteValue(reclaimableBytes)}) from bucket '${bucket}'? ` +

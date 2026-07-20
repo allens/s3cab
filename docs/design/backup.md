@@ -248,7 +248,8 @@ written.
 *primitive*. It deletes only the snapshots; reclaiming the objects only it referenced is
 `cleanup`'s job (the command's output says so). It never touches `objects/`. On a TTY it confirms
 with a y/N prompt naming the snapshot and set — the same confirmation pattern as
-`cleanup --delete`; non-interactive runs proceed on the explicitly named snapshot. Retention
+`cleanup`; non-interactive runs refuse without `--force` (ADR-0064's destructive-command
+pattern, which also skips the unrestorable check — the two travel together). Retention
 *policy* (keep the last 12 monthlies, …) comes later, on top of this primitive. (Local
 snapshots need no command: the files are the API — delete the file.)
 
@@ -432,13 +433,16 @@ the [format spec](../../guide/format.md)), not implementation choice:
   ([ADR-0033](../adr/0033-bucket-onboarding-security-model.md)) is exactly what cleanup
   needs. Consumer vocabulary governs the *name*
   ([ADR-0012](../adr/0012-consumer-vocabulary-naming.md)); the operand follows the domain.
-- **Dry run by default; `--delete` is single-pass.** Bare `cleanup <bucket>` *reports*
-  the orphans and the space they hold. `--delete` computes once, prints the same report,
-  confirms with y/N on a TTY (non-interactive runs proceed on the explicit flag), and
-  deletes from memory — no second enumeration. These y/N confirmations (here and on
-  `forget`) are **s3cab's first interactive prompts** — deliberate: the destructive pair
-  earns them, and they follow clig.dev's rules — TTY-gated, never blocking a script, and
-  never *required* (the explicit flag is the non-interactive answer). (A persisted
+- **Acts by default; `-n`/`--dry-run` previews; single-pass.** Bare `cleanup <bucket>`
+  computes the orphans and the space they hold, prints the report, confirms with y/N on a
+  TTY, and deletes from memory — no second enumeration. `-n`/`--dry-run` *reports* and
+  stops; a non-interactive run refuses without `--force` (which reclaims unprompted). This
+  is the tool-wide destructive-command pattern ADR-0064 settled and `delete` also follows —
+  act-by-default, `-n` to preview, `--force` for non-interactive
+  ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)). These y/N confirmations
+  (here and on `forget`) are **s3cab's first interactive prompts** — deliberate: the
+  destructive pair earns them, and they follow clig.dev's rules — TTY-gated, never blocking a
+  script, and never *required* (`--force` is the non-interactive answer). (A persisted
   **runlist** — dry-run saves
   the orphan list, a later run executes it — was considered and **rejected**: a new
   backup can re-reference an old orphan via the conditional-PUT skip, so a stale list
@@ -455,8 +459,9 @@ the [format spec](../../guide/format.md)), not implementation choice:
 - **Damage interlock:** an **unreadable snapshot aborts both modes** — its references
   are unknown, so every object only it references would masquerade as an orphan (the
   report's numbers would be lies). **Missing objects** (verify's core finding) are
-  reported, and `--delete` **refuses**: the repository is already losing data — triage
-  with `verify` first, then clean up. No `--force` override until a real need appears.
+  reported, and the **act path refuses**: the repository is already losing data — triage
+  with `verify` first, then clean up. `--force` skips only the confirmation, never these
+  interlocks (like `delete`'s).
   (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.
   Objects the **deletion record** explains — removed on purpose by `delete`
   ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)) — are *not* missing:
@@ -468,8 +473,8 @@ the [format spec](../../guide/format.md)), not implementation choice:
   ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)), there is no
   local presence-cache left to poison or heal. Every machine's next `backup` re-derives what
   to skip from its own local snapshots (and, on a first backup, a fresh LIST), so cleanup
-  needs no cross-machine "run verify first" reminder. `--delete`'s only stderr note is the
-  race below.
+  needs no cross-machine "run verify first" reminder. The reclaim path's only stderr note is
+  the race below.
 - **Known residual race (documented, accepted):** an *old* orphan (from a long-ago
   crashed backup) that a concurrently-running backup is relying on via the
   conditional-PUT skip can be deleted between the skip and the snapshot upload. The
@@ -654,8 +659,8 @@ snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 
 All three admin commands are **built**: `verify` (completeness + size cross-check, `<bucket>`
 operand, [ADR-0042](../adr/0042-verify-bucket-operand.md)), `forget` (snapshot removal,
-TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, dry-run default, single-pass
-`--delete` + y/N, 7-day grace window, damage interlock, the documented
+TTY-gated y/N confirm), and `cleanup` (`<bucket>` operand, act-by-default with `-n` preview
+and `--force` for scripts, single-pass y/N, 7-day grace window, damage interlock, the documented
 race warnings — and no local cache: ADR-0045 dropped it, so there is nothing to rewrite).
 The encryption-non-goal note is done (in the format spec), as is the
 versioning/ransomware user doc (README, guide/aws.md, guide/maintenance.md). The

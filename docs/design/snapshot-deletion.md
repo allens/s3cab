@@ -212,17 +212,23 @@ truncated.)
 ## Confirmation
 
 **One prompt covering the whole run**, on a TTY, after the summary. Non-interactive runs
-proceed — naming specific snapshots is explicit intent, and clig.dev forbids blocking a
-script on a prompt (unchanged from today's `forget`).
+refuse without `--force` — the tool-wide destructive-command pattern
+([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)): clig.dev forbids blocking a
+script on a prompt, so the explicit `--force` is the non-interactive answer (before it, a
+bare scripted run proceeded).
 
 Per-snapshot prompting was considered and rejected: it means N prompts in a feature built for
 bulk work, which is the pattern that trains people to hold down `y`. The cost of one prompt is
 that it is all-or-nothing — spot a mistake and you answer `n`, fix the list and re-run, paying
 the scan again. The report is what lets you check the list before committing.
 
-**`--force`/`-f` skips both the check and the confirmation**, degrading to today's behaviour.
-The two travel together because skipping the check leaves the prompt nothing useful to say;
-this matches `rm -f` and the existing `upload --force` ("bypass the protective default").
+**`--force`/`-f` skips both the check and the confirmation**, and is **required for a
+non-interactive run** (there is no terminal to confirm on — ADR-0064's destructive-command
+pattern). The two travel together because skipping the check leaves the prompt nothing useful
+to say; this matches `rm -f` and the existing `upload --force` ("bypass the protective
+default"). A consequence worth naming: a scripted `forget` necessarily skips the unrestorable
+analysis (`--force` is its only non-interactive door), filing the "check skipped" record —
+the safe direction, since the check is a decision aid and the record still names what went.
 
 ## Why `forget` and `cleanup` do not merge
 

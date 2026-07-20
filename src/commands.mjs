@@ -406,7 +406,7 @@ export const commands = {
         type: "boolean",
         short: "f",
         description:
-          "Skip the unrestorable check and the confirmation (default: report what you could no longer restore, then ask)",
+          "Skip the unrestorable check and the confirmation (required for non-interactive runs; default: report what you could no longer restore, then ask)",
       },
     },
     exec: (options, snapshots = []) => forget(snapshots, options),
@@ -456,7 +456,11 @@ export const commands = {
   },
   cleanup: {
     summary: "Reclaim storage held by objects no snapshot references",
-    examples: ["s3cab cleanup my-backups", "s3cab cleanup my-backups --delete"],
+    examples: [
+      "s3cab cleanup my-backups",
+      "s3cab cleanup my-backups --dry-run",
+      "s3cab cleanup my-backups --force",
+    ],
     args: {
       bucket: {
         required: true,
@@ -464,10 +468,17 @@ export const commands = {
       },
     },
     options: {
-      delete: {
+      "dry-run": {
         type: "boolean",
+        short: "n",
         description:
-          "Actually delete the orphaned objects (default: a dry run that only reports)",
+          "Report the orphaned objects and the space they hold, delete nothing",
+      },
+      force: {
+        type: "boolean",
+        short: "f",
+        description:
+          "Skip the confirmation (required for non-interactive runs)",
       },
     },
     exec: (options, [bucket] = []) => cleanup(bucket, options),

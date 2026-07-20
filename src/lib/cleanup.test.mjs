@@ -108,7 +108,7 @@ describe("planCleanup", () => {
 
   it("does not count a recorded deletion as missing — deliberately absent (ADR-0064)", () => {
     // Without this, the first path-scoped `delete` would trip interlock #2
-    // ("repository is losing data") on every cleanup --delete forever.
+    // ("repository is losing data") on every cleanup reclaim forever.
     const referenced = refs({
       photos: {
         gone: [{ path: "/deleted", size: 1, snapshots: ["s1"] }],
