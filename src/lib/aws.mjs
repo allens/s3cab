@@ -127,13 +127,27 @@ const trustAnchorName = (bucket) => `s3cab-${bare(bucket)}-trust-anchor`;
 const profileName = (bucket) => `s3cab-${bare(bucket)}-profile`;
 
 /** AWS's hard cap on an IAM user name. */
-export const IAM_USER_NAME_MAX = 64;
+const IAM_USER_NAME_MAX = 64;
 /**
  * Length of the fixed `s3cab-…-user` text the IAM user name wraps around the
- * bucket (measured from the empty-bucket name), so the bucket length can be
- * capped to keep the derived name within {@link IAM_USER_NAME_MAX}.
+ * bucket (measured from the empty-bucket name).
  */
-export const IAM_USER_FIXED_LEN = userName("").length;
+const IAM_USER_FIXED_LEN = userName("").length;
+
+/**
+ * The longest a *literal* bucket name may be for its derived IAM user name
+ * (`s3cab-<bucket>-user`) to fit AWS's {@link IAM_USER_NAME_MAX} cap. Because a
+ * leading `s3cab-` is stripped before deriving names ({@link bare}), a prefixed
+ * bucket may be exactly that much longer than an unprefixed one — so the cap is
+ * on the *derived* name, not the literal, or a `s3cab-`-prefixed bucket whose
+ * identity name would actually fit gets wrongly rejected for length it doesn't
+ * use (ADR-0056).
+ * @param {string} bucket
+ */
+export const maxBucketNameLength = (bucket) =>
+  IAM_USER_NAME_MAX -
+  IAM_USER_FIXED_LEN +
+  (bucket.length - bare(bucket).length);
 
 /**
  * The `Tags:` block every taggable resource in both templates carries: a

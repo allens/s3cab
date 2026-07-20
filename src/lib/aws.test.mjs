@@ -7,6 +7,7 @@ import {
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
   backupLifecycle,
+  maxBucketNameLength,
 } from "./aws.mjs";
 import { ARN_ENV } from "./roles-anywhere.mjs";
 
@@ -39,6 +40,17 @@ describe("backupLifecycle", () => {
         "lifecycle must not carry a current-object Expiration",
       );
     }
+  });
+});
+
+describe("maxBucketNameLength", () => {
+  it("caps the DERIVED name, giving a s3cab-prefixed bucket back the length the strip saves", () => {
+    // `s3cab-<bucket>-user` must be <= 64; its fixed decoration is 11 chars.
+    assert.equal(maxBucketNameLength("photos"), 53); // 64 - 11
+    // A leading `s3cab-` (6 chars) is stripped before deriving names, so a
+    // prefixed bucket may be 6 chars longer and still fit — the over-rejection
+    // this closes (a flat 53-cap on the literal would wrongly bounce it).
+    assert.equal(maxBucketNameLength("s3cab-photos"), 59); // 53 + 6
   });
 });
 
