@@ -150,9 +150,11 @@ export const maxBucketNameLength = (bucket) =>
   (bucket.length - bare(bucket).length);
 
 /**
- * The `Tags:` block every taggable resource in both templates carries: a
- * `ManagedBy` attribution tag plus `s3cab:bucket` tying the resource to its
- * bucket, so the whole footprint is discoverable by tag, not only by name. Put
+ * The `Tags:` block every CloudFormation-taggable resource in both templates
+ * carries: a `ManagedBy` attribution tag plus `s3cab:bucket` tying the resource
+ * to its bucket, so the whole footprint is discoverable by tag, not only by
+ * name. Every resource takes it *except* `AWS::IAM::ManagedPolicy`, which has no
+ * Tags property in CloudFormation (see `bucketResources`). Put
  * in the template (not the deploy `--tags`) so the tags travel with the artifact
  * however the user applies it (ADR-0056: s3cab writes the file, the user deploys
  * it). Indented to sit under a resource's `Properties:` (6 spaces). The bucket
@@ -219,9 +221,11 @@ function bucketResources(bucket) {
 ${resourceTags(bucket)}
   BucketAccessPolicy:
     Type: AWS::IAM::ManagedPolicy
+    # No Tags: AWS::IAM::ManagedPolicy is the one resource here CloudFormation
+    # gives no Tags property (the IAM API tags managed policies, the CFN schema
+    # does not) — including it fails early validation (ADR-0056).
     Properties:
       ManagedPolicyName: ${policyName(bucket)}
-${resourceTags(bucket)}
       PolicyDocument:
 ${indentJson(bucketPolicy(bucket), 8)}`;
 }
