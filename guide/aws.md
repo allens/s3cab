@@ -93,12 +93,12 @@ policy attached_ differs.
 
 ### Default — a dedicated IAM user
 
-The CloudFormation template creates an IAM user (`s3cab-user-<bucket>`) with the
+The CloudFormation template creates an IAM user (`s3cab-<bucket>-user`) with the
 managed policy attached. After you deploy it, the only manual step is minting that
 user's access key:
 
 ```console
-> aws iam create-access-key --user-name s3cab-user-<bucket>
+> aws iam create-access-key --user-name s3cab-<bucket>-user
 ```
 
 This is the **one thing kept out of the template**. `AWS::IAM::AccessKey` would

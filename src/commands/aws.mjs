@@ -9,7 +9,7 @@ import {
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
   IAM_USER_NAME_MAX,
-  IAM_USER_PREFIX_LEN,
+  IAM_USER_FIXED_LEN,
 } from "../lib/aws.mjs";
 import { ensureMachineIdentity } from "../lib/roles-anywhere.mjs";
 import { saveArnsFromStack } from "../lib/stack-arns.mjs";
@@ -105,11 +105,11 @@ Wasabi, MinIO, …), run:
   requireArg(name, "bucket");
   // AWS onboarding derives named CloudFormation/IAM resources from the bucket, so
   // it tightens the permissive global validator (ADR-0056): the CloudFormation
-  // stack name rejects dots, and the derived IAM user name (`s3cab-user-<bucket>`)
+  // stack name rejects dots, and the derived IAM user name (`s3cab-<bucket>-user`)
   // must fit AWS's 64-char cap.
   validateBucketName(name, {
     allowDots: false,
-    maxLength: IAM_USER_NAME_MAX - IAM_USER_PREFIX_LEN,
+    maxLength: IAM_USER_NAME_MAX - IAM_USER_FIXED_LEN,
   });
 
   // The keyless Roles Anywhere path (ADR-0057/0058): generate the machine identity

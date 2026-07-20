@@ -59,7 +59,7 @@ chain; the guide keeps a one-line pointer, not a command path.
 ## Command shape
 
 `s3cab aws <bucket>` (no flag) is the **IAM-user** path — now three short steps: deploy the
-template, `aws iam create-access-key --user-name s3cab-user-<bucket>`, `provider --keys`. Its
+template, `aws iam create-access-key --user-name s3cab-<bucket>-user`, `provider --keys`. Its
 closing line advertises **`--roles-anywhere`** (recommended, keyless —
 [0057](0057-roles-anywhere-credential-mode.md)) as the alternative. `--roles-anywhere` stays a
 **flag**, not a display section, because it is a different *action* (it writes local certs + a
@@ -74,16 +74,32 @@ common case ([0013](0013-one-repository-one-bucket.md)); multi-bucket RA-identit
 
 | Resource | Name |
 | --- | --- |
+| S3 bucket | `<bucket>` *(verbatim — the user's own name)* |
 | Stack | `s3cab-<bucket>` |
-| IAM user (default) | `s3cab-user-<bucket>` |
-| IAM **managed** policy (`bucketPolicy()`) | `s3cab-bucket-access-<bucket>` |
-| IAM role (RA) | `s3cab-role-<bucket>` |
-| RA trust anchor | `s3cab-trust-anchor-<bucket>` |
-| RA profile | `s3cab-profile-<bucket>` |
+| IAM user (default) | `s3cab-<bucket>-user` |
+| IAM **managed** policy (`bucketPolicy()`) | `s3cab-<bucket>-policy` |
+| IAM role (RA) | `s3cab-<bucket>-role` |
+| RA trust anchor | `s3cab-<bucket>-trust-anchor` |
+| RA profile | `s3cab-<bucket>-profile` |
+
+**Naming scheme:** the **stack** is the *container* and takes the bare `s3cab-<bucket>` stem;
+everything it creates hangs off that stem with an **AWS-type suffix** (`-user`, `-role`, `-policy`,
+…), so a name is predictable from the bucket + the resource type and one bucket's whole footprint
+sorts contiguously (the stack heads it) in any name-ordered view. The **bucket** is the one name the
+user owns, so it is used **verbatim** — no `s3cab-` prefix, no suffix. Because bucket names are
+global, users often prefix theirs with `s3cab-` for uniqueness; a single leading `s3cab-` is
+therefore **stripped** from the bucket before it goes into a derived name, so `s3cab aws
+s3cab-photos` yields `s3cab-photos-user` (not `s3cab-s3cab-photos-user`) — the bucket itself stays
+`s3cab-photos`.
 
 `bucketPolicy()` becomes a **managed** policy so the *same* object attaches to the IAM user
 (default) and the RA role (RA path) — one policy, reused (cleaner than 0033's inline
 `put-user-policy`).
+
+**Tags:** every taggable resource carries `ManagedBy=s3cab` (attribution) and `s3cab:bucket=<bucket>`
+(association), applied as `Tags:` **in the template** — not the deploy `--tags` — so they travel with
+the artifact however the user applies it (console, CLI, CI), and the whole footprint is discoverable
+by tag, not only by name.
 
 ## Bucket protections in the template ([0033](0033-bucket-onboarding-security-model.md))
 

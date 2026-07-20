@@ -35,7 +35,7 @@ path ([0056](0056-onboarding-via-cloudformation.md)). s3cab **actively generates
 cert locally** — the one active step, but no AWS call, no admin creds, no *AWS* secret, so squarely
 inside [0032](0032-generative-onboarding-not-active-provisioning.md)/[0056](0056-onboarding-via-cloudformation.md)
 — and emits the CloudFormation template for the trust anchor (external-CA `CERTIFICATE_BUNDLE`, CA
-PEM inline — public), the IAM role (RA trust policy + the managed `s3cab-bucket-access-<bucket>`
+PEM inline — public), the IAM role (RA trust policy + the managed `s3cab-<bucket>-policy`
 policy), and the profile. Post-deploy, the three ARNs are captured by a **read-only**
 `describe-stacks` (`s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>`) — which is why
 s3cab takes on `@aws-sdk/client-cloudformation`: cheap once `client-s3` has pulled in the shared

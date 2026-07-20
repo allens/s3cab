@@ -78,40 +78,79 @@ const indentText = (text, spaces) => {
 };
 
 /**
- * The CloudFormation stack name for a bucket's onboarding (ADR-0056).
+ * Strip one redundant leading `s3cab-` from the bucket before it goes into a
+ * derived resource name (ADR-0056). Bucket names are global, so a user often
+ * prefixes theirs with `s3cab-` for uniqueness; without this, `s3cab aws
+ * s3cab-photos` would double it into `s3cab-s3cab-photos`. The bucket itself is
+ * left untouched (used verbatim) — only the derived stack/user/policy/… names
+ * dedupe.
  * @param {string} bucket
  */
-const stackName = (bucket) => `s3cab-${bucket}`;
+const bare = (bucket) => bucket.replace(/^s3cab-/, "");
+
+// Derived resource names share one scheme (ADR-0056): the CloudFormation stack
+// is the *container* and takes the bare `s3cab-<bucket>` stem; everything it
+// creates hangs off that stem with an AWS-type suffix (`-user`, `-role`, …), so
+// a name is predictable from the bucket + the resource type. The bucket is the
+// one name the user owns, so it keeps its literal name (no prefix, no suffix).
+
+/**
+ * The CloudFormation stack name for a bucket's onboarding — the bare stem the
+ * rest suffix off (ADR-0056).
+ * @param {string} bucket
+ */
+const stackName = (bucket) => `s3cab-${bare(bucket)}`;
 /**
  * The dedicated IAM user's name (default identity path, ADR-0056).
  * @param {string} bucket
  */
-const userName = (bucket) => `s3cab-user-${bucket}`;
+const userName = (bucket) => `s3cab-${bare(bucket)}-user`;
 /**
  * The managed policy wrapping `bucketPolicy()` (ADR-0056).
  * @param {string} bucket
  */
-const policyName = (bucket) => `s3cab-bucket-access-${bucket}`;
+const policyName = (bucket) => `s3cab-${bare(bucket)}-policy`;
 /**
  * The IAM role assumed via Roles Anywhere (RA identity path, ADR-0056/0057).
  * @param {string} bucket
  */
-const roleName = (bucket) => `s3cab-role-${bucket}`;
+const roleName = (bucket) => `s3cab-${bare(bucket)}-role`;
 /**
  * The Roles Anywhere trust anchor (external self-signed CA, ADR-0056/0057).
  * @param {string} bucket
  */
-const trustAnchorName = (bucket) => `s3cab-trust-anchor-${bucket}`;
+const trustAnchorName = (bucket) => `s3cab-${bare(bucket)}-trust-anchor`;
 /**
  * The Roles Anywhere profile pointing at the role (ADR-0056/0057).
  * @param {string} bucket
  */
-const profileName = (bucket) => `s3cab-profile-${bucket}`;
+const profileName = (bucket) => `s3cab-${bare(bucket)}-profile`;
 
 /** AWS's hard cap on an IAM user name. */
 export const IAM_USER_NAME_MAX = 64;
-/** Length of the `s3cab-user-` prefix we prepend to derive the IAM user name. */
-export const IAM_USER_PREFIX_LEN = userName("").length;
+/**
+ * Length of the fixed `s3cab-…-user` text the IAM user name wraps around the
+ * bucket (measured from the empty-bucket name), so the bucket length can be
+ * capped to keep the derived name within {@link IAM_USER_NAME_MAX}.
+ */
+export const IAM_USER_FIXED_LEN = userName("").length;
+
+/**
+ * The `Tags:` block every taggable resource in both templates carries: a
+ * `ManagedBy` attribution tag plus `s3cab:bucket` tying the resource to its
+ * bucket, so the whole footprint is discoverable by tag, not only by name. Put
+ * in the template (not the deploy `--tags`) so the tags travel with the artifact
+ * however the user applies it (ADR-0056: s3cab writes the file, the user deploys
+ * it). Indented to sit under a resource's `Properties:` (6 spaces). The bucket
+ * value is quoted so an all-numeric bucket name is a string, not a YAML number.
+ * @param {string} bucket - The literal bucket name (the association target).
+ * @returns {string}
+ */
+const resourceTags = (bucket) => `      Tags:
+        - Key: ManagedBy
+          Value: s3cab
+        - Key: "s3cab:bucket"
+          Value: "${bucket}"`;
 
 /**
  * The ` --profile <name>` suffix interpolated into the generated commands when
@@ -163,10 +202,12 @@ function bucketResources(bucket) {
               NoncurrentDays: ${noncurrentDays}
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: ${abortDays}
+${resourceTags(bucket)}
   BucketAccessPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: ${policyName(bucket)}
+${resourceTags(bucket)}
       PolicyDocument:
 ${indentJson(bucketPolicy(bucket), 8)}`;
 }
@@ -193,6 +234,7 @@ ${bucketResources(bucket)}
       UserName: ${userName(bucket)}
       ManagedPolicyArns:
         - !Ref BucketAccessPolicy
+${resourceTags(bucket)}
 `;
 }
 
@@ -245,6 +287,7 @@ ${bucketResources(bucket)}
     Properties:
       Name: ${trustAnchorName(bucket)}
       Enabled: true
+${resourceTags(bucket)}
       Source:
         SourceType: CERTIFICATE_BUNDLE
         SourceData:
@@ -256,6 +299,7 @@ ${indentText(caPem, 12)}
       RoleName: ${roleName(bucket)}
       ManagedPolicyArns:
         - !Ref BucketAccessPolicy
+${resourceTags(bucket)}
       AssumeRolePolicyDocument:
 ${indentJson(raTrustPolicy, 8)}
   Profile:
@@ -265,6 +309,7 @@ ${indentJson(raTrustPolicy, 8)}
       Enabled: true
       RoleArns:
         - !GetAtt Role.Arn
+${resourceTags(bucket)}
 Outputs:
   TrustAnchorArn:
     Value: !GetAtt TrustAnchor.TrustAnchorArn

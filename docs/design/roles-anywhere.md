@@ -48,7 +48,7 @@ long-lived *AWS* key.
 1. **Generate the CA + client cert locally** — the one active step, but no AWS call, no admin creds,
    no *AWS* secret, so squarely inside the generative posture ([ADR-0032](../adr/0032-generative-onboarding-not-active-provisioning.md)).
 2. **Emit a CloudFormation template** for the trust anchor (external-CA `CERTIFICATE_BUNDLE`, CA PEM
-   inline — public), the IAM role (RA trust policy + the managed `s3cab-bucket-access-<bucket>`
+   inline — public), the IAM role (RA trust policy + the managed `s3cab-<bucket>-policy`
    policy), and the profile. The user applies it with one `aws cloudformation deploy … --capabilities
    CAPABILITY_NAMED_IAM`.
 3. **Capture the ARNs** into the machine `env` with a read-only `describe-stacks`
