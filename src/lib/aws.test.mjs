@@ -7,6 +7,7 @@ import {
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
   backupLifecycle,
+  maxBucketNameLength,
 } from "./aws.mjs";
 import { ARN_ENV } from "./roles-anywhere.mjs";
 
@@ -39,6 +40,17 @@ describe("backupLifecycle", () => {
         "lifecycle must not carry a current-object Expiration",
       );
     }
+  });
+});
+
+describe("maxBucketNameLength", () => {
+  it("caps the DERIVED name, giving a s3cab-prefixed bucket back the length the strip saves", () => {
+    // `s3cab-<bucket>-user` must be <= 64; its fixed decoration is 11 chars.
+    assert.equal(maxBucketNameLength("photos"), 53); // 64 - 11
+    // A leading `s3cab-` (6 chars) is stripped before deriving names, so a
+    // prefixed bucket may be 6 chars longer and still fit — the over-rejection
+    // this closes (a flat 53-cap on the literal would wrongly bounce it).
+    assert.equal(maxBucketNameLength("s3cab-photos"), 59); // 53 + 6
   });
 });
 
@@ -81,8 +93,31 @@ describe("awsCloudFormationTemplate", () => {
 
   it("uses the predictable, named resources CAPABILITY_NAMED_IAM needs", () => {
     assert.match(yaml, /BucketName: my-backups/);
-    assert.match(yaml, /ManagedPolicyName: s3cab-bucket-access-my-backups/);
-    assert.match(yaml, /UserName: s3cab-user-my-backups/);
+    assert.match(yaml, /ManagedPolicyName: s3cab-my-backups-policy/);
+    assert.match(yaml, /UserName: s3cab-my-backups-user/);
+  });
+
+  it("tags every resource with ManagedBy + the bucket, for tag-based discovery", () => {
+    // Applied in the template (not the deploy `--tags`) so they travel with the
+    // artifact however it is deployed (ADR-0056).
+    const tagBlocks = yaml.match(/^ {6}Tags:$/gm) ?? [];
+    // Bucket, managed policy, and IAM user all carry the block.
+    assert.equal(tagBlocks.length, 3);
+    assert.match(yaml, /- Key: ManagedBy\n\s*Value: s3cab/);
+    assert.match(yaml, /- Key: "s3cab:bucket"\n\s*Value: "my-backups"/);
+  });
+
+  it("does not repeat the s3cab- prefix when the bucket already carries it", () => {
+    // Bucket names are global, so users often prefix theirs with s3cab-; the
+    // derived names must dedupe rather than become s3cab-s3cab-… . The bucket
+    // itself is used verbatim (ADR-0056).
+    const prefixed = awsCloudFormationTemplate("s3cab-photos");
+    assert.match(prefixed, /BucketName: s3cab-photos/);
+    assert.match(prefixed, /ManagedPolicyName: s3cab-photos-policy/);
+    assert.match(prefixed, /UserName: s3cab-photos-user/);
+    assert.doesNotMatch(prefixed, /s3cab-s3cab-/);
+    // The association tag still points at the real, full bucket name.
+    assert.match(prefixed, /- Key: "s3cab:bucket"\n\s*Value: "s3cab-photos"/);
   });
 
   it("attaches the managed policy to the user (no ARN threading)", () => {
@@ -115,7 +150,7 @@ describe("awsIamPlan", () => {
     assert.match(out, /--capabilities CAPABILITY_NAMED_IAM/);
     assert.match(
       out,
-      /aws iam create-access-key --user-name s3cab-user-my-backups/,
+      /aws iam create-access-key --user-name s3cab-my-backups-user/,
     );
     // Step 3 stores the key at set creation (ADR-0055 initial-config door), not
     // via `provider` — a fresh onboarding has no set for `provider` to target.
@@ -170,18 +205,25 @@ describe("awsRolesAnywhereTemplate", () => {
   it("reuses the same protected bucket + managed policy as the IAM-user template", () => {
     assert.match(yaml, /Type: AWS::S3::Bucket/);
     assert.match(yaml, /DeletionPolicy: Retain/);
-    assert.match(yaml, /ManagedPolicyName: s3cab-bucket-access-my-backups/);
+    assert.match(yaml, /ManagedPolicyName: s3cab-my-backups-policy/);
     // No IAM user on the keyless path.
     assert.doesNotMatch(yaml, /AWS::IAM::User/);
   });
 
   it("stands up the keyless RA resources with predictable names", () => {
     assert.match(yaml, /Type: AWS::RolesAnywhere::TrustAnchor/);
-    assert.match(yaml, /Name: s3cab-trust-anchor-my-backups/);
+    assert.match(yaml, /Name: s3cab-my-backups-trust-anchor/);
     assert.match(yaml, /Type: AWS::IAM::Role/);
-    assert.match(yaml, /RoleName: s3cab-role-my-backups/);
+    assert.match(yaml, /RoleName: s3cab-my-backups-role/);
     assert.match(yaml, /Type: AWS::RolesAnywhere::Profile/);
-    assert.match(yaml, /Name: s3cab-profile-my-backups/);
+    assert.match(yaml, /Name: s3cab-my-backups-profile/);
+  });
+
+  it("tags every keyless resource with ManagedBy + the bucket", () => {
+    // Bucket, managed policy, trust anchor, role, and profile — all five.
+    const tagBlocks = yaml.match(/^ {6}Tags:$/gm) ?? [];
+    assert.equal(tagBlocks.length, 5);
+    assert.match(yaml, /- Key: "s3cab:bucket"\n\s*Value: "my-backups"/);
   });
 
   it("uploads the CA as an external CERTIFICATE_BUNDLE, indented under the block scalar", () => {

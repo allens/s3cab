@@ -54,7 +54,7 @@ describe("aws routing", () => {
   it("returns the IAM-user CloudFormation recipe by default", async () => {
     const out = await aws("my-backups");
     assert.match(out, /aws cloudformation deploy/);
-    assert.match(out, /create-access-key --user-name s3cab-user-my-backups/);
+    assert.match(out, /create-access-key --user-name s3cab-my-backups-user/);
   });
 
   it("writes the template to ~/.s3cab/<bucket>.yaml and points the recipe at it", async () => {
