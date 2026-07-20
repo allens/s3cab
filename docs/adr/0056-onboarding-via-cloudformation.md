@@ -99,7 +99,9 @@ s3cab-photos` yields `s3cab-photos-user` (not `s3cab-s3cab-photos-user`) — the
 **Tags:** every taggable resource carries `ManagedBy=s3cab` (attribution) and `s3cab:bucket=<bucket>`
 (association), applied as `Tags:` **in the template** — not the deploy `--tags` — so they travel with
 the artifact however the user applies it (console, CLI, CI), and the whole footprint is discoverable
-by tag, not only by name.
+by tag, not only by name. The one exception is `AWS::IAM::ManagedPolicy`, which CloudFormation gives
+no `Tags` property (the IAM API tags managed policies, the CFN resource does not) — tagging it fails
+early validation, so it is left untagged.
 
 ## Bucket protections in the template ([0033](0033-bucket-onboarding-security-model.md))
 

@@ -97,14 +97,25 @@ describe("awsCloudFormationTemplate", () => {
     assert.match(yaml, /UserName: s3cab-my-backups-user/);
   });
 
-  it("tags every resource with ManagedBy + the bucket, for tag-based discovery", () => {
+  it("tags every taggable resource with ManagedBy + the bucket, for tag-based discovery", () => {
     // Applied in the template (not the deploy `--tags`) so they travel with the
     // artifact however it is deployed (ADR-0056).
     const tagBlocks = yaml.match(/^ {6}Tags:$/gm) ?? [];
-    // Bucket, managed policy, and IAM user all carry the block.
-    assert.equal(tagBlocks.length, 3);
+    // Bucket and IAM user carry the block; the managed policy does NOT — CFN
+    // gives AWS::IAM::ManagedPolicy no Tags property (early-validation failure).
+    assert.equal(tagBlocks.length, 2);
     assert.match(yaml, /- Key: ManagedBy\n\s*Value: s3cab/);
     assert.match(yaml, /- Key: "s3cab:bucket"\n\s*Value: "my-backups"/);
+  });
+
+  it("does NOT tag the managed policy — CFN has no Tags for AWS::IAM::ManagedPolicy", () => {
+    // The regression behind the early-validation deploy failure: a Tags block on
+    // the ManagedPolicy is rejected. Assert the resource's Properties run straight
+    // from its name to the PolicyDocument with no Tags in between.
+    assert.match(
+      yaml,
+      /ManagedPolicyName: s3cab-my-backups-policy\n {6}PolicyDocument:/,
+    );
   });
 
   it("does not repeat the s3cab- prefix when the bucket already carries it", () => {
@@ -219,10 +230,11 @@ describe("awsRolesAnywhereTemplate", () => {
     assert.match(yaml, /Name: s3cab-my-backups-profile/);
   });
 
-  it("tags every keyless resource with ManagedBy + the bucket", () => {
-    // Bucket, managed policy, trust anchor, role, and profile — all five.
+  it("tags every taggable keyless resource with ManagedBy + the bucket", () => {
+    // Bucket, trust anchor, role, and profile — four. The managed policy is left
+    // untagged: CFN gives AWS::IAM::ManagedPolicy no Tags property.
     const tagBlocks = yaml.match(/^ {6}Tags:$/gm) ?? [];
-    assert.equal(tagBlocks.length, 5);
+    assert.equal(tagBlocks.length, 4);
     assert.match(yaml, /- Key: "s3cab:bucket"\n\s*Value: "my-backups"/);
   });
 
