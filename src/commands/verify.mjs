@@ -1,3 +1,4 @@
+import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { listStoredObjects } from "../lib/objects.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
@@ -22,7 +23,11 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * Findings are a flat **per-path `problems`** list per set (`verifySet`) — each
  * referenced file that is `missing` (its content absent from `objects/`, the
  * broken invariant) or `wrong-size` (stored, but at a size ≠ the one recorded) —
- * plus any `unreadableSnapshots`. Both are computed from two enumerations with
+ * plus any `unreadableSnapshots`. Missing is **partitioned by the deletion
+ * record** (ADR-0064): a hash the record explains is reported as
+ * `expectedMissing` with its deletion date — context, not a finding, so it
+ * never affects the exit code and `verify || alert` stays meaningful after a
+ * deliberate `delete`. Both are computed from two enumerations with
  * zero extra requests: the bucket's *referenced* objects (`referencedObjects`,
  * per set) and its *stored* objects (one `listStoredObjects` LIST). **Read the
  * snapshots before the LIST** (the ordering invariant): a backup landing mid-run
@@ -62,8 +67,14 @@ export async function verify(bucket) {
     stored.set(hash, size);
   }
 
+  // The deletion records, read LAST (ADR-0064): a `delete` writes its record
+  // before removing objects, so reading records after the objects LIST means
+  // any deletion that made an object vanish mid-run has its explanation on
+  // hand — the ordering that can't turn a deliberate removal into a false alarm.
+  const deleted = await readDeletionRecords(bucket);
+
   const reports = [...referencedBySet]
-    .map(([set, referenced]) => verifySet(set, referenced, stored))
+    .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))
     .sort((a, b) => a.set.localeCompare(b.set));
 
   // Any finding in any set → exit 1 (ADR-0042). Set process.exitCode rather than

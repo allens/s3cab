@@ -53,6 +53,59 @@ describe("isCorruptSnapshotError", () => {
   });
 });
 
+describe("verifySet with a deletion record", () => {
+  const RECORD = new Map([["gone", { deletedOn: "2026-07-19T1422" }]]);
+
+  it("partitions missing into expected (recorded) vs unexplained", () => {
+    const referenced = ref({
+      gone: [
+        { path: "/deleted-on-purpose.txt", size: 10, snapshots: ["s1"] },
+        { path: "/deleted-copy.txt", size: 10, snapshots: ["s2"] },
+      ],
+      lost: [{ path: "/vanished.txt", size: 20, snapshots: ["s1"] }],
+    });
+    const report = verifySet("photos", referenced, new Map(), RECORD);
+    // The recorded hash's paths are context, with the record's date...
+    assert.deepEqual(report.expectedMissing, [
+      {
+        path: "/deleted-copy.txt",
+        snapshots: ["s2"],
+        deletedOn: "2026-07-19T1422",
+      },
+      {
+        path: "/deleted-on-purpose.txt",
+        snapshots: ["s1"],
+        deletedOn: "2026-07-19T1422",
+      },
+    ]);
+    // ...while the unrecorded absence stays the alarming problem it always was.
+    assert.deepEqual(report.problems, [
+      { path: "/vanished.txt", problem: "missing", snapshots: ["s1"] },
+    ]);
+  });
+
+  it("expected-missing alone is not a finding — the cron alarm stays quiet", () => {
+    const referenced = ref({
+      gone: [{ path: "/deleted.txt", size: 10, snapshots: ["s1"] }],
+    });
+    const report = verifySet("photos", referenced, new Map(), RECORD);
+    assert.equal(setHasFindings(report), false);
+  });
+
+  it("a recorded hash that is stored anyway gets the normal checks, not a skip", () => {
+    // Content re-backed-up after a delete: the record entry is moot. The
+    // stored object still gets the size cross-check — a wrong size must not
+    // hide behind a stale record entry.
+    const referenced = ref({
+      gone: [{ path: "/back-again.txt", size: 10, snapshots: ["s9"] }],
+    });
+    const stored = new Map([["gone", 7]]);
+    const report = verifySet("photos", referenced, stored, RECORD);
+    assert.deepEqual(report.expectedMissing, []);
+    assert.equal(report.problems[0]?.problem, "wrong-size");
+  });
+});
+
 describe("verifySet", () => {
   it("reports no problems when every referenced path is stored at its size", () => {
     const referenced = ref({

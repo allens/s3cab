@@ -2,8 +2,10 @@
 
 **Status:** accepted (settled 2026-07-19 in a grilling session) — the `forget` rename is
 **implemented** (PR #218, with the prerequisite baseline-trust fix in #220 and `restore`'s
-graceful degrade in #219); the path-scoped `delete` is **not yet built** (delivery plan in
-[proposals/forget-and-delete.md](../../proposals/forget-and-delete.md)). Reasoned under the
+graceful degrade in #219), and the path-scoped `delete` is now **built** under
+[0064](0064-path-scoped-delete-deletion-record.md), which also **amends this ADR's closing
+shape line**: `delete` addresses the *bucket* (`--bucket`), not a set — bucket-wide
+protection and multi-set scope made `--set` a false promise. Reasoned under the
 **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the `cli-design` skill)
 and [0012](0012-consumer-vocabulary-naming.md).
 

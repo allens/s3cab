@@ -89,22 +89,41 @@ export function planRestore(
  * @returns {string[]} The subset of `paths` to restore, in input order
  */
 export function selectEntries(paths, filters) {
+  const matches = pathMatcher(filters);
+  return matches ? [...paths].filter(matches) : [...paths];
+}
+
+/**
+ * Build the "does this path fall under any of these filters?" predicate that
+ * `selectEntries` applies — a filter matches a path that equals it or lies under
+ * it (a `/`-boundary prefix), separators unified and case folded on Windows
+ * (`normalize`), a trailing separator ignored. Exported on its own because
+ * `delete` asks the same question of snapshot *references* (which paths fall
+ * under the named paths) — one matcher, so `restore`'s filters and `delete`'s
+ * scope can never drift apart in what "under" means.
+ *
+ * Returns `undefined` when no filter survives normalization (none given, or
+ * all blank/separator-only) — "no effective filter" is a fact each caller must
+ * decide about, in opposite directions: `selectEntries` selects *everything*
+ * (no filter means restore it all), while `delete` must match *nothing* (a
+ * blank path silently matching the whole backup is the catastrophe). Handing
+ * back a predicate that quietly picked either default would bake the wrong
+ * one into somebody.
+ * @param {string[]} filters - Path filters, as the user gave them
+ * @returns {((path: string) => boolean) | undefined}
+ */
+export function pathMatcher(filters) {
   const needles = filters
     .map(normalize)
     .map((n) => n.replace(/\/+$/, ""))
     .filter(Boolean);
   if (needles.length === 0) {
-    return [...paths];
+    return undefined;
   }
-
-  const selected = [];
-  for (const path of paths) {
+  return (path) => {
     const hay = normalize(path);
-    if (needles.some((n) => hay === n || hay.startsWith(n + posix.sep))) {
-      selected.push(path);
-    }
-  }
-  return selected;
+    return needles.some((n) => hay === n || hay.startsWith(n + posix.sep));
+  };
 }
 
 /**

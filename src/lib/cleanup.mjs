@@ -50,20 +50,26 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * command layer turns `unreadable`/`missing` into aborts (docs/design/backup.md).
  *
  * `missing` = a referenced hash absent from `stored` (the broken
- * objects-first/snapshot-last invariant). `damaged` = stored, but *any* recorded
- * path size disagrees with the stored LIST size (a torn snapshot file can record
- * different sizes across paths/snapshots; `verify` has the per-file detail).
- * Orphans honour the grace window measured from `now`; an object with no
- * `lastModified` is treated as brand new (protected) — the safe direction.
+ * objects-first/snapshot-last invariant) — **except** hashes the deletion
+ * record explains (`deleted`, ADR-0064): those are deliberately gone, not an
+ * integrity fault, and counting them would make the `--delete` interlock
+ * refuse forever after the first path-scoped `delete`. `damaged` = stored, but
+ * *any* recorded path size disagrees with the stored LIST size (a torn snapshot
+ * file can record different sizes across paths/snapshots; `verify` has the
+ * per-file detail). Orphans honour the grace window measured from `now`; an
+ * object with no `lastModified` is treated as brand new (protected) — the safe
+ * direction.
  * @param {Map<string, ReferencedResult>} referencedBySet - Per-set referenced enumeration (`referencedObjects`)
  * @param {Map<string, { size: number, lastModified?: Date }>} stored - Stored objects: hash → size + age (`listStoredObjects`)
- * @param {{ now?: number }} [options] - `now` (ms) for the grace window; defaults to the wall clock
+ * @param {{ now?: number, deleted?: Set<string> | Map<string, unknown> }} [options] - `now` (ms)
+ *   for the grace window (defaults to the wall clock); `deleted` = hashes the
+ *   deletion record marks deliberately removed (`readDeletionRecords`)
  * @returns {CleanupPlan}
  */
 export function planCleanup(
   referencedBySet,
   stored,
-  { now = Date.now() } = {},
+  { now = Date.now(), deleted = new Set() } = {},
 ) {
   const unreadable = [...referencedBySet].flatMap(([set, r]) =>
     r.unreadable.map((u) => ({ set, snapshot: u.snapshot, reason: u.reason })),
@@ -80,10 +86,11 @@ export function planCleanup(
   for (const { referenced } of referencedBySet.values()) {
     for (const [hash, { paths }] of referenced) {
       const storedSize = stored.get(hash)?.size;
-      // missing is per distinct hash — decide it once, on first sighting.
+      // missing is per distinct hash — decide it once, on first sighting. A
+      // hash the deletion record explains is deliberately absent, not missing.
       if (!referencedAll.has(hash)) {
         referencedAll.add(hash);
-        if (storedSize === undefined) {
+        if (storedSize === undefined && !deleted.has(hash)) {
           missing++;
         }
       }

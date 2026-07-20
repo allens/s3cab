@@ -106,6 +106,24 @@ describe("planCleanup", () => {
     assert.equal(plan.referencedObjects, 1);
   });
 
+  it("does not count a recorded deletion as missing — deliberately absent (ADR-0064)", () => {
+    // Without this, the first path-scoped `delete` would trip interlock #2
+    // ("repository is losing data") on every cleanup --delete forever.
+    const referenced = refs({
+      photos: {
+        gone: [{ path: "/deleted", size: 1, snapshots: ["s1"] }],
+        lost: [{ path: "/vanished", size: 1, snapshots: ["s1"] }],
+      },
+    });
+
+    const plan = planCleanup(referenced, store([]), {
+      now: NOW,
+      deleted: new Set(["gone"]),
+    });
+
+    assert.equal(plan.missing, 1); // only the unexplained absence counts
+  });
+
   it("flags a stored object at the wrong size as damaged, not missing or orphaned", () => {
     const referenced = refs({
       photos: { kept: [{ path: "/k", size: 1, snapshots: ["s1"] }] },

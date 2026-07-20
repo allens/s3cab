@@ -27,6 +27,8 @@ let putFiles = [];
 let storeHashes = [];
 /** @type {string[]} Prefix URIs LISTed — empty when no LIST fallback ran. */
 let listedPrefixes = [];
+/** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
+let deletionRecords = new Map();
 mock.module("./s3.mjs", {
   exports: {
     objectExists: async (/** @type {string} */ uri) => {
@@ -52,6 +54,11 @@ mock.module("./s3.mjs", {
     isObjectNotFound: () => false,
   },
 });
+mock.module("./deletion-record.mjs", {
+  exports: {
+    readDeletionRecords: async () => deletionRecords,
+  },
+});
 const { planUpload, uploadSnapshot } = await import("./upload.mjs");
 
 beforeEach(() => {
@@ -60,6 +67,7 @@ beforeEach(() => {
   putFiles = [];
   storeHashes = [];
   listedPrefixes = [];
+  deletionRecords = new Map();
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -119,6 +127,16 @@ describe("planUpload", () => {
     const baseline = lookup({ x: "h1", y: "h2", z: "h3" });
     const plan = await planUpload(target, { baseline });
     assert.equal(plan.size, 0);
+  });
+
+  it("re-plans a baseline hash the deletion record marks deleted (ADR-0064)", async () => {
+    // The baseline honestly says h1 was stored when it uploaded — but a later
+    // `delete` removed it, so its word is punched through and the file goes up
+    // again. h2's skip survives untouched.
+    const target = lookup({ "a.txt": "h1", "b.txt": "h2" });
+    const baseline = lookup({ "a.txt": "h1", "b.txt": "h2" });
+    const plan = await planUpload(target, { baseline, deleted: ["h1"] });
+    assert.deepEqual(plan, new Map([["h1", "a.txt"]]));
   });
 
   it("streams listed store hashes out of the plan (the first-backup LIST diff)", async () => {
@@ -206,6 +224,29 @@ describe("uploadSnapshot baseline trust", () => {
       [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
     );
     assert.equal(result.candidates, 0);
+  });
+
+  it("re-uploads content a delete removed, even under a trusted baseline (ADR-0064)", async () => {
+    // The PR-A interlock's second half: remote existence proves the baseline's
+    // objects were stored *then*; the deletion record says what a later
+    // `delete` removed since. The file is still on disk and in the fresh
+    // snapshot, so it re-uploads — objects first, snapshot last — with no LIST
+    // fallback (the baseline itself is still trusted).
+    await using dir = await mkTmpDir();
+    const { file, hash, args } = await oneFileFixture(dir.path);
+    deletionRecords.set(hash, { deletedOn: "2026-07-19T1422" });
+
+    const result = await uploadSnapshot(args);
+
+    assert.deepEqual(listedPrefixes, []);
+    assert.deepEqual(putFiles, [
+      { path: file, uri: `s3://trust-bucket/objects/${hash}` },
+      {
+        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+      },
+    ]);
+    assert.equal(result.candidates, 1);
   });
 
   it("distrusts a baseline gone from the cloud — LISTs the store and re-plans its objects", async () => {

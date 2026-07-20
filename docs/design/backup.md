@@ -457,7 +457,11 @@ the [format spec](../../guide/format.md)), not implementation choice:
   report's numbers would be lies). **Missing objects** (verify's core finding) are
   reported, and `--delete` **refuses**: the repository is already losing data — triage
   with `verify` first, then clean up. No `--force` override until a real need appears.
-  (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.)
+  (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.
+  Objects the **deletion record** explains — removed on purpose by `delete`
+  ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)) — are *not* missing:
+  without that subtraction the first path-scoped delete would trip this interlock
+  forever.)
 - **No local state to reconcile:** cleanup reclaims only orphans (`stored − referenced`
   across every set), so a valid snapshot's objects are never deleted — and with the
   per-bucket objects cache gone
