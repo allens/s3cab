@@ -96,24 +96,49 @@ alone (see [Non-AWS providers](#non-aws-providers)).
 
 **Already have a bucket full of backups?** This applies to _new_ uploads; objects
 already in your bucket stay on whatever tier they were uploaded with. To move the
-existing ones too, apply a one-off bucket lifecycle rule that transitions
-everything to Glacier IR — write the rule to a `lifecycle.json`:
+existing ones too, add a one-off lifecycle rule that transitions everything to
+Glacier IR.
+
+> **Careful — this replaces the bucket's whole lifecycle configuration, it does
+> not merge.** `put-bucket-lifecycle-configuration` overwrites _every_ existing
+> rule with what you send. A bucket created by `s3cab aws` already has rules that
+> matter (the 90-day noncurrent-version expiry and the incomplete-multipart abort),
+> so you must include the transition **alongside** them, not on its own — sending
+> the transition by itself would silently delete those safety rules.
+
+First read what's already there, so you don't drop anything:
+
+```console
+> aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
+```
+
+Then write a `lifecycle.json` containing **all** the rules you want — the existing
+ones plus the new transition. For a bucket set up by `s3cab aws`, that is:
 
 ```json
 {
   "Rules": [
     {
-      "ID": "s3cab-glacier-ir",
-      "Filter": {},
+      "ID": "reclaim-deleted-backups",
       "Status": "Enabled",
+      "Filter": {},
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "s3cab-glacier-ir",
+      "Status": "Enabled",
+      "Filter": {},
       "Transitions": [{ "Days": 0, "StorageClass": "GLACIER_IR" }]
     }
   ]
 }
 ```
 
-then apply it once (harmless to leave in place afterwards — new objects already
-arrive as Glacier IR, so it finds nothing to move):
+If your `get` above showed different rules, copy _those_ in instead of the first
+rule shown here. Then apply the merged set (leaving the transition rule in place
+afterwards is fine — new objects already arrive as Glacier IR, so it finds nothing
+to move):
 
 ```console
 > aws s3api put-bucket-lifecycle-configuration --bucket <bucket> --lifecycle-configuration file://lifecycle.json

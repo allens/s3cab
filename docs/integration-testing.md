@@ -269,8 +269,8 @@ Backblaze B2, MinIO, …) by also setting an endpoint:
 export AWS_ENDPOINT_URL_S3=https://<your-endpoint>
 ```
 
-s3cab automatically drops AWS-only request features (SSE, intelligent-tiering, the default
-integrity-checksum trailer) when a custom endpoint is set, so a plain bucket elsewhere
+s3cab automatically drops AWS-only request features (SSE, the Glacier IR storage class, the
+default integrity-checksum trailer) when a custom endpoint is set, so a plain bucket elsewhere
 works. Credentials are still the provider's access key / secret in the same `AWS_*` vars.
 
 ---

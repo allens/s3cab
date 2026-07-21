@@ -239,7 +239,7 @@ one. That is strictly better than baking an emulator into CI, and it's free.
 
 s3cab targets non-AWS S3 providers as first-class (see
 [s3-provider-compatibility.md](s3-provider-compatibility.md)); `putFile` already omits
-intelligent-tiering, SSE, and the integrity-checksum trailer when a custom endpoint is set
+the Glacier IR storage class, SSE, and the integrity-checksum trailer when a custom endpoint is set
 (that note's Finding 3). The gating is the **most likely thing to silently regress**. Two
 layers guard it, covering different failure modes:
 
