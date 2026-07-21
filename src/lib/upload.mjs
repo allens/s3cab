@@ -3,10 +3,12 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { isENOENT } from "./error.mjs";
+import { fileProps } from "./file-props.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
 import { objectExists, putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
+import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -212,6 +214,48 @@ export async function uploadSnapshot({
   }
 
   return { name, candidates: plan.size, uploaded };
+}
+
+/**
+ * Seed a repository's object store from a live directory subtree — the "push my
+ * priority folders before the initial backup" primitive (docs/design/backup.md).
+ * Walk `dir` (applying the set's `exclude.txt`, so a seed matches exactly what a
+ * backup would store), hash each file, and conditional-PUT its object; the later
+ * full `backup` then dedups against everything already here for free (design #1).
+ *
+ * **Objects-only, no snapshot.** Writing a manifest is the `snapshot` command's
+ * job, not `upload`'s — so until a backup references them the seeded objects are
+ * unreferenced. That is the *safe* direction (wasted space, never corruption),
+ * but a `cleanup` run before the first backup would reap them as orphans
+ * (docs/design/backup.md). No baseline diff and no store LIST: the conditional
+ * PUT is the "already stored?" check, so re-running is cheap and idempotent.
+ * Identical content under many names uploads once (hashes deduped within the run).
+ * @param {object} args
+ * @param {string} args.bucket - The repository's S3 bucket
+ * @param {string} args.dir - The subtree to seed from (already validated as a directory)
+ * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
+ * @returns {Promise<{ candidates: number, uploaded: number }>} `candidates` =
+ *   distinct objects walked; `uploaded` = those actually transferred (the rest
+ *   were already stored).
+ */
+export async function uploadDir({ bucket, dir, excludePath }) {
+  const { files } = walkDirs([dir], readExcludePatterns(excludePath));
+
+  /** @type {Set<string>} */
+  const seen = new Set();
+  let uploaded = 0;
+  for (const path of files) {
+    const { hash } = await fileProps(path);
+    if (seen.has(hash)) {
+      continue; // identical content already handled this run — one PUT suffices
+    }
+    seen.add(hash);
+    const didUpload = await putObject(bucket, hash, path);
+    if (didUpload) {
+      uploaded++;
+    }
+  }
+  return { candidates: seen.size, uploaded };
 }
 
 /**

@@ -1,13 +1,14 @@
 import assert from "node:assert";
+import { existsSync, statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
-import { uploadSnapshot } from "../lib/upload.mjs";
+import { uploadDir, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
 /**
  * Get objects into a repository's content-addressed store — the plumbing counterpart
- * of the snapshot-driven `backup` porcelain (ADR-0044). One command, two granularities,
+ * of the snapshot-driven `backup` porcelain (ADR-0044). One command, three granularities,
  * chosen by mutually-exclusive target flags (never a second positional, cli-design pass):
  *
  * - **Single object** — `upload <set> --file <path>` (or `upload --bucket <b> --file <path>`):
@@ -28,6 +29,15 @@ import { prop } from "./prop.mjs";
  *   snapshot to upload or diff against is `backup`'s (porcelain) job. `--force`/`--bucket` are
  *   rejected here (force must never touch the immutable snapshot file; a snapshot always needs a set).
  *
+ * - **A folder's objects** — `upload <set> --dir <path>`: walk the subtree (applying the
+ *   set's excludes), hash each file, conditional-PUT each object — **no snapshot written**.
+ *   The "seed my priority folders before the initial backup" primitive (docs/design/backup.md):
+ *   the objects land now and the first full `backup` dedups against them for free. Objects-only
+ *   by design (writing a manifest is `snapshot`'s job), so the seeded objects are unreferenced
+ *   until a backup names them — the safe orphan direction. Always needs a set (its excludes come
+ *   from the set), so `--bucket`/`--force`/`--since` are rejected. The seeding loop lives in
+ *   `uploadDir`; `upload` only validates and dispatches.
+ *
  * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
  * snapshot — is `snapshot`-time machinery via `prop`'s `lookup`, not `upload`'s concern; the
  * old `--if-modified-from` TODO here was resolved into the `--since` baseline above, ADR-0044.)
@@ -46,20 +56,28 @@ import { prop } from "./prop.mjs";
  * @property {number} candidates - Objects considered for upload (not in the baseline)
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
  *
- * @typedef {FileUploadResult | SnapshotUploadResult} UploadResult
+ * @typedef {Object} DirUploadResult
+ * @property {"dir"} mode - Folder-seed upload (objects only, no snapshot)
+ * @property {string} set - The set whose store was seeded
+ * @property {string} dir - The folder that was walked and seeded
+ * @property {number} candidates - Distinct objects walked
+ * @property {number} uploaded - Those actually transferred (the rest were already stored)
+ *
+ * @typedef {FileUploadResult | SnapshotUploadResult | DirUploadResult} UploadResult
  *
  * @param {string} [setName] - The backup set to upload into (required unless `--bucket`
  *   is given; no sole-set default — plumbing names its target explicitly, ADR-0044 §2)
  * @param {object} [options]
  * @param {string} [options.file] - Upload this single file as one object
  * @param {string} [options.snapshot] - Upload this snapshot's objects, then its snapshot file
+ * @param {string} [options.dir] - Seed the set's store from this folder (objects only, no snapshot)
  * @param {string} [options.bucket] - Raw bucket for a `--file` upload with no set (ambient creds)
  * @param {string} [options.since] - Baseline snapshot to skip against (snapshot mode only)
  * @param {boolean} [options.force] - Re-upload even if the object already exists (`--file` only)
  * @returns {Promise<UploadResult>}
  */
 export async function upload(setName, options = {}) {
-  const { file, snapshot: snapshotName, bucket, since, force } = options;
+  const { file, snapshot: snapshotName, dir, bucket, since, force } = options;
 
   // ── Fail-fast validation (ADR-0044 §7, ADR-0011): flag conflicts before any
   // work. These are usage errors (ParseArgsError → exit 2, prints the synopsis),
@@ -75,12 +93,12 @@ export async function upload(setName, options = {}) {
   if (!bucket && !setName) {
     throw new MissingArgError("set");
   }
-  if (file && snapshotName) {
-    // The two modes are mutually exclusive (ADR-0044 §2). Without this, `if
-    // (file)` below would win and silently ignore `--snapshot`/`--since` —
-    // uploading the wrong thing rather than failing fast.
+  // The three modes are mutually exclusive (ADR-0044 §2). Without this, the
+  // `if (file)` / `if (dir)` branches below would win in order and silently
+  // ignore the others' flags — uploading the wrong thing rather than failing fast.
+  if ([file, snapshotName, dir].filter(Boolean).length > 1) {
     throw new ParseArgsError(
-      "Pass either --file or --snapshot, not both — they are different upload modes.",
+      "Pass one of --file, --snapshot, or --dir — they are different upload modes.",
     );
   }
   if (bucket && !file) {
@@ -94,12 +112,12 @@ export async function upload(setName, options = {}) {
   if (since && !snapshotName) {
     throw new ParseArgsError("--since applies only to --snapshot uploads.");
   }
-  // A target flag is the whole point — neither mode selected is nothing to do.
+  // A target flag is the whole point — no mode selected is nothing to do.
   // (After the `bucket && !file` check above, so `--bucket` alone keeps its more
   // specific "add --file" message.)
-  if (!file && !snapshotName) {
+  if (!file && !snapshotName && !dir) {
     throw new ParseArgsError(
-      "Specify what to upload: --file <path> or --snapshot <name>.",
+      "Specify what to upload: --file <path>, --snapshot <name>, or --dir <path>.",
     );
   }
 
@@ -116,8 +134,25 @@ export async function upload(setName, options = {}) {
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
 
+  // ── Folder-seed mode ──────────────────────────────────────────────────────
+  if (dir) {
+    // A folder that isn't there (a typo, an unplugged drive) is a usage error —
+    // fail fast naming the path, not a raw ENOENT from the walk below.
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+      throw new ParseArgsError(`--dir needs a folder that exists: ${dir}`);
+    }
+    // Always a set — the excludes that shape the seed come from it (no --bucket).
+    const set = loadSet(setName);
+    const { candidates, uploaded } = await uploadDir({
+      bucket: set.bucket,
+      dir,
+      excludePath: set.excludePath,
+    });
+    return { mode: "dir", set: set.name, dir, candidates, uploaded };
+  }
+
   // ── Snapshot mode ─────────────────────────────────────────────────────────
-  // The only mode left: the fail-fast block rejected "neither", and `--file`
+  // The only mode left: the fail-fast block rejected "none", and `--file`/`--dir`
   // returned. The assert pins that invariant (and narrows the type) — it can only
   // fire if a future edit weakens the guard above.
   assert(snapshotName, "upload: snapshot mode reached without a snapshot name");
