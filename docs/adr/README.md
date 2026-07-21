@@ -96,6 +96,7 @@ ADR as a live constraint.
 - [0062](0062-bulk-operands-positional-addressing-by-flag.md) — Bulk operands are positional, addressing moves to `--set`/`-S` (`delete`/`restore`/`setup`); `-s` stays `--snapshot` *(accepted, not yet implemented; answers 0040's deferred question; design in docs/design/snapshot-deletion.md)*
 - [0060](0060-multipart-tuning-in-flight-bytes.md) — Multipart tuning: 16 MiB parts × 32 concurrent (512 MiB in flight); bytes in flight are the lever, more streams beat bigger parts, and the unset `queueSize` (lib-storage's 4) was the real culprit *(accepted & implemented; measured from three network distances — benchmark kept as an ad-hoc script)*
 - [0065](0065-s3-client-request-timeouts.md) — S3 client request + connection timeouts so a dropped connection fails (a retryable `TimeoutError`) instead of hanging forever; the default handler set none. Reasoned, not measured — the value only sets how long a dead link waits *(accepted & implemented; hardens 0059/0060)*
+- [0066](0066-glacier-ir-storage-tier.md) — Upload straight to Glacier Instant Retrieval, the cheapest instant-access tier, set in the data plane (not a CF lifecycle transition); replaces Intelligent-Tiering, whose 128 KB floor stranded small objects at Standard price *(accepted & implemented; reverses the proposals/storage-tiers.md steer; archive tiers still deferred)*
 
 ### Auth, credentials & connection config
 

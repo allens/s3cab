@@ -87,7 +87,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    ([ADR-0047](../adr/0047-provider-command-neutral-config-door.md)).
 
 2. **Gate AWS-only upload options.** ✅ **Done.** `putFile` now omits
-   `StorageClass: INTELLIGENT_TIERING` and `ServerSideEncryption: AES256` when a custom
+   `StorageClass: GLACIER_IR` and `ServerSideEncryption: AES256` when a custom
    endpoint is set (R2 / B2 / Spaces reject them), and `client()` passes `followRegionRedirects`
    only on AWS. Objects carry **no `x-amz-meta-*` metadata** at all now — it was never read, and
    because S3 user metadata rides as HTTP headers it could not carry a path outside Latin-1

@@ -386,7 +386,7 @@ const awsOnlyPutParams = () =>
     ? {}
     : {
         ServerSideEncryption: ServerSideEncryption.AES256,
-        StorageClass: StorageClass.INTELLIGENT_TIERING,
+        StorageClass: StorageClass.GLACIER_IR,
       };
 
 /**
