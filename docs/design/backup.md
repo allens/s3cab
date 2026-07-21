@@ -209,6 +209,29 @@ retired (ADR-0044); the objects-first/snapshot-last invariant and the conditiona
 backstop live in `upload`'s snapshot mode (over the `uploadSnapshot` lib), and `backup`
 just composes.
 
+### `upload --dir` — seed a folder before the first backup (**built**)
+
+For a large first backup, you can push the folders you care about most *first*, so their
+bytes are protected soonest rather than waiting out one long run. `upload <set> --dir <path>`
+is that primitive — the third granularity on `upload` beside `--file` and `--snapshot`
+(ADR-0044's mutually-exclusive target flags). It walks the subtree applying the set's
+`exclude.txt` (via the shared `readExcludePatterns` + `walkDirs`, so a seed stores exactly
+what a backup would), hashes each file, and conditional-PUTs its object; the loop is
+`uploadDir` in the `upload` lib. Because the store is content-addressed, the later full
+`backup` dedups against everything seeded for free (design #1) — seeding needs no ordering
+machinery in `backup` itself, only "push these objects up ahead of time".
+
+**Objects-only, by design.** Writing a manifest is `snapshot`'s job, not `upload`'s, so a
+seed transfers bytes and nothing else — no snapshot, no baseline diff, no store LIST (the
+conditional PUT is the "already stored?" check, so re-running is cheap and idempotent). The
+consequence is the one open thread: until a backup references them the seeded objects are
+**unreferenced**, indistinguishable from the orphan objects a mid-backup crash leaves. That
+is the *safe* direction (wasted space, never corruption), but a `cleanup` run in the window
+between seeding and the first backup would reap them (the grace window is the only guard). In
+practice you seed → back up and don't `cleanup` a set that has never been fully backed up, so
+this is a documented footnote — flagged here to confirm against real use before, say, writing
+a partial manifest to close it (judged scope creep on `upload` for now).
+
 ### `restore` — put files back, never destructively by default
 
 `s3cab restore --set <set> [paths…]` restores to **original locations** (the snapshot's

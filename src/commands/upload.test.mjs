@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
 
 // Offline tests for `upload`'s command surface (ADR-0044): the fail-fast flag
 // validation, and that each mode routes to the right plumbing with the right
 // arguments (set-scoped vs raw --bucket for a single file; the snapshot uploader
-// for --snapshot). The lib seams — set resolution, hashing, the object PUT, and
-// the snapshot uploader — are faked so the test exercises `upload`'s own dispatch
-// and validation, not S3. Mocks first, then a dynamic import (objects.test.mjs
-// ordering rule).
+// for --snapshot; the folder seeder for --dir). The lib seams — set resolution,
+// hashing, the object PUT, and the snapshot/dir uploaders — are faked so the test
+// exercises `upload`'s own dispatch and validation, not S3. `--dir`'s existence
+// check is real fs, so its tests point at a genuine directory (`tmpdir()`). Mocks
+// first, then a dynamic import (objects.test.mjs ordering rule).
 
-/** @type {{ name: string, bucket: string, snapshotsDir: string }} */
+/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string }} */
 const fakeSet = {
   name: "photos",
   bucket: "set-bucket",
   snapshotsDir: "/snaps",
+  excludePath: "/snaps/exclude.txt",
 };
 /** @type {(string | undefined)[]} */
 let loadSetCalls = [];
@@ -23,6 +26,8 @@ let propCalls = [];
 let putObjectCalls = [];
 /** @type {Record<string, unknown>[]} */
 let uploadSnapshotCalls = [];
+/** @type {Record<string, unknown>[]} */
+let uploadDirCalls = [];
 let putResult = true;
 
 mock.module("../lib/env.mjs", {
@@ -61,6 +66,10 @@ mock.module("../lib/upload.mjs", {
       uploadSnapshotCalls.push(args);
       return { name: args.name, candidates: 5, uploaded: 2 };
     },
+    uploadDir: async (/** @type {Record<string, unknown>} */ args) => {
+      uploadDirCalls.push(args);
+      return { candidates: 40, uploaded: 12 };
+    },
   },
 });
 
@@ -71,6 +80,7 @@ beforeEach(() => {
   propCalls = [];
   putObjectCalls = [];
   uploadSnapshotCalls = [];
+  uploadDirCalls = [];
   putResult = true;
 });
 
@@ -90,14 +100,23 @@ describe("upload validation", () => {
     assert.deepEqual(loadSetCalls, []); // never even resolves a set
   });
 
-  it("rejects --file and --snapshot together (mutually exclusive modes)", async () => {
+  it("rejects two modes together (mutually exclusive: --file and --snapshot)", async () => {
     await assert.rejects(
       upload("photos", { file: "f", snapshot: "2026-01-01T0900" }),
-      /Pass either --file or --snapshot, not both/,
+      /Pass one of --file, --snapshot, or --dir/,
     );
     // The conflict is caught before either mode runs.
     assert.deepEqual(putObjectCalls, []);
     assert.deepEqual(uploadSnapshotCalls, []);
+  });
+
+  it("rejects two modes together (--file and --dir)", async () => {
+    await assert.rejects(
+      upload("photos", { file: "f", dir: tmpdir() }),
+      /Pass one of --file, --snapshot, or --dir/,
+    );
+    assert.deepEqual(putObjectCalls, []);
+    assert.deepEqual(uploadDirCalls, []);
   });
 
   it("rejects --bucket without --file", async () => {
@@ -121,14 +140,22 @@ describe("upload validation", () => {
     );
   });
 
-  it("rejects neither --file nor --snapshot", async () => {
+  it("rejects no mode at all", async () => {
     await assert.rejects(
       upload("photos", {}),
-      /Specify what to upload: --file <path> or --snapshot <name>/,
+      /Specify what to upload: --file <path>, --snapshot <name>, or --dir <path>/,
     );
     // A usage error thrown before any work — no set resolution, no PUT.
     assert.deepEqual(putObjectCalls, []);
     assert.deepEqual(uploadSnapshotCalls, []);
+  });
+
+  it("rejects --dir at a path that isn't a folder (before any seeding)", async () => {
+    await assert.rejects(
+      upload("photos", { dir: "/no/such/folder/xyz" }),
+      /--dir needs a folder that exists: \/no\/such\/folder\/xyz/,
+    );
+    assert.deepEqual(uploadDirCalls, []);
   });
 });
 
@@ -198,5 +225,27 @@ describe("upload --snapshot (a snapshot's objects)", () => {
     await upload("photos", { snapshot: "2026-01-02T0900" });
 
     assert.equal(uploadSnapshotCalls[0]?.since, undefined);
+  });
+});
+
+describe("upload --dir (seed a folder's objects)", () => {
+  it("hands the seeder the set's bucket, the folder, and the set's exclude path", async () => {
+    const result = await upload("photos", { dir: tmpdir() });
+
+    assert.deepEqual(loadSetCalls, ["photos"]);
+    assert.deepEqual(putObjectCalls, []); // dir mode never single-PUTs
+    assert.equal(uploadDirCalls.length, 1);
+    assert.deepEqual(uploadDirCalls[0], {
+      bucket: "set-bucket",
+      dir: tmpdir(),
+      excludePath: "/snaps/exclude.txt",
+    });
+    assert.deepEqual(result, {
+      mode: "dir",
+      set: "photos",
+      dir: tmpdir(),
+      candidates: 40,
+      uploaded: 12,
+    });
   });
 });

@@ -23,6 +23,8 @@ let baselineExists = true;
 let headUris = [];
 /** @type {{ path: string, uri: string }[]} PUTs, in call order. */
 let putFiles = [];
+/** @type {Set<string>} object URIs the store already holds (PUT no-ops → false). */
+let storedUris = new Set();
 /** @type {string[]} Hashes the mocked store LIST yields under `objects/`. */
 let storeHashes = [];
 /** @type {string[]} Prefix URIs LISTed — empty when no LIST fallback ran. */
@@ -37,7 +39,7 @@ mock.module("./s3.mjs", {
     },
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri });
-      return true;
+      return !storedUris.has(uri); // false = the store already held this object
     },
     listObjects: async function* (/** @type {string} */ uri) {
       listedPrefixes.push(uri);
@@ -59,12 +61,13 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => deletionRecords,
   },
 });
-const { planUpload, uploadSnapshot } = await import("./upload.mjs");
+const { planUpload, uploadSnapshot, uploadDir } = await import("./upload.mjs");
 
 beforeEach(() => {
   baselineExists = true;
   headUris = [];
   putFiles = [];
+  storedUris = new Set();
   storeHashes = [];
   listedPrefixes = [];
   deletionRecords = new Map();
@@ -344,5 +347,69 @@ describe("uploadSnapshot drift guard", () => {
 
     await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
     assert.deepEqual(putFiles, []);
+  });
+});
+
+// The folder-seed primitive (`upload --dir`): walk a live subtree honouring the
+// set's excludes, hash each file, and conditional-PUT its object — no snapshot,
+// no baseline diff, no store LIST (the conditional PUT is the "already stored?"
+// check). Real walk + real hashing over a temp fixture; only the `putFile` seam
+// is mocked, so `putFiles` is the evidence of exactly which objects went up.
+describe("uploadDir (seed a folder's objects)", () => {
+  const sha = (/** @type {string} */ content) =>
+    crypto.hash("sha256", Buffer.from(content), "hex");
+
+  /**
+   * Build a subtree with a duplicate, a nested file, and a `.tmp` to be excluded.
+   * @param {string} dirPath - A temp dir to build the fixture in
+   */
+  const seedFixture = (dirPath) => {
+    const root = resolve(dirPath, "photos");
+    mkdirSync(join(root, "sub"), { recursive: true });
+    writeFileSync(join(root, "a.txt"), "hello");
+    writeFileSync(join(root, "b.txt"), "hello"); // identical content → deduped
+    writeFileSync(join(root, "c.txt"), "world");
+    writeFileSync(join(root, "scratch.tmp"), "junk"); // matched by the exclude
+    writeFileSync(join(root, "sub", "d.txt"), "deep");
+
+    const excludePath = join(dirPath, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\n");
+    return { root, excludePath };
+  };
+
+  it("walks (honouring excludes), dedups by content, and PUTs each object once", async () => {
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    // Three distinct objects: "hello" (a.txt/b.txt share it), "world", "deep".
+    // scratch.tmp is excluded, so its bytes never reach a PUT.
+    const expected = ["hello", "world", "deep"]
+      .map((c) => `s3://seed-bucket/objects/${sha(c)}`)
+      .sort();
+    assert.deepEqual(putFiles.map(({ uri }) => uri).sort(), expected);
+    assert.equal(result.candidates, 3);
+    assert.equal(result.uploaded, 3);
+  });
+
+  it("counts an already-stored object as a candidate but not an upload", async () => {
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    storedUris.add(`s3://seed-bucket/objects/${sha("world")}`); // already present
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    // Still considered (a conditional PUT is attempted), but not transferred.
+    assert.equal(result.candidates, 3);
+    assert.equal(result.uploaded, 2);
   });
 });

@@ -20,27 +20,6 @@ future "platform / release" epic).
   name TBD — `--no-manifest` / `--objects-only`). Deferred from the upload epic (ADR-0044) per
   #7 — no use has appeared. Harmless if added: orphan objects with no manifest are the *safe*
   direction (wasted space, not corruption).
-- **`upload --dir <path>` — seed priority folders before the initial backup.** For a big first
-  backup, push the folders you care about most *first* so their bytes are up soonest; the later
-  full `backup` snapshots the whole tree and dedups against everything already stored (content-
-  addressing makes the seeded objects free on the second pass). This is the missing **third
-  granularity** on `upload`, alongside `--file` (one object) and `--snapshot` (a whole
-  manifest's objects) — same "target chosen by a mutually-exclusive flag" shape (ADR-0044), so
-  `--dir` is exclusive with the other two. `upload` is the right level because this is pure
-  "get objects into the store" plumbing, not a porcelain snapshot operation. Sketch:
-  - **Objects-only, no manifest** — walk the subtree, hash each file, conditional-PUT into
-    `objects/<sha256>`. No snapshot is written (creating one is the `snapshot` command's job,
-    not `upload`'s). Same *safe orphan* direction as the manifest opt-out item above.
-  - **Reuse the snapshot walk so it honours the set's `exclude.txt`** — otherwise you can seed
-    objects that `backup` would exclude, guaranteeing orphans; respecting excludes makes the
-    seeded bytes exactly match what the eventual backup wants.
-  - **The one loose thread — the orphan/cleanup window.** Between seeding and the first `backup`,
-    the objects are unreferenced (no manifest maps their hashes → paths), so they aren't
-    independently restorable yet and a `cleanup` in that window would reap them. In practice you
-    seed → backup and wouldn't `cleanup` a never-fully-backed-up set, so this reads as a
-    documented footnote, not a blocker — but it's the bit to confirm against real use. (If
-    "protected soonest" should mean *recoverable* soonest rather than *bytes up* soonest, that
-    argues for writing a partial manifest — judged scope creep on `upload` for now.)
 - **`scripts/`: empty-a-versioned-bucket helper for manual testing** (write fresh when asked).
   The deleted `emptyBucket` in s3.mjs was meant for this but never did it — a plain per-key
   `DeleteObjectCommand` only adds delete markers on a versioned bucket. The real thing needs

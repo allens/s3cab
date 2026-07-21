@@ -32,12 +32,23 @@ import { isInteractive } from "./style.mjs";
  */
 export function walkSet(set) {
   assertWalkableDirs(set);
-  const excludePath = set.excludePath;
+  return walkDirs(set.dirs, readExcludePatterns(set.excludePath));
+}
+
+/**
+ * Read a set's `exclude.txt` into a list of glob patterns (empty when the file is
+ * absent), announcing the file on stderr when it holds any. The shared front of
+ * both walk entry points — `walkSet` (whole set) and `upload --dir` (one subtree
+ * seeded into the store) — so a seed honours exactly the excludes a backup would.
+ * @param {string} excludePath - Path to the set's `exclude.txt`
+ * @returns {string[]} The exclude glob patterns (guide/exclude.md)
+ */
+export function readExcludePatterns(excludePath) {
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
   if (patterns.length) {
     console.warn("Using exclude file", `'${excludePath}'`);
   }
-  return walkDirs(set.dirs, patterns);
+  return patterns;
 }
 
 /**

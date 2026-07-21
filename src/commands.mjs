@@ -500,9 +500,11 @@ export const commands = {
     render: renderLines,
   },
   upload: {
-    summary: "Upload a file or a snapshot's objects to a set's store",
+    summary:
+      "Upload a file, a folder's objects, or a snapshot's objects to a set's store",
     examples: [
       "s3cab upload photos --file C:\\Users\\me\\big.iso",
+      "s3cab upload photos --dir C:\\Users\\me\\Photos\\2026",
       "s3cab upload photos --snapshot 2026-06-12T0915",
       "s3cab upload --bucket my-backups --file big.iso",
     ],
@@ -516,6 +518,11 @@ export const commands = {
       file: {
         type: "string",
         description: "Upload this single file as one object",
+      },
+      dir: {
+        type: "string",
+        description:
+          "Seed the set's store from this folder — hash and upload its objects, no snapshot",
       },
       snapshot: {
         type: "string",
