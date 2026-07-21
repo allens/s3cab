@@ -623,12 +623,14 @@ function objectUploadLine(head, candidates, uploaded) {
 }
 
 /**
- * Confirm an `upload` (ADR-0043) — the plumbing put, in one of two shapes
+ * Confirm an `upload` (ADR-0043) — the plumbing put, in one of three shapes
  * (ADR-0044). **`file`**: the single-object put, reporting the object key (the
  * content address, never truncated) and human size, and whether the bytes were
  * transferred or the store already held them (a content-addressed store never
  * re-puts identical content). **`snapshot`**: a whole snapshot's objects, sharing
- * `backup`'s content-uploaded line under an upload-framed headline.
+ * `backup`'s content-uploaded line under an upload-framed headline. **`dir`**: a
+ * folder seeded into the store (objects only, no snapshot), sharing that same
+ * content-uploaded line under a "Seeded …" headline.
  * @param {UploadResult} result
  * @returns {string}
  */
@@ -637,6 +639,14 @@ export function renderUpload(result) {
     const { set, snapshot, candidates, uploaded } = result;
     return objectUploadLine(
       `Uploaded snapshot '${snapshot}' to '${set}'`,
+      candidates,
+      uploaded,
+    );
+  }
+  if (result.mode === "dir") {
+    const { set, dir, candidates, uploaded } = result;
+    return objectUploadLine(
+      `Seeded '${dir}' into '${set}'`,
       candidates,
       uploaded,
     );

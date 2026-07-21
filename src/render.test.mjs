@@ -777,6 +777,35 @@ describe("renderUpload", () => {
     });
     assert.match(text, /already up to date, nothing new to upload\.$/);
   });
+
+  it("reports a folder seed's content line under a 'Seeded' headline", () => {
+    const text = renderUpload({
+      mode: "dir",
+      set: "photos",
+      dir: "/home/me/Photos/2026",
+      candidates: 40,
+      uploaded: 40,
+    });
+    assert.equal(
+      text,
+      "Seeded '/home/me/Photos/2026' into 'photos': uploaded 40 objects.",
+    );
+  });
+
+  it("reports the already-stored case for a folder seed", () => {
+    const text = renderUpload({
+      mode: "dir",
+      set: "photos",
+      dir: "/home/me/Photos/2026",
+      candidates: 40,
+      uploaded: 10,
+    });
+    assert.equal(
+      text,
+      "Seeded '/home/me/Photos/2026' into 'photos': " +
+        "uploaded 10 of 40 objects (30 already stored).",
+    );
+  });
 });
 
 /**
