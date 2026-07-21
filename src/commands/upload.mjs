@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
@@ -136,9 +136,17 @@ export async function upload(setName, options = {}) {
 
   // ── Folder-seed mode ──────────────────────────────────────────────────────
   if (dir) {
-    // A folder that isn't there (a typo, an unplugged drive) is a usage error —
-    // fail fast naming the path, not a raw ENOENT from the walk below.
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    // A folder that isn't a usable directory (a typo, an unplugged drive, an
+    // unreadable path) is a usage error — fail fast naming it, not a raw
+    // ENOENT/EACCES from the walk below. One stat, so any failure (missing,
+    // unreadable, or vanished between check and use) routes into the guard.
+    let isDir;
+    try {
+      isDir = statSync(dir).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
       throw new ParseArgsError(`--dir needs a folder that exists: ${dir}`);
     }
     // Always a set — the excludes that shape the seed come from it (no --bucket).
