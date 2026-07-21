@@ -451,6 +451,15 @@ describe("AWS upload request shaping (no custom endpoint)", () => {
       headers.includes("x-amz-storage-class"),
       `missing storage-class header on AWS: ${headers.join(", ")}`,
     );
+    // Pin the tier, not just its presence: s3cab uploads straight to Glacier
+    // Instant Retrieval — the cheapest instant-access class — so an accidental
+    // revert to Intelligent-Tiering (which strands sub-128 KB objects at
+    // Standard price) fails here. See ADR-0066.
+    assert.equal(
+      request.headers["x-amz-storage-class"],
+      "GLACIER_IR",
+      `expected Glacier IR storage class, got ${request.headers["x-amz-storage-class"]}`,
+    );
   });
 });
 

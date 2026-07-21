@@ -68,6 +68,82 @@ versions — so **reclaimed space does not drop immediately**; the lifecycle abo
 frees it once the window elapses. That deferral is the safety net (a mistaken
 `cleanup` is recoverable within the window), not a bug.
 
+## How your backups are stored: the Glacier Instant Retrieval tier
+
+s3cab uploads every object to AWS's **Glacier Instant Retrieval** storage class —
+the cheapest tier that still reads back **instantly** (millisecond retrieval, just
+like S3 Standard; it is _not_ one of the slow archive tiers that make you wait
+hours). Storage costs roughly a sixth of Standard, which suits what a backup is:
+written once, read only on the rare occasion you restore.
+
+There are three costs to know about up front — s3cab picks this tier for you, but
+it should be your informed choice:
+
+- **A 128 KB minimum billable size.** Objects smaller than 128 KB are billed as if
+  they were 128 KB. Even so, anything larger than ~22 KB is still cheaper here than
+  on Standard; only very small files cost fractionally more, and in absolute terms
+  that is rounding error.
+- **A 90-day minimum storage duration.** An object deleted sooner than 90 days is
+  still billed for the full 90. This mostly matters if you back up and then prune
+  the same content quickly — `s3cab forget` and `s3cab cleanup` on a bucket whose
+  contents churn a lot. The bucket's 90-day noncurrent-version window (above) lines
+  up with this, so the normal reclamation path pays no early-deletion penalty.
+- **A per-GB retrieval fee** when you read data back. A restore therefore costs a
+  little, but a backup you restore rarely barely notices it.
+
+This tier is AWS-specific. On a non-AWS provider s3cab leaves the storage class
+alone (see [Non-AWS providers](#non-aws-providers)).
+
+**Already have a bucket full of backups?** This applies to _new_ uploads; objects
+already in your bucket stay on whatever tier they were uploaded with. To move the
+existing ones too, add a one-off lifecycle rule that transitions everything to
+Glacier IR.
+
+> **Careful — this replaces the bucket's whole lifecycle configuration, it does
+> not merge.** `put-bucket-lifecycle-configuration` overwrites _every_ existing
+> rule with what you send. A bucket created by `s3cab aws` already has rules that
+> matter (the 90-day noncurrent-version expiry and the incomplete-multipart abort),
+> so you must include the transition **alongside** them, not on its own — sending
+> the transition by itself would silently delete those safety rules.
+
+First read what's already there, so you don't drop anything:
+
+```console
+> aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
+```
+
+Then write a `lifecycle.json` containing **all** the rules you want — the existing
+ones plus the new transition. For a bucket set up by `s3cab aws`, that is:
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "reclaim-deleted-backups",
+      "Status": "Enabled",
+      "Filter": {},
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "s3cab-glacier-ir",
+      "Status": "Enabled",
+      "Filter": {},
+      "Transitions": [{ "Days": 0, "StorageClass": "GLACIER_IR" }]
+    }
+  ]
+}
+```
+
+If your `get` above showed different rules, copy _those_ in instead of the first
+rule shown here. Then apply the merged set (leaving the transition rule in place
+afterwards is fine — new objects already arrive as Glacier IR, so it finds nothing
+to move):
+
+```console
+> aws s3api put-bucket-lifecycle-configuration --bucket <bucket> --lifecycle-configuration file://lifecycle.json
+```
+
 ## The security model
 
 The everyday identity and the bucket together give a backup tool the property it
@@ -244,9 +320,9 @@ The steps (also available offline via `s3cab help provider`):
    takes `auto`. To change any of it later, use `s3cab provider`
    (e.g. `s3cab provider --keys <set>`).
 
-s3cab automatically drops AWS-only request features (server-side encryption,
-intelligent-tiering, the default integrity-checksum trailer) when a custom
-endpoint is set, so a plain bucket elsewhere just works.
+s3cab automatically drops AWS-only request features (server-side encryption, the
+Glacier Instant Retrieval storage class, the default integrity-checksum trailer)
+when a custom endpoint is set, so a plain bucket elsewhere just works.
 
 ### Keeping the secret out of plaintext
 
