@@ -95,6 +95,7 @@ ADR as a live constraint.
 - [0061](0061-debug-only-uncompressed-snapshot-sidecar.md) — The uncompressed `.snapshot.tsv` sidecar stays `S3CAB_DEBUG`-only; no-lock-in is already met by the standard `.tsv.zst` *(accepted; applies 0002/0006)*
 - [0062](0062-bulk-operands-positional-addressing-by-flag.md) — Bulk operands are positional, addressing moves to `--set`/`-S` (`delete`/`restore`/`setup`); `-s` stays `--snapshot` *(accepted, not yet implemented; answers 0040's deferred question; design in docs/design/snapshot-deletion.md)*
 - [0060](0060-multipart-tuning-in-flight-bytes.md) — Multipart tuning: 16 MiB parts × 32 concurrent (512 MiB in flight); bytes in flight are the lever, more streams beat bigger parts, and the unset `queueSize` (lib-storage's 4) was the real culprit *(accepted & implemented; measured from three network distances — benchmark kept as an ad-hoc script)*
+- [0065](0065-s3-client-request-timeouts.md) — S3 client request + connection timeouts so a dropped connection fails (a retryable `TimeoutError`) instead of hanging forever; the default handler set none. Reasoned, not measured — the value only sets how long a dead link waits *(accepted & implemented; hardens 0059/0060)*
 
 ### Auth, credentials & connection config
 
