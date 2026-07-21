@@ -128,12 +128,24 @@ ones plus the new transition. For a bucket set up by `s3cab aws`, that is:
     {
       "ID": "s3cab-glacier-ir",
       "Status": "Enabled",
-      "Filter": {},
+      "Filter": { "ObjectSizeGreaterThan": 0 },
       "Transitions": [{ "Days": 0, "StorageClass": "GLACIER_IR" }]
     }
   ]
 }
 ```
+
+The `"ObjectSizeGreaterThan": 0` on the transition rule is deliberate. By default
+S3 **won't** transition objects smaller than 128 KB to any storage class — and a
+content-addressed store like s3cab holds plenty of those, so without this they'd
+be left behind on their original tier. Adding an explicit object-size filter
+overrides that default (any size filter does; `0` means "every object"), so the
+small ones move to Glacier IR too. The trade-off S3 is guarding against: you pay a
+one-time transition request per object (~$0.02 per 1,000), and objects under
+~22 KB cost fractionally more to store on Glacier IR than on Standard because of
+its 128 KB billing floor — pennies either way, but that's why it isn't the
+default. Drop the filter (`"Filter": {}`) if you'd rather leave sub-128 KB objects
+where they are.
 
 If your `get` above showed different rules, copy _those_ in instead of the first
 rule shown here. Then apply the merged set (leaving the transition rule in place
