@@ -14,7 +14,10 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   `getObject` → `writeFileAtomic` via `pipeline`, already propagates — #171 fixed it by dropping
   the old `S3ReadStream` wrapper; only the snapshot *reads* remain.)
 - **Network resilience knobs** for `backup`: retry policy, bandwidth limiting, resumability of
-  a multi-thousand-file upload run.
+  a multi-thousand-file upload run. _(Partly addressed: request + connection timeouts landed so a
+  dropped connection fails instead of hanging — [ADR-0065](../docs/adr/0065-s3-client-request-timeouts.md).
+  Still open: a friendlier message than the SDK's raw `TimeoutError`, plus the retry/bandwidth/
+  resumability knobs themselves.)_
 
 _Moved out 2026-07-18 — stale temp-file recovery / the lock-file question →
 [concurrency-and-locking.md](concurrency-and-locking.md); metadata privacy →

@@ -118,6 +118,28 @@ function putRequest() {
   );
 }
 
+describe("clientConfig request timeouts", () => {
+  it("bounds requests with non-zero socket + connection timeouts so a dropped connection fails instead of hanging", () => {
+    // The exact values are tunable reasoned defaults (ADR-0065); the invariant
+    // that must never regress is that both are *set and non-zero* — zero or
+    // undefined is the SDK default that hangs a lost connection forever.
+    const requestHandler =
+      /** @type {{ requestTimeout?: number, connectionTimeout?: number }} */ (
+        clientConfig().requestHandler
+      );
+    assert.ok(
+      Number.isFinite(requestHandler?.requestTimeout) &&
+        Number(requestHandler.requestTimeout) > 0,
+      `requestTimeout must be a positive number, got ${requestHandler?.requestTimeout}`,
+    );
+    assert.ok(
+      Number.isFinite(requestHandler?.connectionTimeout) &&
+        Number(requestHandler.connectionTimeout) > 0,
+      `connectionTimeout must be a positive number, got ${requestHandler?.connectionTimeout}`,
+    );
+  });
+});
+
 describe("off-AWS upload request shaping (custom endpoint)", () => {
   beforeEach(() => {
     process.env.AWS_ENDPOINT_URL_S3 = "https://s3.example-provider.test";

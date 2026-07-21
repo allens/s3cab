@@ -98,6 +98,27 @@ export function authNotice({
   return "Contacting the cloud…";
 }
 
+// Bound every request so a dropped or half-open connection fails instead of
+// hanging forever (ADR-0065). The SDK's default Node handler sets no socket
+// timeout, so a backup that loses its network mid-upload sits frozen with no
+// error — the progress bar simply stops. Passing these as a plain options object
+// lets the SDK build the NodeHttpHandler itself, so we needn't import the
+// transitive @smithy/node-http-handler (dependency policy — ADR-0005).
+//
+//   requestTimeout    — socket *inactivity* limit: reset by any byte in or out, so
+//                       a slow-but-alive transfer never trips it (ADR-0060 shows a
+//                       healthy multipart upload streams continuously); only true
+//                       silence — a dropped connection — does. A TimeoutError is
+//                       retryable, so the SDK retries (default maxAttempts) and a
+//                       genuinely dead link then surfaces as a real error.
+//   connectionTimeout — cap on establishing the TCP/TLS connection.
+//
+// Reasoned defaults, not measured (unlike ADR-0060's throughput tuning): the value
+// only sets how long a dead link waits before erroring, not throughput. Pinned by
+// a unit test so they can't silently drop back to zero (the infinite-hang bug).
+const REQUEST_TIMEOUT_MS = 30_000;
+const CONNECTION_TIMEOUT_MS = 10_000;
+
 /**
  * The S3 client configuration. Split out from `client()` so the endpoint-driven
  * gating below (region, checksum mode, region-redirect) can be asserted directly
@@ -109,6 +130,10 @@ export function authNotice({
 export function clientConfig() {
   const endpoint = customEndpoint();
   return {
+    requestHandler: {
+      requestTimeout: REQUEST_TIMEOUT_MS,
+      connectionTimeout: CONNECTION_TIMEOUT_MS,
+    },
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
     // *a* region to sign the first request, so default to us-east-1 when none is
     // set. An explicit env override still wins (and is required by providers that
