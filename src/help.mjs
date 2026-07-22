@@ -58,9 +58,9 @@ Full guide: https://s3cab.plantegral.com/guide/exclude`,
 
 /**
  * Levenshtein edit distance between two strings — the fewest single-character
- * insertions, deletions, or substitutions that turn `a` into `b`. Two-row DP;
- * only ever run over the short command/topic names, so the O(len·len) cost is
- * negligible. Internal to {@link closestName}.
+ * insertions, deletions, or substitutions that turn `a` into `b`. Rolling
+ * single-row DP; only ever run over the short command/topic names, so the
+ * O(len·len) cost is negligible. Internal to {@link closestName}.
  * @param {string} a
  * @param {string} b
  * @returns {number}
@@ -69,7 +69,8 @@ function editDistance(a, b) {
   // Single rolling row: distances[j] holds the cost against b[0..j). The reads
   // are all provably in bounds (0…b.length over a fully filled row), so the
   // `?? 0` coalescers only exist to satisfy noUncheckedIndexedAccess — the repo
-  // idiom (lib/objects.mjs) — and never actually fire.
+  // idiom for a known-in-bounds array read (lib/roles-anywhere.mjs `body[0] ?? 0`)
+  // — and never actually fire.
   const distances = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
     let diagonal = distances[0] ?? 0; // cost of a[0..i-1) vs the empty prefix

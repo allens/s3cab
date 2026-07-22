@@ -322,8 +322,8 @@ describe("closestName", () => {
   });
 
   it("breaks ties toward the first candidate in order", () => {
-    // "lisp" is distance 1 from both "list" (sub) and, hypothetically, any
-    // other one-edit name; the earlier candidate wins.
+    // "lst" is distance 1 from both "list" and "last" (one insertion each);
+    // the earlier candidate in order wins.
     assert.equal(closestName("lst", ["list", "last"]), "list");
   });
 
