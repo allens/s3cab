@@ -300,6 +300,28 @@ describe("cli (e2e)", () => {
 
     assert.strictEqual(status, 127);
     assert.match(stderr, /Unknown command/);
+    // Nothing is close to this gibberish, so no misleading guess.
+    assert.doesNotMatch(stderr, /Did you mean/);
+  });
+
+  it("suggests the closest command on a typo", () => {
+    const { status, stderr } = run("bcakup"); // transposed 'backup'
+
+    assert.strictEqual(status, 127);
+    assert.match(stderr, /Unknown command: bcakup/);
+    assert.match(stderr, /Did you mean 'backup'\?/);
+  });
+
+  it("errors (not silent fall-through) on an unknown help topic", () => {
+    // Previously `help <unknown>` fell through to the top-level list on stdout
+    // with exit 0; it must name the miss on stderr and exit non-zero, with a
+    // suggestion when one is close.
+    const { status, stdout, stderr } = run("help", "exclud"); // typo of exclude
+
+    assert.strictEqual(status, 2);
+    assert.strictEqual(stdout, "");
+    assert.match(stderr, /Unknown help topic: exclud/);
+    assert.match(stderr, /Did you mean 'exclude'\?/);
   });
 
   it("the removed login command is gone from the CLI surface", () => {

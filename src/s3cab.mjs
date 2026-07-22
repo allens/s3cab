@@ -5,7 +5,13 @@ import pkg from "../package.json" with { type: "json" };
 import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
-import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import {
+  closestName,
+  errorMessage,
+  helpTopics,
+  synopsis,
+  usage,
+} from "./help.mjs";
 import { loadEnv } from "./lib/env.mjs";
 import { isInputError, isUsageError } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
@@ -40,7 +46,28 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  console.log(helpTopics[args[0] ?? ""] ?? usage(commands, args[0], helpStyle));
+  const topic = args[0];
+  // `help <name>` for something that is neither a topic nor a command is a user
+  // error, not a silent fall-through to the full command list: name it on
+  // stderr with a "did you mean …?" hint and exit non-zero (clig.dev). Bare
+  // `help` (no topic) still prints the top-level list on stdout.
+  if (
+    topic &&
+    !Object.hasOwn(helpTopics, topic) &&
+    !Object.hasOwn(commands, topic)
+  ) {
+    console.error(`Unknown help topic: ${topic}\n`);
+    const suggestion = closestName(topic, [
+      ...Object.keys(helpTopics),
+      ...Object.keys(commands),
+    ]);
+    if (suggestion) {
+      console.error(`Did you mean '${suggestion}'?\n`);
+    }
+    console.error(usage(commands));
+    process.exit(2);
+  }
+  console.log(helpTopics[topic ?? ""] ?? usage(commands, topic, helpStyle));
   process.exit(0);
 }
 
@@ -48,6 +75,10 @@ const command = commands[commandName];
 
 if (!command) {
   console.error(`Unknown command: ${commandName}\n`);
+  const suggestion = closestName(commandName, Object.keys(commands));
+  if (suggestion) {
+    console.error(`Did you mean '${suggestion}'?\n`);
+  }
   console.error(usage(commands));
   process.exit(127);
 }

@@ -57,6 +57,67 @@ Full guide: https://s3cab.plantegral.com/guide/exclude`,
 };
 
 /**
+ * Levenshtein edit distance between two strings — the fewest single-character
+ * insertions, deletions, or substitutions that turn `a` into `b`. Two-row DP;
+ * only ever run over the short command/topic names, so the O(len·len) cost is
+ * negligible. Internal to {@link closestName}.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function editDistance(a, b) {
+  // Single rolling row: distances[j] holds the cost against b[0..j). The reads
+  // are all provably in bounds (0…b.length over a fully filled row), so the
+  // `?? 0` coalescers only exist to satisfy noUncheckedIndexedAccess — the repo
+  // idiom (lib/objects.mjs) — and never actually fire.
+  const distances = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = distances[0] ?? 0; // cost of a[0..i-1) vs the empty prefix
+    distances[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const above = distances[j] ?? 0;
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      distances[j] = Math.min(
+        above + 1, // deletion
+        (distances[j - 1] ?? 0) + 1, // insertion
+        diagonal + cost, // substitution / match
+      );
+      diagonal = above;
+    }
+  }
+  return distances[b.length] ?? 0;
+}
+
+// A mistyped name earns a "did you mean …?" hint only when a candidate is within
+// this many single-character edits — small enough that a typo or transposition
+// (`bcakup`→`backup`, distance 2) finds its target, while an unrelated word
+// finds nothing rather than a misleading guess (clig.dev).
+const suggestionThreshold = 2;
+
+/**
+ * The candidate closest to `input` by edit distance, or undefined when even the
+ * nearest is further than {@link suggestionThreshold} — i.e. nothing is close
+ * enough to suggest. Powers the "did you mean …?" hint the dispatcher prints for
+ * an unknown command or `help <topic>`. Ties keep the first candidate in order
+ * (registry order for commands, so the earliest-listed name wins).
+ * @param {string} input
+ * @param {Iterable<string>} candidates
+ * @returns {string | undefined}
+ */
+export function closestName(input, candidates) {
+  let best;
+  let bestDistance = suggestionThreshold + 1;
+  for (const candidate of candidates) {
+    const distance = editDistance(input, candidate);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/**
  * The display form of a positional argument, built from its metadata rather than
  * parsed out of a decorated key: required → `<name>`, optional → `[<name>]`,
  * variadic → a trailing `...`. The registry stores the parts (ADR-0038); this

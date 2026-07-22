@@ -6,9 +6,6 @@ to its own build spec, now **implemented** and deleted; the decision lives in
 [ADR-0043](../docs/adr/0043-human-first-output.md). This file keeps the surrounding output/UX
 niceties.
 
-- **"Did you mean…?" for misspelled commands** (edit distance over the registry);
-  `s3cab help <unknown-topic>` currently falls back silently to the command list — say
-  "unknown topic" and list the valid ones.
 - **An "under the hood" subsection for every command in the guide** (user request,
   2026-07-20): detailed but definitely not code — what the command reads, what it writes,
   and what decides, as a numbered walk (the `delete` section in

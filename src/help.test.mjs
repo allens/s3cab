@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
-import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import {
+  closestName,
+  errorMessage,
+  helpTopics,
+  synopsis,
+  usage,
+} from "./help.mjs";
 import { MissingArgError, ParseArgsError } from "./lib/error.mjs";
 
 /** @import { Command } from "./commands.mjs" */
@@ -294,6 +300,35 @@ describe("errorMessage", () => {
       errorMessage(setup, new MissingArgError("bucket")),
       /^Missing required argument: -b, --bucket — /,
     );
+  });
+});
+
+describe("closestName", () => {
+  const commandNames = ["backup", "restore", "list", "status", "aws"];
+
+  it("finds the target behind a single typo", () => {
+    assert.equal(closestName("bakup", commandNames), "backup"); // deletion
+    assert.equal(closestName("resore", commandNames), "restore"); // deletion
+    assert.equal(closestName("stat", commandNames), "status"); // truncation
+  });
+
+  it("finds the target behind a transposition (distance 2)", () => {
+    assert.equal(closestName("bcakup", commandNames), "backup");
+  });
+
+  it("returns undefined when nothing is close enough — no misleading guess", () => {
+    assert.equal(closestName("xyz", commandNames), undefined);
+    assert.equal(closestName("frobnicate", commandNames), undefined);
+  });
+
+  it("breaks ties toward the first candidate in order", () => {
+    // "lisp" is distance 1 from both "list" (sub) and, hypothetically, any
+    // other one-edit name; the earlier candidate wins.
+    assert.equal(closestName("lst", ["list", "last"]), "list");
+  });
+
+  it("takes any iterable of candidates, including a Set", () => {
+    assert.equal(closestName("bakup", new Set(commandNames)), "backup");
   });
 });
 
