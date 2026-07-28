@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -12,9 +13,13 @@ import {
 } from "node:fs";
 import { join, normalize, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { writeSet } from "../lib/sets.mjs";
+import { readSnapshot } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
+
+/** @import { TestContext } from "node:test" */
 
 /**
  * @param {string} fixtureName
@@ -178,5 +183,109 @@ describe("snapshot", () => {
 
     // …but debug mode (S3CAB_DEBUG) is allowed to overwrite while iterating.
     await snapshot("photos", { rehash: true, debug: true });
+  });
+});
+
+// Hash reuse after an interrupted snapshot (ADR-0067). The parked lookup is
+// planted by hand — structurally it *is* a snapshot TSV, so a real snapshot
+// renamed to the parked name is exactly what an interrupted run leaves — with
+// every hash replaced by a sentinel. A sentinel that survives into the new
+// snapshot can only have come from the parked file: it is nowhere on disk.
+const SENTINEL_HASH = "f".repeat(64);
+
+/**
+ * Turn the set's one snapshot into a parked lookup holding sentinel hashes, and
+ * remove it — the interrupted-first-seed state: work parked, no snapshot yet.
+ * @param {string} snapshotsDir
+ */
+function parkSentinelHashes(snapshotsDir) {
+  const [name] = readdirSync(snapshotsDir);
+  assert.ok(name, "expected the snapshot just taken");
+  const text = zstdDecompressSync(
+    readFileSync(join(snapshotsDir, name)),
+  ).toString("utf8");
+  writeFileSync(
+    join(snapshotsDir, ".snapshot.lookup.tsv.zst"),
+    zstdCompressSync(
+      Buffer.from(text.replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH), "utf8"),
+    ),
+  );
+  unlinkSync(join(snapshotsDir, name));
+}
+
+/**
+ * The hashes recorded in the set's newest snapshot.
+ * @param {string} snapshotsDir
+ */
+async function hashesIn(snapshotsDir) {
+  const names = readdirSync(snapshotsDir).filter((n) => !n.startsWith("."));
+  const { entries } = await readSnapshot(
+    snapshotsDir,
+    names.sort().at(-1) ?? "",
+  );
+  return [...entries.values()].map((props) => props.hash);
+}
+
+describe("snapshot (hashes parked by an interrupted run)", () => {
+  /**
+   * @param {TestContext} t
+   * @param {string} isoDateTime
+   */
+  function setUp(t, isoDateTime) {
+    let clock = isoDateTime;
+    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
+      Temporal.PlainDateTime.from(clock),
+    );
+    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const home = useTempHome(workDir());
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
+    return {
+      snapshotsDir: join(home, ".s3cab", "sets", "photos", "snapshots"),
+      /** @param {string} next */
+      tick: (next) => (clock = next),
+    };
+  }
+
+  it("reuses them, then deletes the parked file once the snapshot lands", async (t) => {
+    const { snapshotsDir, tick } = setUp(t, "2025-04-01T09:00:00");
+
+    await snapshot("photos", { rehash: true });
+    parkSentinelHashes(snapshotsDir);
+
+    tick("2025-04-01T09:01:00");
+    await snapshot("photos", {});
+
+    // Every unchanged file took its hash from the parked lookup rather than
+    // being read again — the whole point of parking.
+    const hashes = await hashesIn(snapshotsDir);
+    assert.ok(hashes.length, "expected file rows in the new snapshot");
+    assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
+
+    // Consumed on success: the new snapshot re-records every parked row.
+    assert.ok(
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      "a landed snapshot must delete the parked lookup",
+    );
+  });
+
+  it("ignores them under --rehash, which means re-hash everything", async (t) => {
+    const { snapshotsDir, tick } = setUp(t, "2025-05-01T09:00:00");
+
+    await snapshot("photos", { rehash: true });
+    parkSentinelHashes(snapshotsDir);
+
+    tick("2025-05-01T09:01:00");
+    await snapshot("photos", { rehash: true });
+
+    const hashes = await hashesIn(snapshotsDir);
+    assert.ok(hashes.length, "expected file rows in the new snapshot");
+    assert.ok(
+      !hashes.includes(SENTINEL_HASH),
+      "--rehash must read every file from disk, parked hashes included",
+    );
+    assert.ok(
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      "a landed snapshot deletes the parked lookup however it was taken",
+    );
   });
 });

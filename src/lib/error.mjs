@@ -63,6 +63,34 @@ export class ValidationError extends Error {
 }
 
 /**
+ * The exit code for a run the user interrupted: 128 + SIGINT(2), the shell's
+ * convention for a signal-terminated process. One constant rather than a
+ * signal→code table — Ctrl+C is the documented interrupt, and on the
+ * best-effort SIGHUP/SIGTERM paths the console is going away anyway, so nobody
+ * reads the code.
+ */
+export const EXIT_INTERRUPTED = 130;
+
+/**
+ * A run the user stopped with Ctrl+C (or SIGHUP/SIGTERM) part-way through —
+ * thrown by the snapshot writer once it has parked its work
+ * ([ADR-0067](../../docs/adr/0067-park-hashes-on-interrupt.md)). A subclass
+ * because the CLI catches it *by type* to branch behaviour: a deliberate stop
+ * prints as a stop and exits {@link EXIT_INTERRUPTED}, never as an `ERROR:` at
+ * exit 1.
+ */
+export class InterruptedError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "InterruptedError";
+  }
+}
+
+/**
  * The missing-argument sentence, given an argument's *display* form. One home for
  * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's
