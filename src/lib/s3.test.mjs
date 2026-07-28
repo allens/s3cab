@@ -135,8 +135,12 @@ describe("clientConfig request timeouts", () => {
   const HANG_GUARD_MS = 5_000;
 
   before(async () => {
-    // Accept the connection, read the request, then never answer.
-    server = createServer(() => {});
+    // Accept the connection, drain the request, then never answer — the silence
+    // has to come *after* a fully received request, or the socket goes idle for
+    // the wrong reason. Left undrained, a body bigger than the socket buffer
+    // would stall on write backpressure instead, which trips the same timeout
+    // and would pass this test for a scenario it doesn't describe.
+    server = createServer((request) => request.resume());
     await new Promise((resolve) =>
       server.listen(0, "127.0.0.1", () => resolve(undefined)),
     );
@@ -203,7 +207,8 @@ describe("clientConfig request timeouts", () => {
       clientConfig().requestHandler
     );
     assert.ok(
-      Number(requestHandler?.connectionTimeout) > 0,
+      Number.isFinite(requestHandler?.connectionTimeout) &&
+        Number(requestHandler.connectionTimeout) > 0,
       `connectionTimeout must be a positive number, got ${requestHandler?.connectionTimeout}`,
     );
   });
