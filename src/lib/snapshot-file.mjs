@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
+import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
 import { secondsSince } from "./format.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
@@ -66,6 +67,83 @@ const ERROR = "#ERROR";
  */
 
 /**
+ * The parked hash lookup an interrupted snapshot leaves behind
+ * ([ADR-0067](../../docs/adr/0067-park-hashes-on-interrupt.md)) — the work file
+ * of a run stopped with Ctrl+C, renamed aside so the next run can reuse the
+ * hashes instead of computing them again. Two names, two meanings: the temp
+ * `.snapshot.tsv.zst` says "a run is writing right now, keep out" (the ADR-0048
+ * lock), this one says "nobody is writing; here are hashes to reuse". A
+ * leading-dot, non-datestamped name, so `snapshotNames` can never mistake it for
+ * a real snapshot and `list` never shows it; local-only, never uploaded.
+ * @param {string} snapshotDir - The set's snapshots dir
+ */
+const parkedLookupPath = (snapshotDir) =>
+  resolve(snapshotDir, ".snapshot.lookup.tsv.zst");
+
+/**
+ * The interrupts a snapshot parks its work on. SIGINT (Ctrl+C) is the blessed,
+ * documented path and works on every platform; SIGHUP/SIGTERM are best-effort —
+ * closing the console window on Windows raises SIGHUP with a short grace period,
+ * and a modest snapshot can finalise inside it. Best-effort is *safe* because
+ * finalising ends in an atomic rename: either it completes (a valid parked file)
+ * or it doesn't (the temp is left at the lock name, today's "delete and retry").
+ * SIGKILL and power loss are out of scope by construction — no handler runs, so
+ * the next run simply re-hashes: no harm, only time.
+ */
+const PARK_SIGNALS = ["SIGINT", "SIGHUP", "SIGTERM"];
+
+/**
+ * Install the park-on-interrupt handler for the duration of a snapshot write,
+ * returning the `AbortSignal` that asks the write to stop (and removing the
+ * handler on disposal, so an interrupt outside a snapshot keeps Node's default
+ * "die now" behaviour). Aborting is a *request to stop cleanly*, not a teardown:
+ * the writer finishes the row it is on and ends the stream, so only whole rows
+ * reach the file.
+ *
+ * A second interrupt force-quits, so the user is never stuck behind a flush —
+ * at the cost of the ordinary hard-kill outcome (a leftover lock file the
+ * `inProgressError` explains).
+ * @returns {{ signal: AbortSignal } & Disposable}
+ */
+function parkOnInterrupt() {
+  const controller = new AbortController();
+  const onSignal = () => {
+    if (controller.signal.aborted) {
+      process.exit(EXIT_INTERRUPTED);
+    }
+    controller.abort();
+    console.warn(
+      "\nStopping — saving the hashes computed so far so the next run can " +
+        "reuse them.\nPress Ctrl+C again to quit immediately.",
+    );
+  };
+
+  for (const signal of PARK_SIGNALS) {
+    process.on(signal, onSignal);
+  }
+
+  return {
+    signal: controller.signal,
+    [Symbol.dispose]() {
+      for (const signal of PARK_SIGNALS) {
+        process.off(signal, onSignal);
+      }
+    },
+  };
+}
+
+/**
+ * The "you stopped it" error a parked snapshot ends with — the deliberate stop
+ * the CLI reports as a stop rather than a failure (ADR-0030 wording: the user's
+ * goal first, then what to do next).
+ */
+const interruptedError = () =>
+  new InterruptedError(
+    `Snapshot stopped. The file hashes computed so far are saved — run the ` +
+      `same command again to carry on from here, without re-hashing them.`,
+  );
+
+/**
  * Execute a callback with a managed snapshot file write stream, writing into
  * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/`, resolved by the
  * caller). The FileHandle is automatically disposed when the callback completes.
@@ -78,6 +156,12 @@ const ERROR = "#ERROR";
  * temp file can only mean a killed/crashed run — `inProgressError` tells the
  * user the exact fix. Never auto-broken (no age or PID heuristics).
  *
+ * A *graceful interrupt* is the third release path (ADR-0067): the callback is
+ * asked to stop through the `AbortSignal` it is handed, and the work file is
+ * renamed to the parked lookup name instead of being unlinked, so the next run
+ * reuses the hashes it holds. This module owns that file's whole lifecycle —
+ * parked here, read by `readParkedLookup`, deleted when a snapshot next lands.
+ *
  * Snapshot names are minute-precision, so a second snapshot of the same set in
  * the same minute would collide. That is refused (rather than silently
  * overwriting a snapshot file) unless `overwrite` is set — the debug escape hatch
@@ -85,10 +169,11 @@ const ERROR = "#ERROR";
  * front, before any walking/hashing, so a same-minute re-run fails fast.
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
- * @param {(stream: Writable) => Promise<void>} callbackFn - Callback receiving the write stream
+ * @param {(stream: Writable, signal: AbortSignal) => Promise<void>} callbackFn - Callback receiving the write stream and the stop-cleanly signal
  * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
+ * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
  */
 export async function withSnapshotFile(
   snapshotDir,
@@ -137,7 +222,14 @@ export async function withSnapshotFile(
     fd.createWriteStream(),
   );
 
+  const parkedPath = parkedLookupPath(snapshotDir);
+
   try {
+    // Handler installed here, around the write, rather than at the top-level
+    // dispatch — that has no handle on the open stream to finalise (ADR-0067).
+    // `backup` gets it for free, through `snapshot`.
+    using park = parkOnInterrupt();
+
     // The finally ensures the fd is closed on every path — including a mid-pipeline
     // failure after callbackFn succeeds — so the rename below (which needs the
     // handle released on Windows) always sees a closed fd.
@@ -147,7 +239,7 @@ export async function withSnapshotFile(
       // running pipeline settle before rethrowing — otherwise it surfaces later as
       // an orphaned ERR_STREAM_PREMATURE_CLOSE rejection that masks the real error.
       try {
-        await callbackFn(snapshotWriter);
+        await callbackFn(snapshotWriter, park.signal);
       } catch (error) {
         snapshotWriter.destroy();
         await pipelinePromise.catch(() => {});
@@ -158,15 +250,60 @@ export async function withSnapshotFile(
       await fd.close();
     }
 
+    if (park.signal.aborted) {
+      // Park rather than discard: the same atomic rename, to the other name.
+      // Unlink first because Windows will not rename onto an existing file —
+      // and replacing is always right, since a resumed run re-records every row
+      // the file it replaces held, making each parked file a superset.
+      await unlink(parkedPath).catch(() => {});
+      await rename(tmpPath, parkedPath);
+      throw interruptedError();
+    }
+
     await rename(tmpPath, snapshotPath);
+
+    // Delete the parked lookup on *success*, not on read: while a resumed run is
+    // in flight both files exist, so a second interrupt still preserves the
+    // earlier work. This snapshot re-records every hash the parked file held, so
+    // landing it is what makes the parked copy redundant. Best-effort — the
+    // snapshot is already installed, and a leftover parked file is only ever a
+    // stale lookup, which is safe (`readParkedLookup`).
+    await unlink(parkedPath).catch(() => {});
     return snapshotPath;
   } catch (error) {
     // Release the lock on any failure (after the close above — Windows can't
     // unlink an open file), so a *failed* run never wedges the next one.
-    // Best-effort: a failed unlink must not mask the real error.
+    // Best-effort: a failed unlink must not mask the real error. On the parked
+    // path the temp is already renamed away, so this is a no-op.
     await unlink(tmpPath).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * The hashes an interrupted snapshot of this set parked, ready to be overlaid on
+ * the normal previous-snapshot lookup (ADR-0067) — or `undefined` when nothing is
+ * parked, which is the ordinary case.
+ *
+ * Reading needs **no** liveness check — none of the PID/age heuristics ADR-0048
+ * rejected. A parked hash is only ever a *candidate*: `fileProps` re-validates it
+ * against the live file's size and mtime before reuse, so an entry from a stale
+ * (or even a concurrently written) file is either still valid — a correct reuse —
+ * or invalidated, and re-hashed. There is no corruption path from reading, which
+ * is also why the file's `#SNAPSHOT` identity is deliberately *not* checked
+ * against the set: a path whose size and mtime still match is the same file
+ * whichever set recorded it, so the check would reject nothing that could do harm.
+ * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
+ * @returns {Promise<SnapshotEntries | undefined>} The parked entries, or undefined when none are parked
+ */
+export async function readParkedLookup(snapshotDir) {
+  const path = parkedLookupPath(snapshotDir);
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  console.warn("Reusing the hashes parked by an interrupted snapshot");
+  const { entries } = await readSnapshotFile(path);
+  return entries;
 }
 
 /**
@@ -239,7 +376,7 @@ export async function writeSnapshot(
   return withSnapshotFile(
     snapshotDir,
     name,
-    async (writeStream) => {
+    async (writeStream, signal) => {
       writeStream.write(snapshotHeader({ name, identity, dirs }));
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
@@ -249,7 +386,7 @@ export async function writeSnapshot(
       }
       await pipeline(
         files,
-        propsRows(getProps),
+        propsRows(getProps, signal),
         stringifySnapshot,
         writeStream,
       );
@@ -469,12 +606,23 @@ export async function parseSnapshotStream(input) {
  * reported rather than silently dropped or mistaken for deleted. Module-private:
  * `writeSnapshot`'s pipeline is its only caller. Hashing itself is injected via
  * `getProps` (the writer's test seam) — see `writeSnapshot`.
+ *
+ * This is also where a graceful interrupt takes effect (ADR-0067): on `signal`,
+ * the generator simply *returns* between files, which ends the pipeline the
+ * ordinary way — every downstream stream is flushed and closed, so the file
+ * stops on a whole row rather than being torn down mid-write. The file being
+ * hashed when the interrupt arrives is finished first (its hash would be thrown
+ * away otherwise, and a second Ctrl+C force-quits if that wait is too long).
  * @param {(path: string) => Promise<Props>} getProps
+ * @param {AbortSignal} signal - Stop cleanly when aborted (the park-on-interrupt request)
  * @returns {(paths: AsyncIterable<string>) => AsyncGenerator<SnapshotRow>}
  */
-function propsRows(getProps) {
+function propsRows(getProps, signal) {
   return async function* (paths) {
     for await (const path of paths) {
+      if (signal.aborted) {
+        return;
+      }
       try {
         yield [path, await getProps(path)];
       } catch (error) {

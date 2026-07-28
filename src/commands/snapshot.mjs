@@ -9,6 +9,7 @@ import { secondsSince } from "../lib/format.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import {
   listSnapshotNames,
+  readParkedLookup,
   readSnapshot,
   snapshotName,
   writeSnapshot,
@@ -38,13 +39,29 @@ export async function snapshot(setName, options = {}) {
   console.warn("Generating new snapshot:", newSnapshotName);
 
   /** @type {SnapshotEntries | undefined} */
-  let lookup;
+  let previous;
   const latestSnapshotName = listSnapshotNames(snapshotDir, { latest: true });
   if (!options.rehash && latestSnapshotName) {
     console.warn("Reading previous snapshot", `'${latestSnapshotName}'`);
     const { entries } = await readSnapshot(snapshotDir, latestSnapshotName);
-    lookup = entries;
+    previous = entries;
   }
+
+  // Hashes an interrupted run parked (ADR-0067) overlay the previous snapshot's,
+  // so restarting a long first seed doesn't re-hash what it already did. Read on
+  // every snapshot, not just a first one: no "is this the first run?" branch to
+  // get wrong, and in the routine case the parked file is simply consumed.
+  // `--rehash` means re-hash everything, so it skips these too.
+  //
+  // Merged into a *separate* map — `previous` is the compare baseline below, and
+  // parked rows were never in that snapshot.
+  const parked = options.rehash
+    ? undefined
+    : await readParkedLookup(snapshotDir);
+  const lookup =
+    parked && previous
+      ? new Map([...previous, ...parked])
+      : (parked ?? previous);
 
   const { files, excluded, skipped } = walkSet(set);
 
@@ -52,8 +69,8 @@ export async function snapshot(setName, options = {}) {
   // one #DIR line per member directory, so the file is self-describing even when
   // found alone in a bucket (docs/design/backup.md). Hashing is handed in as
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
-  // without disk) — here bound to the lib `fileProps` with the previous-snapshot
-  // lookup, so an unchanged file reuses its stored hash.
+  // without disk) — here bound to the lib `fileProps` with the lookup assembled
+  // above, so an unchanged file reuses its stored hash.
   const snapshotPath = await writeSnapshot(snapshotDir, newSnapshotName, {
     identity: set.name,
     dirs: set.dirs,
@@ -77,8 +94,8 @@ export async function snapshot(setName, options = {}) {
   // parsed a second time; under --rehash it wasn't read, so the compare reads it.
   return await compareSnapshots(snapshotDir, set.dirs, {
     since:
-      lookup && latestSnapshotName
-        ? { name: latestSnapshotName, entries: lookup }
+      previous && latestSnapshotName
+        ? { name: latestSnapshotName, entries: previous }
         : latestSnapshotName,
     until: newSnapshotName,
     setName: set.name,

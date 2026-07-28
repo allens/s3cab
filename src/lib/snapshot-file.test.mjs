@@ -5,10 +5,12 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
+import { InterruptedError } from "./error.mjs";
 import {
   listSnapshotNames,
   normalizeSnapshotName,
   parseSnapshotStream,
+  readParkedLookup,
   readSnapshot,
   snapshotFileName,
   snapshotName,
@@ -463,5 +465,196 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
       },
     );
     assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+  });
+});
+
+// Park-on-interrupt (ADR-0067): a graceful stop ends the writer cleanly and
+// renames the work file aside as `.snapshot.lookup.tsv.zst`, so the next run
+// reuses the hashes it holds instead of computing them again. Driven through
+// `writeSnapshot` with a `getProps` that raises the signal part-way:
+// `process.emit` invokes exactly the listener `withSnapshotFile` registers,
+// without asking the OS to signal the test runner.
+describe("withSnapshotFile (park on interrupt)", () => {
+  const parkedPath = (/** @type {string} */ dir) =>
+    resolve(dir, ".snapshot.lookup.tsv.zst");
+  const lockPath = (/** @type {string} */ dir) =>
+    resolve(dir, ".snapshot.tsv.zst");
+
+  /** @type {(p: string) => Promise<Props>} */
+  const props = async () => ({
+    size: 3,
+    mtime: "2026-06-23T10:00:00.000Z",
+    hash: hashA,
+  });
+
+  /**
+   * A `getProps` that raises SIGINT once it has hashed `count` files — the row
+   * it is called for still lands (its hash is already paid for); the stop takes
+   * effect before the next one.
+   * @param {number} count
+   */
+  const interruptAfter = (count) => {
+    let hashed = 0;
+    return async (/** @type {string} */ path) => {
+      if (++hashed === count) {
+        process.emit("SIGINT", "SIGINT");
+      }
+      return props(path);
+    };
+  };
+
+  /**
+   * @param {string} snapshotDir
+   * @param {string} name
+   * @param {Iterable<string> | AsyncIterable<string>} files
+   * @param {(p: string) => Promise<Props>} getProps
+   */
+  const write = (snapshotDir, name, files, getProps) =>
+    writeSnapshot(snapshotDir, name, {
+      identity: "photos",
+      dirs: [snapshotDir],
+      files,
+      excluded: [],
+      getProps,
+    });
+
+  /** @param {string} dir */
+  const paths = (dir) =>
+    ["a", "b", "c", "d"].map((name) => resolve(dir, `${name}.txt`));
+
+  it("parks the work file on Ctrl+C instead of discarding it", async () => {
+    await using dir = await mkTmpDir();
+    const files = paths(dir.path);
+
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
+      InterruptedError,
+    );
+
+    // No snapshot lands — this run did not finish the tree.
+    assert.ok(
+      !existsSync(resolve(dir.path, "2026-06-23T1000.tsv.zst")),
+      "an interrupted run must not install a partial snapshot",
+    );
+    // The lock is released by the park, not left for `inProgressError`.
+    assert.ok(
+      !existsSync(lockPath(dir.path)),
+      "parking must release the lock (the work file is renamed away)",
+    );
+    assert.ok(
+      existsSync(parkedPath(dir.path)),
+      "the hashes computed so far must be parked",
+    );
+
+    // Exactly the rows hashed before the stop, and nothing half-written.
+    const entries = await readParkedLookup(dir.path);
+    assert.ok(entries);
+    assert.deepEqual([...entries.keys()], files.slice(0, 2));
+    assert.equal(entries.get(files[0] ?? "")?.hash, hashA);
+  });
+
+  it("ends the parked file on a whole row, never a torn one", async () => {
+    await using dir = await mkTmpDir();
+
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1000", paths(dir.path), interruptAfter(2)),
+      InterruptedError,
+    );
+
+    // A clean `end()` flushes whole writes only, so the last byte is the
+    // newline of the last complete row — a truncated row would not parse.
+    const text = zstdDecompressSync(
+      readFileSync(parkedPath(dir.path)),
+    ).toString("utf8");
+    assert.ok(
+      text.endsWith("\n"),
+      `parked file must end on a whole row, got: ${JSON.stringify(text.slice(-24))}`,
+    );
+    for (const line of text.split("\n").filter(Boolean)) {
+      assert.equal(line.split("\t").length, 4, `whole row expected: ${line}`);
+    }
+  });
+
+  it("deletes the parked lookup only once a snapshot lands", async () => {
+    await using dir = await mkTmpDir();
+    const files = paths(dir.path);
+
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
+      InterruptedError,
+    );
+
+    // A *failed* run must leave the parked work alone — it is the only copy.
+    // (A walk that dies mid-stream, not a getProps failure: an unhashable file
+    // is recorded as an #ERROR row and does not fail the run.)
+    async function* vanishing() {
+      yield files[0] ?? "";
+      throw new Error("member directory vanished");
+    }
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1001", vanishing(), props),
+      /vanished/,
+    );
+    assert.ok(
+      existsSync(parkedPath(dir.path)),
+      "a failed run must not throw away parked hashes",
+    );
+
+    // The completed snapshot re-records every parked row, so the parked copy
+    // is redundant — and only then is it removed.
+    await write(dir.path, "2026-06-23T1002", files, props);
+    assert.ok(
+      !existsSync(parkedPath(dir.path)),
+      "a landed snapshot must consume the parked lookup",
+    );
+    assert.equal(await readParkedLookup(dir.path), undefined);
+  });
+
+  it("parks cumulatively — a second stop replaces the first with a fuller lookup", async () => {
+    await using dir = await mkTmpDir();
+    const files = paths(dir.path);
+
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1000", files, interruptAfter(1)),
+      InterruptedError,
+    );
+    const first = await readParkedLookup(dir.path);
+    assert.equal(first?.size, 1);
+
+    // The resumed run re-records the reused rows into its own work file, so its
+    // parked file is a superset — and replacing must work on Windows too, where
+    // a rename cannot land on an existing file.
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1001", files, interruptAfter(3)),
+      InterruptedError,
+    );
+    const second = await readParkedLookup(dir.path);
+    assert.deepEqual([...(second?.keys() ?? [])], files.slice(0, 3));
+  });
+
+  it("leaves no signal listeners behind after the write", async () => {
+    await using dir = await mkTmpDir();
+    const before = process.listenerCount("SIGINT");
+
+    await write(dir.path, "2026-06-23T1000", paths(dir.path), props);
+    assert.equal(
+      process.listenerCount("SIGINT"),
+      before,
+      "a completed write must restore Node's default interrupt behaviour",
+    );
+
+    // Including on the park path — the handler is removed as the run unwinds.
+    await assert.rejects(
+      write(dir.path, "2026-06-23T1001", paths(dir.path), interruptAfter(1)),
+      InterruptedError,
+    );
+    assert.equal(process.listenerCount("SIGINT"), before);
+  });
+});
+
+describe("readParkedLookup", () => {
+  it("returns undefined when nothing is parked (the ordinary case)", async () => {
+    await using dir = await mkTmpDir();
+    assert.equal(await readParkedLookup(dir.path), undefined);
   });
 });
