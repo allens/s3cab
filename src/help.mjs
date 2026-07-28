@@ -7,7 +7,12 @@
 // The lib/error.mjs import is safe against the no-SDK rule below: error.mjs
 // imports nothing at all.
 
-import { MissingArgError, ParseArgsError, missingArg } from "./lib/error.mjs";
+import {
+  MissingArgError,
+  ParseArgsError,
+  errorText,
+  missingArg,
+} from "./lib/error.mjs";
 
 /** @import { CommandArg, CommandOption, Command } from "./commands.mjs" */
 
@@ -147,7 +152,8 @@ function argDescription(command, argName) {
  * short form reaches the error line at all; the throw site knows only the plain
  * name. Every other error, including the usage errors that name no single arg
  * (our flag conflicts, Node's own parse failures), prints its own message
- * unchanged. ADR-0038.
+ * unchanged — via `errorText`, so an error carrying no message at all still
+ * prints something. ADR-0038.
  *
  * **Naming an arg buys a gloss, not a rewrite.** Only a `MissingArgError` is
  * re-spelled; any other `ParseArgsError` that sets `argName` keeps its own
@@ -162,7 +168,7 @@ function argDescription(command, argName) {
  * @returns {string}
  */
 export function errorMessage(command, error) {
-  const message = Error.isError(error) ? error.message : String(error);
+  const message = errorText(error);
   const argName = error instanceof ParseArgsError ? error.argName : undefined;
   if (!argName) {
     return message;

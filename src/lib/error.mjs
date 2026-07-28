@@ -181,6 +181,29 @@ export const isENOENT = (error) =>
   /** @type {NodeJS.ErrnoException} */ (error)?.code === "ENOENT";
 
 /**
+ * The printable text of an error — including the ones that carry none, which is
+ * the whole reason this exists. Node builds a **message-less** `AggregateError`
+ * when every address a host resolves to fails to connect: its happy-eyeballs
+ * path tries them all, collects the failures in `.errors`, and leaves `.message`
+ * empty. S3 endpoints resolve to several addresses, so a network dropping
+ * mid-upload printed as a bare `ERROR:` with nothing after it — the one way an
+ * error can tell the user less than nothing. Joining the sub-errors is the only
+ * way that failure says anything at all, and falling back to `name` means no
+ * empty message can ever reach the terminal blank again.
+ * @param {unknown} error
+ * @returns {string}
+ */
+export function errorText(error) {
+  if (!Error.isError(error)) {
+    return String(error);
+  }
+  if (!error.message && error instanceof AggregateError) {
+    return error.errors.map((cause) => errorText(cause)).join("; ");
+  }
+  return error.message || error.name;
+}
+
+/**
  * Throw the standard "not built yet" error for a `planned` stub command in the
  * registry, keeping the message in one place. No command uses it right now (the
  * last stub, `verify`, is built) — kept as the convention's factory for the next

@@ -29,6 +29,7 @@ import {
   customEndpoint,
   profileSource as resolveProfileSource,
 } from "./env.mjs";
+import { errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
 import { createProgress } from "./progress.mjs";
 import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
@@ -216,28 +217,103 @@ function client() {
   // Added at the outermost (initialize) step so it only fires once the SDK's own
   // retries are exhausted, and covers every request path — direct sends, the
   // paginator, and lib-storage's Upload — since all share this one client.
-  _client.middlewareStack.add(credentialErrorRelay, {
+  _client.middlewareStack.add(requestErrorRelay, {
     step: "initialize",
-    name: "credentialErrors",
+    name: "requestErrors",
   });
   return _client;
 }
 
+// The transport failures that mean the request never reached S3 at all — the
+// network went away, rather than the server saying no. Matched on the errno
+// (`error.code`) because it is the only signal there is: with no HTTP response
+// there is no AWS `<Code>` for ADR-0037's `error.name` matching to read, which
+// is why these need their own row rather than another entry in auth.mjs's list.
+//
+// The set is exactly what the SDK's own retry classifier calls transient
+// (@smithy/core's NODEJS_TIMEOUT_ERROR_CODES + NODEJS_NETWORK_ERROR_CODES),
+// borrowed rather than guessed — and copied, not imported, because @smithy/core
+// is a transitive dependency (ADR-0005), the same reason the requestHandler
+// above is passed as a plain options object. Anything reaching the relay with
+// one of these has therefore already exhausted its retries.
+const NETWORK_ERROR_CODES = [
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+];
+
 /**
- * The ordered table of request-time AWS credential rejections s3cab translates
- * into friendly, actionable errors (ADR-0037). Each row pairs a predicate
- * (matched on the AWS error *code*, `error.name`, never HTTP status) with the
- * factory that builds its message; the relay walks the rows in order, first
- * match wins, and anything unmatched rethrows raw. `ctx` carries the request's
- * bucket and the custom endpoint (if any) so `accessDeniedError` can name the
- * bucket and pick the AWS-vs-provider remedy. Data, not branching (ADR-0006) —
- * the existing expired case is just the first row.
+ * Whether an error is the network failing rather than S3 refusing — including
+ * the SDK's own `TimeoutError`, which `socketTimeout`/`connectionTimeout` raise
+ * when a link goes silent (ADR-0065).
+ *
+ * Checking `code` alone also catches the `AggregateError` Node's happy-eyeballs
+ * connect throws when *every* address a host resolves to fails (S3 endpoints
+ * resolve to several): Node promotes the first sub-failure's `code` onto the
+ * wrapper, so there is no need to walk `.errors`. That aggregate is also the
+ * case that carries no message — see `errorText`.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export const isNetworkError = (error) =>
+  Error.isError(error) &&
+  (error.name === "TimeoutError" ||
+    NETWORK_ERROR_CODES.includes(
+      /** @type {NodeJS.ErrnoException} */ (error).code ?? "",
+    ));
+
+/**
+ * The actionable "your connection dropped" error (ADR-0030 wording). Like the
+ * credential rejections with no single-command fix, it leads with a
+ * plain-language headline and embeds the raw failure for googling — but the
+ * remedy here is only ever "get back online and run it again", so the reassuring
+ * part is what earns its place: a backup dying half-way *looks* like lost work,
+ * and content-addressed storage means it isn't. Nothing catches it by type, so a
+ * plain `Error`; `cause` keeps the original for the S3CAB_DEBUG dump.
+ * @param {unknown} cause - The transport error that triggered it.
+ */
+export const networkError = (cause) =>
+  new Error(
+    `Couldn't reach the cloud — your network connection dropped.
+
+The request never got a reply, so this is the connection rather than
+anything wrong with your bucket or your credentials. A VPN switching on,
+Wi-Fi dropping, or a laptop waking from sleep will all do it.
+
+Everything already uploaded is safely stored. Once you're back online, run
+the same command again — s3cab skips whatever it has already uploaded, so
+it picks up close to where it stopped.
+
+The connection failed with:
+     ${errorText(cause).replaceAll("\n", "\n     ")}`,
+    { cause },
+  );
+
+/**
+ * The ordered table of request-time failures s3cab translates into friendly,
+ * actionable errors: the AWS credential rejections (matched on the AWS error
+ * *code*, `error.name`, never HTTP status — ADR-0037) plus the transport
+ * failures where no response arrived at all (matched on the errno). Each row
+ * pairs a predicate with the factory that builds its message; the relay walks
+ * the rows in order, first match wins, and anything unmatched rethrows raw.
+ * `ctx` carries the request's bucket and the custom endpoint (if any) so
+ * `accessDeniedError` can name the bucket and pick the AWS-vs-provider remedy.
+ * Data, not branching (ADR-0006).
+ *
+ * The network row sits last because it is the only one that cannot collide: a
+ * transport failure never carries an AWS code, and an AWS code never arrives
+ * without a response.
  * @type {{
  *   match: (error: unknown) => boolean,
  *   make: (cause: unknown, ctx: { bucket?: string, endpoint?: string }) => Error,
  * }[]}
  */
-const credentialErrorTable = [
+const requestErrorTable = [
   {
     match: isExpiredCredentials,
     make: (cause) => expiredCredentialsError(cause),
@@ -252,35 +328,36 @@ const credentialErrorTable = [
   },
   { match: isBadSignature, make: (cause) => badSignatureError(cause) },
   { match: isClockSkew, make: (cause) => clockSkewError(cause) },
+  { match: isNetworkError, make: (cause) => networkError(cause) },
 ];
 
 /**
- * SDK middleware relay that translates AWS's terse request-time credential
- * rejections (expired/invalid token, missing permission, bad signature, clock
- * skew) into the actionable errors in `credentialErrorTable`, passing every
- * other outcome — success or unrecognized error — through untouched. Credentials
- * resolve fine at startup and the *server* rejects later, so auth.mjs is off the
- * stack by then; the SDK boundary is where these request-time failures can be
- * caught. Exported (and pure of any live client) so the routing is unit-testable
- * directly with a fake `next`.
+ * SDK middleware relay that translates the terse request-time failures in
+ * `requestErrorTable` — AWS's credential rejections (expired/invalid token,
+ * missing permission, bad signature, clock skew) and the network dying
+ * mid-request — into actionable errors, passing every other outcome (success or
+ * an unrecognized error) through untouched. Credentials resolve fine at startup
+ * and the *server* rejects later, so auth.mjs is off the stack by then; the SDK
+ * boundary is where these request-time failures can be caught. Exported (and
+ * pure of any live client) so the routing is unit-testable directly with a fake
+ * `next`.
  * @param {(args: any) => Promise<any>} next
  */
-export const credentialErrorRelay =
-  (next) => async (/** @type {any} */ args) => {
-    try {
-      return await next(args);
-    } catch (error) {
-      for (const { match, make } of credentialErrorTable) {
-        if (match(error)) {
-          throw make(error, {
-            bucket: args.input?.Bucket,
-            endpoint: customEndpoint(),
-          });
-        }
+export const requestErrorRelay = (next) => async (/** @type {any} */ args) => {
+  try {
+    return await next(args);
+  } catch (error) {
+    for (const { match, make } of requestErrorTable) {
+      if (match(error)) {
+        throw make(error, {
+          bucket: args.input?.Bucket,
+          endpoint: customEndpoint(),
+        });
       }
-      throw error;
     }
-  };
+    throw error;
+  }
+};
 
 /**
  * Parse an `s3://bucket/key` URI into its bucket and key.

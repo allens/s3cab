@@ -11,11 +11,12 @@ import {
   authNotice,
   bucketPolicy,
   clientConfig,
-  credentialErrorRelay,
   formatUploadProgress,
+  isNetworkError,
   isObjectNotFound,
   putFile,
   putObjectParams,
+  requestErrorRelay,
 } from "./s3.mjs";
 
 /** @import { S3ClientConfig } from "@aws-sdk/client-s3" */
@@ -445,7 +446,7 @@ describe("authNotice", () => {
   });
 });
 
-describe("credentialErrorRelay", () => {
+describe("requestErrorRelay", () => {
   /** An error carrying the AWS-style `name` the SDK sets from the service code. */
   const named = (/** @type {string} */ name) =>
     Object.assign(new Error(`raw text for ${name}`), { name });
@@ -455,7 +456,7 @@ describe("credentialErrorRelay", () => {
     /** @type {Error} */ cause,
     /** @type {any} */ input = {},
   ) =>
-    credentialErrorRelay(async () => {
+    requestErrorRelay(async () => {
       throw cause;
     })({ input });
 
@@ -494,14 +495,80 @@ describe("credentialErrorRelay", () => {
     );
   });
 
+  // A dropped network never reaches the AWS-code rows above — no response, no
+  // `<Code>` — so it is matched on the errno instead.
+  for (const code of ["ECONNRESET", "ENETUNREACH", "ETIMEDOUT", "EAI_AGAIN"]) {
+    it(`maps a ${code} transport failure to the reconnect-and-retry error`, async () => {
+      const cause = Object.assign(new Error(`connect ${code} 1.2.3.4:443`), {
+        code,
+      });
+      await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
+        assert.equal(error.cause, cause);
+        assert.match(error.message, /your network connection dropped/);
+        assert.match(
+          error.message,
+          /Everything already uploaded is safely stored/,
+        );
+        assert.match(
+          error.message,
+          new RegExp(`connect ${code} 1\\.2\\.3\\.4:443`),
+        );
+        return true;
+      });
+    });
+  }
+
+  it("maps the SDK's own socket TimeoutError to the same error", async () => {
+    await assert.rejects(
+      rejectWith(named("TimeoutError")),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /your network connection dropped/);
+        return true;
+      },
+    );
+  });
+
+  // The real shape of a VPN switching on mid-upload: Node's happy-eyeballs
+  // connect fails across every address the endpoint resolves to and wraps them
+  // in an AggregateError that carries NO message of its own — the bug that
+  // printed a bare `ERROR:`. It is matched by the `code` Node promotes from the
+  // first sub-failure, and the sub-messages are what reach the user.
+  it("maps a message-less happy-eyeballs AggregateError, and shows its detail", async () => {
+    const cause = Object.assign(
+      new AggregateError([
+        new Error("connect ENETUNREACH 52.219.72.100:443"),
+        new Error("connect ENETUNREACH 52.219.98.20:443"),
+      ]),
+      { code: "ENETUNREACH" },
+    );
+    assert.equal(cause.message, ""); // the premise: nothing to print
+    assert.ok(isNetworkError(cause));
+    await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
+      assert.match(error.message, /your network connection dropped/);
+      assert.match(
+        error.message,
+        /52\.219\.72\.100:443; connect ENETUNREACH 52\.219\.98\.20:443/,
+      );
+      return true;
+    });
+  });
+
   it("rethrows an unrecognized code raw (no mushy middle)", async () => {
     const cause = named("AccountProblem");
     await assert.rejects(rejectWith(cause), (error) => error === cause);
   });
 
+  it("leaves a non-network errno (a local file error) alone", async () => {
+    const cause = Object.assign(new Error("ENOENT: no such file"), {
+      code: "ENOENT",
+    });
+    assert.equal(isNetworkError(cause), false);
+    await assert.rejects(rejectWith(cause), (error) => error === cause);
+  });
+
   it("passes a successful result through", async () => {
     const next = async () => "ok";
-    assert.equal(await credentialErrorRelay(next)({ input: {} }), "ok");
+    assert.equal(await requestErrorRelay(next)({ input: {} }), "ok");
   });
 });
 
