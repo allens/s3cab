@@ -116,3 +116,10 @@ byte-identical whether or not the upload stage is present.
 - Measure the hash-vs-upload wall-clock split on a real incremental to confirm
   there's no pipelining regret in going sequential (expected: upload is tiny for
   incrementals).
+- Give a read failure at **PUT** time the `#ERROR` treatment. A file that can't be
+  hashed already becomes an `#ERROR` row and the run carries on (`propsRows` →
+  `stringifySnapshot`), but one that becomes unreadable *between* hashing and the
+  upload's read throws out of `putFile`'s `createReadStream` and aborts the run.
+  Fusing shrinks that window from minutes to milliseconds; closing it means one
+  code path for "couldn't read this file" instead of two behaviours either side of
+  the seam.
