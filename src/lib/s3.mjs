@@ -215,9 +215,10 @@ function client() {
   );
   _client = new S3Client(clientConfig());
   // Added at the outermost (initialize) step so it only fires once the SDK's own
-  // retries are exhausted, and covers every request path — direct sends, the
-  // paginator, and lib-storage's Upload — since all share this one client.
-  _client.middlewareStack.add(requestErrorRelay, {
+  // retries are exhausted — which is what lets it retry *past* them — and covers
+  // every request path: direct sends, the paginator, and lib-storage's Upload,
+  // since all share this one client.
+  _client.middlewareStack.add(requestErrorRelay(), {
     step: "initialize",
     name: "requestErrors",
   });
@@ -331,33 +332,131 @@ const requestErrorTable = [
   { match: isNetworkError, make: (cause) => networkError(cause) },
 ];
 
+// How long one request keeps retrying a dropped network before it gives up, and
+// the ceiling on the wait between those attempts.
+//
+// s3cab retries transport failures *itself*, above the SDK, because the SDK's
+// retries cannot do this job — measured, not assumed:
+//
+//   | parts in flight | file size | the SDK alone survives |
+//   |---------------- | --------- | ---------------------- |
+//   | 1               | ≤ 16MB    | 9.0s                   |
+//   | 16              | ≤ 256MB   | 0.4s                   |
+//   | 32              | ≥ 512MB   | 0.18s                  |
+//
+// The SDK's retry budget is a token bucket on the *client* (500 tokens, 10 per
+// transient retry) shared by every request in flight, so the more parts a large
+// file has in the air, the sooner they all stop retrying — and raising
+// `maxAttempts` changes nothing, because the bucket binds first (32 concurrent
+// requests make the same 82 attempts at maxAttempts 3 and at 8). No built-in
+// strategy escapes it: `ConfiguredRetryStrategy` extends the standard one,
+// `AdaptiveRetryStrategy` delegates to it and adds rate limiting, and the
+// initial capacity is a hard-coded @smithy/core constant.
+//
+// That budget is not a bug — it is a circuit breaker protecting the *service*
+// from retry storms, and for throttling and 5xx it is exactly right, so those
+// keep stock SDK behaviour untouched (they never match `isNetworkError`). It is
+// only wrong for a failure that is *our own link*, where backing off globally
+// helps nobody. Hence: transport errors, and only transport errors, retry here.
+//
+// A window rather than an attempt count, because the goal is time-shaped — leave
+// a backup running and let it survive the wifi dropping for a few seconds. Two
+// minutes covers a wifi blip, a VPN coming up, or a laptop waking, and still
+// reports a genuinely dead link while someone might plausibly still be watching.
+//
+// The delay cap is what bounds *recovery* latency: once the network returns, a
+// request already asleep can't notice until it wakes, so a high cap makes a 3s
+// outage take 12s to recover from (measured in the spike). 2s keeps the wasted
+// attempts during an outage cheap — they fail instantly at the TCP layer — while
+// getting back to work promptly.
+const NETWORK_RETRY_WINDOW_MS = 120_000;
+const NETWORK_RETRY_MAX_DELAY_MS = 2_000;
+
 /**
- * SDK middleware relay that translates the terse request-time failures in
- * `requestErrorTable` — AWS's credential rejections (expired/invalid token,
- * missing permission, bad signature, clock skew) and the network dying
- * mid-request — into actionable errors, passing every other outcome (success or
- * an unrecognized error) through untouched. Credentials resolve fine at startup
- * and the *server* rejects later, so auth.mjs is off the stack by then; the SDK
- * boundary is where these request-time failures can be caught. Exported (and
- * pure of any live client) so the routing is unit-testable directly with a fake
- * `next`.
- * @param {(args: any) => Promise<any>} next
+ * The wait before network-retry attempt `n`: exponential with full jitter,
+ * capped. Full jitter (`random() × window`, not `window`) staggers the parts of
+ * a multipart upload that all failed in the same instant, so they don't
+ * stampede the link the moment it comes back. Exported for its unit test.
+ * @param {number} attempt - 0 for the first retry.
+ * @returns {number} milliseconds
  */
-export const requestErrorRelay = (next) => async (/** @type {any} */ args) => {
-  try {
-    return await next(args);
-  } catch (error) {
-    for (const { match, make } of requestErrorTable) {
-      if (match(error)) {
-        throw make(error, {
-          bucket: args.input?.Bucket,
-          endpoint: customEndpoint(),
-        });
+export const networkRetryDelay = (attempt) =>
+  Math.floor(
+    Math.random() * Math.min(500 * 2 ** attempt, NETWORK_RETRY_MAX_DELAY_MS),
+  );
+
+/**
+ * Whether a request carries a stream body, which must never be retried: the
+ * stream is already consumed, so a second attempt would upload a *truncated*
+ * object under the correct hash — silent corruption, the one outcome worse than
+ * a failed backup. The SDK's own retry middleware holds this invariant
+ * (`isStreamingPayload`), and retrying outside it would quietly break it.
+ *
+ * Nothing hits this today — lib-storage hands the client Buffers even when
+ * `putFile` gives it a file stream, and `putText` sends a string — so it is a
+ * tripwire for future code rather than a live branch.
+ * @param {any} args - The middleware arguments.
+ * @returns {boolean}
+ */
+const hasStreamBody = (args) => args?.input?.Body instanceof Readable;
+
+/**
+ * SDK middleware relay that (1) rides out a dropped network and (2) translates
+ * the terse request-time failures in `requestErrorTable` — AWS's credential
+ * rejections (expired/invalid token, missing permission, bad signature, clock
+ * skew) and the network dying mid-request — into actionable errors, passing
+ * every other outcome (success or an unrecognized error) through untouched.
+ *
+ * It sits at the middleware stack's `initialize` step, *outside* the SDK's own
+ * retry middleware (`finalizeRequest`), which is what makes the retry loop work:
+ * each pass re-runs serialization and signing and takes a fresh SDK retry token,
+ * so a client whose retry budget is spent still gets attempts. Re-signing per
+ * pass is a bonus — a retry minutes later carries a current date rather than a
+ * stale one.
+ *
+ * Credentials resolve fine at startup and the *server* rejects later, so
+ * auth.mjs is off the stack by then; the SDK boundary is where these
+ * request-time failures can be caught. Exported (and pure of any live client) so
+ * both the retrying and the routing are unit-testable with a fake `next`.
+ * Curried on the window *before* `next` on purpose: the SDK invokes a middleware
+ * as `middleware(next, context)`, so an optional second parameter here would
+ * silently receive the context object instead — which made the deadline `NaN`
+ * and disabled retrying altogether. Taking the option first keeps the shape the
+ * SDK expects exactly one argument wide.
+ * @param {number} [windowMs] - How long to keep retrying a dropped network.
+ *   Production always takes the default; the parameter exists so the give-up
+ *   path is testable in milliseconds rather than in two minutes.
+ */
+export const requestErrorRelay =
+  (windowMs = NETWORK_RETRY_WINDOW_MS) =>
+  (/** @type {(args: any) => Promise<any>} */ next) =>
+  async (/** @type {any} */ args) => {
+    const deadline = Date.now() + windowMs;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await next(args);
+      } catch (error) {
+        if (
+          isNetworkError(error) &&
+          Date.now() < deadline &&
+          !hasStreamBody(args)
+        ) {
+          const delay = networkRetryDelay(attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        for (const { match, make } of requestErrorTable) {
+          if (match(error)) {
+            throw make(error, {
+              bucket: args.input?.Bucket,
+              endpoint: customEndpoint(),
+            });
+          }
+        }
+        throw error;
       }
     }
-    throw error;
-  }
-};
+  };
 
 /**
  * Parse an `s3://bucket/key` URI into its bucket and key.

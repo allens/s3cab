@@ -97,7 +97,13 @@ Not user-configurable, for the same reason ADR-0060's knobs aren't
     never broke a single hang. A value-shaped assertion cannot notice that an option's *meaning*
     changed underneath it; only exercising the failure can. Worth remembering the next time a
     config invariant looks too simple to be worth a real test.
-- **Not yet:** a friendlier ADR-0030-style message for the timeout itself (today the SDK's raw
-  `TimeoutError` reaches the top-level catch), and the broader network-resilience knobs (retry
-  policy, bandwidth limiting, resumability) tracked in
-  [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
+- **Both "not yet" items above are now done — see
+  [0068](0068-network-retries-above-the-sdk.md).** A dropped link gets an ADR-0030 message
+  instead of the SDK's raw `TimeoutError`, and it is retried on a time window rather than left to
+  the SDK. That work also **corrects the claim in Decision above** that "the SDK retries it
+  (default `maxAttempts`), and a genuinely dead link then surfaces as a real error": the retry
+  half was true only for single-part uploads. The SDK's client-wide retry token bucket gave a
+  ≥512 MB file about **0.2 s** of tolerance, and raising `maxAttempts` made no difference at all.
+  The timeouts this ADR sets remain exactly right and are the precondition for any of it —
+  without them there is no error to retry. Bandwidth limiting and whole-run resumability stay
+  open in [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
