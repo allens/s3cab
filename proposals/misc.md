@@ -29,6 +29,14 @@ future "platform / release" epic).
   epic, deferred). Standalone value — "where does this file still live?" — but `delete`'s and
   `forget`'s previews already answer most of it in passing, so it earns a command only if the
   standalone question comes up in real use. Revisit on demand.
+- **Naming: make two workhorse names say what they do.** (1) Rename the `walk` module/functions
+  (`walkSet`/`walkDirs`/`walkFiles`, [src/lib/walk.mjs](../src/lib/walk.mjs)) to a *findFiles*
+  naming — it matches what the phase is and what it prints ("Finding files in…"), and the whole
+  point of that phase is to enumerate names as fast as possible before anything changes. (2)
+  Rename `writeSnapshot` ([src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs)) to
+  `generateSnapshot` (or similar) — *write* sounds like it just writes a file, when it actually
+  does the heavy lifting (stat every file, hash the changed ones, format and compress). Pure
+  readability renames, no behaviour change; would sweep the callers and doc references.
 - **`delete`'s participating-set scope has a silent completeness gap** (watch in real usage;
   ADR-0064). Because scope is *the sets attached on this machine*, a set of yours you haven't
   `reattach`-ed here **silently protects** its content — `delete` reclaims nothing for it, and

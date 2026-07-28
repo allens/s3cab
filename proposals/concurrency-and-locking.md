@@ -60,6 +60,11 @@ Ties into the known lock-file TODO in `snapshot.mjs`.
 not a crash/SIGTERM/power-loss, so the robust startup-sweep layer has to exist regardless, and
 then covers the Ctrl+C case too.
 
+**Orthogonal (2026-07-28):** [hash-reuse-on-interrupt.md](hash-reuse-on-interrupt.md) *does* use
+a SIGINT handler — but for a different job (parking a read-only hash lookup on a graceful stop),
+not for sweeping this stale lock, which it leaves untouched. That verdict above still holds for
+*this* item; the two don't collide.
+
 ## If a lock is the answer, it has to answer both
 
 _My framing, not a decision taken._ Item 2's lock is **local** (a file beside the snapshot, PID

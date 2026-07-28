@@ -118,19 +118,93 @@ function putRequest() {
   );
 }
 
+// The timeouts, asserted by *behaviour* (ADR-0065). A server that accepts the request
+// and then goes silent is precisely the half-open link the timeouts exist for, and the
+// only way to tell an idle timeout that kills the request from one that merely logs a
+// warning and lets it hang. Loopback only; no bucket, no network.
+//
+// This suite used to assert the *values* ("both timeouts are set and non-zero") — which
+// is exactly how the bug it now guards shipped: `requestTimeout` was non-zero the whole
+// time, and never once broke a hang.
+
 describe("clientConfig request timeouts", () => {
-  it("bounds requests with non-zero socket + connection timeouts so a dropped connection fails instead of hanging", () => {
-    // The exact values are tunable reasoned defaults (ADR-0065); the invariant
-    // that must never regress is that both are *set and non-zero* — zero or
-    // undefined is the SDK default that hangs a lost connection forever.
-    const requestHandler =
-      /** @type {{ requestTimeout?: number, connectionTimeout?: number }} */ (
-        clientConfig().requestHandler
+  /** @type {Server} */
+  let server;
+
+  /** Long enough that only a genuine hang trips it, next to the 500 ms below. */
+  const HANG_GUARD_MS = 5_000;
+
+  before(async () => {
+    // Accept the connection, drain the request, then never answer — the silence
+    // has to come *after* a fully received request, or the socket goes idle for
+    // the wrong reason. Left undrained, a body bigger than the socket buffer
+    // would stall on write backpressure instead, which trips the same timeout
+    // and would pass this test for a scenario it doesn't describe.
+    server = createServer((request) => request.resume());
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+  });
+
+  it("fails a silent connection instead of hanging on it", async () => {
+    const { port } = /** @type {AddressInfo} */ (server.address());
+    // Production's own handler options, with every duration cut to keep the test
+    // quick. Taking the *keys* from clientConfig() is the point: switch back to
+    // `requestTimeout` — which only warns — and this fails here rather than in
+    // someone's backup.
+    const options = /** @type {Record<string, unknown>} */ (
+      clientConfig().requestHandler
+    );
+    const requestHandler = Object.fromEntries(
+      Object.entries(options).map(([option, value]) => [
+        option,
+        typeof value === "number" ? 500 : value,
+      ]),
+    );
+    const client = new S3Client({
+      ...clientConfig(),
+      requestHandler,
+      endpoint: `http://127.0.0.1:${port}`,
+      forcePathStyle: true,
+      credentials: { accessKeyId: "test", secretAccessKey: "test" },
+      // One shot: we're asserting the timeout fires at all, not the retry policy.
+      maxAttempts: 1,
+    });
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let guard;
+    const hang = new Promise((_, reject) => {
+      guard = setTimeout(
+        () => reject(new Error("the request hung: no idle timeout ever fired")),
+        HANG_GUARD_MS,
       );
-    assert.ok(
-      Number.isFinite(requestHandler?.requestTimeout) &&
-        Number(requestHandler.requestTimeout) > 0,
-      `requestTimeout must be a positive number, got ${requestHandler?.requestTimeout}`,
+    });
+    const put = new PutObjectCommand({
+      Bucket: "bucket",
+      Key: "key",
+      Body: "hello",
+    });
+    try {
+      await assert.rejects(
+        () => Promise.race([client.send(put), hang]),
+        { name: "TimeoutError" },
+        "a silent connection must raise a TimeoutError, not hang",
+      );
+    } finally {
+      clearTimeout(guard);
+      client.destroy();
+    }
+  });
+
+  it("caps the connection phase as well", () => {
+    // No behavioural twin for this one: a connect that never completes needs a
+    // blackholed address, which isn't hermetic. Non-zero is the invariant — zero
+    // or undefined is the SDK default that waits forever.
+    const requestHandler = /** @type {{ connectionTimeout?: number }} */ (
+      clientConfig().requestHandler
     );
     assert.ok(
       Number.isFinite(requestHandler?.connectionTimeout) &&
@@ -226,7 +300,7 @@ describe("formatUploadProgress", () => {
       { loaded: 1000, total: 10000 },
       "photos/beach.jpg",
     );
-    assert.match(message, /1kB of 10kB/);
+    assert.match(message, /1\.0kB of 10\.0kB/);
     // Guards against the regression to raw integers ("1000 of 10000").
     assert.doesNotMatch(message, /\b1000\b/);
     assert.doesNotMatch(message, /\b10000\b/);

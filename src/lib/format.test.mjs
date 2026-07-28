@@ -9,7 +9,14 @@ describe("formatByteValue", () => {
     assert.equal(formatByteValue(1500), "1.5kB");
     assert.equal(formatByteValue(12345), "12.3kB");
     assert.equal(formatByteValue(12345678), "12.3MB");
-    assert.equal(formatByteValue(5_000_000_000_000), "5TB");
+    assert.equal(formatByteValue(5_000_000_000_000), "5.0TB");
+  });
+
+  // A whole scaled value keeps its decimal ("3.0MB", not "3MB") so a column of
+  // sizes lines up; raw byte counts under 1000 stay exact integers.
+  it("pads a whole scaled value to one decimal but leaves bytes integer", () => {
+    assert.equal(formatByteValue(3_000_000), "3.0MB");
+    assert.equal(formatByteValue(512), "512B");
   });
 
   // Regression for the `notation: "compact"` bug: short-scale "B"(illion)
@@ -20,6 +27,6 @@ describe("formatByteValue", () => {
 
   // The same bug emitted a capitalised "KB"; SI is a lowercase "kB".
   it("uses SI casing 'kB', not 'KB'", () => {
-    assert.equal(formatByteValue(1000), "1kB");
+    assert.equal(formatByteValue(1000), "1.0kB");
   });
 });
