@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -11,11 +11,13 @@ import {
   authNotice,
   bucketPolicy,
   clientConfig,
-  credentialErrorRelay,
   formatUploadProgress,
+  isNetworkError,
   isObjectNotFound,
+  networkRetryDelay,
   putFile,
   putObjectParams,
+  requestErrorRelay,
 } from "./s3.mjs";
 
 /** @import { S3ClientConfig } from "@aws-sdk/client-s3" */
@@ -445,17 +447,22 @@ describe("authNotice", () => {
   });
 });
 
-describe("credentialErrorRelay", () => {
+describe("requestErrorRelay", () => {
   /** An error carrying the AWS-style `name` the SDK sets from the service code. */
   const named = (/** @type {string} */ name) =>
     Object.assign(new Error(`raw text for ${name}`), { name });
 
-  /** Run the relay over a `next` that throws `cause`, optionally with a request input. */
+  /**
+   * Run the relay over a `next` that throws `cause`, optionally with a request
+   * input. A zero retry window keeps these tests about *translation* — a network
+   * cause would otherwise be retried for the production two minutes first, which
+   * is its own suite below.
+   */
   const rejectWith = (
     /** @type {Error} */ cause,
     /** @type {any} */ input = {},
   ) =>
-    credentialErrorRelay(async () => {
+    requestErrorRelay(0)(async () => {
       throw cause;
     })({ input });
 
@@ -494,14 +501,238 @@ describe("credentialErrorRelay", () => {
     );
   });
 
+  // A dropped network never reaches the AWS-code rows above — no response, no
+  // `<Code>` — so it is matched on the errno instead.
+  for (const code of ["ECONNRESET", "ENETUNREACH", "ETIMEDOUT", "EAI_AGAIN"]) {
+    it(`maps a ${code} transport failure to the reconnect-and-retry error`, async () => {
+      const cause = Object.assign(new Error(`connect ${code} 1.2.3.4:443`), {
+        code,
+      });
+      await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
+        assert.equal(error.cause, cause);
+        assert.match(error.message, /your network connection dropped/);
+        assert.match(
+          error.message,
+          /Everything already uploaded is safely stored/,
+        );
+        assert.match(
+          error.message,
+          new RegExp(`connect ${code} 1\\.2\\.3\\.4:443`),
+        );
+        return true;
+      });
+    });
+  }
+
+  it("maps the SDK's own socket TimeoutError to the same error", async () => {
+    await assert.rejects(
+      rejectWith(named("TimeoutError")),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /your network connection dropped/);
+        return true;
+      },
+    );
+  });
+
+  // The real shape of a VPN switching on mid-upload: Node's happy-eyeballs
+  // connect fails across every address the endpoint resolves to and wraps them
+  // in an AggregateError that carries NO message of its own — the bug that
+  // printed a bare `ERROR:`. It is matched by the `code` Node promotes from the
+  // first sub-failure, and the sub-messages are what reach the user.
+  it("maps a message-less happy-eyeballs AggregateError, and shows its detail", async () => {
+    const cause = Object.assign(
+      new AggregateError([
+        new Error("connect ENETUNREACH 52.219.72.100:443"),
+        new Error("connect ENETUNREACH 52.219.98.20:443"),
+      ]),
+      { code: "ENETUNREACH" },
+    );
+    assert.equal(cause.message, ""); // the premise: nothing to print
+    assert.ok(isNetworkError(cause));
+    await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
+      assert.match(error.message, /your network connection dropped/);
+      assert.match(
+        error.message,
+        /52\.219\.72\.100:443; connect ENETUNREACH 52\.219\.98\.20:443/,
+      );
+      return true;
+    });
+  });
+
   it("rethrows an unrecognized code raw (no mushy middle)", async () => {
     const cause = named("AccountProblem");
     await assert.rejects(rejectWith(cause), (error) => error === cause);
   });
 
+  it("leaves a non-network errno (a local file error) alone", async () => {
+    const cause = Object.assign(new Error("ENOENT: no such file"), {
+      code: "ENOENT",
+    });
+    assert.equal(isNetworkError(cause), false);
+    await assert.rejects(rejectWith(cause), (error) => error === cause);
+  });
+
   it("passes a successful result through", async () => {
     const next = async () => "ok";
-    assert.equal(await credentialErrorRelay(next)({ input: {} }), "ok");
+    assert.equal(await requestErrorRelay()(next)({ input: {} }), "ok");
+  });
+});
+
+describe("requestErrorRelay network retries", () => {
+  /** A dropped-connection error, the shape Node raises for a vanished link. */
+  const dropped = () =>
+    Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+
+  it("retries a dropped network until the link comes back", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      if (calls <= 3) {
+        throw dropped();
+      }
+      return "ok";
+    };
+    assert.equal(await requestErrorRelay()(next)({ input: {} }), "ok");
+    // Each `next` here stands for a whole SDK attempt-and-retry cycle, so any
+    // count above 1 is the outer loop doing work the SDK had already given up on.
+    assert.equal(calls, 4, "should keep retrying until the call succeeds");
+  });
+
+  it("gives up once the window closes, with the friendly error", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      throw dropped();
+    };
+    // A 50ms window, so the give-up path is testable without waiting out the
+    // production two minutes.
+    await assert.rejects(
+      requestErrorRelay(50)(next)({ input: {} }),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /your network connection dropped/);
+        return true;
+      },
+    );
+    assert.ok(calls > 1, `should have retried before giving up (got ${calls})`);
+  });
+
+  it("never retries a request whose body is a stream", async () => {
+    // Retrying a consumed stream would PUT a truncated object under the correct
+    // hash — silent corruption. Nothing does this today; the guard is a tripwire.
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      throw dropped();
+    };
+    await assert.rejects(
+      requestErrorRelay()(next)({ input: { Body: Readable.from(["chunk"]) } }),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /your network connection dropped/);
+        return true;
+      },
+    );
+    assert.equal(calls, 1, "a stream body must be attempted exactly once");
+  });
+
+  it("does not retry a server rejection — only the network", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      throw Object.assign(new Error("nope"), { name: "AccessDenied" });
+    };
+    await assert.rejects(requestErrorRelay()(next)({ input: {} }));
+    assert.equal(calls, 1, "AccessDenied is the server answering, not a retry");
+  });
+});
+
+// The guarantee, end to end: a real client, a real outage, the relay wired the
+// way client() wires it. The unit tests above prove the loop; this proves it
+// still works *through the SDK's middleware stack* — the part that could break
+// silently if the SDK ever reordered the initialize step relative to its own
+// retry middleware.
+describe("surviving an outage through the real middleware stack", () => {
+  /** @type {Server} */
+  let server;
+  /** Dead for long enough that the SDK's own retries cannot cover it: at 32 */
+  /** concurrent requests its shared token budget gives up after ~180ms. */
+  const OUTAGE_MS = 600;
+  const CONCURRENCY = 32;
+  let healthyAt = 0;
+
+  before(async () => {
+    server = createServer((request, response) => {
+      request.resume();
+      if (Date.now() < healthyAt) {
+        request.socket.destroy();
+        return;
+      }
+      response.setHeader("ETag", '"deadbeef"');
+      response.end();
+    });
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+  });
+
+  it("completes every concurrent request across a dropped link", async () => {
+    healthyAt = Date.now() + OUTAGE_MS;
+    const { port } = /** @type {AddressInfo} */ (server.address());
+    const client = new S3Client({
+      ...clientConfig(),
+      endpoint: `http://127.0.0.1:${port}`,
+      forcePathStyle: true,
+      credentials: { accessKeyId: "test", secretAccessKey: "test" },
+    });
+    // Exactly what client() does — the relay is only load-bearing when wired in.
+    client.middlewareStack.add(requestErrorRelay(), {
+      step: "initialize",
+      name: "requestErrors",
+    });
+    try {
+      const results = await Promise.allSettled(
+        Array.from({ length: CONCURRENCY }, (_, i) =>
+          client.send(
+            new PutObjectCommand({ Bucket: "bucket", Key: `k${i}`, Body: "x" }),
+          ),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected");
+      assert.deepEqual(
+        failed.map((r) => String(r.reason)),
+        [],
+        "every request should have ridden out the outage",
+      );
+    } finally {
+      client.destroy();
+    }
+  });
+});
+
+describe("networkRetryDelay", () => {
+  it("grows with the attempt but never exceeds the cap", () => {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      for (let sample = 0; sample < 50; sample++) {
+        const delay = networkRetryDelay(attempt);
+        assert.ok(delay >= 0, `delay must not be negative (got ${delay})`);
+        assert.ok(
+          delay <= 2_000,
+          `delay must stay under the cap that bounds recovery (got ${delay})`,
+        );
+      }
+    }
+  });
+
+  it("jitters, so parts that failed together do not stampede on recovery", () => {
+    // Attempt 3's window is 2s (capped); 40 samples landing on one value would
+    // mean no jitter at all.
+    const seen = new Set(
+      Array.from({ length: 40 }, () => networkRetryDelay(3)),
+    );
+    assert.ok(seen.size > 1, "delays should not all be identical");
   });
 });
 
