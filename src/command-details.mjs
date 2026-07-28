@@ -13,8 +13,9 @@ snapshot carries on from there instead of reading those files again. Stop
 and restart as often as you like — each run gets further.
 
 Only a graceful stop can be saved that way. If the machine loses power, or
-the run is killed outright, nothing is lost but the time: the next run
-reads those files again.
+the run is killed outright, the work file left behind stops the next run
+until you delete it — s3cab prints the exact command — and those files are
+read again. Nothing is lost but the time.
 
 Full guide: https://s3cab.plantegral.com/guide/format`;
 

@@ -112,9 +112,13 @@ function parkOnInterrupt() {
       process.exit(EXIT_INTERRUPTED);
     }
     controller.abort();
+    // Signal-agnostic wording: SIGHUP/SIGTERM reach this too, and a second one
+    // of those force-quits just as a second Ctrl+C does. The key stays in
+    // parentheses so the interactive case — the one anybody actually reads —
+    // keeps a concrete instruction.
     console.warn(
       "\nStopping — saving the hashes computed so far so the next run can " +
-        "reuse them.\nPress Ctrl+C again to quit immediately.",
+        "reuse them.\nInterrupt again (Ctrl+C) to quit immediately.",
     );
   };
 
