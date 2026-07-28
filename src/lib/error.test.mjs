@@ -115,6 +115,14 @@ describe("errorText", () => {
     );
   });
 
+  // The hole in the backstop: the sub-error join is "" for an empty `.errors`, so
+  // returning it unconditionally handed back the blank line this exists to stop.
+  it("still says something for an AggregateError with no sub-errors", () => {
+    const empty = new AggregateError([]);
+    assert.equal(empty.message, "");
+    assert.equal(errorText(empty), "AggregateError");
+  });
+
   it("keeps an AggregateError's own message when it has one", () => {
     const aggregate = new AggregateError([new Error("inner")], "all failed");
     assert.equal(errorText(aggregate), "all failed");

@@ -190,6 +190,12 @@ export const isENOENT = (error) =>
  * error can tell the user less than nothing. Joining the sub-errors is the only
  * way that failure says anything at all, and falling back to `name` means no
  * empty message can ever reach the terminal blank again.
+ *
+ * The aggregate branch *falls through* rather than returning: an `AggregateError`
+ * carrying no sub-errors would otherwise join to `""` and hand the caller the very
+ * blank line this exists to prevent. Node's happy-eyeballs path always supplies at
+ * least one, so that shape is not reachable from the failure this was written for
+ * — but a backstop with a hole in it is not a backstop.
  * @param {unknown} error
  * @returns {string}
  */
@@ -198,7 +204,10 @@ export function errorText(error) {
     return String(error);
   }
   if (!error.message && error instanceof AggregateError) {
-    return error.errors.map((cause) => errorText(cause)).join("; ");
+    const detail = error.errors.map((cause) => errorText(cause)).join("; ");
+    if (detail) {
+      return detail;
+    }
   }
   return error.message || error.name;
 }
