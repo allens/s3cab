@@ -97,7 +97,7 @@ describe("formatDeletionRecord", () => {
     assert.match(text, /# scope: {6}the sets above only\n/);
     // Every named path is in the header, first labelled, the rest aligned.
     assert.match(text, /# paths: {6}D:\\Media\\raw\n# {13}D:\\Media\\old\n/);
-    assert.match(text, /# 3 files, holding 2kB across 2 stored objects\.\n/);
+    assert.match(text, /# 3 files, holding 2\.0kB across 2 stored objects\.\n/);
     assert.ok(text.includes(`${HASH_A}\tD:\\Media\\raw\\a.mov\n`));
     assert.ok(text.includes(`${HASH_B}\tD:\\Media\\raw\\b.mov\n`));
     assert.ok(text.endsWith("\n"));

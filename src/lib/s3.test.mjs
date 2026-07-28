@@ -226,7 +226,7 @@ describe("formatUploadProgress", () => {
       { loaded: 1000, total: 10000 },
       "photos/beach.jpg",
     );
-    assert.match(message, /1kB of 10kB/);
+    assert.match(message, /1\.0kB of 10\.0kB/);
     // Guards against the regression to raw integers ("1000 of 10000").
     assert.doesNotMatch(message, /\b1000\b/);
     assert.doesNotMatch(message, /\b10000\b/);
