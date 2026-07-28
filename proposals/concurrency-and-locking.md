@@ -60,7 +60,7 @@ Ties into the known lock-file TODO in `snapshot.mjs`.
 not a crash/SIGTERM/power-loss, so the robust startup-sweep layer has to exist regardless, and
 then covers the Ctrl+C case too.
 
-**Orthogonal (2026-07-28):** [hash-reuse-on-interrupt.md](hash-reuse-on-interrupt.md) *does* use
+**Orthogonal (2026-07-28):** [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md) *does* use
 a SIGINT handler — but for a different job (parking a read-only hash lookup on a graceful stop),
 not for sweeping this stale lock, which it leaves untouched. That verdict above still holds for
 *this* item; the two don't collide.

@@ -7,6 +7,25 @@
 // command/auth imports), so this stays as SDK-free as help.mjs. Short one-liners
 // belong inline in the registry, not here.
 
+export const snapshotDetails = `Reading a large tree for the first time can take hours. You can stop part
+way with Ctrl+C: the file hashes worked out so far are saved, and the next
+snapshot carries on from there instead of reading those files again. Stop
+and restart as often as you like — each run gets further.
+
+Only a graceful stop can be saved that way. If the machine loses power, or
+the run is killed outright, nothing is lost but the time: the next run
+reads those files again.
+
+Full guide: https://s3cab.plantegral.com/guide/format`;
+
+export const backupDetails = `A backup is a snapshot followed by an upload of whatever the bucket does
+not already hold. Both halves are safe to interrupt: Ctrl+C during the
+snapshot saves the file hashes worked out so far ('s3cab snapshot --help'),
+and files already uploaded stay uploaded, so the next backup picks up where
+this one stopped rather than starting over.
+
+Full guide: https://s3cab.plantegral.com/guide/format`;
+
 export const compareDetails = `The report compares file content (SHA-256 hashes), never timestamps.
 Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
 content already existed elsewhere is noted '(duplicate of ...)'.

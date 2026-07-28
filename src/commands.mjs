@@ -19,9 +19,11 @@ import { upload } from "./commands/upload.mjs";
 import { verify } from "./commands/verify.mjs";
 import {
   awsDetails,
+  backupDetails,
   compareDetails,
   deleteDetails,
   providerDetails,
+  snapshotDetails,
 } from "./command-details.mjs";
 import {
   renderBackup,
@@ -79,6 +81,7 @@ export const commands = {
     group: "Snapshots",
     summary: "Take a snapshot of a backup set",
     examples: ["s3cab snapshot", "s3cab snapshot photos"],
+    details: snapshotDetails,
     args: {
       set: {
         description: "The backup set to snapshot (default: the only set)",
@@ -326,6 +329,7 @@ export const commands = {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",
     examples: ["s3cab backup", "s3cab backup photos"],
+    details: backupDetails,
     args: {
       set: { description: "The backup set to back up (default: the only set)" },
     },

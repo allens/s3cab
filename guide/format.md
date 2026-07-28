@@ -162,6 +162,17 @@ the API**, and some of them you are expected to edit directly in a text editor:
         2026-06-12T0915.tsv.zst    # same format as the bucket's copy, byte for byte
 ```
 
+Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
+dot, neither is ever uploaded, and both are safe to delete when nothing is running:
+
+- `.snapshot.tsv.zst` — the snapshot being written right now. It becomes the finished
+  snapshot when the run completes. One left behind means a run was killed part-way; s3cab
+  says so, and names it, the next time you snapshot that set.
+- `.snapshot.lookup.tsv.zst` — the file hashes from a snapshot you stopped with Ctrl+C,
+  kept so the next run doesn't have to work them out again. It is read as a lookup only —
+  every hash in it is re-checked against the file's current size and modification time
+  before being trusted — and it is deleted as soon as a snapshot completes.
+
 Editing a set *is* editing these files; deleting the directory deletes the set. In both
 `dirs.txt` and `exclude.txt`, blank lines are ignored and a line starting with `#` is a
 comment — so a directory or pattern can be commented out rather than deleted. Note the
