@@ -105,18 +105,28 @@ export function authNotice({
 // lets the SDK build the NodeHttpHandler itself, so we needn't import the
 // transitive @smithy/node-http-handler (dependency policy — ADR-0005).
 //
-//   requestTimeout    — socket *inactivity* limit: reset by any byte in or out, so
+//   socketTimeout     — socket *inactivity* limit: reset by any byte in or out, so
 //                       a slow-but-alive transfer never trips it (ADR-0060 shows a
 //                       healthy multipart upload streams continuously); only true
-//                       silence — a dropped connection — does. A TimeoutError is
-//                       retryable, so the SDK retries (default maxAttempts) and a
-//                       genuinely dead link then surfaces as a real error.
+//                       silence — a dropped connection — does. It destroys the
+//                       request and raises a TimeoutError, which is retryable, so
+//                       the SDK retries (default maxAttempts) and a genuinely dead
+//                       link then surfaces as a real error.
 //   connectionTimeout — cap on establishing the TCP/TLS connection.
 //
+// Deliberately NOT `requestTimeout` — the trap this first fell into. That one caps
+// *total* request duration, not idle time, and by default merely logs a warning
+// while the request carries on hanging. @smithy/types says so itself: "because
+// requestTimeout was for a long time incorrectly being set as a socket idle timeout,
+// users must also opt-in for request timeout thrown errors". Opting in
+// (`throwOnRequestTimeout`) would be worse than the bug: a large object on a slow
+// link would then fail for taking too long while perfectly healthy.
+//
 // Reasoned defaults, not measured (unlike ADR-0060's throughput tuning): the value
-// only sets how long a dead link waits before erroring, not throughput. Pinned by
-// a unit test so they can't silently drop back to zero (the infinite-hang bug).
-const REQUEST_TIMEOUT_MS = 30_000;
+// only sets how long a dead link waits before erroring, not throughput. Pinned by a
+// unit test that hangs a real request against a silent loopback server — asserting
+// the *values* is what let the requestTimeout bug through (ADR-0065).
+const SOCKET_TIMEOUT_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 10_000;
 
 /**
@@ -131,7 +141,7 @@ export function clientConfig() {
   const endpoint = customEndpoint();
   return {
     requestHandler: {
-      requestTimeout: REQUEST_TIMEOUT_MS,
+      socketTimeout: SOCKET_TIMEOUT_MS,
       connectionTimeout: CONNECTION_TIMEOUT_MS,
     },
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
