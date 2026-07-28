@@ -11,11 +11,14 @@ const byteUnits = [
   "petabyte",
 ];
 const byteFormatters = byteUnits.map(
-  (unit) =>
+  (unit, i) =>
     new Intl.NumberFormat("en", {
       style: "unit",
       unit,
       unitDisplay: "narrow",
+      // Scaled units (kB+) always show one decimal so a whole value reads as
+      // "3.0MB", not "3MB"; raw bytes are exact integer counts, so no ".0".
+      minimumFractionDigits: i === 0 ? 0 : 1,
       maximumFractionDigits: 1,
     }),
 );
