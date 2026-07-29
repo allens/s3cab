@@ -87,6 +87,11 @@ export async function storedHashes({ bucket, set, since, baseline }) {
   const start = Temporal.Now.instant();
   const label = "Scanning existing objects…";
   using progress = createProgress(stderr);
+  // Paint the label before the first request, not 500 objects into the listing:
+  // ADR-0044/0045 put this announce *ahead* of the LIST precisely because the
+  // wait is unpredictable, and a bucket slow to answer is exactly when a blank
+  // screen reads as a hang. Bare label, no count — a "0" would be worse.
+  progress.update(label);
   /** @type {Set<string>} */
   const stored = new Set();
   for await (const hash of listObjectHashes(bucket)) {

@@ -130,6 +130,13 @@ export function walkDirs(dirs, patterns) {
     // *body*, so every directory's line is closed before the next one opens.
     const label = `Finding files in '${tildeify(dir)}'…`;
     using progress = createProgress(stderr);
+    // Paint the label before walking a single entry. Folding the announce into
+    // the progress line otherwise costs the immediate feedback the old separate
+    // `console.warn` gave: with the first redraw 500 files away, a slow or cold
+    // directory would sit blank and look hung. Bare label, no count — a "0"
+    // would be worse than nothing. A no-op off a terminal, where each
+    // directory's closing line is the whole story.
+    progress.update(label);
 
     const walkCallbackFn = createWalkCallbackFn(
       dir,
@@ -150,10 +157,14 @@ export function walkDirs(dirs, patterns) {
       }
       seen.add(path);
       files.push(path);
-      // Redraw every 500 files (after the push, so the count reflects files
-      // actually found — never a misleading "0" first line).
-      if (files.length % 500 === 0) {
-        progress.update(`${label} ${formatCount(files.length - before)}`);
+      // Redraw every 500 files *of this directory* (after the push, so the count
+      // reflects files actually found). Bound once: gating on the set-wide
+      // `files.length` while displaying the per-directory delta made the cadence
+      // depend on where the previous directory happened to stop — a second
+      // directory following a first of 111 files redrew at 389, then 889.
+      const found = files.length - before;
+      if (found % 500 === 0) {
+        progress.update(`${label} ${formatCount(found)}`);
       }
     }
 
