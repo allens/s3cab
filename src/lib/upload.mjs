@@ -209,9 +209,11 @@ export function uploadObjects({ bucket, set, stored }) {
       ) {
         seen.add(props.hash);
         candidates++;
-        const drifted = !transfersStopped && (await hasChanged(path, props));
-        if (drifted) {
-          failure ??= fileChangedError(path, set);
+        const change = transfersStopped
+          ? undefined
+          : await fileChange(path, props);
+        if (change) {
+          failure ??= fileChangedError(path, set, change);
         } else if (!transfersStopped) {
           try {
             const didUpload = await putObject(bucket, props.hash, path);
@@ -242,26 +244,44 @@ export function uploadObjects({ bucket, set, stored }) {
 }
 
 /**
- * Whether the file on disk is no longer the one that was hashed — the drift
- * guard, run in the sliver between hashing a file and PUTting its bytes. The same
- * staleness test `fileProps` uses to call a file unchanged (size *and* mtime),
- * against what the row recorded. A missing file counts as changed.
+ * Why a file can't be stored under the hash recorded for it — the three ways the
+ * drift guard can fail, kept apart so the message can say which happened rather
+ * than list the possibilities (ADR-0030: be specific, and put codes in a
+ * parenthetical). `cause` carries the raw filesystem error for the `unreadable`
+ * case, so `S3CAB_DEBUG` can print the errno and a caller could branch on it.
+ * @typedef {{ reason: "changed" | "removed" | "unreadable", cause?: unknown }} FileChange
+ */
+
+/**
+ * How the file on disk differs from the one that was hashed, or `undefined` when
+ * it is still the same file — the drift guard, run in the sliver between hashing
+ * a file and PUTting its bytes. Unchanged is the same staleness test `fileProps`
+ * uses (size *and* mtime), against what the row recorded.
+ *
+ * **Every** `lstat` failure is a change, not just ENOENT: this runs inside a
+ * pipeline link, where a throw would destroy the chain and truncate the snapshot
+ * being written (ADR-0069). A file we cannot stat is one we cannot confirm, which
+ * is reason enough not to store it — and it matches the hash pass, where an
+ * unreadable file becomes an `#ERROR` row and the run carries on.
  * @param {string} path - The file about to be uploaded
  * @param {Props} recorded - What the row says about it
- * @returns {Promise<boolean>}
+ * @returns {Promise<FileChange | undefined>}
  */
-async function hasChanged(path, recorded) {
-  const current = await lstat(path).catch((error) => {
-    if (isENOENT(error)) {
-      return null; // removed since it was hashed — drift
-    }
-    throw error;
-  });
-  return (
-    !current ||
+async function fileChange(path, recorded) {
+  let current;
+  try {
+    current = await lstat(path);
+  } catch (error) {
+    // try/catch, not `.catch()`: a synchronous throw (a path `lstat` rejects
+    // outright) has to be caught here too, or it escapes the transform.
+    return isENOENT(error)
+      ? { reason: "removed" }
+      : { reason: "unreadable", cause: error };
+  }
+  const changed =
     current.size !== recorded.size ||
-    current.mtime.toISOString() !== recorded.mtime
-  );
+    current.mtime.toISOString() !== recorded.mtime;
+  return changed ? { reason: "changed" } : undefined;
 }
 
 /**
@@ -385,30 +405,43 @@ export async function uploadDir({ bucket, dir, excludePath }) {
 }
 
 /**
- * The "a file changed under us mid-backup" error `uploadObjects` records when a
- * file's on-disk size/mtime no longer matches what was recorded for it (or the
- * file is gone). Storing its current bytes would file them under the recorded
- * content's hash, corrupting that object across the dedup graph
- * (proposals/bugs.md), so that one file is left out. A {@link FileChangedError}
- * because `backup` reads its *type* to pick the right advice (ADR-0069): every
- * other upload failure is retryable with `upload --snapshot`, this one needs a
- * fresh backup. Wording follows ADR-0030: goal-framed headline, the fix as a
- * copy-pasteable command, the durable option (exclude) with its guide link.
- * @param {string} path - The file that changed since it was hashed
+ * The "we couldn't confirm this file" error `uploadObjects` records when the file
+ * on disk is no longer the one that was hashed. Storing its current bytes would
+ * file them under the recorded content's hash, corrupting that object across the
+ * dedup graph (proposals/bugs.md), so that one file is left out — and because no
+ * manifest is published, the run didn't finish, which is what makes one shared
+ * "back up again" line honest for all three reasons.
+ *
+ * A {@link FileChangedError} because `backup` reads its *type* to pick the right
+ * advice (ADR-0069): every other upload failure resumes with `upload --snapshot`,
+ * this one needs a fresh backup. Wording follows ADR-0030 — a headline that says
+ * what actually happened, the errno kept to a parenthetical, the fix as a
+ * copy-pasteable command, the durable option (exclude) with its guide link — and
+ * ADR-0012's consumer vocabulary: "s3cab", not "content-addressed backup".
+ * @param {string} path - The file that couldn't be confirmed
  * @param {string} set - The set being backed up (names the re-run command)
+ * @param {FileChange} change - Which of the three happened, and the raw cause if any
  * @returns {FileChangedError}
  */
-const fileChangedError = (path, set) =>
-  new FileChangedError(
-    `Couldn't back up '${path}' — it changed or was removed while the backup ` +
-      `was running, so it no longer matches the fingerprint recorded for it.\n\n` +
-      `s3cab left that one file out rather than store mismatched bytes under ` +
-      `the snapshot's fingerprint, which it could not have restored correctly ` +
-      `later. Everything else went up, and the snapshot just taken is saved on ` +
-      `this computer — so backing up again re-uses those hashes and only picks ` +
-      `up what changed:\n` +
+function fileChangedError(path, set, { reason, cause }) {
+  const code = /** @type {NodeJS.ErrnoException} */ (cause)?.code;
+  const headline = {
+    changed: `it changed while the backup was running, so it's no longer the file s3cab fingerprinted`,
+    removed: `it was removed while the backup was running`,
+    unreadable: `it could no longer be read while the backup was running${code ? ` (${code})` : ""}`,
+  }[reason];
+
+  return new FileChangedError(
+    `Couldn't back up '${path}' — ${headline}.\n\n` +
+      `s3cab stores a file only when it can confirm it's still the one it ` +
+      `fingerprinted, so this file was left out and the backup didn't finish. ` +
+      `Everything else was uploaded, and the snapshot taken here is saved on ` +
+      `this computer, so backing up again won't re-read the files it already ` +
+      `hashed:\n` +
       `  s3cab backup ${set}\n\n` +
-      `If a file changes this often — a live database, or a file another ` +
-      `program is still writing — it isn't a good fit for content-addressed ` +
-      `backup; exclude it from the set: https://s3cab.plantegral.com/guide/exclude`,
+      `If this keeps happening — a live database, a file another program is ` +
+      `still writing, or one that comes and goes — it isn't a good fit for ` +
+      `s3cab; exclude it from the set: https://s3cab.plantegral.com/guide/exclude`,
+    { cause },
   );
+}

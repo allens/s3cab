@@ -294,7 +294,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     );
     const { failure, uploaded } = upload.result();
     assert.ok(failure instanceof FileChangedError);
-    assert.match(failure.message, /changed or was removed/);
+    assert.match(failure.message, /changed while the backup was running/);
     assert.equal(uploaded, 1);
   });
 
@@ -312,6 +312,28 @@ describe("uploadObjects (the streaming PUT transform)", () => {
       putFiles.map((put) => put.uri),
       [uri("world")],
     );
+  });
+
+  it("treats a file it can no longer stat as changed, keeping the errno as the cause", async () => {
+    // The failure mode Copilot caught on #245: a non-ENOENT stat error used to
+    // escape the transform, and a throw here destroys the pipeline and truncates
+    // the snapshot being written. A NUL in the path is the portable way to make
+    // `lstat` fail with something other than ENOENT.
+    await using dir = await mkTmpDir();
+    const { c } = files(dir.path);
+    const [, props] = await row(c);
+    /** @type {SnapshotRow} */
+    const unstattable = [join(dir.path, "no\0such.txt"), props];
+
+    const upload = uploader();
+    const out = await Array.fromAsync(upload.through([unstattable]));
+
+    assert.deepEqual(out, [unstattable], "the row still reaches the TSV");
+    assert.deepEqual(putFiles, [], "an unconfirmable file is never stored");
+    const { failure } = upload.result();
+    assert.ok(failure instanceof FileChangedError);
+    assert.match(failure.message, /could no longer be read/);
+    assert.ok(failure.cause, "the raw error rides along for S3CAB_DEBUG");
   });
 
   it("never throws mid-stream — that would truncate the caller's snapshot", async () => {
@@ -500,7 +522,10 @@ describe("uploadSnapshot drift guard", () => {
     // mtime resolution were too coarse to catch the edit on its own.
     writeFileSync(file, "different, longer bytes");
 
-    await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
+    await assert.rejects(
+      () => uploadSnapshot(args),
+      /while the backup was running/,
+    );
     assert.deepEqual(putFiles, []);
   });
 
@@ -510,7 +535,10 @@ describe("uploadSnapshot drift guard", () => {
 
     rmSync(file);
 
-    await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
+    await assert.rejects(
+      () => uploadSnapshot(args),
+      /while the backup was running/,
+    );
     assert.deepEqual(putFiles, []);
   });
 

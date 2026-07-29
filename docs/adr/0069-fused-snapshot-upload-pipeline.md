@@ -87,7 +87,7 @@ The two kinds of failure differ only in what happens next:
 
 | | Failed transfer | Drifted file |
 | --- | --- | --- |
-| Cause | network, credentials, a rejected PUT | the file changed or vanished between hashing and its PUT |
+| Cause | network, credentials, a rejected PUT | the file changed, vanished, or became unreadable between hashing and its PUT |
 | Rest of the run | further uploads abandoned (one dead link is enough; the SDK-level retry window is already spent — [0068](0068-network-retries-above-the-sdk.md)) | **only that file is skipped** — every other file's bytes are still good and still go up |
 | Raised as | a plain error, wrapped with the resume command | `FileChangedError` (error.mjs), which `backup` catches *by type* |
 | The fix offered | `upload <set> --snapshot <name>` — the transfers alone | `s3cab backup <set>` — a fresh pass |
@@ -95,6 +95,15 @@ The two kinds of failure differ only in what happens next:
 Drift needs the *fresh backup* because that row can never be reconciled with the file as it now
 stands: `upload --snapshot` deliberately never re-hashes, so retrying it would fail on the same row
 forever. A fresh backup re-hashes only that file and reuses the rest.
+
+**"Can't check" counts as drift.** *Every* `lstat` failure in the guard is a change, not just
+ENOENT — a file we cannot stat is one we cannot confirm, which is reason enough not to store it,
+and letting an EACCES/EIO escape would throw from inside the pipeline link and truncate the
+snapshot, defeating the paragraph above (caught in review on #245). The three reasons are kept
+apart for the message — *changed*, *removed*, *could no longer be read (errno)* — because being
+specific costs one string union, and the raw error rides along as `cause` for `S3CAB_DEBUG`. The
+advice is shared: no manifest was published, so whichever happened, the run didn't finish and
+wants running again.
 
 **Why the snapshot keeps its real name.** ADR-0067 parks an interrupted run's work file under
 `.snapshot.lookup.tsv.zst` precisely because it is *incomplete* — it must never masquerade as a

@@ -201,7 +201,9 @@ describe("backup (the fused pass)", () => {
     // A drifted row can never be reconciled with the file as it now stands, so
     // wrapping it in the "carry on where it stopped" advice would send the user
     // at a retry that must fail. The error already names the right command.
-    const failure = new FileChangedError("'photo.raw' changed or was removed");
+    const failure = new FileChangedError(
+      "'photo.raw' changed while the backup was running",
+    );
     outcome = { candidates: 3, uploaded: 2, failure };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {

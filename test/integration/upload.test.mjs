@@ -239,7 +239,7 @@ describe("uploadSnapshot (real bucket)", () => {
     try {
       await assert.rejects(
         () => uploadSnapshot({ bucket, set, snapshotDir, name }),
-        /changed or was removed/,
+        /while the backup was running/,
       );
 
       // The snapshot was withheld — nothing published, so the objects-first/
