@@ -153,6 +153,19 @@ duplications *between* modules, and the fourth is a guard that one path never go
   *pre-decision* output printed before the command returns — so render.mjs may be the wrong home
   even though its siblings live there. Grilling should split it: take `count`/`plural`, decide the
   table on its merits.
+
+  **Updated 2026-07-30 — the count half's home question is already answered.**
+  [#246](https://github.com/allens/s3cab/pull/246) landed after this pass and added an **exported
+  `formatCount`** to format.mjs (one module-level `Intl.NumberFormat`, so it also beats a per-call
+  `toLocaleString`), already consumed by walk.mjs and upload.mjs. So a count formatter's home is
+  settled **by precedent, not by a decision**: format.mjs, exported. That makes render.mjs's private
+  `count` (l.825) a strict duplicate and the slower of the two, against ~20 render call sites. The
+  count half is therefore no longer "decide where this lives" but "delete `count`, and route it plus
+  the six inline `toLocaleString("en")` spellings (delete.mjs 338/434, deletion-record.mjs 166/179,
+  unrestorable.mjs 379/383) through `formatCount`" — leaving `plural` as the only piece still
+  needing a home. **The table half is unchanged**, including both arguments against it. The
+  `count`/`formatCount` split is a live inconsistency as of today, so it is a natural ride-along for
+  whoever next opens render.mjs even if B is never taken whole.
 - **C — `putText` re-spells `putObjectParams`; no `PreconditionFailed` twin to `isObjectNotFound`**
   — **Worth exploring**, small, inside s3.mjs. `awsOnlyPutParams`' doc claims the gating "lives in
   one place", shared by "putFile (via putObjectParams) and putText". Half true: the AWS-only gating
