@@ -25,7 +25,13 @@ if (!TEST_BUCKET) {
   throw new Error(
     "No test bucket configured. Integration tests need a real S3 bucket.\n\n" +
       "    export S3CAB_TEST_BUCKET=your-bucket    # then re-run\n" +
-      "    # or run `npm test` for the unit suite (no bucket needed)\n",
+      "    # or run `npm test` for the unit suite (no bucket needed)\n\n" +
+      // The recurring cause, and invisible from the error alone: `.env.test` is
+      // gitignored, so a fresh worktree (.claude/worktrees/<name>, CLAUDE.md #7)
+      // starts without it and `--env-file-if-exists` quietly loads nothing.
+      "  Working in a worktree? Its checkout has no `.env.test` — that file is\n" +
+      "  gitignored, so it stays in the main checkout. Copy it across:\n" +
+      "    cp ../../../.env.test .env.test\n",
   );
 }
 
