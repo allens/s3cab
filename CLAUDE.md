@@ -103,7 +103,13 @@ rather than assuming it is fixed forever.
 3. **Refactors and minor chores may ride along with a feature** — a one-feature commit/PR
    carrying a small refactor, a settings.json tweak, a `proposals/` addition (any provisional
    idea the work surfaces), or a doc fix needn't be split into its own PR. Don't over-engineer
-   separation. (Still prefer a _separate commit_ per logical change within the PR.)
+   separation. (Still prefer a _separate commit_ per logical change within the PR.) **This
+   includes notes _already sitting uncommitted_ in `proposals/`** (typically
+   [misc.md](proposals/misc.md)): roll them into the PR in flight as their own commit rather than
+   stepping around them, and when nothing is in flight they are doc-only, so they go straight to
+   `main` (#7). They are the one deliberate exception to #7's "stage only the files _you_
+   changed" — that guard is about not sweeping up another session's in-flight *code*, and a
+   stray idea in `proposals/` is a note waiting for a lift, not work in progress.
 4. **Use the Bash tool with Unix syntax, not PowerShell.** The `deny` rules and the
    `block-destructive-rm.sh` hook are Bash-string matchers, so a PowerShell equivalent
    (`Remove-Item -Recurse`) would slip a destructive command *past* the safety net; and the
