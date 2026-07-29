@@ -55,6 +55,76 @@ duplications *between* modules, and the fourth is a guard that one path never go
   no snapshot, and the drift error's wording (it names `s3cab backup <set>`, honest advice but
   phrased as though a snapshot was written). **The missing guard is also a bug in its own right**
   — it belongs in [bugs.md](bugs.md) whether or not the refactor is taken.
+
+  **Grilled 2026-07-29/30 — decisions recorded before building** (the PR #168 pattern: settle it in
+  the entry, then build small-to-large, so the design survives a session boundary; #246 landing in
+  this very file mid-grilling proved concurrent work here is live). Re-verified at `f600f9d`: #246
+  touched only `storedHashes`' progress output, so **A's premise is intact** — both loops, the
+  unguarded `uploadDir` and the false header all stand (anchors moved ~+27 lines: header l.31,
+  `uploadObjects` l.219, `fileChange` l.297, `uploadDir` l.414). The "Grill:" questions above are
+  answered below.
+  - **Unify, don't fix in place.** The absent guard is a *symptom* of the duplicate loop; patching it
+    where it sits leaves the loop that will miss the next invariant too. `uploadDir` becomes a **row
+    source** (walk → hash → yield `[path, Props]`) `run` through `uploadObjects`. Rows must be
+    produced **lazily** so hash→PUT→next-file still interleaves per file rather than hashing the
+    whole subtree first, and the seed keeps **no store LIST** (`stored = new Set()`; the conditional
+    PUT is its already-stored check, as documented). `fileProps` already returns exactly the `Props`
+    shape `fileChange` compares against, so no adapter is needed.
+  - **Drift on the seed: skip, report, exit 0** — the load-bearing asymmetry. On
+    `backup`/`uploadSnapshot` drift *must* fail the run, because a published manifest would
+    reference an object that was never stored. The seed publishes **no manifest**, so once the guard
+    has refused the wrong bytes nothing downstream is inconsistent and the next `backup` stores the
+    file properly. `uploadSnapshot` is behaviourally untouched; `--force` never interacts with the
+    guard (it means "overwrite deliberately").
+  - **`result()` returns two fields, `{ drifted, failure }`** — and this **fixes a live masking
+    defect**, not just a style point. Today one `failure` slot is first-wins, so a drift at row 1
+    followed by a network death at row 5 leaves the transport failure invisible; `backup` still
+    fails but blames the wrong thing, and a seed that *tolerates* drift would have exited 0 on a
+    dead link. Drift is genuinely plural and per-file; a transport failure is singular and terminal.
+    So `backup` now checks `failure` **before** `drifted`.
+  - **`drifted` is data**, `(FileChange & { path })[]`, not pre-built errors — the
+    plan-returns-data / caller-formats split used everywhere else. `fileChangedError` and
+    `fileChange` become exported; `FileChange`/`fileChange` **keep their names** (they read
+    correctly — "how the file changed, or undefined"; inverting to `confirmFile` would return a
+    value when confirmation *fails*). **Consequence: `uploadObjects` loses its `set` parameter** —
+    it existed only to name the re-run command in the drift error, which the caller now builds. The
+    interface narrows to `{ bucket, stored }`, dissolving the "what set does a seed name?" question
+    rather than answering it.
+  - **`backup` names `drifted[0]` as today plus a count line** when there are more ("3 other files
+    changed the same way") — one drifting file is bad luck, forty means the set points at a live
+    directory, and the existing advice reads very differently in those two cases. Own commit.
+  - **`upload --dir` reports skips in the result, named in full** — `DirUploadResult` gains
+    `skipped: (FileChange & { path })[]`, rendered by `renderUpload` like `renderRestore`'s skipped
+    block, whose doc is on the nose: _"each entry is a file the user asked for and didn't get, so
+    name them all and say what to do about it."_ The result _is_ the report (ADR-0043), so `--json`
+    gets it free.
+  - **`upload --file` gets the guard but not the loop.** Routing it _through_ the transform fits
+    badly (`--force` means deliberate overwrite, `--bucket` runs with no set, the result shape
+    differs, and the dedup/`stored` machinery is dead weight for one file), but the corruption
+    consequence is identical and doesn't care that one file was involved — so `fileChange` is called
+    between `prop()` and `putObject`. It **throws** (one file is the whole command; `uploaded: false`
+    would be a lie), via its own small **plain-`Error`** factory with upload-framed wording:
+    `fileChangedError`'s body is mostly the "your snapshot is saved, nothing is re-hashed"
+    reassurance, meaningless here, and error.mjs's taxonomy says a subclass nobody catches by type
+    is unused identity.
+  - **Naming: `drifted` kept, after interrogating it.** The term was challenged as borrowed
+    CloudFormation/Terraform jargon. The rename **didn't hold up**: it never reaches user text in
+    this sense (the error says "it changed while the backup was running"; the only user-facing
+    "drift" strings are _clock_ drift, standard in S3's `RequestTimeTooSkewed` domain), the generic
+    "things getting out of sync" sense never shares a file with the file sense, and ADR-0012 governs
+    user prose rather than code identifiers. `unconfirmed` was the runner-up and reads flabbier in
+    situ (`if (drifted.length)` scans instantly; `unconfirmedFilesError` is a worse factory name);
+    `unverified` is ruled out outright by the `verify` command. **No CONTEXT.md entry** — the
+    glossary is the user-facing ubiquitous language, and an internal field name that never reaches a
+    user does not belong in it.
+  - **Delivery: one PR, four commits, each red-first** — (1) the `{ drifted, failure }` outcome
+    shape + exported factory, (2) `backup`'s count line, (3) `uploadDir` routed through the
+    transform + `skipped` in the result/render, (4) the `--file` guard. The `--dir` corruption test
+    is written to **fail first** (the PR #203 precedent — the red run is the proof). The gated
+    real-S3 suite must run: this is the S3 write path, which is exactly why that suite is
+    real-bucket. **ADR-0069 gets an amendment note** (the outcome shape and the third source) rather
+    than a new ADR — no new trade-off, a refined interface on an accepted decision. **No `bugs.md`
+    entry**: it would be filed and deleted inside one PR, so the run-log entry carries the record.
 - **D — name the bucket's unreadable snapshots** — **Strong**. `referencedObjects` yields per-set
   `unreadable: { snapshot, reason }[]`; every consumer wants the same *set-qualified, bucket-wide*
   derivation and every consumer builds it itself. Ten copies of one unnamed concept across five
