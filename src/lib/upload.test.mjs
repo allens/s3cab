@@ -4,9 +4,11 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
+import { FileChangedError } from "./error.mjs";
+import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
-/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+/** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the baseline-trust check (one HEAD before the baseline is
@@ -31,6 +33,8 @@ let storeHashes = [];
 let listedPrefixes = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
+let putError;
 mock.module("./s3.mjs", {
   exports: {
     objectExists: async (/** @type {string} */ uri) => {
@@ -38,7 +42,10 @@ mock.module("./s3.mjs", {
       return baselineExists;
     },
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
-      putFiles.push({ path, uri });
+      putFiles.push({ path, uri }); // recorded even when it fails: it was tried
+      if (putError) {
+        throw putError;
+      }
       return !storedUris.has(uri); // false = the store already held this object
     },
     listObjects: async function* (/** @type {string} */ uri) {
@@ -61,7 +68,8 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => deletionRecords,
   },
 });
-const { planUpload, uploadSnapshot, uploadDir } = await import("./upload.mjs");
+const { baselineHashes, planUpload, uploadObjects, uploadSnapshot, uploadDir } =
+  await import("./upload.mjs");
 
 beforeEach(() => {
   baselineExists = true;
@@ -71,6 +79,7 @@ beforeEach(() => {
   storeHashes = [];
   listedPrefixes = [];
   deletionRecords = new Map();
+  putError = undefined;
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -89,26 +98,37 @@ const lookup = (pathToHash) =>
     ]),
   );
 
+describe("baselineHashes", () => {
+  it("is the baseline's content hashes, whatever paths they sit under", () => {
+    const baseline = lookup({ "a.txt": "h1", "copy.txt": "h1", "b.txt": "h2" });
+    assert.deepEqual(baselineHashes(baseline), new Set(["h1", "h2"]));
+  });
+
+  it("drops a hash the deletion record marks deleted (ADR-0064)", () => {
+    // The baseline honestly says h1 was stored when it uploaded — but a later
+    // `delete` removed it, so its word is punched through and the content is no
+    // longer treated as stored. h2's skip survives untouched.
+    const baseline = lookup({ "a.txt": "h1", "b.txt": "h2" });
+    assert.deepEqual(baselineHashes(baseline, ["h1"]), new Set(["h2"]));
+  });
+});
+
 describe("planUpload", () => {
-  it("plans hashes in the target but not in the baseline", async () => {
+  it("plans hashes in the target that aren't stored", () => {
     const target = lookup({ "a.txt": "h1", "b.txt": "h2", "c.txt": "h3" });
-    const baseline = lookup({ "a.txt": "h1" });
-    const plan = await planUpload(target, { baseline });
+    const plan = planUpload(target, new Set(["h1"]));
     assert.deepEqual([...plan.keys()].sort(), ["h2", "h3"]);
   });
 
-  it("plans everything when nothing is known to be stored", async () => {
+  it("plans everything when nothing is stored", () => {
     const target = lookup({ "a.txt": "h1", "b.txt": "h2" });
-    // No sources at all, and an empty baseline, read the same.
-    const bare = await planUpload(target);
-    assert.deepEqual([...bare.keys()].sort(), ["h1", "h2"]);
-    const empty = await planUpload(target, { baseline: new Map() });
-    assert.deepEqual([...empty.keys()].sort(), ["h1", "h2"]);
+    const plan = planUpload(target, new Set());
+    assert.deepEqual([...plan.keys()].sort(), ["h1", "h2"]);
   });
 
-  it("plans a hash under several paths once — the first path wins", async () => {
+  it("plans a hash under several paths once — the first path wins", () => {
     const target = lookup({ "a.txt": "h1", "copy.txt": "h1", "b.txt": "h2" });
-    const plan = await planUpload(target);
+    const plan = planUpload(target, new Set());
     assert.deepEqual(
       plan,
       new Map([
@@ -118,53 +138,198 @@ describe("planUpload", () => {
     );
   });
 
-  it("matches on content — a file that only moved or was renamed is not re-uploaded", async () => {
+  it("matches on content — a file that only moved or was renamed is not re-uploaded", () => {
     const target = lookup({ "new/place.txt": "h1" });
-    const baseline = lookup({ "old/place.txt": "h1" });
-    const plan = await planUpload(target, { baseline });
+    const stored = baselineHashes(lookup({ "old/place.txt": "h1" }));
+    assert.equal(planUpload(target, stored).size, 0);
+  });
+
+  it("plans nothing when every target hash is already stored", () => {
+    const target = lookup({ "a.txt": "h1", "b.txt": "h2" });
+    const plan = planUpload(target, new Set(["h1", "h2", "h3"]));
     assert.equal(plan.size, 0);
   });
+});
 
-  it("plans nothing when every target hash is already in the baseline", async () => {
-    const target = lookup({ "a.txt": "h1", "b.txt": "h2" });
-    const baseline = lookup({ x: "h1", y: "h2", z: "h3" });
-    const plan = await planUpload(target, { baseline });
-    assert.equal(plan.size, 0);
-  });
+// The fused pipeline's PUT transform (ADR-0069): rows in, the same rows out, objects
+// uploaded in passing. Driven here as `backup` drives it — straight over a row
+// stream, with only the `putFile` seam mocked, so `putFiles` is the evidence of
+// exactly which objects went up and in which order.
+describe("uploadObjects (the streaming PUT transform)", () => {
+  const sha = (/** @type {string} */ content) =>
+    crypto.hash("sha256", Buffer.from(content), "hex");
+  const uri = (/** @type {string} */ content) =>
+    `s3://fused/objects/${sha(content)}`;
 
-  it("re-plans a baseline hash the deletion record marks deleted (ADR-0064)", async () => {
-    // The baseline honestly says h1 was stored when it uploaded — but a later
-    // `delete` removed it, so its word is punched through and the file goes up
-    // again. h2's skip survives untouched.
-    const target = lookup({ "a.txt": "h1", "b.txt": "h2" });
-    const baseline = lookup({ "a.txt": "h1", "b.txt": "h2" });
-    const plan = await planUpload(target, { baseline, deleted: ["h1"] });
-    assert.deepEqual(plan, new Map([["h1", "a.txt"]]));
-  });
+  /**
+   * A snapshot row for a real file on disk — the shape the hash pass emits, with
+   * the size/mtime the drift guard re-checks against.
+   * @param {string} path
+   * @returns {Promise<SnapshotRow>}
+   */
+  const row = async (path) => [path, await fileProps(path)];
 
-  it("streams listed store hashes out of the plan (the first-backup LIST diff)", async () => {
-    const target = lookup({ "a.txt": "h1", "b.txt": "h2", "c.txt": "h3" });
-    // An async iterable, as listObjectHashes yields — including hashes the
-    // target never references (other sets' objects in the shared store).
-    async function* listed() {
-      yield "h2";
-      yield "h-other-set";
-    }
-    const plan = await planUpload(target, { listed: listed() });
+  /**
+   * Three files, two of which share their content (so they share one object).
+   * @param {string} dirPath
+   */
+  const files = (dirPath) => {
+    const paths = {
+      a: join(dirPath, "a.txt"),
+      copy: join(dirPath, "copy.txt"),
+      c: join(dirPath, "c.txt"),
+    };
+    writeFileSync(paths.a, "hello");
+    writeFileSync(paths.copy, "hello"); // identical content → one object
+    writeFileSync(paths.c, "world");
+    return paths;
+  };
+
+  /**
+   * The three files' rows, in walk order.
+   * @param {string} dirPath
+   */
+  const rowsOf = async (dirPath) => {
+    const { a, copy, c } = files(dirPath);
+    return [await row(a), await row(copy), await row(c)];
+  };
+
+  const uploader = (/** @type {Set<string>} */ stored = new Set()) =>
+    uploadObjects({ bucket: "fused", set: "photos", stored });
+
+  it("PUTs each distinct hash once and yields every row on unchanged", async () => {
+    await using dir = await mkTmpDir();
+    const rows = await rowsOf(dir.path);
+    const upload = uploader();
+
+    const out = await Array.fromAsync(upload.through(rows));
+
+    // The transform is a pipe: what the snapshot records is exactly what came in.
+    assert.deepEqual(out, rows);
     assert.deepEqual(
-      plan,
-      new Map([
-        ["h1", "a.txt"],
-        ["h3", "c.txt"],
-      ]),
+      putFiles.map((put) => put.uri),
+      [uri("hello"), uri("world")],
+    );
+    assert.deepEqual(upload.result(), {
+      candidates: 2,
+      uploaded: 2,
+      failure: undefined,
+    });
+  });
+
+  it("attempts nothing for content already stored", async () => {
+    await using dir = await mkTmpDir();
+    const rows = await rowsOf(dir.path);
+    const upload = uploader(new Set([sha("hello"), sha("world")]));
+
+    const out = await Array.fromAsync(upload.through(rows));
+
+    assert.deepEqual(out, rows);
+    assert.deepEqual(putFiles, []);
+    assert.equal(upload.result().candidates, 0);
+  });
+
+  it("counts an already-present object as a candidate but not an upload", async () => {
+    await using dir = await mkTmpDir();
+    const rows = await rowsOf(dir.path);
+    storedUris.add(uri("hello")); // the conditional PUT will no-op on this one
+
+    const upload = uploader();
+    await Array.fromAsync(upload.through(rows));
+
+    const { candidates, uploaded } = upload.result();
+    assert.equal(candidates, 2);
+    assert.equal(uploaded, 1);
+  });
+
+  it("passes an #ERROR row through without an upload", async () => {
+    await using dir = await mkTmpDir();
+    const unreadable = join(dir.path, "locked.bin");
+    /** @type {[string, Error]} */
+    const errorRow = [unreadable, new Error("EACCES: permission denied")];
+    const upload = uploader();
+
+    const out = await Array.fromAsync(upload.through([errorRow]));
+
+    assert.deepEqual(out, [errorRow]);
+    assert.deepEqual(putFiles, []);
+    assert.equal(upload.result().candidates, 0);
+  });
+
+  it("keeps the rows flowing after an upload fails, and reports the failure", async () => {
+    // The complete-local-artifact invariant: the caller's snapshot file must
+    // still land in full, so a failed transfer must not tear the stream down.
+    // Further uploads are abandoned — one dead network is enough.
+    await using dir = await mkTmpDir();
+    const rows = await rowsOf(dir.path);
+    putError = new Error("connection reset");
+    const upload = uploader();
+
+    const out = await Array.fromAsync(upload.through(rows));
+
+    assert.deepEqual(out, rows);
+    assert.equal(putFiles.length, 1, "only the first object was attempted");
+    const { candidates, uploaded, failure } = upload.result();
+    assert.equal(candidates, 2);
+    assert.equal(uploaded, 0);
+    assert.equal(failure?.message, "connection reset");
+  });
+
+  it("skips a file that changed since it was hashed, and keeps storing the rest", async () => {
+    // Drift is one file's problem, not the run's: its bytes no longer match the
+    // hash recorded for them, but every other file's do — and those bytes are
+    // worth having in the cloud for the fresh backup this asks for.
+    await using dir = await mkTmpDir();
+    const { a } = files(dir.path);
+    const rows = await rowsOf(dir.path);
+    writeFileSync(a, "different, longer bytes"); // a.txt drifts after hashing
+
+    const upload = uploader();
+    const out = await Array.fromAsync(upload.through(rows));
+
+    assert.deepEqual(out, rows, "the drifted row still reaches the TSV");
+    assert.deepEqual(
+      putFiles.map((put) => put.uri),
+      [uri("world")], // "hello" was skipped; c.txt still went up
+    );
+    const { failure, uploaded } = upload.result();
+    assert.ok(failure instanceof FileChangedError);
+    assert.match(failure.message, /changed or was removed/);
+    assert.equal(uploaded, 1);
+  });
+
+  it("treats a file removed since it was hashed the same way", async () => {
+    await using dir = await mkTmpDir();
+    const { a } = files(dir.path);
+    const rows = await rowsOf(dir.path);
+    rmSync(a);
+
+    const upload = uploader();
+    await Array.fromAsync(upload.through(rows));
+
+    assert.ok(upload.result().failure instanceof FileChangedError);
+    assert.deepEqual(
+      putFiles.map((put) => put.uri),
+      [uri("world")],
     );
   });
 
-  it("accepts a plain array for listed, and applies baseline and listed together", async () => {
-    const target = lookup({ "a.txt": "h1", "b.txt": "h2", "c.txt": "h3" });
-    const baseline = lookup({ "old.txt": "h1" });
-    const plan = await planUpload(target, { baseline, listed: ["h3"] });
-    assert.deepEqual(plan, new Map([["h2", "b.txt"]]));
+  it("never throws mid-stream — that would truncate the caller's snapshot", async () => {
+    // The load-bearing property: a throw inside a pipeline link destroys every
+    // stream in the chain, including the snapshot writer. Both failure kinds at
+    // once, and the transform still drains normally.
+    await using dir = await mkTmpDir();
+    const { a } = files(dir.path);
+    const rows = await rowsOf(dir.path);
+    writeFileSync(a, "different, longer bytes");
+    putError = new Error("connection reset");
+
+    const upload = uploader();
+    const out = await Array.fromAsync(upload.through(rows));
+
+    assert.deepEqual(out, rows);
+    // First failure wins: the drift was seen before the transfer error.
+    assert.ok(upload.result().failure instanceof FileChangedError);
   });
 });
 
@@ -290,11 +455,11 @@ describe("uploadSnapshot baseline trust", () => {
   });
 });
 
-// The snapshot→upload staleness guard: a planned file that changed (or vanished)
-// since the snapshot must abort the run, never store its current bytes under the
-// snapshot's old-content hash (proposals/bugs.md). The guard fires before any
-// PUT, so a drifted file rejects with `putFiles` still empty — no object stored,
-// no snapshot published.
+// The staleness guard end to end: a file that changed (or vanished) since the
+// snapshot recorded it is never stored under that snapshot's old-content hash
+// (proposals/bugs.md), and the snapshot is never published — its presence would
+// promise objects that aren't there. The guard fires before that file's PUT, so
+// here (a one-file snapshot) `putFiles` stays empty.
 describe("uploadSnapshot drift guard", () => {
   /**
    * Snapshot one real file as the upload target, with an empty baseline so the
@@ -327,7 +492,7 @@ describe("uploadSnapshot drift guard", () => {
     };
   };
 
-  it("aborts when a planned file changed since the snapshot", async () => {
+  it("fails, storing neither the file nor the snapshot, when it changed since the snapshot", async () => {
     await using dir = await mkTmpDir();
     const { file, args } = await planOneFile(dir.path);
 
@@ -339,7 +504,7 @@ describe("uploadSnapshot drift guard", () => {
     assert.deepEqual(putFiles, []);
   });
 
-  it("aborts when a planned file was removed since the snapshot", async () => {
+  it("fails the same way when the file was removed since the snapshot", async () => {
     await using dir = await mkTmpDir();
     const { file, args } = await planOneFile(dir.path);
 
@@ -347,6 +512,22 @@ describe("uploadSnapshot drift guard", () => {
 
     await assert.rejects(() => uploadSnapshot(args), /changed or was removed/);
     assert.deepEqual(putFiles, []);
+  });
+
+  it("never publishes the manifest when an object upload failed", async () => {
+    // A failed transfer is reported only after the rows have drained, but the
+    // snapshot must still not go up: its presence is the promise that every
+    // object it references is already stored.
+    await using dir = await mkTmpDir();
+    const { args } = await planOneFile(dir.path);
+    putError = new Error("connection reset");
+
+    await assert.rejects(() => uploadSnapshot(args), /connection reset/);
+    assert.equal(
+      putFiles.length,
+      1,
+      "the object was tried, the snapshot never",
+    );
   });
 });
 

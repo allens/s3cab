@@ -1,26 +1,42 @@
 import { loadSet } from "../lib/env.mjs";
+import { FileChangedError } from "../lib/error.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
-import { snapshot } from "./snapshot.mjs";
-import { upload } from "./upload.mjs";
+import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
+import {
+  storedHashes,
+  uploadObjects,
+  uploadSnapshotFile,
+} from "../lib/upload.mjs";
 
 /**
- * Back up a set to the cloud (docs/design/backup.md): take a fresh snapshot of the
- * set, then upload it — `snapshot()` + `upload()`, always both (ADR-0044). A thin
- * porcelain that composes the two plumbing commands; `backup` itself never hashes
- * (the snapshot already carries every hash) and never walks the filesystem.
+ * Back up a set to the cloud (docs/design/backup.md) — snapshot and upload in
+ * **one fused pass** (ADR-0069): each file's object is PUT the moment its bytes
+ * have been hashed, and the same row goes straight on into the snapshot TSV.
+ * There is no write-the-whole-snapshot-then-read-it-back-to-upload round trip,
+ * and no minutes-long window in which an edited file drifts out from under the
+ * hash recorded for it.
  *
- * `backup`'s one piece of smarts is the change-detection baseline it hands to
- * `upload` explicitly (plumbing is predictable; porcelain is smart): the set's
- * **previous local snapshot** as `--since` (single-owner model — local history
- * is authoritative *about what was snapshotted*; whether it's still stored is
- * verified by `upload`'s baseline-trust check, proposals/bugs.md), taken
- * straight from the snapshot's returned diff
- * (`until` = the fresh snapshot, `since` = the previous latest — nothing re-read
- * from disk), or, on a first backup with no previous snapshot, nothing —
- * `upload` then LISTs the store. The objects-first/snapshot-last invariant and
- * the conditional-PUT backstop both live in `upload` (`uploadSnapshot`);
- * `backup` merely composes (docs/design/backup.md).
+ * The composition, all of it over shared `lib` parts:
+ * 1. **`readBaseline`** — the set's previous local snapshot: the hash lookup
+ *    that spares unchanged files a re-read, and the upload baseline below.
+ * 2. **`storedHashes`** — what needs no upload, decided *before* any hashing so
+ *    a credentials or network problem surfaces in seconds rather than after a
+ *    long pass. The single-owner model makes the previous **local** snapshot the
+ *    authoritative baseline (ADR-0045), trusted only once `storedHashes` has
+ *    confirmed it still exists remotely; a first backup LISTs the store instead.
+ * 3. **`generateSnapshot` with the object uploader spliced in** — the fused
+ *    pass. The uploader is a pipe, not a callback: it consumes rows and yields
+ *    them on unchanged, so a backup writes byte-for-byte the snapshot a plain
+ *    `snapshot` would have written.
+ * 4. **`uploadSnapshotFile`** — the manifest, *last*, once the pipeline has
+ *    drained: the objects-first/snapshot-last invariant, kept absolute.
+ *
+ * **Nothing that goes wrong up there costs the hash pass.** The uploader never
+ * throws mid-stream, so the local snapshot always lands complete: a failed
+ * transfer is resumed with `upload <set> --snapshot <name>`, and even a file that
+ * drifted only costs a fresh `backup`, which reads that snapshot as its hash
+ * lookup and so re-reads nothing that didn't change.
  *
  * @typedef {Object} BackupResult
  * @property {string} set - The set backed up
@@ -40,29 +56,46 @@ import { upload } from "./upload.mjs";
  */
 export async function backup(setName, options = {}) {
   // Resolve the set and apply its env layer (its bucket's auth) over the ambient
-  // shell (env.mjs, ADR-0022/0055 — the one s3cab layer). `upload` re-resolves it
-  // (idempotent); we resolve here for the config re-sync below.
+  // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
 
-  // Take a fresh snapshot. Its returned diff names both sides (the
-  // compareSnapshots contract): `until` IS the fresh snapshot and `since` the
-  // previous local latest — the change-detection baseline — so nothing is
-  // re-read from disk and the two can't disagree.
-  const { until: name, since } = await snapshot(set.name, options);
+  const { name: since, previous, lookup } = await readBaseline(set);
+  const stored = await storedHashes({
+    bucket: set.bucket,
+    set: set.name,
+    since,
+    baseline: previous,
+  });
 
-  // `since` is null on a first backup (no baseline → `upload` LISTs the store).
-  // A same-minute overwrite (S3CAB_DEBUG) can make it the fresh name itself —
-  // no usable baseline either, so LIST rather than diff the snapshot against
-  // itself, which would plan zero objects and break objects-first/snapshot-last.
-  const baseline = since && since !== name ? since : undefined;
+  const uploader = uploadObjects({ bucket: set.bucket, set: set.name, stored });
+  const { name } = await generateSnapshot(set, {
+    lookup,
+    through: uploader.through,
+    debug: options.debug,
+  });
 
-  const result = await upload(set.name, { snapshot: name, since: baseline });
-  if (result.mode !== "snapshot") {
-    // Unreachable: a `--snapshot` upload always returns the snapshot-shaped
-    // result. The guard narrows the union for the type checker (and would catch
-    // a future contract drift) without a cast.
-    throw new Error("Expected a snapshot upload result from backup.");
+  // The snapshot file has landed locally whatever happened above — that is what
+  // makes the retry cheap — so an upload failure surfaces only now, and no
+  // manifest is ever published for objects that didn't all make it.
+  //
+  // Which retry to name depends on the kind of failure (ADR-0069): a file that
+  // changed under us can never be reconciled with the snapshot that recorded it,
+  // so it asks for a fresh backup and already says so; anything else is a
+  // transfer that can simply be resumed.
+  const { candidates, uploaded, failure } = uploader.result();
+  if (failure instanceof FileChangedError) {
+    throw failure;
   }
+  if (failure) {
+    throw uploadFailedError(failure, set.name, name);
+  }
+
+  await uploadSnapshotFile({
+    bucket: set.bucket,
+    set: set.name,
+    snapshotDir: set.snapshotsDir,
+    name,
+  });
 
   // Re-sync the set's published config to the remote marker (ADR-0052): the
   // objects + snapshot are already up, so this is best-effort metadata — a hiccup
@@ -80,10 +113,28 @@ export async function backup(setName, options = {}) {
     );
   }
 
-  return {
-    set: set.name,
-    snapshot: name,
-    candidates: result.candidates,
-    uploaded: result.uploaded,
-  };
+  return { set: set.name, snapshot: name, candidates, uploaded };
 }
+
+/**
+ * The "the bytes didn't all make it" error a backup ends with when an upload
+ * failed mid-pass. Its whole job is to say that the *hashing* wasn't wasted —
+ * the snapshot is on disk, so the retry transfers what's left instead of
+ * re-reading the set (ADR-0069). A named factory (heavy, actionable message —
+ * error.mjs taxonomy), worded per ADR-0030: the user's goal first, the cause in
+ * a parenthetical, the fix as a copy-pasteable command.
+ * @param {Error} cause - The upload failure that stopped the transfers
+ * @param {string} set - The set being backed up
+ * @param {string} name - The snapshot that was written locally
+ * @returns {Error}
+ */
+const uploadFailedError = (cause, set, name) =>
+  new Error(
+    `Couldn't finish backing up — sending your files to the cloud stopped ` +
+      `part-way (${cause.message}).\n\n` +
+      `The snapshot of what's on this computer is saved, so nothing has to be ` +
+      `read or hashed again. Once the problem is sorted, carry on from where it ` +
+      `stopped:\n` +
+      `  s3cab upload ${set} --snapshot ${name}`,
+    { cause },
+  );
