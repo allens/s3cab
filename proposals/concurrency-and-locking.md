@@ -54,8 +54,6 @@ The robust fix breaks the double duty so the two become distinguishable:
   a live run and any run can sweep strays on startup; or
 - a real **lock file** with a PID + liveness check.
 
-Ties into the known lock-file TODO in `snapshot.mjs`.
-
 **Note (2026-06-26): a SIGINT handler is the wrong tool for this** — it only catches Ctrl+C,
 not a crash/SIGTERM/power-loss, so the robust startup-sweep layer has to exist regardless, and
 then covers the Ctrl+C case too.
@@ -64,6 +62,64 @@ then covers the Ctrl+C case too.
 a SIGINT handler — but for a different job (parking a read-only hash lookup on a graceful stop),
 not for sweeping this stale lock, which it leaves untouched. That verdict above still holds for
 *this* item; the two don't collide.
+
+> **Two accepted ADRs already constrain this half — read both before designing.**
+> [ADR-0048](../docs/adr/0048-snapshot-lock-atomic-temp-file.md) makes the temp file *itself*
+> the lock (atomic `wx` create; the artifact becomes the snapshot on success) and explicitly
+> **rejects** a separate `.lock` file carrying PID/host (a second artifact that can disagree
+> with the work file), **PID-liveness auto-break** (needs that file; PID reuse gives false
+> "alive" verdicts), and **age-based auto-break** (a legitimate run can hash a multi-GB file
+> for minutes without touching the work file). So *"a real lock file with a PID + liveness
+> check"* above is **not** a live option — it is decided-against, and reviving it means
+> amending ADR-0048 with new reasoning, not quietly re-proposing it.
+>
+> [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md) then supplies the sharpest framing
+> anyone has put on this: *"that ADR's danger is exclusively two **writers** on one fixed temp
+> name."* Reading is harmless — the parked lookup file needs none of the rejected heuristics
+> because every reused hash is re-validated against the live file's size+mtime. That points
+> squarely at the surviving option: **a unique temp name per run** (timestamp/PID *in the
+> name*) dissolves the two-writers-on-one-name danger at its root, with no second artifact and
+> no liveness guesswork. That is the live starting point for item 2.
+>
+> **ADR-0067 also shrank this item.** A *graceful* interrupt now parks the work file as
+> `.snapshot.lookup.tsv.zst` instead of leaving a stale lock, so Ctrl+C no longer wedges the
+> next run. What remains is only the **hard-kill / crash / power-loss** case — which ADR-0067
+> says outright it does not solve. Smaller, and rarer, but still hand-cleaned.
+
+## 3. `delete` is a third destructive actor (added by the deletion rework)
+
+Since [ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md), `delete` also removes
+objects bucket-wide — so the "two commands that must not race a backup" framing above is now
+three, and `delete`'s profile is the *least* protected of them:
+
+- **The 7-day grace window does not help it at all.** Grace protects `cleanup` because cleanup
+  only ever targets *unreferenced* objects. `delete` deliberately removes content live
+  snapshots still reference, chosen by path — object age is irrelevant to its plan.
+- **It carries no "don't run this while a backup is running" line**, where `cleanup` does
+  ([src/commands/cleanup.mjs](../src/commands/cleanup.mjs), the `console.warn` after a
+  reclaim). Whether that omission is a gap or is genuinely covered by the record is a question
+  for whoever picks this up — adding the line is the cheap interim either way.
+- **ADR-0064 judged its race safe-degrading**, and that reasoning still stands: a backup that
+  skipped uploading an object (conditional PUT saw it present) and publishes its snapshot just
+  after a `delete` removes that object yields a snapshot referencing deleted content — but the
+  deletion record *explains* the gap, so `verify` reports it as expected-missing and `restore`
+  skips it with a date. Degraded, never silently corrupt.
+- _My analysis, not a decision:_ the sharper variant is the **cross-set** one — `delete`'s scan
+  sees hash H referenced only inside its scope and marks it deletable, while a concurrent
+  backup of a set *outside* that scope publishes a snapshot referencing H. That set never
+  consented to the deletion, and its brand-new snapshot lands already record-explained-missing.
+  Still not corruption, but it is where "the record makes it fine" reads thinnest, and it is
+  what a lock (or re-checking the reference set immediately before deleting) would actually
+  close.
+
+## State of play (2026-07-29)
+
+Nothing here is built. Two things changed around it without resolving it: the deletion rework
+(ADR-0063/0064) **added a third customer** (§3), and [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
+**shrank item 2** to the hard-kill case while sharpening how to think about it. Ripe to pick
+up: self-contained, blocks nothing, and it is the standing pre-release item (user call,
+2026-07-18). Take the one-mechanism-or-two decision below *after* re-reading ADR-0048 and
+ADR-0067, which between them already fix half the design space.
 
 ## If a lock is the answer, it has to answer both
 
