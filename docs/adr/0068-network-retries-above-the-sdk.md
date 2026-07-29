@@ -98,9 +98,18 @@ on the SDK's broader "transient" classification.
 - **A genuinely dead link now takes up to 2 minutes to report**, where it used to take under a
   second. That is the deliberate trade: for an unattended backup, waiting beats abandoning the
   run.
-- **The progress bar sits frozen for that whole window**, which reads as a hang. A "connection
-  lost — retrying" line on stderr is the obvious follow-up and is *not* built yet; tracked in
-  [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
+- **The progress bar would otherwise sit frozen for that whole window**, reading as a hang. It
+  now says so instead: `lib/network-status.mjs` reports the wait on stderr and its recovery
+  (`Connection lost — waiting for the network to come back (up to 2 minutes)…`, then
+  `Back online after 14 sec — continuing.`), written through `progress.mjs`'s `statusLine` so it
+  lands *over* the frozen bar rather than appending to its un-terminated line. Three decisions
+  worth keeping: it is **one message per outage, not per request** (a dropped link fails all
+  `queueSize` parts at once, so per-request output would arrive 32 times over — clig.dev's
+  signal-to-noise rule), which is why that module reference-counts rather than printing from the
+  relay; it **waits for the second retry**, so a blip that clears inside one backoff stays quiet;
+  and it is **static text, not a ticking counter** — naming the window sets the expectation that
+  stops it reading as a hang, without a timer whose lifetime would have to be managed on the
+  failure path.
 - **`maxAttempts` is deliberately left at the SDK default.** Raising it was tried, measured to be
   inert under concurrency, and reverted rather than shipped — a knob that appears to harden the
   hot path while doing nothing for the files that matter is worse than no knob.

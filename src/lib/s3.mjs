@@ -31,6 +31,7 @@ import {
 } from "./env.mjs";
 import { errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
+import { enterNetworkWait, leaveNetworkWait } from "./network-status.mjs";
 import { createProgress } from "./progress.mjs";
 import { isRolesAnywhereMode } from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
@@ -432,28 +433,50 @@ export const requestErrorRelay =
   (/** @type {(args: any) => Promise<any>} */ next) =>
   async (/** @type {any} */ args) => {
     const deadline = Date.now() + windowMs;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await next(args);
-      } catch (error) {
-        if (
-          isNetworkError(error) &&
-          Date.now() < deadline &&
-          !hasStreamBody(args)
-        ) {
-          const delay = networkRetryDelay(attempt);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        for (const { match, make } of requestErrorTable) {
-          if (match(error)) {
-            throw make(error, {
-              bucket: args.input?.Bucket,
-              endpoint: customEndpoint(),
-            });
+    // Whether this request has been counted into the shared outage, and whether
+    // it got through — read by the `finally`, which is the only place that can
+    // balance the count on every exit (return, give-up, and a throw from the
+    // translation below alike).
+    let waiting = false;
+    let recovered = false;
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const result = await next(args);
+          recovered = true;
+          return result;
+        } catch (error) {
+          if (
+            isNetworkError(error) &&
+            Date.now() < deadline &&
+            !hasStreamBody(args)
+          ) {
+            // Announce from the *second* retry: a blip that clears inside one
+            // backoff resolves in well under a second, and saying so would put a
+            // line in the log every time a flaky link hiccups. `attempt` is 0 on
+            // the first retry, so this waits for one failed retry first.
+            if (attempt >= 1 && !waiting) {
+              waiting = true;
+              enterNetworkWait(process.stderr, windowMs);
+            }
+            const delay = networkRetryDelay(attempt);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
           }
+          for (const { match, make } of requestErrorTable) {
+            if (match(error)) {
+              throw make(error, {
+                bucket: args.input?.Bucket,
+                endpoint: customEndpoint(),
+              });
+            }
+          }
+          throw error;
         }
-        throw error;
+      }
+    } finally {
+      if (waiting) {
+        leaveNetworkWait(process.stderr, { recovered });
       }
     }
   };

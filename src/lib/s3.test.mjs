@@ -583,6 +583,78 @@ describe("requestErrorRelay network retries", () => {
   const dropped = () =>
     Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
 
+  /**
+   * Collect what the relay writes to stderr while `run` executes. The status
+   * lines go to the real `process.stderr` (there is no stream to inject through
+   * SDK middleware), so the write is swapped out for the duration.
+   * @param {() => Promise<unknown>} run
+   * @returns {Promise<string>}
+   */
+  async function captureStderr(run) {
+    /** @type {string[]} */
+    const written = [];
+    const original = process.stderr.write;
+    process.stderr.write = /** @type {typeof process.stderr.write} */ (
+      (/** @type {any} */ chunk) => {
+        written.push(String(chunk));
+        return true;
+      }
+    );
+    try {
+      await run();
+    } finally {
+      process.stderr.write = original;
+    }
+    return written.join("");
+  }
+
+  it("says nothing about a blip that clears on the first retry", async () => {
+    // A hiccup resolves inside one backoff — under a second. Announcing it would
+    // put a line in the log every time a flaky link twitches.
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw dropped();
+      }
+      return "ok";
+    };
+    const output = await captureStderr(() =>
+      requestErrorRelay()(next)({ input: {} }),
+    );
+    assert.equal(output, "", "a single fast retry should be silent");
+  });
+
+  it("reports the wait, then the recovery, for a real interruption", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      if (calls <= 3) {
+        throw dropped();
+      }
+      return "ok";
+    };
+    const output = await captureStderr(() =>
+      requestErrorRelay()(next)({ input: {} }),
+    );
+    assert.match(output, /Connection lost — waiting for the network/);
+    assert.match(output, /up to 2 minutes/);
+    assert.match(output, /Back online after .+ — continuing\./);
+  });
+
+  it("does not claim recovery when the window closes", async () => {
+    const next = async () => {
+      throw dropped();
+    };
+    const output = await captureStderr(async () => {
+      await assert.rejects(requestErrorRelay(50)(next)({ input: {} }));
+    });
+    assert.ok(
+      !output.includes("Back online"),
+      "the run is failing; saying it is back online would be a lie",
+    );
+  });
+
   it("retries a dropped network until the link comes back", async () => {
     let calls = 0;
     const next = async () => {

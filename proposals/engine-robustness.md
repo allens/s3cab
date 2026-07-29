@@ -20,11 +20,6 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   when it can't, via retries above the SDK —
   [ADR-0068](../docs/adr/0068-network-retries-above-the-sdk.md). Still open: bandwidth limiting,
   and resumability of a whole run.)_
-- **Say something while a retry is waiting.** With ADR-0068's two-minute window, a dropped
-  network leaves the progress bar frozen for up to two minutes, which reads as a hang — the
-  responsiveness point clig.dev makes. Wants a "connection lost — retrying…" line on stderr, and
-  a note when it recovers. Shape is a `cli-design` question: probably replacing the bar's line
-  rather than scrolling a message per attempt.
 
 _Moved out 2026-07-18 — stale temp-file recovery / the lock-file question →
 [concurrency-and-locking.md](concurrency-and-locking.md); metadata privacy →
