@@ -49,3 +49,4 @@ future "platform / release" epic).
   clear, or a `--include-set` escape). Do **not** "fix" it by scoping off the remote set list —
   that would let one machine delete content another still wants, which is exactly what the
   local-attachment-as-consent model prevents.
+- **Show upload speed.** When showing upload progress show e.g. 2.3MB/s.
