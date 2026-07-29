@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Architecture review — s3cab (ninth pass)</title>
+    <title>Architecture review — s3cab (tenth pass)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -11,6 +11,7 @@
     </script>
     <style>
       .chip { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
     </style>
   </head>
   <body class="bg-stone-50 text-slate-900 font-sans">
@@ -18,15 +19,19 @@
       <header class="space-y-3">
         <h1 class="font-serif text-3xl">Architecture review — s3cab</h1>
         <p class="text-sm text-slate-600">
-          Ninth pass · 2026-07-17 · HEAD <code class="font-mono">80a45aa</code> ·
-          re-verified the eighth-pass opens and explored the #199–#202 churn plus the
-          less-recently-examined modules fresh-eyes. C and D were verified still-open, then
-          landed same-day (#203/#204) — remaining open: <strong>F</strong> (Strong, new),
-          <strong>G</strong> (new), <strong>E</strong> (ride-alongs).
+          Tenth pass · 2026-07-29 · HEAD <code class="font-mono">0268c73</code> ·
+          the open list has been empty since 2026-07-17, so this pass explored the
+          <strong>73 commits since</strong> (PRs #217–#245): the deletion rework
+          (ADR-0063/0064 — <code class="font-mono">forget</code>, path-scoped
+          <code class="font-mono">delete</code>, the <code class="font-mono">deletions/</code>
+          record), the network-resilience work (ADR-0065/0068 and the retry relay), the
+          Glacier-IR tier (ADR-0066), interrupt hash-parking (ADR-0067) and the fused
+          snapshot+upload pipeline (ADR-0069). Four candidates: <strong>A</strong> and
+          <strong>D</strong> Strong, <strong>B</strong> and <strong>C</strong> worth exploring.
         </p>
         <p class="text-xs text-slate-500">
-          Legend: solid box = module · <span class="text-red-600">red</span> = leak/drift ·
-          dark box = deep module ·
+          Legend: solid box = module · <span class="text-red-600">red</span> = leak / duplication /
+          drift · dark box = deep module ·
           <span class="inline-block px-1.5 rounded bg-emerald-100 text-emerald-800">Strong</span>
           <span class="inline-block px-1.5 rounded bg-amber-100 text-amber-800">Worth exploring</span>
           <span class="inline-block px-1.5 rounded bg-slate-200 text-slate-700">Speculative</span>
@@ -35,196 +40,557 @@
 
       <section id="candidates" class="space-y-10">
 
-        <!-- ══════════════════════ F ══════════════════════ -->
-        <article id="cand-f" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+        <!-- ══════════════════════ A ══════════════════════ -->
+        <article id="cand-a" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
           <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">F · One read of a set’s provider config</h2>
+            <h2 class="font-serif text-xl">A · One PUT loop — <code class="mono text-base">uploadDir</code> is the third source that never joined it</h2>
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">new this pass · grilled 2026-07-17, build in flight</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">in-process</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-rose-50 text-rose-700">carries a live correctness gap</span>
           </div>
-          <p class="font-mono text-sm text-slate-600">
-            src/lib/provider.mjs:109–170 · src/commands/list.mjs:123–131 ·
-            src/commands/provider.mjs:88–95 · src/render.mjs:322–341
-          </p>
+
+          <div class="text-sm space-y-1">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
+            <p class="mono text-xs">src/lib/upload.mjs — <span class="text-slate-500">the module header (l.12–27), <code>uploadObjects</code> (l.192), <code>fileChange</code> (l.270), <code>uploadDir</code> (l.387)</span></p>
+            <p class="mono text-xs">src/commands/upload.mjs — <span class="text-slate-500"><code>--dir</code> dispatch (l.138–160), <code>--file</code> dispatch (l.125–135)</span></p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
+            <p>
+              <code class="mono">upload.mjs</code>'s own header states the design:
+              <em>"One PUT loop, one drift guard, two sources."</em> That sentence arrived with
+              ADR-0069 (#245) and is <strong>not true of the module it heads</strong>. There are
+              <strong>two</strong> PUT loops and <strong>three</strong> sources.
+              <code class="mono">uploadDir</code> — added earlier, in #227 — hand-rolls its own
+              <code class="mono">seen</code>-dedup + <code class="mono">putObject</code> loop, and
+              #245 built the shared transform beside it without folding it in.
+            </p>
+            <p>
+              The consequence is not stylistic. <code class="mono">uploadObjects</code> re-checks
+              size+mtime between hashing a file and PUTting its bytes, and its own doc explains
+              exactly why: <em>"the store trusts the hash on write, so PUTting its current bytes
+              would file them under the recorded content's hash — corrupting that object for every
+              snapshot and path that dedups to it, surfacing only at restore."</em>
+              <code class="mono">uploadDir</code> has the identical hash-then-PUT window and
+              <strong>no guard at all</strong>: <code class="mono">fileProps(path)</code> reads and
+              hashes the whole file, then <code class="mono">putObject</code> streams it again from
+              disk.
+            </p>
+            <p>
+              And the window is widest for exactly the files
+              <code class="mono">upload --dir</code> exists to serve. It is the
+              "seed my priority folders before the initial backup" primitive
+              (docs/design/backup.md), and those folders are the multi-GB video population, where
+              hashing one file takes <em>minutes</em> before the PUT re-reads it.
+              <code class="mono">upload --file</code> shares the shape
+              (<code class="mono">prop()</code> then <code class="mono">putObject</code>) at
+              one-file stakes.
+            </p>
+          </div>
 
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">Before — the read mapping spelled per caller</p>
-              <pre class="mermaid">
-flowchart TB
-  L["list.mjs providerOverrides()<br/>4 knobs — RA missing"]
-  P["provider.mjs describeScope()<br/>5 knobs"]
-  W["lib/provider.mjs gatherProviderConfig()<br/>write direction, 5 knobs"]
-  ENV[("sets/&lt;set&gt;/env")]
-  L -- own mapping --> ENV
-  P -- own mapping --> ENV
-  W -- writes --> ENV
-  classDef leak stroke:#dc2626,stroke-width:2px;
-  class L leak
-              </pre>
+            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before — two loops, one guard</p>
+              <pre class="mermaid text-xs">flowchart TD
+  B["backup"] --> UO
+  US["uploadSnapshot"] --> UO
+  UO["uploadObjects<br/>guarded PUT loop"] --> G{"fileChange?<br/>size + mtime"}
+  G -->|drifted| SKIP["skip file · record<br/>FileChangedError"]
+  G -->|same| P1["putObject"]
+  UD["uploadDir<br/>its own PUT loop"] --> P2["putObject"]
+  style UO fill:#1e293b,color:#fff
+  style G fill:#d1fae5
+  style UD fill:#fecaca,stroke:#b91c1c,stroke-width:2px
+  style P2 fill:#fecaca,stroke:#b91c1c</pre>
+              <p class="text-xs text-rose-800">
+                Nothing between <code class="mono">uploadDir</code> and the store re-asks
+                "is this still the file I hashed?"
+              </p>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2">After — one interface, both directions</p>
-              <pre class="mermaid">
-flowchart TB
-  L2["list.mjs"]
-  P2["provider.mjs"]
-  R["lib/provider.mjs<br/>readProviderConfig() ⇄ gatherProviderConfig()<br/>the 5 knobs, one mapping"]
-  ENV2[("sets/&lt;set&gt;/env")]
-  L2 --> R
-  P2 --> R
-  R --> ENV2
-  classDef deep fill:#0f172a,color:#f8fafc,stroke:#0f172a;
-  class R deep
-              </pre>
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After — one loop, three sources</p>
+              <pre class="mermaid text-xs">flowchart TD
+  B["backup<br/>(hash pass rows)"] --> UO
+  US["uploadSnapshot<br/>(re-read snapshot)"] --> UO
+  UD["uploadDir<br/>(walk + hash rows)"] --> UO
+  UO["uploadObjects<br/>the PUT loop"] --> G{"fileChange?"}
+  G -->|drifted| SKIP["skip file · record"]
+  G -->|same| P["putObject"]
+  style UO fill:#1e293b,color:#fff
+  style G fill:#d1fae5</pre>
+              <p class="text-xs text-emerald-800">
+                All three paths become row sources for one transform. The guard cannot be missing
+                from a path, because there is only one path.
+              </p>
             </div>
           </div>
 
-          <p class="text-sm"><strong>Problem.</strong> “Which provider knobs does this set’s env file carry” is re-implemented by each caller, and the copies have already drifted: <code class="font-mono text-xs">providerOverrides</code> predates Roles Anywhere, so a keyless RA set renders <em>no provider block</em> in <code class="font-mono text-xs">list &lt;set&gt;</code> — documented to mean “relies on the ambient AWS setup” — while <code class="font-mono text-xs">provider &lt;set&gt;</code> correctly says “Roles Anywhere (keyless)”. A live bug (→ bugs.md).</p>
-          <p class="text-sm"><strong>Solution.</strong> A pure <code class="font-mono text-xs">readProviderConfig(values) → ProviderConfig</code> (<code class="font-mono text-xs">{ profile, endpoint, region, keyId, rolesAnywhere }</code>) in lib/provider.mjs beside its write twin; both commands consume it, and <code class="font-mono text-xs">providerOverrideLines</code> gains its RA line. Grilled decisions: raw <code class="font-mono text-xs">keyId</code> at the seam; type named <code class="font-mono text-xs">ProviderConfig</code>, owned by lib/provider.mjs; <code class="font-mono text-xs">sign-in: Roles Anywhere (keyless)</code> first in list’s block; list’s keys line matches provider (<code class="font-mono text-xs">set (…F7Q2)</code> via <code class="font-mono text-xs">keyTail</code>).</p>
-          <ul class="text-sm list-disc list-inside space-y-1">
-            <li>locality: knob mapping lives once</li>
-            <li>fixes the RA list bug by construction</li>
-            <li>leverage: next knob = one edit</li>
-            <li>read twin mirrors the accepted write seam</li>
-          </ul>
-          <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900">
-            Not the rejected <code class="font-mono text-xs">credentialMode()</code> classifier (2026-07-14): no mode enum — both callers already read the <em>same five values</em> from the <em>same file</em>; this names that one mapping. ADR-0055’s “auth is a bag of AWS_*” is untouched.
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Solution (sketch — for grilling, not settled)</p>
+            <p>
+              <code class="mono">uploadDir</code> becomes a <em>row source</em> rather than a second
+              engine: walk → hash → yield <code class="mono">[path, Props]</code>, and
+              <code class="mono">run</code> those rows through
+              <code class="mono">uploadObjects</code> with an empty
+              <code class="mono">stored</code> set (its current design point: the conditional PUT
+              <em>is</em> the already-stored check, so no LIST and no baseline). Its
+              <code class="mono">seen</code>/<code class="mono">uploaded</code> counters and the
+              <code class="mono">{ candidates, uploaded }</code> return are already exactly what
+              <code class="mono">uploadObjects.result()</code> reports.
+            </p>
+            <p class="text-xs text-slate-600">
+              Open questions worth grilling: the seed writes no snapshot, so what should a drifted
+              file <em>do</em> — record a <code class="mono">FileChangedError</code> naming a re-run
+              (the transform's contract) or skip and count it? And the drift error names
+              <code class="mono">s3cab backup &lt;set&gt;</code>, honest advice for a seed too, but
+              worded as though a snapshot was written.
+            </p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><strong>Leverage:</strong> the guard, the dedup, the counting and the
+                stop-on-first-transport-failure policy arrive with the transform. Every future
+                object source inherits them instead of re-deriving them.</li>
+              <li><strong>Locality:</strong> "how does s3cab put an object into the store, safely"
+                becomes one function to read. Today the answer depends on which of two loops the
+                caller reached.</li>
+              <li><strong>Tests:</strong> the drift cases are already covered against
+                <code class="mono">uploadObjects</code>' interface (mock-free, over in-memory
+                rows). Routing <code class="mono">uploadDir</code> through it puts the seed path
+                under that existing suite rather than needing a parallel one.</li>
+              <li><strong>The header stops lying</strong> — "one PUT loop, three sources" becomes a
+                checkable statement (doc-discipline rule 1).</li>
+            </ul>
+          </div>
+
+          <div class="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-xs text-amber-900">
+            <strong>Also a bug, independently of the refactor.</strong> The missing drift guard on
+            <code class="mono">upload --dir</code> belongs in
+            <a class="underline" href="bugs.md">proposals/bugs.md</a> whether or not this candidate
+            is taken — a two-line <code class="mono">fileChange</code> call would close it. The
+            architecture argument is about why it was missing in the first place.
           </div>
         </article>
 
-        <!-- ══════════════════════ G ══════════════════════ -->
-        <article id="cand-g" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+        <!-- ══════════════════════ D ══════════════════════ -->
+        <article id="cand-d" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
           <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">G · Give the snapshot filename grammar its constructor</h2>
-            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">new this pass</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">in-process</span>
+            <h2 class="font-serif text-xl">D · The bucket's unreadable snapshots have no name</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">missing seam · earns a CONTEXT.md term</span>
           </div>
-          <p class="font-mono text-sm text-slate-600">
-            src/lib/snapshot-file.mjs:296–316 · src/lib/remote.mjs:75, 121, 301–302 · src/lib/upload.mjs:125–126
-          </p>
+
+          <div class="text-sm space-y-1">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
+            <p class="mono text-xs">src/lib/cleanup.mjs — <span class="text-slate-500">typedef l.44, flatMap l.74–76</span></p>
+            <p class="mono text-xs">src/lib/unrestorable.mjs — <span class="text-slate-500">typedef l.56, flatMap l.94–100, display l.294</span></p>
+            <p class="mono text-xs">src/lib/delete.mjs — <span class="text-slate-500">typedef l.79, flatMap l.105–107, display l.389</span></p>
+            <p class="mono text-xs">src/commands/cleanup.mjs l.107–116 · src/commands/delete.mjs l.154–163 — <span class="text-slate-500">the two aborts</span></p>
+            <p class="mono text-xs">src/lib/verify.mjs l.43 · src/lib/remote.mjs l.234–262 — <span class="text-slate-500">where it originates</span></p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
+            <p>
+              <code class="mono">referencedObjects</code> yields per-set results carrying
+              <code class="mono">unreadable: { snapshot, reason }[]</code>. Every consumer wants the
+              same derived thing — <em>the whole bucket's unreadable snapshots, qualified by which
+              set they belong to</em> — and every consumer builds it itself:
+            </p>
+            <div class="rounded-lg bg-slate-900 text-slate-100 p-3 text-xs mono overflow-x-auto">
+<pre>// cleanup.mjs:74, unrestorable.mjs:94, delete.mjs:105 — three times, identical
+const unreadable = [...referencedBySet].flatMap(([set, r]) =&gt;
+  r.unreadable.map((u) =&gt; ({ set, snapshot: u.snapshot, reason: u.reason })),
+);
+
+// …then declared as an inline structural type, three times
+@property {{ set: string, snapshot: string, reason: string }[]} unreadable
+
+// …then rendered, four times
+const where = plan.unreadable.map((u) =&gt; `${u.set}/${u.snapshot}`);</pre>
+            </div>
+            <p>
+              Ten copies of one concept across five files, and it has no name — not a typedef, not
+              a CONTEXT.md term. The tell is the last line: <code class="mono">set/snapshot</code>
+              is a <strong>user-facing identifier</strong> for a snapshot inside a bucket, invented
+              independently in four places. And two of the sites build the same abort from the same
+              skeleton (<em>"Can't … safely: N snapshot(s) won't read … Unreadable: … Triage first:
+              s3cab verify &lt;bucket&gt;"</em>), differing only in one middle clause — which is
+              precisely the "heavy, actionable, reused → a named factory" row of
+              <code class="mono">error.mjs</code>'s own taxonomy.
+            </p>
+          </div>
 
           <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">Before — strip owned, construct scattered</p>
-              <div class="space-y-2">
-                <div class="rounded bg-slate-900 text-slate-100 px-3 py-2">
-                  <p class="text-xs uppercase tracking-wider text-slate-400">snapshot-file.mjs (grammar owner)</p>
-                  <p class="chip">snapshotNames() · normalizeSnapshotName() — strip “.tsv.zst” ✓</p>
-                  <p class="chip text-red-300">name → filename constructor: none ✗</p>
-                </div>
-                <div class="flex flex-wrap gap-1.5">
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:75 `${name}.tsv.zst`</span>
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:121 `${name}.tsv.zst`</span>
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:301 `${name}.tsv.zst`</span>
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">remote.mjs:302 `${name}.tsv.zst`</span>
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">upload.mjs:125 `${name}.tsv.zst`</span>
-                  <span class="chip px-2 py-1 rounded border border-red-300 text-red-700">upload.mjs:126 `${name}.tsv.zst`</span>
-                </div>
-              </div>
+            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before — each plan re-derives it</p>
+              <pre class="mermaid text-xs">flowchart LR
+  R["referencedObjects<br/>per-set {snapshot, reason}"] --> C["planCleanup<br/>flatMap + typedef"]
+  R --> U["planUnrestorable<br/>flatMap + typedef"]
+  R --> D["planDelete<br/>flatMap + typedef"]
+  C --> CC["cleanup cmd<br/>set/snapshot + abort"]
+  U --> UU["summary<br/>set/snapshot"]
+  D --> DD1["summary<br/>set/snapshot"]
+  D --> DD2["delete cmd<br/>set/snapshot + abort"]
+  style C fill:#fecaca,stroke:#b91c1c
+  style U fill:#fecaca,stroke:#b91c1c
+  style D fill:#fecaca,stroke:#b91c1c</pre>
             </div>
-            <div class="rounded-lg border border-slate-200 p-4">
-              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3">After — both directions behind the seam</p>
-              <div class="space-y-2">
-                <div class="rounded bg-slate-900 text-slate-100 px-3 py-2">
-                  <p class="text-xs uppercase tracking-wider text-slate-400">snapshot-file.mjs (grammar owner)</p>
-                  <p class="chip">snapshotNames() · normalizeSnapshotName() ✓</p>
-                  <p class="chip text-emerald-300">snapshotFileName(name) ✓</p>
-                </div>
-                <div class="flex flex-wrap gap-1.5">
-                  <span class="chip px-2 py-1 rounded border border-slate-300 text-slate-600">remoteSnapshotsPrefix(set) + snapshotFileName(name)</span>
-                  <span class="chip px-2 py-1 rounded border border-slate-300 text-slate-600">join(dir, snapshotFileName(name))</span>
-                </div>
-                <p class="text-xs text-slate-500">Prefix and extension each owned by their module; six literals become compositions.</p>
-              </div>
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After — one named concept</p>
+              <pre class="mermaid text-xs">flowchart LR
+  R["referencedObjects"] --> N["the named derivation<br/>→ UnreadableSnapshot[]<br/>+ naming + abort factory"]
+  N --> C["planCleanup"]
+  N --> U["planUnrestorable"]
+  N --> D["planDelete"]
+  C --> X["commands consume<br/>the named shape"]
+  U --> X
+  D --> X
+  style N fill:#1e293b,color:#fff</pre>
+              <p class="text-xs text-emerald-800">
+                One typedef, one derivation, one spelling of
+                <code class="mono">set/snapshot</code>, one abort.
+              </p>
             </div>
           </div>
 
-          <p class="text-sm"><strong>Problem.</strong> snapshot-file.mjs centralizes the <em>recognition/strip</em> direction and its doc claims the naming convention lives in one place — but the <em>construct</em> direction is six hand-spelled <code class="font-mono text-xs">`${name}.tsv.zst`</code> literals across two modules: the grammar leaks across the seam, and a codec change is a six-site hunt.</p>
-          <p class="text-sm"><strong>Solution.</strong> Export <code class="font-mono text-xs">snapshotFileName(name)</code> from the owner; the six sites compose it with their own piece (S3 prefix, local dir).</p>
-          <ul class="text-sm list-disc list-inside space-y-1">
-            <li>the “one place” claim becomes true</li>
-            <li>locality: codec change = one edit</li>
-            <li>the de-leak compare.mjs already got (PR #168)</li>
-          </ul>
-          <div class="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-900">
-            Aligns with ADR-0028 (naming pulled <em>into</em> the writer) — the opposite direction to the rejected codec split.
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><strong>Locality:</strong> the three plan modules stop carrying an identical
+                six-line preamble that has nothing to do with their actual question
+                (orphans / unrestorable files / deletable objects).</li>
+              <li><strong>Leverage:</strong> the widened type stops being three structural literals
+                that can silently drift apart — the type checker starts holding one contract
+                instead of three coincidences.</li>
+              <li><strong>Vocabulary:</strong> a CONTEXT.md term for the qualified
+                <code class="mono">set/snapshot</code> name, which currently exists only as a
+                template literal repeated four times.</li>
+              <li><strong>Tests:</strong> the abort's wording is asserted per command today; a
+                factory makes the shared skeleton assertable once and leaves each command's own
+                clause as the thing worth testing there.</li>
+            </ul>
+          </div>
+
+          <div class="rounded-lg border-l-4 border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
+            <strong>Placement is the grilling question, not the existence.</strong>
+            <code class="mono">remote.mjs</code> produces the per-set results;
+            <code class="mono">verify.mjs</code> owns the <code class="mono">ReferencedResult</code>
+            typedef the three modules <code class="mono">@import</code>;
+            <code class="mono">error.mjs</code> hosts the taxonomy the abort factory belongs to.
+            Splitting the derivation and the message across two homes may well be right — that is
+            the conversation, and it decides whether this lands as one small module or as two
+            additions to existing ones.
           </div>
         </article>
 
-        <!-- ══════════════════════ landed while in flight ══════════════════════ -->
-        <section class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 space-y-1">
-          <h2 class="font-serif text-lg">Landed while this pass was in flight</h2>
-          <p class="text-sm text-slate-700">
-            <strong>C — any successful HEAD counts as present</strong> landed as
-            <a class="underline" href="https://github.com/allens/s3cab/pull/203">PR #203</a>
-            (the heuristic proved to be a fossil preserved on a false premise — see the run log in
-            architecture-improvements.md), and
-            <strong>D — fail the walk at the first duplicate</strong> as
-            <a class="underline" href="https://github.com/allens/s3cab/pull/204">PR #204</a>.
-            Both were verified still-open at this pass’s HEAD <code class="font-mono text-xs">80a45aa</code>,
-            then fixed the same day.
-          </p>
-        </section>
-
-        <!-- ══════════════════════ E ══════════════════════ -->
-        <article id="cand-e" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+        <!-- ══════════════════════ B ══════════════════════ -->
+        <article id="cand-b" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
           <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">E · Small-cleanups bundle (ride-alongs)</h2>
+            <h2 class="font-serif text-xl">B · The consequence-summary table, built twice; <code class="mono text-base">count</code>/<code class="mono text-base">plural</code>, built four times</h2>
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">carried (8th pass) — re-verified</span>
           </div>
-          <p class="text-sm text-slate-600">Each rides along with the next real touch of its file — not a standalone PR. Rows 1 and 4 ride with F’s PR (grilled decision); rows 2–3 stay parked.</p>
 
-          <div class="divide-y divide-slate-100 text-sm">
-            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
-              <p class="font-mono text-xs text-slate-600">provider.mjs:307–322<br/><span class="text-slate-400">(rides with F)</span></p>
-              <p class="chip text-red-700">clear.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY") — re-spells the knobs table (39–47)</p>
-              <p class="chip text-emerald-700">clear.push(...knobs.keys) — rename-drift risk gone</p>
+          <div class="text-sm space-y-1">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
+            <p class="mono text-xs">src/lib/unrestorable.mjs — <span class="text-slate-500"><code>formatUnrestorableSummary</code> l.242–277, <code>files</code> l.379, <code>objects</code> l.382</span></p>
+            <p class="mono text-xs">src/lib/delete.mjs — <span class="text-slate-500"><code>formatDeleteSummary</code> l.306–341, <code>files</code> l.434</span></p>
+            <p class="mono text-xs">src/lib/deletion-record.mjs — <span class="text-slate-500"><code>files</code> l.179, inline "stored object(s)" l.166</span></p>
+            <p class="mono text-xs">src/render.mjs — <span class="text-slate-500"><code>count</code> l.825, <code>plural</code> l.830 — private, ~20 call sites</span></p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
+            <p>
+              <code class="mono">delete.mjs</code>'s doc says it outright: the per-path table
+              <em>"follows the unrestorable summary's shape exactly"</em>. It does — by copy. Both
+              compute three column widths, close over the same
+              <code class="mono">row()</code> renderer, pop the total, draw the same
+              <code class="mono">─</code> rule at
+              <code class="mono">fileCol + byteCol + 2</code>, and both append a
+              <em>shared across N …</em> line under the same sole-vs-shared rule. Roughly 30 lines,
+              near-verbatim, in two files.
+            </p>
+            <p>
+              Underneath it, the smaller duplication: <code class="mono">render.mjs</code> already
+              has <code class="mono">count</code> and <code class="mono">plural</code> — but
+              <strong>private</strong>, so the three lib modules that need them each hand-rolled
+              <code class="mono">files(n)</code>, and two hand-rolled
+              <code class="mono">objects(n)</code> as well. The ninth pass logged this as
+              <em>"pluralization hand-rolls outside render.mjs's <code>plural</code>
+              (marginal)"</em>; the deletion rework has since tripled it.
+            </p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-3">
+              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before</p>
+              <div class="space-y-2">
+                <div class="rounded border border-rose-300 bg-white p-2">
+                  <p class="text-xs font-semibold mono">unrestorable.mjs</p>
+                  <p class="text-[11px] text-slate-600">width calc · row() · rule · total · <span class="text-rose-700">files()</span> · <span class="text-rose-700">objects()</span></p>
+                </div>
+                <div class="rounded border border-rose-300 bg-white p-2">
+                  <p class="text-xs font-semibold mono">delete.mjs</p>
+                  <p class="text-[11px] text-slate-600">width calc · row() · rule · total · <span class="text-rose-700">files()</span> · inline objects</p>
+                </div>
+                <div class="rounded border border-rose-300 bg-white p-2">
+                  <p class="text-xs font-semibold mono">deletion-record.mjs</p>
+                  <p class="text-[11px] text-slate-600"><span class="text-rose-700">files()</span> · inline objects</p>
+                </div>
+                <div class="rounded border border-slate-300 bg-slate-100 p-2">
+                  <p class="text-xs font-semibold mono">render.mjs</p>
+                  <p class="text-[11px] text-slate-600">count() · plural() — <em>private, unreachable</em></p>
+                </div>
+              </div>
             </div>
-            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
-              <p class="font-mono text-xs text-slate-600">remote.mjs:182–186, 252–265</p>
-              <p class="chip text-red-700">three hand-rolled “get, if-absent insert” blocks</p>
-              <p class="chip text-emerald-700">Map.prototype.getOrInsertComputed — compare.mjs:207 precedent</p>
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After</p>
+              <div class="space-y-2">
+                <div class="rounded border-2 border-emerald-500 bg-slate-900 text-slate-100 p-2">
+                  <p class="text-xs font-semibold mono">the counting primitives</p>
+                  <p class="text-[11px] text-slate-300">count() · plural() — one home, render.mjs included</p>
+                </div>
+                <div class="rounded border-2 border-emerald-500 bg-slate-900 text-slate-100 p-2">
+                  <p class="text-xs font-semibold mono">one aligned-total table</p>
+                  <p class="text-[11px] text-slate-300">rows + total → padded lines + rule</p>
+                </div>
+                <div class="rounded border border-emerald-300 bg-white p-2">
+                  <p class="text-xs font-semibold mono">unrestorable.mjs / delete.mjs</p>
+                  <p class="text-[11px] text-slate-600">choose the rows and the labels — the part that actually differs</p>
+                </div>
+              </div>
+              <p class="text-xs text-emerald-800">
+                Each summary keeps its own prose, headline and warnings; only the alignment
+                mechanic moves.
+              </p>
             </div>
-            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
-              <p class="font-mono text-xs text-slate-600">upload.mjs:131–134</p>
-              <p class="chip text-red-700">“Specify what to upload” thrown after both modes, at the bottom</p>
-              <p class="chip text-emerald-700">hoisted into the fail-fast validation block at the top</p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><strong>Locality:</strong> "why do the numbers line up like that" becomes one
+                function with one doc comment. Today the reasoning
+                (<em>"right-align the numbers so the magnitudes line up"</em>) is written out in
+                one file and silently copied into the other.</li>
+              <li><strong>Tests:</strong> alignment is fiddly and currently asserted only through
+                two whole rendered summaries. A table primitive is testable directly — including
+                the case that would break both copies (a byte figure wider than its header).</li>
+              <li>The next destructive command's preview gets the house table for free, rather
+                than a third copy.</li>
+            </ul>
+          </div>
+
+          <div class="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-xs text-amber-900">
+            <strong>Why only "worth exploring".</strong> Two arguments cut against it, and both are
+            real. (1) These are two <em>different commands' user-facing output</em>, and
+            deliberately-similar-today is not must-stay-identical — a shared renderer couples them,
+            and ADR-0006/#5 has form against exactly this kind of presentational machinery.
+            (2) <code class="mono">render.mjs</code> is the render layer (ADR-0043), yet these
+            summaries deliberately bypass it because they are <em>pre-decision</em> output printed
+            before the command returns — so "put the table in render.mjs" may be the wrong home
+            even though that is where its siblings live. Grilling should probably split the
+            candidate: the <code class="mono">count</code>/<code class="mono">plural</code> half is
+            cheap and clearly right; the table half is a judgement call.
+          </div>
+        </article>
+
+        <!-- ══════════════════════ C ══════════════════════ -->
+        <article id="cand-c" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-xl">C · <code class="mono text-base">putText</code> re-spells <code class="mono text-base">putObjectParams</code>, and <code class="mono text-base">PreconditionFailed</code> has no <code class="mono text-base">isObjectNotFound</code> twin</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">small · inside one module</span>
+          </div>
+
+          <div class="text-sm space-y-1">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
+            <p class="mono text-xs">src/lib/s3.mjs — <span class="text-slate-500"><code>awsOnlyPutParams</code> l.593, <code>putObjectParams</code> l.619, <code>putFile</code>'s catch l.677–688, <code>isObjectNotFound</code> l.708, <code>putText</code> l.752–775</span></p>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
+            <p>
+              <code class="mono">awsOnlyPutParams</code>' doc claims the gating rule
+              <em>"lives in one place"</em>, shared by <em>"putFile (via putObjectParams) and
+              putText"</em>. Half true. The AWS-only gating is shared; the rest of
+              <code class="mono">putObjectParams</code>' body is <strong>re-typed</strong> inside
+              <code class="mono">putText</code> — its own <code class="mono">parseS3Uri</code>, its
+              own <code class="mono">awsOnlyPutParams()</code> spread, its own
+              <code class="mono">IfNoneMatch: "*"</code> conditional. So the conditional-PUT
+              spelling exists twice in the module whose entire job is to be the one SDK boundary.
+            </p>
+            <p>
+              Then the mirror image: both uploaders map
+              <code class="mono">PreconditionFailed</code> → <code class="mono">false</code> with
+              the same four-line
+              <code class="mono">Error.isError(error) &amp;&amp; error.name === …</code> guard. The
+              module already has the pattern for this —
+              <code class="mono">isObjectNotFound</code>, whose doc gives the reason:
+              <em>"the single spelling of 'missing object' for this SDK boundary, so callers don't
+              each repeat the SDK's names."</em> "Already there" is the same kind of fact, and it
+              is spelled twice.
+            </p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before</p>
+              <pre class="mermaid text-xs">flowchart TD
+  PF["putFile"] --> POP["putObjectParams<br/>Bucket/Key + AWS-only + IfNoneMatch"]
+  PF --> C1["name === 'PreconditionFailed'<br/>→ false"]
+  PT["putText"] --> INL["inline: parseS3Uri +<br/>awsOnlyPutParams + IfNoneMatch"]
+  PT --> C2["name === 'PreconditionFailed'<br/>→ false"]
+  AOP["awsOnlyPutParams"] --> POP
+  AOP --> INL
+  INF["isObjectNotFound<br/>(the pattern, already here)"]
+  style INL fill:#fecaca,stroke:#b91c1c
+  style C1 fill:#fecaca,stroke:#b91c1c
+  style C2 fill:#fecaca,stroke:#b91c1c
+  style INF fill:#e2e8f0,stroke-dasharray: 4 3</pre>
             </div>
-            <div class="grid md:grid-cols-[1fr_1.2fr_1.2fr] gap-3 py-3">
-              <p class="font-mono text-xs text-slate-600">render.mjs:85–89 · 455<br/><span class="text-slate-400">(rides with F)</span></p>
-              <p class="chip text-red-700">two differently-spelled paint helpers (compare’s, verify’s)</p>
-              <p class="chip text-emerald-700">one module-private paint(color) serves both renderers</p>
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
+              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After</p>
+              <pre class="mermaid text-xs">flowchart TD
+  PF["putFile"] --> POP
+  PT["putText"] --> POP["putObjectParams<br/>the one param builder"]
+  PF --> ALP["the already-present predicate<br/>(twin of isObjectNotFound)"]
+  PT --> ALP
+  AOP["awsOnlyPutParams"] --> POP
+  style POP fill:#1e293b,color:#fff
+  style ALP fill:#1e293b,color:#fff</pre>
+              <p class="text-xs text-emerald-800">
+                One params builder, one "already present" predicate — the shape the module already
+                uses for absence.
+              </p>
             </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><strong>Locality:</strong> a future change to how s3cab writes objects (a new
+                AWS-only param, a different no-clobber mechanism) is one edit, not two — and the
+                second is easy to miss, because <code class="mono">putText</code>'s copy doesn't
+                look like a copy.</li>
+              <li><strong>Tests:</strong> <code class="mono">putObjectParams</code> is already
+                exported and asserted directly (pure, no upload). Routing
+                <code class="mono">putText</code> through it puts the marker/config write path
+                under that existing coverage.</li>
+              <li>The predicate names the concept the way the module names its sibling —
+                consistency of interface, which #5 explicitly counts as "simpler".</li>
+            </ul>
+          </div>
+
+          <div class="rounded-lg border-l-4 border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
+            <strong>Check before touching:</strong> the standing rejection on
+            <em>parameterizing <code class="mono">putFile</code>'s no-clobber mechanism</em> is
+            adjacent but different — that one was about making the HEAD-preflight vs
+            conditional-PUT <em>division of labour</em> configurable, and stays rejected. This
+            changes no mechanism and no round trip; it only stops the same mechanism being written
+            twice. Worth re-reading that entry during grilling so the two don't get conflated.
           </div>
         </article>
       </section>
 
-      <!-- ══════════════════════ clean ══════════════════════ -->
-      <section class="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
-        <h2 class="font-serif text-xl">Examined &amp; found clean this pass</h2>
-        <ul class="text-sm list-disc list-inside space-y-1 text-slate-700">
-          <li><strong>The #199–#202 churn:</strong> aws command + recipe prose + stack-arns (client-config <code class="font-mono text-xs">profile</code> is the #199 fix — justified: onboarding has no set env layer; CloudFormation stays quarantined per ADR-0059); backup.mjs post-#202 is thin porcelain with the <code class="font-mono text-xs">since === until</code> debug edge handled; sets/set-marker post-#201 read <code class="font-mono text-xs">dirs.txt</code> through <code class="font-mono text-xs">parseLines</code> everywhere.</li>
-          <li><strong>The recurring weakness is well-defended:</strong> <code class="font-mono text-xs">verifySet</code> / <code class="font-mono text-xs">planCleanup</code> / <code class="font-mono text-xs">planRestore</code> / <code class="font-mono text-xs">planUpload</code> are all pure and mock-free-testable; command shells stay thin.</li>
-          <li><strong>Remote engine prefix ownership holds</strong> (objects.mjs = <code class="font-mono text-xs">objects/</code>, remote.mjs = <code class="font-mono text-xs">snapshots/</code>) — the <code class="font-mono text-xs">.tsv.zst</code> literal (G) is the sole leak found.</li>
-          <li><strong>Test tiers</strong> match ADR-0049; the “mock at s3.mjs” line holds throughout.</li>
+      <!-- ══════════════════════ examined & left alone ══════════════════════ -->
+      <section class="space-y-3">
+        <h2 class="font-serif text-2xl">Examined &amp; left alone</h2>
+        <p class="text-sm text-slate-600">
+          Read this pass and deliberately <em>not</em> candidates — recorded so future runs skip them.
+        </p>
+        <ul class="text-sm space-y-2 list-disc pl-5">
+          <li>
+            <strong>The destructive-command pattern across <code class="mono">delete</code> /
+            <code class="mono">forget</code> / <code class="mono">cleanup</code></strong>
+            (ADR-0064). The non-interactive gate is structurally identical three times — but it is
+            <em>three lines</em>, and the substance is the bespoke ADR-0030 message each one needs
+            (naming its own <code class="mono">--dry-run</code>/<code class="mono">--force</code>
+            invocation). A helper taking the whole message is shallow: deleting it would move
+            complexity, not concentrate it. Drift risk is already covered — each command has its
+            own "refuses a non-interactive run without --force" test.
+          </li>
+          <li>
+            <strong>The three shapes of the deletion-record lookup</strong> —
+            <code class="mono">verifySet</code> takes
+            <code class="mono">Map&lt;hash, {deletedOn}&gt;</code>,
+            <code class="mono">planCleanup</code> takes
+            <code class="mono">Set | Map&lt;hash, unknown&gt;</code>,
+            <code class="mono">baselineHashes</code> takes
+            <code class="mono">Iterable&lt;hash&gt;</code>. Looks like a scatter; isn't. Each asks a
+            genuinely different question (when was it deleted / is it a member / subtract these),
+            and one unified value would serve none well. Same reasoning that declined the
+            <code class="mono">credentialMode</code> classifier.
+          </li>
+          <li>
+            <strong>The network-resilience trio</strong> —
+            <code class="mono">s3.mjs</code>'s <code class="mono">requestErrorRelay</code>,
+            <code class="mono">network-status.mjs</code>, the
+            <code class="mono">requestErrorTable</code>. Deep: the relay is exported and pure of a
+            live client, the error table is data not branching, and
+            <code class="mono">network-status.mjs</code> justifies its module-level state
+            explicitly (the terminal is one shared resource; the outage is one fact about the run).
+            The curried-window signature even carries the bug it prevents in its own doc. Exemplar
+            alongside the SigV4-X509 signer.
+          </li>
+          <li>
+            <strong><code class="mono">lib/snapshot.mjs</code> and the fused pipeline</strong>
+            (ADR-0069). The <code class="mono">through</code> seam is the cleanest kind: one
+            optional transform parameter is the entire difference between
+            <code class="mono">snapshot</code> and <code class="mono">backup</code>, and
+            <code class="mono">backup.mjs</code> is thin porcelain over it. The
+            never-throw-mid-stream contract is stated where a future editor will read it.
+          </li>
+          <li>
+            <strong><code class="mono">command-details.mjs</code></strong> (#222) — a clean prose
+            extraction with a stated invariant ("every command <code class="mono">details</code>
+            string lives here"), no imports, and the "short one-liners stay inline" boundary
+            written down. Nothing to deepen.
+          </li>
+          <li>
+            <strong>The plan/execute discipline, again clean</strong> —
+            <code class="mono">planDelete</code>, <code class="mono">planUnrestorable</code>,
+            <code class="mono">planRestore</code>, <code class="mono">planCleanup</code>,
+            <code class="mono">verifySet</code> and <code class="mono">planUpload</code> are all
+            pure and all say so. The deletion rework followed the house pattern rather than
+            inventing one; candidates B and D are duplications <em>between</em> these modules, not
+            failures of the split itself.
+          </li>
         </ul>
       </section>
 
-      <!-- ══════════════════════ top rec ══════════════════════ -->
-      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-6 space-y-2">
-        <h2 class="font-serif text-xl">Top recommendation: F</h2>
-        <p class="text-sm">
-          <a href="#cand-f" class="underline decoration-emerald-400">One read of a set’s provider config</a> —
-          the only Strong: its evidence is a <em>realized</em> drift bug (a keyless Roles Anywhere set is
-          indistinguishable from an unconfigured one in <code class="font-mono text-xs">list</code>), the fix is a small pure
-          function with an accepted in-repo precedent (the write twin one seam down), and it retires the
-          read-side drift class permanently. E’s provider.mjs and render.mjs rows ride along.
+      <!-- ══════════════════════ top recommendation ══════════════════════ -->
+      <section class="rounded-xl border-2 border-emerald-500 bg-emerald-50 p-6 space-y-3">
+        <h2 class="font-serif text-2xl text-emerald-900">Top recommendation — A</h2>
+        <p class="text-sm text-emerald-950">
+          <strong>Fold <code class="mono">uploadDir</code> into the one PUT loop.</strong> It is the
+          only candidate that closes a <em>correctness</em> gap rather than a tidiness one:
+          <code class="mono">upload --dir</code> can today store the wrong bytes under a hash and
+          corrupt that object for every path that dedups to it, surfacing only at restore — the
+          exact failure ADR-0069 wrote the drift guard to prevent, on the path built for the
+          multi-GB files where the window is minutes wide. The refactor and the fix are the same
+          change, the blast radius is one module plus its existing test suite, and it makes the
+          module header's own claim true.
+        </p>
+        <p class="text-sm text-emerald-950">
+          <strong>Then D</strong> — the largest genuine duplication found (ten copies of one
+          unnamed concept across five files), and the one that earns a CONTEXT.md term. It has an
+          open placement question worth grilling before any code moves.
+          <strong>C</strong> is a cheap ride-along the next time
+          <code class="mono">s3.mjs</code> is open. <strong>B</strong> should be split in grilling:
+          take the <code class="mono">count</code>/<code class="mono">plural</code> half, decide
+          the table half on its merits.
         </p>
       </section>
+
+      <footer class="text-xs text-slate-500 pt-4 border-t border-slate-200">
+        Durable capture: <a class="underline" href="architecture-improvements.md">proposals/architecture-improvements.md</a>
+        (open candidates, standing rejections, run log). This report is the latest only — it is
+        overwritten by the next pass.
+      </footer>
     </main>
   </body>
 </html>

@@ -28,6 +28,90 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
+Surfaced 2026-07-29 (tenth pass) — the first review of the **deletion rework** (ADR-0063/0064),
+the **network-resilience** work (ADR-0065/0068), **interrupt hash-parking** (ADR-0067) and the
+**fused snapshot+upload pipeline** (ADR-0069): 73 commits (PRs #217–#245) since the open list was
+last emptied. Verified against the source at HEAD `0268c73`. Verdict: the new subsystems followed
+the house plan/execute pattern rather than inventing one, so three of the four candidates are
+duplications *between* modules, and the fourth is a guard that one path never got.
+
+- **A — fold `uploadDir` into the one PUT loop** — **Strong**. `src/lib/upload.mjs`'s header
+  states the design as "One PUT loop, one drift guard, two sources". There are **two** loops and
+  **three** sources: `uploadDir` (l.387, from [#227](https://github.com/allens/s3cab/pull/227))
+  hand-rolls its own `seen`-dedup + `putObject` loop, and
+  [#245](https://github.com/allens/s3cab/pull/245) built `uploadObjects` (l.192) beside it without
+  folding it in. The cost is a **live correctness gap, not tidiness**: `uploadObjects` re-checks
+  size+mtime between hashing and PUTting because — its own words — "the store trusts the hash on
+  write, so PUTting its current bytes would file them under the recorded content's hash —
+  corrupting that object for every snapshot and path that dedups to it, surfacing only at
+  restore." `uploadDir` has the identical window (`fileProps` reads and hashes, then `putObject`
+  streams the file again) and **no guard**. The window is widest for exactly what `upload --dir`
+  is for: seeding priority folders — the multi-GB video population, where one file hashes for
+  *minutes* before the PUT re-reads it. `upload --file` shares the shape (`prop()` then
+  `putObject`) at one-file stakes. Sketch: `uploadDir` becomes a **row source** (walk → hash →
+  yield `[path, Props]`) `run` through `uploadObjects` with an empty `stored` set — its
+  `seen`/`uploaded` counters and `{ candidates, uploaded }` return are already what
+  `uploadObjects.result()` reports. Grill: what a drifted file should *do* on a path that writes
+  no snapshot, and the drift error's wording (it names `s3cab backup <set>`, honest advice but
+  phrased as though a snapshot was written). **The missing guard is also a bug in its own right**
+  — it belongs in [bugs.md](bugs.md) whether or not the refactor is taken.
+- **D — name the bucket's unreadable snapshots** — **Strong**. `referencedObjects` yields per-set
+  `unreadable: { snapshot, reason }[]`; every consumer wants the same *set-qualified, bucket-wide*
+  derivation and every consumer builds it itself. Ten copies of one unnamed concept across five
+  files: the identical `flatMap` three times (cleanup.mjs:74, unrestorable.mjs:94, delete.mjs:105),
+  the same inline structural typedef three times (cleanup.mjs:44, unrestorable.mjs:56,
+  delete.mjs:79), and `map((u) => `${u.set}/${u.snapshot}`)` four times (commands/cleanup.mjs:108,
+  commands/delete.mjs:155, delete.mjs:389, unrestorable.mjs:294). The tell is that last one:
+  `set/snapshot` is a **user-facing identifier** invented independently in four places, with no
+  CONTEXT.md term. On top, two sites build the same abort from the same skeleton ("Can't … safely:
+  N snapshot(s) won't read … Unreadable: … Triage first: s3cab verify <bucket>"), differing in one
+  middle clause — the "heavy, actionable, reused → a named factory" row of `error.mjs`'s own
+  taxonomy. **Placement is the grilling question, not the existence**: remote.mjs produces the
+  per-set results, verify.mjs owns the `ReferencedResult` typedef the three modules `@import`, and
+  error.mjs hosts the taxonomy the abort belongs to — splitting derivation from message across two
+  homes may be right.
+- **B — one aligned-total table; one `count`/`plural`** — **Worth exploring**. `delete.mjs` says it
+  outright ("follows the unrestorable summary's shape exactly") and it does, by copy:
+  `formatDeleteSummary` (l.306–341) and `formatUnrestorableSummary` (l.242–277) both compute three
+  column widths, close over the same `row()`, pop the total and draw the same `─` rule at
+  `fileCol + byteCol + 2` — ~30 near-verbatim lines. Underneath, `render.mjs` already has
+  `count` (l.825) and `plural` (l.830) but **private**, so three lib modules hand-rolled `files(n)`
+  (delete.mjs:434, unrestorable.mjs:379, deletion-record.mjs:179) and two hand-rolled `objects(n)`.
+  The ninth pass logged the pluralization as "marginal"; the deletion rework tripled it. **Two
+  arguments cut against the table half**: these are two different commands' user-facing output
+  (similar today ≠ must stay identical), and they deliberately bypass render.mjs because they are
+  *pre-decision* output printed before the command returns — so render.mjs may be the wrong home
+  even though its siblings live there. Grilling should split it: take `count`/`plural`, decide the
+  table on its merits.
+- **C — `putText` re-spells `putObjectParams`; no `PreconditionFailed` twin to `isObjectNotFound`**
+  — **Worth exploring**, small, inside s3.mjs. `awsOnlyPutParams`' doc claims the gating "lives in
+  one place", shared by "putFile (via putObjectParams) and putText". Half true: the AWS-only gating
+  is shared, but the rest of `putObjectParams`' body is re-typed inside `putText` (l.752) — its own
+  `parseS3Uri`, its own `awsOnlyPutParams()` spread, its own `IfNoneMatch: "*"` — so the
+  conditional-PUT spelling exists twice in the module whose job is to be the one SDK boundary. And
+  both uploaders map `PreconditionFailed` → `false` with the same four-line guard (putFile:677,
+  putText:764), where the module already has the pattern: `isObjectNotFound` (l.708), "the single
+  spelling of 'missing object' for this SDK boundary, so callers don't each repeat the SDK's
+  names." **Don't conflate with the standing rejection** on parameterizing `putFile`'s no-clobber
+  *mechanism* (below) — that stays rejected; this changes no mechanism and no round trip.
+
+**Examined & left alone (tenth pass)** (not candidates — skip future runs): the
+**destructive-command pattern** across delete/forget/cleanup (ADR-0064) — the non-interactive gate
+is structurally identical three times but is *three lines*, and the substance is each command's
+bespoke ADR-0030 message; a helper taking the whole message is shallow, and each command already
+has its own "refuses a non-interactive run without --force" test; the **three shapes of the
+deletion-record lookup** (`verifySet` wants `Map<hash,{deletedOn}>`, `planCleanup` wants
+membership, `baselineHashes` wants keys) — distinct questions per consumer, the same reasoning that
+declined the `credentialMode` classifier; the **network-resilience trio** (`requestErrorRelay`,
+`network-status.mjs`, `requestErrorTable`) — deep, with the module-level state explicitly justified
+and the curried-window bug documented in its own doc, an exemplar alongside the SigV4-X509 signer;
+**`lib/snapshot.mjs` + the fused pipeline** (the `through` seam is one optional parameter as the
+whole snapshot-vs-backup difference; backup.mjs is thin porcelain); **`command-details.mjs`**
+(clean prose extraction, stated invariant); the **plan/execute discipline** (planDelete /
+planUnrestorable / planRestore / planCleanup / verifySet / planUpload all pure and all say so).
+
+---
+
 Surfaced 2026-07-16 (eighth pass) — a **whole-`src/` simplification-focused read** (user brief:
 clear + concise, fewer lines/branches/indirections, hunt bugs en route), every production module
 read in full at HEAD `b072f93`. Verdict: the codebase is genuinely deep after seven passes —
@@ -39,12 +123,11 @@ also candidate B; the `aws --save --profile` drop →
 [PR #202](https://github.com/allens/s3cab/pull/202)**, **C in [PR #203](https://github.com/allens/s3cab/pull/203)**,
 and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
 
-_The open list is empty._ The eighth and ninth passes (A–G) have all landed or parked; the
-eighth-pass E bundle's four items are all in — provider.mjs and render.mjs with F
+_Nothing from these two passes is still open._ The eighth and ninth passes (A–G) all landed or
+parked; the eighth-pass E bundle's four items are all in — provider.mjs and render.mjs with F
 ([PR #208](https://github.com/allens/s3cab/pull/208)), remote.mjs and commands/upload.mjs with the
-E-bundle finish ([PR #211](https://github.com/allens/s3cab/pull/211)). The next
-`/improve-codebase-architecture` run starts fresh (verify the rejected/parked list below first,
-then explore).
+E-bundle finish ([PR #211](https://github.com/allens/s3cab/pull/211)). What survives from them is
+the leave-alone list below, which the tenth pass re-checked as still accurate.
 
 **Examined & left alone (eighth pass)** (not candidates — skip future runs): `referencedObjects` *not*
 filtering set names to `[a-z0-9-]+` while `listRemoteSets` does — **load-bearing asymmetry**
@@ -466,3 +549,25 @@ least once; re-open only if the stated reason no longer holds.
   Copilot comment then asked the assert to carry a message — accepted, matching snapshot-file.mjs's
   house style for invariant asserts. Provider.mjs/render.mjs (E's other two) had already landed
   with F. **This closes the eighth and ninth passes entirely — no open candidates remain.**
+- **2026-07-29 — tenth pass.** The open list had sat empty since 2026-07-17, so this pass explored
+  the **73 commits since** (PRs #217–#245) at HEAD `0268c73` — the first architecture read of the
+  deletion rework (ADR-0063/0064: `forget`, path-scoped `delete`, `deletions/`), the
+  network-resilience work (ADR-0065/0068), interrupt hash-parking (ADR-0067), the Glacier-IR tier
+  (ADR-0066) and the fused snapshot+upload pipeline (ADR-0069). Run inline (no Explore agents);
+  every new or heavily-changed module read in full (`lib/delete.mjs`, `lib/unrestorable.mjs`,
+  `lib/deletion-record.mjs`, `lib/network-status.mjs`, `lib/snapshot.mjs`, `lib/upload.mjs`,
+  `lib/s3.mjs`, `commands/{delete,forget,cleanup,backup,upload}.mjs`, `command-details.mjs`), plus
+  outline reads of render.mjs/snapshot-file.mjs/restore. **Verdict: the new subsystems adopted the
+  house plan/execute pattern rather than inventing one** (every `plan*` is pure and says so), so
+  three of the four candidates are duplications *between* the new modules and the fourth is a guard
+  one path never got. **Four candidates recorded above (A–D)**, with the standout being
+  **A: `uploadDir` never joined the one PUT loop, so `upload --dir` has ADR-0069's hash-then-PUT
+  window with no drift guard** — a live corruption path (wrong bytes stored under a recorded hash,
+  surfacing only at restore) on the command built for the multi-GB files where the window is
+  minutes wide, plus a false claim in the module's own header ("two sources" — there are three).
+  Runner-up **D**: the set-qualified unreadable-snapshot list, ten copies of one unnamed concept
+  across five files. Recorded as leave-alone: the destructive-command gate trio, the three
+  deletion-record lookup shapes, the network-resilience trio, `lib/snapshot.mjs`'s `through` seam,
+  `command-details.mjs`. The parked/rejected list below was re-checked and stands untouched (C's
+  entry deliberately abuts the `putFile` no-clobber rejection — they must not be conflated).
+  Overwrote the HTML report in place.
