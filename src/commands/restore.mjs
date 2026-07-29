@@ -217,7 +217,7 @@ export async function restore(paths = [], options = {}) {
 
     done++;
     if (done % 50 === 0 || done === plan.length) {
-      progress.update(`Restoring ${done}/${plan.length}...`);
+      progress.update(`Restoring ${done}/${plan.length}…`);
     }
   }
 
