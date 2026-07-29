@@ -33,7 +33,8 @@ the **network-resilience** work (ADR-0065/0068), **interrupt hash-parking** (ADR
 **fused snapshot+upload pipeline** (ADR-0069): 73 commits (PRs #217–#245) since the open list was
 last emptied. Verified against the source at HEAD `0268c73`. Verdict: the new subsystems followed
 the house plan/execute pattern rather than inventing one, so three of the four candidates are
-duplications *between* modules, and the fourth is a guard that one path never got.
+duplications *between* modules, and the fourth is a guard that one path never got. **C landed
+2026-07-30** (run log below); A, B and D remain open.
 
 - **A — fold `uploadDir` into the one PUT loop** — **Strong**. `src/lib/upload.mjs`'s header
   states the design as "One PUT loop, one drift guard, two sources". There are **two** loops and
@@ -166,17 +167,6 @@ duplications *between* modules, and the fourth is a guard that one path never go
   needing a home. **The table half is unchanged**, including both arguments against it. The
   `count`/`formatCount` split is a live inconsistency as of today, so it is a natural ride-along for
   whoever next opens render.mjs even if B is never taken whole.
-- **C — `putText` re-spells `putObjectParams`; no `PreconditionFailed` twin to `isObjectNotFound`**
-  — **Worth exploring**, small, inside s3.mjs. `awsOnlyPutParams`' doc claims the gating "lives in
-  one place", shared by "putFile (via putObjectParams) and putText". Half true: the AWS-only gating
-  is shared, but the rest of `putObjectParams`' body is re-typed inside `putText` (l.752) — its own
-  `parseS3Uri`, its own `awsOnlyPutParams()` spread, its own `IfNoneMatch: "*"` — so the
-  conditional-PUT spelling exists twice in the module whose job is to be the one SDK boundary. And
-  both uploaders map `PreconditionFailed` → `false` with the same four-line guard (putFile:677,
-  putText:764), where the module already has the pattern: `isObjectNotFound` (l.708), "the single
-  spelling of 'missing object' for this SDK boundary, so callers don't each repeat the SDK's
-  names." **Don't conflate with the standing rejection** on parameterizing `putFile`'s no-clobber
-  *mechanism* (below) — that stays rejected; this changes no mechanism and no round trip.
 
 **Examined & left alone (tenth pass)** (not candidates — skip future runs): the
 **destructive-command pattern** across delete/forget/cleanup (ADR-0064) — the non-interactive gate
@@ -654,3 +644,18 @@ least once; re-open only if the stated reason no longer holds.
   `command-details.mjs`. The parked/rejected list below was re-checked and stands untouched (C's
   entry deliberately abuts the `putFile` no-clobber rejection — they must not be conflated).
   Overwrote the HTML report in place.
+- **2026-07-30 — tenth-pass C landed** ([PR #247](https://github.com/allens/s3cab/pull/247)).
+  `putText` builds its params with `putObjectParams` instead
+  of re-typing `parseS3Uri` + `awsOnlyPutParams()` + `IfNoneMatch: "*"`, and both uploaders' 412
+  catch now reads through `isPreconditionFailed` — the predicate twin `isObjectNotFound` already
+  modelled. `awsOnlyPutParams`' doc claim (the gating "lives in one place") is true rather than
+  half-true, and it is now reachable *only* through `putObjectParams`. **No mechanism and no round
+  trip changed**, so the abutting `putFile` no-clobber rejection stands untouched — and so the only
+  genuinely red-first test was the new predicate's (an unresolved export). What the refactor
+  actually needed was coverage that `putText` *goes through* `putObjectParams`, since that routing
+  is what makes it inherit the params suites: two fake-S3 cases pin the wire request carrying the
+  conditional flag and a 412 reading as "already claimed", plus one pinning that an
+  **unconditional** 412 still throws (the `noClobber &&` gate the shared predicate could tempt
+  someone to drop). Behaviour-preservation verified against the real bucket —
+  `npm run test:integration` green, where the set-marker suite's "first writer wins, the second
+  loses" case *is* this path live.
