@@ -4,11 +4,13 @@ import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { fileProps } from "./file-props.mjs";
 import { secondsSince } from "./format.mjs";
+import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import {
   listSnapshotNames,
   readParkedLookup,
   readSnapshot,
+  snapshotFileName,
   snapshotName,
   writeSnapshot,
 } from "./snapshot-file.mjs";
@@ -61,7 +63,14 @@ export async function readBaseline(set, { rehash } = {}) {
   let previous;
   const name = listSnapshotNames(snapshotDir, { latest: true });
   if (name) {
-    console.warn("Reading previous snapshot", `'${name}'`);
+    // One line for the whole step, naming the file it reads. `readSnapshotFile`
+    // used to log a second "Read snapshot file … in N sec" of its own on the way
+    // out — two lines for one step, and a duration that is a second or two on
+    // even a large set. `listSnapshotNames` only yields names backed by a
+    // `.tsv.zst`, so composing the path here lands on exactly the file
+    // `readSnapshot` goes on to resolve.
+    const path = join(snapshotDir, snapshotFileName(name));
+    console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
     const { entries } = await readSnapshot(snapshotDir, name);
     previous = entries;
   }
@@ -100,7 +109,11 @@ export async function readBaseline(set, { rehash } = {}) {
  */
 export async function generateSnapshot(set, { lookup, through, debug } = {}) {
   const name = snapshotName();
-  console.warn("Generating new snapshot:", name);
+  // The file it will land in, not just the name: the same shape as the
+  // "Reading previous snapshot" line above, so the two ends of the step read as
+  // a pair and either path can be pasted straight at a shell.
+  const displayPath = join(set.snapshotsDir, snapshotFileName(name));
+  console.warn("Generating new snapshot", `'${tildeify(displayPath)}'`);
 
   const { files, excluded, skipped } = walkSet(set);
 
@@ -113,7 +126,7 @@ export async function generateSnapshot(set, { lookup, through, debug } = {}) {
   const path = await writeSnapshot(set.snapshotsDir, name, {
     identity: set.name,
     dirs: set.dirs,
-    files: withProgress("Generating snapshot file...", files.length)(files),
+    files: withProgress("Generating snapshot file…", files.length)(files),
     excluded,
     skipped,
     getProps: (file) => fileProps(file, lookup),
@@ -153,7 +166,9 @@ function withProgress(label, total) {
         (Math.floor((current / total) * 10000) / 100).toFixed(2) + "%";
       if (percent !== previousPercent) {
         previousPercent = percent;
-        progress.update(`${label}: ${percent} in ${secondsSince(start)}`);
+        // Space, not `": "` — the label ends in an ellipsis, and every other
+        // progress line here reads `<label>… <figure> in <elapsed>`.
+        progress.update(`${label} ${percent} in ${secondsSince(start)}`);
       }
       yield path;
     }
