@@ -50,3 +50,5 @@ future "platform / release" epic).
   that would let one machine delete content another still wants, which is exactly what the
   local-attachment-as-consent model prevents.
 - **Show upload speed.** When showing upload progress show e.g. 2.3MB/s.
+- **Look into deletion record TSV format** Should it be more like the snapshot version?
+- **Column ordering and types in snapshot format** Should col1 just be # for non data records and col2 be size or lable (the #EXCLUDE directory/file thing is redundant due to trailing / in the exclude path)
