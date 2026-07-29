@@ -60,7 +60,7 @@ ADR as a live constraint.
 - [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set *(objects-cache rewrite dropped by 0045; the finding-model correction landed 2026-07-05 and is folded into the ADR)*
-- [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045)*
+- [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045; composition refined by 0069 — `backup` fuses the two into one pass rather than calling the commands in sequence)*
 - [0052](0052-retire-setup-update-mode.md) — Retire `setup`'s update mode; a set's directories are edited in the public `dirs.txt` *(partly supersedes 0036 §2 — the upsert's update half)*
 - [0053](0053-reattach-command.md) — Split `setup --inherit` into its own `reattach` command; `setup` is create-only *(resolves 0036's deferred "`--inherit` stays a flag" item)*
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
@@ -89,6 +89,7 @@ ADR as a live constraint.
 - [0028](0028-snapshot-writer-owns-the-grammar.md) — The snapshot writer owns the grammar; the walk yields exclusions as data
 - [0029](0029-eager-walk-not-streamed.md) — The walk materializes the full file set up front; it is not streamed into hashing
 - [0045](0045-change-detection-local-baseline-list-fallback.md) — Change detection: drop the objects cache; baseline = local snapshot + on-demand LIST + conditional-PUT backstop *(engine implemented; companion to 0044)*
+- [0069](0069-fused-snapshot-upload-pipeline.md) — `backup` fuses snapshot generation and upload into one streaming pass: each object is PUT milliseconds after its bytes are hashed, via one pass-through stage in the writer's pipeline (a pipe, not a callback). Collapses the drift window, deletes the write-then-re-read round trip, and makes a failed transfer a cheap retry *(accepted & implemented; refines 0044's composition, keeps 0045 intact, rides inside 0048/0067)*
 - [0048](0048-snapshot-lock-atomic-temp-file.md) — Snapshot concurrency lock: the temp file created atomically (`wx`); stale locks removed manually
 - [0067](0067-park-hashes-on-interrupt.md) — A graceful interrupt parks the snapshot's work file as `.snapshot.lookup.tsv.zst` for the next run to reuse; reading needs no liveness check (size+mtime re-validation), so 0048's lock is untouched *(accepted & implemented; SIGKILL/power-loss out of scope by design)*
 - [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent

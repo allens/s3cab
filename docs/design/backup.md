@@ -199,15 +199,36 @@ carrying that set's auth, unlike the offline all-sets default.
 
 ### `backup` — porcelain semantics
 
-`s3cab backup [<set>]` means "back up my stuff now": take a fresh snapshot of the set,
-then upload it — `snapshot()` + `upload()`, always both (ADR-0044). `backup` is pure
-porcelain composition: its one piece of smarts is resolving the change-detection baseline
-(the previous local snapshot, or nothing on a first backup) and handing it to `upload`
-explicitly as `--since`. Uploading an *existing* snapshot without taking a fresh one is now
-the plumbing command directly — `upload <set> --snapshot <name>` — so `backup --snapshot`
-retired (ADR-0044); the objects-first/snapshot-last invariant and the conditional-PUT
-backstop live in `upload`'s snapshot mode (over the `uploadSnapshot` lib), and `backup`
-just composes.
+`s3cab backup [<set>]` means "back up my stuff now": take a fresh snapshot of the set and
+upload it, always both (ADR-0044). Uploading an *existing* snapshot without taking a fresh one
+is the plumbing command directly — `upload <set> --snapshot <name>` — so `backup --snapshot`
+retired (ADR-0044).
+
+**Snapshot and upload are one fused pass** ([ADR-0069](../adr/0069-fused-snapshot-upload-pipeline.md)):
+each file's object is PUT the moment its bytes have been hashed, and the same row goes straight
+on into the snapshot TSV. `backup` composes shared `lib` parts rather than calling the two
+commands in sequence — `readBaseline` (the previous local snapshot: the hash lookup *and* the
+change-detection baseline) → `storedHashes` (what needs no upload, settled *before* any hashing,
+so a credentials or network problem surfaces in seconds) → `generateSnapshot` with
+`uploadObjects` spliced into its pipeline → `uploadSnapshotFile` (the manifest, last). The
+uploader is a pass-through transform, so the snapshot a backup writes is byte-identical to the one a
+plain `snapshot` would have written.
+
+Why fuse: the drift guard's window — between recording a file's size/mtime and PUTting its
+bytes — used to span the rest of the hash pass plus the whole upload phase, so editing a document
+mid-backup (cloud autosave on an open Word file) aborted the run. Fused, that window is
+milliseconds. Objects also start landing at the *start* of a run rather than after the whole hash
+pass, so a killed first seed keeps every byte it managed to send.
+
+**A failed backup never costs the hash pass.** The uploader is a link in the writer's pipeline, so
+it never throws mid-stream (a throw there would destroy the chain and truncate the file being
+written); it records the failure, lets the rows finish, and the local snapshot lands complete under
+its ordinary name. A failed *transfer* then resumes with `upload <set> --snapshot <name>`; a
+*drifted* file is left out of the backup — the rest still uploads — and asks for a fresh `backup`,
+which reads that snapshot as its hash lookup and so re-reads only what changed. The
+objects-first/snapshot-last invariant and the conditional-PUT backstop are unchanged — they now
+live in `lib/upload.mjs`'s shared transform, which `upload --snapshot` runs over a re-read snapshot
+and `backup` runs over its live hash pass.
 
 ### `upload --dir` — seed a folder before the first backup (**built**)
 
@@ -355,13 +376,13 @@ Consequences the design leans on:
 
 ## How `backup` computes the upload set
 
-`backup` operates on a snapshot file, so **all hashes are already known — `backup`
-never hashes a file**. (The snapshot-aware *hashing* skip is `snapshot`-time machinery
-via `prop`'s `lookup`; the old `upload --if-modified-from` idea was resolved into the
-`--since` baseline below, ADR-0044.) The change-detection model
+The change-detection model
 ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) makes the
-upload set scale with change size, not repo size. `backup` (porcelain) picks the
-baseline and hands it to the `upload` plumbing (which composes the `uploadSnapshot` lib):
+upload set scale with change size, not repo size. Since the fused pass
+([ADR-0069](../adr/0069-fused-snapshot-upload-pipeline.md)) the question is asked **per row as
+it is hashed** rather than of a whole snapshot file at once — but the rule is the same one, and
+`upload --snapshot` still asks it of a re-read snapshot through the very same code. What is
+already stored (`storedHashes`) is settled up front, before any hashing:
 
 1. **Baseline = the set's previous *local* snapshot.** The set-ownership model makes local
    history authoritative: a set is owned by exactly one machine (the `sets/<name>/` marker;
@@ -369,10 +390,11 @@ baseline and hands it to the `upload` plumbing (which composes the `uploadSnapsh
    uploads the local history wouldn't already know about. Its objects were stored when it
    was uploaded (the snapshot-last invariant), so anything it references can be skipped with
    **no network read**.
-2. Candidates = hashes in the target snapshot **not** in that baseline (content-keyed, so a
-   file that only moved or was renamed is not re-uploaded).
+2. Candidates = hashes **not** in that baseline (content-keyed, so a file that only moved or
+   was renamed is not re-uploaded), and each distinct hash is uploaded once however many
+   paths carry it.
 3. **First backup (no previous local snapshot):** there is no baseline, so **LIST the
-   object store once** (`objects/`) and diff the target against what is already there.
+   object store once** (`objects/`) and treat what it holds as stored.
    Announced with `Scanning existing objects…` on stderr, since a large store can take a
    moment. This is the batch existence-check — one paged LIST (1,000 keys/request) instead
    of a per-object HEAD — done exactly when there is nothing local to diff against.
@@ -405,7 +427,9 @@ have no second mode to point at.
 
 A deliberate design property, worth preserving as commands are added: every high-level
 command is a thin coordination of lower-level pieces that are independently useful —
-`backup` = `snapshot` + `upload`; `status` = the uploader's diff with the
+`backup` = snapshot generation + object upload (composed as one fused pipeline over the
+shared parts, ADR-0069, but the same two pieces `snapshot` and `upload --snapshot` each use
+alone); `status` = the uploader's diff with the
 writes removed; `tree` = the snapshot's walk without the hashing. The composition
 *medium* is the flat **hash-per-line stream** the `hashes` plumbing already emits: line
 streams compose with each other and with ordinary Unix tools, which extends the
