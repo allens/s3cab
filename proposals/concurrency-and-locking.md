@@ -112,11 +112,62 @@ three, and `delete`'s profile is the *least* protected of them:
   what a lock (or re-checking the reference set immediately before deleting) would actually
   close.
 
+## 4. Write the work file **uncompressed**, compress at finalize (revived 2026-07-29)
+
+_User idea, previously rejected as "added complexity" — raised again after the fused pipeline
+landed, on the grounds that the scales may have moved. The analysis below is mine._
+
+Today `withSnapshotFile` streams rows through zstd-19 into `.snapshot.tsv.zst`, so the work file
+is only readable if the stream was closed cleanly. The proposal: write it as plain `.snapshot.tsv`
+and compress once at finalize.
+
+**Why it looks better than it did.** Three things from building
+[ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md):
+
+1. **It already forced a design compromise.** Parking the work file on a *drift* failure (rather
+   than binning it) was designed and abandoned for exactly this: a throw inside a pipeline link
+   makes `stream.pipeline` destroy the chain, so the file ends mid-zstd-frame and parking it would
+   park something unreadable. ADR-0069 solved that a better way — the upload transform never
+   throws, so the file always closes cleanly — but the constraint is real and will bite the next
+   time something wants to keep a *partial* work file.
+2. **Hard kill and power loss still cost the whole hash pass.** [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
+   put them out of scope deliberately, and what that bought was "no defensive truncated-zstd
+   parser, no periodic flushing, no `--resume`". Plain text collects most of that robustness
+   without the parser: complete lines are readable, and the only new code is tolerating a partial
+   *final* line, where `parseSnapshotStream` currently asserts. On a multi-hour first seed that is
+   the difference between losing everything and losing one row.
+3. **The write window is now longer and more eventful.** Since the fusion, uploads happen *inside*
+   the write, so the work file is open across all the network work rather than local work alone.
+
+**The bonus, and the ADR it touches.** If the work file is already plain text, keeping it at
+finalize (rename to `.snapshot.tsv` beside the compressed snapshot) makes the latest manifest
+openable in any editor at the cost of a rename — **not** a second write.
+[ADR-0061](../docs/adr/0061-debug-only-uncompressed-snapshot-sidecar.md) keeps that sidecar
+debug-only, and its reasoning is explicitly cost-based ("a second artifact per snapshot forever —
+bytes, a second write per run"). That cost genuinely changes here, so 0061 would need **revisiting
+on its own terms**, not quietly overtaking. Its other leg still stands: the no-lock-in pillar is
+already met by standard `.tsv.zst`, so the case rests on convenience plus the robustness above.
+Holding both an uncompressed and a compressed copy locally is **not** an objection (user,
+2026-07-29) — it is redundancy, not a problem.
+
+**What it costs.** Finalize stops being a bare atomic rename and becomes read → zstd → write →
+rename, which moves level-19 compression off the overlapped path (where the hash pass currently
+hides it) into a visible few seconds at the end of a large run. Reading needs no change —
+`readSnapshotFile` already switches on the `.zst` extension, and `readSnapshot` already probes the
+plain `.tsv` form.
+
+**How it meets item 2.** It does *not* dissolve the stale lock: a hard-killed run still leaves the
+work file at the lock name, still hand-deleted. What changes is what that leftover is *worth* —
+combined with the unique-temp-name-per-run option above, a dead run's hashes become something the
+successor can sweep up and reuse instead of bin.
+
 ## State of play (2026-07-29)
 
-Nothing here is built. Two things changed around it without resolving it: the deletion rework
-(ADR-0063/0064) **added a third customer** (§3), and [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
-**shrank item 2** to the hard-kill case while sharpening how to think about it. Ripe to pick
+Nothing here is built. Three things changed around it without resolving it: the deletion rework
+(ADR-0063/0064) **added a third customer** (§3), [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
+**shrank item 2** to the hard-kill case while sharpening how to think about it, and the fused
+pipeline (ADR-0069) revived the **uncompressed work file** as a way to make what a dead run leaves
+behind worth having (§4). Ripe to pick
 up: self-contained, blocks nothing, and it is the standing pre-release item (user call,
 2026-07-18). Take the one-mechanism-or-two decision below *after* re-reading ADR-0048 and
 ADR-0067, which between them already fix half the design space.

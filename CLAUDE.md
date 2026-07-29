@@ -275,7 +275,12 @@ How to write code that looks like the rest of the codebase. (These are *style* r
 - **Memory/async stance (user-stated): assume a modern user PC, not a headless VM.** Don't
   needlessly use memory, but don't be shy either. No sync-purity dogma for engine functions —
   async interfaces are welcome, mainly because progress reporting can hook in later (worked
-  example: `planUpload` accepts the LIST as an async iterable rather than a materialized Set).
+  example: the snapshot write is an async pipeline of row stages, which is what let `backup`
+  splice object upload into it — [ADR-0069](docs/adr/0069-fused-snapshot-upload-pipeline.md)).
+  Where a streamed form and a materialized one are both correct, pick by what the *consumer*
+  needs: the fused pipeline asks "is this hash stored?" one row at a time, so `storedHashes`
+  materializes the store LIST into a Set rather than streaming a subtraction (ADR-0069) — the
+  memory that buys is the sort a modern PC has.
 - **`realpathSync.native` is the one reliable path canonicalizer — capture it once at the
   low-frequency edges, then trust the fast string functions.** Node's pure-string
   `resolve`/`normalize`/`join` can return subtly *different* strings for the same real file

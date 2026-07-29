@@ -53,6 +53,17 @@ const ERROR = "#ERROR";
  *   hash came from a snapshot lookup, and not stored in the snapshot file).
  */
 /** @typedef {[string, Props | Error]} SnapshotRow */
+/**
+ * A pass-through transform over the snapshot's hashed rows — `writeSnapshot`'s
+ * `through` seam (ADR-0069). Takes the row stream, yields it on (unchanged, in
+ * order) to the TSV sink, and may do work per row as it passes: `uploadObjects`
+ * (lib/upload.mjs) PUTs each object here, right after it was hashed. This is the
+ * async-generator form of a `Transform` stream — what `stream.pipeline` accepts
+ * as a link in the chain.
+ * The input is accepted sync-or-async so the same transform can be driven straight
+ * off a parsed snapshot's entries (a plain Map), which is how `upload` reuses it.
+ * @typedef {(rows: Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>) => AsyncIterable<SnapshotRow>} RowTransform
+ */
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */
 /** @typedef {Map<string, string>} SnapshotSkipped */
@@ -352,6 +363,14 @@ const inProgressError = (tmpPath) => {
  * wasn't X backed up?" finds them without scrolling past the entries. `#ERROR`
  * rows stay inline with the entries, in file order. Parsing is marker-driven so
  * order doesn't affect correctness (`parseSnapshotStream`).
+ *
+ * `through` is the **fusion seam** (ADR-0069): a pass-through inserted between
+ * the hashing producer and the TSV sink, so a caller can act on each row *the
+ * moment it is hashed* and hand it on unchanged. `backup` passes the object
+ * uploader there — which is what collapses the hash→PUT window from minutes to
+ * milliseconds; `snapshot` passes nothing and writes a plain offline snapshot.
+ * The writer stays ignorant of what the transform does: it is a pipe, not a callback
+ * (the transform owns its own state and reports back to whoever built it).
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
  * @param {string} name - Snapshot name (minute-precision timestamp, no extension — mint it with `snapshotName`); the `#SNAPSHOT` header datetime is derived from it
  * @param {object} args
@@ -361,6 +380,7 @@ const inProgressError = (tmpPath) => {
  * @param {ExclusionRecord[]} args.excluded - Pattern-matched entries (→ `#EXCLUDED` rows)
  * @param {ExclusionRecord[]} [args.skipped] - By-design unsupported entries (→ `#SKIPPED` rows)
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
+ * @param {RowTransform} [args.through] - Pass-through applied to each hashed row before it reaches the TSV (`backup`'s object uploader)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
  * @returns {Promise<string>} Path to the created snapshot file
  */
@@ -374,6 +394,7 @@ export async function writeSnapshot(
     excluded,
     skipped = [],
     getProps,
+    through,
     overwrite = false,
   },
 ) {
@@ -388,9 +409,13 @@ export async function writeSnapshot(
       for (const { fileType, reason, path } of skipped) {
         writeStream.write(skippedLine(fileType, reason, path));
       }
+      const rows = propsRows(getProps, signal);
       await pipeline(
         files,
-        propsRows(getProps, signal),
+        // Composed rather than spliced into the argument list: `pipeline`'s
+        // variadic overloads type a fixed chain far more happily than a
+        // conditionally-built array of transforms.
+        through ? (paths) => through(rows(paths)) : rows,
         stringifySnapshot,
         writeStream,
       );

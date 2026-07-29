@@ -1,14 +1,16 @@
 import { loadSet } from "../lib/env.mjs";
 import { readLatestRemoteSnapshot } from "../lib/remote.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
-import { planUpload } from "../lib/upload.mjs";
+import { baselineHashes, planUpload } from "../lib/upload.mjs";
 
 /**
  * Show what is backed up and what a backup would upload (docs/design/backup.md): the
  * read-only half of the uploader's diff — the set's latest *local* snapshot
  * compared against its latest *remote* snapshot, with no writes. It reuses
- * `planUpload`, the very diff `backup` runs (steps 1–2 of "how backup
- * computes the upload set"), so `status` and `backup` never disagree.
+ * `planUpload` over `baselineHashes` — the same "is this content already
+ * stored?" rule `backup` applies row by row as it hashes (steps 1–2 of "how
+ * backup computes the upload set"), asked here of a whole snapshot at once, so
+ * `status` and `backup` never disagree.
  *
  * `status` does not take a snapshot (it is read-only), so it reports against the
  * latest *existing* local snapshot — run `snapshot` first to reflect newer
@@ -47,7 +49,7 @@ export async function status(setName) {
     set.name,
   );
 
-  const plan = await planUpload(target, { baseline: remote });
+  const plan = planUpload(target, baselineHashes(remote));
 
   return {
     set: set.name,

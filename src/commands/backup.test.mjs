@@ -2,50 +2,37 @@ import assert from "node:assert/strict";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { FileChangedError } from "../lib/error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-/** @import { CompareResult } from "../lib/compare.mjs" */
+/** @import { SnapshotRow } from "../lib/snapshot-file.mjs" */
 
-// Offline tests for `backup`'s orchestration — it takes a fresh snapshot, whose
-// returned diff names both sides (the compareSnapshots contract): `until` IS the
-// fresh snapshot and `since` the previous local latest, the change-detection
-// baseline handed to `upload()` (ADR-0044, docs/design/backup.md). Nothing is
-// re-read from disk, so backup and snapshot can't disagree. Then it best-effort
-// re-publishes the set's config to the remote marker (ADR-0052). The set
-// resolver, snapshot command, `upload`, and `pushSetConfig` are faked at the
-// module seam. Mocks first, then a dynamic import (objects.test.mjs ordering rule).
+// Offline tests for `backup`'s orchestration (ADR-0069): read the previous
+// snapshot, decide what's already stored *before* hashing anything, run one
+// fused pass with the object uploader spliced into the snapshot write, publish
+// the manifest last, then best-effort re-publish the set's config to the remote
+// marker (ADR-0052). The set resolver, the snapshot engine, the upload lib and
+// `pushSetConfig` are faked at the module seam — what's under test is the wiring
+// and its order. Mocks first, then a dynamic import (objects.test.mjs rule).
 
 /** @type {{ name: string, bucket: string, snapshotsDir: string, dirs: string[] }} */
-let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "", dirs: [] };
-/** @type {[string | undefined, Record<string, unknown>][]} */
-let uploadCalls = [];
-/** @type {[string, object][]} */
-let snapshotCalls = [];
-/** @type {[string, string, object][]} */
-let pushCalls = [];
+let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
+/** @type {string[]} the ordered log of lib calls a run made */
+let calls = [];
+/** @type {{ name?: string, previous?: Map<string, object>, lookup?: Map<string, object> }} */
+let baseline;
+/** @type {Record<string, unknown>[]} the args each `storedHashes` call got */
+let storedCalls = [];
+/** @type {Record<string, unknown>[]} the args each `generateSnapshot` call got */
+let generateCalls = [];
+/** @type {Record<string, unknown>[]} the args each manifest upload got */
+let manifestCalls = [];
+/** @type {{ candidates: number, uploaded: number, failure?: Error }} */
+let outcome;
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
 let pushFails;
-/** @type {CompareResult} what the fake snapshot() returns */
-let snapshotResult;
-
-/**
- * A minimal CompareResult, as `snapshot()` returns: only `until`/`since` are
- * consumed by backup, the rest is the honest empty diff shape.
- * @param {string} until
- * @param {string | null} since
- * @returns {CompareResult}
- */
-const diffResult = (until, since) => ({
-  setName: "photos",
-  dirs: [],
-  since,
-  until,
-  added: [],
-  moved: [],
-  modified: [],
-  deleted: [],
-  errors: [],
-});
+/** @type {[string, string, object][]} */
+let pushCalls = [];
 
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
@@ -57,36 +44,46 @@ mock.module("../lib/set-marker.mjs", {
       /** @type {string} */ set,
       /** @type {object} */ config,
     ) => {
+      calls.push("pushSetConfig");
       pushCalls.push([bucket, set, config]);
       pushFails?.();
     },
   },
 });
-mock.module("./snapshot.mjs", {
+mock.module("../lib/snapshot.mjs", {
   exports: {
-    snapshot: async (
-      /** @type {string} */ set,
-      /** @type {object} */ options,
+    readBaseline: async () => {
+      calls.push("readBaseline");
+      return baseline;
+    },
+    generateSnapshot: async (
+      /** @type {object} */ _set,
+      /** @type {Record<string, unknown>} */ options,
     ) => {
-      snapshotCalls.push([set, options]);
-      return snapshotResult;
+      calls.push("generateSnapshot");
+      generateCalls.push(options);
+      return { name: "2026-01-02T0900", path: "snaps/2026-01-02T0900.tsv.zst" };
     },
   },
 });
-mock.module("./upload.mjs", {
+mock.module("../lib/upload.mjs", {
   exports: {
-    upload: async (
-      /** @type {string | undefined} */ set,
-      /** @type {Record<string, unknown>} */ options,
-    ) => {
-      uploadCalls.push([set, options]);
+    storedHashes: async (/** @type {Record<string, unknown>} */ args) => {
+      calls.push("storedHashes");
+      storedCalls.push(args);
+      return new Set(["already-stored"]);
+    },
+    uploadObjects: () => {
+      calls.push("uploadObjects");
       return {
-        mode: "snapshot",
-        set,
-        snapshot: options.snapshot,
-        candidates: 0,
-        uploaded: 0,
+        /** @param {AsyncIterable<SnapshotRow>} rows */
+        through: (rows) => rows,
+        result: () => outcome,
       };
+    },
+    uploadSnapshotFile: async (/** @type {Record<string, unknown>} */ args) => {
+      calls.push("uploadSnapshotFile");
+      manifestCalls.push(args);
     },
   },
 });
@@ -99,12 +96,19 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 let savedEnv;
 beforeEach(() => {
   savedEnv = { ...process.env };
-  fakeSet = { name: "photos", bucket: "b", snapshotsDir: "", dirs: [] };
-  uploadCalls = [];
-  snapshotCalls = [];
+  fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
+  calls = [];
+  baseline = {
+    name: "2026-01-01T0900",
+    previous: new Map(),
+    lookup: new Map(),
+  };
+  storedCalls = [];
+  generateCalls = [];
+  manifestCalls = [];
+  outcome = { candidates: 3, uploaded: 2 };
   pushCalls = [];
   pushFails = undefined;
-  snapshotResult = diffResult("2026-01-01T0900", null);
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
@@ -115,53 +119,99 @@ afterEach(() => {
   Object.assign(process.env, savedEnv);
 });
 
-describe("backup baseline resolution", () => {
-  it("hands upload the diff's fresh name (until) and previous latest (since)", async () => {
-    snapshotResult = diffResult("2026-01-02T0900", "2026-01-01T0900");
-
+describe("backup (the fused pass)", () => {
+  it("settles what's stored before hashing, generates with the uploader spliced in, publishes the manifest last", async () => {
     const result = await backup("photos");
 
-    assert.deepEqual(snapshotCalls, [["photos", {}]]);
-    assert.equal(uploadCalls.length, 1);
-    assert.deepEqual(uploadCalls[0], [
-      "photos",
-      { snapshot: "2026-01-02T0900", since: "2026-01-01T0900" },
+    // The order is the invariant: nothing is hashed before the store question is
+    // settled, and the manifest goes up only once the pipeline has drained.
+    assert.deepEqual(calls, [
+      "readBaseline",
+      "storedHashes",
+      "uploadObjects",
+      "generateSnapshot",
+      "uploadSnapshotFile",
+      "pushSetConfig",
     ]);
-    assert.equal(result.snapshot, "2026-01-02T0900");
-  });
-
-  it("passes no baseline on a first backup (the diff's since is null → upload LISTs)", async () => {
-    snapshotResult = diffResult("2026-01-01T0900", null);
-
-    await backup("photos");
-
-    assert.equal(uploadCalls[0]?.[1].snapshot, "2026-01-01T0900");
-    assert.equal(uploadCalls[0]?.[1].since, undefined);
-  });
-
-  it("passes no baseline when the diff's since is the fresh snapshot itself (S3CAB_DEBUG same-minute overwrite)", async () => {
-    // A same-minute overwrite makes the previous latest the fresh name; diffing
-    // the snapshot against itself would plan zero objects and break the
-    // objects-first/snapshot-last invariant — so backup falls back to the LIST.
-    snapshotResult = diffResult("2026-01-01T0900", "2026-01-01T0900");
-
-    await backup("photos");
-
-    assert.equal(uploadCalls[0]?.[1].snapshot, "2026-01-01T0900");
-    assert.equal(uploadCalls[0]?.[1].since, undefined);
-  });
-
-  it("returns the upload result's counts under the backed-up set + snapshot", async () => {
-    snapshotResult = diffResult("2026-01-01T0900", null);
-
-    const result = await backup("photos");
-
+    // The uploader rides *inside* the snapshot write — that is the fusion.
+    assert.ok(
+      generateCalls[0]?.through,
+      "expected the upload transform to be passed",
+    );
+    assert.equal(generateCalls[0]?.lookup, baseline.lookup);
+    assert.deepEqual(manifestCalls, [
+      {
+        bucket: "b",
+        set: "photos",
+        snapshotDir: "snaps",
+        name: "2026-01-02T0900",
+      },
+    ]);
     assert.deepEqual(result, {
       set: "photos",
-      snapshot: "2026-01-01T0900",
-      candidates: 0,
-      uploaded: 0,
+      snapshot: "2026-01-02T0900",
+      candidates: 3,
+      uploaded: 2,
     });
+  });
+
+  it("hands the previous local snapshot to storedHashes as the baseline", async () => {
+    await backup("photos");
+
+    assert.deepEqual(storedCalls, [
+      {
+        bucket: "b",
+        set: "photos",
+        since: "2026-01-01T0900",
+        baseline: baseline.previous,
+      },
+    ]);
+  });
+
+  it("passes no baseline on a first backup (storedHashes then LISTs the store)", async () => {
+    baseline = {}; // no previous snapshot
+
+    await backup("photos");
+
+    assert.equal(storedCalls[0]?.since, undefined);
+    assert.equal(storedCalls[0]?.baseline, undefined);
+  });
+
+  it("reports an upload failure without publishing the manifest, pointing at the cheap retry", async () => {
+    // The local snapshot landed (generateSnapshot returned), so the fix is to
+    // re-send the objects — not to re-hash the whole set.
+    const failure = new Error("connection reset");
+    outcome = { candidates: 3, uploaded: 1, failure };
+
+    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
+      assert.match(error.message, /connection reset/);
+      assert.match(
+        error.message,
+        /s3cab upload photos --snapshot 2026-01-02T0900/,
+      );
+      assert.equal(error.cause, failure);
+      return true;
+    });
+
+    assert.deepEqual(manifestCalls, [], "no manifest for a partial upload");
+    assert.ok(!calls.includes("pushSetConfig"));
+  });
+
+  it("passes a changed-file failure through untouched — its fix is a fresh backup, not an upload retry", async () => {
+    // A drifted row can never be reconciled with the file as it now stands, so
+    // wrapping it in the "carry on where it stopped" advice would send the user
+    // at a retry that must fail. The error already names the right command.
+    const failure = new FileChangedError(
+      "'photo.raw' changed while the backup was running",
+    );
+    outcome = { candidates: 3, uploaded: 2, failure };
+
+    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
+      assert.equal(error, failure);
+      return true;
+    });
+
+    assert.deepEqual(manifestCalls, []);
   });
 });
 
@@ -172,7 +222,7 @@ describe("backup config re-sync (ADR-0052)", () => {
     fakeSet = {
       name: "photos",
       bucket: "b",
-      snapshotsDir: "",
+      snapshotsDir: "snaps",
       dirs: ["/home/me/Photos"],
     };
 
@@ -200,7 +250,7 @@ describe("backup config re-sync (ADR-0052)", () => {
     const result = await backup("photos");
     warn.mock.restore();
 
-    assert.equal(result.snapshot, "2026-01-01T0900");
+    assert.equal(result.snapshot, "2026-01-02T0900");
     assert.equal(pushCalls.length, 1); // it was attempted
     assert.match(
       warnings.join("\n"),

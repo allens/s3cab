@@ -336,6 +336,41 @@ describe("writeSnapshot", () => {
     assert.deepEqual([...snap.skipped], [[link, "Unsupported file type"]]);
   });
 
+  it("passes rows through `through` and writes the identical file (the fusion seam)", async () => {
+    // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
+    // rests on is that inserting it changes *when* work happens, never what the
+    // snapshot says — so the two files must be byte-identical.
+    await using dir = await mkTmpDir();
+    const files = [resolve(dir.path, "a.txt"), resolve(dir.path, "b.txt")];
+    const args = {
+      identity: "photos",
+      dirs: [dir.path],
+      files,
+      excluded: [],
+      getProps: props,
+    };
+
+    /** @type {string[]} */
+    const seen = [];
+    // The same name both times (the header carries it), so only the transform differs.
+    const plain = await writeSnapshot(dir.path, "2026-06-23T1000", args);
+    const withoutStage = readFileSync(plain);
+    const fused = await writeSnapshot(dir.path, "2026-06-23T1000", {
+      ...args,
+      through: async function* (rows) {
+        for await (const row of rows) {
+          seen.push(row[0]);
+          yield row;
+        }
+      },
+      overwrite: true,
+    });
+
+    // Every row reached the transform, in file order, before reaching the TSV.
+    assert.deepEqual(seen, files);
+    assert.deepEqual(readFileSync(fused), withoutStage);
+  });
+
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
     await using dir = await mkTmpDir();
 

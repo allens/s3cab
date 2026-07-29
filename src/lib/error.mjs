@@ -91,6 +91,26 @@ export class InterruptedError extends Error {
 }
 
 /**
+ * A file that changed (or vanished) between being hashed and its bytes being
+ * uploaded — raised by `uploadObjects` (lib/upload.mjs), which never stores
+ * mismatched bytes under the hash recorded for them. A subclass because `backup`
+ * catches it *by type* to branch behaviour
+ * ([ADR-0069](../../docs/adr/0069-fused-snapshot-upload-pipeline.md)): every other
+ * upload failure is retryable with `upload <set> --snapshot <name>`, but this one
+ * needs a fresh backup, because the file itself has moved on.
+ */
+export class FileChangedError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "FileChangedError";
+  }
+}
+
+/**
  * The missing-argument sentence, given an argument's *display* form. One home for
  * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's

@@ -206,7 +206,7 @@ describe("uploadSnapshot (real bucket)", () => {
     }
   });
 
-  it("aborts when a file drifts mid-backup — no snapshot published, drifted object never stored", async () => {
+  it("fails when a file drifts mid-backup — no snapshot published, drifted object never stored", async () => {
     await using dir = await mkTmpDir();
     const set = `drift-${Date.now()}`;
     const name = "2025-01-15T1030";
@@ -221,7 +221,9 @@ describe("uploadSnapshot (real bucket)", () => {
 
     const snapshotDir = join(dir.path, "snapshots");
     mkdirSync(snapshotDir, { recursive: true });
-    // stable first, drifting second: the plan uploads stable, then hits drift.
+    // stable first, drifting second: stable's object goes up, drifting's is
+    // skipped, and the run fails at the end without publishing (ADR-0069 — a
+    // drifted file costs that one file, not the other files' bytes).
     await writeSnapshot(snapshotDir, name, [stable, drifting]);
 
     const { entries } = await readSnapshot(snapshotDir, name);
@@ -237,7 +239,7 @@ describe("uploadSnapshot (real bucket)", () => {
     try {
       await assert.rejects(
         () => uploadSnapshot({ bucket, set, snapshotDir, name }),
-        /changed or was removed/,
+        /while the backup was running/,
       );
 
       // The snapshot was withheld — nothing published, so the objects-first/

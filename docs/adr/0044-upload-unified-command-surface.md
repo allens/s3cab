@@ -9,6 +9,11 @@ on-demand `LIST` + conditional-PUT backstop) is [ADR-0045](0045-change-detection
 whose engine slice is **built** ahead of this command-surface reshape.
 Sits in the [0035](0035-aws-profile-sets-command-rationalization.md)/[0036](0036-setup-mutates-list-shows-drop-sets.md)
 command-shape lineage; governed by the `cli-design` skill.
+**Composition refined by [0069](0069-fused-snapshot-upload-pipeline.md):** the *surface* below is
+unchanged — `backup` still means "snapshot, then upload, always both", and `upload --snapshot`
+still exists — but `backup` no longer calls the two commands in sequence; it runs one fused pass
+that uploads each object as it is hashed. Read "`backup` = `snapshot()` + `upload()`" below as the
+user-visible contract, not the current call graph.
 
 ## Context
 
