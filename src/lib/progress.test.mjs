@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createProgress } from "./progress.mjs";
+import { createProgress, statusLine } from "./progress.mjs";
 
 /**
  * A stand-in for `process.stderr` that records every write, with a settable
@@ -78,5 +78,25 @@ describe("createProgress", () => {
       "Restoring 50/200...\n",
       "Restoring 100/200...\n",
     ]);
+  });
+});
+
+describe("statusLine", () => {
+  it("clears the bar's line first on a terminal, and retains its own", () => {
+    // A bar leaves its line un-terminated; a status line has to land over it
+    // rather than after it.
+    const { stream, output } = fakeStream(true);
+    statusLine(stream, "Connection lost");
+    assert.match(output(), /Connection lost\n$/);
+    assert.ok(
+      output().length > "Connection lost\n".length,
+      "expected the cursor/clear sequences before the text",
+    );
+  });
+
+  it("off a terminal is just the plain line", () => {
+    const { stream, output } = fakeStream(false);
+    statusLine(stream, "Connection lost");
+    assert.equal(output(), "Connection lost\n");
   });
 });

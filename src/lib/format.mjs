@@ -59,3 +59,30 @@ export const secondsSince = (instant) =>
       largestUnit: "hours",
     }),
   );
+
+// A *duration* in prose, as opposed to an elapsed time. Separate from
+// `durationFormat` above for one reason: its `secondsDisplay: "always"` is right
+// for "read in 0 secs" and wrong here, where a round two minutes would render as
+// "2 min, 0 sec". `style: "long"` because this lands mid-sentence — "up to 2
+// minutes" reads, "up to 2 min" doesn't.
+// @ts-ignore - Intl.DurationFormat exists in Node 24+
+const proseDurationFormat = new Intl.DurationFormat("en", { style: "long" });
+
+/**
+ * A millisecond span as words: `120_000` → `"2 minutes"`, `60_000` →
+ * `"1 minute"`, `30_000` → `"30 seconds"`, `90_000` → `"1 minute, 30 seconds"`.
+ *
+ * Intl picks the units and the plurals, so callers never hand-roll a
+ * seconds-versus-minutes rule — the ad-hoc one this replaced rounded 90 s up to
+ * "2 minutes", which is exactly the kind of quiet misstatement a shared formatter
+ * exists to prevent.
+ * @param {number} milliseconds
+ * @returns {string}
+ */
+export const formatDuration = (milliseconds) =>
+  proseDurationFormat.format(
+    Temporal.Duration.from({ milliseconds }).round({
+      smallestUnit: "seconds",
+      largestUnit: "hours",
+    }),
+  );

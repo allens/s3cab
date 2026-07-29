@@ -17,6 +17,30 @@ import { isInteractive } from "./style.mjs";
 // each caller; only the terminal-writing mechanic lives here.
 
 /**
+ * Write one *retained* status line, over whatever a progress bar left on the
+ * current line.
+ *
+ * A bar leaves its line un-terminated, so an ordinary `console.warn` mid-run
+ * appends to it and mangles the display. Clearing the line first and ending with
+ * a newline sidesteps that without the caller needing to know whether a bar is
+ * even running: on an empty line the clear is a no-op, and either way the cursor
+ * lands at the start of a fresh line, so a bar simply redraws below. The frozen
+ * bar it overwrites was showing stale bytes anyway.
+ *
+ * Off a terminal it is just the plain line — no cursor games, nothing to gate,
+ * which is what a redirected log wants (clig.dev).
+ * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
+ * @param {string} text
+ */
+export function statusLine(stream, text) {
+  if (isInteractive(stream)) {
+    cursorTo(stream, 0);
+    clearLine(stream, 1);
+  }
+  stream.write(`${text}\n`);
+}
+
+/**
  * Create an in-place stderr progress reporter. Use it with `using` so its
  * closing newline runs on any scope exit (including a throw mid-loop), leaving
  * the cursor on a fresh line before whatever prints next.
