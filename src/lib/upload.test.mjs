@@ -4,7 +4,6 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
-import { FileChangedError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
@@ -195,7 +194,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
   };
 
   const uploader = (/** @type {Set<string>} */ stored = new Set()) =>
-    uploadObjects({ bucket: "fused", set: "photos", stored });
+    uploadObjects({ bucket: "fused", stored });
 
   it("PUTs each distinct hash once and yields every row on unchanged", async () => {
     await using dir = await mkTmpDir();
@@ -213,6 +212,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     assert.deepEqual(upload.result(), {
       candidates: 2,
       uploaded: 2,
+      drifted: [],
       failure: undefined,
     });
   });
@@ -292,9 +292,11 @@ describe("uploadObjects (the streaming PUT transform)", () => {
       putFiles.map((put) => put.uri),
       [uri("world")], // "hello" was skipped; c.txt still went up
     );
-    const { failure, uploaded } = upload.result();
-    assert.ok(failure instanceof FileChangedError);
-    assert.match(failure.message, /changed while the backup was running/);
+    const { drifted, uploaded, failure } = upload.result();
+    // Drift is reported as data, not as a pre-built error: the caller decides
+    // whether that is fatal (backup) or a reportable skip (the folder seed).
+    assert.deepEqual(drifted, [{ path: a, reason: "changed" }]);
+    assert.equal(failure, undefined, "drift is not a transport failure");
     assert.equal(uploaded, 1);
   });
 
@@ -307,7 +309,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     const upload = uploader();
     await Array.fromAsync(upload.through(rows));
 
-    assert.ok(upload.result().failure instanceof FileChangedError);
+    assert.deepEqual(upload.result().drifted, [{ path: a, reason: "removed" }]);
     assert.deepEqual(
       putFiles.map((put) => put.uri),
       [uri("world")],
@@ -330,10 +332,10 @@ describe("uploadObjects (the streaming PUT transform)", () => {
 
     assert.deepEqual(out, [unstattable], "the row still reaches the TSV");
     assert.deepEqual(putFiles, [], "an unconfirmable file is never stored");
-    const { failure } = upload.result();
-    assert.ok(failure instanceof FileChangedError);
-    assert.match(failure.message, /could no longer be read/);
-    assert.ok(failure.cause, "the raw error rides along for S3CAB_DEBUG");
+    const { drifted } = upload.result();
+    assert.equal(drifted.length, 1);
+    assert.equal(drifted[0]?.reason, "unreadable");
+    assert.ok(drifted[0]?.cause, "the raw error rides along for S3CAB_DEBUG");
   });
 
   it("never throws mid-stream — that would truncate the caller's snapshot", async () => {
@@ -350,8 +352,26 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     const out = await Array.fromAsync(upload.through(rows));
 
     assert.deepEqual(out, rows);
-    // First failure wins: the drift was seen before the transfer error.
-    assert.ok(upload.result().failure instanceof FileChangedError);
+  });
+
+  it("reports a drift and a later transport failure separately, not first-wins", async () => {
+    // Why the outcome has two fields. One slot meant the *first* failure won, so
+    // a drift on an early row hid a dead network on a later one: the run still
+    // failed but blamed the wrong thing, and any caller that tolerates drift
+    // would have reported success on a dropped link. Drift is per-file and
+    // plural; a transport failure is singular and terminal.
+    await using dir = await mkTmpDir();
+    const { a } = files(dir.path);
+    const rows = await rowsOf(dir.path);
+    writeFileSync(a, "different, longer bytes"); // row 1 drifts
+    putError = new Error("connection reset"); // row 3's PUT then dies
+
+    const upload = uploader();
+    await Array.fromAsync(upload.through(rows));
+
+    const { drifted, failure } = upload.result();
+    assert.deepEqual(drifted, [{ path: a, reason: "changed" }]);
+    assert.equal(failure?.message, "connection reset");
   });
 });
 

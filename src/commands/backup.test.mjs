@@ -6,6 +6,7 @@ import { FileChangedError } from "../lib/error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @import { SnapshotRow } from "../lib/snapshot-file.mjs" */
+/** @import { Drift } from "../lib/upload.mjs" */
 
 // Offline tests for `backup`'s orchestration (ADR-0069): read the previous
 // snapshot, decide what's already stored *before* hashing anything, run one
@@ -27,8 +28,10 @@ let storedCalls = [];
 let generateCalls = [];
 /** @type {Record<string, unknown>[]} the args each manifest upload got */
 let manifestCalls = [];
-/** @type {{ candidates: number, uploaded: number, failure?: Error }} */
+/** @type {{ candidates: number, uploaded: number, drifted: Drift[], failure?: Error }} */
 let outcome;
+/** @type {{ drifted: Drift[], set: string }[]} calls into the drift-error factory */
+let driftErrorCalls = [];
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
 let pushFails;
 /** @type {[string, string, object][]} */
@@ -85,6 +88,15 @@ mock.module("../lib/upload.mjs", {
       calls.push("uploadSnapshotFile");
       manifestCalls.push(args);
     },
+    // The real factory's wording is unit-tested at its own seam; here what matters
+    // is that `backup` delegates to it, handing over the whole drift list.
+    fileChangedError: (
+      /** @type {Drift[]} */ drifted,
+      /** @type {string} */ set,
+    ) => {
+      driftErrorCalls.push({ drifted, set });
+      return new FileChangedError(`drift in '${set}'`);
+    },
   },
 });
 
@@ -106,7 +118,8 @@ beforeEach(() => {
   storedCalls = [];
   generateCalls = [];
   manifestCalls = [];
-  outcome = { candidates: 3, uploaded: 2 };
+  outcome = { candidates: 3, uploaded: 2, drifted: [] };
+  driftErrorCalls = [];
   pushCalls = [];
   pushFails = undefined;
 });
@@ -181,7 +194,7 @@ describe("backup (the fused pass)", () => {
     // The local snapshot landed (generateSnapshot returned), so the fix is to
     // re-send the objects — not to re-hash the whole set.
     const failure = new Error("connection reset");
-    outcome = { candidates: 3, uploaded: 1, failure };
+    outcome = { candidates: 3, uploaded: 1, drifted: [], failure };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
       assert.match(error.message, /connection reset/);
@@ -197,20 +210,43 @@ describe("backup (the fused pass)", () => {
     assert.ok(!calls.includes("pushSetConfig"));
   });
 
-  it("passes a changed-file failure through untouched — its fix is a fresh backup, not an upload retry", async () => {
+  it("raises the drift error, not the resume advice — a drifted file needs a fresh backup", async () => {
     // A drifted row can never be reconciled with the file as it now stands, so
     // wrapping it in the "carry on where it stopped" advice would send the user
-    // at a retry that must fail. The error already names the right command.
-    const failure = new FileChangedError(
-      "'photo.raw' changed while the backup was running",
-    );
-    outcome = { candidates: 3, uploaded: 2, failure };
+    // at a retry that must fail. `backup` hands the whole list to the factory.
+    /** @type {Drift[]} */
+    const drifted = [{ path: "photo.raw", reason: "changed" }];
+    outcome = { candidates: 3, uploaded: 2, drifted };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
-      assert.equal(error, failure);
+      assert.ok(error instanceof FileChangedError);
+      assert.doesNotMatch(error.message, /--snapshot/, "not the resume advice");
       return true;
     });
 
+    assert.deepEqual(driftErrorCalls, [{ drifted, set: "photos" }]);
+    assert.deepEqual(manifestCalls, []);
+  });
+
+  it("blames the dropped link, not an earlier drift, when both happened", async () => {
+    // The masking defect the two-field outcome exists to fix: one first-wins slot
+    // let a drift on an early row speak for a dead network met on a later one, so
+    // the user was sent at a fresh backup when the actual problem was the link.
+    const failure = new Error("connection reset");
+    outcome = {
+      candidates: 3,
+      uploaded: 1,
+      drifted: [{ path: "photo.raw", reason: "changed" }],
+      failure,
+    };
+
+    await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
+      assert.match(error.message, /connection reset/);
+      assert.match(error.message, /--snapshot 2026-01-02T0900/);
+      return true;
+    });
+
+    assert.deepEqual(driftErrorCalls, [], "the drift error is not raised");
     assert.deepEqual(manifestCalls, []);
   });
 });
