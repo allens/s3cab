@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { isENOENT } from "./error.mjs";
+import { s3cabDir } from "./home.mjs";
 import { resolveSet } from "./sets.mjs";
 
 /** @import { BackupSet } from "./sets.mjs" */
@@ -174,7 +175,34 @@ export function loadEnv() {
  */
 export function loadSet(setName) {
   const set = resolveSet(setName);
+  announceHome();
   _loadedSet = { name: set.name, envPath: set.envPath };
   applyEnvLayer(set.envPath, `set '${set.name}' config`);
   return set;
+}
+
+/** Whether {@link announceHome} has already run this invocation. */
+let homeAnnounced = false;
+
+/**
+ * Name s3cab's home directory once per run, in full.
+ *
+ * Two jobs. It is the **absolute** counterpart to the `~` every other path is
+ * shortened to (`tildeify`, home.mjs): `~` expands in PowerShell and in a POSIX
+ * shell but *not* in `cmd.exe`, where the only way back to a real path is to
+ * paste this line and the shortened remainder together. And when `S3CAB_HOME` is
+ * overridden, nothing else on screen says which state directory is live.
+ *
+ * Here rather than in `loadEnv` because that runs for every command, including
+ * `--help` and `--version`, which touch no state and print no paths. `loadSet` is
+ * the door every *set* command routes through (ADR-0022) — and it can run twice
+ * in one invocation (a porcelain command and the plumbing it composes), hence the
+ * flag.
+ */
+function announceHome() {
+  if (homeAnnounced) {
+    return;
+  }
+  homeAnnounced = true;
+  console.warn("Using s3cab home", `'${s3cabDir()}'`);
 }

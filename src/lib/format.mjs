@@ -43,6 +43,18 @@ export const formatByteValue = (bytes) => {
   return formatter.format(value);
 };
 
+// Grouped integers for the human-facing counts the progress lines report
+// ("265,716 files", "312,004 objects") — six digits run together are unreadable
+// at a glance, which is the only thing those lines are for.
+const countFormat = new Intl.NumberFormat("en");
+
+/**
+ * A count with thousands separators: `265716` → `"265,716"`.
+ * @param {number} count
+ * @returns {string}
+ */
+export const formatCount = (count) => countFormat.format(count);
+
 // @ts-ignore - Intl.DurationFormat exists in Node 24+
 const durationFormat = new Intl.DurationFormat("en", {
   // A sub-second duration rounds to all-zero, which the default "auto"

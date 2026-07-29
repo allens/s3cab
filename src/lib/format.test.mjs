@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatByteValue, formatDuration } from "./format.mjs";
+import { formatByteValue, formatCount, formatDuration } from "./format.mjs";
 
 describe("formatByteValue", () => {
   it("scales by decimal SI units with one decimal place", () => {
@@ -28,6 +28,25 @@ describe("formatByteValue", () => {
   // The same bug emitted a capitalised "KB"; SI is a lowercase "kB".
   it("uses SI casing 'kB', not 'KB'", () => {
     assert.equal(formatByteValue(1000), "1.0kB");
+  });
+});
+
+describe("formatCount", () => {
+  // The progress lines exist to be read at a glance, which is the whole reason
+  // the separators are there — so pin the grouping rather than trusting the
+  // ambient locale, which would otherwise render "265.716" or "265 716".
+  it("groups thousands with commas", () => {
+    assert.equal(formatCount(1000), "1,000");
+    assert.equal(formatCount(265_716), "265,716");
+    assert.equal(formatCount(1_234_567), "1,234,567");
+  });
+
+  // Below the first group there is nothing to separate; a stray "0" or a
+  // decimal creeping in would show up on every small walk.
+  it("leaves a value under a thousand bare", () => {
+    assert.equal(formatCount(0), "0");
+    assert.equal(formatCount(1), "1");
+    assert.equal(formatCount(999), "999");
   });
 });
 

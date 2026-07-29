@@ -7,7 +7,6 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
-import { secondsSince } from "./format.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
@@ -536,12 +535,17 @@ export function listSnapshotNames(snapshotDir, options = {}) {
 
 /**
  * Read a snapshot file.
+ *
+ * Silent on purpose: the reader has no idea *why* it is being read, so anything
+ * it announced was necessarily generic, and it announced it on the way *out* —
+ * a second line after whatever the caller already said, reporting a duration
+ * that is a second or two on even a large set. `compare` printed it twice.
+ * Callers that want to say something own the wording (`readBaseline`'s "Reading
+ * previous snapshot").
  * @param {string} path - Path to snapshot file
  * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
  */
 export async function readSnapshotFile(path) {
-  const start = Temporal.Now.instant();
-
   const readStream = createReadStream(path);
 
   const input =
@@ -549,11 +553,7 @@ export async function readSnapshotFile(path) {
       ? readStream.pipe(createZstdDecompress())
       : readStream;
 
-  const snapshot = await parseSnapshotStream(input);
-
-  console.warn(`Read snapshot file '${path}' in ${secondsSince(start)}`);
-
-  return snapshot;
+  return parseSnapshotStream(input);
 }
 
 /**

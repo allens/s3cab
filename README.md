@@ -132,7 +132,9 @@ file, not a delete plus an add:
 
 ```console
 > s3cab snapshot
-Generating new snapshot: 2025-11-12T0915
+Using s3cab home 'C:\Users\you\.s3cab'
+Generating new snapshot '~\.s3cab\sets\photos\snapshots\2025-11-12T0915.tsv.zst'
+Finding files in '~\Photos'… 1,204 in 0 secs
 photos: ~\Photos  2025-11-11T0830 → 2025-11-12T0915
 
 Added (1)
