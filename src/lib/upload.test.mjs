@@ -8,6 +8,7 @@ import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
+/** @import { Drift } from "./upload.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the baseline-trust check (one HEAD before the baseline is
@@ -67,8 +68,14 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => deletionRecords,
   },
 });
-const { baselineHashes, planUpload, uploadObjects, uploadSnapshot, uploadDir } =
-  await import("./upload.mjs");
+const {
+  baselineHashes,
+  fileChangedError,
+  planUpload,
+  uploadObjects,
+  uploadSnapshot,
+  uploadDir,
+} = await import("./upload.mjs");
 
 beforeEach(() => {
   baselineExists = true;
@@ -494,6 +501,54 @@ describe("uploadSnapshot baseline trust", () => {
       [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
     );
     assert.equal(result.candidates, 0);
+  });
+});
+
+describe("fileChangedError", () => {
+  /** @type {Drift} */
+  const changed = { path: "photo.raw", reason: "changed" };
+
+  it("names the file, what happened, and the fresh backup that fixes it", () => {
+    const error = fileChangedError([changed], "photos");
+
+    assert.match(error.message, /Couldn't back up 'photo.raw'/);
+    assert.match(error.message, /changed while the backup was running/);
+    assert.match(error.message, /s3cab backup photos/);
+  });
+
+  it("keeps the errno in a parenthetical for an unreadable file (ADR-0030)", () => {
+    const error = fileChangedError(
+      [{ path: "x.bin", reason: "unreadable", cause: { code: "EACCES" } }],
+      "photos",
+    );
+
+    assert.match(error.message, /could no longer be read.*\(EACCES\)/);
+  });
+
+  it("says how many others when several files drifted", () => {
+    // One drifting file is bad luck; several means something is actively writing
+    // into the set, and the advice below reads very differently in that case. The
+    // count is the only thing that distinguishes them, so it has to be said.
+    const error = fileChangedError(
+      [
+        changed,
+        { path: "b.raw", reason: "removed" },
+        { path: "c.raw", reason: "changed" },
+      ],
+      "photos",
+    );
+
+    assert.match(error.message, /Couldn't back up 'photo.raw'/, "still leads");
+    assert.match(error.message, /2 other files/);
+  });
+
+  it("says nothing about others when only one drifted", () => {
+    // Deliberately narrow: the standing prose already contains "another program",
+    // so a bare /other/ would match the singular message too.
+    assert.doesNotMatch(
+      fileChangedError([changed], "photos").message,
+      /\d+ other files/,
+    );
   });
 });
 

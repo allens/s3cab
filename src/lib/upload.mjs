@@ -494,6 +494,18 @@ export function fileChangedError(drifted, set) {
     unreadable: `it could no longer be read while the backup was running${code ? ` (${code})` : ""}`,
   }[reason];
 
+  // How many *else* went the same way. One unlucky file and forty are the same
+  // event to the code and completely different situations to the reader: forty
+  // says something is actively writing into the set, which is what the closing
+  // paragraph is really about. The count is the only thing that tells them apart,
+  // so it is said rather than left to be inferred from one named example.
+  const others = drifted.length - 1;
+  const alsoCount =
+    others > 0
+      ? `${others} other file${others === 1 ? "" : "s"} couldn't be confirmed ` +
+        `either and ${others === 1 ? "was" : "were"} left out too.\n\n`
+      : ``;
+
   return new FileChangedError(
     `Couldn't back up '${path}' — ${headline}.\n\n` +
       `s3cab stores a file only when it can confirm it's still the one it ` +
@@ -502,6 +514,7 @@ export function fileChangedError(drifted, set) {
       `this computer, so backing up again won't re-read the files it already ` +
       `hashed:\n` +
       `  s3cab backup ${set}\n\n` +
+      alsoCount +
       `If this keeps happening — a live database, a file another program is ` +
       `still writing, or one that comes and goes — it isn't a good fit for ` +
       `s3cab; exclude it from the set: https://s3cab.plantegral.com/guide/exclude`,
