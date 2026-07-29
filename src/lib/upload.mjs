@@ -1,12 +1,16 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { FileChangedError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
+import { formatCount, secondsSince } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
+import { createProgress } from "./progress.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
 import { objectExists, putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
+import { isInteractive } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
@@ -72,13 +76,31 @@ export async function storedHashes({ bucket, set, since, baseline }) {
     );
   }
 
-  // No trustworthy baseline — LIST the store once instead. Announce it: a large
-  // store can take a moment.
-  console.warn("Scanning existing objects…");
+  // No trustworthy baseline — LIST the store once instead. This is the one step
+  // of a backup's preamble whose cost nothing on screen predicts: it is sized by
+  // the whole bucket, not by the set being backed up, and it used to print its
+  // announce and then go silent for the duration. So it gets `walkDirs`' line —
+  // label, count redrawn in place as the LIST paginates, closing tally and
+  // elapsed time. The announce still precedes the LIST and still reads
+  // `Scanning existing objects…` (ADR-0044/0045); it is now the first draw of
+  // that line rather than a line of its own.
+  const start = Temporal.Now.instant();
+  const label = "Scanning existing objects…";
+  using progress = createProgress(stderr);
   /** @type {Set<string>} */
   const stored = new Set();
   for await (const hash of listObjectHashes(bucket)) {
     stored.add(hash);
+    if (stored.size % 500 === 0) {
+      progress.update(`${label} ${formatCount(stored.size)}`);
+    }
+  }
+
+  const summary = `${label} ${formatCount(stored.size)} in ${secondsSince(start)}`;
+  if (isInteractive(stderr)) {
+    progress.update(summary);
+  } else {
+    console.warn(summary);
   }
   return stored;
 }
