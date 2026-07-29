@@ -14,6 +14,7 @@ import {
   formatUploadProgress,
   isNetworkError,
   isObjectNotFound,
+  isPreconditionFailed,
   networkRetryDelay,
   putFile,
   putObjectParams,
@@ -862,6 +863,39 @@ describe("isObjectNotFound", () => {
     assert.equal(isObjectNotFound(new Error("plain")), false);
     assert.equal(isObjectNotFound("NoSuchKey"), false);
     assert.equal(isObjectNotFound(undefined), false);
+  });
+});
+
+describe("isPreconditionFailed", () => {
+  it("recognizes the conditional PUT's refusal", () => {
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("At least one of the pre-conditions failed"), {
+          name: "PreconditionFailed",
+        }),
+      ),
+      true,
+    );
+  });
+
+  it("is false for other S3 / non-Error failures", () => {
+    // A 404 is not a 412: reading one as the other would turn a missing object
+    // into "already there" and skip the upload.
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("gone"), { name: "NotFound" }),
+      ),
+      false,
+    );
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("denied"), { name: "AccessDenied" }),
+      ),
+      false,
+    );
+    assert.equal(isPreconditionFailed(new Error("plain")), false);
+    assert.equal(isPreconditionFailed("PreconditionFailed"), false);
+    assert.equal(isPreconditionFailed(undefined), false);
   });
 });
 

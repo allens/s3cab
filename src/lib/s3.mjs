@@ -675,11 +675,7 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
-    if (
-      noClobber &&
-      Error.isError(error) &&
-      error.name === "PreconditionFailed"
-    ) {
+    if (noClobber && isPreconditionFailed(error)) {
       // Already present — no upload, no summary line (`using` closes any bar).
       return false;
     } else {
@@ -710,6 +706,24 @@ export function isObjectNotFound(error) {
     Error.isError(error) &&
     (error.name === "NoSuchKey" || error.name === "NotFound")
   );
+}
+
+/**
+ * Whether an S3 error means a conditional PUT was refused — i.e. `IfNoneMatch: "*"`
+ * found something already at the key. The twin of {@link isObjectNotFound}: the
+ * single spelling of "the no-clobber guard refused" for this SDK boundary, so
+ * `putFile` and `putText` don't each repeat the SDK's name. S3 raises it on the
+ * single-shot PUT and on CompleteMultipartUpload alike. Matched by `name`, like the
+ * other s3.mjs guards (see error.mjs's header).
+ *
+ * It says nothing about whether the caller *asked* for no-clobber, so both uploaders
+ * still gate on their own `noClobber` before reading a refusal as benign — an
+ * unconditional PUT that somehow 412s is a real failure and must throw.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isPreconditionFailed(error) {
+  return Error.isError(error) && error.name === "PreconditionFailed";
 }
 
 /**
@@ -762,11 +776,7 @@ export async function putText(uri, content, { noClobber = false } = {}) {
       }),
     );
   } catch (error) {
-    if (
-      noClobber &&
-      Error.isError(error) &&
-      error.name === "PreconditionFailed"
-    ) {
+    if (noClobber && isPreconditionFailed(error)) {
       return false;
     }
     throw error;
