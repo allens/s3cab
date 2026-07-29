@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatByteValue } from "./format.mjs";
+import { formatByteValue, formatDuration } from "./format.mjs";
 
 describe("formatByteValue", () => {
   it("scales by decimal SI units with one decimal place", () => {
@@ -29,4 +29,21 @@ describe("formatByteValue", () => {
   it("uses SI casing 'kB', not 'KB'", () => {
     assert.equal(formatByteValue(1000), "1.0kB");
   });
+});
+
+describe("formatDuration", () => {
+  // Intl picks the units and the plurals; these pin the cases a hand-rolled rule
+  // gets wrong. The version this replaced rounded anything from 90 s upward to
+  // whole minutes, so a 90 s window announced itself as "2 minutes".
+  for (const [milliseconds, expected] of [
+    [120_000, "2 minutes"],
+    [60_000, "1 minute"],
+    [90_000, "1 minute, 30 seconds"],
+    [30_000, "30 seconds"],
+    [1_000, "1 second"],
+  ]) {
+    it(`renders ${milliseconds}ms as "${expected}"`, () => {
+      assert.equal(formatDuration(Number(milliseconds)), expected);
+    });
+  }
 });

@@ -1,4 +1,4 @@
-import { secondsSince } from "./format.mjs";
+import { formatDuration, secondsSince } from "./format.mjs";
 import { statusLine } from "./progress.mjs";
 
 // Telling the user that s3cab is waiting out a dropped network rather than hung.
@@ -32,21 +32,6 @@ let recovered = false;
 let since;
 
 /**
- * How long s3cab will keep trying, in words — so the line sets an expectation
- * ("it will give up eventually") rather than leaving the reader to guess. Taken
- * from the caller's actual window, so the sentence can't drift from the policy
- * it describes.
- * @param {number} windowMs
- * @returns {string}
- */
-const windowPhrase = (windowMs) => {
-  const seconds = Math.round(windowMs / 1000);
-  return seconds >= 90
-    ? `${Math.round(seconds / 60)} minutes`
-    : `${seconds} seconds`;
-};
-
-/**
  * Count a request into the current network outage, announcing it if it is the
  * first. Pair every call with {@link leaveNetworkWait} — a `finally` is the only
  * safe place, since the request can also throw.
@@ -54,6 +39,11 @@ const windowPhrase = (windowMs) => {
  * The caller decides *when* a wait is worth announcing (the relay waits for the
  * second retry, so a blip that clears inside one backoff stays quiet); this
  * decides only that it is said once.
+ *
+ * Naming the window is what lets the line stand still instead of ticking: a
+ * reader who knows it will give up eventually doesn't need a counter to believe
+ * it is alive. `formatDuration` picks the words, so the sentence is right for
+ * whatever window the caller holds.
  * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
  * @param {number} windowMs - How long the caller will keep retrying.
  */
@@ -68,7 +58,7 @@ export function enterNetworkWait(stream, windowMs) {
   statusLine(
     stream,
     `Connection lost — waiting for the network to come back ` +
-      `(up to ${windowPhrase(windowMs)})…`,
+      `(up to ${formatDuration(windowMs)})…`,
   );
 }
 

@@ -27,7 +27,7 @@ function fakeStream(isTTY) {
 
 const WINDOW = 120_000;
 /** The escape byte readline's cursor moves start with. */
-const ESC = "";
+const ESC = "\u001b";
 
 // The module holds one outage's state, so every test here balances its enters
 // and leaves — which returns the count to zero and leaves the next test a clean
@@ -110,6 +110,13 @@ describe("network wait reporting", () => {
     enterNetworkWait(short.stream, 30_000);
     leaveNetworkWait(short.stream, { recovered: true });
     assert.match(short.output(), /up to 30 seconds/);
+
+    // The case that killed the hand-rolled version: it rounded 90 s up to
+    // "2 minutes", overstating the window by a third.
+    const awkward = fakeStream(false);
+    enterNetworkWait(awkward.stream, 90_000);
+    leaveNetworkWait(awkward.stream, { recovered: true });
+    assert.match(awkward.output(), /up to 1 minute, 30 seconds/);
   });
 
   it("clears the progress bar's line on a terminal, and only there", () => {
