@@ -16,7 +16,8 @@ job s3cab is built around. Restoring an _entire_ dataset after a disaster works 
 the rare backstop — the day-to-day use is recovering one file, or one old version.
 
 **The kind of data it's for:** the files that make up your digital life — photos, videos,
-documents, and the like. s3cab backs up each file as it sits on disk, so it suits data that
+documents, and the like, from a few kilobytes up to the multi-gigabyte video files a camera or
+phone produces. s3cab backs up each file as it sits on disk, so it suits data that
 holds still. For a live system — a database, a mail store, a running app — back up an _export_
 of it (a dump, an archive) rather than the working files the application keeps open and
 rewrites underneath you. If a file does change mid-backup, s3cab stops and names it rather than

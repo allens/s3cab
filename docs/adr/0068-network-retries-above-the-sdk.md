@@ -57,6 +57,21 @@ at the middleware stack's `initialize` step, *outside* the SDK's own retry middl
 
 - **Window: 120 s per request.** Time, not attempts, because the goal is time-shaped: leave a
   backup running unattended and let it survive the wifi dropping for a few seconds.
+  - **Why not 30 s** — a shorter window's best argument was that a long silent wait reads as a
+    hang, and the status line under Consequences below removed it: the wait now announces itself
+    and states its bound. A visible, explained two-minute wait is not the experience two minutes
+    of silence is. What remains is an asymmetry that points one way:
+    failing costs a multi-gigabyte multipart upload restarting from zero, waiting costs 120 s,
+    and 30 s is too short for a **router reboot (60–120 s)** — routine, and completely
+    recoverable. The cost is that a genuinely dead link takes ~2 minutes to report, once, on a
+    run that was going to fail anyway, with a message on screen throughout.
+  - **Not user-configurable** — no env var, no flag, for the reason
+    [0065](0065-s3-client-request-timeouts.md) gives for the timeouts beside it and
+    [0060](0060-multipart-tuning-in-flight-bytes.md) for the multipart knobs: a knob is an
+    interface to keep, and no real link has contradicted the value yet
+    ([0006](0006-minimal-code.md)). Revisit when one does. Deliberately cheap to reverse — the
+    window already flows through as a parameter, and the announcement formats *any* duration
+    (`formatDuration`), so nothing here assumes 120 s but the constant itself.
 - **Backoff: exponential, full jitter, capped at 2 s.** Full jitter staggers the parts that all
   failed in the same instant so they don't stampede the link when it returns. The cap is what
   bounds **recovery** latency — a sleeping request cannot notice the network is back until it
