@@ -2,7 +2,8 @@ import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
-import { secondsSince } from "./format.mjs";
+import { formatCount, secondsSince } from "./format.mjs";
+import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
 import { isInteractive } from "./style.mjs";
@@ -46,7 +47,7 @@ export function walkSet(set) {
 export function readExcludePatterns(excludePath) {
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
   if (patterns.length) {
-    console.warn("Using exclude file", `'${excludePath}'`);
+    console.warn("Using exclude file", `'${tildeify(excludePath)}'`);
   }
   return patterns;
 }
@@ -114,14 +115,21 @@ export function walkDirs(dirs, patterns) {
   const excluded = [];
   /** @type {ExclusionRecord[]} */
   const skipped = [];
-  // The running "Found N files..." count is in-place animation (terminal only;
-  // the TTY gate and the closing newline live in lib/progress.mjs). Off a
-  // terminal the periodic redraws stay silent and only the final summary line
-  // below is logged — no carriage returns in a redirected log.
-  using progress = createProgress(stderr);
+
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
-    console.warn("Finding files in", `'${dir}'`);
+    const dirStart = Temporal.Now.instant();
+    const before = files.length;
+    // Which directory, its running count, and its final tally are all one line,
+    // redrawn in place — the announce used to be its own `console.warn` above a
+    // separate counter, so the naming of the directory scrolled away from the
+    // number it belonged to. In-place animation is terminal only (the TTY gate
+    // and the closing newline live in lib/progress.mjs); off a terminal the
+    // redraws stay silent and only each directory's closing line is logged, so a
+    // redirected log holds no carriage returns. The `using` is scoped to the loop
+    // *body*, so every directory's line is closed before the next one opens.
+    const label = `Finding files in '${tildeify(dir)}'…`;
+    using progress = createProgress(stderr);
 
     const walkCallbackFn = createWalkCallbackFn(
       dir,
@@ -143,20 +151,30 @@ export function walkDirs(dirs, patterns) {
       seen.add(path);
       files.push(path);
       // Redraw every 500 files (after the push, so the count reflects files
-      // actually found — never a misleading "Found 0 files..." first line).
+      // actually found — never a misleading "0" first line).
       if (files.length % 500 === 0) {
-        progress.update(`Found ${files.length} files...`);
+        progress.update(`${label} ${formatCount(files.length - before)}`);
       }
+    }
+
+    // This directory's true total (not the last multiple of 500) with its own
+    // elapsed time: redrawn in place on a terminal, or logged as one clean line
+    // otherwise. Always drawn, so a directory too small to trigger a single
+    // redraw still gets its line.
+    const summary = `${label} ${formatCount(files.length - before)} in ${secondsSince(dirStart)}`;
+    if (isInteractive(stderr)) {
+      progress.update(summary);
+    } else {
+      console.warn(summary);
     }
   }
 
-  // The final tally (the true total, not the last multiple of 500) with elapsed
-  // time: redrawn in place on a terminal, or logged as one clean line otherwise.
-  const summary = `Found ${files.length} files in ${secondsSince(start)}`;
-  if (isInteractive(stderr)) {
-    progress.update(summary);
-  } else {
-    console.warn(summary);
+  // The set's total, only when there is more than one member directory to add
+  // up — for a single directory it would just restate the line above it.
+  if (dirs.length > 1) {
+    console.warn(
+      `Found ${formatCount(files.length)} files in ${secondsSince(start)}`,
+    );
   }
 
   return { files, excluded, skipped };
