@@ -6,6 +6,23 @@ to its own build spec, now **implemented** and deleted; the decision lives in
 [ADR-0043](../docs/adr/0043-human-first-output.md). This file keeps the surrounding output/UX
 niceties.
 
+- **`compare` calls a previously-unreadable file "added"** (user, 2026-07-29). X.doc is locked
+  when snapshot 1 is taken, so it lands as an `#ERROR` row and is absent from `entries`; it
+  hashes fine in snapshot 2; `compare 1 2` therefore reports it as **added**, when it sat there
+  the whole time. The handling is one-directional today:
+  [compare.mjs](../src/lib/compare.mjs) pulls the *newer* snapshot's errored paths back out of
+  `deleted` (so a file that becomes locked never reads as deleted) but never looks at the
+  *older* snapshot's errors, so the reverse case is unguarded. A third hole sits beside it: a
+  file unreadable in 1 and genuinely deleted by 2 shows up in no category at all.
+  _Not obviously a bug:_ in snapshot terms it *is* new — a file that can't be hashed is in no
+  manifest and was never stored, so "added" tracks new-to-the-backup rather than new-on-disk.
+  A precise fix needs `since`'s errors threaded through the fast path `snapshot` uses to avoid
+  re-parsing the baseline (it hands over `entries` only), plus a category decision: it can't be
+  `modified`, because with no hash on the older side we genuinely don't know whether the bytes
+  changed — so either drop it from `added` silently or add a "was unreadable, now readable"
+  line. **Settle this before** [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)'s
+  open `#ERROR`-on-drift follow-up, which would make the scenario routine rather than rare (an
+  autosaving document would flip between errored and recorded on most runs).
 - **"Did you mean…?" for misspelled commands** (edit distance over the registry);
   `s3cab help <unknown-topic>` currently falls back silently to the command list — say
   "unknown topic" and list the valid ones.
