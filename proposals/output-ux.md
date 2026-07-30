@@ -33,6 +33,17 @@ niceties.
   docs-only session sweeping the whole guide.
 - **`--quiet`** to suppress stderr progress (for cron/scripts), and richer progress: bytes
   hashed + ETA, not just file-count percent.
+- **The progress lines' *timing* is untested** — deliberately, for now. Two behaviours rest on
+  real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing, and the 1-second `setInterval`
+  that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
+  page yields 1,000 keys at once, so gating on the redraw interval made the count appear only
+  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip). Both were
+  verified by simulation rather than by a committed test: asserting them needs a test that
+  actually sleeps across two pages, which is slow and timing-flaky for what is a display
+  property. One such test exists already (`progress.test.mjs`'s "draws again once the redraw
+  interval has passed", a 150ms sleep) and is the pattern we don't want to multiply. If the
+  module ever gains a fake clock — `node:test`'s timer mocking, or taking `now` as a seam — that
+  is the moment to come back and lock all of this down properly.
 - **Display formatting** — the byte/time humanizers the size and progress output above lean on
   (the bytes-hashed progress, the `4.2 GB` first-snapshot line, `list --stat` total size). Built
   from the JS standard library (`Intl`), no `pretty-bytes`-style dependency.
