@@ -82,7 +82,7 @@ rather than assuming it is fixed forever.
 
 1. **Act only on an explicit go-ahead — your agreeing isn't authorization.** Default: do the
    work, show what changed, then *wait*. A go-ahead is per-request, never standing ("you're
-   right that X is better" ≠ "do X now"). One principle, four faces:
+   right that X is better" ≠ "do X now"). One principle, five faces:
    - **Commits/pushes** — never `git commit`/`push` without an explicit "commit"/"pr" in that
      same message.
    - **"Work through one by one"** — per step: propose (+ any questions), present the diff
@@ -94,6 +94,10 @@ rather than assuming it is fixed forever.
      never carries forward.
    - **A question** ("why this way?", "wouldn't X be simpler?") wants an *answer* — explain, say
      whether their instinct is right, then **stop and offer**. Don't edit off the back of a question.
+   - **A rejected option** — striking one option is *not* deciding the question. When the user
+     rules something out, strike it and stop: the question stays open and theirs. Likewise a
+     factual question — answer it, don't resolve what it was about. (The tell: treating a
+     partial signal as settlement and running on to prescribe next steps.)
 2. **After non-trivial work, update the docs** so what you learned is shared at the project
    level. Put it in the right home (see the map above): a design decision → an ADR; vocabulary
    → CONTEXT.md; a working/coding rule → this file; never only in local memory. **But recording
