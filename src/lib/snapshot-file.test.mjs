@@ -13,6 +13,7 @@ import {
   readParkedLookup,
   readSnapshot,
   snapshotFileName,
+  snapshotMoment,
   snapshotName,
   snapshotNames,
   withSnapshotFile,
@@ -127,6 +128,17 @@ describe("parseSnapshotStream", () => {
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+
+/**
+ * A snapshot moment with a fixed instant and zone, so a written header is
+ * deterministic. Production mints these from one clock read (`snapshotMoment`).
+ * @param {string} name
+ */
+const momentOf = (name) => ({
+  name,
+  instant: "2026-06-23T09:00:00.000Z",
+  zone: "Europe/London",
+});
 
 // listSnapshotNames is the storage core behind the `list` command — a temp dir
 // stands in for a set's `~/.s3cab/sets/<set>/snapshots/`. The set resolution
@@ -290,7 +302,7 @@ describe("writeSnapshot", () => {
     const bad = resolve(dir.path, "bad.bin");
     const skipped = resolve(dir.path, "scratch.tmp");
 
-    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
       dirs: [dir.path],
       files: [a, b, bad],
@@ -330,7 +342,7 @@ describe("writeSnapshot", () => {
     // pair for the #SNAPSHOT identity and the per-directory #DIR lines.
     const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
 
-    await writeSnapshot(dir.path, "2026-06-23T1000", {
+    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
       dirs,
       files: [],
@@ -349,7 +361,7 @@ describe("writeSnapshot", () => {
     const regular = resolve(dir.path, "regular.txt");
     const link = resolve(dir.path, "link.txt");
 
-    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
       dirs: [dir.path],
       files: [regular],
@@ -396,9 +408,13 @@ describe("writeSnapshot", () => {
     /** @type {string[]} */
     const seen = [];
     // The same name both times (the header carries it), so only the transform differs.
-    const plain = await writeSnapshot(dir.path, "2026-06-23T1000", args);
+    const plain = await writeSnapshot(
+      dir.path,
+      momentOf("2026-06-23T1000"),
+      args,
+    );
     const withoutStage = readFileSync(plain);
-    const fused = await writeSnapshot(dir.path, "2026-06-23T1000", {
+    const fused = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       ...args,
       through: async function* (rows) {
         for await (const row of rows) {
@@ -417,7 +433,7 @@ describe("writeSnapshot", () => {
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
     await using dir = await mkTmpDir();
 
-    const path = await writeSnapshot(dir.path, "2026-06-23T1000", {
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
       dirs: [],
       files: [],
@@ -425,16 +441,22 @@ describe("writeSnapshot", () => {
       getProps: props,
     });
 
-    // The name is the only clock input: the header's colon form must be
-    // derived from it, never a second now() read — so filename and header
-    // agree by construction (the old two-clock gap).
+    // Every spelling of the moment comes from the one `snapshotMoment` read the
+    // caller made (ADR-0072), so the filename and the header cannot disagree.
+    // The row keeps four columns: set, UTC instant, then the name and its zone.
     const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
     const [header = ""] = text.split("\n");
-    assert.match(header, /^#SNAPSHOT/);
-    assert.ok(
-      header.includes("2026-06-23T10:00"),
-      `header datetime must be derived from the name: ${header}`,
-    );
+    const [marker, identity, instant, nameAndZone] = header
+      .split("\t")
+      .map((field) => field.trim());
+
+    assert.equal(marker, "#SNAPSHOT");
+    assert.equal(identity, "photos");
+    assert.equal(instant, "2026-06-23T09:00:00.000Z");
+    assert.equal(nameAndZone, "2026-06-23T1000 Europe/London");
+    // The instant lands in `mtime`'s own column, which is why it fits: an ISO
+    // instant at millisecond precision is exactly the 24 characters col3 pads to.
+    assert.equal(instant.length, 24);
   });
 
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {
@@ -448,13 +470,13 @@ describe("writeSnapshot", () => {
       getProps: props,
     };
 
-    await writeSnapshot(dir.path, "2026-06-23T1000", args);
+    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), args);
     await assert.rejects(
-      writeSnapshot(dir.path, "2026-06-23T1000", args),
+      writeSnapshot(dir.path, momentOf("2026-06-23T1000"), args),
       /same minute/,
     );
     // The debug escape hatch: overwrite replaces it without erroring.
-    await writeSnapshot(dir.path, "2026-06-23T1000", {
+    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       ...args,
       overwrite: true,
     });
@@ -588,7 +610,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
    * @param {(p: string) => Promise<Props>} getProps
    */
   const write = (snapshotDir, name, files, getProps) =>
-    writeSnapshot(snapshotDir, name, {
+    writeSnapshot(snapshotDir, momentOf(name), {
       identity: "photos",
       dirs: [snapshotDir],
       files,
@@ -734,5 +756,128 @@ describe("readParkedLookup", () => {
   it("returns undefined when nothing is parked (the ordinary case)", async () => {
     await using dir = await mkTmpDir();
     assert.equal(await readParkedLookup(dir.path), undefined);
+  });
+});
+
+describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
+  /**
+   * @param {string} dir
+   * @param {string} name
+   */
+  const seed = (dir, name) =>
+    writeSnapshot(dir, momentOf(name), {
+      identity: "photos",
+      dirs: [dir],
+      files: [resolve(dir, "a.txt")],
+      excluded: [],
+      getProps: async () => ({
+        size: 1,
+        mtime: "2026-06-01T00:00:00.000Z",
+        hash: "h",
+      }),
+    });
+
+  it("lists the snapshots that do exist, newest first and untruncated", async () => {
+    await using dir = await mkTmpDir();
+    await seed(dir.path, "2026-06-12T0915");
+    await seed(dir.path, "2026-06-19T0902");
+    await seed(dir.path, "2026-06-05T1130");
+
+    await assert.rejects(readSnapshot(dir.path, "2026-06-13T0000"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Snapshot '2026-06-13T0000' not found/);
+      // Every candidate, in the order `list` would show them — so the name can
+      // be copied straight out of the error.
+      const listed = error.message
+        .split("\n")
+        .filter((line) => /^ {2}\d{4}-/.test(line))
+        .map((line) => line.trim());
+      assert.deepStrictEqual(listed, [
+        "2026-06-19T0902",
+        "2026-06-12T0915",
+        "2026-06-05T1130",
+      ]);
+      return true;
+    });
+  });
+
+  it("says so plainly when the set has no snapshots at all", async () => {
+    await using dir = await mkTmpDir();
+    // Listing nothing under "here are the others" would read as a bug, so the
+    // empty case gets its own sentence and points at how to make one.
+    await assert.rejects(readSnapshot(dir.path, "2026-06-12T0915"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /no snapshots in/);
+      assert.match(error.message, /s3cab snapshot/);
+      assert.doesNotMatch(error.message, /newest first/);
+      return true;
+    });
+  });
+});
+
+describe("the snapshot moment and its two header layouts (ADR-0072)", () => {
+  it("mints three spellings of one instant that agree with each other", () => {
+    const { name, instant, zone } = snapshotMoment();
+
+    // Not a formatting check: this is the invariant one clock read buys. Take
+    // the machine-readable instant, put it back in the recorded zone, and the
+    // local wall clock it lands on must be the name — so a reader can always
+    // resolve the name, and the two can never drift a minute apart.
+    const roundTrip = Temporal.Instant.from(instant)
+      .toZonedDateTimeISO(zone)
+      .toPlainDateTime()
+      .toString({ smallestUnit: "minutes" })
+      .replace(":", "");
+    assert.equal(roundTrip, name);
+
+    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    assert.equal(instant.length, 24, "must fit mtime's own 24-wide column");
+    assert.match(instant, /Z$/);
+  });
+
+  it("reads the current header: set, instant, then name and zone", async () => {
+    const text = [
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
+      "#DIR\t\t\t/home/me/Photos",
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
+    ].join("\n");
+
+    const { identity, instant, zone, dirs, entries } = await parse(text);
+    assert.equal(identity, "photos");
+    assert.equal(instant, "2026-06-12T08:15:32.123Z");
+    assert.equal(zone, "Europe/London");
+    assert.deepEqual(dirs, ["/home/me/Photos"]);
+    assert.equal(entries.size, 1);
+  });
+
+  it("still reads a pre-0072 header, since snapshots are never rewritten", async () => {
+    // The layouts are told apart by whether col2 holds anything: a set name is
+    // `[a-z0-9-]+` and never empty, and the old writer always left col2 blank.
+    // Old files stay readable forever rather than being migrated — that is the
+    // recovery promise, not a courtesy.
+    const text = [
+      "#SNAPSHOT\t\t2026-06-12T09:15\tphotos",
+      "#DIR\t\t\t/home/me/Photos",
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
+    ].join("\n");
+
+    const { identity, instant, zone, dirs, entries } = await parse(text);
+    assert.equal(identity, "photos", "the set must still be found");
+    // Absent, not guessed: the old header carried no zone and no true instant,
+    // so a consumer has to treat these as optional rather than assume.
+    assert.equal(instant, undefined);
+    assert.equal(zone, undefined);
+    assert.deepEqual(dirs, ["/home/me/Photos"]);
+    assert.equal(entries.size, 1);
+  });
+
+  it("survives a header whose zone is missing", async () => {
+    // A hand-edited file, or one truncated at col4. The name is the filename
+    // anyway, so a missing zone costs the reader nothing it cannot recover.
+    const text = "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915";
+    const { identity, instant, zone } = await parse(text);
+    assert.equal(identity, "photos");
+    assert.equal(instant, "2026-06-12T08:15:32.123Z");
+    assert.equal(zone, undefined);
   });
 });

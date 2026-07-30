@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { join, posix, resolve, sep } from "node:path";
+import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
@@ -23,6 +23,32 @@ import { isInteractive } from "./style.mjs";
  */
 
 /** @typedef {{ files: string[], excluded: ExclusionRecord[], skipped: ExclusionRecord[] }} WalkResult */
+
+/**
+ * Characters a snapshot row cannot hold: the field separator, and the two that
+ * end a line ([ADR-0073](../../docs/adr/0073-refuse-tab-newline-paths.md)). The
+ * TSV deliberately has no escaping — that plainness is the point of
+ * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name is
+ * refused rather than encoded. A carriage return counts with the line feed: the
+ * snapshot parser reads lines with `crlfDelay: Infinity`, which strips a
+ * trailing one, so the path would come back *changed* — worse than refused.
+ * Windows forbids all three (it excludes characters 1-31), so this can only ever
+ * fire on Linux or macOS.
+ */
+const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
+
+/**
+ * Render a path's control characters visibly, so an error can name a file whose
+ * name would otherwise mangle the message it appears in — a raw line break would
+ * split one entry across two lines of the list. Display only: nothing written to
+ * a snapshot passes through here, because such a path never reaches one.
+ * @param {string} path
+ */
+const showControlChars = (path) =>
+  path
+    .replaceAll("\t", "<TAB>")
+    .replaceAll("\r", "<CR>")
+    .replaceAll("\n", "<NL>");
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
@@ -62,6 +88,10 @@ export function readExcludePatterns(excludePath) {
  * ([ADR-0054](../../docs/adr/0054-missing-member-dir-aborts.md)) — the failure is
  * loud and lists every offender at once, and the fix is to reconnect the drive or
  * edit `dirs.txt`. An empty `dirs.txt` is the degenerate case (nothing to back up).
+ *
+ * Entries must be **absolute on this platform**, checked first because it is the
+ * sharper diagnosis of the same symptom
+ * ([ADR-0071](../../docs/adr/0071-snapshot-paths-absolute-native.md)).
  * @param {BackupSet} set
  */
 function assertWalkableDirs(set) {
@@ -72,6 +102,31 @@ function assertWalkableDirs(set) {
         `  ${set.dirsPath}`,
     );
   }
+
+  // One test, two causes, and they cannot be told apart without guessing at path
+  // shapes — so the message states the fact and offers both. A *relative* entry
+  // is refused outright: it would make the set's contents depend on the working
+  // directory s3cab happened to be run from, which is no way to run a backup. A
+  // *foreign absolute* entry is a set adopted from another OS, where `dirs.txt`
+  // arrives verbatim and `C:\Users\me\Photos` is not an unplugged drive.
+  // Same `isAbsolute` test `restore` applies to snapshot paths, with the same
+  // one-way limit: Windows treats a leading `/` as rooted, so a POSIX `dirs.txt`
+  // read on Windows falls through to "aren't available" below — still loud, and
+  // still pointing at the file to edit.
+  const notHere = set.dirs.filter((dir) => !isAbsolute(dir));
+  if (notHere.length) {
+    throw new Error(
+      `These entries in backup set '${set.name}' aren't full paths to folders on this computer:\n` +
+        notHere.map((dir) => `  ${dir}`).join("\n") +
+        `\nEach line has to be a full path — a partial one would change what gets ` +
+        `backed up depending on which folder you ran s3cab from. A set first set ` +
+        `up on a different kind of computer reads this way too. Edit the list:\n` +
+        `  ${set.dirsPath}\n` +
+        `Or, to get files back from a backup made elsewhere:\n` +
+        `  s3cab restore --set ${set.name} --output <folder>`,
+    );
+  }
+
   const unavailable = set.dirs.filter((dir) => {
     try {
       return !statSync(dir).isDirectory();
@@ -115,6 +170,12 @@ export function walkDirs(dirs, patterns) {
   const excluded = [];
   /** @type {ExclusionRecord[]} */
   const skipped = [];
+  // Paths the snapshot TSV cannot hold (ADR-0073). Collected rather than thrown
+  // on sight: the one person who ever hits this is the one whose script made
+  // hundreds of them, and fixing those an error at a time would be its own
+  // ordeal — the same reasoning as `assertWalkableDirs` listing every offender.
+  /** @type {string[]} */
+  const unrepresentable = [];
 
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
@@ -156,6 +217,13 @@ export function walkDirs(dirs, patterns) {
         );
       }
       seen.add(path);
+      // Only a path that would otherwise be *kept* reaches this loop — the walk
+      // callback drops excluded entries and unsupported types before yielding —
+      // so a pattern in exclude.txt keeps its match from ever being refused,
+      // which is what makes exclude.txt the escape hatch (ADR-0073).
+      if (UNREPRESENTABLE_IN_TSV.test(path)) {
+        unrepresentable.push(path);
+      }
       files.push(path);
       // Redraw every 500 files *of this directory* (after the push, so the count
       // reflects files actually found). Bound once: gating on the set-wide
@@ -178,6 +246,24 @@ export function walkDirs(dirs, patterns) {
     } else {
       console.warn(summary);
     }
+  }
+
+  // After the walk, so one failure names every offender, never truncated
+  // (ADR-0010). ADR-0030 shape: the user's goal first, then the exact fix.
+  if (unrepresentable.length) {
+    const count =
+      unrepresentable.length === 1
+        ? "This file can't"
+        : `These ${formatCount(unrepresentable.length)} files can't`;
+    throw new Error(
+      `${count} be backed up, because the name contains a tab or a line ending:\n` +
+        unrepresentable.map((p) => `  ${showControlChars(p)}`).join("\n") +
+        `\nA snapshot is a table with one line per file and a tab between ` +
+        `columns, so a name using either can't be written into it. ` +
+        `Rename them, or leave them out by adding a pattern to the set's ` +
+        `exclude file:\n` +
+        `  odd*name.jpg`,
+    );
   }
 
   // The set's total, only when there is more than one member directory to add

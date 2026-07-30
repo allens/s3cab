@@ -1,8 +1,9 @@
 # Timestamps: UTC inside files, local wall clock in names
 
-**Status:** accepted, not yet implemented. Settles the timezone/precision question the
-snapshot-format proposal carried. Extends [0004](0004-tsv-snapshot-manifests.md) (the row
-grammar) and applies [0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).
+**Status:** accepted & implemented. Settles the timezone/precision question the
+snapshot-format proposal carried. Extends
+[0004](0004-tsv-snapshot-manifests.md) (the row grammar) and applies
+[0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).
 
 ## Context
 
@@ -82,6 +83,22 @@ and zone:
 ```
 # generated:  2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
 ```
+
+### Both layouts are read, forever
+
+Snapshots are **immutable and never rewritten**, so changing the `#SNAPSHOT` row does not migrate
+anything — every file written before this keeps the old row, and a reader must handle both for
+good. That is the coexistence cost this whole ADR was weighed against, and it is paid here rather
+than avoided.
+
+The two are told apart by **whether col2 holds anything**. A set name is `[a-z0-9-]+` and so is
+never empty; the pre-0072 writer always left col2 blank (`#SNAPSHOT<TAB><TAB>datetime<TAB>set`).
+No version marker is needed, and none is added — the layouts are self-distinguishing.
+
+An old header yields `identity` as before, with `instant` and `zone` **absent** rather than
+guessed, so `Snapshot` types them as optional and a consumer has to decide what to do without
+them. That is what keeps the warn-only checks below honest: they simply do not fire on a snapshot
+that cannot answer.
 
 ## Why names stay local
 

@@ -64,7 +64,11 @@ mock.module("../lib/objects.mjs", {
 });
 mock.module("../lib/deletion-record.mjs", {
   exports: {
-    deletionRecordTimestamp: () => "2026-07-19T1422",
+    deletionRecordMoment: () => ({
+      name: "2026-07-19T1422",
+      instant: "2026-07-19T13:22:04.881Z",
+      zone: "Europe/London",
+    }),
     formatDeletionRecord: (
       /** @type {{ bucket: string }} */ context,
       /** @type {{ hash: string, path: string }[]} */ rows,

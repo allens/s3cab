@@ -293,3 +293,144 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     );
   });
 });
+
+// Windows forbids characters 1-31 in a filename, so these names cannot exist
+// there — the refusal can only fire on Linux or macOS, where CI also runs.
+const posixOnly = { skip: process.platform === "win32" };
+
+describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => {
+  it(
+    "aborts on a tab, naming every offender with the character made visible",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "fine.txt");
+      write(dir.path, "odd\tname.jpg");
+      write(dir.path, "another\tone.jpg");
+      assert.throws(
+        () => walkDirs([dir.path], []),
+        (error) =>
+          error instanceof Error &&
+          // every offender, never truncated (ADR-0010) …
+          error.message.includes("odd<TAB>name.jpg") &&
+          error.message.includes("another<TAB>one.jpg") &&
+          // … rendered visibly, so a raw tab can't silently indent the list …
+          !error.message.includes("odd\tname.jpg") &&
+          // … and the way out is named.
+          /exclude file/.test(error.message),
+      );
+    },
+  );
+
+  it(
+    "aborts on a line break, and on a trailing carriage return",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "two\nlines.jpg");
+      assert.throws(() => walkDirs([dir.path], []), /two<NL>lines\.jpg/);
+
+      await using other = await mkTmpDir();
+      // Not idle strictness: the snapshot parser reads with `crlfDelay: Infinity`,
+      // so a trailing \r would be stripped and the path would come back changed.
+      write(other.path, "trailing\r.jpg");
+      assert.throws(() => walkDirs([other.path], []), /trailing<CR>\.jpg/);
+    },
+  );
+
+  it(
+    "does not abort when a pattern already excludes the offender",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "keep.txt");
+      write(dir.path, "odd\tname.jpg");
+      // The refusal sits in the kept-files loop, which an excluded entry never
+      // reaches — that is what makes exclude.txt a real escape hatch, and `*`
+      // compiles to [^/]+, which matches a tab.
+      const { files, excluded } = walkDirs([dir.path], ["odd*name.jpg"]);
+      assert.deepStrictEqual(relPaths(realpathSync.native(dir.path), files), [
+        "keep.txt",
+      ]);
+      assert.equal(excluded.length, 1);
+    },
+  );
+
+  it(
+    "does not abort on an unsupported type, which isn't backed up either",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "target.txt");
+      symlinkSync(join(dir.path, "target.txt"), join(dir.path, "link\tname"));
+      const { skipped } = walkDirs([dir.path], []);
+      assert.equal(skipped.length, 1);
+    },
+  );
+
+  it(
+    "refuses the files under a directory whose own name offends",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "bad\tdir/inside.txt");
+      // Named per *file*, not once for the directory: the check rides the loop over
+      // kept files, which is what keeps it out of the walk callback entirely. An
+      // offending but empty directory therefore passes unremarked — correct, since
+      // an empty directory is not backed up at all (ADR-0070).
+      assert.throws(() => walkDirs([dir.path], []), /bad<TAB>dir.inside\.txt/);
+    },
+  );
+});
+
+describe("walkSet requires absolute member directories (ADR-0071)", () => {
+  it("refuses a relative entry, and says why a full path is needed", async () => {
+    await using dir = await mkTmpDir();
+    // `mkTmpDir` builds under a relative root, so `dir.path` is already the case:
+    // a set seeded this way would back up different files from a different cwd.
+    const set = setOf(realpathSync.native(dir.path), [dir.path]);
+    assert.throws(
+      () => walkSet(set),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(dir.path) &&
+        /full path/.test(error.message) &&
+        // the generic ADR-0054 message must not win the race …
+        !/aren't available/.test(error.message) &&
+        // … and both ways out are offered.
+        error.message.includes(set.dirsPath) &&
+        /--output/.test(error.message),
+    );
+  });
+
+  // POSIX-only by necessity, not convenience: `C:\Users\me\Photos` *is* absolute
+  // on Windows, so the case this covers — a Windows set adopted by `reattach` —
+  // can only be reproduced from the other side.
+  it(
+    "covers a path absolute on another OS with the same message",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      const root = realpathSync.native(dir.path);
+      // The reason one message names both causes: `isAbsolute` cannot tell this
+      // from a relative entry, and guessing at path shapes to try would be worse.
+      const foreign = "C:\\Users\\me\\Photos";
+      assert.throws(
+        () => walkSet(setOf(root, [foreign])),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(foreign) &&
+          /different kind of computer/.test(error.message),
+      );
+    },
+  );
+
+  it("still reports a genuinely missing absolute directory as unavailable", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    assert.throws(
+      () => walkSet(setOf(root, [join(root, "gone")])),
+      /aren't available/,
+    );
+  });
+});
