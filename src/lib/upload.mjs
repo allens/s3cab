@@ -86,11 +86,18 @@ export async function storedHashes({ bucket, set, since, baseline }) {
   // the whole bucket, not by the set being backed up, and it used to print its
   // announce and then go silent for the duration. So it gets `walkDirs`' line —
   // label, count redrawn in place as the LIST paginates, closing tally and
-  // elapsed time. The announce still precedes the LIST and still reads
-  // `Scanning existing objects…` (ADR-0044/0045); it is now the first draw of
-  // that line rather than a line of its own.
+  // elapsed time. The announce still precedes the LIST (ADR-0044/0045); it is now
+  // the first draw of that line rather than a line of its own.
+  //
+  // It names the bucket because nothing else in a backup's output does — the
+  // preamble names the set's directories and s3cab's home, but the remote it is
+  // talking to went unsaid — and because this is the line whose scope the bucket
+  // *explains*: the count is the whole repository's, which is why it can dwarf
+  // the set. Same shape as `walkDirs`' `Finding files in '<dir>'…`, quotes and
+  // all. Bucket only, no `objects/`: the prefix is internal layout
+  // (guide/format.md), while `s3://<bucket>` is the thing the user configured.
   const start = Temporal.Now.instant();
-  const label = "Scanning existing objects…";
+  const label = `Scanning existing objects in 's3://${bucket}'…`;
   using progress = createProgress(stderr);
   // Paint the label before the first request, not 500 objects into the listing:
   // ADR-0044/0045 put this announce *ahead* of the LIST precisely because the
