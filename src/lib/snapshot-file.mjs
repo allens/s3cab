@@ -13,6 +13,7 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
+import { tildeify } from "./home.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
@@ -447,7 +448,13 @@ export async function writeSnapshot(
  * @param {string} name - Snapshot name
  * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
  * @throws When the named snapshot does not exist — never silently returns an
- *   empty snapshot, which a caller could mistake for an empty one.
+ *   empty snapshot, which a caller could mistake for an empty one. The error
+ *   **names the snapshots that do exist** (ADR-0030: give the fix, don't just
+ *   state the failure), which is the standard `restore` and `forget` already
+ *   set for remote names; this is the local path `compare` and
+ *   `upload --snapshot` reach through. Enriching it here rather than at those
+ *   call sites is safe because the only other caller, `readBaseline`, passes a
+ *   name that came *from* this directory's listing and so can never miss.
  */
 export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");
@@ -456,9 +463,38 @@ export async function readSnapshot(snapshotDir, name) {
   const path = join(snapshotDir, snapshotFileName(name));
   const stats = statSync(path, { throwIfNoEntry: false });
   if (!stats?.isFile()) {
-    throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
+    throw notFoundError(snapshotDir, name);
   }
   return readSnapshotFile(path);
+}
+
+/**
+ * The "no such snapshot" error, with the alternatives — the shape `forget` uses
+ * for remote names, applied to the local directory. Never truncated
+ * ([ADR-0010](../../docs/adr/0010-cli-output-conventions.md)); a set with no
+ * snapshots at all gets a different sentence, because listing nothing under
+ * "here are the others" reads as a bug.
+ *
+ * Reached when the name resolves to nothing *or* to a non-file — the stray
+ * directory case #249 fixed reads as "not found" to a user either way, and the
+ * listing tells them what is actually there.
+ * @param {string} snapshotDir
+ * @param {string} name
+ */
+function notFoundError(snapshotDir, name) {
+  const names = listSnapshotNames(snapshotDir);
+  if (names.length === 0) {
+    return new Error(
+      `Snapshot '${name}' not found — there are no snapshots in ` +
+        `'${tildeify(snapshotDir)}' yet.\n` +
+        `Take one with:\n  s3cab snapshot`,
+    );
+  }
+  return new Error(
+    `Snapshot '${name}' not found in '${tildeify(snapshotDir)}'.\n` +
+      `Snapshots there, newest first:\n` +
+      names.map((n) => `  ${n}`).join("\n"),
+  );
 }
 
 /**

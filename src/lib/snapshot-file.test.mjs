@@ -736,3 +736,59 @@ describe("readParkedLookup", () => {
     assert.equal(await readParkedLookup(dir.path), undefined);
   });
 });
+
+describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
+  /**
+   * @param {string} dir
+   * @param {string} name
+   */
+  const seed = (dir, name) =>
+    writeSnapshot(dir, name, {
+      identity: "photos",
+      dirs: [dir],
+      files: [resolve(dir, "a.txt")],
+      excluded: [],
+      getProps: async () => ({
+        size: 1,
+        mtime: "2026-06-01T00:00:00.000Z",
+        hash: "h",
+      }),
+    });
+
+  it("lists the snapshots that do exist, newest first and untruncated", async () => {
+    await using dir = await mkTmpDir();
+    await seed(dir.path, "2026-06-12T0915");
+    await seed(dir.path, "2026-06-19T0902");
+    await seed(dir.path, "2026-06-05T1130");
+
+    await assert.rejects(readSnapshot(dir.path, "2026-06-13T0000"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Snapshot '2026-06-13T0000' not found/);
+      // Every candidate, in the order `list` would show them — so the name can
+      // be copied straight out of the error.
+      const listed = error.message
+        .split("\n")
+        .filter((line) => /^ {2}\d{4}-/.test(line))
+        .map((line) => line.trim());
+      assert.deepStrictEqual(listed, [
+        "2026-06-19T0902",
+        "2026-06-12T0915",
+        "2026-06-05T1130",
+      ]);
+      return true;
+    });
+  });
+
+  it("says so plainly when the set has no snapshots at all", async () => {
+    await using dir = await mkTmpDir();
+    // Listing nothing under "here are the others" would read as a bug, so the
+    // empty case gets its own sentence and points at how to make one.
+    await assert.rejects(readSnapshot(dir.path, "2026-06-12T0915"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /no snapshots in/);
+      assert.match(error.message, /s3cab snapshot/);
+      assert.doesNotMatch(error.message, /newest first/);
+      return true;
+    });
+  });
+});
