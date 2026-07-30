@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { join, posix, resolve, sep } from "node:path";
+import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { formatCount, secondsSince } from "./format.mjs";
@@ -88,6 +88,10 @@ export function readExcludePatterns(excludePath) {
  * ([ADR-0054](../../docs/adr/0054-missing-member-dir-aborts.md)) — the failure is
  * loud and lists every offender at once, and the fix is to reconnect the drive or
  * edit `dirs.txt`. An empty `dirs.txt` is the degenerate case (nothing to back up).
+ *
+ * Entries must be **absolute on this platform**, checked first because it is the
+ * sharper diagnosis of the same symptom
+ * ([ADR-0071](../../docs/adr/0071-snapshot-paths-absolute-native.md)).
  * @param {BackupSet} set
  */
 function assertWalkableDirs(set) {
@@ -96,6 +100,30 @@ function assertWalkableDirs(set) {
       `Backup set '${set.name}' has no directories to back up.\n` +
         `Add one absolute path per line to:\n` +
         `  ${set.dirsPath}`,
+    );
+  }
+
+  // One test, two causes, and they cannot be told apart without guessing at path
+  // shapes — so the message states the fact and offers both. A *relative* entry
+  // is refused outright: it would make the set's contents depend on the working
+  // directory s3cab happened to be run from, which is no way to run a backup. A
+  // *foreign absolute* entry is a set adopted from another OS, where `dirs.txt`
+  // arrives verbatim and `C:\Users\me\Photos` is not an unplugged drive.
+  // Same `isAbsolute` test `restore` applies to snapshot paths, with the same
+  // one-way limit: Windows treats a leading `/` as rooted, so a POSIX `dirs.txt`
+  // read on Windows falls through to "aren't available" below — still loud, and
+  // still pointing at the file to edit.
+  const notHere = set.dirs.filter((dir) => !isAbsolute(dir));
+  if (notHere.length) {
+    throw new Error(
+      `These entries in backup set '${set.name}' aren't full paths to folders on this computer:\n` +
+        notHere.map((dir) => `  ${dir}`).join("\n") +
+        `\nEach line has to be a full path — a partial one would change what gets ` +
+        `backed up depending on which folder you ran s3cab from. A set first set ` +
+        `up on a different kind of computer reads this way too. Edit the list:\n` +
+        `  ${set.dirsPath}\n` +
+        `Or, to get files back from a backup made elsewhere:\n` +
+        `  s3cab restore --set ${set.name} --output <folder>`,
     );
   }
 

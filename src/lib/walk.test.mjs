@@ -382,3 +382,55 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
     },
   );
 });
+
+describe("walkSet requires absolute member directories (ADR-0071)", () => {
+  it("refuses a relative entry, and says why a full path is needed", async () => {
+    await using dir = await mkTmpDir();
+    // `mkTmpDir` builds under a relative root, so `dir.path` is already the case:
+    // a set seeded this way would back up different files from a different cwd.
+    const set = setOf(realpathSync.native(dir.path), [dir.path]);
+    assert.throws(
+      () => walkSet(set),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(dir.path) &&
+        /full path/.test(error.message) &&
+        // the generic ADR-0054 message must not win the race …
+        !/aren't available/.test(error.message) &&
+        // … and both ways out are offered.
+        error.message.includes(set.dirsPath) &&
+        /--output/.test(error.message),
+    );
+  });
+
+  // POSIX-only by necessity, not convenience: `C:\Users\me\Photos` *is* absolute
+  // on Windows, so the case this covers — a Windows set adopted by `reattach` —
+  // can only be reproduced from the other side.
+  it(
+    "covers a path absolute on another OS with the same message",
+    posixOnly,
+    async () => {
+      await using dir = await mkTmpDir();
+      const root = realpathSync.native(dir.path);
+      // The reason one message names both causes: `isAbsolute` cannot tell this
+      // from a relative entry, and guessing at path shapes to try would be worse.
+      const foreign = "C:\\Users\\me\\Photos";
+      assert.throws(
+        () => walkSet(setOf(root, [foreign])),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(foreign) &&
+          /different kind of computer/.test(error.message),
+      );
+    },
+  );
+
+  it("still reports a genuinely missing absolute directory as unavailable", async () => {
+    await using dir = await mkTmpDir();
+    const root = realpathSync.native(dir.path);
+    assert.throws(
+      () => walkSet(setOf(root, [join(root, "gone")])),
+      /aren't available/,
+    );
+  });
+});

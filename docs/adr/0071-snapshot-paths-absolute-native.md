@@ -1,8 +1,8 @@
 # Snapshot paths stay absolute and OS-native; portability is `restore --output`
 
-**Status:** accepted; the `assertWalkableDirs` message is not yet implemented. Settles the
-"relative paths" and "cross-platform restore" questions the snapshot-format proposal carried.
-Extends [0004](0004-tsv-snapshot-manifests.md) (the row grammar) and rests on
+**Status:** accepted & implemented. Settles the "relative paths" and "cross-platform restore"
+questions the snapshot-format proposal carried. Extends
+[0004](0004-tsv-snapshot-manifests.md) (the row grammar) and rests on
 [0002](0002-no-lock-in-hard-constraint.md).
 
 ## Context
@@ -77,4 +77,26 @@ The "path-translation story" exists and is `--output`:
   macOS hits `assertWalkableDirs`, which reports the directories as unavailable — "an unplugged
   drive, a deleted or renamed folder" — none of which is true. The fix (edit `dirs.txt`) is
   right, the diagnosis is not; `assertWalkableDirs` gains a branch for paths that aren't absolute
-  on this platform, naming the cross-OS cause and pointing at `--output` for recovering the data.
+  on this platform, naming the cause and pointing at `--output` for recovering the data.
+
+### `dirs.txt` entries must be absolute (decided while implementing the above)
+
+**A relative entry is refused outright**, where it previously worked (resolved against the
+process's working directory). It has to be: a relative member directory makes **the set's
+contents depend on the folder s3cab happened to be run from** — the same `s3cab backup photos`
+would walk a different tree from a different prompt. That is not a property a backup tool can
+have. `setup` has only ever written absolute paths (via `resolveDirectories`), and both
+guide/format.md and the empty-`dirs.txt` error already called for them, so this makes the stated
+contract enforced rather than assumed.
+
+**One message covers both causes, deliberately.** `isAbsolute` is false for a relative entry
+*and* for a path absolute on another OS, and nothing short of guessing at path shapes
+(`/^[A-Za-z]:[\\/]/`) can tell them apart — a heuristic this ADR would rather not carry
+([0006](0006-minimal-code.md)). So the error states the *fact* (not a full path to a folder on
+this computer), gives the concrete reason a full path is required, and names the cross-OS case as
+the other way to arrive here. Claiming one cause when it cannot know is the failure this whole
+consequence exists to fix.
+
+It inherits `restore`'s one-way limitation, too: Windows treats a leading `/` as rooted, so a
+POSIX `dirs.txt` read on Windows falls through to the generic "aren't available" — still loud,
+still pointing at the file to edit.

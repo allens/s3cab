@@ -486,12 +486,11 @@ Pre-release housekeeping and open decisions surfaced from the code:
   standing trap: the coverage flags must **precede** the glob positionals — the
   `npm run test -- --experimental-test-coverage` shape collects nothing and exits 0, so
   don't reintroduce it (package.json can't carry a comment saying so; this is the warning).
-- **The settled snapshot-format decisions are not yet built.** ADRs
-  [0071](docs/adr/0071-snapshot-paths-absolute-native.md)–[0073](docs/adr/0073-refuse-tab-newline-paths.md)
-  are accepted but unimplemented: the widened `#SNAPSHOT` line and UTC record headers
-  (0072, plus its warn-only clock checks), the tab/newline refusal (0073, which closes
-  [ADR-0004](docs/adr/0004-tsv-snapshot-manifests.md)'s open edge case), and the cross-OS
-  branch in `assertWalkableDirs` (0071).
+- **The timestamp rework ([ADR-0072](docs/adr/0072-timestamps-utc-in-files-local-in-names.md))
+  is settled but not built** — the repurposed `#SNAPSHOT` columns, UTC record headers,
+  `parseSnapshotStream` surfacing the instant and zone, `CREATED` rendered as a date in the
+  set-collision error, and the two warn-only clock checks. (0071 and 0073 are now
+  implemented.)
 - **Stable doc URLs — settled: everything we print is `https://s3cab.plantegral.com/...`, never
   a `github.com` link.** A shipped binary freezes its URLs and `setup`'s starter `exclude.txt`
   writes one into a file s3cab never rewrites, so a printed URL can never be corrected for

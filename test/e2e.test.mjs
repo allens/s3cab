@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 
 // Drive the real CLI entry as a subprocess.
@@ -74,7 +74,13 @@ function runWithHome(home, ...args) {
 function seedSet(home, name, dirs, bucket = "seed-bucket") {
   const setDir = join(home, ".s3cab", "sets", name);
   mkdirSync(setDir, { recursive: true });
-  writeFileSync(join(setDir, "dirs.txt"), dirs.join("\n") + "\n");
+  // Absolute, like `setup` writes (via `resolveDirectories`) and like the walk
+  // now requires: a relative entry would make the set's contents depend on the
+  // working directory (ADR-0071). These cases build their paths under a
+  // `test/.tmp…` relative root, so without this they would seed what a real set
+  // can never contain.
+  const absolute = dirs.map((dir) => resolve(dir));
+  writeFileSync(join(setDir, "dirs.txt"), absolute.join("\n") + "\n");
   writeFileSync(join(setDir, "env"), `S3CAB_BUCKET=${bucket}\n`);
 }
 
