@@ -9,7 +9,7 @@ import { createProgress } from "./progress.mjs";
 import {
   listSnapshotNames,
   readParkedLookup,
-  readSnapshot,
+  readSnapshotFile,
   snapshotFileName,
   snapshotName,
   writeSnapshot,
@@ -66,12 +66,14 @@ export async function readBaseline(set, { rehash } = {}) {
     // One line for the whole step, naming the file it reads. `readSnapshotFile`
     // used to log a second "Read snapshot file … in N sec" of its own on the way
     // out — two lines for one step, and a duration that is a second or two on
-    // even a large set. `listSnapshotNames` only yields names backed by a
-    // `.tsv.zst`, so composing the path here lands on exactly the file
-    // `readSnapshot` goes on to resolve.
+    // even a large set. The path is composed once and then *read*, rather than
+    // announced here and resolved again by `readSnapshot`: the file named is the
+    // file opened, by identity rather than by two derivations agreeing.
+    // `listSnapshotNames` only yields names backed by a `.tsv.zst`, so the
+    // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
-    const { entries } = await readSnapshot(snapshotDir, name);
+    const { entries } = await readSnapshotFile(path);
     previous = entries;
   }
 

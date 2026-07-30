@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
+import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
 import { fileChange, uploadDir, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
@@ -84,7 +85,15 @@ import { prop } from "./prop.mjs";
  * @returns {Promise<UploadResult>}
  */
 export async function upload(setName, options = {}) {
-  const { file, snapshot: snapshotName, dir, bucket, since, force } = options;
+  const { file, dir, bucket, force } = options;
+  // `--snapshot`/`--since` name snapshots, and the user may have either spelling
+  // to hand: `list` prints bare names, but the file in the set's snapshots folder
+  // is `<name>.tsv.zst`. Accept both by canonicalizing here at the boundary, as
+  // `compare` does (ADR-0011) — so the name that reaches the resolver, the error
+  // message, and the result is the bare one, and `readSnapshot` stays strict
+  // about resolving exactly one filename from it.
+  const snapshotName = normalizeSnapshotName(options.snapshot);
+  const since = normalizeSnapshotName(options.since);
 
   // ── Fail-fast validation (ADR-0044 §7, ADR-0011): flag conflicts before any
   // work. These are usage errors (ParseArgsError → exit 2, prints the synopsis),

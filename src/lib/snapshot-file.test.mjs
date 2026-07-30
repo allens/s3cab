@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { zstdDecompressSync } from "node:zlib";
+import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
   listSnapshotNames,
@@ -223,6 +223,49 @@ describe("normalizeSnapshotName", () => {
     assert.equal(normalizeSnapshotName(`${name}.tsv`), name);
     assert.equal(normalizeSnapshotName(name), name);
     assert.equal(normalizeSnapshotName(undefined), undefined);
+  });
+});
+
+// readSnapshot resolves a name to the one file a snapshot can be — its
+// `<name>.tsv.zst`. The round-trip through it is asserted under writeSnapshot
+// below; what these pin is the *resolution*, which used to try `<name>` and
+// `<name>.tsv` first and accept anything `existsSync` liked.
+describe("readSnapshot", () => {
+  const name = "2026-06-23T1000";
+  const file = "/home/me/a.txt";
+
+  /** @param {string} snapshotDir */
+  const writeRealSnapshot = (snapshotDir) =>
+    writeFileSync(
+      join(snapshotDir, snapshotFileName(name)),
+      zstdCompressSync(
+        [
+          "#SNAPSHOT\t\t2026-06-23T10:00\tphotos",
+          `${hashA}\t3\t2026-06-23T10:00:00.000Z\t${file}`,
+        ].join("\n"),
+      ),
+    );
+
+  it("reads the snapshot even with a same-named directory beside it", async () => {
+    // The `backup` crash this fixes: decompressing a snapshot by hand leaves a
+    // `<name>.tsv` next to it, and if that name is a *directory* the old
+    // candidate list resolved to it and died on EISDIR mid-read.
+    await using dir = await mkTmpDir();
+    writeRealSnapshot(dir.path);
+    mkdirSync(join(dir.path, `${name}.tsv`));
+    mkdirSync(join(dir.path, name));
+
+    const { entries } = await readSnapshot(dir.path, name);
+    assert.deepEqual([...entries.keys()], [file]);
+  });
+
+  it("treats a directory named like the snapshot file as not found", async () => {
+    await using dir = await mkTmpDir();
+    mkdirSync(join(dir.path, snapshotFileName(name)));
+
+    // Not an EISDIR out of a read stream: only a regular file is a snapshot,
+    // so this is the same "no such snapshot" the lister would imply.
+    await assert.rejects(readSnapshot(dir.path, name), /not found/);
   });
 });
 

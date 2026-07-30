@@ -15,7 +15,7 @@ import { join, normalize, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { writeSet } from "../lib/sets.mjs";
-import { readSnapshot } from "../lib/snapshot-file.mjs";
+import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -218,11 +218,10 @@ function parkSentinelHashes(snapshotsDir) {
  * @param {string} snapshotsDir
  */
 async function hashesIn(snapshotsDir) {
-  const names = readdirSync(snapshotsDir).filter((n) => !n.startsWith("."));
-  const { entries } = await readSnapshot(
-    snapshotsDir,
-    names.sort().at(-1) ?? "",
-  );
+  // Via the lister, as production does: it yields bare snapshot names (and
+  // skips the dot-prefixed lookup file), which is what `readSnapshot` resolves.
+  const name = listSnapshotNames(snapshotsDir, { latest: true });
+  const { entries } = await readSnapshot(snapshotsDir, name ?? "");
   return [...entries.values()].map((props) => props.hash);
 }
 

@@ -1,5 +1,11 @@
 import assert from "node:assert";
-import { createReadStream, existsSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { open, rename, unlink } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -425,6 +431,18 @@ export async function writeSnapshot(
 
 /**
  * Read a snapshot by name from a snapshot directory.
+ *
+ * One candidate, composed by `snapshotFileName`: a snapshot *is* its
+ * `<name>.tsv.zst`, so the name this resolves is exactly the name the writer
+ * lands on and `listSnapshotNames` reports. It used to try `<name>` and
+ * `<name>.tsv` first (carried from the initial commit, never a decision), which
+ * bought nothing — a name arrives here either straight from the lister or
+ * extension-stripped by `normalizeSnapshotName` — and cost a real failure: a
+ * *directory* called `<name>.tsv` beside the snapshot passed the bare
+ * `existsSync` and made `backup` die on `EISDIR`. Hence the `isFile` test too:
+ * only a regular file is a snapshot, matching `listSnapshotNames`'s
+ * `dirent.isFile()` filter, so anything else reads as "not found" rather than
+ * failing deep in a read stream.
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string} name - Snapshot name
  * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
@@ -434,14 +452,13 @@ export async function writeSnapshot(
 export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");
   assert(name, "No snapshot name specified");
-  const base = join(snapshotDir, name);
 
-  for (const path of [base, base + ".tsv", base + ".tsv.zst"]) {
-    if (existsSync(path)) {
-      return readSnapshotFile(path);
-    }
+  const path = join(snapshotDir, snapshotFileName(name));
+  const stats = statSync(path, { throwIfNoEntry: false });
+  if (!stats?.isFile()) {
+    throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
   }
-  throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
+  return readSnapshotFile(path);
 }
 
 /**

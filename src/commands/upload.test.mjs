@@ -244,6 +244,24 @@ describe("upload --snapshot (a snapshot's objects)", () => {
 
     assert.equal(uploadSnapshotCalls[0]?.since, undefined);
   });
+
+  it("takes a snapshot's filename as readily as its name", async () => {
+    // Either spelling is to hand — `list` prints the name, the snapshots folder
+    // holds the `.tsv.zst`. Both are canonicalized here, at the boundary, so the
+    // strict resolver downstream only ever sees a bare name (and so does the
+    // result, rather than echoing back whatever was typed).
+    const result = await upload("photos", {
+      snapshot: "2026-01-02T0900.tsv.zst",
+      since: "2026-01-01T0900.tsv",
+    });
+
+    assert.equal(uploadSnapshotCalls[0]?.name, "2026-01-02T0900");
+    assert.equal(uploadSnapshotCalls[0]?.since, "2026-01-01T0900");
+    assert.equal(
+      result.mode === "snapshot" && result.snapshot,
+      "2026-01-02T0900",
+    );
+  });
 });
 
 // The confirmation guard on the single-file path. It has the same hash-then-PUT
