@@ -657,11 +657,17 @@ export function renderUpload(result) {
     // each one is a file the user asked to seed and didn't get, so say which and
     // what to do. The reason word (`changed`/`removed`/`unreadable`) is already
     // plain English, so it needs no mapping.
+    //
+    // The header stays **reason-neutral** deliberately: a file can be skipped for
+    // any of the three, and naming one of them up here would contradict the
+    // `(removed)` printed two lines below it. What they share is that s3cab could
+    // not confirm the file still matched its fingerprint, which is the header's
+    // job; the per-file word says which.
     return [
       line,
       ``,
       `Skipped ${count(skipped.length)} ${plural(skipped.length, "file")} ` +
-        `that changed while being read:`,
+        `that couldn't be confirmed while being read:`,
       ...skipped.map(({ path, reason }) => `  ${path}   (${reason})`),
       ``,
       `Nothing references them, so there is nothing to repair — a backup will ` +

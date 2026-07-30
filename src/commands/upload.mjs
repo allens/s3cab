@@ -39,8 +39,9 @@ import { prop } from "./prop.mjs";
  *   until a backup names them — the safe orphan direction. Always needs a set (its excludes come
  *   from the set), so `--bucket`/`--force`/`--since` are rejected. The seeding walk lives in
  *   `uploadDir` (storing itself is the shared PUT loop's job); `upload` only validates and
- *   dispatches. A file that changes while being read is **skipped and named**, and the run still
- *   succeeds — no manifest is published here, so a skip leaves nothing inconsistent.
+ *   dispatches. A file s3cab can't confirm while reading it — changed, removed, or gone unreadable
+ *   — is **skipped and named**, and the run still succeeds: no manifest is published here, so a
+ *   skip leaves nothing inconsistent.
  *
  * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
  * snapshot — is `snapshot`-time machinery via `prop`'s `lookup`, not `upload`'s concern; the
@@ -66,7 +67,8 @@ import { prop } from "./prop.mjs";
  * @property {string} dir - The folder that was walked and seeded
  * @property {number} candidates - Distinct objects walked
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
- * @property {Drift[]} skipped - Files that changed while being read, so were not stored
+ * @property {Drift[]} skipped - Files that couldn't be confirmed while being read (changed,
+ *   removed, or unreadable), so were not stored; each carries its `reason`
  *
  * @typedef {FileUploadResult | SnapshotUploadResult | DirUploadResult} UploadResult
  *

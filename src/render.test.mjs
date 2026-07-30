@@ -825,7 +825,7 @@ describe("renderUpload", () => {
     });
 
     assert.match(text, /uploaded 38 of 40 objects/);
-    assert.match(text, /Skipped 2 files that changed while being read:/);
+    assert.match(text, /Skipped 2 files that couldn't be confirmed/);
     assert.match(
       text,
       / {2}\/home\/me\/Photos\/2026\/live\.raw {3}\(changed\)/,
@@ -847,7 +847,9 @@ describe("renderUpload", () => {
       uploaded: 0,
       skipped: [{ path: "/d/x.raw", reason: "unreadable" }],
     });
-    assert.match(text, /Skipped 1 file that changed/);
+    // Reason-neutral header, so an `unreadable` skip is not described as a change.
+    assert.match(text, /Skipped 1 file that couldn't be confirmed/);
+    assert.doesNotMatch(text, /changed/);
   });
 });
 
