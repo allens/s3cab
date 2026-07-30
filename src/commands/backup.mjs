@@ -72,11 +72,18 @@ export async function backup(setName, options = {}) {
     baseline: previous,
   });
 
-  const uploader = uploadObjects({ bucket: set.bucket, stored });
+  const uploader = uploadObjects({
+    bucket: set.bucket,
+    stored,
+    ownProgress: true,
+  });
   const { name } = await generateSnapshot(set, {
     lookup,
     previousInstant,
     through: uploader.through,
+    // Both halves of the fused pass report into one progress line: `through`
+    // does the sending, `transfer` is how that sending is going.
+    transfer: uploader.transfer,
     debug: options.debug,
   });
 

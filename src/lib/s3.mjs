@@ -39,6 +39,17 @@ import { isInteractive } from "./style.mjs";
 /** @import { S3ClientConfig, _Object, PutObjectCommandInput } from "@aws-sdk/client-s3" */
 /** @import { Progress } from "@aws-sdk/lib-storage" */
 
+/**
+ * One file's transfer, as it stands right now: which file, how many of its bytes
+ * have gone, and how many there are. Reported by `putFile` to a caller that has
+ * taken over the drawing (`onProgress`); `total` is the file's own size rather
+ * than the SDK's, which is absent on the first event.
+ * @typedef {Object} Transfer
+ * @property {string} path - The local file being sent
+ * @property {number} loaded - Bytes transferred so far
+ * @property {number} total - The file's size in bytes
+ */
+
 // This is the single module in the production app that imports the AWS S3 SDK:
 // every S3 operation goes through the functions exported here. Keeping the SDK
 // behind one boundary localizes the one heavyweight dependency and lets the
@@ -633,10 +644,12 @@ export function putObjectParams(uri, { noClobber } = {}) {
  * @param {string} uri - The S3 URI.
  * @param {object} [options] - The options.
  * @param {boolean} [options.noClobber] - Do not overwrite existing files.
+ * @param {(transfer: Transfer) => void} [options.onProgress] - Take the transfer's
+ *   bytes instead of the built-in byte bar, for a caller drawing its own line.
  * @returns {Promise<boolean>} True if the file was uploaded.
  */
 export async function putFile(path, uri, options = {}) {
-  const { noClobber } = options;
+  const { noClobber, onProgress } = options;
 
   const { size } = statSync(path);
 
@@ -663,26 +676,56 @@ export async function putFile(path, uri, options = {}) {
     queueSize,
   });
 
-  // The in-place byte bar (interactive only; the TTY gate and the closing
-  // newline — drawn only if a bar was — live in lib/progress.mjs). `cursor: fill`
-  // rests the terminal cursor inside the bar. Progress is not the command's
-  // result, so it goes to stderr (stream discipline).
+  // Two ways to show a transfer, and the caller picks by whether it wants the
+  // bytes for itself:
+  //
+  // - `onProgress` given — the caller is drawing a line of its own and this
+  //   upload is one part of it, so report and draw nothing. That is the fused
+  //   backup pass (ADR-0069), where a bar per file would fight the run counter
+  //   for the same row of the terminal; the numbers arrive as the suffix of
+  //   *its* line instead.
+  // - Otherwise — no one else is drawing, so put up the in-place byte bar, but
+  //   only for a body big enough to go up in parts. Below that threshold (the
+  //   same one the no-clobber preflight uses above) the upload is a single PUT,
+  //   so the bar can only ever paint full: thousands of flashes for a photo
+  //   directory. It earns its line on the multi-GB files, where it is the only
+  //   thing that moves for minutes.
+  //
+  // Either way progress is not the command's result, so it goes to stderr
+  // (stream discipline), and the TTY gate lives in lib/progress.mjs.
   using progress = createProgress(process.stderr);
-  upload.on("httpUploadProgress", (event) => {
-    const { message, fill } = formatUploadProgress(event, path);
-    progress.update(message, { cursor: fill });
-  });
+  if (onProgress) {
+    // `total` is absent on the SDK's first event; the file's own size is the
+    // truth anyway, so the caller never sees a percentage of an unknown.
+    upload.on("httpUploadProgress", ({ loaded = 0 }) => {
+      onProgress({ path, loaded, total: size });
+    });
+  } else if (size >= partSize) {
+    upload.on("httpUploadProgress", (event) => {
+      const { message, fill } = formatUploadProgress(event, path);
+      progress.update(message, { cursor: fill });
+    });
+  }
 
   try {
     await upload.done();
   } catch (error) {
     if (noClobber && isPreconditionFailed(error)) {
-      // Already present — no upload, no summary line (`using` closes any bar).
+      // Already present — no upload, and nothing to leave behind.
+      progress.clear();
       return false;
     } else {
+      // A real failure keeps its bar: disposal closes the line, so the error
+      // prints below the transfer it belongs to rather than over it.
       throw error;
     }
   }
+
+  // The bar was *live* progress, not a record — wipe it now the transfer is
+  // done. Left standing, every completed file would keep its finished bar, and a
+  // run would scroll a wall of identical full bars past whatever line is
+  // actually tracking the run.
+  progress.clear();
 
   if (!isInteractive(process.stderr)) {
     // No bar was drawn — leave one summary line as the log evidence, named by

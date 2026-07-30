@@ -16,6 +16,7 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
  * @import { Props, RowTransform, SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs"
+ * @import { Transfer } from "./s3.mjs"
  */
 
 // The upload verb module: what counts as already stored (`storedHashes`), the
@@ -99,18 +100,37 @@ export async function storedHashes({ bucket, set, since, baseline }) {
   const start = Temporal.Now.instant();
   const label = `Scanning existing objects in 's3://${bucket}'…`;
   using progress = createProgress(stderr);
-  // Paint the label before the first request, not 500 objects into the listing:
-  // ADR-0044/0045 put this announce *ahead* of the LIST precisely because the
-  // wait is unpredictable, and a bucket slow to answer is exactly when a blank
-  // screen reads as a hang. Bare label, no count — a "0" would be worse.
+  // Paint the label before the first request, not once objects are already
+  // arriving: ADR-0044/0045 put this announce *ahead* of the LIST precisely
+  // because the wait is unpredictable, and a bucket slow to answer is exactly
+  // when a blank screen reads as a hang. Bare label, no count — a "0" would be
+  // worse.
   progress.update(label);
   /** @type {Set<string>} */
   const stored = new Set();
-  for await (const hash of listObjectHashes(bucket)) {
-    stored.add(hash);
-    if (stored.size % 500 === 0) {
-      progress.update(`${label} ${formatCount(stored.size)}`);
+
+  // A clock, not the arriving keys, drives this line — the one progress line
+  // here whose data comes in bursts. `listObjects` does `yield* page.Contents`,
+  // so a whole LIST page (1,000 keys) drains with no wait between items: gating
+  // on the redraw interval instead meant the first key after each round trip
+  // drew and the other 999 were held, so the count only ever appeared as a
+  // multiple of 1,000 *plus one* and then sat still for the next round trip. On
+  // a timer the count is sampled whenever it fires — whatever has really landed
+  // — and the elapsed figure keeps moving across the wait rather than freezing
+  // on it. `unref` so a pending tick can never hold the process open; the
+  // `finally` stops it if the LIST throws.
+  const ticking = setInterval(() => {
+    progress.update(
+      `${label} ${formatCount(stored.size)} in ${secondsSince(start)}`,
+    );
+  }, 1000);
+  ticking.unref();
+  try {
+    for await (const hash of listObjectHashes(bucket)) {
+      stored.add(hash);
     }
+  } finally {
+    clearInterval(ticking);
   }
 
   const summary = `${label} ${formatCount(stored.size)} in ${secondsSince(start)}`;
@@ -198,7 +218,16 @@ export function planUpload(target, stored) {
  * @typedef {Object} ObjectUploader
  * @property {RowTransform} through - The transform to splice into a snapshot pipeline
  * @property {(rows: Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>) => Promise<void>} run - Drain a row source through the transform instead
+ * @property {() => TransferState} transfer - How the sending is going *right now*, for a progress line
  * @property {() => UploadOutcome} result - What happened, once the rows have drained
+ */
+/**
+ * The sending, as it stands right now — what a progress line needs and nothing
+ * more. Read (never subscribed to), so the renderer pulls at its own cadence
+ * rather than the SDK's event rate driving redraws.
+ * @typedef {Object} TransferState
+ * @property {number} sent - Bytes gone up so far this run, including the file in flight
+ * @property {Transfer | null} current - The file being sent, or null between transfers
  */
 
 /**
@@ -247,9 +276,11 @@ export function planUpload(target, stored) {
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {Set<string>} args.stored - Hashes that need no upload (`storedHashes`)
+ * @param {boolean} [args.ownProgress] - The caller draws its own progress line and
+ *   will read {@link ObjectUploader.transfer}, so per-file byte bars stay off
  * @returns {ObjectUploader}
  */
-export function uploadObjects({ bucket, stored }) {
+export function uploadObjects({ bucket, stored, ownProgress = false }) {
   /** @type {Set<string>} */
   const seen = new Set();
   let candidates = 0;
@@ -259,6 +290,12 @@ export function uploadObjects({ bucket, stored }) {
   /** @type {Error | undefined} */
   let failure;
   let transfersStopped = false;
+  // Bytes of *finished* transfers, plus whichever file is in flight — kept apart
+  // so the running total climbs smoothly through a big file instead of standing
+  // still for minutes and then jumping by its whole size.
+  let settled = 0;
+  /** @type {Transfer | null} */
+  let inFlight = null;
 
   /** @type {RowTransform} */
   async function* through(rows) {
@@ -277,14 +314,28 @@ export function uploadObjects({ bucket, stored }) {
         if (change) {
           drifted.push({ path, ...change });
         } else if (!transfersStopped) {
+          inFlight = { path, loaded: 0, total: props.size };
           try {
-            const didUpload = await putObject(bucket, props.hash, path);
+            // Only take the bytes when someone is drawing them. Left on
+            // unconditionally it would suppress `putFile`'s own byte bar for
+            // callers that have no line of their own (`uploadSnapshot`, the
+            // folder seed), leaving a long transfer showing nothing at all.
+            const didUpload = await putObject(bucket, props.hash, path, {
+              onProgress: ownProgress
+                ? (transfer) => {
+                    inFlight = transfer;
+                  }
+                : undefined,
+            });
             if (didUpload) {
               uploaded++;
+              settled += props.size;
             }
           } catch (error) {
             failure ??= Error.isError(error) ? error : new Error(String(error));
             transfersStopped = true;
+          } finally {
+            inFlight = null;
           }
         }
       }
@@ -301,6 +352,10 @@ export function uploadObjects({ bucket, stored }) {
         void row;
       }
     },
+    transfer: () => ({
+      sent: settled + (inFlight?.loaded ?? 0),
+      current: inFlight,
+    }),
     result: () => ({ candidates, uploaded, drifted, failure }),
   };
 }
