@@ -33,99 +33,10 @@ the **network-resilience** work (ADR-0065/0068), **interrupt hash-parking** (ADR
 **fused snapshot+upload pipeline** (ADR-0069): 73 commits (PRs #217–#245) since the open list was
 last emptied. Verified against the source at HEAD `0268c73`. Verdict: the new subsystems followed
 the house plan/execute pattern rather than inventing one, so three of the four candidates are
-duplications *between* modules, and the fourth is a guard that one path never got. **C landed
-2026-07-30** (run log below); A, B and D remain open.
+duplications *between* modules, and the fourth is a guard that one path never got. **A and C both
+landed 2026-07-30** (run log below); **B and D remain open**, and must not be built concurrently —
+see the note under B.
 
-- **A — fold `uploadDir` into the one PUT loop** — **Strong**. `src/lib/upload.mjs`'s header
-  states the design as "One PUT loop, one drift guard, two sources". There are **two** loops and
-  **three** sources: `uploadDir` (l.387, from [#227](https://github.com/allens/s3cab/pull/227))
-  hand-rolls its own `seen`-dedup + `putObject` loop, and
-  [#245](https://github.com/allens/s3cab/pull/245) built `uploadObjects` (l.192) beside it without
-  folding it in. The cost is a **live correctness gap, not tidiness**: `uploadObjects` re-checks
-  size+mtime between hashing and PUTting because — its own words — "the store trusts the hash on
-  write, so PUTting its current bytes would file them under the recorded content's hash —
-  corrupting that object for every snapshot and path that dedups to it, surfacing only at
-  restore." `uploadDir` has the identical window (`fileProps` reads and hashes, then `putObject`
-  streams the file again) and **no guard**. The window is widest for exactly what `upload --dir`
-  is for: seeding priority folders — the multi-GB video population, where one file hashes for
-  *minutes* before the PUT re-reads it. `upload --file` shares the shape (`prop()` then
-  `putObject`) at one-file stakes. Sketch: `uploadDir` becomes a **row source** (walk → hash →
-  yield `[path, Props]`) `run` through `uploadObjects` with an empty `stored` set — its
-  `seen`/`uploaded` counters and `{ candidates, uploaded }` return are already what
-  `uploadObjects.result()` reports. Grill: what a drifted file should *do* on a path that writes
-  no snapshot, and the drift error's wording (it names `s3cab backup <set>`, honest advice but
-  phrased as though a snapshot was written). **The missing guard is also a bug in its own right**
-  — it belongs in [bugs.md](bugs.md) whether or not the refactor is taken.
-
-  **Grilled 2026-07-29/30 — decisions recorded before building** (the PR #168 pattern: settle it in
-  the entry, then build small-to-large, so the design survives a session boundary; #246 landing in
-  this very file mid-grilling proved concurrent work here is live). Re-verified at `f600f9d`: #246
-  touched only `storedHashes`' progress output, so **A's premise is intact** — both loops, the
-  unguarded `uploadDir` and the false header all stand (anchors moved ~+27 lines: header l.31,
-  `uploadObjects` l.219, `fileChange` l.297, `uploadDir` l.414). The "Grill:" questions above are
-  answered below.
-  - **Unify, don't fix in place.** The absent guard is a *symptom* of the duplicate loop; patching it
-    where it sits leaves the loop that will miss the next invariant too. `uploadDir` becomes a **row
-    source** (walk → hash → yield `[path, Props]`) `run` through `uploadObjects`. Rows must be
-    produced **lazily** so hash→PUT→next-file still interleaves per file rather than hashing the
-    whole subtree first, and the seed keeps **no store LIST** (`stored = new Set()`; the conditional
-    PUT is its already-stored check, as documented). `fileProps` already returns exactly the `Props`
-    shape `fileChange` compares against, so no adapter is needed.
-  - **Drift on the seed: skip, report, exit 0** — the load-bearing asymmetry. On
-    `backup`/`uploadSnapshot` drift *must* fail the run, because a published manifest would
-    reference an object that was never stored. The seed publishes **no manifest**, so once the guard
-    has refused the wrong bytes nothing downstream is inconsistent and the next `backup` stores the
-    file properly. `uploadSnapshot` is behaviourally untouched; `--force` never interacts with the
-    guard (it means "overwrite deliberately").
-  - **`result()` returns two fields, `{ drifted, failure }`** — and this **fixes a live masking
-    defect**, not just a style point. Today one `failure` slot is first-wins, so a drift at row 1
-    followed by a network death at row 5 leaves the transport failure invisible; `backup` still
-    fails but blames the wrong thing, and a seed that *tolerates* drift would have exited 0 on a
-    dead link. Drift is genuinely plural and per-file; a transport failure is singular and terminal.
-    So `backup` now checks `failure` **before** `drifted`.
-  - **`drifted` is data**, `(FileChange & { path })[]`, not pre-built errors — the
-    plan-returns-data / caller-formats split used everywhere else. `fileChangedError` and
-    `fileChange` become exported; `FileChange`/`fileChange` **keep their names** (they read
-    correctly — "how the file changed, or undefined"; inverting to `confirmFile` would return a
-    value when confirmation *fails*). **Consequence: `uploadObjects` loses its `set` parameter** —
-    it existed only to name the re-run command in the drift error, which the caller now builds. The
-    interface narrows to `{ bucket, stored }`, dissolving the "what set does a seed name?" question
-    rather than answering it.
-  - **`backup` names `drifted[0]` as today plus a count line** when there are more ("3 other files
-    changed the same way") — one drifting file is bad luck, forty means the set points at a live
-    directory, and the existing advice reads very differently in those two cases. Own commit.
-  - **`upload --dir` reports skips in the result, named in full** — `DirUploadResult` gains
-    `skipped: (FileChange & { path })[]`, rendered by `renderUpload` like `renderRestore`'s skipped
-    block, whose doc is on the nose: _"each entry is a file the user asked for and didn't get, so
-    name them all and say what to do about it."_ The result _is_ the report (ADR-0043), so `--json`
-    gets it free.
-  - **`upload --file` gets the guard but not the loop.** Routing it _through_ the transform fits
-    badly (`--force` means deliberate overwrite, `--bucket` runs with no set, the result shape
-    differs, and the dedup/`stored` machinery is dead weight for one file), but the corruption
-    consequence is identical and doesn't care that one file was involved — so `fileChange` is called
-    between `prop()` and `putObject`. It **throws** (one file is the whole command; `uploaded: false`
-    would be a lie), via its own small **plain-`Error`** factory with upload-framed wording:
-    `fileChangedError`'s body is mostly the "your snapshot is saved, nothing is re-hashed"
-    reassurance, meaningless here, and error.mjs's taxonomy says a subclass nobody catches by type
-    is unused identity.
-  - **Naming: `drifted` kept, after interrogating it.** The term was challenged as borrowed
-    CloudFormation/Terraform jargon. The rename **didn't hold up**: it never reaches user text in
-    this sense (the error says "it changed while the backup was running"; the only user-facing
-    "drift" strings are _clock_ drift, standard in S3's `RequestTimeTooSkewed` domain), the generic
-    "things getting out of sync" sense never shares a file with the file sense, and ADR-0012 governs
-    user prose rather than code identifiers. `unconfirmed` was the runner-up and reads flabbier in
-    situ (`if (drifted.length)` scans instantly; `unconfirmedFilesError` is a worse factory name);
-    `unverified` is ruled out outright by the `verify` command. **No CONTEXT.md entry** — the
-    glossary is the user-facing ubiquitous language, and an internal field name that never reaches a
-    user does not belong in it.
-  - **Delivery: one PR, four commits, each red-first** — (1) the `{ drifted, failure }` outcome
-    shape + exported factory, (2) `backup`'s count line, (3) `uploadDir` routed through the
-    transform + `skipped` in the result/render, (4) the `--file` guard. The `--dir` corruption test
-    is written to **fail first** (the PR #203 precedent — the red run is the proof). The gated
-    real-S3 suite must run: this is the S3 write path, which is exactly why that suite is
-    real-bucket. **ADR-0069 gets an amendment note** (the outcome shape and the third source) rather
-    than a new ADR — no new trade-off, a refined interface on an accepted decision. **No `bugs.md`
-    entry**: it would be filed and deleted inside one PR, so the run-log entry carries the record.
 - **D — name the bucket's unreadable snapshots** — **Strong**. `referencedObjects` yields per-set
   `unreadable: { snapshot, reason }[]`; every consumer wants the same *set-qualified, bucket-wide*
   derivation and every consumer builds it itself. Ten copies of one unnamed concept across five
@@ -167,6 +78,11 @@ duplications *between* modules, and the fourth is a guard that one path never go
   needing a home. **The table half is unchanged**, including both arguments against it. The
   `count`/`formatCount` split is a live inconsistency as of today, so it is a natural ride-along for
   whoever next opens render.mjs even if B is never taken whole.
+
+  **Sequencing: B and D must not be built concurrently.** D's four `${u.set}/${u.snapshot}` sites
+  include delete.mjs:389 and unrestorable.mjs:294, which sit *inside* the two format functions B's
+  table half rewrites. Either order works; overlapping does not. (B also touches render.mjs, which
+  A touched in a different region — that one merged cleanly.)
 
 **Examined & left alone (tenth pass)** (not candidates — skip future runs): the
 **destructive-command pattern** across delete/forget/cleanup (ADR-0064) — the non-interactive gate
@@ -659,3 +575,29 @@ least once; re-open only if the stated reason no longer holds.
   someone to drop). Behaviour-preservation verified against the real bucket —
   `npm run test:integration` green, where the set-marker suite's "first writer wins, the second
   loses" case *is* this path live.
+- **2026-07-30 — A landed** ([PR #248](https://github.com/allens/s3cab/pull/248), grilled in-session
+  with the decisions recorded in the entry first, then built red-first in four commits). *Give every
+  hash-then-PUT path the confirmation guard*: `uploadDir` never joined the shared PUT loop — it
+  predated it ([#227](https://github.com/allens/s3cab/pull/227) before
+  [#245](https://github.com/allens/s3cab/pull/245)) — so `upload --dir` had ADR-0069's
+  hash-then-PUT window with **no guard at all**, storing a file edited in that window under its
+  *previous* content's hash and corrupting that object for every path that dedups to it. **The red
+  run was the proof**: the corruption test asserted the stale hash was never written and failed
+  before the fix, with drift reproduced through the real mechanism (genuine props for the bytes
+  hashed, then the file edited) rather than by faking props. `uploadDir` is now a lazy row source
+  (a unit asserts the hash→PUT interleave, so a multi-GB seed still can't hash the subtree up
+  front); `upload --file` got the **guard but not the loop** (`--force` means deliberate overwrite,
+  `--bucket` has no set) with its own plain-`Error` factory. **A masking defect fell out of the
+  unification and was fixed too:** the outcome's single first-wins `failure` slot let an early drift
+  hide a later dropped connection, so `result()` now returns `{ drifted, failure }` — drift as
+  *plural per-file data*, transport failure as *singular and terminal*, checked first — which also
+  let `uploadObjects` drop its `set` parameter (`{ bucket, stored }`), since the caller now builds
+  the message. Being plural, drift also earned `backup` a count line (one drifting file is bad luck,
+  forty means the set points at a live directory). ADR-0069 amended rather than replaced (no new
+  trade-off, a refined interface). Copilot found one real defect — the seed's skip header said
+  "changed while being read" while the per-file reason printed `(removed)` two lines below, a
+  regression introduced when the layout was restructured; fixed reason-neutral, and its
+  low-confidence flag under-rated it, since one pinned test asserted "changed" about an
+  `unreadable` fixture. Naming footnote: `drifted` was challenged as borrowed CloudFormation
+  jargon and **kept** — it never reaches user text in this sense, and ADR-0012 governs user prose,
+  not code identifiers; no CONTEXT.md term for the same reason.
