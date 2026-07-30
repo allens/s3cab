@@ -5,7 +5,7 @@ import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { FileChangedError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
-import { formatCount, secondsSince } from "./format.mjs";
+import { formatCount, plural, secondsSince } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { createProgress } from "./progress.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
@@ -533,7 +533,7 @@ export function fileChangedError(drifted, set) {
   const others = drifted.length - 1;
   const alsoCount =
     others > 0
-      ? `${others} other file${others === 1 ? "" : "s"} couldn't be confirmed ` +
+      ? `${others} other ${plural(others, "file")} couldn't be confirmed ` +
         `either and ${others === 1 ? "was" : "were"} left out too.\n\n`
       : ``;
 

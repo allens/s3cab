@@ -333,8 +333,9 @@ describe("formatDeleteSummary", () => {
     );
     const text = formatDeleteSummary(plan, context);
     assert.match(text, /files no backup could restore/);
-    assert.match(text, /\/a +1 file +10B/);
-    assert.match(text, /total +2 files +20B +\(2 stored objects\)/);
+    assert.match(text, /^ {2}path +files +size$/m);
+    assert.match(text, /^ {2}\/a +1 +10B$/m);
+    assert.match(text, /total +2 +20B +\(2 stored objects\)/);
     assert.match(text, /Sets losing these files: mine \(2 files\)/);
     assert.doesNotMatch(text, /WARNING/);
   });

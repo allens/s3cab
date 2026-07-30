@@ -1,4 +1,9 @@
-import { formatByteValue } from "./format.mjs";
+import {
+  alignTotalTable,
+  formatByteValue,
+  formatCount,
+  plural,
+} from "./format.mjs";
 import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 import { pathMatcher } from "./restore.mjs";
 
@@ -298,9 +303,11 @@ export const unreadableDeleteMessage = (names, bucket) =>
 
 /**
  * The stdout summary — what the user reads before answering the prompt (or
- * after a dry run). The per-path table follows the unrestorable summary's
- * shape exactly (one layout whatever the count, numbers right-aligned,
- * sole-vs-shared attribution, the total under a rule); after it, the per-set
+ * after a dry run). The per-path table shares the unrestorable summary's
+ * layout by sharing its code (`alignTotalTable`) — one shape whatever the
+ * count, numbers right-aligned, sole-vs-shared attribution, the total under a
+ * rule — while the rows, their names and the stored-object count trailing the
+ * total stay this command's own; after it, the per-set
  * consent view — every set losing references, with the out-of-scope sets
  * called out hard under `--everywhere` (they are the rows the user must
  * recognize before typing the bucket name). The report file's path lands
@@ -325,42 +332,33 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
       ``,
     );
 
-    /** @type {[string, number, number][]} */
+    /** @type {[string, string, string][]} */
     const rows = plan.byPath.map(({ path, files: f, bytes }) => [
       path,
-      f,
-      bytes,
+      formatCount(f),
+      formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.byPath.length} paths`,
-        plan.sharedFiles,
-        plan.sharedBytes,
+        formatCount(plan.sharedFiles),
+        formatByteValue(plan.sharedBytes),
       ]);
     }
-    rows.push(["total", plan.totalFiles, plan.totalBytes]);
+    rows.push([
+      "total",
+      formatCount(plan.totalFiles),
+      formatByteValue(plan.totalBytes),
+    ]);
 
-    const label = Math.max(...rows.map(([name]) => name.length));
-    const fileCol = Math.max(...rows.map(([, f]) => files(f).length));
-    const byteCol = Math.max(
-      ...rows.map(([, , bytes]) => formatByteValue(bytes).length),
+    lines.push(
+      ...alignTotalTable(
+        ["path", "files", "size"],
+        rows,
+        `   (${formatCount(plan.deletable.length)} ` +
+          `${plural(plan.deletable.length, "stored object")})`,
+      ),
     );
-    const row = (/** @type {[string, number, number]} */ [name, f, bytes]) =>
-      `  ${name.padEnd(label)}  ${files(f).padStart(fileCol)}  ` +
-      `${formatByteValue(bytes).padStart(byteCol)}`;
-
-    const total = rows.pop();
-    for (const r of rows) {
-      lines.push(row(r));
-    }
-    if (total) {
-      lines.push(
-        `  ${" ".repeat(label)}  ${"─".repeat(fileCol + byteCol + 2)}`,
-        row(total) +
-          `   (${plan.deletable.length.toLocaleString("en")} stored ` +
-          `object${plan.deletable.length === 1 ? "" : "s"})`,
-      );
-    }
 
     const inScope = plan.bySet.filter((s) => s.inScope);
     if (inScope.length > 0) {
@@ -448,4 +446,4 @@ export function formatDeletePreviewFile(plan, record) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} file${n === 1 ? "" : "s"}`;
+const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;

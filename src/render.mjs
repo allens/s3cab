@@ -12,7 +12,7 @@
 // (ADR-0043 — the user manages volume with a pager or redirect).
 
 import { dirname, relative, sep } from "node:path";
-import { formatByteValue } from "./lib/format.mjs";
+import { formatByteValue, formatCount, plural } from "./lib/format.mjs";
 import { tildeify } from "./lib/home.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
@@ -102,7 +102,7 @@ export function renderCompareResult(result, { color = false } = {}) {
     // First snapshot: collapse the whole listing to a count + total size.
     const files = result.added.length;
     const bytes = sumSize(result.added);
-    const line = `First snapshot: ${count(files)} ${plural(files, "file")} (${formatByteValue(bytes)})`;
+    const line = `First snapshot: ${formatCount(files)} ${plural(files, "file")} (${formatByteValue(bytes)})`;
     const parts = [head, line];
     if (result.errors.length) {
       parts.push(errorSection(result.errors, shorten, paint));
@@ -423,7 +423,10 @@ export function renderProp(props) {
   const row = (label, value) => `${label.padEnd(8)}  ${value}`;
   const rows = [
     row("hash", props.hash),
-    row("size", `${count(props.size)} bytes (${formatByteValue(props.size)})`),
+    row(
+      "size",
+      `${formatCount(props.size)} bytes (${formatByteValue(props.size)})`,
+    ),
     row("modified", props.mtime),
   ];
   if (process.env.S3CAB_DEBUG && props.hashDuration !== undefined) {
@@ -444,7 +447,7 @@ export function renderStatus({ set, snapshot, backedUp, toUpload }) {
   const upload =
     toUpload === 0
       ? "up to date"
-      : `${count(toUpload)} ${plural(toUpload, "object")} to upload`;
+      : `${formatCount(toUpload)} ${plural(toUpload, "object")} to upload`;
   return [
     set,
     `  latest snapshot   ${snapshot}`,
@@ -481,8 +484,8 @@ export function renderVerify(result, { color = false } = {}) {
     : paint((t) => bold(green(t)))("all verified ✓");
 
   const head =
-    `${bucket}: ${count(sets.length)} ${plural(sets.length, "set")}, ` +
-    `${count(objectsChecked)} ${plural(objectsChecked, "object")} checked — ${verdict}`;
+    `${bucket}: ${formatCount(sets.length)} ${plural(sets.length, "set")}, ` +
+    `${formatCount(objectsChecked)} ${plural(objectsChecked, "object")} checked — ${verdict}`;
 
   // Deliberately deleted content (ADR-0064): context, not a finding — one line
   // per affected set, so the run's clean verdict and the "why are these files
@@ -502,7 +505,7 @@ export function renderVerify(result, { color = false } = {}) {
           ? `deleted ${dates.join(", ")}`
           : `${dates.length} deletions, latest ${dates.at(-1)}`;
       return (
-        `  ${set.set}   ${count(set.expectedMissing.length)} ` +
+        `  ${set.set}   ${formatCount(set.expectedMissing.length)} ` +
         `${plural(set.expectedMissing.length, "file")} deleted from backups ` +
         `(s3cab delete — ${when}; expected, not damage)`
       );
@@ -579,7 +582,7 @@ function problemDetail(p) {
   if (p.problem === "missing") {
     return `(in ${plural(p.snapshots.length, "snapshot")} ${p.snapshots.join(", ")})`;
   }
-  return `(recorded ${count(p.recordedSize ?? 0)} bytes, stored ${count(p.storedSize ?? 0)})`;
+  return `(recorded ${formatCount(p.recordedSize ?? 0)} bytes, stored ${formatCount(p.storedSize ?? 0)})`;
 }
 
 /**
@@ -616,9 +619,9 @@ function objectUploadLine(head, candidates, uploaded) {
   const objects = plural(candidates, "object");
   const detail =
     uploaded === candidates
-      ? `uploaded ${count(uploaded)} ${objects}`
-      : `uploaded ${count(uploaded)} of ${count(candidates)} ${objects} ` +
-        `(${count(candidates - uploaded)} already stored)`;
+      ? `uploaded ${formatCount(uploaded)} ${objects}`
+      : `uploaded ${formatCount(uploaded)} of ${formatCount(candidates)} ${objects} ` +
+        `(${formatCount(candidates - uploaded)} already stored)`;
   return `${head}: ${detail}.`;
 }
 
@@ -666,7 +669,7 @@ export function renderUpload(result) {
     return [
       line,
       ``,
-      `Skipped ${count(skipped.length)} ${plural(skipped.length, "file")} ` +
+      `Skipped ${formatCount(skipped.length)} ${plural(skipped.length, "file")} ` +
         `that couldn't be confirmed while being read:`,
       ...skipped.map(({ path, reason }) => `  ${path}   (${reason})`),
       ``,
@@ -711,13 +714,13 @@ export function renderRestore({
   // above the skipped list rather than starting cold on "Skipped …".
   if (restored.length || skipped.length || missing.length || deleted.length) {
     sections.push(
-      `Restored ${count(restored.length)} ${plural(restored.length, "file")} ` +
+      `Restored ${formatCount(restored.length)} ${plural(restored.length, "file")} ` +
         `from '${set}' (snapshot ${snapshot}).`,
     );
   }
   if (skipped.length) {
     const heading =
-      `Skipped ${count(skipped.length)} existing ` +
+      `Skipped ${formatCount(skipped.length)} existing ` +
       `${plural(skipped.length, "file")} (rerun with --overwrite to replace):`;
     sections.push([heading, ...skipped.map((path) => `  ${path}`)].join("\n"));
   }
@@ -726,7 +729,7 @@ export function renderRestore({
     // they are context, not the alarm the missing block below is — and alone
     // they leave exit 0.
     const heading =
-      `Skipped ${count(deleted.length)} ${plural(deleted.length, "file")} ` +
+      `Skipped ${formatCount(deleted.length)} ${plural(deleted.length, "file")} ` +
       `whose contents were deliberately deleted from the backups (s3cab delete):`;
     sections.push(
       [
@@ -739,7 +742,7 @@ export function renderRestore({
   }
   if (missing.length) {
     const heading =
-      `Could not restore ${count(missing.length)} ` +
+      `Could not restore ${formatCount(missing.length)} ` +
       `${plural(missing.length, "file")} — the backup no longer holds ` +
       `${missing.length === 1 ? "its" : "their"} contents:`;
     sections.push(
@@ -799,8 +802,8 @@ export function renderDelete({
     return "Nothing was deleted.";
   }
   return (
-    `${bucket}: deleted ${count(deletedObjects)} ${plural(deletedObjects, "object")} ` +
-    `(${formatByteValue(deletedBytes)} across ${count(deletedFiles)} ` +
+    `${bucket}: deleted ${formatCount(deletedObjects)} ${plural(deletedObjects, "object")} ` +
+    `(${formatByteValue(deletedBytes)} across ${formatCount(deletedFiles)} ` +
     `${plural(deletedFiles, "file")}). Snapshots were not modified.`
   );
 }
@@ -827,28 +830,21 @@ export function renderCleanup(result) {
   } = result;
   if (deleted > 0) {
     return (
-      `${bucket}: deleted ${count(deleted)} orphaned ` +
+      `${bucket}: deleted ${formatCount(deleted)} orphaned ` +
       `${plural(deleted, "object")}, reclaimed ${formatByteValue(reclaimableBytes)}.`
     );
   }
   let line =
-    `${bucket}: ${count(storedObjects)} ${plural(storedObjects, "object")} stored, ` +
-    `${count(orphanObjects)} orphaned (${formatByteValue(reclaimableBytes)} reclaimable)`;
+    `${bucket}: ${formatCount(storedObjects)} ${plural(storedObjects, "object")} stored, ` +
+    `${formatCount(orphanObjects)} orphaned (${formatByteValue(reclaimableBytes)} reclaimable)`;
   if (withinGrace) {
-    line += `, ${count(withinGrace)} too new to touch (7-day grace)`;
+    line += `, ${formatCount(withinGrace)} too new to touch (7-day grace)`;
   }
   if (missingObjects) {
-    line += `, ${count(missingObjects)} missing (referenced but absent)`;
+    line += `, ${formatCount(missingObjects)} missing (referenced but absent)`;
   }
   return line;
 }
 
 /** @param {{ size: number }[]} entries */
 const sumSize = (entries) => entries.reduce((total, e) => total + e.size, 0);
-/** @param {number} n */
-const count = (n) => n.toLocaleString("en");
-/**
- * @param {number} n
- * @param {string} word
- */
-const plural = (n, word) => (n === 1 ? word : `${word}s`);

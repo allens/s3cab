@@ -292,8 +292,8 @@ describe("formatUnrestorableSummary", () => {
     // Only `only-s1.jpg` orphans: `shared.jpg` survives in s2, which isn't in
     // the selection. The row and the total are identical — the redundancy the
     // single case accepts in exchange for one layout and one code path.
-    assert.match(summary, /^ {2}s1 +1 file +1\.0MB$/m);
-    assert.match(summary, /^ {2}total unrestorable +1 file +1\.0MB$/m);
+    assert.match(summary, /^ {2}s1 +1 +1\.0MB$/m);
+    assert.match(summary, /^ {2}total unrestorable +1 +1\.0MB$/m);
     // Nothing in the selection to share content with, so no shared line.
     assert.doesNotMatch(summary, /shared across/);
   });
@@ -305,10 +305,10 @@ describe("formatUnrestorableSummary", () => {
       bucket: "my-bucket",
     });
 
-    assert.match(summary, /^ {2}s1 +1 file +1\.0MB$/m);
-    assert.match(summary, /^ {2}s2 +0 files +0B$/m);
-    assert.match(summary, /^ {2}shared across 2 snapshots +1 file +4\.0MB$/m);
-    assert.match(summary, /^ {2}total unrestorable +2 files +5\.0MB$/m);
+    assert.match(summary, /^ {2}s1 +1 +1\.0MB$/m);
+    assert.match(summary, /^ {2}s2 +0 +0B$/m);
+    assert.match(summary, /^ {2}shared across 2 snapshots +1 +4\.0MB$/m);
+    assert.match(summary, /^ {2}total unrestorable +2 +5\.0MB$/m);
   });
 
   it("warns when the deletion takes out the set's last snapshot", () => {
