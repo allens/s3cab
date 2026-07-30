@@ -1,6 +1,11 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatByteValue, formatCount, formatDuration } from "./format.mjs";
+import {
+  formatByteValue,
+  formatCount,
+  formatDuration,
+  plural,
+} from "./format.mjs";
 
 describe("formatByteValue", () => {
   it("scales by decimal SI units with one decimal place", () => {
@@ -47,6 +52,21 @@ describe("formatCount", () => {
     assert.equal(formatCount(0), "0");
     assert.equal(formatCount(1), "1");
     assert.equal(formatCount(999), "999");
+  });
+});
+
+describe("plural", () => {
+  it("keeps the singular for exactly one and pluralises everything else", () => {
+    assert.equal(plural(1, "file"), "file");
+    assert.equal(plural(0, "file"), "files");
+    assert.equal(plural(2, "file"), "files");
+  });
+
+  // Callers pass whole noun phrases ("7 stored objects"), so the "s" has to land
+  // on the end of the phrase rather than on the first word.
+  it("suffixes a noun phrase at its end", () => {
+    assert.equal(plural(1, "stored object"), "stored object");
+    assert.equal(plural(7, "stored object"), "stored objects");
   });
 });
 

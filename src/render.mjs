@@ -12,7 +12,7 @@
 // (ADR-0043 — the user manages volume with a pager or redirect).
 
 import { dirname, relative, sep } from "node:path";
-import { formatByteValue, formatCount } from "./lib/format.mjs";
+import { formatByteValue, formatCount, plural } from "./lib/format.mjs";
 import { tildeify } from "./lib/home.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
@@ -848,8 +848,3 @@ export function renderCleanup(result) {
 
 /** @param {{ size: number }[]} entries */
 const sumSize = (entries) => entries.reduce((total, e) => total + e.size, 0);
-/**
- * @param {number} n
- * @param {string} word
- */
-const plural = (n, word) => (n === 1 ? word : `${word}s`);

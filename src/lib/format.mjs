@@ -55,6 +55,24 @@ const countFormat = new Intl.NumberFormat("en");
  */
 export const formatCount = (count) => countFormat.format(count);
 
+/**
+ * The plural of `word` for `n`: `plural(1, "file")` → `"file"`,
+ * `plural(0, "file")` → `"files"`.
+ *
+ * **Regular forms only, deliberately.** What stays hand-rolled elsewhere is
+ * clause agreement rather than noun morphology — `was`/`were`, `its`/`their`,
+ * `This path matches`/`These paths match`, `Snapshot 'a' is`/`Snapshots 'a',
+ * 'b' are` — and a helper that took a whole clause would *be* the sentence, not
+ * a plural of it. (`directory`/`directories` is the lone irregular **noun**, and
+ * a lookup table holding one word is not worth having.) Where it can be had, the
+ * better fix is `referenced.mjs`'s: word the sentence so number never shows, and
+ * one snapshot and forty read correctly from the same clause.
+ * @param {number} n
+ * @param {string} word
+ * @returns {string}
+ */
+export const plural = (n, word) => (n === 1 ? word : `${word}s`);
+
 // @ts-ignore - Intl.DurationFormat exists in Node 24+
 const durationFormat = new Intl.DurationFormat("en", {
   // A sub-second duration rounds to all-zero, which the default "auto"

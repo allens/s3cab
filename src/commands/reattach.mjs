@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
+import { plural } from "../lib/format.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
 import {
   listRemoteSets,
@@ -102,7 +103,7 @@ export async function reattach(name, directories = [], options = {}) {
   const pulled = await downloadRemoteSnapshots(bucket, name, set.snapshotsDir);
   console.warn(
     pulled > 0
-      ? `Pulled ${pulled} snapshot${pulled === 1 ? "" : "s"} from the cloud — ` +
+      ? `Pulled ${pulled} ${plural(pulled, "snapshot")} from the cloud — ` +
           `local history is ready (try: s3cab list ${name}).`
       : `No snapshots in the cloud for '${name}' yet — nothing to pull.`,
   );
