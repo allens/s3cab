@@ -486,12 +486,6 @@ Pre-release housekeeping and open decisions surfaced from the code:
   standing trap: the coverage flags must **precede** the glob positionals — the
   `npm run test -- --experimental-test-coverage` shape collects nothing and exits 0, so
   don't reintroduce it (package.json can't carry a comment saying so; this is the warning).
-- **[ADR-0072](docs/adr/0072-timestamps-utc-in-files-local-in-names.md)'s two warn-only clock
-  checks are not built** — warning when a snapshot's name would sort before its predecessor's
-  (a clock moved backwards: DST, travel, or simply wrong), and `compare` confirming its two
-  sides are in the order their names imply. Both are free: the headers they need are already
-  parsed and discarded. The rest of 0072 — the `#SNAPSHOT` columns, the UTC record headers,
-  `CREATED` — is implemented.
 - **Stable doc URLs — settled: everything we print is `https://s3cab.plantegral.com/...`, never
   a `github.com` link.** A shipped binary freezes its URLs and `setup`'s starter `exclude.txt`
   writes one into a file s3cab never rewrites, so a printed URL can never be corrected for

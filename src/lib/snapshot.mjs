@@ -40,6 +40,7 @@ import { walkSet } from "./walk.mjs";
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
  * @property {SnapshotEntries} [lookup] - The hash lookup: those entries with parked hashes overlaid
+ * @property {string} [instant] - When it was taken, as a UTC instant (ADR-0072). Absent on a first run *and* on a pre-0072 snapshot, whose header carried no instant — so a consumer must handle not knowing
  */
 
 /**
@@ -61,6 +62,8 @@ export async function readBaseline(set, { rehash } = {}) {
 
   /** @type {SnapshotEntries | undefined} */
   let previous;
+  /** @type {string | undefined} */
+  let instant;
   const name = listSnapshotNames(snapshotDir, { latest: true });
   if (name) {
     // One line for the whole step, naming the file it reads. `readSnapshotFile`
@@ -73,12 +76,15 @@ export async function readBaseline(set, { rehash } = {}) {
     // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
-    const { entries } = await readSnapshotFile(path);
+    const { entries, instant: at } = await readSnapshotFile(path);
     previous = entries;
+    // Already parsed on the way past, and free: the clock check below is the
+    // only reason it is kept rather than discarded with the rest of the header.
+    instant = at;
   }
 
   if (rehash) {
-    return { name, previous };
+    return { name, previous, instant };
   }
 
   const parked = await readParkedLookup(snapshotDir);
@@ -87,7 +93,7 @@ export async function readBaseline(set, { rehash } = {}) {
       ? new Map([...previous, ...parked])
       : (parked ?? previous);
 
-  return { name, previous, lookup };
+  return { name, previous, lookup, instant };
 }
 
 /**
@@ -107,13 +113,18 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {SnapshotEntries} [options.lookup] - Hash lookup: an unchanged file reuses its stored hash
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
+ * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
  * @returns {Promise<{ name: string, path: string }>} The snapshot's name and local path
  */
-export async function generateSnapshot(set, { lookup, through, debug } = {}) {
+export async function generateSnapshot(
+  set,
+  { lookup, through, debug, previousInstant } = {},
+) {
   // One clock read gives the name, the UTC instant, and the zone — the three
   // spellings the file needs, which therefore cannot disagree (ADR-0072).
   const moment = snapshotMoment();
   const { name } = moment;
+  warnIfClockWentBack(moment, previousInstant);
   // The file it will land in, not just the name: the same shape as the
   // "Reading previous snapshot" line above, so the two ends of the step read as
   // a pair and either path can be pasted straight at a shell.
@@ -178,4 +189,46 @@ function withProgress(label, total) {
       yield path;
     }
   };
+}
+
+/**
+ * Warn when the snapshot about to be written will sort *before* its predecessor
+ * — check A of [ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md).
+ *
+ * Snapshot names are local wall clock, and `listSnapshotNames` orders them by
+ * sorting those strings. That is right almost always and wrong in two knowable
+ * cases: the hour the clocks go back, and a machine carried across time zones.
+ * The consequence is silent — `restore` with no `--snapshot`, `compare`'s
+ * default previous, and `--latest` would all keep choosing the older name — so
+ * this says it out loud at the one moment the fault is *created*, rather than
+ * leaving someone to find it when they are restoring.
+ *
+ * Compares true instants, not names, so it cannot mis-fire on a name that merely
+ * looks odd; and it catches every cause, including a clock that is simply wrong.
+ *
+ * **Warns, never blocks.** A clock oddity must not stop a backup — least of all
+ * while travelling, which is one of the two ways to get here.
+ *
+ * Silent when there is nothing to compare: a first snapshot, or a predecessor
+ * written before ADR-0072, whose header carried no instant. Guessing from the
+ * names instead would reintroduce exactly the ambiguity this check exists to see
+ * through.
+ * @param {{ name: string, instant: string }} moment - The snapshot about to be written
+ * @param {string} [previousInstant] - The predecessor's instant, if it has one
+ */
+function warnIfClockWentBack({ name, instant }, previousInstant) {
+  if (
+    !previousInstant ||
+    Temporal.Instant.compare(instant, previousInstant) >= 0
+  ) {
+    return;
+  }
+  console.warn(
+    `This snapshot will be named '${name}', which sorts before the one before ` +
+      `it — the computer's clock has gone back since then (daylight saving, a ` +
+      `different time zone, or a clock that needs setting).\n` +
+      `The backup itself is unaffected. Until the clock passes that time, ` +
+      `commands that default to the latest snapshot will keep choosing the ` +
+      `earlier one, so name this snapshot explicitly if you restore from it.`,
+  );
 }

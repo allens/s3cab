@@ -26,10 +26,12 @@ export async function snapshot(setName, options = {}) {
     name: previousName,
     previous,
     lookup,
+    instant: previousInstant,
   } = await readBaseline(set, options);
   const { name } = await generateSnapshot(set, {
     lookup,
     debug: options.debug,
+    previousInstant,
   });
 
   // Compare with the previous snapshot. When it was already read for the hash

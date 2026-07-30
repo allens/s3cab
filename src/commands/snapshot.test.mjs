@@ -302,3 +302,64 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     );
   });
 });
+
+describe("clock-went-backwards warning (ADR-0072 check A)", () => {
+  /**
+   * @param {TestContext} t
+   * @param {() => string} clock
+   */
+  const mockClock = (t, clock) =>
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from(clock()).toZonedDateTime("Europe/London"),
+    );
+
+  it("warns when the next snapshot would sort before the previous one", async (t) => {
+    let now = "2025-01-15T10:30:00";
+    mockClock(t, () => now);
+    const warn = t.mock.method(console, "warn", () => {});
+
+    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const home = useTempHome(workDir());
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
+    await snapshot("photos", { rehash: true });
+
+    // The clock goes back an hour — the autumn fold, or a flight west. The name
+    // is a minute earlier, so it will sort *before* the snapshot it follows.
+    now = "2025-01-15T10:29:00";
+    warn.mock.resetCalls();
+    await snapshot("photos", { rehash: true });
+
+    const said = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .join("\n");
+    assert.match(said, /sorts before the one before it/);
+    assert.match(said, /clock has gone back/);
+    // Warns, never blocks: the snapshot itself is written.
+    assert.equal(
+      readdirSync(join(home, ".s3cab", "sets", "photos", "snapshots")).filter(
+        (f) => f.endsWith(".tsv.zst"),
+      ).length,
+      2,
+    );
+  });
+
+  it("says nothing when the clock runs forward, as it normally does", async (t) => {
+    let now = "2025-01-15T10:30:00";
+    mockClock(t, () => now);
+    const warn = t.mock.method(console, "warn", () => {});
+
+    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    useTempHome(workDir());
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
+    await snapshot("photos", { rehash: true });
+
+    now = "2025-01-15T10:31:00";
+    warn.mock.resetCalls();
+    await snapshot("photos", { rehash: true });
+
+    const said = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .join("\n");
+    assert.doesNotMatch(said, /clock has gone back/);
+  });
+});

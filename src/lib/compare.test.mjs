@@ -4,6 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
+import { zstdCompressSync } from "node:zlib";
 import { stringifySnapshot, withSnapshotFile } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { compareSnapshots, diff } from "./compare.mjs";
@@ -611,5 +612,95 @@ describe("compareSnapshots", () => {
       () => compareSnapshots(dir.path, [dir.path], { setName: "photos" }),
       /No snapshots to compare yet for set 'photos'[\s\S]*s3cab snapshot photos/,
     );
+  });
+});
+
+describe("out-of-order warning (ADR-0072 check B)", () => {
+  const HASH = "a".repeat(64);
+
+  /**
+   * Plant a snapshot by hand, so its header can say something its name doesn't.
+   * @param {string} dir
+   * @param {string} name
+   * @param {string | undefined} instant
+   */
+  function plant(dir, name, instant) {
+    const header = instant
+      ? `#SNAPSHOT\tphotos\t${instant}\t${name} Europe/London\n`
+      : `#SNAPSHOT\t\t2026-10-25T01:15\tphotos\n`; // the pre-0072 shape
+    const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
+    writeFileSync(
+      join(dir, `${name}.tsv.zst`),
+      zstdCompressSync(Buffer.from(header + row, "utf8")),
+    );
+  }
+
+  /** @param {() => Promise<unknown>} run */
+  async function warningsFrom(run) {
+    /** @type {string[]} */
+    const said = [];
+    const original = console.warn;
+    console.warn = (...args) => said.push(args.map(String).join(" "));
+    try {
+      await run();
+    } finally {
+      console.warn = original;
+    }
+    return said.join("\n");
+  }
+
+  // The autumn fold: 01:30 BST is 00:30 UTC, and 01:15 GMT — a quarter of an
+  // hour *later* — is 01:15 UTC. So the earlier-sorting name is the newer file,
+  // which is exactly the case a name-ordered diff reads backwards.
+  const EARLIER_NAME = "2026-10-25T0115";
+  const LATER_INSTANT = "2026-10-25T01:15:00.000Z";
+  const LATER_NAME = "2026-10-25T0130";
+  const EARLIER_INSTANT = "2026-10-25T00:30:00.000Z";
+
+  it("says the diff reads backwards when the names disagree with the instants", async () => {
+    await using dir = await mkTmpDir();
+    plant(dir.path, EARLIER_NAME, LATER_INSTANT);
+    plant(dir.path, LATER_NAME, EARLIER_INSTANT);
+
+    const said = await warningsFrom(() =>
+      compareSnapshots(dir.path, [dir.path], {
+        since: EARLIER_NAME,
+        until: LATER_NAME,
+      }),
+    );
+    assert.match(said, /was actually taken after/);
+    assert.match(said, /reads backwards/);
+    assert.match(said, /Swap --since and --until/);
+  });
+
+  it("stays quiet when the instants agree with the names", async () => {
+    await using dir = await mkTmpDir();
+    plant(dir.path, "2026-06-12T0915", "2026-06-12T08:15:00.000Z");
+    plant(dir.path, "2026-06-12T1030", "2026-06-12T09:30:00.000Z");
+
+    const said = await warningsFrom(() =>
+      compareSnapshots(dir.path, [dir.path], {
+        since: "2026-06-12T0915",
+        until: "2026-06-12T1030",
+      }),
+    );
+    assert.doesNotMatch(said, /actually taken after/);
+  });
+
+  it("stays quiet rather than guessing when a side predates ADR-0072", async () => {
+    await using dir = await mkTmpDir();
+    // No instant to compare, so the check cannot be certain — and a check that
+    // guessed from the names would reintroduce the very ambiguity it exists to
+    // see through.
+    plant(dir.path, "2026-10-25T0115", undefined);
+    plant(dir.path, LATER_NAME, EARLIER_INSTANT);
+
+    const said = await warningsFrom(() =>
+      compareSnapshots(dir.path, [dir.path], {
+        since: "2026-10-25T0115",
+        until: LATER_NAME,
+      }),
+    );
+    assert.doesNotMatch(said, /actually taken after/);
   });
 });

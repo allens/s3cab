@@ -118,6 +118,8 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
 
   /** @type {SnapshotEntries} */
   let sinceEntries;
+  /** @type {string | undefined} */
+  let sinceInstant;
   if (since === undefined) {
     // Nothing older than `until`: an empty baseline; everything is "added".
     sinceEntries = new Map();
@@ -126,6 +128,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   } else {
     const sinceSnapshot = await readSnapshot(snapshotDir, since);
     sinceEntries = sinceSnapshot.entries;
+    sinceInstant = sinceSnapshot.instant;
   }
   console.warn(
     "Comparing",
@@ -133,6 +136,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     "→",
     `'${until}'`,
   );
+  warnIfOutOfOrder(since, sinceInstant, until, untilSnapshot.instant);
 
   const { added, moved, modified, deleted } = diff(
     sinceEntries,
@@ -324,4 +328,45 @@ export function diff(previousSnapshot, currentSnapshot) {
     modified,
     deleted,
   };
+}
+
+/**
+ * Warn when the two sides are in the opposite order to the one their names imply
+ * — check B of [ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md).
+ *
+ * `since` defaults to whatever sorts just below `until`, and that sort is over
+ * *names*, which are local wall clock. In the hour the clocks go back, or across
+ * a time-zone move, the older-looking name can be the newer snapshot — and the
+ * diff would then read backwards with nothing to say so: additions shown as
+ * deletions, and the other way round.
+ *
+ * Compares the recorded instants, so it is certain rather than a guess, and says
+ * nothing when it cannot be certain: either side may predate ADR-0072 and carry
+ * no instant, and `snapshot`'s fused fast path hands its baseline over as
+ * pre-parsed entries with no header at all. That path is already covered where
+ * the fault is *created*, by the clock-went-backwards warning in
+ * `generateSnapshot`.
+ * @param {string | undefined} since
+ * @param {string | undefined} sinceInstant
+ * @param {string} until
+ * @param {string | undefined} untilInstant
+ */
+function warnIfOutOfOrder(since, sinceInstant, until, untilInstant) {
+  if (
+    !since ||
+    !sinceInstant ||
+    !untilInstant ||
+    Temporal.Instant.compare(sinceInstant, untilInstant) <= 0
+  ) {
+    return;
+  }
+  console.warn(
+    `'${since}' was actually taken after '${until}', even though its name ` +
+      `sorts earlier — the computer's clock had gone back when one of them was ` +
+      `taken (daylight saving, or a different time zone).
+` +
+      `This comparison therefore reads backwards: what it calls added was ` +
+      `removed, and the other way round. Swap --since and --until to read it ` +
+      `the right way round.`,
+  );
 }

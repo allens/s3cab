@@ -1,7 +1,7 @@
 # Timestamps: UTC inside files, local wall clock in names
 
-**Status:** accepted; implemented except the two warn-only clock checks. Settles the
-timezone/precision question the snapshot-format proposal carried. Extends
+**Status:** accepted & implemented. Settles the timezone/precision question the
+snapshot-format proposal carried. Extends
 [0004](0004-tsv-snapshot-manifests.md) (the row grammar) and applies
 [0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).
 

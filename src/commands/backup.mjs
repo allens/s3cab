@@ -59,7 +59,12 @@ export async function backup(setName, options = {}) {
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
 
-  const { name: since, previous, lookup } = await readBaseline(set);
+  const {
+    name: since,
+    previous,
+    lookup,
+    instant: previousInstant,
+  } = await readBaseline(set);
   const stored = await storedHashes({
     bucket: set.bucket,
     set: set.name,
@@ -70,6 +75,7 @@ export async function backup(setName, options = {}) {
   const uploader = uploadObjects({ bucket: set.bucket, stored });
   const { name } = await generateSnapshot(set, {
     lookup,
+    previousInstant,
     through: uploader.through,
     debug: options.debug,
   });
