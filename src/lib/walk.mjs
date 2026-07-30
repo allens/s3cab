@@ -193,9 +193,9 @@ export function walkDirs(dirs, patterns) {
     using progress = createProgress(stderr);
     // Paint the label before walking a single entry. Folding the announce into
     // the progress line otherwise costs the immediate feedback the old separate
-    // `console.warn` gave: with the first redraw 500 files away, a slow or cold
-    // directory would sit blank and look hung. Bare label, no count — a "0"
-    // would be worse than nothing. A no-op off a terminal, where each
+    // `console.warn` gave: with the first redraw a tenth of a second away, a
+    // slow or cold directory would sit blank and look hung. Bare label, no count
+    // — a "0" would be worse than nothing. A no-op off a terminal, where each
     // directory's closing line is the whole story.
     progress.update(label);
 
@@ -225,20 +225,24 @@ export function walkDirs(dirs, patterns) {
         unrepresentable.push(path);
       }
       files.push(path);
-      // Redraw every 500 files *of this directory* (after the push, so the count
-      // reflects files actually found). Bound once: gating on the set-wide
-      // `files.length` while displaying the per-directory delta made the cadence
-      // depend on where the previous directory happened to stop — a second
-      // directory following a first of 111 files redrew at 389, then 889.
-      const found = files.length - before;
-      if (found % 500 === 0) {
-        progress.update(`${label} ${formatCount(found)}`);
+      // Count *this directory's* files, not the set-wide total, so the figure
+      // belongs to the line it sits on, and carry the elapsed time live rather
+      // than only in the closing summary — the same `<label>… <figure> in
+      // <elapsed>` shape the other phases hold to. Redrawn on lib/progress.mjs'
+      // clock (it owns the cadence); `due` is asked first because this loop is
+      // the hot path — a warm dircache yields tens of thousands of paths a
+      // second, and formatting a line nobody will see is the per-file cost that
+      // mounts up.
+      if (progress.due()) {
+        progress.update(
+          `${label} ${formatCount(files.length - before)} in ${secondsSince(dirStart)}`,
+        );
       }
     }
 
-    // This directory's true total (not the last multiple of 500) with its own
-    // elapsed time: redrawn in place on a terminal, or logged as one clean line
-    // otherwise. Always drawn, so a directory too small to trigger a single
+    // This directory's true total (not whatever the last redraw showed) with its
+    // own elapsed time: redrawn in place on a terminal, or logged as one clean
+    // line otherwise. Always drawn, so a directory too small to trigger a single
     // redraw still gets its line.
     const summary = `${label} ${formatCount(files.length - before)} in ${secondsSince(dirStart)}`;
     if (isInteractive(stderr)) {
