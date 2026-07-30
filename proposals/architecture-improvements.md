@@ -78,6 +78,29 @@ all landed 2026-07-30** (run log below); **only B remains open**.
   says still needs a home. Four sites wanted `formatCount`; this one wants `plural` exported beside
   it, so treating `plural` as the leftover half is the wrong read. (#248 also added two more uses of
   the private `count`/`plural` in render.mjs — same direction, no new scope.)
+  [#252](https://github.com/allens/s3cab/pull/252) added a **sixth**, in `referenced.mjs`'s
+  `unreadableMessage` (`this snapshot`/`these snapshots`, `it`/`them`) — sited deliberately *inside*
+  the one shared message builder rather than scattered, so it is a one-line absorption.
+
+  **Updated 2026-07-30 — the `plural` half is bigger and harder than this entry has been saying.**
+  Swept on `e788523` (do re-verify: **every line number above predates
+  [#250](https://github.com/allens/s3cab/pull/250) and #252 and is now wrong** — the claims hold,
+  the anchors moved). The entry lists the format-module sites plus #248's; a full sweep finds **at
+  least four more it never named**, outside those files entirely:
+  [reattach.mjs:105](../src/commands/reattach.mjs) (`snapshot${s}`),
+  [commands/delete.mjs:165](../src/commands/delete.mjs) (`This path matches`/`These paths match`),
+  [sets.mjs:412](../src/lib/sets.mjs) (`directory`/`directories`), and
+  [render.mjs:744](../src/render.mjs) (`its`/`their`).
+
+  **That changes the design, not just the count.** render.mjs's private `plural` is
+  `` (n, word) => (n === 1 ? word : `${word}s`) `` — which **structurally cannot express**
+  `directory→directories`, `was→were`, `its→their`, or `This path matches→These paths match`. So
+  "export `plural` beside `formatCount`" serves only the *regular* cases, and what to do about the
+  irregular ones — a two-form signature, a small irregular table, or leaving them hand-rolled — is
+  a **decision to grill, not mechanical routing**. Treat the "cheap, do it on its own merits"
+  framing above as applying to `formatCount` only. Minor, same sweep: the same helper is spelled two
+  ways — `` `file${n === 1 ? "" : "s"}` `` in delete.mjs vs `` n === 1 ? "file" : "files" `` in
+  unrestorable.mjs.
 
   **The snapshot-format epic is no longer a blocker — it landed first.** ADRs
   [0071](../docs/adr/0071-snapshot-paths-absolute-native.md),
