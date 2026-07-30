@@ -644,12 +644,30 @@ export function renderUpload(result) {
     );
   }
   if (result.mode === "dir") {
-    const { set, dir, candidates, uploaded } = result;
-    return objectUploadLine(
+    const { set, dir, candidates, uploaded, skipped } = result;
+    const line = objectUploadLine(
       `Seeded '${dir}' into '${set}'`,
       candidates,
       uploaded,
     );
+    if (skipped.length === 0) {
+      return line;
+    }
+    // Named in full, never truncated — the same reasoning as the restore lists:
+    // each one is a file the user asked to seed and didn't get, so say which and
+    // what to do. The reason word (`changed`/`removed`/`unreadable`) is already
+    // plain English, so it needs no mapping.
+    return [
+      line,
+      ``,
+      `Skipped ${count(skipped.length)} ${plural(skipped.length, "file")} ` +
+        `that changed while being read:`,
+      ...skipped.map(({ path, reason }) => `  ${path}   (${reason})`),
+      ``,
+      `Nothing references them, so there is nothing to repair — a backup will ` +
+        `store them:`,
+      `  s3cab backup ${set}`,
+    ].join("\n");
   }
   const { key, size, uploaded } = result;
   const human = formatByteValue(size);

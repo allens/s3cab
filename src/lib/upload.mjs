@@ -26,10 +26,14 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
 // still spelled in exactly one place); objects.mjs owns `objects/`.
 //
 // `uploadObjects` is deliberately **source-agnostic** (ADR-0069): it consumes a
-// stream of `[path, Props]` rows, whether they come from a snapshot file being
-// re-read (here) or from the hash pass of a live `backup`, which splices this
+// stream of `[path, Props]` rows, wherever they come from — a snapshot file being
+// re-read (`uploadSnapshot`), the hash pass of a live `backup`, which splices this
 // same transform into its snapshot pipeline so each object ships milliseconds after
-// it was hashed. One PUT loop, one drift guard, two sources.
+// it was hashed, or a walk of one folder (`uploadDir`). One PUT loop, one
+// confirmation guard, three sources — and that is a correctness property, not
+// tidiness: every path that hashes a file and then re-reads it to send it has a
+// window in which the file can change underneath the hash recorded for it, so a
+// second PUT loop is a second place for the guard to be missing from.
 
 /**
  * The hashes a run may treat as **already stored** — the skip-list both upload
@@ -432,32 +436,52 @@ export async function uploadSnapshot({
  * (docs/design/backup.md). No baseline diff and no store LIST: the conditional
  * PUT is the "already stored?" check, so re-running is cheap and idempotent.
  * Identical content under many names uploads once (hashes deduped within the run).
+ *
+ * **The third source of the one PUT loop.** This walks and hashes; `uploadObjects`
+ * does the storing, so the dedup, the counting and — the reason this matters — the
+ * confirmation guard are the same code a backup runs. Seeding hashes a file and
+ * then re-reads it to send it, exactly as a backup does, so it has exactly the same
+ * window in which the file can change underneath the hash recorded for it; running
+ * its own PUT loop meant it had none of the protection. Rows are produced **lazily**
+ * (one file hashed, its object shipped, then the next): a seed is aimed at
+ * multi-GB folders, so hashing the whole subtree before sending anything would
+ * waste the entire read before a byte went out.
+ *
+ * **A file that can't be confirmed is skipped, and the run still succeeds** — the
+ * one place this diverges from `backup`, and it turns on publishing. A backup that
+ * skipped a file would publish a manifest promising an object that was never
+ * stored, so it must fail; a seed publishes nothing, so a skipped file leaves
+ * nothing inconsistent behind and the next backup stores it properly. The bytes
+ * that *were* confirmed are worth having either way. The skips are returned for the
+ * caller to report (never swallowed — they are files the user asked for and didn't
+ * get); a transport failure still throws, because nothing more can be sent.
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.dir - The subtree to seed from (already validated as a directory)
  * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
- * @returns {Promise<{ candidates: number, uploaded: number }>} `candidates` =
- *   distinct objects walked; `uploaded` = those actually transferred (the rest
- *   were already stored).
+ * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
+ *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
+ *   (the rest were already stored); `skipped` = files the guard refused.
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
 
-  /** @type {Set<string>} */
-  const seen = new Set();
-  let uploaded = 0;
-  for (const path of files) {
-    const { hash } = await fileProps(path);
-    if (seen.has(hash)) {
-      continue; // identical content already handled this run — one PUT suffices
-    }
-    seen.add(hash);
-    const didUpload = await putObject(bucket, hash, path);
-    if (didUpload) {
-      uploaded++;
+  /** One row at a time, so hashing and sending interleave per file. */
+  async function* rows() {
+    for (const path of files) {
+      yield /** @type {SnapshotRow} */ ([path, await fileProps(path)]);
     }
   }
-  return { candidates: seen.size, uploaded };
+
+  // An empty `stored`: the conditional PUT is this path's already-stored check, so
+  // there is deliberately no baseline and no store LIST to build one from.
+  const uploader = uploadObjects({ bucket, stored: new Set() });
+  await uploader.run(rows());
+  const { candidates, uploaded, drifted, failure } = uploader.result();
+  if (failure) {
+    throw failure;
+  }
+  return { candidates, uploaded, skipped: drifted };
 }
 
 /**

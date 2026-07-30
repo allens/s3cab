@@ -785,6 +785,7 @@ describe("renderUpload", () => {
       dir: "/home/me/Photos/2026",
       candidates: 40,
       uploaded: 40,
+      skipped: [],
     });
     assert.equal(
       text,
@@ -799,12 +800,54 @@ describe("renderUpload", () => {
       dir: "/home/me/Photos/2026",
       candidates: 40,
       uploaded: 10,
+      skipped: [],
     });
     assert.equal(
       text,
       "Seeded '/home/me/Photos/2026' into 'photos': " +
         "uploaded 10 of 40 objects (30 already stored).",
     );
+  });
+
+  it("names every file a folder seed skipped, and the backup that stores them", () => {
+    // Each is a file the user asked to seed and didn't get, so the list is given
+    // in full (the renderRestore rule) with the reason and the constructive fix.
+    const text = renderUpload({
+      mode: "dir",
+      set: "photos",
+      dir: "/home/me/Photos/2026",
+      candidates: 40,
+      uploaded: 38,
+      skipped: [
+        { path: "/home/me/Photos/2026/live.raw", reason: "changed" },
+        { path: "/home/me/Photos/2026/gone.raw", reason: "removed" },
+      ],
+    });
+
+    assert.match(text, /uploaded 38 of 40 objects/);
+    assert.match(text, /Skipped 2 files that changed while being read:/);
+    assert.match(
+      text,
+      / {2}\/home\/me\/Photos\/2026\/live\.raw {3}\(changed\)/,
+    );
+    assert.match(
+      text,
+      / {2}\/home\/me\/Photos\/2026\/gone\.raw {3}\(removed\)/,
+    );
+    assert.match(text, /nothing to repair/);
+    assert.match(text, / {2}s3cab backup photos$/);
+  });
+
+  it("says 'file' singular for one skip", () => {
+    const text = renderUpload({
+      mode: "dir",
+      set: "photos",
+      dir: "/d",
+      candidates: 1,
+      uploaded: 0,
+      skipped: [{ path: "/d/x.raw", reason: "unreadable" }],
+    });
+    assert.match(text, /Skipped 1 file that changed/);
   });
 });
 

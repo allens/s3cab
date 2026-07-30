@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
 
+/** @import { Drift } from "../lib/upload.mjs" */
+
 // Offline tests for `upload`'s command surface (ADR-0044): the fail-fast flag
 // validation, and that each mode routes to the right plumbing with the right
 // arguments (set-scoped vs raw --bucket for a single file; the snapshot uploader
@@ -28,6 +30,8 @@ let putObjectCalls = [];
 let uploadSnapshotCalls = [];
 /** @type {Record<string, unknown>[]} */
 let uploadDirCalls = [];
+/** @type {Drift[]} what the faked seeder reports skipping */
+let dirSkipped = [];
 let putResult = true;
 
 mock.module("../lib/env.mjs", {
@@ -68,7 +72,7 @@ mock.module("../lib/upload.mjs", {
     },
     uploadDir: async (/** @type {Record<string, unknown>} */ args) => {
       uploadDirCalls.push(args);
-      return { candidates: 40, uploaded: 12 };
+      return { candidates: 40, uploaded: 12, skipped: dirSkipped };
     },
   },
 });
@@ -81,6 +85,7 @@ beforeEach(() => {
   putObjectCalls = [];
   uploadSnapshotCalls = [];
   uploadDirCalls = [];
+  dirSkipped = [];
   putResult = true;
 });
 
@@ -246,6 +251,21 @@ describe("upload --dir (seed a folder's objects)", () => {
       dir: tmpdir(),
       candidates: 40,
       uploaded: 12,
+      skipped: [],
     });
+  });
+
+  it("passes the seeder's skipped files through to the result", async () => {
+    // A skipped file is part of what the run did, so it belongs in the result the
+    // render layer reports (and in --json) — not only on stderr.
+    dirSkipped = [{ path: "/photos/live.raw", reason: "changed" }];
+
+    const result = await upload("photos", { dir: tmpdir() });
+
+    assert.equal(result.mode, "dir");
+    assert.deepEqual(
+      result.mode === "dir" ? result.skipped : undefined,
+      dirSkipped,
+    );
   });
 });

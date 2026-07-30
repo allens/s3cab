@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -43,6 +43,7 @@ mock.module("./s3.mjs", {
     },
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
+      callOrder.push(`put:${basename(path)}`);
       if (putError) {
         throw putError;
       }
@@ -68,6 +69,31 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => deletionRecords,
   },
 });
+/** @type {Set<string>} paths rewritten the instant hashing finishes. */
+let driftAfterHash = new Set();
+/** @type {string[]} `hash:`/`put:` events interleaved, proving lazy row production. */
+let callOrder = [];
+// Reproduce drift through the real mechanism rather than by faking props: the
+// wrapper returns the genuine props for the bytes it hashed, then edits the file,
+// so what the guard re-stats really is a different file from the one hashed. The
+// window this opens by hand is the one a multi-GB seed opens by itself, where
+// hashing runs for minutes before the PUT re-reads the file. `fileProps` here is
+// the real one — the static import above resolves before this mock is registered.
+mock.module("./file-props.mjs", {
+  exports: {
+    fileProps: async (
+      /** @type {string} */ path,
+      /** @type {SnapshotEntries} */ lookup,
+    ) => {
+      const props = await fileProps(path, lookup);
+      callOrder.push(`hash:${basename(path)}`);
+      if (driftAfterHash.has(path)) {
+        writeFileSync(path, "rewritten the instant hashing finished");
+      }
+      return props;
+    },
+  },
+});
 const {
   baselineHashes,
   fileChangedError,
@@ -86,6 +112,8 @@ beforeEach(() => {
   listedPrefixes = [];
   deletionRecords = new Map();
   putError = undefined;
+  driftAfterHash = new Set();
+  callOrder = [];
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -695,5 +723,88 @@ describe("uploadDir (seed a folder's objects)", () => {
     // Still considered (a conditional PUT is attempted), but not transferred.
     assert.equal(result.candidates, 3);
     assert.equal(result.uploaded, 2);
+    assert.deepEqual(result.skipped, []);
+  });
+
+  it("never stores a file that changed while it was being hashed", async () => {
+    // The corruption the seed path was open to: the store trusts the hash on
+    // write, so PUTting a file's *current* bytes under the hash of its *previous*
+    // bytes poisons that object for every snapshot and path that dedups to it —
+    // and it surfaces only at restore, as a hash mismatch on a file nobody
+    // touched. `upload --dir` hashes then re-reads to PUT exactly as `backup`
+    // does, so it needs the same confirmation, which it never had.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    driftAfterHash.add(join(root, "c.txt")); // "world" changes post-hash
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    assert.ok(
+      !putFiles.some(({ uri }) => uri.endsWith(sha("world"))),
+      "the stale hash was never written",
+    );
+    assert.deepEqual(result.skipped, [
+      { path: join(root, "c.txt"), reason: "changed" },
+    ]);
+  });
+
+  it("seeds every other file, and succeeds — the seed publishes no manifest", async () => {
+    // Unlike `backup`, a skipped file leaves nothing inconsistent here: no
+    // manifest references the missing object, so there is no broken promise to
+    // report. The bytes that *are* confirmed are worth having, and the next
+    // backup picks the skipped file up properly. So: report it, exit 0.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    driftAfterHash.add(join(root, "c.txt"));
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    const expected = ["hello", "deep"]
+      .map((c) => `s3://seed-bucket/objects/${sha(c)}`)
+      .sort();
+    assert.deepEqual(putFiles.map(({ uri }) => uri).sort(), expected);
+    assert.equal(result.uploaded, 2);
+  });
+
+  it("still throws when the transfer itself fails", async () => {
+    // A dead link is not a per-file skip: nothing more can be sent, so the run
+    // fails as it always did rather than reporting a pile of skips.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    putError = new Error("connection reset");
+
+    await assert.rejects(
+      () => uploadDir({ bucket: "seed-bucket", dir: root, excludePath }),
+      /connection reset/,
+    );
+  });
+
+  it("hashes lazily — a file's object ships before the next file is read", async () => {
+    // A seed is aimed at multi-GB folders, so the subtree must never be hashed up
+    // front: rows are produced one at a time, and each object ships while the
+    // walk still has files left to read. Hashing every file first would work and
+    // waste the whole subtree's read before a single byte went out.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+
+    await uploadDir({ bucket: "seed-bucket", dir: root, excludePath });
+
+    // callOrder interleaves both mocks, so eager hashing would read
+    // hash,hash,hash,hash,put,put,put — the first PUT last, not second.
+    const firstPut = callOrder.findIndex((c) => c.startsWith("put:"));
+    const lastHash = callOrder.findLastIndex((c) => c.startsWith("hash:"));
+    assert.ok(firstPut >= 0 && lastHash >= 0);
+    assert.ok(
+      firstPut < lastHash,
+      `an object shipped before the last file was hashed: ${callOrder.join(" ")}`,
+    );
   });
 });
