@@ -33,25 +33,9 @@ the **network-resilience** work (ADR-0065/0068), **interrupt hash-parking** (ADR
 **fused snapshot+upload pipeline** (ADR-0069): 73 commits (PRs #217–#245) since the open list was
 last emptied. Verified against the source at HEAD `0268c73`. Verdict: the new subsystems followed
 the house plan/execute pattern rather than inventing one, so three of the four candidates are
-duplications *between* modules, and the fourth is a guard that one path never got. **A and C both
-landed 2026-07-30** (run log below); **B and D remain open**, and must not be built concurrently —
-see the note under B.
+duplications *between* modules, and the fourth is a guard that one path never got. **A, C and D
+all landed 2026-07-30** (run log below); **only B remains open**.
 
-- **D — name the bucket's unreadable snapshots** — **Strong**. `referencedObjects` yields per-set
-  `unreadable: { snapshot, reason }[]`; every consumer wants the same *set-qualified, bucket-wide*
-  derivation and every consumer builds it itself. Ten copies of one unnamed concept across five
-  files: the identical `flatMap` three times (cleanup.mjs:74, unrestorable.mjs:94, delete.mjs:105),
-  the same inline structural typedef three times (cleanup.mjs:44, unrestorable.mjs:56,
-  delete.mjs:79), and `map((u) => `${u.set}/${u.snapshot}`)` four times (commands/cleanup.mjs:108,
-  commands/delete.mjs:155, delete.mjs:389, unrestorable.mjs:294). The tell is that last one:
-  `set/snapshot` is a **user-facing identifier** invented independently in four places, with no
-  CONTEXT.md term. On top, two sites build the same abort from the same skeleton ("Can't … safely:
-  N snapshot(s) won't read … Unreadable: … Triage first: s3cab verify <bucket>"), differing in one
-  middle clause — the "heavy, actionable, reused → a named factory" row of `error.mjs`'s own
-  taxonomy. **Placement is the grilling question, not the existence**: remote.mjs produces the
-  per-set results, verify.mjs owns the `ReferencedResult` typedef the three modules `@import`, and
-  error.mjs hosts the taxonomy the abort belongs to — splitting derivation from message across two
-  homes may be right.
 - **B — one aligned-total table; one `count`/`plural`** — **Worth exploring**. `delete.mjs` says it
   outright ("follows the unrestorable summary's shape exactly") and it does, by copy:
   `formatDeleteSummary` (l.306–341) and `formatUnrestorableSummary` (l.242–277) both compute three
@@ -79,10 +63,12 @@ see the note under B.
   `count`/`formatCount` split is a live inconsistency as of today, so it is a natural ride-along for
   whoever next opens render.mjs even if B is never taken whole.
 
-  **Sequencing: B and D must not be built concurrently.** D's four `${u.set}/${u.snapshot}` sites
-  include delete.mjs:389 and unrestorable.mjs:294, which sit *inside* the two format functions B's
-  table half rewrites. Either order works; overlapping does not. (B also touches render.mjs, which
-  A touched in a different region — that one merged cleanly.)
+  **Sequencing: the B/D conflict is resolved — D landed first.** D's four
+  `${u.set}/${u.snapshot}` sites sat *inside* the two format functions B's table half rewrites;
+  both are now single `unreadableMessage`/`unreadableDeleteMessage` calls, so B's rewrite no longer
+  has to preserve them. Note the two format functions each gained a `bucket` in their context
+  parameter. (B also touches render.mjs, which A touched in a different region — that one merged
+  cleanly.)
 
   **Grown by one site, and it was A's fault.** [#248](https://github.com/allens/s3cab/pull/248) added
   a *fifth* hand-rolled pluralization, in a file this entry doesn't list: `fileChangedError`
@@ -93,14 +79,15 @@ see the note under B.
   it, so treating `plural` as the leftover half is the wrong read. (#248 also added two more uses of
   the private `count`/`plural` in render.mjs — same direction, no new scope.)
 
-  **Check the snapshot-format epic before starting B — this outranks the B/D ordering above.**
-  ADRs [0071](../docs/adr/0071-snapshot-paths-absolute-native.md),
+  **The snapshot-format epic is no longer a blocker — it landed first.** ADRs
+  [0071](../docs/adr/0071-snapshot-paths-absolute-native.md),
   [0072](../docs/adr/0072-timestamps-utc-in-files-local-in-names.md) and
-  [0073](../docs/adr/0073-refuse-tab-newline-paths.md) are **accepted and not yet implemented**, and
-  0072 explicitly governs *"the deletion record's"* timestamps. `deletion-record.mjs` reuses
-  `snapshotName` as `deletionRecordTimestamp` and writes a `generated:` line, so that
-  implementation will touch it — and it is one of B's four files. B-vs-D is a same-file ordering
-  constraint; this is two epics wanting the same file, which is worse.
+  [0073](../docs/adr/0073-refuse-tab-newline-paths.md) were accepted-but-unimplemented when this
+  entry was written, and 0072 explicitly governs *"the deletion record's"* timestamps — which made
+  `deletion-record.mjs` (one of B's four files) contested between two epics. They were implemented
+  in [#250](https://github.com/allens/s3cab/pull/250), so re-read that file against the source
+  before starting: the `snapshotName`-as-`deletionRecordTimestamp` reuse and the `generated:` line
+  this entry describes may have moved.
 
 **Examined & left alone (tenth pass)** (not candidates — skip future runs): the
 **destructive-command pattern** across delete/forget/cleanup (ADR-0064) — the non-interactive gate
@@ -619,3 +606,29 @@ least once; re-open only if the stated reason no longer holds.
   `unreadable` fixture. Naming footnote: `drifted` was challenged as borrowed CloudFormation
   jargon and **kept** — it never reaches user text in this sense, and ADR-0012 governs user prose,
   not code identifiers; no CONTEXT.md term for the same reason.
+- **2026-07-30 — D landed** (grilled in-session before any code, with each decision put to the user
+  one at a time). *Name the bucket's unreadable snapshots.* The grilling moved the entry twice.
+  **First, the shape shrank:** no consumer of the flattened list ever read `reason` — all four
+  display sites joined `set/snapshot` and dropped it, and the only `reason` anyone prints is
+  `verify`'s, from the *per-set* list. With `reason` gone the shared thing is just an identifier,
+  so it became **`string[]` of `set/snapshot` names**: one function now does the flatten *and* the
+  qualification, which collapsed all ten copies (three `flatMap`s, three inline typedefs, four
+  joins) rather than merely naming them. **Second, the home turned out to be a fourth option.**
+  The entry offered remote.mjs / verify.mjs / error.mjs; the real finding was that `verify.mjs`
+  was two modules glued together — the verify command's planner, and the enumeration's
+  *vocabulary* — with `isCorruptSnapshotError` living there while its **only** caller was
+  remote.mjs. The obvious correction (move it to its producer) is barred by purity: remote.mjs
+  reaches `@aws-sdk/client-s3`, and cleanup.mjs imports **nothing** at runtime. Hence
+  **ADR-0074** and a zero-import `lib/referenced.mjs`; the `remote.mjs → verify.mjs` edge is gone.
+  **The wording half grew, on the user's push, and found two defects.** `forget`'s caveat printed
+  a bare `s3cab verify` — but `verify` takes a *required* bucket, so the fix **failed if pasted**,
+  the dead-end ADR-0030 forbids (`formatUnrestorableSummary` was never handed the bucket, though
+  `set.bucket` sat at the call site). And `delete`'s abort and its dry-run warning were two
+  different sentences for one command's one condition; they are now the **same text**, built once.
+  Also cut: "snapshots won't read" (garden-paths — the snapshots read nothing), "Triage first"
+  (jargon by ADR-0030's own test, and it had entered the product *only* through these messages),
+  and the count, which dodged candidate B's pluralization entirely. Naming footnote, and it went
+  the opposite way to A's: `set/snapshot` **is** user-facing, so ADR-0012 applies — but what was
+  new is a *notation*, not a concept, and Snapshot/Backup set/Namespace already exist. So **no new
+  CONTEXT.md headword**; a line on the existing **Snapshot** entry instead, recording the list form
+  and that a single snapshot named in a sentence stays prose.
