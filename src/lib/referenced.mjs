@@ -97,19 +97,26 @@ export const unreadableSnapshots = (referencedBySet) =>
  * half throw it — the shared part is the wording, not the throwing.
  *
  * Every name is listed, never elided: a count is no use to someone deciding
- * which snapshot to look at, and this is a data-loss report.
+ * which snapshot to look at, and this is a data-loss report. There is no count
+ * *in the prose* either — the list is the count — which leaves this function as
+ * the **only** place number agreement is needed. Each caller's `consequence` is
+ * therefore worded number-neutrally ("an unknown reference could be…", not "one
+ * could be…"), so one snapshot and forty read correctly from the same clause.
  * @param {Object} message
  * @param {string[]} message.names - The `set/snapshot` names (`unreadableSnapshots`)
  * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
- * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms
+ * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms. **Must read for one snapshot or many.**
  * @param {string} [message.lead] - The blocked goal (`Can't delete safely`); omitted where the command carries on regardless
  * @returns {string}
  */
-export const unreadableMessage = ({ names, bucket, consequence, lead }) =>
-  [
-    `${lead ? `${lead} — these` : "These"} snapshots can't be read, ` +
-      `so ${consequence}:`,
+export const unreadableMessage = ({ names, bucket, consequence, lead }) => {
+  const one = names.length === 1;
+  const subject = one ? "this snapshot" : "these snapshots";
+  return [
+    `${lead ? `${lead} — ${subject}` : subject.charAt(0).toUpperCase() + subject.slice(1)} ` +
+      `can't be read, so ${consequence}:`,
     ...names.map((name) => `  ${name}`),
-    `Check them with:`,
+    `Check ${one ? "it" : "them"} with:`,
     `  s3cab verify ${bucket}`,
   ].join("\n");
+};

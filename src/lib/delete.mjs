@@ -281,7 +281,8 @@ export function deletionRows(plan) {
  *
  * The consequence is the specific danger here, and it is why the interlock
  * exists at all: an unknown reference is exactly the kind that would have
- * protected the content from this delete.
+ * protected the content from this delete. Worded without a number, as
+ * `unreadableMessage` requires, so it reads for one unreadable snapshot or forty.
  * @param {string[]} names - The bucket's unreadable `set/snapshot` names
  * @param {string} bucket - The repository bucket
  * @returns {string}
@@ -291,7 +292,8 @@ export const unreadableDeleteMessage = (names, bucket) =>
     names,
     bucket,
     lead: "Can't delete safely",
-    consequence: "one could be the only thing keeping this content alive",
+    consequence:
+      "an unknown reference could be the only thing keeping this content alive",
   });
 
 /**

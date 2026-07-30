@@ -112,7 +112,7 @@ export async function cleanup(bucket, options = {}) {
         bucket,
         lead: "Can't clean up safely",
         consequence:
-          "objects only they reference would look unused and be deleted",
+          "objects nothing else references would look unused and be deleted",
       }),
     );
   }

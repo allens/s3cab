@@ -71,16 +71,38 @@ describe("unreadableMessage", () => {
       bucket: "my-bucket",
       lead: "Can't clean up safely",
       consequence:
-        "objects only they reference would look unused and be deleted",
+        "objects nothing else references would look unused and be deleted",
     });
 
     assert.equal(
       message,
-      "Can't clean up safely — these snapshots can't be read, so objects only " +
-        "they reference would look unused and be deleted:\n" +
+      "Can't clean up safely — these snapshots can't be read, so objects " +
+        "nothing else references would look unused and be deleted:\n" +
         "  work-laptop/2026-07-30-1400\n" +
         "  photos/2026-07-28-0900\n" +
         "Check them with:\n" +
+        "  s3cab verify my-bucket",
+    );
+  });
+
+  it("agrees in number with a single unreadable snapshot", () => {
+    // One damaged snapshot is the *likelier* case, so it must not read as
+    // though several were found. The caller's `consequence` carries no number
+    // (that is the contract), leaving this the only agreement to make.
+    const message = unreadableMessage({
+      names: ["photos/2026-07-28-0900"],
+      bucket: "my-bucket",
+      lead: "Can't delete safely",
+      consequence:
+        "an unknown reference could be the only thing keeping this content alive",
+    });
+
+    assert.equal(
+      message,
+      "Can't delete safely — this snapshot can't be read, so an unknown " +
+        "reference could be the only thing keeping this content alive:\n" +
+        "  photos/2026-07-28-0900\n" +
+        "Check it with:\n" +
         "  s3cab verify my-bucket",
     );
   });
@@ -94,10 +116,10 @@ describe("unreadableMessage", () => {
 
     assert.equal(
       message,
-      "These snapshots can't be read, so this preview may overstate what " +
+      "This snapshot can't be read, so this preview may overstate what " +
         "becomes unrestorable:\n" +
         "  photos/2026-07-28-0900\n" +
-        "Check them with:\n" +
+        "Check it with:\n" +
         "  s3cab verify my-bucket",
     );
   });
