@@ -8,7 +8,7 @@ import {
   planUnrestorable,
 } from "./unrestorable.mjs";
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 // `planUnrestorable` is pure, so these assert on returned data with no mocked seams —
 // the point of keeping the computation out of the command (as planCleanup does).
@@ -216,9 +216,7 @@ describe("planUnrestorable", () => {
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
 
-    assert.deepEqual(plan.unreadable, [
-      { set: "photos", snapshot: "s9", reason: "zstd" },
-    ]);
+    assert.deepEqual(plan.unreadable, ["photos/s9"]);
   });
 
   it("treats a set with no readable snapshots as referencing nothing", () => {
@@ -271,6 +269,7 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(planFor(["s1"]), {
       set: "photos",
       reportPath: "C:\\Users\\me\\.s3cab\\forget-unrestorable-preview.txt",
+      bucket: "my-bucket",
     });
 
     const lines = summary.split("\n");
@@ -287,6 +286,7 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(planFor(["s1"]), {
       set: "photos",
       reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
     });
 
     // Only `only-s1.jpg` orphans: `shared.jpg` survives in s2, which isn't in
@@ -302,6 +302,7 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(planFor(["s1", "s2"]), {
       set: "photos",
       reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
     });
 
     assert.match(summary, /^ {2}s1 +1 file +1\.0MB$/m);
@@ -314,6 +315,7 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(planFor(["s1", "s2", "s3"]), {
       set: "photos",
       reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
     });
 
     assert.match(summary, /last remote snapshot of set 'photos'/);
@@ -330,6 +332,7 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(plan, {
       set: "photos",
       reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
     });
 
     assert.match(summary, /nothing would become unrestorable/);
@@ -347,11 +350,15 @@ describe("formatUnrestorableSummary", () => {
     const summary = formatUnrestorableSummary(plan, {
       set: "photos",
       reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
     });
 
     // The direction of the error is the part worth saying.
     assert.match(summary, /may overstate what becomes unrestorable/);
     assert.match(summary, /photos\/s9/);
+    // The fix must paste and run: `verify` takes a *required* bucket, so a bare
+    // `s3cab verify` would fail for the one user who most needs it to work.
+    assert.match(summary, /\n {2}s3cab verify my-bucket\n/);
   });
 });
 

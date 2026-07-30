@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-/** @import { ReferencedResult } from "../lib/verify.mjs" */
+/** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for `forget`: the S3 reads/writes (listRemoteSnapshots,
 // deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the

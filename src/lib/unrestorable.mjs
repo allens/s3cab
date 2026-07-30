@@ -1,4 +1,5 @@
 import { formatByteValue } from "./format.mjs";
+import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 
 // The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
 // given the bucket's referenced enumeration (`referencedObjects` in remote.mjs)
@@ -22,7 +23,7 @@ import { formatByteValue } from "./format.mjs";
 // `referenced − referenced`. Different question, no shared computation — and
 // `planCleanup` is explicitly left alone (see that design's box).
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 /**
  * One selected snapshot's share: the content that **only** it references among
@@ -53,7 +54,7 @@ import { formatByteValue } from "./format.mjs";
  * @property {number} totalObjects - Distinct objects left orphaned (the reclaimable ones)
  * @property {boolean} lastOfSet - The selection takes out the set's last remote snapshot
  * @property {UnrestorableEntry[]} entries - Every unrestorable file, for the report file
- * @property {{ set: string, snapshot: string, reason: string }[]} unreadable - Snapshots that would not read
+ * @property {string[]} unreadable - `set/snapshot` names that would not read
  */
 
 /**
@@ -91,13 +92,7 @@ export function planUnrestorable(
   referencedBySet,
   { set, snapshots, remoteSnapshots },
 ) {
-  const unreadable = [...referencedBySet].flatMap(([name, r]) =>
-    r.unreadable.map((u) => ({
-      set: name,
-      snapshot: u.snapshot,
-      reason: u.reason,
-    })),
-  );
+  const unreadable = unreadableSnapshots(referencedBySet);
 
   const selected = new Set(snapshots);
   // A set whose every snapshot failed to read has no entry at all — treat it as
@@ -222,10 +217,10 @@ export function planUnrestorable(
  * already requires for fixes, and the reason the file beats "pipe it somewhere"
  * on Windows, the primary environment.
  * @param {UnrestorablePlan} plan
- * @param {{ set: string, reportPath: string }} context - The set being forgotten from, and where the full list was written
+ * @param {{ set: string, reportPath: string, bucket: string }} context - The set being forgotten from, where the full list was written, and the repository bucket (so the unreadable caveat's `verify` command pastes as-is)
  * @returns {string}
  */
-export function formatUnrestorableSummary(plan, { set, reportPath }) {
+export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
   const lines = [];
 
   if (plan.totalFiles === 0) {
@@ -286,18 +281,18 @@ export function formatUnrestorableSummary(plan, { set, reportPath }) {
   }
 
   if (plan.unreadable.length > 0) {
-    // Not `cleanup`'s abort: nothing is removed off the back of these numbers, so
-    // an incomplete preview is a caveat to state, not a reason to refuse. The
-    // direction of the error matters and is worth saying — an unread snapshot's
-    // references are unknown, so content it alone holds is listed as
-    // unrestorable when it is not.
-    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
+    // Not `cleanup`'s abort, so no blocked-goal lead: nothing is removed off the
+    // back of these numbers, and an incomplete preview is a caveat to state
+    // rather than a reason to refuse. The *direction* of the error is the part
+    // worth saying — an unread snapshot's references are unknown, so content it
+    // alone holds gets listed as unrestorable when it is not.
     lines.push(
       ``,
-      `Warning: ${where.length} snapshot(s) would not read, so their references ` +
-        `are unknown and this preview may overstate what becomes unrestorable ` +
-        `(${where.join(", ")}).`,
-      `Check them with: s3cab verify`,
+      unreadableMessage({
+        names: plan.unreadable,
+        bucket,
+        consequence: "this preview may overstate what becomes unrestorable",
+      }),
     );
   }
 

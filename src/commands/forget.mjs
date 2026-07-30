@@ -203,6 +203,7 @@ export async function forget(snapshots = [], options = {}) {
       formatUnrestorableSummary(plan, {
         set: set.name,
         reportPath: previewPath,
+        bucket: set.bucket,
       }),
     );
   }

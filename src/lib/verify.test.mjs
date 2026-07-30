@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  isCorruptSnapshotError,
-  setHasFindings,
-  verifySet,
-} from "./verify.mjs";
+import { setHasFindings, verifySet } from "./verify.mjs";
 
-// Pure unit tests for verify's diff core — the per-path `problems` model and the
-// error classifier — with no S3 (the S3 reads are integration-tested via
-// test/integration/remote.test.mjs / the gated bucket). See docs/design/backup.md.
+// Pure unit tests for verify's diff core — the per-path `problems` model — with
+// no S3 (the S3 reads are integration-tested via test/integration/remote.test.mjs
+// / the gated bucket). See docs/design/backup.md. The enumeration's own
+// vocabulary, including the damage classifier, is pinned in referenced.test.mjs.
 
 /**
  * Build a ReferencedResult from a compact spec: each hash maps to its list of
@@ -31,27 +28,6 @@ function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
   }
   return { referenced, snapshotsChecked, unreadable };
 }
-
-describe("isCorruptSnapshotError", () => {
-  it("treats a snapshot-parse assertion as corruption (a finding)", () => {
-    const error = new assert.AssertionError({ message: "Malformed line" });
-    assert.equal(isCorruptSnapshotError(error), true);
-  });
-
-  it("treats a zstd decompression failure as corruption (a finding)", () => {
-    const error = Object.assign(new Error("Unknown frame descriptor"), {
-      code: "ZSTD_error_prefix_unknown",
-    });
-    assert.equal(isCorruptSnapshotError(error), true);
-  });
-
-  it("does NOT treat an operational S3 error as corruption (it aborts)", () => {
-    const notFound = Object.assign(new Error("nope"), { name: "NoSuchKey" });
-    assert.equal(isCorruptSnapshotError(notFound), false);
-    assert.equal(isCorruptSnapshotError(new Error("network down")), false);
-    assert.equal(isCorruptSnapshotError("not even an error"), false);
-  });
-});
 
 describe("verifySet with a deletion record", () => {
   const RECORD = new Map([["gone", { deletedOn: "2026-07-19T1422" }]]);

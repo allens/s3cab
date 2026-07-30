@@ -123,7 +123,11 @@ rather than assuming it is fixed forever.
    [ADR-0006](docs/adr/0006-minimal-code.md): build the small thing the current need justifies,
    generalize only when the second case appears. (Worked example: `isENOENT` in
    `src/lib/error.mjs`, added once the check had four call sites, as the specific predicate
-   rather than a generic `isErrnoCode`.) **Over-engineering is the _solution_ being more complex
+   rather than a generic `isErrnoCode`.) **"The second case" means a caller that already exists
+   — structure with consumers today is not speculation, and the count is of real call sites, not
+   imagined ones.** Read that before reaching for this rule to argue *against* a change: the
+   restrictive half is the memorable one, so it gets misapplied to extractions the permissive
+   half below plainly authorizes. **Over-engineering is the _solution_ being more complex
    than the problem warrants — not the churn a change takes:** swapping one design for a simpler,
    very different one can be a lot of work yet the opposite of over-engineering. The heuristic is
    to **minimize lines of code** as a proxy for complexity — clear, not obfuscated. So this
