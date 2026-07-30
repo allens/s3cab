@@ -1,4 +1,9 @@
-import { formatByteValue, formatCount, plural } from "./format.mjs";
+import {
+  alignTotalTable,
+  formatByteValue,
+  formatCount,
+  plural,
+} from "./format.mjs";
 import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 
 // The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
@@ -234,42 +239,26 @@ export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
       ``,
     );
 
-    /** @type {[string, number, number][]} */
+    /** @type {[string, string, string][]} */
     const rows = plan.bySnapshot.map(({ snapshot, files: f, bytes }) => [
       snapshot,
-      f,
-      bytes,
+      files(f),
+      formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.bySnapshot.length} snapshots`,
-        plan.sharedFiles,
-        plan.sharedBytes,
+        files(plan.sharedFiles),
+        formatByteValue(plan.sharedBytes),
       ]);
     }
-    rows.push(["total unrestorable", plan.totalFiles, plan.totalBytes]);
+    rows.push([
+      "total unrestorable",
+      files(plan.totalFiles),
+      formatByteValue(plan.totalBytes),
+    ]);
 
-    // Right-align the numbers so the magnitudes line up — the column being
-    // compared is the one being scanned.
-    const label = Math.max(...rows.map(([name]) => name.length));
-    const fileCol = Math.max(...rows.map(([, f]) => files(f).length));
-    const byteCol = Math.max(
-      ...rows.map(([, , bytes]) => formatByteValue(bytes).length),
-    );
-    const row = (/** @type {[string, number, number]} */ [name, f, bytes]) =>
-      `  ${name.padEnd(label)}  ${files(f).padStart(fileCol)}  ` +
-      `${formatByteValue(bytes).padStart(byteCol)}`;
-
-    const total = rows.pop();
-    for (const r of rows) {
-      lines.push(row(r));
-    }
-    if (total) {
-      lines.push(
-        `  ${" ".repeat(label)}  ${"─".repeat(fileCol + byteCol + 2)}`,
-        row(total),
-      );
-    }
+    lines.push(...alignTotalTable(rows));
   }
 
   if (plan.lastOfSet) {

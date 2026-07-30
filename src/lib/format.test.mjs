@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
+  alignTotalTable,
   formatByteValue,
   formatCount,
   formatDuration,
@@ -67,6 +68,38 @@ describe("plural", () => {
   it("suffixes a noun phrase at its end", () => {
     assert.equal(plural(1, "stored object"), "stored object");
     assert.equal(plural(7, "stored object"), "stored objects");
+  });
+});
+
+describe("alignTotalTable", () => {
+  const rows = /** @type {[string, string, string][]} */ ([
+    ["a", "1 file", "1B"],
+    ["bb", "10 files", "20B"],
+    ["total", "11 files", "21B"],
+  ]);
+
+  // The whole point of the table is comparing magnitudes down a column, so pin
+  // the padding exactly: labels left, both number columns right, and the rule
+  // spanning just the numbers rather than the full line width.
+  it("left-aligns labels, right-aligns numbers, rules off the total", () => {
+    assert.deepEqual(alignTotalTable(rows), [
+      "  a        1 file   1B",
+      "  bb     10 files  20B",
+      "         ─────────────",
+      "  total  11 files  21B",
+    ]);
+  });
+
+  // `delete` names its stored-object count here. It has to fall outside the
+  // alignment — inside it, it would stretch the size column for every row.
+  it("trails the suffix after the total, outside the alignment", () => {
+    const lines = alignTotalTable(rows, "   (3 stored objects)");
+    assert.equal(lines.at(-1), "  total  11 files  21B   (3 stored objects)");
+    assert.deepEqual(lines.slice(0, -1), alignTotalTable(rows).slice(0, -1));
+  });
+
+  it("refuses a table with no total row", () => {
+    assert.throws(() => alignTotalTable([]), /total row/);
   });
 });
 
