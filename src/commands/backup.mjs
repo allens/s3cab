@@ -1,9 +1,9 @@
 import { loadSet } from "../lib/env.mjs";
-import { FileChangedError } from "../lib/error.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
 import {
+  fileChangedError,
   storedHashes,
   uploadObjects,
   uploadSnapshotFile,
@@ -67,7 +67,7 @@ export async function backup(setName, options = {}) {
     baseline: previous,
   });
 
-  const uploader = uploadObjects({ bucket: set.bucket, set: set.name, stored });
+  const uploader = uploadObjects({ bucket: set.bucket, stored });
   const { name } = await generateSnapshot(set, {
     lookup,
     through: uploader.through,
@@ -80,14 +80,15 @@ export async function backup(setName, options = {}) {
   //
   // Which retry to name depends on the kind of failure (ADR-0069): a file that
   // changed under us can never be reconciled with the snapshot that recorded it,
-  // so it asks for a fresh backup and already says so; anything else is a
-  // transfer that can simply be resumed.
-  const { candidates, uploaded, failure } = uploader.result();
-  if (failure instanceof FileChangedError) {
-    throw failure;
-  }
+  // so it asks for a fresh backup; anything else is a transfer that can simply be
+  // resumed. The transport failure is checked **first** — it is the terminal one,
+  // and it must not be spoken for by a drift met on an earlier row.
+  const { candidates, uploaded, drifted, failure } = uploader.result();
   if (failure) {
     throw uploadFailedError(failure, set.name, name);
+  }
+  if (drifted.length > 0) {
+    throw fileChangedError(drifted, set.name);
   }
 
   await uploadSnapshotFile({

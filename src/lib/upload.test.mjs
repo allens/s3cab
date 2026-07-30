@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { beforeEach, describe, it, mock } from "node:test";
-import { FileChangedError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
+/** @import { Drift } from "./upload.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the baseline-trust check (one HEAD before the baseline is
@@ -43,6 +43,7 @@ mock.module("./s3.mjs", {
     },
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
+      callOrder.push(`put:${basename(path)}`);
       if (putError) {
         throw putError;
       }
@@ -68,8 +69,39 @@ mock.module("./deletion-record.mjs", {
     readDeletionRecords: async () => deletionRecords,
   },
 });
-const { baselineHashes, planUpload, uploadObjects, uploadSnapshot, uploadDir } =
-  await import("./upload.mjs");
+/** @type {Set<string>} paths rewritten the instant hashing finishes. */
+let driftAfterHash = new Set();
+/** @type {string[]} `hash:`/`put:` events interleaved, proving lazy row production. */
+let callOrder = [];
+// Reproduce drift through the real mechanism rather than by faking props: the
+// wrapper returns the genuine props for the bytes it hashed, then edits the file,
+// so what the guard re-stats really is a different file from the one hashed. The
+// window this opens by hand is the one a multi-GB seed opens by itself, where
+// hashing runs for minutes before the PUT re-reads the file. `fileProps` here is
+// the real one — the static import above resolves before this mock is registered.
+mock.module("./file-props.mjs", {
+  exports: {
+    fileProps: async (
+      /** @type {string} */ path,
+      /** @type {SnapshotEntries} */ lookup,
+    ) => {
+      const props = await fileProps(path, lookup);
+      callOrder.push(`hash:${basename(path)}`);
+      if (driftAfterHash.has(path)) {
+        writeFileSync(path, "rewritten the instant hashing finished");
+      }
+      return props;
+    },
+  },
+});
+const {
+  baselineHashes,
+  fileChangedError,
+  planUpload,
+  uploadObjects,
+  uploadSnapshot,
+  uploadDir,
+} = await import("./upload.mjs");
 
 beforeEach(() => {
   baselineExists = true;
@@ -80,6 +112,8 @@ beforeEach(() => {
   listedPrefixes = [];
   deletionRecords = new Map();
   putError = undefined;
+  driftAfterHash = new Set();
+  callOrder = [];
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
@@ -195,7 +229,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
   };
 
   const uploader = (/** @type {Set<string>} */ stored = new Set()) =>
-    uploadObjects({ bucket: "fused", set: "photos", stored });
+    uploadObjects({ bucket: "fused", stored });
 
   it("PUTs each distinct hash once and yields every row on unchanged", async () => {
     await using dir = await mkTmpDir();
@@ -213,6 +247,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     assert.deepEqual(upload.result(), {
       candidates: 2,
       uploaded: 2,
+      drifted: [],
       failure: undefined,
     });
   });
@@ -292,9 +327,11 @@ describe("uploadObjects (the streaming PUT transform)", () => {
       putFiles.map((put) => put.uri),
       [uri("world")], // "hello" was skipped; c.txt still went up
     );
-    const { failure, uploaded } = upload.result();
-    assert.ok(failure instanceof FileChangedError);
-    assert.match(failure.message, /changed while the backup was running/);
+    const { drifted, uploaded, failure } = upload.result();
+    // Drift is reported as data, not as a pre-built error: the caller decides
+    // whether that is fatal (backup) or a reportable skip (the folder seed).
+    assert.deepEqual(drifted, [{ path: a, reason: "changed" }]);
+    assert.equal(failure, undefined, "drift is not a transport failure");
     assert.equal(uploaded, 1);
   });
 
@@ -307,7 +344,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     const upload = uploader();
     await Array.fromAsync(upload.through(rows));
 
-    assert.ok(upload.result().failure instanceof FileChangedError);
+    assert.deepEqual(upload.result().drifted, [{ path: a, reason: "removed" }]);
     assert.deepEqual(
       putFiles.map((put) => put.uri),
       [uri("world")],
@@ -330,10 +367,10 @@ describe("uploadObjects (the streaming PUT transform)", () => {
 
     assert.deepEqual(out, [unstattable], "the row still reaches the TSV");
     assert.deepEqual(putFiles, [], "an unconfirmable file is never stored");
-    const { failure } = upload.result();
-    assert.ok(failure instanceof FileChangedError);
-    assert.match(failure.message, /could no longer be read/);
-    assert.ok(failure.cause, "the raw error rides along for S3CAB_DEBUG");
+    const { drifted } = upload.result();
+    assert.equal(drifted.length, 1);
+    assert.equal(drifted[0]?.reason, "unreadable");
+    assert.ok(drifted[0]?.cause, "the raw error rides along for S3CAB_DEBUG");
   });
 
   it("never throws mid-stream — that would truncate the caller's snapshot", async () => {
@@ -350,8 +387,26 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     const out = await Array.fromAsync(upload.through(rows));
 
     assert.deepEqual(out, rows);
-    // First failure wins: the drift was seen before the transfer error.
-    assert.ok(upload.result().failure instanceof FileChangedError);
+  });
+
+  it("reports a drift and a later transport failure separately, not first-wins", async () => {
+    // Why the outcome has two fields. One slot meant the *first* failure won, so
+    // a drift on an early row hid a dead network on a later one: the run still
+    // failed but blamed the wrong thing, and any caller that tolerates drift
+    // would have reported success on a dropped link. Drift is per-file and
+    // plural; a transport failure is singular and terminal.
+    await using dir = await mkTmpDir();
+    const { a } = files(dir.path);
+    const rows = await rowsOf(dir.path);
+    writeFileSync(a, "different, longer bytes"); // row 1 drifts
+    putError = new Error("connection reset"); // row 3's PUT then dies
+
+    const upload = uploader();
+    await Array.fromAsync(upload.through(rows));
+
+    const { drifted, failure } = upload.result();
+    assert.deepEqual(drifted, [{ path: a, reason: "changed" }]);
+    assert.equal(failure?.message, "connection reset");
   });
 });
 
@@ -474,6 +529,54 @@ describe("uploadSnapshot baseline trust", () => {
       [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
     );
     assert.equal(result.candidates, 0);
+  });
+});
+
+describe("fileChangedError", () => {
+  /** @type {Drift} */
+  const changed = { path: "photo.raw", reason: "changed" };
+
+  it("names the file, what happened, and the fresh backup that fixes it", () => {
+    const error = fileChangedError([changed], "photos");
+
+    assert.match(error.message, /Couldn't back up 'photo.raw'/);
+    assert.match(error.message, /changed while the backup was running/);
+    assert.match(error.message, /s3cab backup photos/);
+  });
+
+  it("keeps the errno in a parenthetical for an unreadable file (ADR-0030)", () => {
+    const error = fileChangedError(
+      [{ path: "x.bin", reason: "unreadable", cause: { code: "EACCES" } }],
+      "photos",
+    );
+
+    assert.match(error.message, /could no longer be read.*\(EACCES\)/);
+  });
+
+  it("says how many others when several files drifted", () => {
+    // One drifting file is bad luck; several means something is actively writing
+    // into the set, and the advice below reads very differently in that case. The
+    // count is the only thing that distinguishes them, so it has to be said.
+    const error = fileChangedError(
+      [
+        changed,
+        { path: "b.raw", reason: "removed" },
+        { path: "c.raw", reason: "changed" },
+      ],
+      "photos",
+    );
+
+    assert.match(error.message, /Couldn't back up 'photo.raw'/, "still leads");
+    assert.match(error.message, /2 other files/);
+  });
+
+  it("says nothing about others when only one drifted", () => {
+    // Deliberately narrow: the standing prose already contains "another program",
+    // so a bare /other/ would match the singular message too.
+    assert.doesNotMatch(
+      fileChangedError([changed], "photos").message,
+      /\d+ other files/,
+    );
   });
 });
 
@@ -620,5 +723,88 @@ describe("uploadDir (seed a folder's objects)", () => {
     // Still considered (a conditional PUT is attempted), but not transferred.
     assert.equal(result.candidates, 3);
     assert.equal(result.uploaded, 2);
+    assert.deepEqual(result.skipped, []);
+  });
+
+  it("never stores a file that changed while it was being hashed", async () => {
+    // The corruption the seed path was open to: the store trusts the hash on
+    // write, so PUTting a file's *current* bytes under the hash of its *previous*
+    // bytes poisons that object for every snapshot and path that dedups to it —
+    // and it surfaces only at restore, as a hash mismatch on a file nobody
+    // touched. `upload --dir` hashes then re-reads to PUT exactly as `backup`
+    // does, so it needs the same confirmation, which it never had.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    driftAfterHash.add(join(root, "c.txt")); // "world" changes post-hash
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    assert.ok(
+      !putFiles.some(({ uri }) => uri.endsWith(sha("world"))),
+      "the stale hash was never written",
+    );
+    assert.deepEqual(result.skipped, [
+      { path: join(root, "c.txt"), reason: "changed" },
+    ]);
+  });
+
+  it("seeds every other file, and succeeds — the seed publishes no manifest", async () => {
+    // Unlike `backup`, a skipped file leaves nothing inconsistent here: no
+    // manifest references the missing object, so there is no broken promise to
+    // report. The bytes that *are* confirmed are worth having, and the next
+    // backup picks the skipped file up properly. So: report it, exit 0.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    driftAfterHash.add(join(root, "c.txt"));
+
+    const result = await uploadDir({
+      bucket: "seed-bucket",
+      dir: root,
+      excludePath,
+    });
+
+    const expected = ["hello", "deep"]
+      .map((c) => `s3://seed-bucket/objects/${sha(c)}`)
+      .sort();
+    assert.deepEqual(putFiles.map(({ uri }) => uri).sort(), expected);
+    assert.equal(result.uploaded, 2);
+  });
+
+  it("still throws when the transfer itself fails", async () => {
+    // A dead link is not a per-file skip: nothing more can be sent, so the run
+    // fails as it always did rather than reporting a pile of skips.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+    putError = new Error("connection reset");
+
+    await assert.rejects(
+      () => uploadDir({ bucket: "seed-bucket", dir: root, excludePath }),
+      /connection reset/,
+    );
+  });
+
+  it("hashes lazily — a file's object ships before the next file is read", async () => {
+    // A seed is aimed at multi-GB folders, so the subtree must never be hashed up
+    // front: rows are produced one at a time, and each object ships while the
+    // walk still has files left to read. Hashing every file first would work and
+    // waste the whole subtree's read before a single byte went out.
+    await using dir = await mkTmpDir();
+    const { root, excludePath } = seedFixture(dir.path);
+
+    await uploadDir({ bucket: "seed-bucket", dir: root, excludePath });
+
+    // callOrder interleaves both mocks, so eager hashing would read
+    // hash,hash,hash,hash,put,put,put — the first PUT last, not second.
+    const firstPut = callOrder.findIndex((c) => c.startsWith("put:"));
+    const lastHash = callOrder.findLastIndex((c) => c.startsWith("hash:"));
+    assert.ok(firstPut >= 0 && lastHash >= 0);
+    assert.ok(
+      firstPut < lastHash,
+      `an object shipped before the last file was hashed: ${callOrder.join(" ")}`,
+    );
   });
 });

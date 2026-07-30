@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, it, mock } from "node:test";
 
+/** @import { Drift, FileChange } from "../lib/upload.mjs" */
+
 // Offline tests for `upload`'s command surface (ADR-0044): the fail-fast flag
 // validation, and that each mode routes to the right plumbing with the right
 // arguments (set-scoped vs raw --bucket for a single file; the snapshot uploader
@@ -28,6 +30,12 @@ let putObjectCalls = [];
 let uploadSnapshotCalls = [];
 /** @type {Record<string, unknown>[]} */
 let uploadDirCalls = [];
+/** @type {Drift[]} what the faked seeder reports skipping */
+let dirSkipped = [];
+/** @type {[string, object][]} */
+let fileChangeCalls = [];
+/** @type {FileChange | undefined} what the faked guard reports */
+let fileChangeResult;
 let putResult = true;
 
 mock.module("../lib/env.mjs", {
@@ -68,7 +76,14 @@ mock.module("../lib/upload.mjs", {
     },
     uploadDir: async (/** @type {Record<string, unknown>} */ args) => {
       uploadDirCalls.push(args);
-      return { candidates: 40, uploaded: 12 };
+      return { candidates: 40, uploaded: 12, skipped: dirSkipped };
+    },
+    fileChange: async (
+      /** @type {string} */ path,
+      /** @type {object} */ recorded,
+    ) => {
+      fileChangeCalls.push([path, recorded]);
+      return fileChangeResult;
     },
   },
 });
@@ -81,6 +96,9 @@ beforeEach(() => {
   putObjectCalls = [];
   uploadSnapshotCalls = [];
   uploadDirCalls = [];
+  dirSkipped = [];
+  fileChangeCalls = [];
+  fileChangeResult = undefined;
   putResult = true;
 });
 
@@ -228,6 +246,75 @@ describe("upload --snapshot (a snapshot's objects)", () => {
   });
 });
 
+// The confirmation guard on the single-file path. It has the same hash-then-PUT
+// window the bulk paths do — the store trusts the hash on write, so a file edited
+// in between would be stored under its previous content's hash and corrupt that
+// object for every path that dedups to it. One file rather than thousands does not
+// change that, so the invariant is shared even though the PUT loop is not.
+describe("upload --file confirmation guard", () => {
+  it("re-confirms the file against the props prop() returned, before the PUT", async () => {
+    await upload("photos", { file: "/f/photo.raw" });
+
+    assert.deepEqual(fileChangeCalls, [
+      ["/f/photo.raw", { hash: "abc123", size: 42 }],
+    ]);
+    assert.equal(putObjectCalls.length, 1, "confirmed, so it was stored");
+  });
+
+  it("refuses to store a file that changed while it was being read", async () => {
+    fileChangeResult = { reason: "changed" };
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw" }),
+      /changed while s3cab was reading it/,
+    );
+    assert.deepEqual(
+      putObjectCalls,
+      [],
+      "the stale fingerprint was never used",
+    );
+  });
+
+  it("names the retry with the set it was given", async () => {
+    fileChangeResult = { reason: "removed" };
+
+    await assert.rejects(() => upload("photos", { file: "/f/photo.raw" }), {
+      message: /s3cab upload photos --file \/f\/photo\.raw/,
+    });
+  });
+
+  it("names the retry with --bucket when that was how it was addressed", async () => {
+    // The shared backup message can't serve here: there may be no set to name.
+    fileChangeResult = { reason: "changed" };
+
+    await assert.rejects(
+      () => upload(undefined, { file: "/f/photo.raw", bucket: "raw-bucket" }),
+      /s3cab upload --bucket raw-bucket --file/,
+    );
+  });
+
+  it("keeps the errno in a parenthetical when the file went unreadable", async () => {
+    fileChangeResult = { reason: "unreadable", cause: { code: "EACCES" } };
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw" }),
+      /could no longer be read \(EACCES\)/,
+    );
+  });
+
+  it("guards --force too — it overwrites deliberately, it does not skip confirming", async () => {
+    // --force is about clobbering an existing object (the repair hatch), not about
+    // storing bytes under a fingerprint that no longer matches them.
+    fileChangeResult = { reason: "changed" };
+
+    await assert.rejects(
+      () => upload("photos", { file: "/f/photo.raw", force: true }),
+      /changed while s3cab was reading it/,
+    );
+    assert.deepEqual(putObjectCalls, []);
+  });
+});
+
 describe("upload --dir (seed a folder's objects)", () => {
   it("hands the seeder the set's bucket, the folder, and the set's exclude path", async () => {
     const result = await upload("photos", { dir: tmpdir() });
@@ -246,6 +333,21 @@ describe("upload --dir (seed a folder's objects)", () => {
       dir: tmpdir(),
       candidates: 40,
       uploaded: 12,
+      skipped: [],
     });
+  });
+
+  it("passes the seeder's skipped files through to the result", async () => {
+    // A skipped file is part of what the run did, so it belongs in the result the
+    // render layer reports (and in --json) — not only on stderr.
+    dirSkipped = [{ path: "/photos/live.raw", reason: "changed" }];
+
+    const result = await upload("photos", { dir: tmpdir() });
+
+    assert.equal(result.mode, "dir");
+    assert.deepEqual(
+      result.mode === "dir" ? result.skipped : undefined,
+      dirSkipped,
+    );
   });
 });

@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { stderr } from "node:process";
@@ -25,10 +26,14 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
 // still spelled in exactly one place); objects.mjs owns `objects/`.
 //
 // `uploadObjects` is deliberately **source-agnostic** (ADR-0069): it consumes a
-// stream of `[path, Props]` rows, whether they come from a snapshot file being
-// re-read (here) or from the hash pass of a live `backup`, which splices this
+// stream of `[path, Props]` rows, wherever they come from — a snapshot file being
+// re-read (`uploadSnapshot`), the hash pass of a live `backup`, which splices this
 // same transform into its snapshot pipeline so each object ships milliseconds after
-// it was hashed. One PUT loop, one drift guard, two sources.
+// it was hashed, or a walk of one folder (`uploadDir`). One PUT loop, one
+// confirmation guard, three sources — and that is a correctness property, not
+// tidiness: every path that hashes a file and then re-reads it to send it has a
+// window in which the file can change underneath the hash recorded for it, so a
+// second PUT loop is a second place for the guard to be missing from.
 
 /**
  * The hashes a run may treat as **already stored** — the skip-list both upload
@@ -157,11 +162,29 @@ export function planUpload(target, stored) {
 }
 
 /**
+ * One file the guard would not let be stored, and why — a {@link FileChange} with
+ * the path it happened to. Data, not a built error: what a drifted file *means*
+ * differs per caller (fatal to a `backup` that is about to publish a manifest, a
+ * reportable skip to a folder seed that publishes nothing), so the message is the
+ * caller's to build — from {@link fileChangedError} or its own.
+ * @typedef {FileChange & { path: string }} Drift
+ */
+
+/**
  * What an `uploadObjects` run did, read once its rows have drained.
+ *
+ * **Two failure fields, not one, because the two are different in kind.** A drift
+ * is per-file and plural — several files can drift in one run and each is its own
+ * decision. A transport failure is singular and terminal: one dead link stops
+ * every remaining transfer. Collapsing them into one first-wins slot made an early
+ * drift *hide* a later dropped connection, so the run failed blaming the wrong
+ * thing — and any caller that tolerates drift would have reported success on a
+ * dead network.
  * @typedef {Object} UploadOutcome
  * @property {number} candidates - Objects considered for upload (not already stored)
  * @property {number} uploaded - Those actually transferred (the rest were no-ops the conditional PUT found present)
- * @property {Error} [failure] - The upload that failed, if one did (see `uploadObjects`)
+ * @property {Drift[]} drifted - Files the guard refused, in the order met (see `uploadObjects`)
+ * @property {Error} [failure] - The transport failure that stopped the transfers, if one did
  */
 /**
  * The streaming object uploader: a transform to run rows through, plus the outcome.
@@ -193,7 +216,8 @@ export function planUpload(target, stored) {
  * the cheap retry and — since a fresh run reads the latest local snapshot as its
  * hash lookup — the reason no hashing is ever repeated.
  *
- * The two kinds of failure differ only in what happens *next*:
+ * The two kinds of failure differ in what happens *next*, which is why they are
+ * reported apart (see {@link UploadOutcome}):
  * - **An upload fails** (network, credentials, a rejected PUT): stop attempting
  *   further uploads — one dead link is enough, and s3.mjs has already spent its
  *   retry window (ADR-0068). The retry is `upload <set> --snapshot <name>`: the
@@ -202,25 +226,29 @@ export function planUpload(target, stored) {
  *   it, or it's gone): skip *that file* and carry on uploading the rest. The store
  *   trusts the hash on write, so PUTting its current bytes would file them under
  *   the recorded content's hash — corrupting that object for every snapshot and
- *   path that dedups to it, surfacing only at restore (proposals/bugs.md). The
- *   other files' bytes are fine and worth storing, so they go up; the caller
- *   raises {@link FileChangedError} at the end, which asks for a fresh `backup`
- *   rather than an upload retry, because that one row can never be reconciled
- *   with the file as it now stands. Because this transform re-checks *after*
- *   hashing, it also catches a file that changed **while** it was being hashed —
- *   a mixed-content read the old phase-boundary guard could only notice minutes
- *   later.
+ *   path that dedups to it, surfacing only at restore. The other files' bytes are
+ *   fine and worth storing, so they go up, and the drift is recorded as a
+ *   {@link Drift} for the caller to judge: fatal where a manifest is about to be
+ *   published, a reportable skip where none is. Because this transform re-checks
+ *   *after* hashing, it also catches a file that changed **while** it was being
+ *   hashed — a mixed-content read the old phase-boundary guard could only notice
+ *   minutes later.
+ *
+ * It takes no set name: the drift message is the caller's to build, so nothing
+ * here needs to know which set (or whether there is one — the folder seed reaches
+ * this through a bucket alone).
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
- * @param {string} args.set - The set being backed up (names the re-run command in the drift error)
  * @param {Set<string>} args.stored - Hashes that need no upload (`storedHashes`)
  * @returns {ObjectUploader}
  */
-export function uploadObjects({ bucket, set, stored }) {
+export function uploadObjects({ bucket, stored }) {
   /** @type {Set<string>} */
   const seen = new Set();
   let candidates = 0;
   let uploaded = 0;
+  /** @type {Drift[]} */
+  const drifted = [];
   /** @type {Error | undefined} */
   let failure;
   let transfersStopped = false;
@@ -240,7 +268,7 @@ export function uploadObjects({ bucket, set, stored }) {
           ? undefined
           : await fileChange(path, props);
         if (change) {
-          failure ??= fileChangedError(path, set, change);
+          drifted.push({ path, ...change });
         } else if (!transfersStopped) {
           try {
             const didUpload = await putObject(bucket, props.hash, path);
@@ -266,7 +294,7 @@ export function uploadObjects({ bucket, set, stored }) {
         void row;
       }
     },
-    result: () => ({ candidates, uploaded, failure }),
+    result: () => ({ candidates, uploaded, drifted, failure }),
   };
 }
 
@@ -294,7 +322,7 @@ export function uploadObjects({ bucket, set, stored }) {
  * @param {Props} recorded - What the row says about it
  * @returns {Promise<FileChange | undefined>}
  */
-async function fileChange(path, recorded) {
+export async function fileChange(path, recorded) {
   let current;
   try {
     current = await lstat(path);
@@ -377,11 +405,16 @@ export async function uploadSnapshot({
 
   // A snapshot's entries iterate as exactly the `[path, Props]` rows the transform
   // consumes — the "one consumer, two sources" seam.
-  const uploader = uploadObjects({ bucket, set, stored });
+  const uploader = uploadObjects({ bucket, stored });
   await uploader.run(target);
-  const { candidates, uploaded, failure } = uploader.result();
+  const { candidates, uploaded, drifted, failure } = uploader.result();
+  // Transport failure first: it is the terminal one, and a drift on an earlier
+  // row must not speak for a dead link met on a later one.
   if (failure) {
     throw failure;
+  }
+  if (drifted.length > 0) {
+    throw fileChangedError(drifted, set);
   }
 
   await uploadSnapshotFile({ bucket, set, snapshotDir, name });
@@ -403,39 +436,59 @@ export async function uploadSnapshot({
  * (docs/design/backup.md). No baseline diff and no store LIST: the conditional
  * PUT is the "already stored?" check, so re-running is cheap and idempotent.
  * Identical content under many names uploads once (hashes deduped within the run).
+ *
+ * **The third source of the one PUT loop.** This walks and hashes; `uploadObjects`
+ * does the storing, so the dedup, the counting and — the reason this matters — the
+ * confirmation guard are the same code a backup runs. Seeding hashes a file and
+ * then re-reads it to send it, exactly as a backup does, so it has exactly the same
+ * window in which the file can change underneath the hash recorded for it; running
+ * its own PUT loop meant it had none of the protection. Rows are produced **lazily**
+ * (one file hashed, its object shipped, then the next): a seed is aimed at
+ * multi-GB folders, so hashing the whole subtree before sending anything would
+ * waste the entire read before a byte went out.
+ *
+ * **A file that can't be confirmed is skipped, and the run still succeeds** — the
+ * one place this diverges from `backup`, and it turns on publishing. A backup that
+ * skipped a file would publish a manifest promising an object that was never
+ * stored, so it must fail; a seed publishes nothing, so a skipped file leaves
+ * nothing inconsistent behind and the next backup stores it properly. The bytes
+ * that *were* confirmed are worth having either way. The skips are returned for the
+ * caller to report (never swallowed — they are files the user asked for and didn't
+ * get); a transport failure still throws, because nothing more can be sent.
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.dir - The subtree to seed from (already validated as a directory)
  * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
- * @returns {Promise<{ candidates: number, uploaded: number }>} `candidates` =
- *   distinct objects walked; `uploaded` = those actually transferred (the rest
- *   were already stored).
+ * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
+ *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
+ *   (the rest were already stored); `skipped` = files the guard refused.
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
 
-  /** @type {Set<string>} */
-  const seen = new Set();
-  let uploaded = 0;
-  for (const path of files) {
-    const { hash } = await fileProps(path);
-    if (seen.has(hash)) {
-      continue; // identical content already handled this run — one PUT suffices
-    }
-    seen.add(hash);
-    const didUpload = await putObject(bucket, hash, path);
-    if (didUpload) {
-      uploaded++;
+  /** One row at a time, so hashing and sending interleave per file. */
+  async function* rows() {
+    for (const path of files) {
+      yield /** @type {SnapshotRow} */ ([path, await fileProps(path)]);
     }
   }
-  return { candidates: seen.size, uploaded };
+
+  // An empty `stored`: the conditional PUT is this path's already-stored check, so
+  // there is deliberately no baseline and no store LIST to build one from.
+  const uploader = uploadObjects({ bucket, stored: new Set() });
+  await uploader.run(rows());
+  const { candidates, uploaded, drifted, failure } = uploader.result();
+  if (failure) {
+    throw failure;
+  }
+  return { candidates, uploaded, skipped: drifted };
 }
 
 /**
- * The "we couldn't confirm this file" error `uploadObjects` records when the file
- * on disk is no longer the one that was hashed. Storing its current bytes would
- * file them under the recorded content's hash, corrupting that object across the
- * dedup graph (proposals/bugs.md), so that one file is left out — and because no
+ * The "we couldn't confirm this file" error raised for a run that was going to
+ * **publish a manifest** — `backup` and `upload --snapshot`. Storing the file's
+ * current bytes would file them under the recorded content's hash, corrupting that
+ * object across the dedup graph, so that one file is left out — and because no
  * manifest is published, the run didn't finish, which is what makes one shared
  * "back up again" line honest for all three reasons.
  *
@@ -445,18 +498,37 @@ export async function uploadDir({ bucket, dir, excludePath }) {
  * what actually happened, the errno kept to a parenthetical, the fix as a
  * copy-pasteable command, the durable option (exclude) with its guide link — and
  * ADR-0012's consumer vocabulary: "s3cab", not "content-addressed backup".
- * @param {string} path - The file that couldn't be confirmed
+ *
+ * Exported because the drift is reported as *data* now: the caller decides whether
+ * it is fatal, so the caller raises this. A run that publishes nothing (the folder
+ * seed) has no business with a "the backup didn't finish" message and builds its
+ * own — which is exactly why this is not built inside the transform.
+ * @param {Drift[]} drifted - The refused files; the first names the error (at least one)
  * @param {string} set - The set being backed up (names the re-run command)
- * @param {FileChange} change - Which of the three happened, and the raw cause if any
  * @returns {FileChangedError}
  */
-function fileChangedError(path, set, { reason, cause }) {
+export function fileChangedError(drifted, set) {
+  const first = drifted[0];
+  assert(first, "fileChangedError needs at least one drifted file");
+  const { path, reason, cause } = first;
   const code = /** @type {NodeJS.ErrnoException} */ (cause)?.code;
   const headline = {
     changed: `it changed while the backup was running, so it's no longer the file s3cab fingerprinted`,
     removed: `it was removed while the backup was running`,
     unreadable: `it could no longer be read while the backup was running${code ? ` (${code})` : ""}`,
   }[reason];
+
+  // How many *else* went the same way. One unlucky file and forty are the same
+  // event to the code and completely different situations to the reader: forty
+  // says something is actively writing into the set, which is what the closing
+  // paragraph is really about. The count is the only thing that tells them apart,
+  // so it is said rather than left to be inferred from one named example.
+  const others = drifted.length - 1;
+  const alsoCount =
+    others > 0
+      ? `${others} other file${others === 1 ? "" : "s"} couldn't be confirmed ` +
+        `either and ${others === 1 ? "was" : "were"} left out too.\n\n`
+      : ``;
 
   return new FileChangedError(
     `Couldn't back up '${path}' — ${headline}.\n\n` +
@@ -466,6 +538,7 @@ function fileChangedError(path, set, { reason, cause }) {
       `this computer, so backing up again won't re-read the files it already ` +
       `hashed:\n` +
       `  s3cab backup ${set}\n\n` +
+      alsoCount +
       `If this keeps happening — a live database, a file another program is ` +
       `still writing, or one that comes and goes — it isn't a good fit for ` +
       `s3cab; exclude it from the set: https://s3cab.plantegral.com/guide/exclude`,

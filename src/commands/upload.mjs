@@ -3,8 +3,10 @@ import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
-import { uploadDir, uploadSnapshot } from "../lib/upload.mjs";
+import { fileChange, uploadDir, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
+
+/** @import { Drift, FileChange } from "../lib/upload.mjs" */
 
 /**
  * Get objects into a repository's content-addressed store — the plumbing counterpart
@@ -35,8 +37,11 @@ import { prop } from "./prop.mjs";
  *   the objects land now and the first full `backup` dedups against them for free. Objects-only
  *   by design (writing a manifest is `snapshot`'s job), so the seeded objects are unreferenced
  *   until a backup names them — the safe orphan direction. Always needs a set (its excludes come
- *   from the set), so `--bucket`/`--force`/`--since` are rejected. The seeding loop lives in
- *   `uploadDir`; `upload` only validates and dispatches.
+ *   from the set), so `--bucket`/`--force`/`--since` are rejected. The seeding walk lives in
+ *   `uploadDir` (storing itself is the shared PUT loop's job); `upload` only validates and
+ *   dispatches. A file s3cab can't confirm while reading it — changed, removed, or gone unreadable
+ *   — is **skipped and named**, and the run still succeeds: no manifest is published here, so a
+ *   skip leaves nothing inconsistent.
  *
  * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
  * snapshot — is `snapshot`-time machinery via `prop`'s `lookup`, not `upload`'s concern; the
@@ -62,6 +67,8 @@ import { prop } from "./prop.mjs";
  * @property {string} dir - The folder that was walked and seeded
  * @property {number} candidates - Distinct objects walked
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
+ * @property {Drift[]} skipped - Files that couldn't be confirmed while being read (changed,
+ *   removed, or unreadable), so were not stored; each carries its `reason`
  *
  * @typedef {FileUploadResult | SnapshotUploadResult | DirUploadResult} UploadResult
  *
@@ -129,7 +136,25 @@ export async function upload(setName, options = {}) {
 
     // prop() does the file validation (rejects non-regular files) and the
     // streaming SHA-256; reuse it rather than re-deriving either here (#6).
-    const { hash, size } = await prop(file);
+    const props = await prop(file);
+    const { hash, size } = props;
+
+    // The same window the bulk paths guard (ADR-0069): hashing then re-reading to
+    // send means the file can change in between, and the store trusts the hash on
+    // write — so its new bytes would be filed under the old content's hash and
+    // corrupt that object for every path that dedups to it. One file rather than
+    // thousands doesn't change that, so the invariant is shared even though the
+    // loop isn't: --force means "overwrite deliberately", which the transform has
+    // no concept of, and its dedup/skip-list machinery is dead weight for one file.
+    const change = await fileChange(file, props);
+    if (change) {
+      throw fileUnconfirmedError(
+        file,
+        bucket ? `--bucket ${bucket}` : setName,
+        change,
+      );
+    }
+
     const uploaded = await putObject(targetBucket, hash, file, { force });
     return { mode: "file", hash, size, key: objectKey(hash), uploaded };
   }
@@ -151,12 +176,12 @@ export async function upload(setName, options = {}) {
     }
     // Always a set — the excludes that shape the seed come from it (no --bucket).
     const set = loadSet(setName);
-    const { candidates, uploaded } = await uploadDir({
+    const { candidates, uploaded, skipped } = await uploadDir({
       bucket: set.bucket,
       dir,
       excludePath: set.excludePath,
     });
-    return { mode: "dir", set: set.name, dir, candidates, uploaded };
+    return { mode: "dir", set: set.name, dir, candidates, uploaded, skipped };
   }
 
   // ── Snapshot mode ─────────────────────────────────────────────────────────
@@ -182,3 +207,37 @@ export async function upload(setName, options = {}) {
     uploaded,
   };
 }
+
+/**
+ * The single-file twin of `fileChangedError`: the file named on the command line
+ * is no longer the one that was just fingerprinted, so nothing is stored.
+ *
+ * Its own message rather than the shared one, because the shared one's body is
+ * mostly the "your snapshot is saved, so nothing has to be re-hashed" reassurance
+ * that makes a failed *backup* bearable — there is no snapshot here, and no set to
+ * name in a re-run when `--bucket` was used. A plain `Error`, not a
+ * `FileChangedError`: nothing catches this by type, and error.mjs's taxonomy says a
+ * subclass nobody branches on is unused identity. Wording per ADR-0030 — what
+ * happened, the errno in a parenthetical, the retry as a pasteable command.
+ * @param {string} path - The file that couldn't be confirmed
+ * @param {string | undefined} target - How the run addressed its destination (the set, or `--bucket <b>`)
+ * @param {FileChange} change - Which of the three happened, and the raw cause if any
+ * @returns {Error}
+ */
+const fileUnconfirmedError = (path, target, { reason, cause }) => {
+  const code = /** @type {NodeJS.ErrnoException} */ (cause)?.code;
+  const headline = {
+    changed: `it changed while s3cab was reading it, so it's no longer the file that was fingerprinted`,
+    removed: `it was removed while s3cab was reading it`,
+    unreadable: `it could no longer be read${code ? ` (${code})` : ""}`,
+  }[reason];
+
+  return new Error(
+    `Couldn't upload '${path}' — ${headline}.\n\n` +
+      `s3cab stores a file only under a fingerprint it can confirm still ` +
+      `matches, so nothing was uploaded. Try again once the file has stopped ` +
+      `changing:\n` +
+      `  s3cab upload ${target} --file ${path}`,
+    { cause },
+  );
+};
