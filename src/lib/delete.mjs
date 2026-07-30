@@ -1,4 +1,4 @@
-import { formatByteValue } from "./format.mjs";
+import { formatByteValue, formatCount } from "./format.mjs";
 import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 import { pathMatcher } from "./restore.mjs";
 
@@ -357,7 +357,7 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
       lines.push(
         `  ${" ".repeat(label)}  ${"─".repeat(fileCol + byteCol + 2)}`,
         row(total) +
-          `   (${plan.deletable.length.toLocaleString("en")} stored ` +
+          `   (${formatCount(plan.deletable.length)} stored ` +
           `object${plan.deletable.length === 1 ? "" : "s"})`,
       );
     }
@@ -448,4 +448,4 @@ export function formatDeletePreviewFile(plan, record) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} file${n === 1 ? "" : "s"}`;
+const files = (n) => `${formatCount(n)} file${n === 1 ? "" : "s"}`;

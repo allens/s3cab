@@ -1,4 +1,4 @@
-import { formatByteValue } from "./format.mjs";
+import { formatByteValue, formatCount } from "./format.mjs";
 import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 
 // The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
@@ -371,8 +371,8 @@ export function formatForcedReport({ set, bucket, snapshots, generated }) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} ${n === 1 ? "file" : "files"}`;
+const files = (n) => `${formatCount(n)} ${n === 1 ? "file" : "files"}`;
 
 /** @param {number} n */
 const objects = (n) =>
-  `${n.toLocaleString("en")} stored ${n === 1 ? "object" : "objects"}`;
+  `${formatCount(n)} stored ${n === 1 ? "object" : "objects"}`;

@@ -1,4 +1,4 @@
-import { formatByteValue } from "./format.mjs";
+import { formatByteValue, formatCount } from "./format.mjs";
 import { getText, listObjects, putText } from "./s3.mjs";
 import { snapshotMoment } from "./snapshot-file.mjs";
 
@@ -164,7 +164,7 @@ export function formatDeletionRecord(context, rows) {
     ...pathLines,
     `#`,
     `# ${files(totals.files)}, holding ${formatByteValue(totals.bytes)} across ` +
-      `${totals.objects.toLocaleString("en")} stored object${totals.objects === 1 ? "" : "s"}.`,
+      `${formatCount(totals.objects)} stored object${totals.objects === 1 ? "" : "s"}.`,
     `#`,
     `# The objects backing the files below were deleted on purpose; snapshots`,
     `# still listing them cannot restore them. Tools reading this repository`,
@@ -177,4 +177,4 @@ export function formatDeletionRecord(context, rows) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} file${n === 1 ? "" : "s"}`;
+const files = (n) => `${formatCount(n)} file${n === 1 ? "" : "s"}`;
