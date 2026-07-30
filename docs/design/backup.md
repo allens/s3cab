@@ -395,12 +395,13 @@ already stored (`storedHashes`) is settled up front, before any hashing:
    paths carry it.
 3. **First backup (no previous local snapshot):** there is no baseline, so **LIST the
    object store once** (`objects/`) and treat what it holds as stored.
-   Announced on stderr as `Scanning existing objects…`, which then counts up in place as
-   the LIST pages and closes with its tally and elapsed time — this is the one step of the
-   preamble whose cost nothing else on screen predicts, since it is sized by the whole
-   bucket rather than by the set. This is the batch existence-check — one paged LIST (1,000
-   keys/request) instead of a per-object HEAD — done exactly when there is nothing local to
-   diff against.
+   Announced on stderr as `Scanning existing objects in 's3://<bucket>'…`, which then counts
+   up in place as the LIST pages and closes with its tally and elapsed time — this is the one
+   step of the preamble whose cost nothing else on screen predicts, since it is sized by the
+   whole bucket rather than by the set, which is also why it is the line that names the
+   bucket (nothing else in a backup's output does). This is the batch existence-check —
+   one paged LIST (1,000 keys/request) instead of a per-object HEAD — done exactly when
+   there is nothing local to diff against.
 4. Upload the candidates with the **conditional-PUT / no-clobber** skip as the correctness
    backstop — it silently no-ops any object already present that the baseline missed (older
    snapshots, other sets/users in the shared bucket). **Correctness never rides on the

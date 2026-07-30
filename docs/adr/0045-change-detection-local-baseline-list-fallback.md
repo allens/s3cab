@@ -46,8 +46,8 @@ Two facts undercut that design:
 3. **First backup (no previous local snapshot) → an on-demand `LIST` of `objects/`.** With no
    local baseline, LIST the store once and diff the target against what is already there —
    the batch existence-check (one paged LIST vs. a per-object HEAD), run exactly when there is
-   nothing local to diff against. Print `Scanning existing objects…` to stderr **before** the
-   LIST so the tool never looks hung on a large store.
+   nothing local to diff against. Print `Scanning existing objects in '<bucket>'…` to stderr
+   **before** the LIST so the tool never looks hung on a large store.
 4. **The conditional PUT (`noClobber`) stays the correctness backstop.** It silently no-ops
    any already-present object the baseline missed, so **correctness never rides on the
    baseline** — the baseline is purely a round-trip optimization.

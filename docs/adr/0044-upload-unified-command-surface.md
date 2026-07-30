@@ -77,8 +77,8 @@ predictable**; porcelain is allowed to be **smart**.
 7. **Fail-fast validation** ([0011](0011-validation-in-command-functions.md)), before any work:
    exactly one of `<set>` / `--bucket`; `--bucket` and `--force` require `--file`; `--since`
    requires snapshot mode; a named `--snapshot` must exist. And, for responsiveness, snapshot
-   mode prints `Scanning existing objects…` to stderr **before** the `LIST` so the tool never
-   looks hung.
+   mode prints `Scanning existing objects in '<bucket>'…` to stderr **before** the `LIST` so the
+   tool never looks hung.
 
 ## Consequences
 
