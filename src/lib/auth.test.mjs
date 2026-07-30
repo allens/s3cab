@@ -48,6 +48,30 @@ describe("expiredCredentialsError", () => {
     assert.match(error.message, /^Your AWS credentials have expired\./);
     // The exact, copy-pasteable refresh command.
     assert.match(error.message, /aws sso login/);
+    // Request time has no chain message to quote — headline straight to remedy.
+    assert.doesNotMatch(error.message, /s3cab found your standard AWS setup/);
+  });
+
+  it("scopes to the set, quotes the chain, and names the profile at resolve time", () => {
+    // The resolve-time context noCredentialsError hands over (ADR-0075).
+    const cause = new Error("Token is expired. To refresh this SSO session…");
+    const error = expiredCredentialsError(cause, {
+      set: { name: "photos" },
+      profile: "work",
+      reason: "Token is expired. To refresh this SSO session…",
+    });
+    assert.equal(error.cause, cause);
+    assert.match(
+      error.message,
+      /^Your AWS credentials for set 'photos' have expired\./,
+    );
+    // The chain's own words, so the user sees what s3cab saw.
+    assert.match(
+      error.message,
+      /but its session is no longer valid:\s+Token is expired\./,
+    );
+    // Naming the profile makes the first bullet the whole command.
+    assert.match(error.message, /aws sso login --profile work/);
   });
 });
 
@@ -243,6 +267,46 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     // The exact, copy-pasteable setup + ARN-capture commands.
     assert.match(error.message, /s3cab aws <bucket> --roles-anywhere/);
     assert.match(error.message, /--save --from-stack s3cab-<bucket>/);
+  });
+
+  it("diagnoses an expired sign-in instead of offering the pick-one menu", () => {
+    // The steady-state error once auth works: the chain found an SSO session and
+    // it had run out. "No credentials found" + `s3cab provider …` would send the
+    // user to reconfigure a set that is fine (ADR-0075) — both must be gone.
+    for (const expiry of [
+      // @aws-sdk/token-providers (the cached token itself is stale)…
+      "Token is expired. To refresh this SSO session run 'aws sso login' with the corresponding profile.",
+      // …and @aws-sdk/credential-provider-sso (the token is live, the session isn't).
+      "The SSO session associated with this profile has expired. To refresh this SSO session run aws sso login with the corresponding profile.",
+    ]) {
+      const error = noCredentialsError(new Error(expiry), { set });
+      assert.match(
+        error.message,
+        /^Your AWS credentials for set 'photos' have expired\./,
+      );
+      assert.match(error.message, /aws sso login/);
+      assert.match(error.message, new RegExp(expiry.slice(0, 20)));
+      assert.doesNotMatch(error.message, /No credentials found/);
+      assert.doesNotMatch(error.message, /s3cab provider/);
+      assert.doesNotMatch(error.message, /s3cab looked in/);
+    }
+  });
+
+  it("diagnoses an expired sign-in with no set loaded, too", () => {
+    // setup/reattach run on ambient credentials, which expire the same way — the
+    // headline just can't name a set.
+    const error = noCredentialsError(new Error("Token is expired. …"));
+    assert.match(error.message, /^Your AWS credentials have expired\./);
+    assert.doesNotMatch(error.message, /for set '/);
+    assert.doesNotMatch(error.message, /No AWS credentials found/);
+  });
+
+  it("keeps the generic frame for a chain failure that isn't expiry", () => {
+    // The line ADR-0075 draws: only expiry is classified from the message; every
+    // other chain failure keeps the "looked in" frame and its tailored fix.
+    const error = noCredentialsError(cause, { set });
+    assert.match(error.message, /^No credentials found for set 'photos'\./);
+    assert.doesNotMatch(error.message, /have expired/);
   });
 
   it("uses the ambient template when no set is loaded (setup / upload --bucket)", () => {
