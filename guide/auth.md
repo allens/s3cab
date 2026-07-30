@@ -134,6 +134,28 @@ The error names the set, says where it looked, and — where it can pinpoint the
 with the specific problem: a profile that isn't in your AWS config, or a non-AWS endpoint with
 no keys saved. Follow the fix it prints.
 
+### Your sign-in has expired
+
+The most common one once everything else is working — an AWS IAM Identity Center session lasts
+hours, not forever:
+
+```text
+Your AWS credentials for set 'photos' have expired.
+
+s3cab found your standard AWS setup, but its session is no longer valid:
+     Token is expired. To refresh this SSO session run 'aws sso login' …
+```
+
+Nothing is misconfigured and there is nothing to change — sign in again and re-run the command:
+
+```console
+aws sso login
+```
+
+If your set uses a named profile, s3cab prints that profile in the command
+(`aws sso login --profile <name>`). For temporary credentials (`AWS_SESSION_TOKEN`), request new
+ones from wherever you got them.
+
 ### The server rejects your credentials
 
 s3cab names the cause and shows the raw error. By cause:
