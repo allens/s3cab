@@ -80,9 +80,13 @@ describe("snapshot", () => {
   it("reports changes between snapshots", async (t) => {
     let mockIsoDateTime = "2025-01-15T10:30:00";
 
-    // Temporal.Now.plainDateTimeISO() drives the snapshot name and header.
-    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
-      Temporal.PlainDateTime.from(mockIsoDateTime),
+    // zonedDateTimeISO is the snapshot's single clock read: the name, the UTC
+    // instant and the zone in the header all derive from it (ADR-0072), so
+    // pinning it pins every spelling of the moment.
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from(mockIsoDateTime).toZonedDateTime(
+        "Europe/London",
+      ),
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
@@ -142,8 +146,10 @@ describe("snapshot", () => {
   });
 
   it("writes the set identity and a #DIR line per member directory", async (t) => {
-    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
-      Temporal.PlainDateTime.from("2025-02-01T09:00:00"),
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from("2025-02-01T09:00:00").toZonedDateTime(
+        "Europe/London",
+      ),
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
@@ -162,14 +168,22 @@ describe("snapshot", () => {
       .filter((line) => line.startsWith("#"));
     assert.ok(snapshotLine && dirLine, "expected #SNAPSHOT and #DIR headers");
 
-    assert.match(snapshotLine, /^#SNAPSHOT\s+2025-02-01T09:00\s+photos\s*$/);
+    // All four columns (ADR-0072): the set, the UTC instant of the moment the
+    // snapshot started, then its own name and the zone that name was minted in.
+    // February in Europe/London is GMT, so the instant matches the wall clock.
+    assert.match(
+      snapshotLine,
+      /^#SNAPSHOT\s+photos\s+2025-02-01T09:00:00\.000Z\s+2025-02-01T0900 Europe\/London\s*$/,
+    );
     assert.match(dirLine, /^#DIR\s/);
     assert.ok(dirLine.includes(realpathSync.native(workDir())));
   });
 
   it("refuses a same-minute snapshot unless overwriting under debug", async (t) => {
-    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
-      Temporal.PlainDateTime.from("2025-03-01T12:00:00"),
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from("2025-03-01T12:00:00").toZonedDateTime(
+        "Europe/London",
+      ),
     );
 
     const workDir = copyFixtureToWorkDir("before", t.fullName);
@@ -232,8 +246,8 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
    */
   function setUp(t, isoDateTime) {
     let clock = isoDateTime;
-    t.mock.method(Temporal.Now, "plainDateTimeISO", () =>
-      Temporal.PlainDateTime.from(clock),
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from(clock).toZonedDateTime("Europe/London"),
     );
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     const home = useTempHome(workDir());

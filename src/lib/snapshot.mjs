@@ -11,7 +11,7 @@ import {
   readParkedLookup,
   readSnapshotFile,
   snapshotFileName,
-  snapshotName,
+  snapshotMoment,
   writeSnapshot,
 } from "./snapshot-file.mjs";
 import { walkSet } from "./walk.mjs";
@@ -110,7 +110,10 @@ export async function readBaseline(set, { rehash } = {}) {
  * @returns {Promise<{ name: string, path: string }>} The snapshot's name and local path
  */
 export async function generateSnapshot(set, { lookup, through, debug } = {}) {
-  const name = snapshotName();
+  // One clock read gives the name, the UTC instant, and the zone — the three
+  // spellings the file needs, which therefore cannot disagree (ADR-0072).
+  const moment = snapshotMoment();
+  const { name } = moment;
   // The file it will land in, not just the name: the same shape as the
   // "Reading previous snapshot" line above, so the two ends of the step read as
   // a pair and either path can be pasted straight at a shell.
@@ -125,7 +128,7 @@ export async function generateSnapshot(set, { lookup, through, debug } = {}) {
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
-  const path = await writeSnapshot(set.snapshotsDir, name, {
+  const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: set.dirs,
     files: withProgress("Generating snapshot file…", files.length)(files),
