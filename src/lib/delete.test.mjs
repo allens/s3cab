@@ -5,9 +5,10 @@ import {
   formatDeletePreviewFile,
   formatDeleteSummary,
   planDelete,
+  unreadableDeleteMessage,
 } from "./delete.mjs";
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 // planDelete is the safety-critical arithmetic of the deletion rework
 // (ADR-0064): which stored objects the named paths doom, and — more important
@@ -258,9 +259,7 @@ describe("planDelete", () => {
       ]),
       { paths: ["/data"], scopeSets: ["mine"] },
     );
-    assert.deepEqual(plan.unreadable, [
-      { set: "mine", snapshot: "s0", reason: "zstd" },
-    ]);
+    assert.deepEqual(plan.unreadable, ["mine/s0"]);
   });
 });
 
@@ -281,7 +280,36 @@ describe("deletionRows", () => {
 });
 
 describe("formatDeleteSummary", () => {
-  const context = { everywhere: false, reportPath: "/tmp/preview.txt" };
+  const context = {
+    everywhere: false,
+    reportPath: "/tmp/preview.txt",
+    bucket: "my-bucket",
+  };
+
+  it("caveats a dry run with the *same* text the acting run refuses with", () => {
+    const plan = planDelete(
+      bucket([
+        [
+          "mine",
+          ref(
+            { aaa: ["/data/x.txt"] },
+            {
+              unreadable: [{ snapshot: "s0", reason: "zstd" }],
+            },
+          ),
+        ],
+      ]),
+      { paths: ["/data"], scopeSets: ["mine"] },
+    );
+
+    // One command, one condition, one wording — the preview and the refusal
+    // are the same message, not two that have to be kept in step by hand.
+    assert.ok(
+      formatDeleteSummary(plan, context).includes(
+        unreadableDeleteMessage(["mine/s0"], "my-bucket"),
+      ),
+    );
+  });
 
   it("says plainly when everything matched survives, and how to widen the scope", () => {
     const plan = planDelete(

@@ -52,6 +52,7 @@ ADR as a live constraint.
 - [0011](0011-validation-in-command-functions.md) — Argument validation lives in the command functions
 - [0012](0012-consumer-vocabulary-naming.md) — Consumer-vocabulary command and flag naming
 - [0023](0023-porcelain-plumbing-lib-layers.md) — Commands are porcelain or plumbing, over a shared lib
+- [0074](0074-referenced-enumeration-vocabulary-module.md) — The referenced-enumeration vocabulary (its typedefs, `isCorruptSnapshotError`, the bucket-wide helpers) lives in a zero-import `lib/referenced.mjs`, not with its producer `remote.mjs` — which reaches the AWS SDK, and the three planners consuming it import nothing *(accepted & implemented; applies 0023/0006)*
 
 ### CLI command surface & lifecycle
 

@@ -13,10 +13,10 @@ import {
   snapshotFileName,
   snapshotNames,
 } from "./snapshot-file.mjs";
-import { isCorruptSnapshotError } from "./verify.mjs";
+import { isCorruptSnapshotError } from "./referenced.mjs";
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (docs/design/backup.md): a
 // set's snapshots live under `snapshots/<set>/<name>.tsv.zst`, keyed by the set's

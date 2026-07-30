@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
-/** @import { ReferencedResult } from "../lib/verify.mjs" */
+/** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for verify's command orchestration — the glue on top of the pure
 // diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) are faked at
