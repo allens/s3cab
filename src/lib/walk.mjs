@@ -256,10 +256,10 @@ export function walkDirs(dirs, patterns) {
         ? "This file can't"
         : `These ${formatCount(unrepresentable.length)} files can't`;
     throw new Error(
-      `${count} be backed up, because the name contains a tab or a line break:\n` +
+      `${count} be backed up, because the name contains a tab or a line ending:\n` +
         unrepresentable.map((p) => `  ${showControlChars(p)}`).join("\n") +
         `\nA snapshot is a table with one line per file and a tab between ` +
-        `columns, so a name using either character can't be written into it. ` +
+        `columns, so a name using either can't be written into it. ` +
         `Rename them, or leave them out by adding a pattern to the set's ` +
         `exclude file:\n` +
         `  odd*name.jpg`,

@@ -363,8 +363,7 @@ function warnIfOutOfOrder(since, sinceInstant, until, untilInstant) {
   console.warn(
     `'${since}' was actually taken after '${until}', even though its name ` +
       `sorts earlier — the computer's clock had gone back when one of them was ` +
-      `taken (daylight saving, or a different time zone).
-` +
+      `taken (daylight saving, or a different time zone).\n` +
       `This comparison therefore reads backwards: what it calls added was ` +
       `removed, and the other way round. Swap --since and --until to read it ` +
       `the right way round.`,
