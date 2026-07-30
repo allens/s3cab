@@ -5,7 +5,7 @@ to a detailed design doc, from important stuff down to pipe dreams. Capture it h
 an AI assistant (or a teammate) at it. Nothing in here is committed to or of record.
 
 Ideas are grouped into **theme-based files** ("epics") — e.g. `output-ux.md`,
-`snapshot-format.md`, `performance.md` — each holding related items of whatever size. A story
+`engine-robustness.md`, `performance.md` — each holding related items of whatever size. A story
 can be a one-liner or a worked-out design, and can be split finer as it gets closer to being
 done. Anything that doesn't fit a theme yet lives in [misc.md](misc.md). One special file,
 [bugs.md](bugs.md), is the interim defect tracker until the repo moves bugs to GitHub Issues —

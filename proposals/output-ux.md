@@ -67,9 +67,26 @@ niceties.
       is likewise serialized as ISO / applied via `utimes`, never humanized → out of scope.
 - **Richer `list`**: snapshot date *and* file count / total size (cheap to read from the
   snapshot), maybe `list --stat`. Today it's bare names.
-- **Flexible snapshot references**: accept unambiguous prefixes (`--since 2025-11-11`),
-  `latest`, `latest~1` — anything to avoid typing `2025-11-11T0830` exactly (especially given
-  the silent-typo bug in [bugs.md](bugs.md)).
+- **"Snapshot not found" should name the alternatives, everywhere.** `restore` and `forget`
+  already list the available snapshots on a miss (`forget` best of all — it validates *every*
+  name before deleting *any*, so a typo in the third can't leave the first two gone). `compare`
+  and `upload --snapshot` end at `readSnapshot`'s bare `Snapshot 'X' not found in '<dir>'` — no
+  candidates, no next step. One fix covers both: `readSnapshot` already holds `snapshotDir`, so
+  it can list them itself, and it is safe to enrich there because its only other caller
+  (`readBaseline`) passes a name that came *from* that listing. ADR-0030 territory: give the fix,
+  don't just state the failure.
+  _This replaces the old "flexible snapshot references" idea (unambiguous prefixes, `latest`,
+  `latest~1`), dropped 2026-07-30 along with free-form date parsing: snapshot names are copied
+  from `list`, and three of the four commands that take one already default correctly, so a
+  resolver would optimize typing nobody does — while its stated motivation, a silent-typo bug,
+  has since been fixed._
+- **The walk's `#SKIPPED` entries never surface in output.** A symlink (or any unsupported type)
+  is recorded in the snapshot file and parsed back into `Snapshot.skipped`, but no renderer ever
+  shows it, so a backup omits it silently. That sits awkwardly beside `assertWalkableDirs`'s own
+  principle — *"a backup must never silently skip a directory the user means to keep"* — and it
+  was the deciding argument against skip-and-record in
+  [ADR-0073](../docs/adr/0073-refuse-tab-newline-paths.md), so it is currently visible only as a
+  supporting clause in an ADR. Surfacing a count in the snapshot/backup summary would retire it.
 - **Snapshot labels** (`snapshot -m "before reorg"`) — a commit-message-like note, storable as
   a header comment line without breaking the TSV format.
 - **Friendlier failure for "no snapshots found"** — suggest running `s3cab snapshot` rather

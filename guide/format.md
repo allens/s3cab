@@ -84,7 +84,7 @@ one tab-separated `hash → path` row for **every reference the deleted objects 
 
 ```
 # s3cab delete — content deliberately removed from this repository
-# generated:  2026-07-19T1422
+# generated:  2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
 # bucket:     my-backup-bucket
 # by:         me@DESKTOP
 # sets:       photos
@@ -112,6 +112,12 @@ is still stored.
   no-lock-in promise forbids, and encryption breaks content-addressed dedup. The answer is
   server-side encryption (s3cab already requests it on AWS), bucket access policy, and
   provider trust.
+- **Paths containing a tab or a newline.** Both would break the row grammar, and the
+  format has no escaping by design — that plainness is the point. Such names are legal
+  only on Linux and macOS (Windows forbids them outright) and are almost always a script
+  bug rather than a choice. A file with one is **not backed up**: the run stops and names
+  it, so you can rename it, or exclude it with a pattern like `odd*name.jpg` and run
+  again.
 - **Regular files only.** Snapshots record file content, size, and modification time —
   no symlinks or junctions, no hardlink identity, no empty directories, no permissions or
   ACLs. s3cab backs up *data* (documents, photos, video); it is not a system backup tool.
@@ -128,7 +134,7 @@ The file opens with a header naming the set and its member directories, so it is
 self-describing even found alone in a bucket; then one row per file:
 
 ```
-#SNAPSHOT		2026-06-12T09:15	photos
+#SNAPSHOT	photos	2026-06-12T08:15:32.123Z	2026-06-12T0915 Europe/London
 #DIR			C:\Users\me\Photos
 #DIR			D:\Pics
 3b8e…c0a1	4915200	2026-06-01T12:00:00.000Z	C:\Users\me\Photos\beach.jpg
@@ -140,6 +146,13 @@ self-describing even found alone in a bucket; then one row per file:
 - **`mtime`** — the file's modification time, ISO-8601 with milliseconds, UTC.
 - **`path`** — absolute, in the OS's native style, last on the line so the fixed-width
   columns stay aligned.
+
+After its marker, the `#SNAPSHOT` line carries three fields: the **set** name, the **instant the
+snapshot started** (UTC, the same form as `mtime`, so it lines up in the same column), and
+the snapshot's **own name followed by the time zone that name was minted in**. Snapshot
+names are local wall-clock time, so the zone is what makes one resolvable to an instant —
+and naming the zone (`Europe/London`) rather than just its offset says *where*, which
+explains a daylight-saving shift rather than merely recording one.
 
 Besides `#SNAPSHOT`/`#DIR`, a snapshot may carry `#EXCLUDED` (matched an exclude pattern),
 `#SKIPPED` (unsupported type, e.g. a symlink), and `#ERROR` (a file that could not be read)
