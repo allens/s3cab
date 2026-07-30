@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
+import { formatMoment, localMoment } from "../lib/format.mjs";
 import {
   formatForcedReport,
   formatUnrestorableReport,
@@ -42,15 +43,15 @@ const PREVIEW_FILE = "forget-unrestorable-preview.txt";
 const auditFile = (timestamp) => `forget-unrestorable-${timestamp}.txt`;
 
 /**
- * "Now" at second precision with the colons dropped (`2026-05-01T080213`) —
- * the same shape as a snapshot name (`snapshotName`, minute precision), one unit
- * finer. Local time, matching snapshot names.
- * @returns {string}
+ * "Now" as the audit record's moment: a local name at second precision
+ * (`2026-05-01T080213`) — the same shape as a snapshot name, one unit finer,
+ * because a second `forget` within the same minute is plausible where a second
+ * snapshot is not — plus the UTC instant and zone every timestamped artifact
+ * records. Precision is per artifact; the instant and zone are not
+ * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
+ * @returns {{ name: string, instant: string, zone: string }}
  */
-const auditTimestamp = () =>
-  Temporal.Now.plainDateTimeISO()
-    .toString({ smallestUnit: "seconds" })
-    .replaceAll(":", "");
+const auditMoment = () => localMoment("seconds");
 
 /**
  * Remove remote snapshots — the retention **primitive** (docs/design/backup.md).
@@ -163,17 +164,17 @@ export async function forget(snapshots = [], options = {}) {
     );
   }
 
-  // One timestamp for the whole run, so the audit filename and the `generated:`
-  // line inside it agree by construction (the same reason `snapshotName` reads the
-  // clock once).
-  const timestamp = auditTimestamp();
+  // One clock read for the whole run, so the audit filename and the `generated:`
+  // line inside it agree by construction (ADR-0072, the same reason a snapshot
+  // takes its name and its instant from one read).
+  const moment = auditMoment();
   const context = {
     set: set.name,
     bucket: set.bucket,
     snapshots,
-    generated: timestamp,
+    generated: formatMoment(moment),
   };
-  const auditPath = join(set.dir, auditFile(timestamp));
+  const auditPath = join(set.dir, auditFile(moment.name));
 
   // The unrestorable check — the whole-bucket scan, skipped only by --force. It runs
   // regardless of the TTY: a non-interactive run gets no prompt but still leaves

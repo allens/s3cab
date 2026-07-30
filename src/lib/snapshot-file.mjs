@@ -13,6 +13,8 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
+import { localMoment } from "./format.mjs";
+import { tildeify } from "./home.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
@@ -24,7 +26,9 @@ import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
 // `formatLine` below documents the fixed column widths it pads. The metadata
 // rows are an internal detail (a recovery reader skips every `#` line), so their
 // grammar lives here:
-//   #SNAPSHOT<TAB><TAB>datetime<TAB>identity     opening header; identity = set name (ADR-0024)
+//   #SNAPSHOT<TAB>set<TAB>instant<TAB>name zone   opening header (ADR-0072); set = ADR-0024 identity
+//     …pre-0072 files instead read #SNAPSHOT<TAB><TAB>local_datetime<TAB>set, and are
+//     still read: snapshots are immutable, so both layouts persist forever.
 //   #DIR<TAB><TAB><TAB>path                       one per member directory
 //   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
 //   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
@@ -78,8 +82,11 @@ const ERROR = "#ERROR";
  * the skip reason — e.g. unsupported file type), plus the `#SNAPSHOT`/`#DIR`
  * headers that make it self-describing (docs/design/backup.md). `dirs` are the
  * member directories captured at snapshot time; `identity` is the set name
- * (ADR-0024).
- * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string }} Snapshot
+ * (ADR-0024). `instant` and `zone` are the moment it was taken
+ * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)) —
+ * both **absent on a pre-0072 snapshot**, whose header carried no zone and no
+ * true instant, so a consumer must treat them as optional rather than assume.
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string }} Snapshot
  */
 
 /**
@@ -377,7 +384,7 @@ const inProgressError = (tmpPath) => {
  * The writer stays ignorant of what the transform does: it is a pipe, not a callback
  * (the transform owns its own state and reports back to whoever built it).
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
- * @param {string} name - Snapshot name (minute-precision timestamp, no extension — mint it with `snapshotName`); the `#SNAPSHOT` header datetime is derived from it
+ * @param {{ name: string, instant: string, zone: string }} moment - The snapshot's moment, from one clock read (`snapshotMoment`): its name, the UTC instant, and the zone the name was minted in
  * @param {object} args
  * @param {string} args.identity - The set name (its whole identity, ADR-0024) — the `#SNAPSHOT` line
  * @param {string[]} args.dirs - Member directories (one `#DIR` line each)
@@ -391,7 +398,7 @@ const inProgressError = (tmpPath) => {
  */
 export async function writeSnapshot(
   snapshotDir,
-  name,
+  moment,
   {
     identity,
     dirs,
@@ -405,9 +412,9 @@ export async function writeSnapshot(
 ) {
   return withSnapshotFile(
     snapshotDir,
-    name,
+    moment.name,
     async (writeStream, signal) => {
-      writeStream.write(snapshotHeader({ name, identity, dirs }));
+      writeStream.write(snapshotHeader({ moment, identity, dirs }));
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
       }
@@ -447,7 +454,13 @@ export async function writeSnapshot(
  * @param {string} name - Snapshot name
  * @returns {Promise<Snapshot>} The parsed snapshot (take `.entries` for the lookup)
  * @throws When the named snapshot does not exist — never silently returns an
- *   empty snapshot, which a caller could mistake for an empty one.
+ *   empty snapshot, which a caller could mistake for an empty one. The error
+ *   **names the snapshots that do exist** (ADR-0030: give the fix, don't just
+ *   state the failure), which is the standard `restore` and `forget` already
+ *   set for remote names; this is the local path `compare` and
+ *   `upload --snapshot` reach through. Enriching it here rather than at those
+ *   call sites is safe because the only other caller, `readBaseline`, passes a
+ *   name that came *from* this directory's listing and so can never miss.
  */
 export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");
@@ -456,24 +469,72 @@ export async function readSnapshot(snapshotDir, name) {
   const path = join(snapshotDir, snapshotFileName(name));
   const stats = statSync(path, { throwIfNoEntry: false });
   if (!stats?.isFile()) {
-    throw new Error(`Snapshot '${name}' not found in '${snapshotDir}'`);
+    throw notFoundError(snapshotDir, name);
   }
   return readSnapshotFile(path);
 }
 
 /**
+ * The "no such snapshot" error, with the alternatives — the shape `forget` uses
+ * for remote names, applied to the local directory. Never truncated
+ * ([ADR-0010](../../docs/adr/0010-cli-output-conventions.md)); a set with no
+ * snapshots at all gets a different sentence, because listing nothing under
+ * "here are the others" reads as a bug.
+ *
+ * Reached when the name resolves to nothing *or* to a non-file — the stray
+ * directory case #249 fixed reads as "not found" to a user either way, and the
+ * listing tells them what is actually there.
+ * @param {string} snapshotDir
+ * @param {string} name
+ */
+function notFoundError(snapshotDir, name) {
+  const names = listSnapshotNames(snapshotDir);
+  if (names.length === 0) {
+    return new Error(
+      `Snapshot '${name}' not found — there are no snapshots in ` +
+        `'${tildeify(snapshotDir)}' yet.\n` +
+        `Take one with:\n  s3cab snapshot`,
+    );
+  }
+  return new Error(
+    `Snapshot '${name}' not found in '${tildeify(snapshotDir)}'.\n` +
+      `Snapshots there, newest first:\n` +
+      names.map((n) => `  ${n}`).join("\n"),
+  );
+}
+
+/**
  * The name for a new snapshot: "now" at minute precision with the colon
  * dropped (`2026-06-12T0915`) — the one place a snapshot name is minted, from
- * a single clock read. The `#SNAPSHOT` header datetime is derived back from
- * this name by the writer (`snapshotHeader`), so a snapshot's filename and its
- * own header agree by construction — no second `now()` for an `await` to slip
- * a minute boundary between.
+ * a single clock read — the name alone, for callers that need nothing else.
+ * The header's instant and zone come from that *same* read rather than being
+ * derived from this string (`snapshotMoment`, which this calls through), so a
+ * snapshot's filename and its own header still agree by construction — no
+ * second `now()` for an `await` to slip a minute boundary between.
  * @returns {string}
  */
-export const snapshotName = () =>
-  Temporal.Now.plainDateTimeISO()
-    .toString({ smallestUnit: "minutes" })
-    .replace(":", "");
+export const snapshotName = () => snapshotMoment().name;
+
+/**
+ * The moment a snapshot is taken, in the three spellings the format needs, from
+ * **one clock read** ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)):
+ *
+ * - `name` — local wall clock, minute precision, colon dropped (`2026-06-12T0915`).
+ *   The snapshot's filename and identity, typed by people, so it stays the time
+ *   the clock on the wall said.
+ * - `instant` — the same moment in UTC at millisecond precision
+ *   (`2026-06-12T08:15:32.123Z`), the machine-readable field of record. Exactly
+ *   24 characters, like `mtime`, so it lands in the same column.
+ * - `zone` — the IANA zone the name was minted in (`Europe/London`). It is what
+ *   makes a naive local name resolvable, and naming the zone rather than an
+ *   offset says *where*, which explains a DST shift instead of just recording one.
+ *
+ * One read matters: deriving the instant separately would let an `await` slip a
+ * minute boundary between the two, and a file whose name and header disagree is
+ * exactly what a record must never be.
+ * @returns {{ name: string, instant: string, zone: string }}
+ */
+export const snapshotMoment = () => localMoment("minutes");
 
 /**
  * The filename a snapshot is stored as — its name plus the extension. The one
@@ -604,6 +665,10 @@ export async function parseSnapshotStream(input) {
   const dirs = [];
   /** @type {string | undefined} */
   let identity;
+  /** @type {string | undefined} */
+  let instant;
+  /** @type {string | undefined} */
+  let zone;
 
   const rl = createInterface({ input, crlfDelay: Infinity });
 
@@ -624,7 +689,23 @@ export async function parseSnapshotStream(input) {
       if (hash === DIR && path) {
         dirs.push(path);
       } else if (hash === SNAPSHOT && path) {
-        identity = path;
+        // Two layouts, told apart by whether col2 holds anything. Current
+        // (ADR-0072): set | instant | "name zone". Pre-0072: (empty) | local
+        // datetime | set. The discriminator is sound because a set name is
+        // `[a-z0-9-]+` and so never empty, while the old writer always left col2
+        // blank — and it has to exist at all because snapshots are immutable, so
+        // files in the old layout are readable forever, not migrated.
+        if (size) {
+          identity = size;
+          instant = mtime;
+          // col4 is "<name> <zone>"; the name is the filename, which the reader
+          // already knows, so only the zone is surfaced (the header-vs-filename
+          // check is deliberately not built — ADR-0072).
+          const gap = path.indexOf(" ");
+          zone = gap === -1 ? undefined : path.slice(gap + 1);
+        } else {
+          identity = path;
+        }
       } else if (hash === ERROR && path) {
         errors.set(path, mtime ?? "");
       } else if (hash === SKIPPED && path) {
@@ -642,7 +723,7 @@ export async function parseSnapshotStream(input) {
     });
   }
 
-  return { entries, errors, skipped, dirs, identity };
+  return { entries, errors, skipped, dirs, identity, instant, zone };
 }
 
 /**
@@ -717,21 +798,28 @@ function formatLine(col1, col2, col3, col4) {
  * The opening header of a snapshot file: a `#SNAPSHOT` line carrying the
  * snapshot's datetime and identity, then one `#DIR` line per member directory —
  * the preamble that makes a snapshot self-describing even found alone
- * (docs/design/backup.md). The datetime is *derived from the snapshot's name*
- * (re-inserting the colon the filename drops), so a snapshot's filename and
- * its own header cannot disagree — the two spellings of one moment share one
- * source. Module-private: `writeSnapshot` is its only caller; the
- * `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
+ * (docs/design/backup.md). Every spelling of the moment comes from the single
+ * `snapshotMoment` read the caller made, so a snapshot's filename and its own
+ * header cannot disagree. Module-private: `writeSnapshot` is its only caller;
+ * the `#SNAPSHOT`/`#DIR` markers and their order live here, beside the
  * `parseSnapshotStream` that reads them back.
  * @param {object} header
- * @param {string} header.name - The snapshot name (minute-precision timestamp, see `snapshotName`)
+ * @param {{ name: string, instant: string, zone: string }} header.moment - The snapshot's moment (see `snapshotMoment`)
  * @param {string} header.identity - The set name (its whole identity, ADR-0024)
  * @param {string[]} header.dirs - The member directories (one `#DIR` line each)
  * @returns {string}
  */
-function snapshotHeader({ name, identity, dirs }) {
-  const datetime = name.replace(/T(\d{2})(\d{2})$/, "T$1:$2");
-  let out = formatLine(SNAPSHOT, "", datetime, identity);
+function snapshotHeader({ moment, identity, dirs }) {
+  // Four columns, repurposed rather than added to (ADR-0072): the set, the
+  // machine-readable instant in `mtime`'s own column, then the snapshot's own
+  // name and the clock it was minted from. Col4 is *the name*, not "the local
+  // time" — so a file that gets renamed or copied still says what it was called.
+  let out = formatLine(
+    SNAPSHOT,
+    identity,
+    moment.instant,
+    `${moment.name} ${moment.zone}`,
+  );
   for (const dir of dirs) {
     out += formatLine(DIR, "", "", dir);
   }

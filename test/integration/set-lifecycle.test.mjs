@@ -54,7 +54,13 @@ describe("setup (real bucket)", () => {
       // published.
       const info = await readRemoteInfo(bucket, name);
       assert.equal(info?.owner, hostname());
-      assert.match(String(info?.created), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+      // A full UTC instant (ADR-0072), not the naive local minute this used to
+      // write — it is a record, never typed and never sorted, so qualifying it
+      // costs nothing. `collisionError` renders it down to a date for humans.
+      assert.match(
+        String(info?.created),
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
       const config = await readSetConfig(bucket, name);
       assert.deepEqual(config.dirs, [realpathSync.native(content)]);
 
@@ -82,7 +88,13 @@ describe("setup (real bucket)", () => {
       useTempHome(join(dir.path, "b"));
       await assert.rejects(
         () => setup([content], { set: name, bucket }),
-        /already set up[\s\S]*reattach/,
+        (error) =>
+          error instanceof Error &&
+          /already set up[\s\S]*reattach/.test(error.message) &&
+          // The marker stores a full UTC instant, but the message shows a bare
+          // date (ADR-0072/0030): "roughly when" is all this line needs, and a
+          // millisecond timestamp mid-sentence is the jargon 0030 keeps out.
+          /created \d{4}-\d{2}-\d{2}[,)]/.test(error.message),
       );
     } finally {
       await cleanupSetMarker(name);

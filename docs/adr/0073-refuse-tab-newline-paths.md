@@ -1,6 +1,6 @@
 # Paths containing a tab or newline are refused, and abort the run
 
-**Status:** accepted, not yet implemented. Closes the "open edge case"
+**Status:** accepted & implemented. Closes the "open edge case"
 [0004](0004-tsv-snapshot-manifests.md) left for before release. Applies
 [0054](0054-missing-member-dir-aborts.md)'s fail-loudly stance and
 [0010](0010-cli-output-conventions.md)'s never-truncate rule.

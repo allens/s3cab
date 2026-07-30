@@ -1,6 +1,6 @@
 import { formatByteValue } from "./format.mjs";
 import { getText, listObjects, putText } from "./s3.mjs";
-import { snapshotName } from "./snapshot-file.mjs";
+import { snapshotMoment } from "./snapshot-file.mjs";
 
 // The repository's **deletion record** — the `deletions/` half-page of the
 // stored format (guide/format.md, ADR-0064). Each `delete` run writes one plain
@@ -30,14 +30,15 @@ const deletionRecordUri = (bucket, name) =>
   `s3://${bucket}/${deletionRecordKey(name)}`;
 
 /**
- * "Now" as a deletion-record name — the same minute-precision local timestamp
- * grammar as snapshot names (`snapshotName`), reused deliberately so the format
- * spec tells one story for both timestamped artifacts. Minute precision means a
- * same-minute second run *collides*; like a same-minute snapshot, that is a loud
- * error, not an overwrite (`writeDeletionRecord`'s conditional PUT).
- * @returns {string}
+ * "Now" as a deletion record's moment — the *same* minute-precision local name,
+ * UTC instant and zone a snapshot gets (`snapshotMoment`), reused deliberately
+ * so the format spec tells one story for both timestamped artifacts (ADR-0072).
+ * Minute precision means a same-minute second run *collides*; like a same-minute
+ * snapshot, that is a loud error, not an overwrite (`writeDeletionRecord`'s
+ * conditional PUT).
+ * @returns {{ name: string, instant: string, zone: string }}
  */
-export const deletionRecordTimestamp = snapshotName;
+export const deletionRecordMoment = snapshotMoment;
 
 /**
  * Write one deletion record — a conditional PUT (`IfNoneMatch: *`), so a
@@ -137,7 +138,7 @@ export async function readDeletionRecords(bucket) {
  * dedup — the trustworthy totals live in the header, the same reasoning as
  * the forget report).
  * @param {object} context
- * @param {string} context.generated - The record timestamp (also its name)
+ * @param {string} context.generated - The moment, as `formatMoment` writes it: the UTC instant, then this record's own name and zone
  * @param {string} context.bucket - The repository bucket
  * @param {string} context.by - Who ran it, `user@machine`
  * @param {string[]} context.sets - The sets in scope on that machine
