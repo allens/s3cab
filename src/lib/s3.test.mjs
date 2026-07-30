@@ -14,9 +14,11 @@ import {
   formatUploadProgress,
   isNetworkError,
   isObjectNotFound,
+  isPreconditionFailed,
   networkRetryDelay,
   putFile,
   putObjectParams,
+  putText,
   requestErrorRelay,
 } from "./s3.mjs";
 
@@ -865,6 +867,39 @@ describe("isObjectNotFound", () => {
   });
 });
 
+describe("isPreconditionFailed", () => {
+  it("recognizes the conditional PUT's refusal", () => {
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("At least one of the pre-conditions failed"), {
+          name: "PreconditionFailed",
+        }),
+      ),
+      true,
+    );
+  });
+
+  it("is false for other S3 / non-Error failures", () => {
+    // A 404 is not a 412: reading one as the other would turn a missing object
+    // into "already there" and skip the upload.
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("gone"), { name: "NotFound" }),
+      ),
+      false,
+    );
+    assert.equal(
+      isPreconditionFailed(
+        Object.assign(new Error("denied"), { name: "AccessDenied" }),
+      ),
+      false,
+    );
+    assert.equal(isPreconditionFailed(new Error("plain")), false);
+    assert.equal(isPreconditionFailed("PreconditionFailed"), false);
+    assert.equal(isPreconditionFailed(undefined), false);
+  });
+});
+
 describe("putObjectParams", () => {
   it('makes the PUT conditional (IfNoneMatch: "*") only under noClobber', () => {
     // The conditional PUT is no-clobber's correctness backstop (the HEAD
@@ -880,11 +915,11 @@ describe("putObjectParams", () => {
   });
 });
 
-// putFile, driven end-to-end against a fake S3 on loopback. What went on the wire is
-// only observable *as* the wire traffic, so this runs the real client()/SDK against a
-// local server and records the requests it makes — captureRequest() above can't serve
-// here: it builds its own client, while putFile goes through the module's memoized
-// client(). Loopback only; no bucket, no network.
+// The uploaders, driven end-to-end against a fake S3 on loopback. What went on the
+// wire is only observable *as* the wire traffic, so this runs the real client()/SDK
+// against a local server and records the requests it makes — captureRequest() above
+// can't serve here: it builds its own client, while the uploaders go through the
+// module's memoized client(). Loopback only; no bucket, no network.
 
 /**
  * Must match s3.mjs's private `partSize` — the multipart threshold the preflight
@@ -918,7 +953,7 @@ const AWS_VARS = [
   "__S3CAB_ENV_LOADED",
 ];
 
-describe("putFile (fake S3 on loopback)", () => {
+describe("putFile / putText (fake S3 on loopback)", () => {
   /** @type {Server} */
   let server;
   /** @type {string[]} The requests the fake S3 received, in order — normalized to
@@ -1235,6 +1270,38 @@ describe("putFile (fake S3 on loopback)", () => {
       seen.filter((line) => line.startsWith("DELETE ")),
       ["DELETE /bucket/key?uploadId"],
     );
+  });
+
+  // ——— putText, the string twin. Its params come from putObjectParams, so the
+  // suites above already pin its off-AWS gating and its IfNoneMatch mapping — but
+  // only *given* it goes through them. These pin that it does, and which refusals
+  // read as "already claimed" rather than as an error.
+
+  it("putText: no-clobber rides on one conditional PUT, no preflight", async () => {
+    headStatus = 200; // there is no preflight to answer — this must not be read
+    const wrote = await putText("s3://bucket/key", "info", { noClobber: true });
+    assert.equal(wrote, true);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+    // The observable evidence that putText builds its params with
+    // putObjectParams: re-inlining them and dropping the flag lands here.
+    assert.equal(conditions.get("PUT /bucket/key"), "*");
+  });
+
+  it("putText: a losing racer gets false, not a throw (412)", async () => {
+    putStatus = 412;
+    const wrote = await putText("s3://bucket/key", "info", { noClobber: true });
+    // The atomic "first person wins" claim ADR-0024's collision check relies on:
+    // whoever loses the race must learn it without clobbering the winner's marker.
+    assert.equal(wrote, false);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("putText: a refusal on an unconditional PUT is a real failure", async () => {
+    putStatus = 412;
+    // Nothing asked for no-clobber, so a 412 is not the benign "already there" —
+    // isPreconditionFailed alone must not swallow it (the pushed dirs.txt /
+    // exclude.txt writes overwrite by design, and a silent no-op would lie).
+    await assert.rejects(() => putText("s3://bucket/key", "info"));
   });
 
   it("a HEAD failure that isn't not-found rethrows — never silently re-uploads", async () => {

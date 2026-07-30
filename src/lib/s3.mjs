@@ -584,10 +584,10 @@ export const formatUploadProgress = ({ loaded = 0, total = 0 }, label) => {
 /**
  * The AWS-only PutObject params (`ServerSideEncryption` + `StorageClass`),
  * omitted off-AWS. These are AWS-isms that S3-compatible providers (R2/B2/Spaces)
- * reject, so they're sent only when targeting AWS (no custom endpoint). Shared by
- * every uploader — `putFile` (via `putObjectParams`) and `putText` — so the
- * gating rule lives in one place. `customEndpoint()` is read here, so the
- * caller's s3cab env must already be loaded.
+ * reject, so they're sent only when targeting AWS (no custom endpoint). Reached
+ * only through `putObjectParams`, which every uploader (`putFile`, `putText`)
+ * builds its params with — so the gating rule lives in one place.
+ * `customEndpoint()` is read here, so the caller's s3cab env must already be loaded.
  * @returns {Partial<PutObjectCommandInput>}
  */
 const awsOnlyPutParams = () =>
@@ -599,9 +599,10 @@ const awsOnlyPutParams = () =>
       };
 
 /**
- * Build the PutObject params for `putFile`: the off-AWS gating (`awsOnlyPutParams`)
- * plus the conditional-PUT flag. Pure (no I/O) so the gating is assertable without
- * performing an upload — the caller supplies the `Body` stream (src/lib/s3.test.mjs).
+ * Build the PutObject params every uploader shares: the off-AWS gating
+ * (`awsOnlyPutParams`) plus the conditional-PUT flag. Pure (no I/O) so the gating is
+ * assertable without performing an upload — the caller supplies only the `Body`
+ * (`putFile` a file stream, `putText` the string; src/lib/s3.test.mjs).
  * `customEndpoint()` is read here, so the caller's s3cab env must already be loaded.
  *
  * Deliberately carries **no `x-amz-meta-*` metadata**. It once stamped each object
@@ -675,11 +676,7 @@ export async function putFile(path, uri, options = {}) {
   try {
     await upload.done();
   } catch (error) {
-    if (
-      noClobber &&
-      Error.isError(error) &&
-      error.name === "PreconditionFailed"
-    ) {
+    if (noClobber && isPreconditionFailed(error)) {
       // Already present — no upload, no summary line (`using` closes any bar).
       return false;
     } else {
@@ -713,6 +710,24 @@ export function isObjectNotFound(error) {
 }
 
 /**
+ * Whether an S3 error means a conditional PUT was refused — i.e. `IfNoneMatch: "*"`
+ * found something already at the key. The twin of {@link isObjectNotFound}: the
+ * single spelling of "the no-clobber guard refused" for this SDK boundary, so
+ * `putFile` and `putText` don't each repeat the SDK's name. S3 raises it on the
+ * single-shot PUT and on CompleteMultipartUpload alike. Matched by `name`, like the
+ * other s3.mjs guards (see error.mjs's header).
+ *
+ * It says nothing about whether the caller *asked* for no-clobber, so both uploaders
+ * still gate on their own `noClobber` before reading a refusal as benign — an
+ * unconditional PUT that somehow 412s is a real failure and must throw.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isPreconditionFailed(error) {
+  return Error.isError(error) && error.name === "PreconditionFailed";
+}
+
+/**
  * Whether an object exists — one HEAD, absence mapped through
  * {@link isObjectNotFound}, anything else (network/auth) rethrown. The generic
  * existence question at this SDK boundary: `putFile`'s multipart preflight and
@@ -742,7 +757,9 @@ export async function objectExists(uri) {
  * the object was written, and `noClobber` makes the PUT conditional
  * (`IfNoneMatch: "*"`) so a losing racer gets `false` instead of overwriting —
  * the atomic "first person wins" claim ADR-0024's collision check relies on.
- * Off-AWS gating matches `putFile` (`awsOnlyPutParams`).
+ * The request shape *is* `putFile`'s: both build their params with
+ * `putObjectParams`, so the off-AWS gating and the conditional flag are spelled
+ * once. All this adds is a string body in place of a file stream.
  * @param {string} uri - The `s3://bucket/key` URI.
  * @param {string} content - The object body.
  * @param {object} [options]
@@ -750,23 +767,15 @@ export async function objectExists(uri) {
  * @returns {Promise<boolean>} True if written; false if `noClobber` and it already existed.
  */
 export async function putText(uri, content, { noClobber = false } = {}) {
-  const { Bucket, Key } = parseS3Uri(uri);
   try {
     await client().send(
       new PutObjectCommand({
-        Bucket,
-        Key,
+        ...putObjectParams(uri, { noClobber }),
         Body: content,
-        ...awsOnlyPutParams(),
-        ...(noClobber ? { IfNoneMatch: "*" } : {}),
       }),
     );
   } catch (error) {
-    if (
-      noClobber &&
-      Error.isError(error) &&
-      error.name === "PreconditionFailed"
-    ) {
+    if (noClobber && isPreconditionFailed(error)) {
       return false;
     }
     throw error;
