@@ -84,6 +84,24 @@ see the note under B.
   table half rewrites. Either order works; overlapping does not. (B also touches render.mjs, which
   A touched in a different region — that one merged cleanly.)
 
+  **Grown by one site, and it was A's fault.** [#248](https://github.com/allens/s3cab/pull/248) added
+  a *fifth* hand-rolled pluralization, in a file this entry doesn't list: `fileChangedError`
+  (upload.mjs) spells `` `${others} other file${others === 1 ? "" : "s"}` `` and
+  `` `${others === 1 ? "was" : "were"}` ``. Note what kind it is — there is no `toLocaleString`, so it
+  is a **`plural` hand-roll, not a `count` one**, which lands squarely on the piece the note above
+  says still needs a home. Four sites wanted `formatCount`; this one wants `plural` exported beside
+  it, so treating `plural` as the leftover half is the wrong read. (#248 also added two more uses of
+  the private `count`/`plural` in render.mjs — same direction, no new scope.)
+
+  **Check the snapshot-format epic before starting B — this outranks the B/D ordering above.**
+  ADRs [0071](../docs/adr/0071-snapshot-paths-absolute-native.md),
+  [0072](../docs/adr/0072-timestamps-utc-in-files-local-in-names.md) and
+  [0073](../docs/adr/0073-refuse-tab-newline-paths.md) are **accepted and not yet implemented**, and
+  0072 explicitly governs *"the deletion record's"* timestamps. `deletion-record.mjs` reuses
+  `snapshotName` as `deletionRecordTimestamp` and writes a `generated:` line, so that
+  implementation will touch it — and it is one of B's four files. B-vs-D is a same-file ordering
+  constraint; this is two epics wanting the same file, which is worse.
+
 **Examined & left alone (tenth pass)** (not candidates — skip future runs): the
 **destructive-command pattern** across delete/forget/cleanup (ADR-0064) — the non-interactive gate
 is structurally identical three times but is *three lines*, and the substance is each command's
