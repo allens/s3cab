@@ -322,7 +322,7 @@ export function uploadObjects({ bucket, stored }) {
  * @param {Props} recorded - What the row says about it
  * @returns {Promise<FileChange | undefined>}
  */
-async function fileChange(path, recorded) {
+export async function fileChange(path, recorded) {
   let current;
   try {
     current = await lstat(path);
