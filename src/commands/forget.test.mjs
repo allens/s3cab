@@ -295,7 +295,7 @@ describe("forget command", () => {
       assert.match(preview, /# 1 file, holding 500B across 1 stored object\./);
 
       const summary = stdout.join("\n");
-      assert.match(summary, /^ {2}total unrestorable +1 file +500B$/m);
+      assert.match(summary, /^ {2}total unrestorable +1 +500B$/m);
       // The preview's absolute path lands last, on its own indented line.
       assert.equal(summary.split("\n").at(-1), `  ${previewPath()}`);
     });
@@ -343,8 +343,8 @@ describe("forget command", () => {
 
       const summary = stdout.join("\n");
       // b.jpg is orphaned only because both snapshots go — the shared line.
-      assert.match(summary, /shared across 2 snapshots\s+1 file\s+300B/);
-      assert.match(summary, /total unrestorable\s+2 files\s+800B/);
+      assert.match(summary, /shared across 2 snapshots\s+1\s+300B/);
+      assert.match(summary, /total unrestorable\s+2\s+800B/);
       // Both snapshots are the set's whole remote history.
       assert.match(summary, /last remote snapshot of set 'photos'/);
     });

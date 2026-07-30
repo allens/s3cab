@@ -242,23 +242,23 @@ export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
     /** @type {[string, string, string][]} */
     const rows = plan.bySnapshot.map(({ snapshot, files: f, bytes }) => [
       snapshot,
-      files(f),
+      formatCount(f),
       formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.bySnapshot.length} snapshots`,
-        files(plan.sharedFiles),
+        formatCount(plan.sharedFiles),
         formatByteValue(plan.sharedBytes),
       ]);
     }
     rows.push([
       "total unrestorable",
-      files(plan.totalFiles),
+      formatCount(plan.totalFiles),
       formatByteValue(plan.totalBytes),
     ]);
 
-    lines.push(...alignTotalTable(rows));
+    lines.push(...alignTotalTable(["snapshot", "files", "size"], rows));
   }
 
   if (plan.lastOfSet) {

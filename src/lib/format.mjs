@@ -74,40 +74,46 @@ export const formatCount = (count) => countFormat.format(count);
 export const plural = (n, word) => (n === 1 ? word : `${word}s`);
 
 /**
- * A `label / count / size` table with the numbers right-aligned and the last row
- * ruled off as the total:
+ * A headed `label / count / size` table with the numbers right-aligned and the
+ * last row ruled off as the total:
  *
  * ```
- *   ~/photos                    1,204 files   3.1GB
- *   shared across 3 paths          17 files   4.0MB
- *                               ─────────────────────
- *   total                       1,221 files   3.1GB
+ *   path                   files    size
+ *   ~/photos               1,204   3.1GB
+ *   shared across 3 paths     17   4.0MB
+ *                          ─────────────
+ *   total                  1,221   3.1GB
  * ```
  *
  * Right-aligned because the column being compared is the column being scanned —
- * ragged magnitudes defeat the only thing a total table is for.
+ * ragged magnitudes defeat the only thing a total table is for. **The unit lives
+ * in the header, not in every cell**: a column that repeats "files" on each row
+ * is a header doing its job in the wrong place, and once said once the numbers
+ * line up on their digits instead of on a noun.
  *
  * Every cell arrives **already formatted**, and that is what makes this shareable
  * between two different commands' previews: the caller keeps every decision that
- * is actually its own — which rows, what they are called, which noun they count
- * in, what the total row is called, what (if anything) follows it — and hands
- * over only the padding arithmetic, which was never either command's decision to
- * make.
+ * is actually its own — which rows, what they and their columns are called, what
+ * the total row is called, what (if anything) follows it — and hands over only
+ * the padding arithmetic, which was never either command's decision to make.
+ * @param {[string, string, string]} headers - Column names; counted in the widths, so they align with the cells below
  * @param {[string, string, string][]} rows - `[label, count, size]`, the **last** being the total
  * @param {string} [totalSuffix] - Trails the total row, outside the alignment (`delete` names the stored-object count there)
  * @returns {string[]}
  */
-export function alignTotalTable(rows, totalSuffix = "") {
+export function alignTotalTable(headers, rows, totalSuffix = "") {
   const total = rows.at(-1);
   assert(total, "alignTotalTable needs at least a total row");
 
-  const label = Math.max(...rows.map(([name]) => name.length));
-  const countCol = Math.max(...rows.map(([, n]) => n.length));
-  const sizeCol = Math.max(...rows.map(([, , size]) => size.length));
+  const cells = [headers, ...rows];
+  const label = Math.max(...cells.map(([name]) => name.length));
+  const countCol = Math.max(...cells.map(([, n]) => n.length));
+  const sizeCol = Math.max(...cells.map(([, , size]) => size.length));
   const line = (/** @type {[string, string, string]} */ [name, n, size]) =>
     `  ${name.padEnd(label)}  ${n.padStart(countCol)}  ${size.padStart(sizeCol)}`;
 
   return [
+    line(headers),
     ...rows.slice(0, -1).map(line),
     `  ${" ".repeat(label)}  ${"─".repeat(countCol + sizeCol + 2)}`,
     line(total) + totalSuffix,

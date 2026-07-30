@@ -335,24 +335,25 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
     /** @type {[string, string, string][]} */
     const rows = plan.byPath.map(({ path, files: f, bytes }) => [
       path,
-      files(f),
+      formatCount(f),
       formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.byPath.length} paths`,
-        files(plan.sharedFiles),
+        formatCount(plan.sharedFiles),
         formatByteValue(plan.sharedBytes),
       ]);
     }
     rows.push([
       "total",
-      files(plan.totalFiles),
+      formatCount(plan.totalFiles),
       formatByteValue(plan.totalBytes),
     ]);
 
     lines.push(
       ...alignTotalTable(
+        ["path", "files", "size"],
         rows,
         `   (${formatCount(plan.deletable.length)} ` +
           `${plural(plan.deletable.length, "stored object")})`,
