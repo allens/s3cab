@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
+import { formatMoment } from "../lib/format.mjs";
 
 import {
-  deletionRecordTimestamp,
+  deletionRecordMoment,
   formatDeletionRecord,
   writeDeletionRecord,
 } from "../lib/deletion-record.mjs";
@@ -180,12 +181,12 @@ export async function deletePaths(paths = [], options = {}) {
     );
   }
 
-  // One timestamp for the whole run: the record's name, its `generated:` line,
-  // and the summary all agree by construction.
-  const timestamp = deletionRecordTimestamp();
+  // One clock read for the whole run: the record's name, its `generated:` line,
+  // and the summary all agree by construction (ADR-0072).
+  const moment = deletionRecordMoment();
   const record = formatDeletionRecord(
     {
-      generated: timestamp,
+      generated: formatMoment(moment),
       bucket,
       by: `${userInfo().username}@${hostname()}`,
       sets: scopeSets,
@@ -259,7 +260,7 @@ export async function deletePaths(paths = [], options = {}) {
   // between the two leaves an over-complete record — objects recorded deleted
   // that still exist, which verify reads as simply present — never missing
   // objects with no explanation.
-  const recordUri = await writeDeletionRecord(bucket, timestamp, record);
+  const recordUri = await writeDeletionRecord(bucket, moment.name, record);
   for (const { hash } of plan.deletable) {
     await deleteStoredObject(bucket, hash);
   }

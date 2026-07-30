@@ -36,7 +36,7 @@ mock.module("./s3.mjs", {
 
 const {
   deletionRecordKey,
-  deletionRecordTimestamp,
+  deletionRecordMoment,
   formatDeletionRecord,
   readDeletionRecords,
   writeDeletionRecord,
@@ -63,12 +63,17 @@ afterEach(() => {
   }
 });
 
-describe("deletionRecordTimestamp", () => {
+describe("deletionRecordMoment", () => {
   it("uses the snapshot-name grammar: minute-precision local time", () => {
     // One grammar for both timestamped artifacts (guide/format.md) — and minute
     // precision is what makes the same-minute conditional-PUT refusal the
     // collision story rather than a naming quirk.
-    assert.match(deletionRecordTimestamp(), /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    const { name, instant, zone } = deletionRecordMoment();
+    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
+    // …and the same UTC instant + zone every timestamped artifact records
+    // (ADR-0072), so the record can be resolved to a moment, not just ordered.
+    assert.match(instant, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    assert.ok(zone.length > 0);
   });
 });
 

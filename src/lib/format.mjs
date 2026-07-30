@@ -98,3 +98,50 @@ export const formatDuration = (milliseconds) =>
       largestUnit: "hours",
     }),
   );
+
+/**
+ * One moment, in the two spellings every timestamped artifact records
+ * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)),
+ * from a **single clock read**:
+ *
+ * - `name` — local wall clock with the colons dropped, at the precision the
+ *   artifact names itself by (`minutes` for a snapshot and a deletion record,
+ *   `seconds` for a forget audit). This is the *identity*: a filename, typed and
+ *   read by people, so it stays the time the clock on the wall said.
+ * - `instant` — the same moment in UTC at millisecond precision, the
+ *   machine-readable field of record. Exactly 24 characters, like an `mtime`.
+ * - `zone` — the IANA zone the name was minted in, which is what makes a naive
+ *   local name resolvable, and which explains a DST shift rather than merely
+ *   recording one.
+ *
+ * One read matters: taking the instant separately would let an `await` slip a
+ * boundary between the two, and an artifact whose name and contents disagree is
+ * exactly what a record must never be.
+ * @param {"minutes" | "seconds"} smallestUnit - The precision the artifact names itself by
+ * @returns {{ name: string, instant: string, zone: string }}
+ */
+export function localMoment(smallestUnit) {
+  const now = Temporal.Now.zonedDateTimeISO();
+  return {
+    name: now.toPlainDateTime().toString({ smallestUnit }).replaceAll(":", ""),
+    instant: now.toInstant().toString({ smallestUnit: "millisecond" }),
+    zone: now.timeZoneId,
+  };
+}
+
+/**
+ * A moment as a record file's `# generated:` value — the machine-readable
+ * instant first, then the artifact's own name and the clock it was minted from:
+ *
+ * ```
+ * 2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
+ * ```
+ *
+ * One spelling for every such header, so the format spec tells one story
+ * (ADR-0072). The parenthetical is deliberately the file's *own name*, not "the
+ * local time" — so a record found detached still says what it was called.
+ * @param {{ name: string, instant: string, zone: string }} moment
+ * @returns {string}
+ */
+export const formatMoment = ({ name, instant, zone }) =>
+  `${instant}  (${name} ${zone})`;

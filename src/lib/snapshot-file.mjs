@@ -13,6 +13,7 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
+import { localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
@@ -532,17 +533,7 @@ export const snapshotName = () => snapshotMoment().name;
  * exactly what a record must never be.
  * @returns {{ name: string, instant: string, zone: string }}
  */
-export function snapshotMoment() {
-  const now = Temporal.Now.zonedDateTimeISO();
-  return {
-    name: now
-      .toPlainDateTime()
-      .toString({ smallestUnit: "minutes" })
-      .replace(":", ""),
-    instant: now.toInstant().toString({ smallestUnit: "millisecond" }),
-    zone: now.timeZoneId,
-  };
-}
+export const snapshotMoment = () => localMoment("minutes");
 
 /**
  * The filename a snapshot is stored as — its name plus the extension. The one
