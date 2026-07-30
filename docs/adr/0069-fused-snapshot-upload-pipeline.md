@@ -77,7 +77,7 @@ including the snapshot writer — so the file being written is truncated mid-zst
 `withSnapshotFile` unlinks it. One dropped connection at file 200,000 would take the entire hash
 pass with it: exactly the cost this ADR exists to remove.
 
-So the transform **never throws**. It records the first failure, keeps the rows flowing, and the
+So the transform **never throws**. It records what went wrong, keeps the rows flowing, and the
 coordinator reads `result()` once they have drained — then throws, before publishing any manifest.
 The local snapshot therefore always lands complete, whatever went wrong. That single artifact
 covers both recoveries, because a fresh run reads the latest local snapshot as its **hash lookup**:
@@ -89,8 +89,28 @@ The two kinds of failure differ only in what happens next:
 | --- | --- | --- |
 | Cause | network, credentials, a rejected PUT | the file changed, vanished, or became unreadable between hashing and its PUT |
 | Rest of the run | further uploads abandoned (one dead link is enough; the SDK-level retry window is already spent — [0068](0068-network-retries-above-the-sdk.md)) | **only that file is skipped** — every other file's bytes are still good and still go up |
-| Raised as | a plain error, wrapped with the resume command | `FileChangedError` (error.mjs), which `backup` catches *by type* |
+| Reported as | `failure` — the terminal one, checked first | `drifted` — per-file data the coordinator judges (see the amendment below) |
+| Raised as | a plain error, wrapped with the resume command | `FileChangedError` (error.mjs), built by the coordinator from the drift data |
 | The fix offered | `upload <set> --snapshot <name>` — the transfers alone | `s3cab backup <set>` — a fresh pass |
+
+> **Amended 2026-07-30 — two outcome fields, and a third source.** The outcome originally carried
+> **one** `failure` slot, first-wins, which conflated the two rows of the table above: a drift on an
+> early row hid a dropped connection met on a later one, so the run failed blaming the wrong thing
+> and offered the wrong fix. They are different in kind — a drift is per-file and **plural**, a
+> transport failure is singular and terminal — so `result()` now returns `{ drifted, failure }`, and
+> every coordinator checks `failure` first. Drift is reported as **data** (`Drift` = a `FileChange`
+> plus its path) rather than as a built error, because what a drifted file *means* depends on the
+> caller: fatal where a manifest is about to be published, a reportable skip where none is. So
+> `fileChangedError` is raised by the coordinator, not the transform — which also means
+> `uploadObjects` needs no set name and takes only `{ bucket, stored }`.
+>
+> The same change gave the transform its **third source**: `uploadDir` (`upload --dir`, the folder
+> seed) had its own PUT loop, predating this one, and therefore none of this guard — it hashed a file
+> and re-read it to send it with nothing re-confirming in between. It is now a row source like the
+> other two. That path is the one place a skipped file does **not** fail the run: it publishes no
+> manifest, so a skip leaves nothing inconsistent, and the skips are returned for the command to
+> name. `upload --file` shares the same window and now calls the same `fileChange` guard, though not
+> the loop — `--force` means "overwrite deliberately", which the transform has no concept of.
 
 Drift needs the *fresh backup* because that row can never be reconciled with the file as it now
 stands: `upload --snapshot` deliberately never re-hashes, so retrying it would fail on the same row
