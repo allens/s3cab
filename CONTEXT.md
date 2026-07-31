@@ -112,6 +112,11 @@ _Avoid_: owner, source, origin; `user@machine:set` (the retired form).
 A point-in-time record of every file in a backup set. Recorded on disk as a
 tab-separated (TSV) **snapshot file** — one row per file
 (`hash` → `size` → `mtime` → `path`).
+A snapshot name is unique only within its set, so anything spanning the whole bucket names one
+as **`set/snapshot`** (`work-laptop/2026-07-30-1400`) — matching its place in the bucket, so the
+name pastes straight after `s3://<bucket>/snapshots/`. Used where several snapshots across
+several sets are listed together; a single one named in a sentence stays prose (`'work-laptop'
+(snapshot …)`).
 _Avoid_: commit, version, generation; manifest (loses the point-in-time meaning), index, listing, catalog, metadata file.
 
 **Namespace**:

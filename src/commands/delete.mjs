@@ -13,6 +13,7 @@ import {
   formatDeletePreviewFile,
   formatDeleteSummary,
   planDelete,
+  unreadableDeleteMessage,
 } from "../lib/delete.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
@@ -153,14 +154,7 @@ export async function deletePaths(paths = [], options = {}) {
   // live data, cleanup's own abort logic. A dry run may proceed to *show*
   // the caveated preview; acting may not.
   if (plan.unreadable.length > 0 && !dryRun) {
-    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
-    throw new Error(
-      `Can't delete safely: ${where.length} snapshot(s) won't read, so their ` +
-        `references are unknown — one of them could be the only thing ` +
-        `keeping this content alive.\n` +
-        `Unreadable: ${where.join(", ")}\n` +
-        `Triage first: s3cab verify ${bucket}`,
-    );
+    throw new Error(unreadableDeleteMessage(plan.unreadable, bucket));
   }
 
   // Every named path must name something backed up — the loud error that
@@ -211,7 +205,11 @@ export async function deletePaths(paths = [], options = {}) {
   // (ADR-0043), which only runs after the command returns — past the point of
   // no return.
   console.log(
-    formatDeleteSummary(plan, { everywhere, reportPath: previewPath }),
+    formatDeleteSummary(plan, {
+      everywhere,
+      reportPath: previewPath,
+      bucket,
+    }),
   );
 
   const result = {

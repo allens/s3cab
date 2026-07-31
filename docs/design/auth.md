@@ -130,6 +130,15 @@ s3cab looked in:
 Run 's3cab help provider' for details.
 ```
 
+**One cause short-circuits the frame: an expired sign-in**
+([ADR-0075](../adr/0075-resolve-time-credential-expiry.md)). If the chain's own message says the
+session it found had *expired*, the credentials were never missing — so
+`noCredentialsError` hands straight over to `expiredCredentialsError` (below), scoped to the set
+and quoting the chain, rather than classifying a set that is configured correctly as an
+unconfigured one. Expiry is matched on the *message*, not `error.name` — at resolve time the
+name is the SDK layer that threw (`TokenProviderError`), which is the same for a missing profile
+— and it is the only chain failure read that way; every other one takes the frame below.
+
 The classifier picks one of four cases from what the *set* declares (wording per
 [ADR-0030](../adr/0030-error-message-guidelines.md)); when a profile is set,
 `resolveCredentials` runs the same read-only `~/.aws` cross-check the `provider`
@@ -164,7 +173,7 @@ commonly advise on are caught, and everything else falls through to the raw
 
 | Cause (AWS codes) | Factory (`src/lib/auth.mjs`) | Remedy |
 | --- | --- | --- |
-| Expired (`ExpiredToken`, `ExpiredTokenException`, `TokenRefreshRequired`) | `expiredCredentialsError` | refresh (`aws sso login` / new session) |
+| Expired (`ExpiredToken`, `ExpiredTokenException`, `TokenRefreshRequired`) | `expiredCredentialsError` — shared with the resolve-time path above | refresh (`aws sso login` / new session) |
 | Invalid (`InvalidToken`, `InvalidAccessKeyId`, `InvalidSecurity`) | `invalidCredentialsError` | replace the credentials (by source) |
 | Bad signature (`SignatureDoesNotMatch`) | `badSignatureError` | check secret / region / endpoint |
 | Clock skew (`RequestTimeTooSkewed`) | `clockSkewError` | sync the clock |

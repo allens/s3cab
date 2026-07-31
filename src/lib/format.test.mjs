@@ -1,6 +1,12 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatByteValue, formatCount, formatDuration } from "./format.mjs";
+import {
+  alignTotalTable,
+  formatByteValue,
+  formatCount,
+  formatDuration,
+  plural,
+} from "./format.mjs";
 
 describe("formatByteValue", () => {
   it("scales by decimal SI units with one decimal place", () => {
@@ -47,6 +53,76 @@ describe("formatCount", () => {
     assert.equal(formatCount(0), "0");
     assert.equal(formatCount(1), "1");
     assert.equal(formatCount(999), "999");
+  });
+});
+
+describe("plural", () => {
+  it("keeps the singular for exactly one and pluralises everything else", () => {
+    assert.equal(plural(1, "file"), "file");
+    assert.equal(plural(0, "file"), "files");
+    assert.equal(plural(2, "file"), "files");
+  });
+
+  // Callers pass whole noun phrases ("7 stored objects"), so the "s" has to land
+  // on the end of the phrase rather than on the first word.
+  it("suffixes a noun phrase at its end", () => {
+    assert.equal(plural(1, "stored object"), "stored object");
+    assert.equal(plural(7, "stored object"), "stored objects");
+  });
+});
+
+describe("alignTotalTable", () => {
+  const headers = /** @type {[string, string, string]} */ ([
+    "path",
+    "files",
+    "size",
+  ]);
+  const rows = /** @type {[string, string, string][]} */ ([
+    ["a", "1", "1B"],
+    ["bb", "10", "20B"],
+    ["total", "11", "21B"],
+  ]);
+
+  // The whole point of the table is comparing magnitudes down a column, so pin
+  // the padding exactly: labels left, both number columns right, and the rule
+  // spanning just the numbers rather than the full line width.
+  it("left-aligns labels, right-aligns numbers, rules off the total", () => {
+    assert.deepEqual(alignTotalTable(headers, rows), [
+      "  path   files  size",
+      "  a          1    1B",
+      "  bb        10   20B",
+      "         ───────────",
+      "  total     11   21B",
+    ]);
+  });
+
+  // A header wider than every value under it still has to widen the column, or
+  // the row it heads slides out from under it.
+  it("counts the header in the column widths", () => {
+    const lines = alignTotalTable(
+      headers,
+      /** @type {[string, string, string][]} */ ([
+        ["a", "1", "1B"],
+        ["total", "1", "1B"],
+      ]),
+    );
+    assert.equal(lines[0], "  path   files  size");
+    assert.equal(lines.at(-1), "  total      1    1B");
+  });
+
+  // `delete` names its stored-object count here. It has to fall outside the
+  // alignment — inside it, it would stretch the size column for every row.
+  it("trails the suffix after the total, outside the alignment", () => {
+    const lines = alignTotalTable(headers, rows, "   (3 stored objects)");
+    assert.equal(lines.at(-1), "  total     11   21B   (3 stored objects)");
+    assert.deepEqual(
+      lines.slice(0, -1),
+      alignTotalTable(headers, rows).slice(0, -1),
+    );
+  });
+
+  it("refuses a table with no total row", () => {
+    assert.throws(() => alignTotalTable(headers, []), /total row/);
   });
 });
 

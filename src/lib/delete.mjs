@@ -1,4 +1,10 @@
-import { formatByteValue } from "./format.mjs";
+import {
+  alignTotalTable,
+  formatByteValue,
+  formatCount,
+  plural,
+} from "./format.mjs";
+import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 import { pathMatcher } from "./restore.mjs";
 
 // The pure core of the `delete` command (ADR-0064): given the bucket's
@@ -21,7 +27,7 @@ import { pathMatcher } from "./restore.mjs";
 // in the participating sets only (a stranger's same-named path may hold
 // *different* content, which must never be swept up by name).
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 /**
  * One reference a deletable object holds somewhere in the bucket: the set, the
@@ -76,7 +82,7 @@ import { pathMatcher } from "./restore.mjs";
  * @property {number} totalFiles - Every path that loses its content
  * @property {number} totalBytes - Every deletable object's size, once each
  * @property {string[]} unmatchedPaths - Named paths matching nothing (an error upstream)
- * @property {{ set: string, snapshot: string, reason: string }[]} unreadable - Snapshots that would not read
+ * @property {string[]} unreadable - `set/snapshot` names that would not read
  */
 
 /**
@@ -102,9 +108,7 @@ export function planDelete(
   referencedBySet,
   { paths, scopeSets, everywhere = false },
 ) {
-  const unreadable = [...referencedBySet].flatMap(([set, r]) =>
-    r.unreadable.map((u) => ({ set, snapshot: u.snapshot, reason: u.reason })),
-  );
+  const unreadable = unreadableSnapshots(referencedBySet);
 
   const scope = new Set(scopeSets);
   // A path that normalizes to nothing (blank, bare separator) gets no matcher
@@ -275,19 +279,44 @@ export function deletionRows(plan) {
 }
 
 /**
+ * What `delete` says about unreadable snapshots — shared verbatim by the acting
+ * run, which throws it (commands/delete.mjs), and the dry run, which prints it
+ * inside the preview. Both are one command reporting one condition, so they are
+ * one sentence rather than two kept in step by hand.
+ *
+ * The consequence is the specific danger here, and it is why the interlock
+ * exists at all: an unknown reference is exactly the kind that would have
+ * protected the content from this delete. Worded without a number, as
+ * `unreadableMessage` requires, so it reads for one unreadable snapshot or forty.
+ * @param {string[]} names - The bucket's unreadable `set/snapshot` names
+ * @param {string} bucket - The repository bucket
+ * @returns {string}
+ */
+export const unreadableDeleteMessage = (names, bucket) =>
+  unreadableMessage({
+    names,
+    bucket,
+    lead: "Can't delete safely",
+    consequence:
+      "an unknown reference could be the only thing keeping this content alive",
+  });
+
+/**
  * The stdout summary — what the user reads before answering the prompt (or
- * after a dry run). The per-path table follows the unrestorable summary's
- * shape exactly (one layout whatever the count, numbers right-aligned,
- * sole-vs-shared attribution, the total under a rule); after it, the per-set
+ * after a dry run). The per-path table shares the unrestorable summary's
+ * layout by sharing its code (`alignTotalTable`) — one shape whatever the
+ * count, numbers right-aligned, sole-vs-shared attribution, the total under a
+ * rule — while the rows, their names and the stored-object count trailing the
+ * total stay this command's own; after it, the per-set
  * consent view — every set losing references, with the out-of-scope sets
  * called out hard under `--everywhere` (they are the rows the user must
  * recognize before typing the bucket name). The report file's path lands
  * last, on its own indented line (pasteable — ADR-0030's copy style).
  * @param {DeletePlan} plan
- * @param {{ everywhere: boolean, reportPath: string }} context
+ * @param {{ everywhere: boolean, reportPath: string, bucket: string }} context
  * @returns {string}
  */
-export function formatDeleteSummary(plan, { everywhere, reportPath }) {
+export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
   const lines = [];
 
   if (plan.deletable.length === 0) {
@@ -303,42 +332,33 @@ export function formatDeleteSummary(plan, { everywhere, reportPath }) {
       ``,
     );
 
-    /** @type {[string, number, number][]} */
+    /** @type {[string, string, string][]} */
     const rows = plan.byPath.map(({ path, files: f, bytes }) => [
       path,
-      f,
-      bytes,
+      formatCount(f),
+      formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.byPath.length} paths`,
-        plan.sharedFiles,
-        plan.sharedBytes,
+        formatCount(plan.sharedFiles),
+        formatByteValue(plan.sharedBytes),
       ]);
     }
-    rows.push(["total", plan.totalFiles, plan.totalBytes]);
+    rows.push([
+      "total",
+      formatCount(plan.totalFiles),
+      formatByteValue(plan.totalBytes),
+    ]);
 
-    const label = Math.max(...rows.map(([name]) => name.length));
-    const fileCol = Math.max(...rows.map(([, f]) => files(f).length));
-    const byteCol = Math.max(
-      ...rows.map(([, , bytes]) => formatByteValue(bytes).length),
+    lines.push(
+      ...alignTotalTable(
+        ["path", "files", "size"],
+        rows,
+        `   (${formatCount(plan.deletable.length)} ` +
+          `${plural(plan.deletable.length, "stored object")})`,
+      ),
     );
-    const row = (/** @type {[string, number, number]} */ [name, f, bytes]) =>
-      `  ${name.padEnd(label)}  ${files(f).padStart(fileCol)}  ` +
-      `${formatByteValue(bytes).padStart(byteCol)}`;
-
-    const total = rows.pop();
-    for (const r of rows) {
-      lines.push(row(r));
-    }
-    if (total) {
-      lines.push(
-        `  ${" ".repeat(label)}  ${"─".repeat(fileCol + byteCol + 2)}`,
-        row(total) +
-          `   (${plan.deletable.length.toLocaleString("en")} stored ` +
-          `object${plan.deletable.length === 1 ? "" : "s"})`,
-      );
-    }
 
     const inScope = plan.bySet.filter((s) => s.inScope);
     if (inScope.length > 0) {
@@ -383,16 +403,11 @@ export function formatDeleteSummary(plan, { everywhere, reportPath }) {
   }
 
   if (plan.unreadable.length > 0) {
-    // The command aborts on unreadable snapshots before acting (see the
-    // command's interlock); this line only ever renders on the dry-run path,
-    // where stating the caveat beats silence.
-    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
-    lines.push(
-      ``,
-      `Warning: ${where.length} snapshot(s) would not read (${where.join(", ")}) — ` +
-        `their references are unknown, so this preview cannot be trusted and ` +
-        `a real run would refuse.`,
-    );
+    // Only ever rendered on the dry-run path — an acting run has already been
+    // refused with this *same* text (commands/delete.mjs). One command, one
+    // condition, one wording: the preview says what the refusal says, and
+    // "Can't delete safely" stays true here because a real run can't proceed.
+    lines.push(``, unreadableDeleteMessage(plan.unreadable, bucket));
   }
 
   lines.push(``, `Full list:`, `  ${reportPath}`);
@@ -431,4 +446,4 @@ export function formatDeletePreviewFile(plan, record) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} file${n === 1 ? "" : "s"}`;
+const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
-/** @import { ReferencedResult } from "../lib/verify.mjs" */
+/** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for the `cleanup` *command shell*: the S3 reads/writes
 // (referencedObjects, listStoredObjects, deleteStoredObject) and the prompt are
@@ -229,7 +229,7 @@ describe("cleanup command", () => {
     // lift this interlock (unlike the confirmation).
     await assert.rejects(
       () => cleanup("b", { "dry-run": true }),
-      /Can't compute orphans safely/,
+      /Can't clean up safely/,
     );
     await assert.rejects(() => cleanup("b", { force: true }), /verify b/);
     assert.deepEqual(deleteCalls, []);

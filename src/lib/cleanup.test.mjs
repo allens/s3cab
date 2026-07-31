@@ -179,9 +179,7 @@ describe("planCleanup", () => {
 
     const plan = planCleanup(referenced, stored, { now: NOW });
 
-    assert.deepEqual(plan.unreadable, [
-      { set: "photos", snapshot: "bad", reason: "boom" },
-    ]);
+    assert.deepEqual(plan.unreadable, ["photos/bad"]);
     // The plan still computes — it never throws; interlock policy is the command's.
     assert.deepEqual(plan.orphanHashes, ["orphan"]);
   });

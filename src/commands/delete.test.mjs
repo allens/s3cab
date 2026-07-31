@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
-/** @import { ReferencedResult } from "../lib/verify.mjs" */
+/** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for the `delete` *command shell* — the policy wrapped around
 // the pure plan (which lib/delete.test.mjs pins): the non-interactive gate,

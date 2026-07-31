@@ -10,7 +10,9 @@
 // (abort on unreadable, refuse `--delete` on missing) is the command's, so the
 // plan is unit-testable by asserting on returned data, with no mocked seams.
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+import { unreadableSnapshots } from "./referenced.mjs";
+
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 // An object younger than this is never an orphan (docs/design/backup.md, stated to
 // users in the format spec). Under objects-first/snapshot-last, an in-flight
@@ -31,8 +33,8 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  *    interlock #2 and the wrong-size warning respectively. `damaged` is
  *    intentionally absent from the user-facing `CleanupResult` (it points at verify
  *    for the per-file detail); it rides the plan so the command can warn on it.
- *  - `unreadable` is structured (`{ set, snapshot, reason }`), so the command owns
- *    the message wording; a non-empty list is interlock #1.
+ *  - `unreadable` is the bucket-wide `set/snapshot` list (`unreadableSnapshots`);
+ *    a non-empty one is interlock #1, and the command owns the wording.
  * @typedef {Object} CleanupPlan
  * @property {number} storedObjects - Objects present in the store
  * @property {number} referencedObjects - Distinct objects any snapshot references
@@ -41,7 +43,7 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * @property {number} withinGrace - Orphan-looking objects too new to touch (7-day grace)
  * @property {number} missing - Referenced objects absent from the store (integrity fault)
  * @property {number} damaged - Stored objects whose recorded size disagrees with storage
- * @property {{ set: string, snapshot: string, reason: string }[]} unreadable - Snapshots that would not read
+ * @property {string[]} unreadable - `set/snapshot` names that would not read
  */
 
 /**
@@ -71,9 +73,7 @@ export function planCleanup(
   stored,
   { now = Date.now(), deleted = new Set() } = {},
 ) {
-  const unreadable = [...referencedBySet].flatMap(([set, r]) =>
-    r.unreadable.map((u) => ({ set, snapshot: u.snapshot, reason: u.reason })),
-  );
+  const unreadable = unreadableSnapshots(referencedBySet);
 
   // The referenced union (bucket-wide — cleanup must span every set), plus the
   // missing/damaged tallies, each over distinct hashes (an object several files or

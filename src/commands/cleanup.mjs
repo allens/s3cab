@@ -4,6 +4,7 @@ import { requireArg } from "../lib/error.mjs";
 import { formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
+import { unreadableMessage } from "../lib/referenced.mjs";
 import { referencedObjects } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
 
@@ -105,13 +106,14 @@ export async function cleanup(bucket, options = {}) {
   // (its references are unknown), so abort before reporting numbers that would be
   // wrong. Triage with verify first.
   if (plan.unreadable.length > 0) {
-    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
     throw new Error(
-      `Can't compute orphans safely: ${where.length} snapshot(s) won't read, ` +
-        `so their references are unknown and every object they alone reference ` +
-        `would look orphaned.\n` +
-        `Unreadable: ${where.join(", ")}\n` +
-        `Triage first: s3cab verify ${bucket}`,
+      unreadableMessage({
+        names: plan.unreadable,
+        bucket,
+        lead: "Can't clean up safely",
+        consequence:
+          "objects nothing else references would look unused and be deleted",
+      }),
     );
   }
 
@@ -153,7 +155,8 @@ export async function cleanup(bucket, options = {}) {
     throw new Error(
       `Refusing to delete: ${missing} referenced object(s) are missing — the ` +
         `repository is already losing data, so this is not the moment to reclaim.\n` +
-        `Triage first: s3cab verify ${bucket}`,
+        `Check them with:\n` +
+        `  s3cab verify ${bucket}`,
     );
   }
 
