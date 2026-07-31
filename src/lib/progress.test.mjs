@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { createProgress, statusLine } from "./progress.mjs";
 
 /**
@@ -28,19 +29,100 @@ function fakeStream(isTTY) {
 }
 
 describe("createProgress", () => {
-  it("on a terminal, draws each update in place and closes with one newline", () => {
+  it("on a terminal, draws in place and closes with one newline", () => {
     const { stream, writes, output } = fakeStream(true);
     const progress = createProgress(stream);
 
     progress.update("first");
-    progress.update("second");
     const beforeDispose = output();
     assert.ok(beforeDispose.includes("first"));
-    assert.ok(beforeDispose.includes("second"));
     assert.ok(!beforeDispose.includes("\n"), "no newline until disposed");
 
     progress[Symbol.dispose]();
     assert.equal(writes.at(-1), "\n");
+  });
+
+  it("writes the text before clearing, so the line is never blanked", () => {
+    // The flicker fix: clearing to end-of-line *after* the text leaves the same
+    // end state with no empty-line window for the terminal to repaint.
+    const { stream, writes } = fakeStream(true);
+    const progress = createProgress(stream);
+    progress.update("counting");
+    progress[Symbol.dispose]();
+    const text = writes.indexOf("counting");
+    const clear = writes.findIndex((write) => write.includes("\x1b[0K"));
+    assert.ok(text !== -1 && clear !== -1, "expected both a write and a clear");
+    assert.ok(text < clear, "expected the text to be written before the clear");
+  });
+
+  it("holds an update that arrives inside the redraw interval", () => {
+    const { stream, output } = fakeStream(true);
+    const progress = createProgress(stream);
+
+    progress.update("first");
+    progress.update("second");
+    assert.ok(!output().includes("second"), "expected the second to be held");
+
+    // …and releases it when the line closes, so the final state always lands.
+    progress[Symbol.dispose]();
+    assert.ok(output().includes("second"));
+  });
+
+  it("draws again once the redraw interval has passed", async () => {
+    const { stream, output } = fakeStream(true);
+    const progress = createProgress(stream);
+
+    progress.update("first");
+    assert.equal(progress.due(), false);
+    await setTimeout(150);
+    assert.equal(progress.due(), true);
+
+    progress.update("second");
+    assert.ok(output().includes("second"));
+    progress[Symbol.dispose]();
+  });
+
+  it("clear wipes the line and leaves nothing behind on disposal", () => {
+    const { stream, writes, output } = fakeStream(true);
+    const progress = createProgress(stream);
+
+    progress.update("uploading");
+    progress.clear();
+    progress[Symbol.dispose]();
+    // The text was written, then cleared — and with nothing left standing there
+    // is no closing newline either, so the next line starts at column 0.
+    assert.ok(output().includes("uploading"));
+    assert.ok(!output().includes("\n"), "expected no retained line");
+    assert.ok(writes.at(-1)?.includes("\x1b[0K"), "expected a trailing clear");
+  });
+
+  it("clear drops a held update, so disposal cannot resurrect it", () => {
+    const { stream, output } = fakeStream(true);
+    const progress = createProgress(stream);
+
+    progress.update("first");
+    progress.update("held"); // inside the redraw interval
+    progress.clear();
+    progress[Symbol.dispose]();
+    assert.ok(!output().includes("held"));
+  });
+
+  it("clear is a no-op off a terminal — a log does not retract lines", () => {
+    const { stream, writes } = fakeStream(false);
+    const progress = createProgress(stream, { logLines: true });
+    progress.update("Uploaded a.jpg");
+    progress.clear();
+    progress[Symbol.dispose]();
+    assert.deepEqual(writes, ["Uploaded a.jpg\n"]);
+  });
+
+  it("is never due off a terminal, so a hot-path caller skips its rendering", () => {
+    const { stream } = fakeStream(false);
+    const progress = createProgress(stream);
+    assert.equal(progress.due(), false);
+    // …but a logged run still is, since those updates do get written.
+    const logged = createProgress(fakeStream(false).stream, { logLines: true });
+    assert.equal(logged.due(), true);
   });
 
   it("on a terminal with no updates, writes nothing at all", () => {
@@ -68,7 +150,7 @@ describe("createProgress", () => {
     assert.deepEqual(writes, []);
   });
 
-  it("off a terminal with logLines, writes one plain line per update and no closing newline", () => {
+  it("off a terminal with logLines, writes plain lines and no closing newline", () => {
     const { stream, writes } = fakeStream(false);
     const progress = createProgress(stream, { logLines: true });
     progress.update("Restoring 50/200...");

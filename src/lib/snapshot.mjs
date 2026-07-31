@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { fileProps } from "./file-props.mjs";
-import { secondsSince } from "./format.mjs";
+import { elapsedSince, formatByteValue, formatCount } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import {
@@ -18,7 +18,9 @@ import { walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
+ * @import { HashProgress } from "./file-props.mjs"
  * @import { RowTransform, SnapshotEntries } from "./snapshot-file.mjs"
+ * @import { Sending, TransferState } from "./upload.mjs"
  */
 
 // Taking a set's snapshot: find its files, hash them (reusing what hasn't
@@ -112,24 +114,31 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {object} [options]
  * @param {SnapshotEntries} [options.lookup] - Hash lookup: an unchanged file reuses its stored hash
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
+ * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
  * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
  * @returns {Promise<{ name: string, path: string }>} The snapshot's name and local path
  */
 export async function generateSnapshot(
   set,
-  { lookup, through, debug, previousInstant } = {},
+  { lookup, through, transfer, debug, previousInstant } = {},
 ) {
   // One clock read gives the name, the UTC instant, and the zone — the three
   // spellings the file needs, which therefore cannot disagree (ADR-0072).
   const moment = snapshotMoment();
   const { name } = moment;
   warnIfClockWentBack(moment, previousInstant);
-  // The file it will land in, not just the name: the same shape as the
-  // "Reading previous snapshot" line above, so the two ends of the step read as
-  // a pair and either path can be pasted straight at a shell.
+  // The pass announces itself once, here, so the line that follows carries no
+  // constant text at all — it was spending a dozen columns four times a second
+  // repeating a label that never changed, and those columns are what the file
+  // path needs. It names what it is doing (an uploader spliced in makes this a
+  // backup; hashing is then the means, not the errand), what it is doing it to,
+  // and where that lands: `<set>/<snapshot>` is already how the rest of the
+  // output identifies a snapshot within a set, and the path is the pasteable
+  // half the "Generating new snapshot" line it replaces used to carry.
   const displayPath = join(set.snapshotsDir, snapshotFileName(name));
-  console.warn("Generating new snapshot", `'${tildeify(displayPath)}'`);
+  const verb = transfer ? "Backing up" : "Snapshotting";
+  console.warn(`${verb} '${set.name}/${name}' ('${tildeify(displayPath)}'):`);
 
   const { files, excluded, skipped } = walkSet(set);
 
@@ -139,13 +148,31 @@ export async function generateSnapshot(
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
+  // The hash in flight, published by `fileProps` and cleared the moment it
+  // returns — so the progress line can name the file it is chewing on when one
+  // takes long enough to be worth naming. Held here, at the binding site, rather
+  // than inside `fileProps`: the function stays pure per call, and the mutable
+  // "what is happening now" belongs to the pass that is running.
+  /** @type {HashProgress | null} */
+  let hashing = null;
+
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: set.dirs,
-    files: withProgress("Generating snapshot file…", files.length)(files),
+    files: withProgress({
+      total: files.length,
+      transfer,
+      hashing: () => hashing,
+    })(files),
     excluded,
     skipped,
-    getProps: (file) => fileProps(file, lookup),
+    getProps: async (file) => {
+      try {
+        return await fileProps(file, lookup, (started) => (hashing = started));
+      } finally {
+        hashing = null;
+      }
+    },
     through,
     overwrite: Boolean(debug),
   });
@@ -162,33 +189,204 @@ export async function generateSnapshot(
 }
 
 /**
- * Wrap a stream of file paths in a stderr progress counter — the percentage of
- * `total` walked so far, with elapsed time — redrawn only when the percentage
- * changes. The in-place animation and TTY gate live in `lib/progress.mjs`; this
- * owns only the counting and the percentage rendering.
- * @param {string} label
- * @param {number} total
+ * Wrap a stream of file paths in the pass's one stderr progress line.
+ *
+ * One line, because this pass is one activity to the person watching it, however
+ * many stages it has inside. When `transfer` is supplied the pass is *also*
+ * sending files (the fused backup, ADR-0069) — so the line says so, adds the
+ * bytes gone up, and suffixes whichever file is on the wire:
+ *
+ * ```
+ * Backing up… 4,182 of 58,310 files · 1.2GB sent in 3 min   55% of 2.4GB …\ragged.jpg
+ * Generating snapshot file… 4,182 of 58,310 files in 8 sec
+ * ```
+ *
+ * Counts, not the percentage this line used to show: the percentage is of
+ * *files*, while the wait is dominated by *bytes*, and the sizes here span four
+ * orders of magnitude (a photo set is thousands of ~4MB files and a handful of
+ * multi-GB videos). "99%" with the big files still to go is a promise the number
+ * can't keep, and a plain count doesn't make it. A byte percentage would be
+ * honest but isn't available — the walk yields paths without stat-ing them, and
+ * a stat pass per file is exactly the per-file cost the hot path can't afford —
+ * so bytes appear as a running total instead.
+ *
+ * The in-place animation, the TTY gate, and the redraw cadence live in
+ * `lib/progress.mjs`; this owns only what the line says.
+ * @param {object} args
+ * @param {number} args.total
+ * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
+ * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
  */
-function withProgress(label, total) {
+function withProgress({ total, transfer, hashing }) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     using progress = createProgress(process.stderr);
     const start = Temporal.Now.instant();
     let current = 0;
-    let previousPercent = "";
-    for await (const path of paths) {
-      current++;
-      const percent =
-        (Math.floor((current / total) * 10000) / 100).toFixed(2) + "%";
-      if (percent !== previousPercent) {
-        previousPercent = percent;
-        // Space, not `": "` — the label ends in an ellipsis, and every other
-        // progress line here reads `<label>… <figure> in <elapsed>`.
-        progress.update(`${label} ${percent} in ${secondsSince(start)}`);
+    const draw = () =>
+      progress.update(
+        progressLine({
+          current,
+          total,
+          start,
+          state: transfer?.(),
+          hashing: hashing(),
+          width: process.stderr.columns,
+        }),
+      );
+
+    // A clock drives this line, not the paths flowing through it. This is a
+    // *pull* pipeline — paths → hash → upload → write — so redrawing as each
+    // path is pulled means redrawing only between rows, which is precisely when
+    // there is nothing being sent: the file that was uploading has finished and
+    // the next has not begun, so the transfer suffix was never once on screen
+    // while it had something to say. Worse, a row that takes minutes (a
+    // multi-GB upload, a slow hash) blocks the pull, and the whole line — count,
+    // bytes, clock — froze for the duration, exactly when it most needed to look
+    // alive. On a timer the line reports what is true at the moment it draws.
+    //
+    // Four times a second: fast enough that a byte percentage climbs visibly,
+    // calm enough for a line this wide. `unref` so a pending tick can never hold
+    // the process open; the `finally` stops it if the pipeline throws.
+    draw();
+    const ticking = setInterval(draw, 250);
+    ticking.unref();
+    try {
+      for await (const path of paths) {
+        current++;
+        yield path;
       }
-      yield path;
+    } finally {
+      clearInterval(ticking);
     }
   };
+}
+
+/**
+ * Compose the progress line. Split out from `withProgress`, and taking the
+ * terminal width rather than reading it, so the wording and the trimming are
+ * both assertable without a pipeline or a terminal.
+ * @param {object} args
+ * @param {number} args.current - Files hashed so far
+ * @param {number} args.total - Files this pass will hash
+ * @param {Temporal.Instant} args.start
+ * @param {TransferState} [args.state] - Absent when the pass only hashes
+ * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
+ * @param {number} [args.width] - Columns available (absent = unbounded)
+ * @returns {string}
+ */
+export function progressLine({ current, total, start, state, hashing, width }) {
+  // Every field before the path is fixed width, so the path starts at the same
+  // column from one redraw to the next. Left to grow — a count gaining a digit,
+  // an elapsed going from `9s` to `12m 21s` — it shuffles sideways four times a
+  // second, which is unreadable however correct each frame is.
+  const totals = formatCount(total);
+  const counts = `${formatCount(current).padStart(totals.length)}/${totals}`;
+  const elapsed = elapsedSince(start);
+  const run = state
+    ? `${counts}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
+    : `${counts} in ${elapsed}`;
+
+  const detail = activity(state?.current ?? null, hashing ?? null);
+  if (!detail) {
+    return run;
+  }
+  // Two budgets, because the two layouts spend different numbers of spaces:
+  // `run + "  " + detail` when the path is dropped, and one more space before the
+  // path when it isn't. Both leave the edge column unwritten — writing a row's
+  // last cell makes some terminals wrap on their own. Budgeting the whole line
+  // against the wider layout would shed the detail at the one width where it
+  // fits exactly without a path.
+  const forDetail = (width ?? Infinity) - run.length - 3;
+  const forBoth = forDetail - 1;
+  if (forDetail < detail.text.length) {
+    // Not even the figures fit. The counts are the line's reason for existing,
+    // so they win: shedding the detail whole beats letting the backstop in
+    // lib/progress.mjs cut it mid-word.
+    return run;
+  }
+  // Pad the detail so the path column holds still — but only while that leaves
+  // the path room to be worth printing. On a narrow terminal a fixed column the
+  // path never reaches is alignment for its own sake, so the padding goes first.
+  const padded = detail.text.padEnd(ACTIVITY_COLUMNS);
+  const aligned = forBoth - padded.length >= MIN_PATH_COLUMNS;
+  const text = aligned ? padded : detail.text;
+  const shown = fitPath(detail.path, forBoth - text.length);
+  return shown ? `${run}  ${text} ${shown}` : `${run}  ${detail.text}`;
+}
+
+// A row has to be *worth* reporting before its name goes on the line. Below this
+// it is over before it can be read, and naming every one of tens of thousands of
+// fast files is noise that hides the one that is actually holding things up.
+const WORTH_REPORTING_MS = 1000;
+
+// `999.9MB` is the widest `formatByteValue` gets, and `Uploading ` + that +
+// ` (100%)` the widest the detail gets. Both are padded to their maximum so
+// nothing to their right moves as the figures change.
+const BYTES_COLUMNS = 7;
+const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
+
+/**
+ * The one slow thing this pass is doing right now, as `<verb> <size> (<pct>)` —
+ * the size always (it is the fact we always have), the percentage parenthetical
+ * because it is the fact we sometimes have. A single PUT reports its bytes once,
+ * at the end, so a small upload never earns a percentage; a streamed hash and a
+ * multipart upload both do.
+ * @param {Sending | null} sending
+ * @param {HashProgress | null} hashing
+ * @returns {{ text: string, path: string } | null}
+ */
+function activity(sending, hashing) {
+  const now = performance.now();
+  // The text carries no separator of its own — `progressLine` owns the spacing,
+  // so `ACTIVITY_COLUMNS` measures the same string that gets padded. Leading
+  // spaces in here would both double the gap and push a maximum-length activity
+  // past the pad width, shifting the path column in precisely the case the
+  // padding exists to hold still.
+  if (sending && now - sending.startedAt >= WORTH_REPORTING_MS) {
+    return {
+      text: `Uploading ${sized(sending.total, sending.loaded)}`,
+      path: sending.path,
+    };
+  }
+  if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
+    return {
+      text: `Hashing ${sized(hashing.size, hashing.read())}`,
+      path: hashing.path,
+    };
+  }
+  return null;
+}
+
+/**
+ * `1.8GB (27%)`, or just `1.8GB` when nothing has been reported yet — "0%" would
+ * dress up "no figure has come back" as a measurement.
+ * @param {number} size
+ * @param {number} done
+ * @returns {string}
+ */
+const sized = (size, done) =>
+  done > 0 && size > 0
+    ? `${formatByteValue(size)} (${Math.floor((done / size) * 100)}%)`
+    : formatByteValue(size);
+
+// Below this a path is unreadable rubble — "…pg" tells you nothing, and the
+// percentage it would crowd out tells you something. Drop it instead.
+const MIN_PATH_COLUMNS = 12;
+
+/**
+ * Trim a path to the room left on the line, keeping the *end* — the file name is
+ * the part worth reading, and a progress line must not wrap: an in-place redraw
+ * clears one row, so the overflow of a wrapped line is stranded on screen.
+ * @param {string} path
+ * @param {number} room - Columns left for the path
+ * @returns {string} The path, its tail behind an ellipsis, or nothing
+ */
+function fitPath(path, room) {
+  if (path.length <= room) {
+    return path;
+  }
+  return room >= MIN_PATH_COLUMNS ? "…" + path.slice(-(room - 1)) : "";
 }
 
 /**

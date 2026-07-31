@@ -5,6 +5,23 @@ import { pipeline } from "node:stream/promises";
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
 /**
+ * A hash in progress, for a caller drawing a progress line. Reported once, when
+ * the read starts, carrying a `read` the caller polls on its own clock rather
+ * than an event per chunk — the same read-don't-subscribe shape the upload's
+ * transfer state uses, and for the same reason: the renderer's cadence should
+ * not be set by how fast bytes happen to arrive.
+ *
+ * Only the *streaming* branch reports. A file below the slurp boundary is read
+ * in one call with no intermediate count — and is far too small to spend the
+ * second that would earn it a line anyway.
+ * @typedef {Object} HashProgress
+ * @property {string} path - The file being hashed
+ * @property {number} size - Its size in bytes, from the `lstat` already taken
+ * @property {number} startedAt - `performance.now()` when the read began
+ * @property {() => number} read - Bytes hashed so far
+ */
+
+/**
  * SHA-256 hash of an empty file. Module-private — only `fileProps` needs it.
  */
 const SHA256_EMPTY_FILE =
@@ -27,9 +44,11 @@ const SHA256_EMPTY_FILE =
  * overhead CLAUDE.md warns against in the walk/snapshot hot path.
  * @param {string} path - The file to inspect
  * @param {SnapshotEntries} [lookup] - Previous-snapshot entries; an unchanged file reuses its stored hash
+ * @param {(hashing: HashProgress) => void} [onHashStart] - Called when a file is
+ *   big enough to be hashed by streaming, so a progress line can report it
  * @returns {Promise<Props>} The file's hash/size/mtime (no `hashDuration` when reused from `lookup`)
  */
-export async function fileProps(path, lookup) {
+export async function fileProps(path, lookup, onHashStart) {
   const start = Temporal.Now.instant();
 
   const stat = lstatSync(path);
@@ -57,7 +76,19 @@ export async function fileProps(path, lookup) {
   // was dropped as a relic. Don't reintroduce one without a measurement.
   if (size >= 5_000_000) {
     const hasher = createHash("sha256");
-    await pipeline(createReadStream(path), hasher);
+    const source = createReadStream(path);
+    // `bytesRead` is a plain property the stream maintains anyway, so reporting
+    // costs one object at the start of a large file's read and nothing per
+    // chunk. The size comes from the `lstat` above — no second stat, and none
+    // in the caller's render path, which is the whole reason this is reported
+    // from in here rather than derived outside.
+    onHashStart?.({
+      path,
+      size,
+      startedAt: performance.now(),
+      read: () => source.bytesRead,
+    });
+    await pipeline(source, hasher);
     hash = hasher.digest("hex");
   } else if (size) {
     hash = crypto.hash("sha256", readFileSync(path), "hex");

@@ -76,6 +76,7 @@ ADR as a live constraint.
 - [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
 - [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
 - [0075](0075-resolve-time-credential-expiry.md) — An expired sign-in is diagnosed at *resolve* time too, matched on the chain's message (the SDK's error name can't tell expiry from a missing profile); expiry only, and one message shared with the request-time path *(accepted & implemented; completes 0037's remedy table, which caught expiry only at request time)*
+- [0076](0076-one-progress-line-driven-by-a-clock.md) — One progress line per pass, paced by `lib/progress.mjs` rather than by per-caller count gates, and redrawn from a clock where the data is bursty or blocking (a LIST page, a pull pipeline). The porcelain announces the pass once so the line carries no constant text; a row earns its name by taking a second, and a figure is shown only once measured *(accepted; extends 0010/0043, settles the display 0069 left behind)*
 
 ### Storage model, identity & home
 

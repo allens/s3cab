@@ -1,6 +1,8 @@
 import { writeFileAtomic } from "./atomic-file.mjs";
 import { deleteObject, getStream, listObjects, putFile } from "./s3.mjs";
 
+/** @import { Transfer } from "./s3.mjs" */
+
 // The content-addressed object store: the `objects/<sha256>` half of an s3cab
 // repository's fixed layout (design #1, docs/design/backup.md). Every file's content
 // is stored once under the SHA-256 of its bytes, so identical content — under
@@ -45,10 +47,20 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * @param {string} path - Local path of the file to store
  * @param {object} [options]
  * @param {boolean} [options.force] - Overwrite even if the object already exists
+ * @param {(transfer: Transfer) => void} [options.onProgress] - Take the transfer's
+ *   bytes instead of `putFile`'s byte bar, for a caller drawing its own line
  * @returns {Promise<boolean>} Whether the object was uploaded (false = already present)
  */
-export function putObject(bucket, hash, path, { force = false } = {}) {
-  return putFile(path, objectUri(bucket, hash), { noClobber: !force });
+export function putObject(
+  bucket,
+  hash,
+  path,
+  { force = false, onProgress } = {},
+) {
+  return putFile(path, objectUri(bucket, hash), {
+    noClobber: !force,
+    onProgress,
+  });
 }
 
 /**

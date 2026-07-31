@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1199,6 +1199,28 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     // The preflight's whole purpose: without it, a multipart no-clobber upload
     // ships every part before Complete's IfNoneMatch finally answers 412.
     assert.deepEqual(seen, ["HEAD /bucket/key"]);
+  });
+
+  it("reports transfer bytes to onProgress, sized by the file rather than the SDK", async () => {
+    // The seam the fused backup pass draws its line from (ADR-0076): given
+    // `onProgress`, putFile hands the bytes out instead of drawing a bar.
+    // `total` is the file's own size on purpose — the SDK's first event carries
+    // none, and a percentage of an unknown is worse than no percentage.
+    const { size } = statSync(smallFile);
+    /** @type {{ path: string, loaded: number, total: number }[]} */
+    const reported = [];
+    const wrote = await putFile(smallFile, "s3://bucket/key", {
+      onProgress: (transfer) => reported.push(transfer),
+    });
+    assert.equal(wrote, true);
+    assert.ok(reported.length > 0, "expected at least one progress report");
+    assert.ok(
+      reported.every((r) => r.path === smallFile && r.total === size),
+      `expected every report to name the file and its size, got ${JSON.stringify(reported)}`,
+    );
+    // A single PUT reports once, at the end — which is exactly why a small
+    // upload can never show a percentage mid-flight.
+    assert.equal(reported.at(-1)?.loaded, size);
   });
 
   it("multipart-sized + no-clobber, absent: full Create/Parts/Complete, guard on Complete", async () => {

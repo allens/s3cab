@@ -216,7 +216,10 @@ export async function restore(paths = [], options = {}) {
     }
 
     done++;
-    if (done % 50 === 0 || done === plan.length) {
+    // On lib/progress.mjs' clock, plus the final tally unconditionally — the
+    // last file has to be *offered*, whether or not a redraw is due, or the
+    // counter closes reading one short of the total.
+    if (progress.due() || done === plan.length) {
       progress.update(`Restoring ${done}/${plan.length}…`);
     }
   }
