@@ -32,6 +32,30 @@ const hashing = (path, size, done) => ({
 });
 
 describe("progressLine", () => {
+  it("pads the widest activity to the same column as the shortest", () => {
+    // What the padding is *for*: `Uploading 999.9MB (100%)` is the longest the
+    // detail gets, and it must not push the path further right than `Hashing 1B`
+    // does. It used to, because the text carried its own leading separator and
+    // so overflowed the pad width.
+    const widest = progressLine({
+      ...run,
+      state: sending({
+        path: "/a.jpg",
+        loaded: 999_900_000,
+        total: 999_900_000,
+      }),
+      width: 200,
+    });
+    const shortest = progressLine({
+      ...run,
+      // Same run stats, so only the activity differs between the two lines.
+      state: { sent: 1_200_000_000, current: null },
+      hashing: hashing("/a.jpg", 1, 0),
+      width: 200,
+    });
+    assert.equal(widest.indexOf("/a.jpg"), shortest.indexOf("/a.jpg"));
+  });
+
   it("pads the count to its total, so the columns after it hold still", () => {
     // No label: the pass announced itself once, before the line started.
     const line = progressLine(run);
@@ -55,9 +79,10 @@ describe("progressLine", () => {
         total: 2_400_000_000,
       }),
     });
-    assert.ok(
-      line.endsWith("Uploading 2.4GB (55%) D:\\Videos\\holiday.MOV"),
-      `got ${line}`,
+    assert.match(
+      line,
+      /Uploading 2\.4GB \(55%\)\s+D:\\Videos\\holiday\.MOV$/,
+      line,
     );
   });
 
@@ -150,6 +175,22 @@ describe("progressLine", () => {
     );
     // Ending on the figures is itself the proof no path stub followed them.
     assert.match(line, /Uploading 1\.5MB$/, line);
+  });
+
+  it("keeps the figures at the width where they fit exactly without a path", () => {
+    // The boundary the two budgets exist for: one more column than this sheds
+    // nothing, one fewer sheds the detail, and budgeting both layouts against
+    // the wider one would shed it here — where it fits.
+    const state = sending({
+      path: "/some/very/long/path.jpg",
+      loaded: 0,
+      total: 1_500_000,
+    });
+    const exact = progressLine({ ...run, state, width: 60 });
+    assert.match(exact, /Uploading 1\.5MB$/, exact);
+    assert.equal(exact.length, 59);
+    const narrower = progressLine({ ...run, state, width: 59 });
+    assert.match(narrower, /in\s+0s$/, narrower);
   });
 
   it("sheds the whole detail when even the figures will not fit", () => {

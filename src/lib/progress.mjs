@@ -57,9 +57,11 @@ export function statusLine(stream, text) {
  * the cursor on a fresh line before whatever prints next.
  * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
  * @param {object} [options]
- * @param {boolean} [options.logLines] - Off a terminal, write each update as its
- *   own plain line instead of staying silent (for a caller whose long-running
- *   progress is worth logging, like `restore`).
+ * @param {boolean} [options.logLines] - Off a terminal, write plain lines instead
+ *   of staying silent (for a caller whose long-running progress is worth logging,
+ *   like `restore`). Paced like the animation, not one line per update: updates
+ *   inside the redraw interval coalesce, so a log gets the latest state ten times
+ *   a second at most. The final state always lands, held updates included.
  * @returns {{ update: (text: string, opts?: { cursor?: number }) => void, due: () => boolean, clear: () => void } & Disposable}
  */
 export function createProgress(stream, { logLines = false } = {}) {

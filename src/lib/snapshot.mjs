@@ -291,11 +291,15 @@ export function progressLine({ current, total, start, state, hashing, width }) {
   if (!detail) {
     return run;
   }
-  // What is left for the detail and the path together: the width, less the run
-  // stats, less the three spaces between the three fields, less one for the edge
-  // column (writing a row's last cell makes some terminals wrap on their own).
-  const free = (width ?? Infinity) - run.length - 4;
-  if (free < detail.text.length) {
+  // Two budgets, because the two layouts spend different numbers of spaces:
+  // `run + "  " + detail` when the path is dropped, and one more space before the
+  // path when it isn't. Both leave the edge column unwritten — writing a row's
+  // last cell makes some terminals wrap on their own. Budgeting the whole line
+  // against the wider layout would shed the detail at the one width where it
+  // fits exactly without a path.
+  const forDetail = (width ?? Infinity) - run.length - 3;
+  const forBoth = forDetail - 1;
+  if (forDetail < detail.text.length) {
     // Not even the figures fit. The counts are the line's reason for existing,
     // so they win: shedding the detail whole beats letting the backstop in
     // lib/progress.mjs cut it mid-word.
@@ -305,9 +309,9 @@ export function progressLine({ current, total, start, state, hashing, width }) {
   // the path room to be worth printing. On a narrow terminal a fixed column the
   // path never reaches is alignment for its own sake, so the padding goes first.
   const padded = detail.text.padEnd(ACTIVITY_COLUMNS);
-  const aligned = free - padded.length >= MIN_PATH_COLUMNS;
+  const aligned = forBoth - padded.length >= MIN_PATH_COLUMNS;
   const text = aligned ? padded : detail.text;
-  const shown = fitPath(detail.path, free - text.length);
+  const shown = fitPath(detail.path, forBoth - text.length);
   return shown ? `${run}  ${text} ${shown}` : `${run}  ${detail.text}`;
 }
 
@@ -334,15 +338,20 @@ const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
  */
 function activity(sending, hashing) {
   const now = performance.now();
+  // The text carries no separator of its own — `progressLine` owns the spacing,
+  // so `ACTIVITY_COLUMNS` measures the same string that gets padded. Leading
+  // spaces in here would both double the gap and push a maximum-length activity
+  // past the pad width, shifting the path column in precisely the case the
+  // padding exists to hold still.
   if (sending && now - sending.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `   Uploading ${sized(sending.total, sending.loaded)}`,
+      text: `Uploading ${sized(sending.total, sending.loaded)}`,
       path: sending.path,
     };
   }
   if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `   Hashing ${sized(hashing.size, hashing.read())}`,
+      text: `Hashing ${sized(hashing.size, hashing.read())}`,
       path: hashing.path,
     };
   }
