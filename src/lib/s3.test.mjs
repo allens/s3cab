@@ -1202,7 +1202,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   });
 
   it("reports transfer bytes to onProgress, sized by the file rather than the SDK", async () => {
-    // The seam the fused backup pass draws its line from (ADR-0074): given
+    // The seam the fused backup pass draws its line from (ADR-0076): given
     // `onProgress`, putFile hands the bytes out instead of drawing a bar.
     // `total` is the file's own size on purpose — the SDK's first event carries
     // none, and a percentage of an unknown is worse than no percentage.
