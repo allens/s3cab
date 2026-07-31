@@ -33,6 +33,17 @@ niceties.
   docs-only session sweeping the whole guide.
 - **`--quiet`** to suppress stderr progress (for cron/scripts), and richer progress: bytes
   hashed + ETA, not just file-count percent.
+- **The fused pass's progress line retains its last state, unlabelled**
+  ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)). `withProgress` closes
+  the line the ordinary way, so a finished run leaves ` 256,776/256,776  Uploaded 13.2GB in 14m
+  02s` sitting directly above the command's real summary — saying roughly the same thing, but
+  without the header that named it (that has scrolled away by then). The machinery to fix it is
+  already there and already used for this exact reason by the upload byte bar: `progress.clear()`
+  instead of letting disposal retain. **Not obviously right, which is why it wasn't just done:**
+  on a run that *fails* part-way the retained line is the only record of how far it got, and the
+  error text doesn't carry a file count. So the choice is either clear unconditionally and accept
+  that, or clear only on success — which means `withProgress` learning whether the pipeline
+  finished, a fact it currently has no reason to know.
 - **The progress lines' *timing* is untested** — deliberately, for now. Two behaviours rest on
   real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing, and the 1-second `setInterval`
   that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST

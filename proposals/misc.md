@@ -66,3 +66,14 @@ future "platform / release" epic).
   later, so a per-line prefix would repeat a constant. **The trigger that would earn it:** a command
   addressing one snapshot in a bucket the machine isn't set up against, in a single token —
   `reattach` is the nearest thing today and it takes `--bucket`.
+- **Nothing stops two branches claiming the same ADR number.** #255 shipped as ADR-0074 and had to
+  be renumbered to 0076 at review time, because #252 and #253 had merged ahead of it and taken 0074
+  and 0075. `docs/adr/README.md` says "take the next number", which is only unambiguous when one
+  branch is open at a time — and every session working in its own worktree (CLAUDE.md #7) makes
+  concurrent branches the normal case, not the exception. The cost when it bites is small but
+  spreads: the file, the index entry, and every `ADR-NNNN` reference in code comments and prose.
+  Options, none obviously right: reserve the number by pushing the index entry first (racy in the
+  same way); allocate from the PR number instead of a sequence (stable, but the numbers stop being
+  ordinal and 0001–0075 are already ordinal); or just keep renumbering at review time and accept it
+  as a known chore, since the collision is *visible* — two files with the same prefix sort adjacent
+  — and the rename is mechanical. Worth deciding only if it happens a second time.
