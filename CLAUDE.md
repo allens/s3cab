@@ -370,6 +370,17 @@ candidates against the source before exploring (don't re-derive), record new rej
 and replace [proposals/architecture-review.html](proposals/architecture-review.html) (latest
 only — each run's report overwrites it).
 
+### Over-engineering sweeps
+
+`/over-engineering` ([.claude/skills/over-engineering/](.claude/skills/over-engineering/), a
+**project-specific vendored skill** like `cli-design`) is the deliberate **antagonist** of
+`/improve-codebase-architecture` above: that one turns shallow modules into deep ones (it
+*creates* seams), this one hunts seams that don't pay (it *destroys* them). Running both is the
+point — each checks the other's overreach, and the tie-break when they collide is whether the
+seam has two or more **production** callers with different needs. Unlike every other skill here
+it reads the code **cold**: it deliberately does *not* open `docs/adr/` or `proposals/`, so it
+writes its own report and must never touch `architecture-improvements.md`.
+
 ---
 
 ## What this project is
