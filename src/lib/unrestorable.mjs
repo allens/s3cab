@@ -1,4 +1,10 @@
-import { formatByteValue } from "./format.mjs";
+import {
+  alignTotalTable,
+  formatByteValue,
+  formatCount,
+  plural,
+} from "./format.mjs";
+import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 
 // The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
 // given the bucket's referenced enumeration (`referencedObjects` in remote.mjs)
@@ -22,7 +28,7 @@ import { formatByteValue } from "./format.mjs";
 // `referenced − referenced`. Different question, no shared computation — and
 // `planCleanup` is explicitly left alone (see that design's box).
 
-/** @import { ReferencedResult } from "./verify.mjs" */
+/** @import { ReferencedResult } from "./referenced.mjs" */
 
 /**
  * One selected snapshot's share: the content that **only** it references among
@@ -53,7 +59,7 @@ import { formatByteValue } from "./format.mjs";
  * @property {number} totalObjects - Distinct objects left orphaned (the reclaimable ones)
  * @property {boolean} lastOfSet - The selection takes out the set's last remote snapshot
  * @property {UnrestorableEntry[]} entries - Every unrestorable file, for the report file
- * @property {{ set: string, snapshot: string, reason: string }[]} unreadable - Snapshots that would not read
+ * @property {string[]} unreadable - `set/snapshot` names that would not read
  */
 
 /**
@@ -91,13 +97,7 @@ export function planUnrestorable(
   referencedBySet,
   { set, snapshots, remoteSnapshots },
 ) {
-  const unreadable = [...referencedBySet].flatMap(([name, r]) =>
-    r.unreadable.map((u) => ({
-      set: name,
-      snapshot: u.snapshot,
-      reason: u.reason,
-    })),
-  );
+  const unreadable = unreadableSnapshots(referencedBySet);
 
   const selected = new Set(snapshots);
   // A set whose every snapshot failed to read has no entry at all — treat it as
@@ -222,10 +222,10 @@ export function planUnrestorable(
  * already requires for fixes, and the reason the file beats "pipe it somewhere"
  * on Windows, the primary environment.
  * @param {UnrestorablePlan} plan
- * @param {{ set: string, reportPath: string }} context - The set being forgotten from, and where the full list was written
+ * @param {{ set: string, reportPath: string, bucket: string }} context - The set being forgotten from, where the full list was written, and the repository bucket (so the unreadable caveat's `verify` command pastes as-is)
  * @returns {string}
  */
-export function formatUnrestorableSummary(plan, { set, reportPath }) {
+export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
   const lines = [];
 
   if (plan.totalFiles === 0) {
@@ -239,42 +239,26 @@ export function formatUnrestorableSummary(plan, { set, reportPath }) {
       ``,
     );
 
-    /** @type {[string, number, number][]} */
+    /** @type {[string, string, string][]} */
     const rows = plan.bySnapshot.map(({ snapshot, files: f, bytes }) => [
       snapshot,
-      f,
-      bytes,
+      formatCount(f),
+      formatByteValue(bytes),
     ]);
     if (plan.sharedFiles > 0) {
       rows.push([
         `shared across ${plan.bySnapshot.length} snapshots`,
-        plan.sharedFiles,
-        plan.sharedBytes,
+        formatCount(plan.sharedFiles),
+        formatByteValue(plan.sharedBytes),
       ]);
     }
-    rows.push(["total unrestorable", plan.totalFiles, plan.totalBytes]);
+    rows.push([
+      "total unrestorable",
+      formatCount(plan.totalFiles),
+      formatByteValue(plan.totalBytes),
+    ]);
 
-    // Right-align the numbers so the magnitudes line up — the column being
-    // compared is the one being scanned.
-    const label = Math.max(...rows.map(([name]) => name.length));
-    const fileCol = Math.max(...rows.map(([, f]) => files(f).length));
-    const byteCol = Math.max(
-      ...rows.map(([, , bytes]) => formatByteValue(bytes).length),
-    );
-    const row = (/** @type {[string, number, number]} */ [name, f, bytes]) =>
-      `  ${name.padEnd(label)}  ${files(f).padStart(fileCol)}  ` +
-      `${formatByteValue(bytes).padStart(byteCol)}`;
-
-    const total = rows.pop();
-    for (const r of rows) {
-      lines.push(row(r));
-    }
-    if (total) {
-      lines.push(
-        `  ${" ".repeat(label)}  ${"─".repeat(fileCol + byteCol + 2)}`,
-        row(total),
-      );
-    }
+    lines.push(...alignTotalTable(["snapshot", "files", "size"], rows));
   }
 
   if (plan.lastOfSet) {
@@ -286,18 +270,18 @@ export function formatUnrestorableSummary(plan, { set, reportPath }) {
   }
 
   if (plan.unreadable.length > 0) {
-    // Not `cleanup`'s abort: nothing is removed off the back of these numbers, so
-    // an incomplete preview is a caveat to state, not a reason to refuse. The
-    // direction of the error matters and is worth saying — an unread snapshot's
-    // references are unknown, so content it alone holds is listed as
-    // unrestorable when it is not.
-    const where = plan.unreadable.map((u) => `${u.set}/${u.snapshot}`);
+    // Not `cleanup`'s abort, so no blocked-goal lead: nothing is removed off the
+    // back of these numbers, and an incomplete preview is a caveat to state
+    // rather than a reason to refuse. The *direction* of the error is the part
+    // worth saying — an unread snapshot's references are unknown, so content it
+    // alone holds gets listed as unrestorable when it is not.
     lines.push(
       ``,
-      `Warning: ${where.length} snapshot(s) would not read, so their references ` +
-        `are unknown and this preview may overstate what becomes unrestorable ` +
-        `(${where.join(", ")}).`,
-      `Check them with: s3cab verify`,
+      unreadableMessage({
+        names: plan.unreadable,
+        bucket,
+        consequence: "this preview may overstate what becomes unrestorable",
+      }),
     );
   }
 
@@ -376,8 +360,7 @@ export function formatForcedReport({ set, bucket, snapshots, generated }) {
 }
 
 /** @param {number} n */
-const files = (n) => `${n.toLocaleString("en")} ${n === 1 ? "file" : "files"}`;
+const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;
 
 /** @param {number} n */
-const objects = (n) =>
-  `${n.toLocaleString("en")} stored ${n === 1 ? "object" : "objects"}`;
+const objects = (n) => `${formatCount(n)} ${plural(n, "stored object")}`;

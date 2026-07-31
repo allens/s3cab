@@ -52,6 +52,7 @@ ADR as a live constraint.
 - [0011](0011-validation-in-command-functions.md) — Argument validation lives in the command functions
 - [0012](0012-consumer-vocabulary-naming.md) — Consumer-vocabulary command and flag naming
 - [0023](0023-porcelain-plumbing-lib-layers.md) — Commands are porcelain or plumbing, over a shared lib
+- [0074](0074-referenced-enumeration-vocabulary-module.md) — The referenced-enumeration vocabulary (its typedefs, `isCorruptSnapshotError`, the bucket-wide helpers) lives in a zero-import `lib/referenced.mjs`, not with its producer `remote.mjs` — which reaches the AWS SDK, and the three planners consuming it import nothing *(accepted & implemented; applies 0023/0006)*
 
 ### CLI command surface & lifecycle
 
@@ -74,6 +75,7 @@ ADR as a live constraint.
 - [0037](0037-aws-auth-error-categorization.md) — Request-time AWS auth errors are categorized by error code, not HTTP status
 - [0038](0038-usage-error-synopsis-not-full-help.md) — Usage errors show the synopsis + the missing arg's description, not the full help block
 - [0043](0043-human-first-output.md) — Human-first output; `--json` for machines; a central render layer *(implemented; inverts 0010's stdout default)*
+- [0075](0075-resolve-time-credential-expiry.md) — An expired sign-in is diagnosed at *resolve* time too, matched on the chain's message (the SDK's error name can't tell expiry from a missing profile); expiry only, and one message shared with the request-time path *(accepted & implemented; completes 0037's remedy table, which caught expiry only at request time)*
 
 ### Storage model, identity & home
 

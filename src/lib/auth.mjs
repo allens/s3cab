@@ -47,6 +47,24 @@ const reasonFrom = (cause) =>
     .replaceAll("\n", "\n     ");
 
 /**
+ * Whether the standard chain failed because the sign-in it found had *expired*,
+ * rather than because there was nothing to find. The resolve-time twin of
+ * {@link isExpiredCredentials} (request-time, matched on the server's response
+ * code) — and matched differently by necessity: the SDK throws the same
+ * `TokenProviderError` / `CredentialsProviderError` for an expired session as for
+ * a missing profile or a malformed `sso_session`, so only the message
+ * discriminates (ADR-0075). Both texts AWS ships for expiry carry the word —
+ * `Token is expired. …` (`@aws-sdk/token-providers`) and `The SSO session
+ * associated with this profile has expired. …`
+ * (`@aws-sdk/credential-provider-sso`) — so one word covers both, and if AWS ever
+ * rewords, this stops matching and the caller falls back to the generic "no
+ * credentials" frame: today's message, never a wrong instruction.
+ * @param {unknown} error
+ */
+const isExpiredSignIn = (error) =>
+  Error.isError(error) && /\bexpired\b/i.test(error.message);
+
+/**
  * Classify a set's credential situation into the parts that vary per case — the
  * line-1 annotation, an optional leading diagnosis (the "aha"), an optional
  * `source` (what {@link noCredentialsError}'s "looked in" step 2 names, defaulting
@@ -155,7 +173,11 @@ Run 's3cab help provider' for details.`,
   );
 
 /**
- * The actionable "no credentials" error. Two shapes:
+ * The actionable "no credentials" error. Three shapes:
+ *   - **an expired sign-in** ({@link isExpiredSignIn}), whichever of the two
+ *     below it arrived through: the chain *did* find credentials, they had just
+ *     run out, so the "looked in" frame would misdiagnose a configured set as an
+ *     unconfigured one — hand off to {@link expiredCredentialsError} (ADR-0075);
  *   - **with a set** (every set-first command): names the set, leads with an
  *     optional pinpoint diagnosis, then a constant "looked in" frame — the set's
  *     env file + the ambient chain, embedding the chain's own message — then a
@@ -174,6 +196,9 @@ Run 's3cab help provider' for details.`,
 export const noCredentialsError = (cause, ctx = {}) => {
   const reason = reasonFrom(cause);
   const { set, profile, knownProfiles, endpoint, rolesAnywhere } = ctx;
+  if (isExpiredSignIn(cause)) {
+    return expiredCredentialsError(cause, { set, profile, reason });
+  }
   if (!set) {
     return ambientCredentialsError(cause, reason);
   }
@@ -206,30 +231,47 @@ export const noCredentialsError = (cause, ctx = {}) => {
 };
 
 /**
- * The actionable "credentials resolved fine but had expired by request time"
- * error — an expired SSO/session token the chain handed back without validating,
- * which the *server* then rejects on the request. The request-time twin of
- * `noCredentialsError` (which fires when the chain resolves *nothing*): by the
- * time it surfaces, `auth.mjs` is off the stack, so it is detected and thrown at
- * the SDK boundary (`src/lib/s3.mjs`) rather than here. A plain-`Error` factory,
- * not a subclass, because nothing catches it by type — it flows to the CLI's
- * top-level catch, which only prints `message` (unless S3CAB_DEBUG; `cause` is
- * kept for that debug path). Follows ADR-0030: goal-framed, constructive, with
- * copy-pasteable fixes.
+ * The actionable "your credentials ran out" error — the one message for both
+ * moments a stale sign-in surfaces (ADR-0075), because the remedy is the same
+ * either way:
+ *   - **at request time**, an expired token the chain handed back without
+ *     validating, which the *server* then rejects. By then `auth.mjs` is off the
+ *     stack, so it is detected and thrown at the SDK boundary (`src/lib/s3.mjs`);
+ *   - **at resolve time**, the chain itself refusing to hand anything back —
+ *     routed here by {@link noCredentialsError}, which passes the chain's own
+ *     words as `reason` (there is no equivalent at request time: the server just
+ *     rejects a signature, and the raw code says nothing a user can act on).
+ * A plain-`Error` factory, not a subclass, because nothing catches it by type —
+ * it flows to the CLI's top-level catch, which only prints `message` (unless
+ * S3CAB_DEBUG; `cause` is kept for that debug path). Follows ADR-0030:
+ * goal-framed, constructive, with copy-pasteable fixes.
  * @param {unknown} cause - The AWS error that triggered it.
+ * @param {{ set?: { name: string }, profile?: string, reason?: string }} [ctx] -
+ *   The set in play, the effective `AWS_PROFILE`, and the chain's own message
+ *   (pre-indented by `reasonFrom`) — all resolve-time only.
  */
-export const expiredCredentialsError = (cause) =>
-  new Error(
-    `Your AWS credentials have expired.
-
-To continue, refresh them and run the command again:
-  - for AWS IAM Identity Center, run \`aws sso login\`
-  - for temporary credentials (AWS_SESSION_TOKEN), request a new set
-  - for a named profile, renew it (and set AWS_PROFILE)
-
-Run 's3cab help provider' for details.`,
-    { cause },
-  );
+export const expiredCredentialsError = (cause, ctx = {}) => {
+  const { set, profile, reason } = ctx;
+  // Naming the profile turns the first bullet into the whole command; without
+  // one, `aws sso login` picks up the default profile by itself.
+  const login = profile
+    ? `aws sso login --profile ${profile}`
+    : "aws sso login";
+  const message = [
+    `Your AWS credentials${set ? ` for set '${set.name}'` : ""} have expired.`,
+    reason &&
+      `s3cab found your standard AWS setup, but its session is no longer valid:
+     ${reason}`,
+    `To continue, refresh them and run the command again:
+  - for AWS IAM Identity Center, run \`${login}\`
+  - for temporary credentials (AWS_SESSION_TOKEN), request new ones
+  - for a named profile, renew it (and set AWS_PROFILE)`,
+    `Run 's3cab help provider' for details.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return new Error(message, { cause });
+};
 
 /**
  * Whether an AWS error is the server rejecting a request because the resolved

@@ -53,3 +53,16 @@ future "platform / release" epic).
 - **Look into deletion record TSV format** Should it be more like the snapshot version?
 - **Column ordering and types in snapshot format** Should col1 just be # for non data records and col2 be size or lable (the #EXCLUDE directory/file thing is redundant due to trailing / in the exclude path)
 - **Still consider second level snapshot file syntax** e.g. #SNAPSHOT:mysnapshotname. Frees up other columns. We use some of that nice 64 char column space (coincidently nearly set lenght max), reads well and as agreed nobody filters on the #SNAPSHOT row anyway. Keeping it in the bag rather than deciding it: the trigger would be wanting col2 for something else — hostname and user are the candidates that come to mind (but that's the same PII question [metadata-privacy.md](metadata-privacy.md) is open on, so settle it there). Recorded as not-taken-for-now in [ADR-0072](../docs/adr/0072-timestamps-utc-in-files-local-in-names.md).
+- **A `s3cab://bucket/set/snapshot` URI scheme, if an input site ever wants one.** Observed while
+  settling ADR-0074's `set/snapshot` notation: the hierarchy `bucket → set → snapshot` is real, it
+  is the storage layout, and the bottom two levels are now written path-shaped in user-facing text
+  — so a full scheme "falls out naturally". Recorded rather than taken, for three reasons. (1)
+  **Nothing accepts one as input**: every command takes the bucket as a positional/`--bucket` and
+  the set as `--set`, so a scheme would be a second name with no payoff. (2) **`s3://` is already
+  the honest URI** — `s3://<bucket>/snapshots/<set>/<name>.tsv.zst` works with `aws s3 cp` and no
+  s3cab installed, which is the ADR-0002 no-lock-in pillar; an `s3cab://` form would be *lossier*
+  (dropping the literal `snapshots/` segment is dropping what makes it hand-recoverable) and longer
+  than what we print. (3) In the messages that print these names the bucket is already stated a line
+  later, so a per-line prefix would repeat a constant. **The trigger that would earn it:** a command
+  addressing one snapshot in a bucket the machine isn't set up against, in a single token —
+  `reattach` is the nearest thing today and it takes `--bucket`.
