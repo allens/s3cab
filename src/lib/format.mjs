@@ -63,6 +63,39 @@ const durationFormat = new Intl.DurationFormat("en", {
   secondsDisplay: "always",
 });
 
+// Elapsed time for an *aligned* line, where the prose form (`1 hr, 12 min, 3
+// sec`) can't be used because its width swings by a factor of five and every
+// column after it would shift. Two most significant units, letters rather than
+// a clock's colons: `12:21` reads as twelve-twenty-one, and `999:23` — 999
+// minutes — is a duration nobody writes, so the colon form has to roll to
+// `16:39:23` and change width anyway. Letters carry their own meaning, need no
+// convention, and roll cleanly. Right-aligned in 7, which holds every duration
+// up to `99h 59m`; the retained summary lines keep the prose form, which is
+// what reads best in a sentence.
+const ELAPSED_COLUMNS = 7;
+
+/**
+ * `    45s`, `12m 21s`, ` 3h 04m` — fixed width for a column that must not move.
+ * @param {Temporal.Instant} instant
+ * @returns {string}
+ */
+export const elapsedSince = (instant) => {
+  const total = Math.max(
+    0,
+    Math.floor(Temporal.Now.instant().since(instant).total("seconds")),
+  );
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  const text =
+    hours > 0
+      ? `${hours}h ${String(minutes).padStart(2, "0")}m`
+      : minutes > 0
+        ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
+        : `${seconds}s`;
+  return text.padStart(ELAPSED_COLUMNS);
+};
+
 /** @param {Temporal.Instant} instant */
 export const secondsSince = (instant) =>
   durationFormat.format(

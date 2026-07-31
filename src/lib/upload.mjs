@@ -227,7 +227,13 @@ export function planUpload(target, stored) {
  * rather than the SDK's event rate driving redraws.
  * @typedef {Object} TransferState
  * @property {number} sent - Bytes gone up so far this run, including the file in flight
- * @property {Transfer | null} current - The file being sent, or null between transfers
+ * @property {Sending | null} current - The file being sent, or null between transfers
+ */
+/**
+ * One transfer with the moment it began — `startedAt` is this module's to set,
+ * not `putFile`'s, because it marks when the *decision to send* was taken, which
+ * is what a "has this been going long enough to report?" rule measures.
+ * @typedef {Transfer & { startedAt: number }} Sending
  */
 
 /**
@@ -294,7 +300,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
   // so the running total climbs smoothly through a big file instead of standing
   // still for minutes and then jumping by its whole size.
   let settled = 0;
-  /** @type {Transfer | null} */
+  /** @type {Sending | null} */
   let inFlight = null;
 
   /** @type {RowTransform} */
@@ -314,7 +320,8 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
         if (change) {
           drifted.push({ path, ...change });
         } else if (!transfersStopped) {
-          inFlight = { path, loaded: 0, total: props.size };
+          const startedAt = performance.now();
+          inFlight = { path, loaded: 0, total: props.size, startedAt };
           try {
             // Only take the bytes when someone is drawing them. Left on
             // unconditionally it would suppress `putFile`'s own byte bar for
@@ -323,7 +330,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
             const didUpload = await putObject(bucket, props.hash, path, {
               onProgress: ownProgress
                 ? (transfer) => {
-                    inFlight = transfer;
+                    inFlight = { ...transfer, startedAt };
                   }
                 : undefined,
             });

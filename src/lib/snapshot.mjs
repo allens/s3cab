@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
 import { fileProps } from "./file-props.mjs";
-import { formatByteValue, formatCount, secondsSince } from "./format.mjs";
+import { elapsedSince, formatByteValue, formatCount } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import {
@@ -18,8 +18,9 @@ import { walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
+ * @import { HashProgress } from "./file-props.mjs"
  * @import { RowTransform, SnapshotEntries } from "./snapshot-file.mjs"
- * @import { TransferState } from "./upload.mjs"
+ * @import { Sending, TransferState } from "./upload.mjs"
  */
 
 // Taking a set's snapshot: find its files, hash them (reusing what hasn't
@@ -127,11 +128,17 @@ export async function generateSnapshot(
   const moment = snapshotMoment();
   const { name } = moment;
   warnIfClockWentBack(moment, previousInstant);
-  // The file it will land in, not just the name: the same shape as the
-  // "Reading previous snapshot" line above, so the two ends of the step read as
-  // a pair and either path can be pasted straight at a shell.
+  // The pass announces itself once, here, so the line that follows carries no
+  // constant text at all — it was spending a dozen columns four times a second
+  // repeating a label that never changed, and those columns are what the file
+  // path needs. It names what it is doing (an uploader spliced in makes this a
+  // backup; hashing is then the means, not the errand), what it is doing it to,
+  // and where that lands: `<set>/<snapshot>` is already how the rest of the
+  // output identifies a snapshot within a set, and the path is the pasteable
+  // half the "Generating new snapshot" line it replaces used to carry.
   const displayPath = join(set.snapshotsDir, snapshotFileName(name));
-  console.warn("Generating new snapshot", `'${tildeify(displayPath)}'`);
+  const verb = transfer ? "Backing up" : "Snapshotting";
+  console.warn(`${verb} '${set.name}/${name}' ('${tildeify(displayPath)}'):`);
 
   const { files, excluded, skipped } = walkSet(set);
 
@@ -141,21 +148,31 @@ export async function generateSnapshot(
   // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
+  // The hash in flight, published by `fileProps` and cleared the moment it
+  // returns — so the progress line can name the file it is chewing on when one
+  // takes long enough to be worth naming. Held here, at the binding site, rather
+  // than inside `fileProps`: the function stays pure per call, and the mutable
+  // "what is happening now" belongs to the pass that is running.
+  /** @type {HashProgress | null} */
+  let hashing = null;
+
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: set.dirs,
-    // The pass names what it is doing. With an uploader spliced in it is a
-    // backup — hashing is the means, not the errand — and saying "generating
-    // snapshot file" while the wait is object transfers is the line telling half
-    // the story (the half it was written for, before ADR-0069 fused the two).
-    files: withProgress(
-      transfer ? "Backing up…" : "Generating snapshot file…",
-      files.length,
+    files: withProgress({
+      total: files.length,
       transfer,
-    )(files),
+      hashing: () => hashing,
+    })(files),
     excluded,
     skipped,
-    getProps: (file) => fileProps(file, lookup),
+    getProps: async (file) => {
+      try {
+        return await fileProps(file, lookup, (started) => (hashing = started));
+      } finally {
+        hashing = null;
+      }
+    },
     through,
     overwrite: Boolean(debug),
   });
@@ -195,11 +212,12 @@ export async function generateSnapshot(
  *
  * The in-place animation, the TTY gate, and the redraw cadence live in
  * `lib/progress.mjs`; this owns only what the line says.
- * @param {string} label
- * @param {number} total
- * @param {() => TransferState} [transfer] - The sending's live state, when this pass sends
+ * @param {object} args
+ * @param {number} args.total
+ * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
+ * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
  */
-function withProgress(label, total, transfer) {
+function withProgress({ total, transfer, hashing }) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     using progress = createProgress(process.stderr);
@@ -208,11 +226,11 @@ function withProgress(label, total, transfer) {
     const draw = () =>
       progress.update(
         progressLine({
-          label,
           current,
           total,
           start,
           state: transfer?.(),
+          hashing: hashing(),
           width: process.stderr.columns,
         }),
       );
@@ -249,44 +267,99 @@ function withProgress(label, total, transfer) {
  * terminal width rather than reading it, so the wording and the trimming are
  * both assertable without a pipeline or a terminal.
  * @param {object} args
- * @param {string} args.label
  * @param {number} args.current - Files hashed so far
  * @param {number} args.total - Files this pass will hash
  * @param {Temporal.Instant} args.start
  * @param {TransferState} [args.state] - Absent when the pass only hashes
+ * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
  */
-export function progressLine({ label, current, total, start, state, width }) {
-  const counts = `${formatCount(current)} of ${formatCount(total)} files`;
-  // "1.2GB sent in 3 min" — the elapsed time reads as the transfer's, which is
-  // what the person waiting is actually timing. With nothing being sent there is
-  // nothing to attach it to, so it falls back to the bare `in <elapsed>` the
-  // other phases use.
-  const elapsed = secondsSince(start);
+export function progressLine({ current, total, start, state, hashing, width }) {
+  // Every field before the path is fixed width, so the path starts at the same
+  // column from one redraw to the next. Left to grow — a count gaining a digit,
+  // an elapsed going from `9s` to `12m 21s` — it shuffles sideways four times a
+  // second, which is unreadable however correct each frame is.
+  const totals = formatCount(total);
+  const counts = `${formatCount(current).padStart(totals.length)}/${totals}`;
+  const elapsed = elapsedSince(start);
   const run = state
-    ? `${label} ${counts} · ${formatByteValue(state.sent)} sent in ${elapsed}`
-    : `${label} ${counts} in ${elapsed}`;
-  if (!state?.current) {
+    ? `${counts}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
+    : `${counts} in ${elapsed}`;
+
+  const detail = activity(state?.current ?? null, hashing ?? null);
+  if (!detail) {
     return run;
   }
-  const { path, loaded, total: size } = state.current;
-  // A percentage only once there is one to report. Below the multipart threshold
-  // a file goes up as a single PUT and the SDK reports its bytes once, at the
-  // end — so `loaded` is 0 for the whole of a small file's transfer, and "0%"
-  // would be dressing "nothing has come back yet" up as a measurement. The size
-  // and the name are what we actually know; the percentage joins them when a
-  // part lands, which on a multi-GB file is soon and often.
-  const detail =
-    loaded > 0
-      ? `   ${Math.floor((loaded / size) * 100)}% of ${formatByteValue(size)}`
-      : `   ${formatByteValue(size)}`;
-  // One column short of the edge (writing a row's last cell makes some terminals
-  // wrap on their own), and one more for the space before the path.
-  const room = (width ?? Infinity) - run.length - detail.length - 2;
-  const shown = fitPath(path, room);
-  return shown ? `${run}${detail} ${shown}` : run + detail;
+  // What is left for the detail and the path together: the width, less the run
+  // stats, less the three spaces between the three fields, less one for the edge
+  // column (writing a row's last cell makes some terminals wrap on their own).
+  const free = (width ?? Infinity) - run.length - 4;
+  if (free < detail.text.length) {
+    // Not even the figures fit. The counts are the line's reason for existing,
+    // so they win: shedding the detail whole beats letting the backstop in
+    // lib/progress.mjs cut it mid-word.
+    return run;
+  }
+  // Pad the detail so the path column holds still — but only while that leaves
+  // the path room to be worth printing. On a narrow terminal a fixed column the
+  // path never reaches is alignment for its own sake, so the padding goes first.
+  const padded = detail.text.padEnd(ACTIVITY_COLUMNS);
+  const aligned = free - padded.length >= MIN_PATH_COLUMNS;
+  const text = aligned ? padded : detail.text;
+  const shown = fitPath(detail.path, free - text.length);
+  return shown ? `${run}  ${text} ${shown}` : `${run}  ${detail.text}`;
 }
+
+// A row has to be *worth* reporting before its name goes on the line. Below this
+// it is over before it can be read, and naming every one of tens of thousands of
+// fast files is noise that hides the one that is actually holding things up.
+const WORTH_REPORTING_MS = 1000;
+
+// `999.9MB` is the widest `formatByteValue` gets, and `Uploading ` + that +
+// ` (100%)` the widest the detail gets. Both are padded to their maximum so
+// nothing to their right moves as the figures change.
+const BYTES_COLUMNS = 7;
+const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
+
+/**
+ * The one slow thing this pass is doing right now, as `<verb> <size> (<pct>)` —
+ * the size always (it is the fact we always have), the percentage parenthetical
+ * because it is the fact we sometimes have. A single PUT reports its bytes once,
+ * at the end, so a small upload never earns a percentage; a streamed hash and a
+ * multipart upload both do.
+ * @param {Sending | null} sending
+ * @param {HashProgress | null} hashing
+ * @returns {{ text: string, path: string } | null}
+ */
+function activity(sending, hashing) {
+  const now = performance.now();
+  if (sending && now - sending.startedAt >= WORTH_REPORTING_MS) {
+    return {
+      text: `   Uploading ${sized(sending.total, sending.loaded)}`,
+      path: sending.path,
+    };
+  }
+  if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
+    return {
+      text: `   Hashing ${sized(hashing.size, hashing.read())}`,
+      path: hashing.path,
+    };
+  }
+  return null;
+}
+
+/**
+ * `1.8GB (27%)`, or just `1.8GB` when nothing has been reported yet — "0%" would
+ * dress up "no figure has come back" as a measurement.
+ * @param {number} size
+ * @param {number} done
+ * @returns {string}
+ */
+const sized = (size, done) =>
+  done > 0 && size > 0
+    ? `${formatByteValue(size)} (${Math.floor((done / size) * 100)}%)`
+    : formatByteValue(size);
 
 // Below this a path is unreadable rubble — "…pg" tells you nothing, and the
 // percentage it would crowd out tells you something. Drop it instead.

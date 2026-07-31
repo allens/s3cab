@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { statSync } from "node:fs";
 import { loadSet } from "../lib/env.mjs";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
+import { tildeify } from "../lib/home.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
 import { fileChange, uploadDir, uploadSnapshot } from "../lib/upload.mjs";
@@ -185,6 +186,10 @@ export async function upload(setName, options = {}) {
     }
     // Always a set — the excludes that shape the seed come from it (no --bucket).
     const set = loadSet(setName);
+    // The porcelain announces; the engine reports. Each mode names what it is
+    // sending, the way `backup` and `snapshot` head their pass, so the lines that
+    // follow never have to repeat it.
+    console.warn(`Uploading '${tildeify(dir)}' to '${set.bucket}':`);
     const { candidates, uploaded, skipped } = await uploadDir({
       bucket: set.bucket,
       dir,
@@ -199,6 +204,7 @@ export async function upload(setName, options = {}) {
   // fire if a future edit weakens the guard above.
   assert(snapshotName, "upload: snapshot mode reached without a snapshot name");
   const set = loadSet(setName);
+  console.warn(`Uploading '${set.name}/${snapshotName}' to '${set.bucket}':`);
   // uploadSnapshot reads the target first, so a missing --snapshot fails fast
   // with a clear "Snapshot '<name>' not found" before any scan/upload (ADR-0044 §7).
   const { candidates, uploaded } = await uploadSnapshot({
