@@ -6,14 +6,17 @@ import { parseArgs } from "node:util";
 
 import { commands } from "./commands.mjs";
 import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
+import { isCredentialProviderError } from "./lib/auth.mjs";
 import { loadEnv } from "./lib/env.mjs";
 import {
   EXIT_INTERRUPTED,
   InterruptedError,
+  errorText,
   isInputError,
   isUsageError,
 } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
+import { statusLine } from "./lib/progress.mjs";
 import { bold, styleEnabled } from "./lib/style.mjs";
 
 const start = Temporal.Now.instant();
@@ -62,6 +65,37 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(usage(commands, commandName, helpStyle));
   process.exit(0);
 }
+
+// The AWS SDK refreshes near-expiry credentials on a promise it never attaches a
+// `catch` to and never awaits (`isCredentialProviderError` documents the
+// mechanism), so a refresh that fails mid-run becomes an unhandled rejection —
+// and Node's default for that is to kill the process. That lands on exactly the
+// command that can least afford it: an hours-long `backup`, dropped by a hiccup
+// the SDK is already set up to retry through. Disarm that one rejection and let
+// the retry run; if the credentials really are gone, the awaited path reports it
+// properly. Everything else is a floating promise of ours, so it is re-thrown to
+// keep Node's fatal default rather than papering over a real bug.
+//
+// The warning is once-only. The retry fires per request, so a refresh that keeps
+// failing would otherwise repeat this line hundreds of times before the
+// credentials actually lapse — and once said, it has nothing to add: the error
+// that follows an unrecoverable lapse speaks for itself.
+let warnedRefreshFailure = false;
+process.on("unhandledRejection", (reason) => {
+  if (!isCredentialProviderError(reason)) {
+    throw reason;
+  }
+  if (!warnedRefreshFailure) {
+    warnedRefreshFailure = true;
+    // `statusLine`, not `console.warn`: a progress bar may be mid-line (ADR-0044).
+    statusLine(
+      process.stderr,
+      `Couldn't refresh your cloud credentials just now — carrying on, and ` +
+        `s3cab will keep trying in the background. If they do run out, it will ` +
+        `stop and tell you how to sign in again. (${errorText(reason)})`,
+    );
+  }
+});
 
 try {
   const { values: options, positionals } = parseArgs({

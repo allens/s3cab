@@ -1,3 +1,4 @@
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
@@ -12,6 +13,7 @@ import {
   isAccessDenied,
   isBadSignature,
   isClockSkew,
+  isCredentialProviderError,
   isExpiredCredentials,
   isInvalidCredentials,
   listProfiles,
@@ -370,5 +372,60 @@ describe("listProfiles", () => {
     process.env.AWS_SHARED_CREDENTIALS_FILE = join(dir.path, "no-creds");
 
     assert.deepEqual(await listProfiles(), []);
+  });
+});
+
+// The guard the entry point's `unhandledRejection` handler decides on: swallow a
+// background credential refresh that failed, re-throw anything else. Matching a
+// foreign error by `name` can rot silently when the SDK is upgraded, so the first
+// test asks the *real* chain for a real rejection rather than a hand-built stand-in
+// — the same no-mocking approach `listProfiles` above takes, and the reason this
+// block sits down here with that machinery.
+describe("isCredentialProviderError", () => {
+  /** @type {NodeJS.ProcessEnv} */
+  let savedEnv;
+  beforeEach(() => {
+    savedEnv = { ...process.env };
+  });
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, savedEnv);
+  });
+
+  it("recognizes what the AWS chain itself rejects with", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    // Strip every ambient AWS_* (a dev box or CI may carry keys, a profile, or
+    // OIDC vars) so the chain has nothing to find, and keep it off the network:
+    // the instance-metadata link would otherwise time out for seconds.
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("AWS_")) {
+        delete process.env[key];
+      }
+    }
+    process.env.AWS_CONFIG_FILE = join(dir.path, "no-config");
+    process.env.AWS_SHARED_CREDENTIALS_FILE = join(dir.path, "no-creds");
+    process.env.AWS_EC2_METADATA_DISABLED = "true";
+
+    const rejection = await fromNodeProviderChain()({}).then(
+      () => undefined,
+      (error) => error,
+    );
+    assert.ok(rejection, "the chain must fail with nothing to resolve");
+    assert.equal(isCredentialProviderError(rejection), true);
+  });
+
+  it("re-throws our own bugs: a plain rejection is not the SDK's", () => {
+    assert.equal(isCredentialProviderError(new Error("boom")), false);
+    assert.equal(
+      isCredentialProviderError(new TypeError("x is not a fn")),
+      false,
+    );
+    assert.equal(isCredentialProviderError(named("AccessDenied")), false);
+    assert.equal(isCredentialProviderError("CredentialsProviderError"), false);
+    assert.equal(isCredentialProviderError(undefined), false);
   });
 });

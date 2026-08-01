@@ -442,6 +442,34 @@ yours did. Sync your system clock, then run the command again.`,
 const standardChain = fromNodeProviderChain();
 
 /**
+ * Whether a rejection came from the AWS credential/token provider chain rather
+ * than from s3cab's own code — matched on `name` across `ProviderError` and its
+ * two subclasses (`CredentialsProviderError`, `TokenProviderError`), as the
+ * request-time guards above match foreign errors on `name`/`code`.
+ *
+ * It exists for one caller: the entry point's `unhandledRejection` handler.
+ * Within five minutes of expiry the SDK's memoization refreshes credentials in
+ * the *background* — `passiveLock = chain(options).then(…).finally(…)`, with no
+ * `catch`, which its caller never awaits because it returns the still-valid
+ * credentials instead. So a refresh that fails (a blip, a throttle, a laptop
+ * waking up) rejects with nobody listening, and Node's default for that is to
+ * kill the process: an overnight backup dies hours in, to a hiccup it was
+ * already built to survive. That promise is unreachable from any call stack of
+ * ours, so the entry point disarms it there and lets the SDK's own retry — every
+ * request inside that five-minute window starts a fresh attempt — get on with
+ * it. If none of them land, the credentials expire outright and the chain's
+ * *awaited* path takes over, so the failure still surfaces here in
+ * {@link resolveCredentials} and reads as {@link noCredentialsError} /
+ * {@link expiredCredentialsError} like any other.
+ * @param {unknown} error
+ */
+export const isCredentialProviderError = (error) =>
+  Error.isError(error) &&
+  ["ProviderError", "CredentialsProviderError", "TokenProviderError"].includes(
+    error.name,
+  );
+
+/**
  * The Roles Anywhere credential source (ADR-0057): read the machine's certificate
  * identity, sign a `CreateSession`, and return the short-lived STS credentials with
  * their `expiration` so the SDK refreshes them before expiry. When the set is in RA
