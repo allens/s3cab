@@ -54,7 +54,10 @@ Two consequences:
 - **CLAUDE.md auto-loads, and its "Coding conventions" section is itself prior
   art.** Read it as a *description of the status quo*, not a defence of it. A
   convention listed there is as questionable as anything else — including the
-  lint-enforced ones.
+  lint-enforced ones. Where acting on a finding would mean **editing CLAUDE.md**
+  (any section, not just that one), say so *in the finding* — a documented
+  convention losing its last instance is part of what the change costs, and the
+  reader must not discover it at implementation time.
 - **Never write to `proposals/architecture-improvements.md`.** That file is
   curated across many passes of a different skill; you have not read it and cannot
   merge into it safely. Your output goes to its own file (see *Output*).
@@ -89,21 +92,33 @@ Rank by complexity removed, heaviest first. These are the veins worth working:
 1. **Needless indirection** — a layer that forwards without adding: a wrapper that
    only reorders arguments, a value threaded untouched through three modules, a
    module whose whole job is to call one other module.
-2. **Dead and unreachable structure** — exports nothing calls, branches no entry
+2. **Unnecessary abstraction** — a shape imposed where none was called for: a
+   structure built only to be taken apart again by its one caller, a parameter
+   generalizing over cases that never needed unifying, a type standing in for what
+   could be named values. Distinct from #1, and the pair is worth holding side by
+   side: indirection *forwards* without adding, abstraction *imposes a form*
+   nothing asked for. **The disqualifier is part of the category** — an abstraction
+   with **two or more production consumers with different needs** is a deep module
+   earning its keep, not a finding. This is the most misapplicable name in the
+   list, so every such finding must say which consumers were checked. (Shape to
+   recognize: a function returning a typed config object whose sole caller
+   immediately destructures four scalars back out of it, optional-chaining at every
+   level because the type admits `undefined` where the literal never does.)
+3. **Dead and unreachable structure** — exports nothing calls, branches no entry
    point reaches, parameters that are the same literal at every call site, options
    objects where one field is ever set.
-3. **Structure that only tests use.** A test-only caller is **not** a real call
+4. **Structure that only tests use.** A test-only caller is **not** a real call
    site — rule #5's "a caller that already exists" means a *production* caller.
    Reportable: a parameter whose only non-default caller is a test, an `export`
    needed solely so a unit test can reach an otherwise-internal function, a seam
    that `mock.module` already makes redundant. **Because you are not reading the
    tests, every such finding must state what the test would do instead** — never
    silently cost coverage, which is a per-PR obligation here.
-4. **Duplication with a single obvious home** — the same computation spelled out
+5. **Duplication with a single obvious home** — the same computation spelled out
    in several modules, where one of them already exports a better version.
-5. **Complexity out of scale with its job** — a state machine for something with
-   two states, configurability nothing configures, an abstraction with one
-   implementation and no second one in sight.
+6. **Complexity out of scale with its job** — a state machine for something with
+   two states, or configurability nothing configures. (The one-implementation
+   abstraction moved out to #2, where the disqualifier can travel with it.)
 
 ## Method
 
@@ -160,26 +175,44 @@ end is the tail. Ignore `commands/*.mjs` sitting at 1 — the registry imports e
 exactly once, which is structural, not signal. A `lib/` module with one production
 caller is the question *"does this deserve to be a module?"* asked mechanically.
 
-**Exports with zero production consumers:**
+**Exports with zero production consumers, with the two numbers that sort them:**
 
 ```bash
 node -e '
 const fs=require("fs"),path=require("path");
-function walk(d,o=[]){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):(e.name.endsWith(".mjs")&&!e.name.endsWith(".test.mjs")&&o.push(p));}return o;}
-const files=walk("src"),text=new Map(files.map(f=>[f,fs.readFileSync(f,"utf8")]));
-const toks=new Map(files.map(f=>[f,new Set(text.get(f).match(/[A-Za-z0-9_$]+/g)||[])]));
-for(const f of files){const t=text.get(f),names=new Set();
+function walk(d,o=[]){if(!fs.existsSync(d))return o;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):e.name.endsWith(".mjs")&&o.push(p);}return o;}
+const all=[...walk("src"),...walk("test")];
+const prod=new Set(all.filter(f=>f.startsWith("src")&&!f.endsWith(".test.mjs")));
+const toks=new Map(all.map(f=>[f,fs.readFileSync(f,"utf8").match(/[A-Za-z0-9_$]+/g)??[]]));
+const sets=new Map(all.map(f=>[f,new Set(toks.get(f))]));
+for(const f of prod){const t=fs.readFileSync(f,"utf8"),names=new Set();
   for(const m of t.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z0-9_$]+)/gm))names.add(m[1]);
   for(const m of t.matchAll(/^export\s*\{([^}]+)\}/gm))for(const p of m[1].split(",")){const n=p.trim().split(/\s+as\s+/).pop().trim();if(n)names.add(n);}
-  for(const n of names)if(!files.some(g=>g!==f&&toks.get(g).has(n)))console.log(f.padEnd(32),"->",n);}'
+  for(const n of names){
+    if([...prod].some(g=>g!==f&&sets.get(g).has(n)))continue;
+    const inTests=all.filter(g=>!prod.has(g)&&sets.get(g).has(n)).length;
+    const self=toks.get(f).filter(x=>x===n).length-1;
+    console.log(f.padEnd(30),"->",n.padEnd(22),`self:${self}`.padEnd(8),`tests:${inTests}`);}}'
 ```
 
-Each hit is either dead code, or an `export` that exists only for a unit test
-(category 3). Distinguish the two by checking whether the symbol is used *inside*
-its own file. Illustrative shapes — **verify before reporting, these may already
-be fixed:** a `notImplemented` factory kept alive by a convention test with no
-remaining instances of the convention; a `clientConfig` used internally and
-exported solely so a test can reach it.
+Every hit already has no production consumer outside its own file. The two counts
+say *which kind* of hit it is, so the sort is mechanical rather than 20-odd
+follow-up greps — and `tests:` is the production/test call-site count category 4
+obliges every such finding to state, so it is gathered here rather than re-derived:
+
+| `self:` | `tests:` | Reading |
+| --- | --- | --- |
+| 0 | 0 | dead outright — nothing anywhere refers to it |
+| 0 | >0 | **dead, kept alive only by its test** (category 4 — say what the test would do instead) |
+| >0 | 0 | used internally; the `export` keyword alone is surplus |
+| >0 | >0 | internal + a test reaches in; judge whether the test earns the seam |
+
+`tests:` counts **files**, so it doubles as blast radius: a symbol at `tests:7` is
+wired into the gated integration suites and its removal is a much bigger edit than
+one at `tests:1`. Both numbers are **token mentions, not resolved references** —
+`self:` subtracts one for the declaration but still counts mentions in the module's
+own doc comments, and a `{@link Foo}` inflates it. Treat them as triage, not
+verdicts; stage 2 reads the hit in context either way.
 
 ### Stage 2 — trace every command path (the main budget)
 
@@ -214,16 +247,27 @@ out. Uniform use hides uniform complexity.
 
 Two artifacts:
 
-1. **A ranked markdown report** in `proposals/`, its own file — heaviest complexity
-   reduction first. Each finding carries: what the complexity *is*, the path or
-   query that exposed it, the change proposed, the line delta as a signal, and for
-   category-3 findings the production/test call-site counts plus what the test
-   would do instead. Tag surface findings `[USER-FACING]`.
-2. **An HTML report** beside it, in the style of the existing
-   `proposals/architecture-review.html` — before/after structure diagrams and the
-   visual context that does not survive in markdown. Committed reports are
-   established practice here. Self-contained or CDN-loaded to match the sibling;
-   latest-only, superseded reports deleted.
+1. **A ranked markdown report** at `proposals/over-engineering-sweep.md` — heaviest
+   complexity reduction first. Each finding carries: what the complexity *is*, the
+   path or query that exposed it, the change proposed, the line delta as a signal,
+   and for category-4 findings the production/test call-site counts plus what the
+   test would do instead. Tag surface findings `[USER-FACING]`.
+2. **An HTML report** beside it at `proposals/over-engineering-sweep.html`, in the
+   style of the existing `proposals/architecture-review.html` — before/after
+   structure diagrams and the visual context that does not survive in markdown.
+   Committed reports are established practice here. Self-contained or CDN-loaded to
+   match the sibling.
+
+Both filenames are **fixed**, and both are **latest-only** — a later run overwrites
+them, so a superseded report cannot accumulate. (Naming them per run would make
+"latest-only" unenforceable: the next run would write beside the old pair rather
+than over it.)
+
+Findings are ranked by complexity removed, which says nothing about what a change
+*costs* — so **say so where the cost is unusually high or low**, since that is what
+the reader triages on. A surplus `export` keyword and a removal that reworks five
+test files sit at opposite ends and should not read alike. One clause per finding,
+not a field on every one.
 
 Include a **"looked at and dismissed"** section. Coverage is as informative as
 hits — a subsystem examined and found tight is a real result, and without it the
