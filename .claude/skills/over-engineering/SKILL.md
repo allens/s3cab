@@ -84,6 +84,14 @@ separately from the internal ones.
   not report comment volume, do not propose comment deletions, do not let a
   comment-heavy file read as a large file.
 - **Test files.** They are not the subject and their length is not a finding.
+  **But the exclusion is from the _analysis_, not from the _claims_.** Category 4
+  obliges a finding to state what the test would do instead, and that cannot be
+  answered honestly from the production side alone — so before writing any
+  test claim, open the test file and read what is *already* there. (Learned the
+  hard way: a finding asserted that the existing tests "never look at the shipped
+  artifact", when a sibling test one screen away did exactly that. The refactor was
+  still right; the justification was overstated, and the change duplicated a test
+  that already existed.)
 
 ## Finding categories
 
