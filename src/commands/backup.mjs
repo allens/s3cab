@@ -79,6 +79,9 @@ export async function backup(setName, options = {}) {
   });
   const { name } = await generateSnapshot(set, {
     lookup,
+    // Doubles as the progress line's byte total — it already records a size for
+    // every file, so the figure costs no `stat` (lib/snapshot.mjs `withProgress`).
+    sizes: previous,
     previousInstant,
     through: uploader.through,
     // Both halves of the fused pass report into one progress line: `through`

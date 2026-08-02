@@ -113,6 +113,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
  * @param {SnapshotEntries} [options.lookup] - Hash lookup: an unchanged file reuses its stored hash
+ * @param {SnapshotEntries} [options.sizes] - The previous snapshot's entries, read for their `size` alone: the progress line's byte denominator (see `withProgress`). Omit on a first run, which has none
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
@@ -121,7 +122,7 @@ export async function readBaseline(set, { rehash } = {}) {
  */
 export async function generateSnapshot(
   set,
-  { lookup, through, transfer, debug, previousInstant } = {},
+  { lookup, sizes, through, transfer, debug, previousInstant } = {},
 ) {
   // One clock read gives the name, the UTC instant, and the zone — the three
   // spellings the file needs, which therefore cannot disagree (ADR-0072).
@@ -155,12 +156,26 @@ export async function generateSnapshot(
   // "what is happening now" belongs to the pass that is running.
   /** @type {HashProgress | null} */
   let hashing = null;
+  // Bytes this pass has got through, and the total it is heading for. The total
+  // is the previous snapshot's size for each file the walk just found — costing
+  // one Map lookup per file and not a single `stat`, which is what makes a byte
+  // figure affordable here at all (the walk yields paths, and stat-ing each one
+  // is the per-file cost the hot path can't take). Files the baseline doesn't
+  // know — new ones — are absent from it, so it is an estimate; `progressLine`
+  // grows it rather than letting the percentage exceed 100.
+  let bytesDone = 0;
+  let bytesTotal = 0;
+  for (const file of files) {
+    bytesTotal += sizes?.get(file)?.size ?? 0;
+  }
 
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: set.dirs,
     files: withProgress({
       total: files.length,
+      bytesTotal,
+      bytes: () => bytesDone,
       transfer,
       hashing: () => hashing,
     })(files),
@@ -168,7 +183,16 @@ export async function generateSnapshot(
     skipped,
     getProps: async (file) => {
       try {
-        return await fileProps(file, lookup, (started) => (hashing = started));
+        const props = await fileProps(
+          file,
+          lookup,
+          (started) => (hashing = started),
+        );
+        // The *real* size, not the baseline's guess at it: every file yields one
+        // whether it was hashed or reused, so the numerator is exact even where
+        // the denominator is estimated.
+        bytesDone += props.size;
+        return props;
       } finally {
         hashing = null;
       }
@@ -197,27 +221,35 @@ export async function generateSnapshot(
  * bytes gone up, and suffixes whichever file is on the wire:
  *
  * ```
- * Backing up… 4,182 of 58,310 files · 1.2GB sent in 3 min   55% of 2.4GB …\ragged.jpg
- * Generating snapshot file… 4,182 of 58,310 files in 8 sec
+ * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min   Uploading 999.9MB (55%) …/ragged.jpg
+ * 4,182/58,310   38% of   2.4GB in 8 sec
  * ```
  *
- * Counts, not the percentage this line used to show: the percentage is of
- * *files*, while the wait is dominated by *bytes*, and the sizes here span four
+ * **The percentage is of bytes, never of files.** A file percentage was tried
+ * and dropped: the wait is dominated by bytes, and the sizes here span four
  * orders of magnitude (a photo set is thousands of ~4MB files and a handful of
- * multi-GB videos). "99%" with the big files still to go is a promise the number
- * can't keep, and a plain count doesn't make it. A byte percentage would be
- * honest but isn't available — the walk yields paths without stat-ing them, and
- * a stat pass per file is exactly the per-file cost the hot path can't afford —
- * so bytes appear as a running total instead.
+ * multi-GB videos), so "99%" with the big files still to go is a promise the
+ * number can't keep. The counts stay too — they answer a different question —
+ * but they are no longer the only thing on offer.
+ *
+ * What makes a byte figure affordable is that **it costs no `stat`**: the
+ * denominator comes from the previous snapshot, which the run has already read
+ * for its hash lookup and which records a size for every file in it. Stat-ing
+ * each walked file instead would be the per-file cost the hot path can't take
+ * (roughly an order of magnitude on the walk, on Windows) — so the one honest
+ * source that is already in memory is the one used. A first run has no previous
+ * snapshot, hence no denominator, and falls back to counts alone.
  *
  * The in-place animation, the TTY gate, and the redraw cadence live in
  * `lib/progress.mjs`; this owns only what the line says.
  * @param {object} args
  * @param {number} args.total
+ * @param {number} args.bytesTotal - Bytes this pass expects to get through (0 = unknown)
+ * @param {() => number} args.bytes - Bytes it has got through so far
  * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
  * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
  */
-function withProgress({ total, transfer, hashing }) {
+function withProgress({ total, bytesTotal, bytes, transfer, hashing }) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     using progress = createProgress(process.stderr);
@@ -228,6 +260,8 @@ function withProgress({ total, transfer, hashing }) {
         progressLine({
           current,
           total,
+          bytesDone: bytes(),
+          bytesTotal,
           start,
           state: transfer?.(),
           hashing: hashing(),
@@ -269,13 +303,24 @@ function withProgress({ total, transfer, hashing }) {
  * @param {object} args
  * @param {number} args.current - Files hashed so far
  * @param {number} args.total - Files this pass will hash
+ * @param {number} [args.bytesDone] - Bytes got through so far
+ * @param {number} [args.bytesTotal] - Bytes expected in all (0/absent = unknown, e.g. a first run)
  * @param {Temporal.Instant} args.start
  * @param {TransferState} [args.state] - Absent when the pass only hashes
  * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
  */
-export function progressLine({ current, total, start, state, hashing, width }) {
+export function progressLine({
+  current,
+  total,
+  bytesDone = 0,
+  bytesTotal = 0,
+  start,
+  state,
+  hashing,
+  width,
+}) {
   // Every field before the path is fixed width, so the path starts at the same
   // column from one redraw to the next. Left to grow — a count gaining a digit,
   // an elapsed going from `9s` to `12m 21s` — it shuffles sideways four times a
@@ -283,9 +328,10 @@ export function progressLine({ current, total, start, state, hashing, width }) {
   const totals = formatCount(total);
   const counts = `${formatCount(current).padStart(totals.length)}/${totals}`;
   const elapsed = elapsedSince(start);
+  const share = byteShare(bytesDone, bytesTotal);
   const run = state
-    ? `${counts}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
-    : `${counts} in ${elapsed}`;
+    ? `${counts}${share}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
+    : `${counts}${share} in ${elapsed}`;
 
   const detail = activity(state?.current ?? null, hashing ?? null);
   if (!detail) {
@@ -313,6 +359,34 @@ export function progressLine({ current, total, start, state, hashing, width }) {
   const text = aligned ? padded : detail.text;
   const shown = fitPath(detail.path, forBoth - text.length);
   return shown ? `${run}  ${text} ${shown}` : `${run}  ${detail.text}`;
+}
+
+/**
+ * `  38% of   2.4GB`, or nothing at all when there is no total to be a share of.
+ *
+ * The denominator is the previous snapshot's sizes for the files this pass
+ * walked (see `withProgress`), so a file that is new — or that has grown since —
+ * is not in it, while the numerator counts every byte actually got through. Left
+ * alone the two would disagree and the figure would sail past 100%, which is
+ * worse than no figure: so the total is grown to whatever has really been read.
+ * The percentage then only ever *slows down*, which is the honest direction for
+ * an estimate to be wrong in — it never promises a finish it can't deliver.
+ *
+ * Nothing is shown when there is no baseline at all (a first run). "100% of
+ * 4.2GB" derived from `Math.max` alone would be a measurement of itself.
+ * @param {number} done
+ * @param {number} total
+ * @returns {string}
+ */
+function byteShare(done, total) {
+  if (!total) {
+    return "";
+  }
+  const of = Math.max(total, done);
+  const percent = `${Math.floor((done / of) * 100)}%`;
+  // Both padded, for the same reason every other field here is: `9%` becoming
+  // `100%`, or `999.9MB` becoming `1.0GB`, must not shift the path column.
+  return `  ${percent.padStart(4)} of ${formatByteValue(of).padStart(BYTES_COLUMNS)}`;
 }
 
 // A row has to be *worth* reporting before its name goes on the line. Below this
