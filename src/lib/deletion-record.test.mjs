@@ -35,7 +35,6 @@ mock.module("./s3.mjs", {
 });
 
 const {
-  deletionRecordKey,
   deletionRecordMoment,
   formatDeletionRecord,
   readDeletionRecords,
@@ -148,7 +147,7 @@ describe("readDeletionRecords", () => {
   /** Registers a record file under the mocked bucket. */
   const record = (/** @type {string} */ name, /** @type {string} */ body) => {
     listed.push({ Key: `deletions/${name}.tsv` });
-    bodies.set(`s3://b/${deletionRecordKey(name)}`, body);
+    bodies.set(`s3://b/deletions/${name}.tsv`, body);
   };
 
   it("returns an empty map for a repository that never ran delete", async () => {
