@@ -97,8 +97,8 @@
                 <td class="px-4 py-2 mono">6</td>
                 <td class="px-4 py-2">Four exports with no external consumer — two docs misstate the caller</td>
                 <td class="px-4 py-2 text-slate-600">dead structure</td>
-                <td class="px-4 py-2 text-right mono">−4</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-amber-100 text-amber-800">Moderate</span></td>
+                <td class="px-4 py-2 text-right mono">−3</td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped ¾ · #258</span></td>
               </tr>
               <tr>
                 <td class="px-4 py-2 mono">7–9</td>
@@ -409,7 +409,34 @@ export const countOf = (n, word) =&gt; `${formatCount(n)} ${plural(n, word)}`;</
         <div class="space-y-2 pt-2 border-t border-slate-100">
           <div class="flex items-baseline gap-3 flex-wrap">
             <h3 class="font-medium">6 · Four exports with no external consumer — two docs name a caller that doesn't exist</h3>
-            <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800">Moderate</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped ¾ · #258</span>
+          </div>
+          <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm space-y-2">
+            <p>
+              <strong>Three of four shipped</strong> in
+              <a class="underline" href="https://github.com/allens/s3cab/pull/258">PR #258</a>,
+              merged 2026-08-02 as <code class="mono">aa3678b</code>.
+              <code class="mono">parseS3Uri</code>, <code class="mono">networkError</code> and
+              <code class="mono">deletionRecordKey</code> lost their
+              <code class="mono">export</code>; both doc defects are corrected.
+            </p>
+            <p>
+              <strong><code class="mono">formatSets</code> keeps its export — this finding
+              overreached.</strong> Its test asserts exact column alignment on a padded listing:
+              the same fiddly-layout coverage the “looked at and dismissed” section below
+              explicitly declines to strip from <code class="mono">progressLine</code>. Judging
+              them differently would be one rule applied two ways, so the table's “0 production
+              consumers ⇒ surplus” reasoning was too blunt. Its real defect was only ever the
+              false doc claim, which is fixed.
+            </p>
+            <p>
+              Recorded rather than tidied away, because the lesson generalizes: the zero-consumer
+              query answers <em>“who calls this?”</em>, never <em>“should anything?”</em>. The
+              <code class="mono">self:</code>/<code class="mono">tests:</code> reading table now in
+              the skill exists to force that second question — and its
+              <code class="mono">&gt;0 / &gt;0</code> row, <em>“judge whether the test earns the
+              seam”</em>, is exactly the case this finding fumbled.
+            </p>
           </div>
           <div class="scroller rounded-xl border border-slate-200">
             <table class="w-full text-sm">
