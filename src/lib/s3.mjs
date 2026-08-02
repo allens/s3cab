@@ -290,7 +290,7 @@ export const isNetworkError = (error) =>
  * plain `Error`; `cause` keeps the original for the S3CAB_DEBUG dump.
  * @param {unknown} cause - The transport error that triggered it.
  */
-export const networkError = (cause) =>
+const networkError = (cause) =>
   new Error(
     `Couldn't reach the cloud — your network connection dropped.
 
@@ -493,11 +493,13 @@ export const requestErrorRelay =
   };
 
 /**
- * Parse an `s3://bucket/key` URI into its bucket and key.
+ * Parse an `s3://bucket/key` URI into its bucket and key. Module-private: every
+ * operation here takes a URI and splits it on the way through, so the parse never
+ * needs to cross the SDK boundary.
  * @param {string} uri
  * @returns {{ Bucket: string, Key: string }}
  */
-export function parseS3Uri(uri) {
+function parseS3Uri(uri) {
   const url = new URL(uri);
   if (url.protocol !== "s3:") {
     throw new Error(`Expected an s3:// URI (got ${url.protocol}//)`);

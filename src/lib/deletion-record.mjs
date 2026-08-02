@@ -23,7 +23,7 @@ const DELETIONS_PREFIX = "deletions/";
  * @param {string} name - Record name without extension, e.g. `2026-07-19T1422`
  * @returns {string}
  */
-export const deletionRecordKey = (name) => `${DELETIONS_PREFIX}${name}.tsv`;
+const deletionRecordKey = (name) => `${DELETIONS_PREFIX}${name}.tsv`;
 
 /** @param {string} bucket @param {string} name */
 const deletionRecordUri = (bucket, name) =>
@@ -51,7 +51,7 @@ export const deletionRecordMoment = snapshotMoment;
  * explain — over-recording a delete that then didn't finish is the safe
  * direction (verify reads an intact repository as intact regardless).
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} name - The record name (from {@link deletionRecordTimestamp})
+ * @param {string} name - The record name (from {@link deletionRecordMoment})
  * @param {string} content - The record body (from `formatDeletionRecord`)
  * @returns {Promise<string>} The record's `s3://` URI
  */
