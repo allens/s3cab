@@ -298,7 +298,10 @@ export function walkDirs(dirs, patterns) {
       byType.set(fileType, (byType.get(fileType) ?? 0) + 1);
     }
     const kinds = [...byType]
-      .map(([fileType, count]) => `${formatCount(count)} ${fileType}`)
+      .map(
+        ([fileType, count]) =>
+          `${formatCount(count)} ${plural(count, spaced(fileType))}`,
+      )
       .join(", ");
     console.warn(
       `Skipped ${formatCount(skipped.length)} ` +
@@ -367,6 +370,24 @@ function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
  * simply doesn't travel with the directory entry there (see `resolveFileType`).
  */
 const UNKNOWN = "Unknown File Type";
+
+/**
+ * `SymbolicLink` → `Symbolic Link`: a stored type token, spaced for reading.
+ *
+ * **Display only** — the snapshot's `dirent_type` column keeps the unspaced
+ * token, because that is the format's grammar (guide/format.md) and not ours to
+ * restyle. The two diverge on purpose: one is a field, the other is a sentence.
+ * Without this the notice mixed conventions in a single line — `1 SymbolicLink,
+ * 1 Unknown File Type` — since only some of the tokens are camel-cased.
+ *
+ * Casing is left alone. Lowercasing would read more naturally for most of them
+ * but would mangle `FIFO`, and every skippable type is a regular noun, so
+ * `plural` can pluralize the result as-is (`Directory`, the one irregular, is
+ * kept by the walk and so never reaches here).
+ * @param {string} fileType
+ * @returns {string}
+ */
+const spaced = (fileType) => fileType.replace(/(?<=[a-z])(?=[A-Z])/g, " ");
 
 /**
  * Get the file type of a directory entry or a stat.

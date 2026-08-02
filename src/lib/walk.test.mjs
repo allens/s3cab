@@ -245,6 +245,40 @@ describe("walkDirs", () => {
       assert.equal(np0.reason, "Unsupported file type");
     },
   );
+
+  it(
+    "spaces the stored type token for the notice, leaving the record's alone",
+    {
+      skip:
+        process.platform === "win32"
+          ? "symlink creation requires Developer Mode on Windows"
+          : false,
+    },
+    async (t) => {
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      write(base, "regular.txt");
+      symlinkSync(join(base, "regular.txt"), join(base, "link.txt"));
+      symlinkSync(join(base, "regular.txt"), join(base, "link2.txt"));
+
+      const warn = t.mock.method(console, "warn", () => {});
+      const { skipped } = walkDirs([base], []);
+
+      const notices = warn.mock.calls
+        .map(({ arguments: args }) => args.join(" "))
+        .filter((line) => line.startsWith("Skipped"));
+
+      // The sentence gets `Symbolic Links`; the record the snapshot is written
+      // from keeps `SymbolicLink`, which is the format's own token.
+      assert.deepEqual(notices, [
+        "Skipped 2 items that can't be backed up: 2 Symbolic Links",
+      ]);
+      assert.deepEqual(
+        skipped.map(({ fileType }) => fileType),
+        ["SymbolicLink", "SymbolicLink"],
+      );
+    },
+  );
 });
 
 describe("walkSet dirs guard (ADR-0054)", () => {

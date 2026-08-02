@@ -47,6 +47,8 @@ const PHANTOM = "phantom.txt";
 
 /** @type {string} */
 let phantomIn = "";
+/** @type {string[]} Phantom names to add to `phantomIn`'s listing */
+let phantoms = [PHANTOM];
 
 // Everything `node:fs` really exports, bar `constants` — which is
 // non-configurable, so the module mocker throws trying to redefine it. The rest
@@ -70,7 +72,10 @@ mock.module("node:fs", {
         .readdirSync(dir, { withFileTypes: true })
         .map(typeless);
       return dir === phantomIn
-        ? [...entries, typeless({ name: PHANTOM, parentPath: dir })]
+        ? [
+            ...entries,
+            ...phantoms.map((name) => typeless({ name, parentPath: dir })),
+          ]
         : entries;
     },
   },
@@ -119,6 +124,8 @@ describe("walk on a filesystem that reports no entry types", () => {
     await using dir = await mkTmpDir();
     const root = realFs.realpathSync.native(dir.path);
     phantomIn = root;
+    phantoms = [PHANTOM, "phantom2.txt"];
+    t.after(() => (phantoms = [PHANTOM]));
     writeFileSync(join(root, "kept.txt"), "kept");
 
     const warn = t.mock.method(console, "warn", () => {});
@@ -129,9 +136,10 @@ describe("walk on a filesystem that reports no entry types", () => {
       .filter((line) => line.startsWith("Skipped"));
 
     // One line, naming the count and the type — not a silent `#SKIPPED` row in a
-    // compressed file. Singular "item", because one is one.
+    // compressed file. Both counts pluralize: the type token is a regular noun
+    // once spaced, which is the whole reason `plural` can be let near it.
     assert.deepEqual(notices, [
-      "Skipped 1 item that can't be backed up: 1 Unknown File Type",
+      "Skipped 2 items that can't be backed up: 2 Unknown File Types",
     ]);
   });
 });
