@@ -247,6 +247,24 @@ speculation.
 
 ## 6. Four exports with no consumer outside their own module — two with docs that misstate who calls them
 
+> **SHIPPED (three of four)** — [PR #258](https://github.com/allens/s3cab/pull/258),
+> merged 2026-08-02 as `aa3678b`. `parseS3Uri`, `networkError` and
+> `deletionRecordKey` lost their `export`; both doc defects are corrected.
+>
+> **`formatSets` keeps its export — this finding overreached.** Its test asserts
+> exact column alignment on a padded listing, which is the same fiddly-layout
+> coverage the *"looked at and dismissed"* section below explicitly declines to
+> strip from `progressLine`. Judging them differently would be one rule applied two
+> ways, so the table's "0 production consumers ⇒ surplus" reasoning was too blunt:
+> a test seam that buys real coverage is legitimate, and the sweep's own category 4
+> says so. Its actual defect was only ever the false doc claim, which is fixed.
+>
+> The lesson, and the reason this is recorded rather than tidied away: the
+> zero-consumer query answers *"who calls this?"*, never *"should anything?"*. The
+> `self:`/`tests:` reading table now in the skill exists to force that second
+> question, and its `>0 / >0` row — "judge whether the test earns the seam" — is
+> exactly the case this finding fumbled.
+
 **What the complexity is.** Interface surface that isn't used, and in two cases a
 doc comment naming a consumer that doesn't exist — which is worse than the unused
 keyword, because a reader trusts it.
