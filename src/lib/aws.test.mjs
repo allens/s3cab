@@ -37,8 +37,17 @@ describe("bucket lifecycle", () => {
   for (const [label, template] of templates) {
     describe(label, () => {
       it("expires noncurrent versions after 90 days and aborts stalled uploads after 1", () => {
-        assert.match(template, /NoncurrentDays: 90\b/);
-        assert.match(template, /DaysAfterInitiation: 1\b/);
+        // Matched as nested key→value pairs, not as bare numbers: the window
+        // only means anything under the right key, and a value that drifted
+        // onto the wrong one would satisfy a looser match.
+        assert.match(
+          template,
+          /NoncurrentVersionExpiration:\s*\n\s*NoncurrentDays: 90/,
+        );
+        assert.match(
+          template,
+          /AbortIncompleteMultipartUpload:\s*\n\s*DaysAfterInitiation: 1/,
+        );
       });
 
       it("never expires CURRENT objects — the cardinal sin of auto-deleting a live backup", () => {
@@ -80,15 +89,6 @@ describe("awsCloudFormationTemplate", () => {
     // able to destroy a backup bucket.
     assert.match(yaml, /DeletionPolicy: Retain/);
     assert.match(yaml, /UpdateReplacePolicy: Retain/);
-  });
-
-  it("carries the noncurrent-version lifecycle window, no current-object expiry", () => {
-    assert.match(
-      yaml,
-      /NoncurrentVersionExpiration:\s*\n\s*NoncurrentDays: 90/,
-    );
-    assert.match(yaml, /AbortIncompleteMultipartUpload:/);
-    assert.doesNotMatch(yaml, /\bExpiration:/); // no current-object Expiration
   });
 
   it("embeds bucketPolicy() verbatim as a managed policy — explicit verbs, no wildcard", () => {
