@@ -111,4 +111,27 @@ describe("walk on a filesystem that reports no entry types", () => {
     assert.equal(only.path, join(root, PHANTOM));
   });
 
+  // The skip notice is `walkDirs`' in general, but every other way to produce a
+  // skipped entry needs a file type that can't be created portably (a symlink
+  // wants Developer Mode on Windows; sockets and FIFOs aren't creatable at all),
+  // so it is asserted here where the mock guarantees one on every platform.
+  it("says on stderr what it left out, grouped and counted by type", async (t) => {
+    await using dir = await mkTmpDir();
+    const root = realFs.realpathSync.native(dir.path);
+    phantomIn = root;
+    writeFileSync(join(root, "kept.txt"), "kept");
+
+    const warn = t.mock.method(console, "warn", () => {});
+    walkDirs([root], []);
+
+    const notices = warn.mock.calls
+      .map(({ arguments: args }) => args.join(" "))
+      .filter((line) => line.startsWith("Skipped"));
+
+    // One line, naming the count and the type — not a silent `#SKIPPED` row in a
+    // compressed file. Singular "item", because one is one.
+    assert.deepEqual(notices, [
+      "Skipped 1 item that can't be backed up: 1 Unknown File Type",
+    ]);
+  });
 });

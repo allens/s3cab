@@ -8,7 +8,7 @@ import {
 import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
-import { formatCount, secondsSince } from "./format.mjs";
+import { formatCount, plural, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -275,6 +275,34 @@ export function walkDirs(dirs, patterns) {
         `Rename them, or leave them out by adding a pattern to the set's ` +
         `exclude file:\n` +
         `  odd*name.jpg`,
+    );
+  }
+
+  // What the walk left out, said out loud. These are recorded as `#SKIPPED` rows
+  // in the snapshot, but that is a file you have to decompress to read — so until
+  // now a symlinked folder, or a whole subtree the filesystem couldn't classify,
+  // simply wasn't in the backup and nothing ever said so. A backup quietly
+  // holding less than you think is the failure this tool can least afford, and
+  // it is the same reasoning that makes a missing member directory abort
+  // outright (ADR-0054); this one only *reports*, because skipping these types
+  // is by design rather than a fault to fix.
+  //
+  // Grouped by type and counted, not listed: the type is the whole explanation
+  // (a symlink is expected, a socket is noise, a thousand of either is a set
+  // that wants an exclude pattern), and one line beats thousands. The counts and
+  // the paths both remain in the snapshot for anyone who wants them.
+  if (skipped.length) {
+    /** @type {Map<string, number>} */
+    const byType = new Map();
+    for (const { fileType } of skipped) {
+      byType.set(fileType, (byType.get(fileType) ?? 0) + 1);
+    }
+    const kinds = [...byType]
+      .map(([fileType, count]) => `${formatCount(count)} ${fileType}`)
+      .join(", ");
+    console.warn(
+      `Skipped ${formatCount(skipped.length)} ` +
+        `${plural(skipped.length, "item")} that can't be backed up: ${kinds}`,
     );
   }
 
