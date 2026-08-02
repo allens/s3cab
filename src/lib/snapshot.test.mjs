@@ -62,6 +62,55 @@ describe("progressLine", () => {
     assert.equal(line, " 4,182/58,310 in      0s");
   });
 
+  it("shows how far along it is in bytes, which is what the wait is made of", () => {
+    const line = progressLine({
+      ...run,
+      bytesDone: 900_000_000,
+      bytesTotal: 2_400_000_000,
+    });
+    assert.equal(line, " 4,182/58,310   37% of   2.4GB in      0s");
+  });
+
+  it("claims no percentage on a first run, which has no baseline to size it", () => {
+    // The denominator is the previous snapshot's sizes, so a first backup has
+    // none. Counting bytes read against a total of nothing would be 100% from
+    // the first file — worse than saying nothing, so it says nothing.
+    const line = progressLine({
+      ...run,
+      bytesDone: 900_000_000,
+      bytesTotal: 0,
+    });
+    assert.equal(line, " 4,182/58,310 in      0s");
+  });
+
+  it("grows the total rather than promise a finish it cannot deliver", () => {
+    // New files aren't in the baseline, so a pass can read more than the total
+    // predicted. The estimate corrects itself upward — the percentage slows
+    // down, and never goes past 100.
+    const line = progressLine({
+      ...run,
+      bytesDone: 3_000_000_000,
+      bytesTotal: 2_400_000_000,
+    });
+    assert.equal(line, " 4,182/58,310  100% of   3.0GB in      0s");
+  });
+
+  it("holds the columns after it still as the percentage gains a digit", () => {
+    const early = progressLine({
+      ...run,
+      bytesDone: 24_000_000,
+      bytesTotal: 2_400_000_000,
+      state: { sent: 1_200_000_000, current: null },
+    });
+    const late = progressLine({
+      ...run,
+      bytesDone: 2_400_000_000,
+      bytesTotal: 2_400_000_000,
+      state: { sent: 1_200_000_000, current: null },
+    });
+    assert.equal(early.indexOf("Uploaded"), late.indexOf("Uploaded"));
+  });
+
   it("adds the bytes gone up when the pass is also sending", () => {
     const line = progressLine({
       ...run,
