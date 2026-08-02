@@ -64,6 +64,27 @@ earns its keep; only the tripwire half has outlived its subject.
 
 ## 2. `backupLifecycle()` builds an SDK-typed object its only caller immediately unwraps
 
+> **SHIPPED** — [PR #257](https://github.com/allens/s3cab/pull/257), merged
+> 2026-08-02 as `05c389c`. Three constants replace the object; the
+> `@aws-sdk/client-s3` type import and the four `?.` chains are gone.
+>
+> **One claim below was wrong, and is left standing as written so the error is
+> visible rather than quietly edited away.** The "Category 3" paragraph says the
+> old tests "never look at the artifact that ships". They didn't — but a *sibling*
+> test in the same file already did (`describe("awsCloudFormationTemplate")` →
+> "carries the noncurrent-version lifecycle window, no current-object expiry"),
+> asserting on the rendered YAML and already using the `\bExpiration:` guard.
+> So a broken interpolation was **not** invisible, and the coverage gain was
+> smaller than claimed: what is genuinely new is lifecycle coverage of the *Roles
+> Anywhere* template, which that older test does not reach.
+>
+> The cause is a real gap in the sweep skill, now recorded there: the skill
+> excludes test files from analysis (correctly), yet obliges every finding of this
+> category to state what the test would do instead — an obligation that cannot be
+> met honestly without opening the test file. **Leftover:** the shipped change
+> duplicates that older test for the IAM template; fold the two into the
+> parameterized block, keeping the older one's stronger nested-key regex.
+
 **What the complexity is.** [aws.mjs:35](src/lib/aws.mjs#L35) returns a
 `BucketLifecycleConfiguration` — an AWS SDK type, imported for this and nothing
 else. Its only production consumer, `bucketResources`, does this:

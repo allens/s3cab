@@ -400,9 +400,15 @@ export function resolveSet(name) {
 }
 
 /**
- * Format sets as the human-readable listing the `list` command prints — also
- * the body of resolveSet's several-sets error, so the error shows exactly what
- * the command would.
+ * Format sets as a human-readable listing — the body of the two "which set?"
+ * errors this module raises (`readSet`'s unknown-set and `resolveSet`'s
+ * several-sets), so both show the same picture.
+ *
+ * It does **not** back the `list` command, which builds its own richer view in
+ * `renderList` (render.mjs) — this doc used to claim otherwise, and the claim
+ * outlived the code. Exported only so its column alignment can be asserted
+ * directly (sets.test.mjs); that is fiddly layout worth pinning, and reaching it
+ * through an error message would test the wrong thing.
  * @param {SetSummary[]} sets
  */
 export function formatSets(sets) {

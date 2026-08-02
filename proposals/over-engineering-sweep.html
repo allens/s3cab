@@ -70,7 +70,7 @@
                 <td class="px-4 py-2"><code class="mono">backupLifecycle()</code> — caller undoes what callee did</td>
                 <td class="px-4 py-2 text-slate-600">needless indirection</td>
                 <td class="px-4 py-2 text-right mono">−20</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-rose-100 text-rose-800">Heavy</span></td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped · #257</span></td>
               </tr>
               <tr>
                 <td class="px-4 py-2 mono">3</td>
@@ -203,7 +203,34 @@ flowchart TD
       <article class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
         <div class="flex items-baseline gap-3 flex-wrap">
           <h2 class="font-serif text-xl">2 · <code class="mono text-base">backupLifecycle()</code> — the caller immediately undoes what the callee did</h2>
-          <span class="px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800">Heavy</span>
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Shipped · #257</span>
+        </div>
+
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm space-y-2">
+          <p>
+            <strong>Shipped</strong> in
+            <a class="underline" href="https://github.com/allens/s3cab/pull/257">PR #257</a>,
+            merged 2026-08-02 as <code class="mono">05c389c</code>. Three constants replace the
+            object; the SDK type import and the four <code class="mono">?.</code> chains are gone.
+          </p>
+          <p>
+            <strong>One claim below was wrong</strong>, and is left standing as written so the
+            error stays visible rather than being quietly edited away. The test-impact note says
+            the old tests never look at the shipped artifact. They didn't — but a <em>sibling</em>
+            test in the same file already did, asserting on the rendered YAML and already using
+            the <code class="mono">\bExpiration:</code> guard. A broken interpolation was therefore
+            <em>not</em> invisible, and the coverage gain was smaller than claimed: what is
+            genuinely new is lifecycle coverage of the <strong>Roles Anywhere</strong> template,
+            which that older test does not reach.
+          </p>
+          <p>
+            The cause was a real gap in the skill, now recorded there: test files are excluded
+            from analysis (correctly), yet every finding of this category must state what the test
+            would do instead — which cannot be answered honestly without opening the file.
+            <strong>Leftover:</strong> the shipped change duplicates that older test for the
+            IAM template; fold the two into the parameterized block, keeping the older one's
+            stronger nested-key regex.
+          </p>
         </div>
 
         <p class="text-sm">
