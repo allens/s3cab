@@ -42,11 +42,9 @@ describe("bucket lifecycle", () => {
       });
 
       it("never expires CURRENT objects — the cardinal sin of auto-deleting a live backup", () => {
-        // `Expiration:` is the CloudFormation key for current-object expiry;
-        // `NoncurrentVersionExpiration:` is a different key and must not match.
         assert.doesNotMatch(
           template,
-          /(?<!NoncurrentVersion)Expiration:/,
+          /\bExpiration:/,
           "lifecycle must not carry a current-object Expiration",
         );
       });
