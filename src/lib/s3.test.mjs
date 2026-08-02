@@ -1258,7 +1258,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     // Pins a known limitation: lib-storage only auto-aborts on a *part*
     // failure, so a failed Complete leaves the multipart upload open and its
     // parts billed until aborted. The systemic answer is a bucket lifecycle
-    // rule — s3cab-provisioned buckets get one (backupLifecycle, lib/aws.mjs),
+    // rule — s3cab-provisioned buckets get one (bucketResources, lib/aws.mjs),
     // and bring-your-own-bucket users are told to add it (guide/aws.md). If
     // this assertion ever flips to an abort being sent, that guidance can
     // soften.
