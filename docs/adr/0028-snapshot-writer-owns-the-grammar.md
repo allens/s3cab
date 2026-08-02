@@ -12,7 +12,7 @@ in [`src/lib/snapshot-file.mjs`](../../src/lib/snapshot-file.mjs) is the single 
 
 The walk ([`src/lib/walk.mjs`](../../src/lib/walk.mjs)) **yields exclusions as data**:
 `walkSet(set) → { files, excluded }`, where each exclusion is a `{ fileType, reason, path }`
-record (all known from the `Dirent`, no extra `stat`). It no longer imports the snapshot
+record (read from the `Dirent` the walk already has, with no per-file `stat`). It no longer imports the snapshot
 grammar and no longer threads a write stream down through `walkSet → walkDirs →
 createWalkCallbackFn`. `snapshot.mjs` becomes a thin caller: `walkSet → writeSnapshot →
 compareSnapshots`.

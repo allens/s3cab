@@ -1,4 +1,10 @@
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
@@ -9,7 +15,7 @@ import { readLines } from "./read-lines.mjs";
 import { isInteractive } from "./style.mjs";
 
 /**
- * @import { Dirent } from "node:fs"
+ * @import { Dirent, Stats } from "node:fs"
  * @import { BackupSet } from "./sets.mjs"
  */
 
@@ -18,7 +24,9 @@ import { isInteractive } from "./style.mjs";
  * the walk stays ignorant of the snapshot grammar — `writeSnapshot` turns these
  * into `#EXCLUDED` rows. `fileType` is the dirent type (`File`/`Directory`/…);
  * `reason` is the matching exclude pattern, or why the entry was skipped (e.g.
- * an unsupported file type). Both are known from the `Dirent` — no extra `stat`.
+ * an unsupported file type). Both come from the `Dirent` the walk already has —
+ * no `stat` per file, and none at all on a filesystem that reports entry types
+ * (the exception is `resolveFileType`'s fallback for one that doesn't).
  * @typedef {{ fileType: string, reason: string, path: string }} ExclusionRecord
  */
 
@@ -289,7 +297,7 @@ export function walkDirs(dirs, patterns) {
  * @param {string[]} patterns - Exclude patterns
  * @param {ExclusionRecord[]} excluded - Receives a record per pattern-matched entry
  * @param {ExclusionRecord[]} skipped - Receives a record per by-design unsupported entry
- * @returns {(dirent: Dirent) => string | null} walk callback function
+ * @returns {(path: string, fileType: string) => boolean} walk callback function
  */
 function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
   const matchers = patterns.map((pattern) => ({
@@ -297,14 +305,15 @@ function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
     matcher: compileExclude(join(baseDir, pattern)),
   }));
 
-  return (dirent) => {
-    const path = resolve(dirent.parentPath, dirent.name);
-    const fileType = getFileType(dirent);
-
-    if (dirent.isFile() || dirent.isDirectory()) {
+  // Takes the resolved type rather than the `Dirent` it came from: `walkFiles`
+  // has already paid for it (possibly with an `lstat`), and asking the dirent
+  // again here would read the *unresolved* answer — the bug `resolveFileType`
+  // exists to fix.
+  return (path, fileType) => {
+    if (fileType === "File" || fileType === "Directory") {
       let testString = path.split(sep).join(posix.sep);
 
-      if (dirent.isDirectory()) {
+      if (fileType === "Directory") {
         testString += posix.sep;
       }
 
@@ -312,20 +321,32 @@ function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
 
       if (match) {
         excluded.push({ fileType, reason: match.pattern, path });
-        return null;
+        return false;
       }
     } else {
       skipped.push({ fileType, reason: "Unsupported file type", path });
-      return null;
+      return false;
     }
 
-    return path;
+    return true;
   };
 }
 
 /**
- * Get the file type of a dirent.
- * @param {Dirent} dirent - Directory entry
+ * The type `readdir` reports for an entry it could not classify — every one of
+ * the seven predicates below answers `false`, so `getFileType` falls through to
+ * this. It is a real answer from some filesystems, not a corrupt one: the type
+ * simply doesn't travel with the directory entry there (see `resolveFileType`).
+ */
+const UNKNOWN = "Unknown File Type";
+
+/**
+ * Get the file type of a directory entry or a stat.
+ *
+ * Takes either because a `Dirent` and a `Stats` answer the same seven questions
+ * — which is what lets `resolveFileType` fall back from one to the other without
+ * a second way of naming a type.
+ * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
  * @returns {string} File type
  */
 function getFileType(dirent) {
@@ -344,28 +365,73 @@ function getFileType(dirent) {
   } else if (dirent.isSocket()) {
     return "Socket";
   }
-  return "Unknown File Type";
+  return UNKNOWN;
+}
+
+/**
+ * The entry's type, falling back to one `lstat` when `readdir` didn't supply it.
+ *
+ * Most filesystems carry the type in the directory entry itself, which is why
+ * the walk can classify tens of thousands of files without touching one — NTFS,
+ * APFS, ext4, btrfs and modern XFS all do. Some do not: NFS reports unknown for
+ * entries whose attributes the client hasn't cached (mounted `nordirplus`, a
+ * server without READDIRPLUS, or a directory large enough that the client backs
+ * off), as do FUSE filesystems whose author left the field unset. There the
+ * whole set would otherwise go missing — silently, which is the failure a backup
+ * tool least affords: an unclassified *file* was recorded as an unsupported type
+ * and left out, and an unclassified *directory* was never descended into at all,
+ * taking its entire subtree with it.
+ *
+ * So: one `lstat`, and **only** for an entry `readdir` couldn't classify. On
+ * every filesystem in the first list that is zero calls, which is what keeps
+ * this off the hot path — the per-file `stat` pass CLAUDE.md warns against would
+ * cost the walk roughly an order of magnitude on Windows. The type is resolved
+ * **once** per entry and handed to both consumers (the exclude callback and the
+ * recursion test below), because resolving it separately for each is precisely
+ * the double-`lstat` that turns a rare fallback into that pass.
+ *
+ * `lstat`, not `stat`, so a symlink stays a symlink: following one here would
+ * both change what the walk skips and open the door to cycles. An entry that
+ * can't be stat-ed either (it vanished mid-walk, or is unreadable) keeps the
+ * unknown type and is recorded as skipped — the walk's existing answer for
+ * "can't back this up", and one that names the path rather than dying on it.
+ * @param {Dirent} dirent - Directory entry
+ * @param {string} path - Its resolved absolute path
+ * @returns {string} File type
+ */
+function resolveFileType(dirent, path) {
+  const fileType = getFileType(dirent);
+  if (fileType !== UNKNOWN) {
+    return fileType;
+  }
+  try {
+    return getFileType(lstatSync(path));
+  } catch {
+    return UNKNOWN;
+  }
 }
 
 /**
  * Recursively walk through a directory and yield file paths.
+ *
+ * The entry's type is resolved here, once, and passed down — see
+ * `resolveFileType` for why it cannot be re-derived per consumer.
  * @param {string} dir - Directory to walk through
- * @param {(dirent: Dirent) => string | null} callbackFn - Callback function to process files
+ * @param {(path: string, fileType: string) => boolean} callbackFn - Whether to keep the entry
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
 function* walkFiles(dir, callbackFn) {
   for (const dirent of readdirSync(dir, { withFileTypes: true })) {
-    const { name } = dirent;
+    const path = resolve(dirent.parentPath, dirent.name);
+    const fileType = resolveFileType(dirent, path);
 
-    const path = callbackFn(dirent);
-
-    if (!path) {
+    if (!callbackFn(path, fileType)) {
       continue;
     }
 
-    if (dirent.isDirectory()) {
-      if (name === ".s3cab") {
+    if (fileType === "Directory") {
+      if (dirent.name === ".s3cab") {
         continue;
       }
       yield* walkFiles(path, callbackFn);

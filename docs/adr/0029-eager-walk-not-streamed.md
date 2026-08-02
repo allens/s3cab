@@ -13,7 +13,10 @@ finishes.
 The three stages of a snapshot/backup cost wildly different amounts:
 
 - **Walk** — `readdirSync` rips through tens of thousands of directory entries in well under a
-  second. It does no per-file I/O beyond the `Dirent` already in hand.
+  second. It does no per-file I/O beyond the `Dirent` already in hand — bar one `lstat` for
+  an entry whose type the filesystem didn't report (`resolveFileType` in
+  [`walk.mjs`](../../src/lib/walk.mjs); zero calls on NTFS, APFS, ext4, btrfs and modern XFS,
+  and only on NFS/FUSE mounts does it amount to a per-file cost).
 - **Hash** — each kept file pays a full SHA-256 read of its contents.
 - **Upload** — each *changed* file pays an S3 PUT (network round-trip, seconds at scale).
 
