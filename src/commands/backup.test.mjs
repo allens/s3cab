@@ -152,6 +152,11 @@ describe("backup (the fused pass)", () => {
       "expected the upload transform to be passed",
     );
     assert.equal(generateCalls[0]?.lookup, baseline.lookup);
+    // And the baseline again as `sizes` — the progress line's byte denominator,
+    // which is the *previous* entries rather than the `lookup` they are overlaid
+    // into. Asserted because dropping it in a refactor costs nothing visible in
+    // a test but silently reverts the progress line to counts alone.
+    assert.equal(generateCalls[0]?.sizes, baseline.previous);
     assert.deepEqual(manifestCalls, [
       {
         bucket: "b",
