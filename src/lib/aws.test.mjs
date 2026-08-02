@@ -6,7 +6,6 @@ import {
   awsRolesAnywherePlan,
   awsRolesAnywhereTemplate,
   awsSaveConfirmation,
-  backupLifecycle,
   maxBucketNameLength,
 } from "./aws.mjs";
 import { ARN_ENV } from "./roles-anywhere.mjs";
@@ -25,22 +24,34 @@ fakeLine2==
 // the Retain guard, no current-object expiry), the least-privilege policy verbs
 // (no IAM wildcard), the predictable resource names, and the three-step recipe.
 
-describe("backupLifecycle", () => {
-  it("expires noncurrent versions after 90 days and aborts stalled uploads after 1", () => {
-    const [rule] = backupLifecycle().Rules ?? [];
-    assert.equal(rule?.NoncurrentVersionExpiration?.NoncurrentDays, 90);
-    assert.equal(rule?.AbortIncompleteMultipartUpload?.DaysAfterInitiation, 1);
-  });
+// The lifecycle windows are asserted on the *rendered* template rather than on a
+// config object, because the template is what ships: an assertion on an
+// intermediate structure passes just as happily when the YAML interpolation that
+// carries it is broken.
+describe("bucket lifecycle", () => {
+  /** @type {[string, string][]} */
+  const templates = [
+    ["IAM-user template", awsCloudFormationTemplate("photos")],
+    ["Roles Anywhere template", awsRolesAnywhereTemplate("photos", FAKE_CA)],
+  ];
+  for (const [label, template] of templates) {
+    describe(label, () => {
+      it("expires noncurrent versions after 90 days and aborts stalled uploads after 1", () => {
+        assert.match(template, /NoncurrentDays: 90\b/);
+        assert.match(template, /DaysAfterInitiation: 1\b/);
+      });
 
-  it("never expires CURRENT objects — the cardinal sin of auto-deleting a live backup", () => {
-    for (const rule of backupLifecycle().Rules ?? []) {
-      assert.equal(
-        rule.Expiration,
-        undefined,
-        "lifecycle must not carry a current-object Expiration",
-      );
-    }
-  });
+      it("never expires CURRENT objects — the cardinal sin of auto-deleting a live backup", () => {
+        // `Expiration:` is the CloudFormation key for current-object expiry;
+        // `NoncurrentVersionExpiration:` is a different key and must not match.
+        assert.doesNotMatch(
+          template,
+          /(?<!NoncurrentVersion)Expiration:/,
+          "lifecycle must not carry a current-object Expiration",
+        );
+      });
+    });
+  }
 });
 
 describe("maxBucketNameLength", () => {

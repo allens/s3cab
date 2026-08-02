@@ -1,8 +1,6 @@
 import { tildeify } from "./home.mjs";
 import { bucketPolicy } from "./s3.mjs";
 
-/** @import { BucketLifecycleConfiguration } from "@aws-sdk/client-s3" */
-
 // Generates the cloud-onboarding artifacts the `aws` command uses to stand up an S3
 // backup destination + a least-privilege identity for s3cab: the CloudFormation
 // **template** (`awsCloudFormationTemplate`/`awsRolesAnywhereTemplate`) the command
@@ -21,28 +19,23 @@ import { bucketPolicy } from "./s3.mjs";
 // step (secret to the terminal only, never persisted). See ADR-0056 for the full
 // "the delivery form tracks the secret" reasoning.
 
-/**
- * The backup bucket's lifecycle rules: expire *noncurrent* versions after 90
- * days (the disaster-recovery window — reclaims the space a soft delete frees)
- * and abort stalled multipart uploads after 1 day. It deliberately has **no**
- * current-object expiry — never auto-delete a live backup (the security model,
- * docs/adr/0033). The exact opposite of the *test* bucket's 1-day *current*-object
- * expiry (docs/integration-testing.md / scripts/setup-test-bucket.mjs), which is
- * why the two lifecycles are never shared. The single source of the window values
- * the CloudFormation template embeds below (`awsCloudFormationTemplate`).
- * @returns {BucketLifecycleConfiguration}
- */
-export const backupLifecycle = () => ({
-  Rules: [
-    {
-      ID: "reclaim-deleted-backups",
-      Status: "Enabled",
-      Filter: {},
-      NoncurrentVersionExpiration: { NoncurrentDays: 90 },
-      AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
-    },
-  ],
-});
+// The backup bucket's lifecycle rule, as the windows the template embeds below
+// (`bucketResources`): expire *noncurrent* versions after the disaster-recovery
+// window — reclaiming the space a soft delete frees — and abort stalled multipart
+// uploads after a day. There is deliberately **no** current-object expiry: never
+// auto-delete a live backup (the security model, docs/adr/0033), which is why the
+// rule is spelled out here rather than parameterized. The exact opposite of the
+// *test* bucket's 1-day *current*-object expiry (docs/integration-testing.md /
+// scripts/setup-test-bucket.mjs), which is why the two are never shared.
+//
+// Plain constants, not an SDK `BucketLifecycleConfiguration`: nothing sends this to
+// S3 — `s3cab aws` is generative (ADR-0032/0056) and only ever interpolates these
+// four values into YAML, so a nested SDK shape existed purely to be taken apart
+// again by its one caller. The rendered template is what ships, and what the tests
+// assert on.
+const LIFECYCLE_RULE_ID = "reclaim-deleted-backups";
+const NONCURRENT_DAYS = 90;
+const ABORT_DAYS = 1;
 
 /**
  * Indent a JSON-serialized object under a YAML key. JSON is valid YAML (a flow
@@ -194,9 +187,6 @@ const header = (bucket, target) =>
  * @returns {string}
  */
 function bucketResources(bucket) {
-  const [rule] = backupLifecycle().Rules ?? [];
-  const noncurrentDays = rule?.NoncurrentVersionExpiration?.NoncurrentDays;
-  const abortDays = rule?.AbortIncompleteMultipartUpload?.DaysAfterInitiation;
   return `  Bucket:
     Type: AWS::S3::Bucket
     # Retain so deleting this stack can NEVER destroy the backup bucket (ADR-0033/0056).
@@ -212,12 +202,12 @@ function bucketResources(bucket) {
               SSEAlgorithm: AES256
       LifecycleConfiguration:
         Rules:
-          - Id: ${rule?.ID}
-            Status: ${rule?.Status}
+          - Id: ${LIFECYCLE_RULE_ID}
+            Status: Enabled
             NoncurrentVersionExpiration:
-              NoncurrentDays: ${noncurrentDays}
+              NoncurrentDays: ${NONCURRENT_DAYS}
             AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: ${abortDays}
+              DaysAfterInitiation: ${ABORT_DAYS}
 ${resourceTags(bucket)}
   BucketAccessPolicy:
     Type: AWS::IAM::ManagedPolicy
