@@ -22,8 +22,8 @@ plumbing op — download-object-to-file — but still no new seam.)
 ## Test tiers
 
 - **Unit tests** — pure logic, no I/O, no credentials. The largest, fastest, strongest tier
-  (e.g. `uploadCandidates`, `backup`'s baseline resolution, `selectEntries`,
-  `validateNamespace`, the snapshot TSV parser, `read-lines`, `error`). Run everywhere, always.
+  (e.g. `planUpload`, `backup`'s baseline resolution, `selectEntries`,
+  `validateSetName`, the snapshot TSV parser, `read-lines`, `error`). Run everywhere, always.
 - **Mocked-`s3.mjs`-seam tests** — exercise **command orchestration** ("given these objects
   exist remotely, does `backup` upload the right diff and write the snapshot last?") and
   **deterministic error injection** that real S3 won't produce on demand (mid-upload failure
@@ -31,8 +31,8 @@ plumbing op — download-object-to-file — but still no new seam.)
   **our** boundary — so the test exercises our code, not AWS, and the wire-drift concern
   doesn't apply. `node:test`'s `mock.module` / `mock.fn`, zero dependency (`mock.module`
   needs `--experimental-test-module-mocks`, now on the `test`/`test:coverage*` scripts;
-  first realized in `src/lib/objects.test.mjs` for the object store's cache + `getObject`
-  integrity check, mocking `createS3ReadStream`. One ordering rule it forces: import the
+  first realized in `src/lib/objects.test.mjs` for the `getObject` integrity check,
+  mocking `getStream`. One ordering rule it forces: import the
   module-under-test *dynamically, after* the mock — a static import binds the real seam
   first and the cached binding wins). Run everywhere, always — **including fork PRs** (no
   credentials, no container), so a fork contributor's S3-path logic is still covered offline.
