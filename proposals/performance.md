@@ -3,6 +3,11 @@
 Epic: speed and memory on large trees (a photo/video archive is tens to hundreds of thousands
 of files). Watch for per-file overhead — small costs mount up.
 
+> **Rejected, don't re-try: a `node:sqlite` hash cache.** Spiked and dropped in favour of the
+> in-memory `Map`. The spike is preserved at
+> [scripts/sqlite-hash-cache.mjs](../scripts/sqlite-hash-cache.mjs) — read it before proposing a
+> persistent hash cache again.
+
 - **Lazy-load the AWS SDK at dispatch** (backburner — deliberately deferred in favour of the
   simpler, more predictable static esbuild bundling). The entry point statically imports the
   whole command registry, which pulls the SDK on every invocation, even `--version`. Measured
