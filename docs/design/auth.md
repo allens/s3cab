@@ -164,7 +164,7 @@ to the (sync) error factory.
 `noCredentialsError` above fires when the chain resolves *nothing*. When it
 resolves credentials that *work at startup* but the **server** rejects a later
 request, s3cab translates that rejection at the SDK relay boundary
-(`credentialErrorRelay` in `src/lib/s3.mjs`, see
+(`requestErrorRelay` in `src/lib/s3.mjs`, see
 [ADR-0037](../adr/0037-aws-auth-error-categorization.md)). The relay walks an
 ordered table that matches the AWS error **code** (`error.name`, never HTTP
 status) and routes each to one of a few remedies; only codes s3cab can fix or

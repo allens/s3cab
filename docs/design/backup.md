@@ -675,8 +675,9 @@ opt-in run without a bucket hard-fail instead) rather
 than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit
 tests. (Standing up the test bucket + CI credentials is a separate task.) Built
 bottom-up: remote-snapshot listing for a namespace → the snapshot-diff function
-(`uploadCandidates`) → the per-bucket objects cache (read/append/`--skip-cache`; **later
-removed** — [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) → the
+(`uploadCandidates`, since renamed `planUpload`) → the per-bucket objects cache
+(read/append/`--skip-cache`; **later removed** —
+[ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) → the
 uploader loop (conditional PUTs, snapshot-last) → `backup` porcelain (snapshot + upload)
 → `status` (read-only diff, remote-only — no `--remote` flag) → `list --remote`. Plus
 fail-fast bucket-name validation in `setup` (a plain single-segment name, not an `s3://`
