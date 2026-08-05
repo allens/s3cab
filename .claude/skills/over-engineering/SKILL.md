@@ -84,10 +84,11 @@ separately from the internal ones.
   not report comment volume, do not propose comment deletions, do not let a
   comment-heavy file read as a large file.
 - **Test files.** They are not the subject and their length is not a finding.
-  **But the exclusion is from the _analysis_, not from the _claims_.** Category 4
-  obliges a finding to state what the test would do instead, and that cannot be
-  answered honestly from the production side alone — so before writing any
-  test claim, open the test file and read what is *already* there. (Learned the
+  **But the exclusion is from the _analysis_, not from the _claims_.** *Structure
+  that only tests use* obliges a finding to state what the test would do instead,
+  and that cannot be answered honestly from the production side alone — so before
+  writing any test claim, open the test file and read what is *already* there.
+  (Learned the
   hard way: a finding asserted that the existing tests "never look at the shipped
   artifact", when a sibling test one screen away did exactly that. The refactor was
   still right; the justification was overstated, and the change duplicated a test
@@ -103,8 +104,9 @@ Rank by complexity removed, heaviest first. These are the veins worth working:
 2. **Unnecessary abstraction** — a shape imposed where none was called for: a
    structure built only to be taken apart again by its one caller, a parameter
    generalizing over cases that never needed unifying, a type standing in for what
-   could be named values. Distinct from #1, and the pair is worth holding side by
-   side: indirection *forwards* without adding, abstraction *imposes a form*
+   could be named values. Distinct from *needless indirection*, and the pair is
+   worth holding side by side: indirection *forwards* without adding, abstraction
+   *imposes a form*
    nothing asked for. **The disqualifier is part of the category** — an abstraction
    with **two or more production consumers with different needs** is a deep module
    earning its keep, not a finding. This is the most misapplicable name in the
@@ -126,7 +128,8 @@ Rank by complexity removed, heaviest first. These are the veins worth working:
    in several modules, where one of them already exports a better version.
 6. **Complexity out of scale with its job** — a state machine for something with
    two states, or configurability nothing configures. (The one-implementation
-   abstraction moved out to #2, where the disqualifier can travel with it.)
+   abstraction moved out to *unnecessary abstraction*, where the disqualifier can
+   travel with it.)
 
 ## Method
 
@@ -168,9 +171,9 @@ console.log("TOTAL code",code,"comment",cmt);'
 ```bash
 node -e '
 const fs=require("fs"),path=require("path");
-function walk(d,o=[]){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):(e.name.endsWith(".mjs")&&!e.name.endsWith(".test.mjs")&&o.push(p));}return o;}
+function walk(d,o=[]){if(!fs.existsSync(d))return o;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):(e.name.endsWith(".mjs")&&!e.name.endsWith(".test.mjs")&&o.push(p));}return o;}
 const files=walk("src"),imp=new Map();
-for(const f of files){const s=fs.readFileSync(f,"utf8");
+for(const f of [...files,...walk("scripts")]){const s=fs.readFileSync(f,"utf8");
   for(const m of s.matchAll(/(?:^|\n)\s*(?:import[\s\S]*?from|export[\s\S]*?from)\s*["\x27](\.[^"\x27]+)["\x27]/g)){
     const t=path.normalize(path.join(path.dirname(f),m[1]));
     if(!imp.has(t))imp.set(t,new Set());imp.get(t).add(f);}}
@@ -182,15 +185,18 @@ Read it **ascending**. High fan-in is evidence a module is *earned*; the interes
 end is the tail. Ignore `commands/*.mjs` sitting at 1 — the registry imports each
 exactly once, which is structural, not signal. A `lib/` module with one production
 caller is the question *"does this deserve to be a module?"* asked mechanically.
+Importers are counted from `src/` **and `scripts/`**, so a module that exists only
+for a dev utility shows its real caller rather than reading as an orphan.
 
-**Exports with zero production consumers, with the two numbers that sort them:**
+**Exports with zero production consumers, with the three numbers that sort them:**
 
 ```bash
 node -e '
 const fs=require("fs"),path=require("path");
 function walk(d,o=[]){if(!fs.existsSync(d))return o;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):e.name.endsWith(".mjs")&&o.push(p);}return o;}
-const all=[...walk("src"),...walk("test")];
+const all=[...walk("src"),...walk("test"),...walk("scripts")];
 const prod=new Set(all.filter(f=>f.startsWith("src")&&!f.endsWith(".test.mjs")));
+const scr=new Set(all.filter(f=>f.startsWith("scripts")));
 const toks=new Map(all.map(f=>[f,fs.readFileSync(f,"utf8").match(/[A-Za-z0-9_$]+/g)??[]]));
 const sets=new Map(all.map(f=>[f,new Set(toks.get(f))]));
 for(const f of prod){const t=fs.readFileSync(f,"utf8"),names=new Set();
@@ -198,26 +204,36 @@ for(const f of prod){const t=fs.readFileSync(f,"utf8"),names=new Set();
   for(const m of t.matchAll(/^export\s*\{([^}]+)\}/gm))for(const p of m[1].split(",")){const n=p.trim().split(/\s+as\s+/).pop().trim();if(n)names.add(n);}
   for(const n of names){
     if([...prod].some(g=>g!==f&&sets.get(g).has(n)))continue;
-    const inTests=all.filter(g=>!prod.has(g)&&sets.get(g).has(n)).length;
+    const inTests=all.filter(g=>!prod.has(g)&&!scr.has(g)&&sets.get(g).has(n)).length;
+    const inScripts=all.filter(g=>scr.has(g)&&sets.get(g).has(n)).length;
     const self=toks.get(f).filter(x=>x===n).length-1;
-    console.log(f.padEnd(30),"->",n.padEnd(22),`self:${self}`.padEnd(8),`tests:${inTests}`);}}'
+    console.log(f.padEnd(30),"->",n.padEnd(22),`self:${self}`.padEnd(8),`tests:${inTests}`.padEnd(9),`scripts:${inScripts}`);}}'
 ```
 
-Every hit already has no production consumer outside its own file. The two counts
-say *which kind* of hit it is, so the sort is mechanical rather than 20-odd
-follow-up greps — and `tests:` is the production/test call-site count category 4
-obliges every such finding to state, so it is gathered here rather than re-derived:
+Every hit already has no production consumer outside its own file. The counts say
+*which kind* of hit it is, so the sort is mechanical rather than 20-odd follow-up
+greps — and `tests:` is the production/test call-site count *structure that only
+tests use* obliges every such finding to state, so it is gathered here rather than
+re-derived:
 
-| `self:` | `tests:` | Reading |
+| `self:` | `tests:` | Reading (all rows assume `scripts:0`) |
 | --- | --- | --- |
 | 0 | 0 | dead outright — nothing anywhere refers to it |
-| 0 | >0 | **dead, kept alive only by its test** (category 4 — say what the test would do instead) |
+| 0 | >0 | **dead, kept alive only by its test** (*structure that only tests use* — say what the test would do instead) |
 | >0 | 0 | used internally; the `export` keyword alone is surplus |
 | >0 | >0 | internal + a test reaches in; judge whether the test earns the seam |
 
+**`scripts:>0` overrides every row above — the export is earned, not surplus.**
+`scripts/` holds *kept dev tooling*, not scratch, and it imports `src/` directly, so
+a script is a real consumer that a dropped `export` would break. It is not a
+*production* consumer, so the hit is still shown rather than suppressed: worth
+knowing an export exists only for tooling, but never grounds for calling it dead.
+(This is why the query walks `scripts/` at all — a symbol used by one script and no
+test would otherwise read `self:N tests:0` and land in the "surplus keyword" row.)
+
 `tests:` counts **files**, so it doubles as blast radius: a symbol at `tests:7` is
 wired into the gated integration suites and its removal is a much bigger edit than
-one at `tests:1`. Both numbers are **token mentions, not resolved references** —
+one at `tests:1`. All three are **token mentions, not resolved references** —
 `self:` subtracts one for the declaration but still counts mentions in the module's
 own doc comments, and a `{@link Foo}` inflates it. Treat them as triage, not
 verdicts; stage 2 reads the hit in context either way.
@@ -258,8 +274,11 @@ Two artifacts:
 1. **A ranked markdown report** at `proposals/over-engineering-sweep.md` — heaviest
    complexity reduction first. Each finding carries: what the complexity *is*, the
    path or query that exposed it, the change proposed, the line delta as a signal,
-   and for category-4 findings the production/test call-site counts plus what the
-   test would do instead. Tag surface findings `[USER-FACING]`.
+   and for *structure that only tests use* the production/test call-site counts plus
+   what the test would do instead. Tag surface findings `[USER-FACING]`. **Refer to
+   a category by its name, never its number** — the numbering has already shifted
+   once, and a report or rejection record citing "category 3" silently rots the next
+   time one is inserted.
 2. **An HTML report** beside it at `proposals/over-engineering-sweep.html`, in the
    style of the existing `proposals/architecture-review.html` — before/after
    structure diagrams and the visual context that does not survive in markdown.
