@@ -47,7 +47,7 @@
     "@aws-sdk/credential-providers": "^3.1091.0",
     "@aws-sdk/lib-storage": "^3.1091.0",
     "@smithy/shared-ini-file-loader": "^4.6.15",
-    "@smithy/signature-v4": "^5.6.11"
+    "@smithy/signature-v4": "^5.6.12"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
