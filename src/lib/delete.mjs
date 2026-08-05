@@ -1,5 +1,6 @@
 import {
   alignTotalTable,
+  countOf,
   formatByteValue,
   formatCount,
   plural,
@@ -365,7 +366,9 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
       lines.push(
         ``,
         `Sets losing these files: ` +
-          inScope.map((s) => `${s.set} (${files(s.files)})`).join(", "),
+          inScope
+            .map((s) => `${s.set} (${countOf(s.files, "file")})`)
+            .join(", "),
       );
     }
 
@@ -378,7 +381,7 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
         ``,
         `WARNING (--everywhere): this also breaks restorability in sets not ` +
           `set up on this machine:`,
-        ...outside.map((s) => `  ${s.set}  (${files(s.files)})`),
+        ...outside.map((s) => `  ${s.set}  (${countOf(s.files, "file")})`),
       );
     }
   }
@@ -392,10 +395,10 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
     lines.push(
       ``,
       `Survives (still referenced outside the named paths): ` +
-        `${files(plan.survivors.length)} — kept by ` +
+        `${countOf(plan.survivors.length, "file")} — kept by ` +
         [...bySet]
           .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([set, n]) => `set '${set}' (${files(n)})`)
+          .map(([set, n]) => `set '${set}' (${countOf(n, "file")})`)
           .join(", ") +
         `.`,
       `To include a set of yours that isn't attached here: s3cab reattach <set>`,
@@ -444,6 +447,3 @@ export function formatDeletePreviewFile(plan, record) {
   }
   return parts.join("\n");
 }
-
-/** @param {number} n */
-const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;
