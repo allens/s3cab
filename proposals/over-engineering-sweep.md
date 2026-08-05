@@ -15,6 +15,32 @@ crosses so the trade is visible.
 
 ## 1. The `loadEnv()` / `__S3CAB_ENV_LOADED` tripwire guards a caller that doesn't exist
 
+> **SHIPPED** — [PR #263](https://github.com/allens/s3cab/pull/263), merged
+> 2026-08-05 as `6020f8a`. `loadEnv`, the flag and the `client()` assert are gone;
+> ADR-0022 is amended (title included — "Env is loaded at the entry point" was the
+> half that died) and its index entry updated.
+>
+> **The finding understated itself.** ADR-0022's own prose still described
+> `loadEnv()` as applying the user layer — false since ADR-0055 — so the ADR was
+> owed an amendment regardless of this change. Three further doc references had
+> rotted identically (`auth.mjs`'s resolution order, `parseEnvFile`'s "synchronous
+> because", `announceHome`'s placement rationale), and review caught a fourth in
+> `docs/design/auth.md`.
+>
+> **Two things done that the finding didn't anticipate.** A test was *preserved*,
+> not deleted: the `describe("loadEnv")` block held a real ADR-0055 regression
+> guard — that `~/.s3cab/env` is ignored — which would have vanished with its host;
+> it now runs through `loadSet` and is stronger for it. And the integration
+> harness's comment was rewritten rather than dropped, since it justified relocating
+> `S3CAB_HOME` via `loadEnv` (stale since 0055) while the relocation itself is still
+> needed.
+>
+> **The review wave is the reason scope 2 exists**: Copilot flagged the wider
+> `loadEnv` trail across docs. Live claims were fixed; ADR bodies were given
+> forward pointers rather than rewritten, because a superseded decision's record is
+> what stops the reversed choice being re-proposed
+> ([docs/adr/README.md](docs/adr/README.md)).
+
 **What the complexity is.** `loadEnv()` is now a one-line function whose entire
 body is `process.env.__S3CAB_ENV_LOADED = "1"`, and `client()` asserts on that
 breadcrumb before every S3 client construction. Since ADR-0055 removed the

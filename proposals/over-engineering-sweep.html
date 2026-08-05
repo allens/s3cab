@@ -63,7 +63,7 @@
                 <td class="px-4 py-2"><code class="mono">loadEnv()</code> tripwire guards a caller that doesn't exist</td>
                 <td class="px-4 py-2 text-slate-600">out of scale · speculative</td>
                 <td class="px-4 py-2 text-right mono">−15</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-rose-100 text-rose-800">Heavy</span> <span class="px-1.5 rounded text-xs bg-sky-100 text-sky-800">ADR-0022</span></td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped · #263</span> <span class="px-1.5 rounded text-xs bg-sky-100 text-sky-800">ADR-0022 amended</span></td>
               </tr>
               <tr>
                 <td class="px-4 py-2 mono">2</td>
@@ -129,8 +129,36 @@
       <article class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
         <div class="flex items-baseline gap-3 flex-wrap">
           <h2 class="font-serif text-xl">1 · The <code class="mono text-base">loadEnv()</code> tripwire guards a caller that doesn't exist</h2>
-          <span class="px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800">Heavy</span>
-          <span class="px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-800">crosses ADR-0022</span>
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Shipped · #263</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-800">ADR-0022 amended</span>
+        </div>
+
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm space-y-2">
+          <p>
+            <strong>Shipped</strong> in
+            <a class="underline" href="https://github.com/allens/s3cab/pull/263">PR #263</a>,
+            merged 2026-08-05 as <code class="mono">6020f8a</code>.
+            <code class="mono">loadEnv</code>, the flag and the
+            <code class="mono">client()</code> assert are gone; ADR-0022 is amended — title
+            included, since “Env is loaded at the entry point” was the half that died.
+          </p>
+          <p>
+            <strong>The finding understated itself.</strong> ADR-0022's own prose still
+            described <code class="mono">loadEnv()</code> as applying the user layer — false
+            since ADR-0055 — so the ADR was owed an amendment regardless. Three further doc
+            references had rotted identically, and review caught a fourth in
+            <code class="mono">docs/design/auth.md</code>.
+          </p>
+          <p>
+            <strong>Two things the finding didn't anticipate.</strong> A test was
+            <em>preserved</em>, not deleted: the <code class="mono">describe("loadEnv")</code>
+            block held a real ADR-0055 regression guard — that
+            <code class="mono">~/.s3cab/env</code> is ignored — which would have vanished with
+            its host; it now runs through <code class="mono">loadSet</code> and is stronger for
+            it. And the integration harness's comment was rewritten rather than dropped, since
+            it justified relocating <code class="mono">S3CAB_HOME</code> via
+            <code class="mono">loadEnv</code> while the relocation itself is still needed.
+          </p>
         </div>
 
         <p class="text-sm">
