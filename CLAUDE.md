@@ -71,9 +71,6 @@ overlap that leaves is accepted over sync machinery
    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)) — asserting tests for changed behaviour
    are a per-PR obligation, checked by reading the diff. Assert about the *result*, not that the
    line executed.
-5. **Reply to every review comment you act on** — cite the commit if you fixed it, give the
-   reasoning if you're declining. Never silently push a fix or resolve a thread: a decision that
-   never lands back on the thread is invisible.
 
 ### Coding conventions
 
