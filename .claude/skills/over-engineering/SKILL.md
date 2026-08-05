@@ -290,6 +290,18 @@ them, so a superseded report cannot accumulate. (Naming them per run would make
 "latest-only" unenforceable: the next run would write beside the old pair rather
 than over it.)
 
+**Mark every test claim as a hypothesis, in the report itself.** A sentence
+beginning "the existing test…" is the one kind of claim this sweep is structurally
+worst at, because it is made from the production side about files the sweep is not
+reading. Requiring the sweep to open the test file first (see *What does not
+count*) reduces the error rate; it does not make the claim safe. So the report must
+say, once and near the top, that its test claims are **to be re-verified before
+implementing** — the implementer reads the file warm, with the change in hand, and
+is the second line of defence rather than an accidental one. This is not
+belt-and-braces: on the first run, all three findings that touched tests had their
+test claim corrected at implementation time, and one of them called a live
+regression guard inert. Trusting it would have deleted real coverage silently.
+
 Findings are ranked by complexity removed, which says nothing about what a change
 *costs* — so **say so where the cost is unusually high or low**, since that is what
 the reader triages on. A surplus `export` keyword and a removal that reworks five
