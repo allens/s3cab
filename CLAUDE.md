@@ -85,8 +85,10 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
 - **Each file in `src/commands/` exports exactly one symbol — its command function**
   ([ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md); enforced by
   `local/one-export-per-command`). If a sibling command *or a test* needs anything else from it,
-  that's a `lib/` primitive not yet moved — extract it. Porcelain still *composes* plumbing
-  through that one export (`backup` calls `snapshot()`/`upload()`).
+  that's a `lib/` primitive not yet moved — extract it. Porcelain composes **plumbing primitives
+  from `lib/`**, not sibling commands: `backup` fuses `generateSnapshot` with `uploadObjects` in
+  one pass ([ADR-0069](docs/adr/0069-fused-snapshot-upload-pipeline.md)) rather than calling
+  `snapshot()`/`upload()`.
 - **Every imported type uses the JSDoc `@import` tag, never inline `import("…").Type`** — for
   built-in and third-party types too; the tag *is* the top-of-file `import type` you'd write in
   TS. Enforced by `local/no-inline-import-type` (`typeof import("…").value` is exempt).
@@ -95,7 +97,8 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   the AWS CLI or a non-S3 provisioning API; the data plane is S3-only and auth is the pluggable
   seam, so both stay provider-agnostic. Keep heavy deps off the hot path by **placement, not a
   lazy `import()`** — CloudFormation is statically imported by `lib/stack-arns.mjs`, imported by
-  nothing but `commands/aws.mjs`.
+  nothing but `commands/aws.mjs`. (A JSDoc `@import` of its *types* is exempt — erased at
+  runtime, so `lib/roles-anywhere.mjs` naming an `Output` type is not a boundary breach.)
 - **Don't bury `await` in a larger expression — give it its own line and a name.** Two smells:
   member/index access on an awaited result (`(await read(…)).entries`) and a compound
   `if`/`while`/`&&`/`||` condition containing an await. Fine: `const x = await …`, `return await
@@ -115,7 +118,7 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   in [test/integration/](test/integration/), where the *folder* is the tier marker and a run that
   opts in without a bucket **hard-fails** rather than silently skipping. An absent co-located test
   is honest "tested elsewhere" signal, not a gap. A second unit file takes a dotted aspect
-  (`setup.remote-first.test.mjs`), never a hyphen.
+  (`walk.unknown-dirent.test.mjs`), never a hyphen.
 - **Before pushing a change to the S3 read/write/stream path, run `npm run test:integration`.**
   Mocks can't exercise the stream *teardown/abort* behaviour only a real S3 body exhibits — green
   units, red integration. (Worked example: #171's `stream.compose(body, …)` aborted the live
@@ -224,8 +227,10 @@ output/errors, the storage format — find the governing decision via the topic-
 [ADR index](docs/adr/README.md) and read that ADR _first_. Don't reason from memory about whether
 a constraint exists or how fixed it is**; some ADRs leave explicit doors open (e.g.
 [0032](docs/adr/0032-generative-onboarding-not-active-provisioning.md)'s optional active `--run`).
-The *what* is best read from the code: [src/s3cab.mjs](src/s3cab.mjs) is an ~80-line entry point,
+The *what* is best read from the code: [src/s3cab.mjs](src/s3cab.mjs) is the entry point,
 [src/commands.mjs](src/commands.mjs) is the registry, and each command file carries a doc comment.
+(No line counts here — a number in prose rots silently, which is how the previous "~80-line"
+claim survived the file doubling in size.)
 
 Module *ownership* (`objects/` → `objects.mjs`, `snapshots/` → `remote.mjs`, SDK boundary →
 `s3.mjs`) reads straight from the code and its ADRs; the auth split is in
