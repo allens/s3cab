@@ -18,14 +18,15 @@
  * of `scripts/`. The counting semantics are unchanged — see the skill for how to
  * read each table.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 
-/** @import { Dirent } from "node:fs" */
-
 /**
- * Every `.mjs` file under `dir`, recursively. Missing directories yield nothing, so
- * a caller may name one that does not exist in every checkout.
+ * Every `.mjs` file under `dir`, recursively. A *missing* directory yields nothing,
+ * so a caller may name one that does not exist in every checkout — but any other
+ * read failure (permissions, too many open files) propagates. A sweep that silently
+ * skipped an unreadable directory would under-report, and stage 1's whole job is to
+ * be exhaustive.
  *
  * @param {string} dir - Directory to walk
  * @param {boolean} [includeTests] - Include `*.test.mjs` (default: exclude)
@@ -34,14 +35,10 @@ import { dirname, join, normalize } from "node:path";
 function walk(dir, includeTests = false) {
   /** @type {string[]} */
   const found = [];
-  /** @type {Dirent[]} */
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
+  if (!existsSync(dir)) {
     return found;
   }
-  for (const entry of entries) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...walk(path, includeTests));
