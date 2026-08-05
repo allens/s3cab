@@ -1,6 +1,30 @@
-# Env is loaded at the entry point; the set layer goes through the `loadSet` door
+# The set layer goes through the `loadSet` door
 
-**Status:** accepted
+**Status:** accepted, amended twice
+
+> **Amendment 2 (2026-08-02) — the entry-point half is gone; the `loadSet` door stands.**
+> This ADR was built on *two* structural points: a **user** env layer applied once at
+> the entry point by `loadEnv()`, and the **set** layer applied by `loadSet`. Amendment 1
+> ([0055](0055-per-set-credentials-one-mode.md)) deleted the user layer, which left
+> `loadEnv()` loading nothing and existing only to set a `__S3CAB_ENV_LOADED` flag that
+> `s3.mjs`'s `client()` asserted.
+>
+> Both have now been removed. The tripwire's stated purpose — catching "a lib consumer who
+> skipped `loadEnv`" — guards a caller that cannot exist: s3cab publishes no library entry
+> point (no `package.json` `main`, no barrel, dispatch runs as a top-level side effect), and
+> inside the CLI the flag was set unconditionally before any command body, so the assert
+> could never fire. It also no longer tracked the thing that matters: after 0055 the only
+> env layer is the set's, and the assert never checked whether `loadSet` had run.
+>
+> **What survives is this ADR's live half, unchanged:** `loadSet` is the one door every
+> set-accepting command routes through, and a bucket-addressed command (`upload --bucket`,
+> `hashes`, `verify`, `cleanup`, `delete`) deliberately applies no s3cab layer and runs on
+> the ambient AWS setup. The "Rejected alternatives" below still stand — the brand and the
+> RAII `Bucket` were rejected as defensive structure for a caller that doesn't exist, and
+> that reasoning applies to the tripwire itself with the benefit of hindsight.
+>
+> Everything from here down is the **original 2026 text**, kept as written. Read the
+> user-layer and tripwire passages as history, not as live behaviour.
 
 s3cab's "load env before any S3 op" precondition is satisfied **by construction**, not
 enforced per command:

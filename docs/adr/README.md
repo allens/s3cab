@@ -111,7 +111,7 @@ ADR as a live constraint.
 ### Auth, credentials & connection config
 
 - [0015](0015-standard-aws-credential-chain.md) — Standard AWS credential chain; bespoke SSO login removed
-- [0022](0022-prepare-remote-set-front-door.md) — Env is loaded at the entry point; the set layer goes through the `loadSet` door
+- [0022](0022-prepare-remote-set-front-door.md) — The set layer goes through the `loadSet` door *(amended twice: 0055 dropped the user layer, then the entry-point `loadEnv` + its `client()` tripwire were retired with it)*
 - [0025](0025-drop-per-bucket-env-layer.md) — Drop the per-bucket env layer (set > user > shell)
 - [0031](0031-aws-profile-config-door.md) — `s3cab aws`: a profile-config door, with read-only `~/.aws` validation *(command name superseded by 0035, 0041, then 0047 — now `provider`)*
 - [0041](0041-auth-command-hosts-credential-guide.md) — Rename `profile` → `auth`; the command hosts the credential guide *(name superseded by 0047 — now `provider`)*
