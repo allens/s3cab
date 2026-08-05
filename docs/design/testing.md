@@ -158,7 +158,7 @@ scenario name where cross-cutting, a module name where clearest:
   **live** `CreateSession` endpoint (mocks can't exercise the SigV4-X509 exchange). Needs a
   deployed trust anchor + `S3CAB_TEST_RA_HOME` on top of the bucket gate, so it skips where
   the others run — the one suite with an extra gate (its live path is a known verification
-  gap; see CLAUDE.md → "Known gaps").
+  gap; see [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md)).
 
 All tear down via `deleteObject` in a `finally` (a set's marker files via the shared
 `cleanupSetMarker` in [`test/helpers/integration.mjs`](../../test/helpers/integration.mjs),
