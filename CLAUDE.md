@@ -76,10 +76,12 @@ overlap that leaves is accepted over sync machinery
    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)) — asserting tests for changed behaviour
    are a per-PR obligation, checked by reading the diff. Assert about the *result*, not that the
    line executed.
-5. **Request a Copilot review at PR create** — pass `--reviewer "@copilot"` to `gh pr create`,
-   then move on; don't verify or re-request, because `gh pr view --json reviewRequests` reads
-   **empty even on success** and treating that as failure just duplicates the request. Harmless
-   for contributors without Copilot enabled: the flag is a no-op for them.
+5. **Open PRs with `npm run pr`** — it is `gh pr create --reviewer "@copilot"`, so the review is
+   requested by construction rather than by remembering; pass the rest through
+   (`npm run pr -- --fill`). Then move on: don't verify or re-request, because
+   `gh pr view --json reviewRequests` reads **empty even on success** and treating that as
+   failure just duplicates the request. Harmless for contributors without Copilot enabled — the
+   flag is a no-op for them.
 
 ### Coding conventions
 

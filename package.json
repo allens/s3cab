@@ -22,6 +22,7 @@
   ],
   "repository": "allens/s3cab.git",
   "scripts": {
+    "pr": "gh pr create --reviewer \"@copilot\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p jsconfig.json",

@@ -141,44 +141,16 @@ Run these first. They produce **candidates, not verdicts** — a single-caller
 module can be deliberate placement, and a dead export can be a genuine seam. Do
 not report a stage-1 hit until stage 2 has seen it in context.
 
-> **Trap, learned the hard way:** build regexes as *literals*, not from string
-> concatenation. A `"\\b"` inside a string literal does not survive into
-> `new RegExp` here, and the query silently reports everything as unused. The
-> scripts below tokenize instead, so they need no escapes.
-
 **Size the pass — code vs comment, so you know what you are actually reading:**
 
 ```bash
-node -e '
-const fs=require("fs"),path=require("path");
-function walk(d,o=[]){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):(e.name.endsWith(".mjs")&&!e.name.endsWith(".test.mjs")&&o.push(p));}return o;}
-let code=0,cmt=0;const rows=[];
-for(const f of walk("src")){let inb=false,c=0,m=0;
-  for(const l of fs.readFileSync(f,"utf8").split(/\r?\n/)){const t=l.trim();
-    if(inb){m++;if(t.includes("*/"))inb=false;continue;}
-    if(t==="")continue;
-    if(t.startsWith("/*")){m++;if(!t.includes("*/"))inb=true;continue;}
-    if(t.startsWith("//")){m++;continue;}
-    c++;}
-  code+=c;cmt+=m;rows.push([f,c,m]);}
-rows.sort((a,b)=>b[1]-a[1]);
-for(const [f,c,m] of rows.slice(0,15))console.log(f.padEnd(34),String(c).padStart(4),String(m).padStart(4));
-console.log("TOTAL code",code,"comment",cmt);'
+node scripts/sweep.mjs size
 ```
 
 **Production fan-in — which modules have earned being modules:**
 
 ```bash
-node -e '
-const fs=require("fs"),path=require("path");
-function walk(d,o=[]){if(!fs.existsSync(d))return o;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):(e.name.endsWith(".mjs")&&!e.name.endsWith(".test.mjs")&&o.push(p));}return o;}
-const files=walk("src"),imp=new Map();
-for(const f of [...files,...walk("scripts")]){const s=fs.readFileSync(f,"utf8");
-  for(const m of s.matchAll(/(?:^|\n)\s*(?:import[\s\S]*?from|export[\s\S]*?from)\s*["\x27](\.[^"\x27]+)["\x27]/g)){
-    const t=path.normalize(path.join(path.dirname(f),m[1]));
-    if(!imp.has(t))imp.set(t,new Set());imp.get(t).add(f);}}
-files.map(f=>[f,(imp.get(f)||new Set()).size]).sort((a,b)=>a[1]-b[1])
-  .forEach(([f,n])=>console.log(String(n).padStart(3),f));'
+node scripts/sweep.mjs fan-in
 ```
 
 Read it **ascending**. High fan-in is evidence a module is *earned*; the interesting
@@ -191,23 +163,7 @@ for a dev utility shows its real caller rather than reading as an orphan.
 **Exports with zero production consumers, with the three numbers that sort them:**
 
 ```bash
-node -e '
-const fs=require("fs"),path=require("path");
-function walk(d,o=[]){if(!fs.existsSync(d))return o;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?walk(p,o):e.name.endsWith(".mjs")&&o.push(p);}return o;}
-const all=[...walk("src"),...walk("test"),...walk("scripts")];
-const prod=new Set(all.filter(f=>f.startsWith("src")&&!f.endsWith(".test.mjs")));
-const scr=new Set(all.filter(f=>f.startsWith("scripts")));
-const toks=new Map(all.map(f=>[f,fs.readFileSync(f,"utf8").match(/[A-Za-z0-9_$]+/g)??[]]));
-const sets=new Map(all.map(f=>[f,new Set(toks.get(f))]));
-for(const f of prod){const t=fs.readFileSync(f,"utf8"),names=new Set();
-  for(const m of t.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z0-9_$]+)/gm))names.add(m[1]);
-  for(const m of t.matchAll(/^export\s*\{([^}]+)\}/gm))for(const p of m[1].split(",")){const n=p.trim().split(/\s+as\s+/).pop().trim();if(n)names.add(n);}
-  for(const n of names){
-    if([...prod].some(g=>g!==f&&sets.get(g).has(n)))continue;
-    const inTests=all.filter(g=>!prod.has(g)&&!scr.has(g)&&sets.get(g).has(n)).length;
-    const inScripts=all.filter(g=>scr.has(g)&&sets.get(g).has(n)).length;
-    const self=toks.get(f).filter(x=>x===n).length-1;
-    console.log(f.padEnd(30),"->",n.padEnd(22),`self:${self}`.padEnd(8),`tests:${inTests}`.padEnd(9),`scripts:${inScripts}`);}}'
+node scripts/sweep.mjs exports
 ```
 
 Every hit already has no production consumer outside its own file. The counts say
