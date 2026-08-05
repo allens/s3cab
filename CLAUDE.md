@@ -33,7 +33,7 @@ undermine the no-lock-in premise.
 1. **Never let docs _mislead_ about what works — but they may describe agreed-but-unbuilt
    direction when clearly marked target-vs-built.** A settled-but-unimplemented redesign can land
    in an ADR (`Status: proposed`) or a design-doc banner, if a reader can't mistake it for live
-   behaviour. Flag drift you notice; "Known gaps" below is the running list.
+   behaviour. Flag drift you notice — [proposals/](proposals/) is the running list.
 2. **Each doc carries only what its home is for, and only what is _not_ trivially knowable from
    the code** — never restate `package.json` scripts or build/test/lint commands.
 
@@ -125,6 +125,10 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
 - **`--test-isolation=none` is slower here, not faster — don't re-try it for speed** (~1.8×: 12s
   vs 7s). Node's per-file isolation parallelizes across workers; one process loses that. Fine for
   debugging shared state, never for speed.
+- **Coverage flags must precede the glob positionals** —
+  `npm run test -- --experimental-test-coverage` collects nothing and exits 0. Coverage is
+  reported, never gated ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)); `package.json`
+  can't carry a comment saying so, which is why this line exists.
 - **Watch for per-file overhead in the walk/snapshot hot path** — a second `lstat`/`stat`/read is
   invisible on one file, dominant on tens of thousands. Fix it by **threading data you already
   have through the pipeline** (the `Dirent` carries the file type; `prop` already takes one
@@ -154,6 +158,13 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   copy-pasteable command on its own indented line, mirroring `collisionError` in
   [src/commands/setup.mjs](src/commands/setup.mjs). Internal invariants and programmer errors are
   out of scope: terse and factual.
+- **Every URL we print is `https://s3cab.plantegral.com/...`, never a `github.com` link** —
+  extension-less (`/guide/<topic>`), since `.md` would weld the URL to the file format. A shipped
+  binary freezes its URLs and `setup` writes one into a starter `exclude.txt` s3cab never
+  rewrites, so a printed URL can never be corrected after install; blob URLs can't redirect, a
+  domain we own always can. Two commitments follow: **don't rename `guide/*.md`** (the redirect
+  maps `/guide/<topic>` → `guide/<topic>.md`), and the domain must keep resolving — it is
+  load-bearing for released software.
 - **Shape our own errors by the taxonomy in [src/lib/error.mjs](src/lib/error.mjs)'s header**
   (*shape*; ADR-0030 is *wording*). Caught by type to branch behaviour → an Error subclass, else a
   plain `Error`; message heavy, actionable or reused → a named factory (`noCredentialsError`),
@@ -216,70 +227,29 @@ a constraint exists or how fixed it is**; some ADRs leave explicit doors open (e
 The *what* is best read from the code: [src/s3cab.mjs](src/s3cab.mjs) is an ~80-line entry point,
 [src/commands.mjs](src/commands.mjs) is the registry, and each command file carries a doc comment.
 
-- **Adding a command = adding one entry to the registry.** Stubs for unbuilt commands stay
-  *inline* there, marked `planned: true` (help renders `(not yet available)`) — a file is earned
-  by logic, not reserved ahead of it ([ADR-0006](docs/adr/0006-minimal-code.md)).
-- **Source layout.** App-level shell files at the `src/` root (`s3cab.mjs`, `commands.mjs`,
-  `help.mjs` — bespoke CLI glue tied to the registry shape, not reusable primitives); below,
-  [src/commands/](src/commands/) and [src/lib/](src/lib/) are **siblings** on purpose, since
-  `lib/` is depended on *by* commands rather than a layer above. Group by **subsystem/cohesion,
-  not abstract layer**: no `lib/util/` junk-drawer. If `lib/` ever cleaves, extract a directory
-  named for the subsystem and leave the generic leaves (`format`, `error`) flat.
-- **The S3/remote engine.** Ownership follows
-  [ADR-0013](docs/adr/0013-one-repository-one-bucket.md)/[0014](docs/adr/0014-backup-sets.md):
-  `objects/<sha256>` → [objects.mjs](src/lib/objects.mjs), `snapshots/<namespace>/` →
-  [remote.mjs](src/lib/remote.mjs), generic SDK boundary → `s3.mjs`. Landing a downloaded stream
-  atomically is **not** an SDK concern, so `writeFileAtomic` sits outside that boundary in
-  [atomic-file.mjs](src/lib/atomic-file.mjs) (where ADR-0001's hash check is enforced). Auth
-  splits in two — `resolveCredentials` in [auth.mjs](src/lib/auth.mjs)
-  ([ADR-0015](docs/adr/0015-standard-aws-credential-chain.md)) and env-file layering in
-  [env.mjs](src/lib/env.mjs), where `loadSet` is the door every set command routes through
-  ([ADR-0022](docs/adr/0022-prepare-remote-set-front-door.md);
-  [ADR-0055](docs/adr/0055-per-set-credentials-one-mode.md) dropped the user layer). Both in
-  [docs/design/auth.md](docs/design/auth.md).
-- **No `package.json` `main`, no `src/index.mjs` barrel.** s3cab is a CLI, and the entry point
-  runs dispatch as a top-level side-effect (unsafe to `import`). Commands are already cleanly
-  exported, so a side-effect-free barrel is trivial to add the day a library consumer appears.
-  (If dispatch ever needs unit testing, guard the run block with `if (import.meta.main)`; today
-  [test/e2e.test.mjs](test/e2e.test.mjs) covers it as a subprocess.)
-- **`--version` is a single source-of-truth chain** — `package.json` `version` → JSON module
-  import → inlined by esbuild into the SEA bundle, so the native binary reports the same number
-  without reading a file at runtime. The release guard keeps the git tag in lockstep; docs avoid
+Module *ownership* (`objects/` → `objects.mjs`, `snapshots/` → `remote.mjs`, SDK boundary →
+`s3.mjs`) reads straight from the code and its ADRs; the auth split is in
+[docs/design/auth.md](docs/design/auth.md). Only the placements the code **can't** tell you are
+listed here:
+
+- **Stubs for unbuilt commands stay _inline_ in the registry**, marked `planned: true` (help
+  renders `(not yet available)`) — a file is earned by logic, not reserved ahead of it
+  ([ADR-0006](docs/adr/0006-minimal-code.md)).
+- **[src/commands/](src/commands/) and [src/lib/](src/lib/) are siblings on purpose** — `lib/` is
+  depended on *by* commands, not a layer above them. Group by **subsystem/cohesion, not abstract
+  layer**: no `lib/util/` junk-drawer. If `lib/` ever cleaves, extract a directory named for the
+  subsystem and leave the generic leaves (`format`, `error`) flat.
+- **Landing a downloaded stream atomically is not an SDK concern**, so `writeFileAtomic` sits
+  *outside* the `s3.mjs` boundary in [atomic-file.mjs](src/lib/atomic-file.mjs) — which is where
+  ADR-0001's hash check is enforced.
+- **No `package.json` `main`, no `src/index.mjs` barrel** — the entry point runs dispatch as a
+  top-level side-effect, so it's unsafe to `import`. Commands are already cleanly exported, so a
+  barrel is trivial to add the day a library consumer appears. (If dispatch ever needs unit
+  testing, guard the run block with `if (import.meta.main)`.)
+- **`--version` is a single source-of-truth chain** — `package.json` → JSON module import →
+  inlined by esbuild into the SEA bundle, so the binary never reads a file at runtime. Docs avoid
   pinning the number (README uses a live npm badge).
 
-How the structure is reasoned about and named:
-[ADR-0010](docs/adr/0010-cli-output-conventions.md) (output/stream discipline),
-[ADR-0011](docs/adr/0011-validation-in-command-functions.md) (validation in commands),
-[ADR-0012](docs/adr/0012-consumer-vocabulary-naming.md) (naming).
-
----
-
-## Known gaps
-
-- **Roles Anywhere is built (both phases) but its live path is unverified end-to-end.** The
-  runtime signer shipped in [PR #191](https://github.com/allens/s3cab/pull/191) (ADR-0057/0058)
-  and is proven byte-for-byte against the reference formula in a unit test — but
-  [test/integration/roles-anywhere.test.mjs](test/integration/roles-anywhere.test.mjs)'s live
-  `CreateSession` + backup/restore round trip **has never actually run**. It skips without a
-  deployed trust anchor and `S3CAB_TEST_RA_HOME`, which neither the dev box nor CI has. To close
-  it: run the Phase A-2 flow against the test bucket (`s3cab aws <bucket> --roles-anywhere` →
-  deploy → `--save --from-stack`), export `S3CAB_TEST_RA_HOME`, then `npm run test:integration`.
-- **Retention-policy automation is the one open piece of the backup plan** — keep-last / daily /
-  weekly / monthly over `forget`/`cleanup`, deferred until real usage shows the shapes. The rest
-  of [docs/design/backup.md](docs/design/backup.md)'s five slices is built, its sub-decisions now
-  ADRs 0033 / 0044 / 0045 / 0027 / 0053. (A `node:sqlite` hash cache was spiked and **rejected**
-  for the in-memory `Map`; [scripts/sqlite-hash-cache.mjs](scripts/sqlite-hash-cache.mjs).)
-- **Coverage is reported but not gated** ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md));
-  the ci.yml Linux `lint` job prints the table as advisory output. Standing trap: the coverage
-  flags must **precede** the glob positionals — `npm run test -- --experimental-test-coverage`
-  collects nothing and exits 0. `package.json` can't carry a comment saying so; this is it.
-- **Everything we print is `https://s3cab.plantegral.com/...`, never a `github.com` link.** A
-  shipped binary freezes its URLs, and `setup`'s starter `exclude.txt` writes one into a file
-  s3cab never rewrites, so a printed URL can never be corrected for anyone who already installed.
-  Blob URLs can't redirect; a domain we own always can. Print
-  `s3cab.plantegral.com/guide/<topic>` — extension-less, since `.md` would weld the URL to the
-  file format. Two commitments follow: **don't rename `guide/*.md`** (the redirect maps
-  `/guide/<topic>` → `guide/<topic>.md`), and the domain must keep resolving — it is load-bearing
-  for released software.
-- **Re-measure the slurp/stream hash boundary** in [src/commands/prop.mjs](src/commands/prop.mjs)
-  during any future perf pass — details in [proposals/performance.md](proposals/performance.md).
+Naming and output discipline: [ADR-0010](docs/adr/0010-cli-output-conventions.md),
+[ADR-0011](docs/adr/0011-validation-in-command-functions.md),
+[ADR-0012](docs/adr/0012-consumer-vocabulary-naming.md).
