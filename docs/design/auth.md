@@ -41,7 +41,7 @@ This design must:
 
 ### Step 0: Load the set's env file
 
-Before constructing AWS SDK clients, s3cab loads the active set's env file (`~/.s3cab/sets/<set>/env`) into `process.env` (in `src/lib/env.mjs`). A set-accepting command routes through the `loadSet` door (see [ADR-0022](../adr/0022-prepare-remote-set-front-door.md)); the entry-point `loadEnv()` only marks the environment initialized (it loads no file). s3cab deliberately does **not** read a `.env` from the current working directory, and never reads or writes `~/.aws/*`.
+Before constructing AWS SDK clients, s3cab loads the active set's env file (`~/.s3cab/sets/<set>/env`) into `process.env` (in `src/lib/env.mjs`). A set-accepting command routes through the `loadSet` door — the only door there is (see [ADR-0022](../adr/0022-prepare-remote-set-front-door.md), as amended). A command addressed by a **bucket** rather than a set (`upload --bucket`, `hashes`, `verify`, `cleanup`, `delete`) applies no s3cab layer at all and runs on the ambient AWS setup. s3cab deliberately does **not** read a `.env` from the current working directory, and never reads or writes `~/.aws/*`.
 
 There is **one** s3cab layer, applied over the ambient shell (a file value always wins over the shell — files authoritative):
 
