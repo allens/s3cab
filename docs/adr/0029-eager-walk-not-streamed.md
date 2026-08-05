@@ -49,3 +49,5 @@ up-front work set and the progress denominator for that is a bad deal.
   oversight — the genuinely open hot-path perf item is **parallel hashing** (a small in-flight
   `prop()` pool), which attacks the stage that actually dominates. See
   [proposals/performance.md](../../proposals/performance.md).
+- The walk being cheap rests on it not stat-ing the files it finds, which is its own recurring
+  question and its own decision: [0077](0077-walk-does-not-stat.md).
