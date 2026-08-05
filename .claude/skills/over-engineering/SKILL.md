@@ -304,6 +304,43 @@ user cannot tell what you never reached.
 finding needs an explicit go-ahead, and would then follow the normal worktree +
 PR route.
 
+## Where a rejection goes
+
+The reports above are disposable; a **rejection is not.** A finding the user
+declines stays true of the code, so the next cold run will re-derive it with equal
+confidence — and the reasoning that spared it must outlive the report that carried
+it.
+
+**Primary rule: record it in the code, at the point a future reader would undo
+it.** The symbol's own doc comment, or the module header if the rejection is about
+the module. This is the most robust home there is — a cold reader cannot propose
+removing the thing without first reading why it stands — and CLAUDE.md already
+holds that a code comment is often the right home for a settled rationale, "the one
+place someone about to undo it will look." It needs no apparatus and cannot fall
+out of sync, because it travels with what it describes.
+
+The worked example is `formatSets` in `sets.mjs`: proposed for removal as a surplus
+`export`, kept because its test pins column alignment that is worth pinning. Its
+JSDoc now says exactly that, so the next run meets the argument before it can
+repeat the proposal.
+
+**Fallback, for rejections with no such point:** a short list at
+`proposals/over-engineering-rejections.md` — created the first time one exists, not
+before. Two kinds land here: a finding that spanned several modules with no single
+home, and one rejected as *right but not worth the churn*, which is a judgement
+about the project's state rather than a fact about the code.
+
+Two constraints on that list:
+
+- **It is consulted _after_ findings are drafted, never during analysis** — as a
+  filter on output, not an input to attention. Reading prior rejections first would
+  reintroduce exactly the inherited-justification problem the cold read exists to
+  escape. Say how many findings it suppressed, and why, so a rejection that has gone
+  stale is visible rather than silently permanent.
+- **It records the user's decisions, not the run's own dismissals.** The "looked at
+  and dismissed" section is one run's judgement and is fine to re-derive; a
+  rejection is a decision that should stick.
+
 ## Relationship to `/improve-codebase-architecture`
 
 > *Assistant-proposed framing — not part of the original brief.*
@@ -319,16 +356,13 @@ whether the seam has **real consumers today**. Two or more genuine production
 callers with different needs is a deep module earning its keep; one caller is a
 split looking for a reason.
 
-## Not yet built
+## Not built, on purpose
 
-Deliberately deferred until a real run gives evidence, so it is not re-derived:
-
-- **No durable findings file, run log, or standing-rejections memory.** If a later
-  run shows it is needed, the answer is **rejections as an _output_ filter**: read
-  `src/` clean, draft the findings, and only *then* consult the rejection list to
-  suppress duplicates. That is the only arrangement that keeps the cold read
-  genuinely cold while stopping the same dismissed candidate returning every run.
-  Reading prior findings *first* would re-create in a new file precisely the
-  inherited-justification problem this skill exists to escape.
+- **No run log, and no durable findings file.** The first run settled this: what
+  needs to outlive a report is not the findings but the *rejections*, and those now
+  go in the code (see *Where a rejection goes*). Findings that land need no memory
+  at all — implementing one removes the complexity, so a cold read cannot re-find
+  it. That self-correction is why the reports can stay disposable, and why the
+  large memory apparatus this section once anticipated was never justified.
 - **No hard-coded baseline numbers** — the stage-1 queries are carried instead, so
   the skill cannot rot as the codebase moves.

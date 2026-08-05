@@ -378,8 +378,12 @@ only — each run's report overwrites it).
 *creates* seams), this one hunts seams that don't pay (it *destroys* them). Running both is the
 point — each checks the other's overreach, and the tie-break when they collide is whether the
 seam has two or more **production** callers with different needs. Unlike every other skill here
-it reads the code **cold**: it deliberately does *not* open `docs/adr/` or `proposals/`, so it
-writes its own report and must never touch `architecture-improvements.md`.
+it reads the code **cold**: during analysis it deliberately opens neither `docs/adr/` nor
+`proposals/`, so it writes its own report and must never touch `architecture-improvements.md`.
+Its reports are disposable (fixed names, latest-only); what has to survive a run is a
+**rejection**, and those go in the code — the doc comment on the thing a future reader would
+otherwise remove — with `proposals/over-engineering-rejections.md` as the fallback for the ones
+that have no such home, consulted only *after* findings are drafted.
 
 ---
 
