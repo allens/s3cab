@@ -81,9 +81,12 @@ earns its keep; only the tripwire half has outlived its subject.
 > The cause is a real gap in the sweep skill, now recorded there: the skill
 > excludes test files from analysis (correctly), yet obliges every finding of this
 > category to state what the test would do instead — an obligation that cannot be
-> met honestly without opening the test file. **Leftover:** the shipped change
-> duplicates that older test for the IAM template; fold the two into the
-> parameterized block, keeping the older one's stronger nested-key regex.
+> met honestly without opening the test file. **The leftover is closed** — the
+> duplicate was folded into the parameterized block by
+> [PR #258](https://github.com/allens/s3cab/pull/258) (`aa3678b`), absorbing the
+> older test's stronger nested-key regex first and verifying it by mutation: with
+> the value moved under a different key, the bare form still passes and the nested
+> form fails.
 
 **What the complexity is.** [aws.mjs:35](src/lib/aws.mjs#L35) returns a
 `BucketLifecycleConfiguration` — an AWS SDK type, imported for this and nothing
