@@ -195,21 +195,9 @@ export function clientConfig() {
  *
  * Credentials come from `src/lib/auth.mjs` (env files → standard AWS chain →
  * actionable error — see docs/design/auth.md).
- *
- * It also carries the one development tripwire for the "env loaded before any S3
- * op" invariant (ADR-0022): every S3 op routes through here, so a single `assert`
- * on the `__S3CAB_ENV_LOADED` breadcrumb `loadEnv` drops covers them all. It only
- * ever fires on incorrect wiring — a lib consumer who skipped `loadEnv` — turning
- * that into a clear error instead of a client built against an unconfigured
- * environment. Asserted before the memoized `??=`, so cached-client ops are too.
  * @returns {S3Client}
  */
 function client() {
-  assert(
-    process.env.__S3CAB_ENV_LOADED,
-    "S3 operation reached before env was loaded — loadEnv() runs at the CLI " +
-      "entry point; a direct caller (test/library) must call it first.",
-  );
   if (_client) {
     return _client;
   }

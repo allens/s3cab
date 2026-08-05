@@ -58,10 +58,6 @@ describe("putFile multipart tuning (ADR-0060)", () => {
     dir = mkdtempSync(join(tmpdir(), "s3cab-tuning-"));
     file = join(dir, "x.bin");
     writeFileSync(file, "content");
-    // client() refuses to build before env is loaded (ADR-0022); this suite
-    // never reaches the network — the uploader is mocked — so the breadcrumb is
-    // all it needs.
-    process.env.__S3CAB_ENV_LOADED = "1";
     // client() announces the identity once and putFile logs a summary line when
     // stderr is not a TTY; neither is under test here.
     mock.method(console, "warn", () => {});
@@ -69,7 +65,6 @@ describe("putFile multipart tuning (ADR-0060)", () => {
 
   after(() => {
     rmSync(dir, { recursive: true, force: true });
-    delete process.env.__S3CAB_ENV_LOADED;
     // The global `mock` (unlike a test's `t.mock`) is never auto-restored, so
     // the console.warn stub would outlive this suite and silently swallow
     // warnings from anything added to this file later.

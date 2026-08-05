@@ -950,7 +950,6 @@ const AWS_VARS = [
   "AWS_SESSION_TOKEN",
   "AWS_PROFILE",
   "AWS_REGION",
-  "__S3CAB_ENV_LOADED",
 ];
 
 describe("putFile / putText (fake S3 on loopback)", () => {
@@ -1114,7 +1113,6 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     delete process.env.AWS_SESSION_TOKEN;
     delete process.env.AWS_PROFILE; // static env creds must beat any host profile
     process.env.AWS_REGION = "us-east-1";
-    process.env.__S3CAB_ENV_LOADED = "1"; // client()'s ADR-0022 tripwire
     seen = [];
     conditions = new Map();
     headStatus = 404;

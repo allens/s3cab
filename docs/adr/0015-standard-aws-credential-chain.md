@@ -14,6 +14,8 @@ s3cab never writes `~/.aws/*`. Full model and history: [docs/design/auth.md](../
 - **Set layer**, not per-dir. `~/.s3cab/sets/<set>/env` (written by `setup`) is wired into
   `loadEnv({ set })`; `backup`/`status`/`list --remote` consume it. Local set commands need no
   credentials, so they don't ([0014](0014-backup-sets.md)).
+  _(The decision stands; the wiring named here does not — `loadEnv` is gone and the set layer
+  is applied by `loadSet`. See [0022](0022-prepare-remote-set-front-door.md), as amended.)_
 
 ## The removed SSO login — don't rebuild it
 

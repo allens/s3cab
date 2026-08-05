@@ -18,17 +18,19 @@ import { resolveSet } from "./sets.mjs";
 // with the built-in `util.parseEnv` (no dotenv dep, ADR-0005), so the
 // set-over-shell precedence is enforced by *us*.
 //
-// Two doors (ADR-0022):
-//   loadEnv()       marks the environment initialized — the `__S3CAB_ENV_LOADED`
-//                   breadcrumb `s3.mjs`'s `client()` asserts, a development
-//                   tripwire catching a lib consumer who forgot the up-front
-//                   call. The CLI entry point (s3cab.mjs) calls it once before
-//                   dispatching; a library consumer calls it once up front;
-//                   commands never call it. With the user layer gone it loads no
-//                   file — only the set layer carries s3cab config now.
-//   loadSet(name)   resolves a set *and* applies its *set* layer
-//                   (~/.s3cab/sets/<set>/env) over the ambient shell. Every
-//                   command that takes a set argument routes through it.
+// One door (ADR-0022, as amended): `loadSet(name)` resolves a set *and* applies
+// its env layer (~/.s3cab/sets/<set>/env) over the ambient shell. Every command
+// that takes a set argument routes through it; a command addressed by bucket
+// (`upload --bucket`, `hashes`, `verify`, `cleanup`, `delete`) deliberately loads
+// no s3cab layer at all and runs on the ambient AWS setup.
+//
+// ADR-0022 originally described *two* doors, the other being a `loadEnv()` called
+// once at the entry point to apply a per-user `~/.s3cab/env` layer. ADR-0055
+// removed that layer, which left `loadEnv` loading nothing and existing only to
+// set a `__S3CAB_ENV_LOADED` flag that `s3.mjs` asserted — a tripwire for a
+// library consumer who skipped it, in a package that exposes no library entry
+// point (no `main`, no barrel, dispatch runs as a top-level side effect). Both
+// were retired; the set door is the whole mechanism now.
 
 /**
  * The custom S3 endpoint, if one is configured — present for any S3-compatible
@@ -51,7 +53,8 @@ export const customEndpoint = (env = process.env) =>
 
 /**
  * Parse an env file into a plain object, or `{}` if it doesn't exist. Synchronous
- * because `loadEnv` runs on the synchronous client-construction path. Exported so
+ * because `loadSet` is, and it runs on the synchronous path into a command body
+ * (before any client is built). Exported so
  * the `aws` command's get-mode can read a single scope's file (the value set
  * *there*, before layering).
  * @param {string} path
@@ -145,23 +148,6 @@ export function profileSource() {
 }
 
 /**
- * Mark the environment initialized. The CLI entry point (src/s3cab.mjs) calls it
- * once before dispatching any command, and a library consumer calls it once
- * before using the API. **Commands do not call it** — the entry point has already
- * run it by the time any command body executes.
- *
- * With the per-user layer gone (ADR-0055) it loads no file: only a set's env
- * layer carries s3cab config, applied by {@link loadSet}. All it does now is drop
- * the `__S3CAB_ENV_LOADED` breadcrumb `s3.mjs`'s `client()` asserts — a
- * development tripwire that the up-front init ran before any S3 op, catching a lib
- * consumer who skipped it (ADR-0022). `__`-prefixed: an internal flag, not a
- * config var.
- */
-export function loadEnv() {
-  process.env.__S3CAB_ENV_LOADED = "1";
-}
-
-/**
  * Resolve a backup set *and* apply its env layer — the door every set-accepting
  * command routes through. `resolveSet` (sets.mjs) picks the set (sole-set
  * default), then this applies that set's `~/.s3cab/sets/<set>/env` over the
@@ -193,8 +179,8 @@ let homeAnnounced = false;
  * paste this line and the shortened remainder together. And when `S3CAB_HOME` is
  * overridden, nothing else on screen says which state directory is live.
  *
- * Here rather than in `loadEnv` because that runs for every command, including
- * `--help` and `--version`, which touch no state and print no paths. `loadSet` is
+ * Here rather than at the entry point, which runs for every command including
+ * `--help` and `--version` — those touch no state and print no paths. `loadSet` is
  * the door every *set* command routes through (ADR-0022) — and it can run twice
  * in one invocation (a porcelain command and the plumbing it composes), hence the
  * flag.
