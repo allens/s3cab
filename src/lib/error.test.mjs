@@ -6,7 +6,6 @@ import {
   errorText,
   isInputError,
   isUsageError,
-  notImplemented,
   requireArg,
 } from "./error.mjs";
 
@@ -137,13 +136,5 @@ describe("errorText", () => {
   it("stringifies a thrown non-error", () => {
     assert.equal(errorText("just a string"), "just a string");
     assert.equal(errorText(undefined), "undefined");
-  });
-});
-
-describe("notImplemented", () => {
-  it("throws with the feature name in the message", () => {
-    assert.throws(() => notImplemented("backup"), {
-      message: /Not yet implemented: backup/,
-    });
   });
 });
