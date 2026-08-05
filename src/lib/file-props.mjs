@@ -22,12 +22,6 @@ import { pipeline } from "node:stream/promises";
  */
 
 /**
- * SHA-256 hash of an empty file. Module-private — only `fileProps` needs it.
- */
-const SHA256_EMPTY_FILE =
-  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-/**
  * Compute a file's content properties — its `hash`, `size`, and `mtime` — from
  * the file on disk, reusing the stored hash from a previous snapshot's `lookup`
  * when the file is unchanged (same `size` *and* `mtime`), so an unchanged file is
@@ -90,10 +84,10 @@ export async function fileProps(path, lookup, onHashStart) {
     });
     await pipeline(source, hasher);
     hash = hasher.digest("hex");
-  } else if (size) {
-    hash = crypto.hash("sha256", readFileSync(path), "hex");
   } else {
-    hash = SHA256_EMPTY_FILE;
+    // An empty file needs no special case: `readFileSync` hands back an empty
+    // buffer and `crypto.hash` returns the well-known empty-string digest.
+    hash = crypto.hash("sha256", readFileSync(path), "hex");
   }
 
   return {
