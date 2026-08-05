@@ -520,9 +520,9 @@ export async function listProfiles() {
 
 /**
  * The credential provider s3cab hands to its AWS clients. Implements the
- * resolution order above: the standard chain, after the command's `loadEnv` has
- * already merged any s3cab env files into the environment the chain reads; if it
- * yields nothing, throw an actionable error. Returning a provider (rather than
+ * resolution order above: the standard chain, after a set-accepting command's
+ * `loadSet` has already merged that set's env file into the environment the chain
+ * reads; if it yields nothing, throw an actionable error. Returning a provider (rather than
  * resolving eagerly) lets the SDK cache and refresh expiration-aware credentials
  * itself.
  *

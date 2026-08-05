@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after } from "node:test";
-import { loadEnv } from "../../src/lib/env.mjs";
 import { deleteObject } from "../../src/lib/s3.mjs";
 import { remoteSetPrefix } from "../../src/lib/set-marker.mjs";
 import { useTempHome } from "./temp-home.mjs";
@@ -38,23 +37,21 @@ if (!TEST_BUCKET) {
 /** The gated bucket — guaranteed set (the import above throws otherwise). */
 export const bucket = TEST_BUCKET;
 
-// These suites call the S3 ops directly (no CLI entry point), so they must trip
-// the env-loaded flag client() asserts (ADR-0022) — ambient AWS credentials
-// supply the real creds; this just sets the flag, at import time (before any test
-// body runs), so a static import of this harness is enough.
+// Relocate S3CAB_HOME to a throwaway dir at import time, before any test body runs
+// — the isolation docs/integration-testing.md promises. Anything that reads s3cab's
+// home (a set's `env`, its `dirs.txt`/`exclude.txt`, the Roles Anywhere identity)
+// then sees an empty home rather than the developer's real `~/.s3cab`, so no local
+// set config can leak into a suite. That has bitten before: a stale `AWS_PROFILE=…`
+// in a real set's env file once shadowed `.env.test` and broke a run.
 //
-// Relocate S3CAB_HOME to a throwaway dir *first* (the isolation
-// docs/integration-testing.md promises): otherwise `loadEnv()` reads the
-// developer's real ~/.s3cab/env and merges its AWS_PROFILE / region / endpoint into
-// process.env, leaking their machine's set config into the suite — the very way a
-// stale `AWS_PROFILE=…` there once shadowed .env.test and broke a run. Per-test
-// useTempHome() overrides this again; credentials are untouched (they resolve from
-// ~/.aws via HOME, which we leave alone). Cleaned up once the file's suite ends so
-// runs don't accumulate empty s3cab-it-* dirs (matching the mkdtempDisposable
-// hygiene the unit tests use).
+// Credentials are untouched — they resolve from `~/.aws` via HOME, which we leave
+// alone, and these suites call the S3 ops directly rather than through the CLI, so
+// ambient AWS credentials are what they authenticate with. Per-test useTempHome()
+// overrides this again. Cleaned up once the file's suite ends so runs don't
+// accumulate empty s3cab-it-* dirs (matching the mkdtempDisposable hygiene the unit
+// tests use).
 const isolatedHome = mkdtempSync(join(tmpdir(), "s3cab-it-"));
 useTempHome(isolatedHome);
-loadEnv();
 after(() => rmSync(isolatedHome, { recursive: true, force: true }));
 
 /**

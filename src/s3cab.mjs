@@ -7,7 +7,6 @@ import { parseArgs } from "node:util";
 import { commands } from "./commands.mjs";
 import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
 import { isCredentialProviderError } from "./lib/auth.mjs";
-import { loadEnv } from "./lib/env.mjs";
 import {
   EXIT_INTERRUPTED,
   InterruptedError,
@@ -111,11 +110,6 @@ try {
   if (debug) {
     console.warn({ execPath, jsPath, commandName, positionals, options });
   }
-
-  // Mark the environment initialized once, up front (ADR-0022) — the tripwire
-  // s3.mjs's client() asserts. There is no user layer to load (ADR-0055);
-  // set-accepting commands apply their set layer via `loadSet`.
-  loadEnv();
 
   const { json, ...execOptions } = options;
   const result = await command.exec({ ...execOptions, debug }, positionals);
