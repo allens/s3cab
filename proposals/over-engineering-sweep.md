@@ -163,6 +163,33 @@ YAML interpolation is broken, because they never look at the artifact that ships
 
 ## 3. `listSnapshotNames`'s `latest` option changes the function's return type
 
+> **SHIPPED** — [PR #271](https://github.com/allens/s3cab/pull/271), merged
+> 2026-08-06 as `c2c79da`. Both `@overload` blocks, the union return and the
+> branch are gone; the signature is `listSnapshotNames(snapshotDir): string[]`.
+> The finding needed no amendment: it predated #259 and #266, but a re-read
+> found all six call sites exactly as tabled below.
+>
+> **The line delta below is wrong, and wrong in a way the report's own preamble
+> forbids.** It claims "−20 net (the two `@overload` blocks are 12 of them)".
+> The blocks are 14 lines, not 12, and — the real error — they are *JSDoc*,
+> while the preamble states comments are "excluded from that count and from
+> judgement". Measured as the skill measures, this change removes roughly **one
+> line of code**: the branch collapses into the `return`, and the intermediate
+> `const names` goes. The whole commit is −11 lines, nearly all of them comment.
+>
+> **That does not make the finding weaker — it makes its stated case the wrong
+> one.** What was bought is the collapsed contract: one return type instead of a
+> `string[] | string | undefined` union that every caller had to narrow anyway.
+> Both `.at(0)` sites already carried a guard (`if (!localName)`, `if (name)`),
+> because the union gave them no choice. A finding whose value is *cognitive*
+> should not be argued in lines at all.
+>
+> **The finding-7 risk class did not repeat.** The brief required deleting the
+> overloads and running `typecheck` before calling them redundant, since finding
+> 7 died at exactly that step. It came back clean — these overloads really did
+> carry nothing the single signature does not. Copilot approved with zero
+> comments.
+
 **What the complexity is.** [snapshot-file.mjs:578-612](src/lib/snapshot-file.mjs#L578-L612)
 carries **two `@overload` blocks**, a `string[] | string | undefined` union return,
 and a branch — all so one boolean can flip the function between "a list" and "one
