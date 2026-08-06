@@ -43,3 +43,19 @@ fi
 npm run --silent format:check
 npm run --silent lint
 npm run --silent typecheck
+
+# `npm install` behind a private registry mirror rewrites every `resolved` host in
+# the lockfile to that mirror — publishing its name and breaking `npm ci` for
+# anyone who can't reach it. This has to be caught *here*, not in CI: CI only sees
+# a commit that is already pushed, so by then the name is public regardless.
+# `|| true` because the clean case is `grep -v` matching nothing, which exits 1.
+bad=$(grep -o '"resolved": "https://[^/]*/' package-lock.json |
+  grep -v '^"resolved": "https://registry.npmjs.org/$' | sort -u || true)
+if [ -n "$bad" ]; then
+  echo "pre-commit: package-lock.json resolves through a non-public registry." >&2
+  echo "$bad" >&2
+  echo "  Rewrite those hosts to registry.npmjs.org and commit again. A mirror is a" >&2
+  echo "  byte-identical proxy, so 'integrity' already matches — only the host is" >&2
+  echo "  wrong, and re-running 'npm install' just writes it back." >&2
+  exit 1
+fi
