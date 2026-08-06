@@ -112,7 +112,7 @@
         <nav class="text-sm grid sm:grid-cols-2 gap-x-8 gap-y-1 text-slate-700">
           <a class="hover:text-indigo-700" href="#a"
             >A · Deepen <code>progress.mjs</code> to own a counted pass
-            <span class="text-emerald-700">Strong</span></a
+            <span class="text-slate-500">✓ landed #277</span></a
           >
           <a class="hover:text-indigo-700" href="#b"
             >B · Roles Anywhere escapes the credential-error family
@@ -171,6 +171,23 @@
           <p class="text-xs text-slate-500">
             Surfaced independently by two of the three sweeps.
           </p>
+
+          <div
+            class="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm"
+          >
+            <strong>Landed 2026-08-06</strong> —
+            <a
+              class="text-emerald-800 underline"
+              href="https://github.com/allens/s3cab/pull/277"
+              >PR #277</a
+            >. Kept here for the before/after; the reasoning of record is
+            ADR-0076's amendment. Two things below were changed by building it:
+            the deepened interface gained a <code>done()</code> method (disposal
+            can't tell it is unwinding from a throw), and
+            <code>due()</code> did not disappear — it moved from the callers'
+            per-item loops into the tick, because <code>update</code>'s argument
+            is built before <code>update</code> can decline it.
+          </div>
 
           <div class="font-mono text-sm text-slate-600 space-y-0.5">
             <div>src/lib/progress.mjs:4-24, :67-71</div>

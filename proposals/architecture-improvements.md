@@ -37,67 +37,11 @@ thin where it was *wiring* — six of the nine candidates are a rule or a recipe
 the callers rather than behind an interface, and three of those are also **the places nothing
 can test**.
 
-- **A — Deepen `progress.mjs` to own a counted pass.** _Strong._ Two of the three sweeps found
-  this independently. The whole shape of a counting pass — bare label, then
-  `<label> <count> in <elapsed>`, then a tally that must survive off a terminal — is re-typed
-  identically in [walk.mjs](../src/lib/walk.mjs) 190–260 and [upload.mjs](../src/lib/upload.mjs)
-  100–141 (that template string appears four times; the closing
-  `isInteractive(stderr) ? progress.update : console.warn` is the same five lines). The TTY gate
-  `progress.mjs` exists to absorb leaks back out to three callers (walk.mjs:15, upload.mjs:14,
-  s3.mjs:37), making its own header claim — *"every progress consumer routes through this
-  module"* — false. And the clock is hand-rolled twice (upload.mjs:122–134,
-  snapshot.mjs:285–295) and **absent from the walk**, which gates on `progress.due()` inside the
-  yield loop: `walkFiles` blocks on `readdirSync` per directory and on `resolveFileType`'s
-  `lstatSync` fallback, and yields nothing while descending a subtree it keeps no file from — so
-  the count *and its elapsed clock* freeze. That is the fault
-  [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) §3 already ruled against,
-  on the pass that never got the fix. Nothing anywhere asserts on `Finding files in` or
-  `Scanning existing objects`. Extends 0076; does not reopen it.
-  - **Grilled 2026-08-06, before any code.** Settled shape: `progress.mjs` gains
-    **`countedPass(stream, label, () => count)`** — a disposable that paints the bare label on
-    construction, redraws `<label> <count> in <elapsed>` on **its own 1-second `unref`'d timer**,
-    and exposes exactly **`done()`** to draw the final tally. Named for
-    [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s own word ("one progress
-    line per *pass*") rather than for `createProgress`'s prefix. Five decisions worth keeping:
-    (1) **scope is two callers**, walk and upload — `restore`'s `Restoring 12/200…` is a *third*
-    shape (a total, no elapsed, `logLines`) and one extra case doesn't earn a generalization (#3).
-    (2) **The timer is owned and the count is pulled**, not injected or pushed: the walk freezes
-    *because* the redraw can only happen when the caller reaches the next iteration, so only an
-    owned clock makes freezing structurally impossible; a thunk is house precedent
-    (`withProgress` already takes `bytes()`/`hashing()`). (3) **`done()` exists because disposal
-    can't tell it is unwinding from a throw** — the walk throws mid-loop on a duplicate path and
-    `storedHashes`' LIST can throw, and today no tally is written on those paths; a
-    dispose-drawn tally would print `…1,204 in 3 secs` directly above the error that says the
-    walk failed. So disposal keeps today's job (flush the held update, close the line) and the
-    caller states the one fact only it knows. (4) **The tick is 1000 ms, not `MIN_REDRAW_MS`** —
-    `secondsSince` rounds to whole seconds, so at 100 ms the elapsed half cannot change on nine
-    draws out of ten. This preserves `upload`'s cadence exactly and **slows the walk's from 10/s
-    to 1/s** (accepted: more legible, 0076's own goal for the dial), and it retires `due()` from
-    the walk's hot loop, since composing once a second is not a per-file cost. (5) **The closing
-    tally keeps today's exact two branches** and is *not* rerouted through `statusLine` — that
-    writes its own `\n` and disposal would then add a second, so the naive swap prints a blank
-    line on a terminal. Output byte-identical throughout except the walk's cadence.
-  - **Deliberately out of scope, recorded so the next reader doesn't re-count it:**
-    `s3.mjs:720`'s `isInteractive` is **not** a third copy of this gate — it asks *"was a bar
-    drawn, so should I log a line instead?"*, a question `progress.mjs` already answers
-    internally (`drawn`) but does not expose. Its own small change, its own decision (a `drawn`
-    getter? `clear()` returning whether it wiped?). And once the walk migrates, **`due()` has
-    exactly one production caller left** (`restore.mjs:222`) — kept, because deleting it would
-    push pacing back out to the caller, but noted: `restore`'s counter is itself a counted pass
-    with a total, and migrating it one day retires `due()` with it.
-  - **Verification plan:** durable tests in `progress.test.mjs` (same interface, so no dotted
-    aspect file) driven by `mock.timers` — a caller that does *nothing* while the line keeps
-    redrawing with a growing elapsed — **plus one hand-verification of the walk against a real
-    tree**, the precedent [#204](https://github.com/allens/s3cab/pull/204) set. Stated plainly
-    rather than dressed up: a fixture that reliably blocks `readdirSync` would be a flake, so the
-    freeze fix is verified by hand, not by an assertion. `storedHashes`' migration **deletes a
-    `try/finally` around a `for await`** over the `objects/` LIST, which is control flow on an S3
-    read path — so `npm run test:integration` applies (this machine has no `.env.test`; if it
-    can't be wired, the PR says so rather than passing the gap over in silence).
-  - **Delivery:** a worktree, one PR, three commits (progress.mjs + tests + the amended header;
-    walk; upload), so the byte-identical claim is reviewable one caller at a time.
-    **ADR-0076 amended by a paragraph, no new ADR** — no new trade-off, a refined interface,
-    exactly as the tenth pass's candidate A amended ADR-0069.
+**A landed 2026-08-06** ([PR #277](https://github.com/allens/s3cab/pull/277)); its entry is
+retired to the run log below, its lasting knowledge now in
+[ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment. **B–I remain
+open.** Track 1 continues **C → F**, both in the files #277 just touched.
+
 - **B — Bring Roles Anywhere inside the credential-error family.** _Strong._
   `resolveCredentials` ([auth.mjs](../src/lib/auth.mjs) 531–534) returns from the RA branch
   *before* entering its `try`, so only the **absent identity** case is wrapped (auth.mjs:483–490).
@@ -604,3 +548,45 @@ least once; re-open only if the stated reason no longer holds.
   `verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
   `.env.test`, so `npm run test:integration` can't reach a real bucket here — tracks 1 and 2 are
   pure or local and verify fully, but **B leans on CI**. Overwrote the HTML report in place.
+- **2026-08-06 — A landed** ([PR #277](https://github.com/allens/s3cab/pull/277), grilled
+  in-session to an empty frontier before any code, then built in four commits). *A counted pass,
+  drawn on a clock `progress.mjs` owns.* `countedPass(stream, label, () => count)` now holds the
+  shape both callers were re-typing, and the walk's line can no longer freeze when the walk does.
+  The reasoning is in
+  [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment (amended, not
+  replaced — no new trade-off, a refined interface, the same call the tenth pass made on
+  ADR-0069), so it is not repeated here. **What is worth keeping is where the grilling and the
+  verification changed the shape.**
+  - **`done()` exists because of an abort path nobody had looked at.** The plan was an interface
+    the caller never touches again — construction paints, the timer redraws, disposal draws the
+    tally. Checking the throw paths killed it: the walk aborts mid-loop on a duplicate path and
+    the store LIST can fail, and neither writes a tally today, so a dispose-drawn tally would have
+    printed `… 1,204 in 3 secs` directly above the error saying the pass failed.
+    `Symbol.dispose` gets no signal that it is unwinding, so the caller has to say.
+  - **The `s3.mjs` "third leak" was not one, and counting it would have been the error.** The
+    pass's own report called `s3.mjs:720`'s `isInteractive` a third copy of the gate. Reading it
+    showed a *different* question — "was a bar drawn, so should I log a line instead?" — which
+    `progress.mjs` answers internally (`drawn`) but does not expose. Left out by name in both the
+    module header and the ADR, so the omission reads as known. Still open, still its own decision.
+  - **Copilot found a real defect, and it inverted a claim this file had made.** `update`'s
+    argument is built before `update` can decline it, so off a terminal the tick composed an
+    `Intl`+Temporal line once a second and threw it away for the whole pass. Gated on `due()` —
+    and note what that does to the entry's note that `due()` would drop to one production caller:
+    **false**. The gate moved *out* of the callers' per-item loops and *into* the tick, so it is
+    now asked once a second in one place rather than per file in two. `restore.mjs:222` is its
+    second caller, not its only one.
+  - **The freeze was hand-verified in two halves, and the entry should not pretend otherwise.** A
+    402,000-file tree under a pty (400,000 excluded) showed the count jump straight from the bare
+    label to 2,000, confirming the excluded descent yields nothing; separately, a pass whose
+    caller only sleeps advanced `0 in 1 sec` → `0 in 2 sec` → tally. No tree on this machine walks
+    slowly enough to show both at once — the Windows-drive mount takes 90 s to *create* 7,400
+    files but reads them fast. The durable assertions are at `countedPass`'s own interface
+    (`mock.timers` over `setInterval` alone, so a short real sleep still clears the pacing gate),
+    each verified red by mutation.
+  - **A visible behaviour change, accepted deliberately:** the walk's line redraws once a second
+    rather than up to ten times, and during a long yield-free stretch it now reads `… 0 in 12
+    secs`, where the bare-label rule avoids a zero at t=0. Judged not in conflict — a zero at t=0
+    is noise, a zero twelve seconds in is information — and confirmed with the user.
+  - **`npm run test:integration` did not run** (no `.env.test`; ADR-0049 hard-failed, as designed),
+    and the `upload` commit deletes a `try`/`finally` around a `for await` over the `objects/`
+    LIST. Stated in the PR body rather than passed over: CI was the authority on that one.
