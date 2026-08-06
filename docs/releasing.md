@@ -101,6 +101,33 @@ is restricted. Pick the number deliberately.
 
 ---
 
+## When a security advisory fires
+
+Dependabot alerts scan the **default branch's** lockfile and nothing else — they never look at a
+tag. So once `main` moves past a vulnerable version the alert clears, while every binary already
+released still contains it, silently.
+
+The two channels differ, and it is [ADR-0017](adr/0017-npm-ships-source.md) that makes them
+differ. The npm tarball ships source with caret ranges and no published lockfile, so its users
+resolve past a bad version on their own. The **SEA executables and the portable bundle** are
+built with `npm ci`: they freeze the lockfile at tag time, permanently. An installed binary has
+no float, cannot be reached, and is fixed only by cutting another release.
+
+So check the last release as well as `main`:
+
+```sh
+git show <last-tag>:package-lock.json
+```
+
+That lockfile **is** the bill of materials for those artifacts — the build is `npm ci`, so there
+is nothing else to consult and no SBOM worth generating. If the released version is affected, a
+patch release is the fix; there is no other mechanism.
+
+New releases are gated the other way: `verify` runs `npm audit --omit=dev --audit-level=high`, so
+a tag cannot ship a known high-severity advisory in the first place.
+
+---
+
 ## Where the rest lives
 
 - **Why it builds natively per-runner, the macOS labelling, packaging decisions** —
