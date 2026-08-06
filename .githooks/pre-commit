@@ -7,6 +7,13 @@
 # husky was adding. A dependency for that would sit badly with ADR-0005
 # (built-ins over dependencies).
 #
+# That `prepare` is a `node -e` one-liner rather than the obvious
+# `git config … || true`, and package.json cannot hold a comment saying why:
+# `true` is not a cmd.exe builtin. On Windows it resolves to Git's own
+# `usr/bin/true.exe`, so the guard works only while git is installed — and the
+# case it exists for is git *missing*, where it would fail exactly when needed.
+# `node` is the one interpreter guaranteed present, since npm just ran it.
+#
 # **`npm test` is deliberately not here.** It is ~12s, and a gate slow enough
 # to be routinely skipped with `--no-verify` is worse than no gate: it makes
 # the claim false while still reading as true. CI runs the full four on every

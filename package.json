@@ -22,7 +22,7 @@
   ],
   "repository": "allens/s3cab.git",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks || true",
+    "prepare": "node -e \"try{require('node:child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'})}catch{}\"",
     "pr": "gh pr create --reviewer \"@copilot\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
