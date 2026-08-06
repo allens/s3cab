@@ -205,6 +205,18 @@ helper and gain `.at(0)`.
 
 ## 4. `notImplemented` and the `planned` stub convention have zero instances
 
+> **SHIPPED (both halves — option B)** — [PR #267](https://github.com/allens/s3cab/pull/267),
+> merged 2026-08-06 as `474e4e0`. The factory, the typedef property, the help
+> ternary and the CLAUDE.md bullet are all gone; CLAUDE.md keeps the rule that
+> earned the convention and notes it costs three lines to reinstate.
+>
+> **One coverage claim below is wrong.** The finding treats the `planned`
+> machinery as untested. `help.test.mjs` drove the help ternary through a
+> *synthetic fixture*, so that test was **not** vacuous — it asserted real
+> behaviour, and it is the one genuine assertion this change gave up. It went
+> because the behaviour went, not because it was idle. The registry test and
+> `error.test.mjs`'s block were the vacuous ones.
+
 **What the complexity is.** [error.mjs:243](src/lib/error.mjs#L243) exports a factory
 with no production caller — its own doc concedes it ("No command uses it right
 now"). It is kept alive by two tests, one of which asserts nothing at all:
@@ -238,6 +250,12 @@ function no command reaches.
 ---
 
 ## 5. Three byte-identical private `files(n)` helpers
+
+> **SHIPPED (narrow fix)** — [PR #267](https://github.com/allens/s3cab/pull/267),
+> `474e4e0`. `countOf(n, word)` lives in `format.mjs`; the three private copies
+> and `unrestorable.mjs`'s fourth (`objects`) are gone. The wider ~20-site sweep
+> stays **not done**, deliberately — line-neutral, and it would churn a lot of
+> message text for one idiom.
 
 **What the complexity is.** The same one-liner is defined privately in three
 modules:
@@ -347,8 +365,15 @@ the wrappers and wrong about the constructor, for the same reason it was right
 about the wrappers.
 
 **8. `SHA256_EMPTY_FILE` special-cases what the general path already handles.**
-✅ **SHIPPED** — #267. Verified rather than assumed: running a real empty file
-through `fileProps` returns `e3b0c44…52b855`, the constant that was removed.
+⚠️ **SHIPPED IN PART — half the finding was wrong.** #267, `474e4e0`. The
+hard-coded constant is gone, replaced by `EMPTY_DIGEST`, derived once at module
+load from `crypto.hash("sha256", "")`. **But the `size === 0` branch stays**, and
+the sentence below calling its saving "negligible" is false: review asked for a
+measurement, and it is ~81µs per empty file — 20,000 of them is **1,635ms with the
+read against 15ms without**, on the walk/snapshot hot path CLAUDE.md warns about.
+The finding conflated two things that only looked alike: a magic constant (a real
+defect) and a cheap guard (not one). The shipped code now carries the measurement,
+so the branch can only be removed against evidence.
 [file-props.mjs:27,95-97](src/lib/file-props.mjs#L27): a hardcoded digest constant
 and a third `else` branch, to avoid hashing zero bytes.
 `crypto.hash("sha256", readFileSync(path), "hex")` returns exactly that constant

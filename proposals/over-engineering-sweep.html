@@ -84,14 +84,14 @@
                 <td class="px-4 py-2"><code class="mono">notImplemented</code> + <code class="mono">planned</code> — zero instances</td>
                 <td class="px-4 py-2 text-slate-600">dead structure</td>
                 <td class="px-4 py-2 text-right mono">−10</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-amber-100 text-amber-800">Moderate</span></td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped · #267</span></td>
               </tr>
               <tr>
                 <td class="px-4 py-2 mono">5</td>
                 <td class="px-4 py-2">Three byte-identical private <code class="mono">files(n)</code> helpers</td>
                 <td class="px-4 py-2 text-slate-600">duplication, one obvious home</td>
                 <td class="px-4 py-2 text-right mono">−6</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-amber-100 text-amber-800">Moderate</span></td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-emerald-100 text-emerald-800">Shipped · #267</span></td>
               </tr>
               <tr>
                 <td class="px-4 py-2 mono">6</td>
@@ -104,8 +104,8 @@
                 <td class="px-4 py-2 mono">7–9</td>
                 <td class="px-4 py-2">No-op constructor · empty-file digest constant · <code class="mono">deletionRecordMoment</code> alias</td>
                 <td class="px-4 py-2 text-slate-600">assorted</td>
-                <td class="px-4 py-2 text-right mono">−13</td>
-                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-slate-200 text-slate-700">Small</span></td>
+                <td class="px-4 py-2 text-right mono">−4</td>
+                <td class="px-4 py-2"><span class="px-1.5 rounded text-xs bg-rose-100 text-rose-800">7 refuted</span> <span class="px-1.5 rounded text-xs bg-amber-100 text-amber-800">8 part</span> <span class="px-1.5 rounded text-xs bg-slate-200 text-slate-700">9 won't do</span></td>
               </tr>
             </tbody>
             <tfoot class="bg-slate-50 text-sm font-medium">
@@ -496,7 +496,42 @@ export const countOf = (n, word) =&gt; `${formatCount(n)} ${plural(n, word)}`;</
       <article class="rounded-xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
         <div class="flex items-baseline gap-3 flex-wrap">
           <h2 class="font-serif text-xl">7–9 · Smaller items</h2>
-          <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-700">Small</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-rose-100 text-rose-800">7 refuted</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800">8 shipped in part</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-700">9 won't do</span>
+        </div>
+
+        <div class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm space-y-2">
+          <p>
+            <strong>This group is where the sweep did worst, and it is worth saying why.</strong>
+            Two of the three claims were wrong, and both failed the same way: they read a shape
+            as redundant without checking what held it up.
+          </p>
+          <p>
+            <strong>7 — refuted by <code class="mono">tsc</code>.</strong>
+            <code class="mono">constructor(init) { super(init); }</code> is what JavaScript
+            supplies by default, but <code class="mono">SignatureV4Base</code>'s constructor is
+            <code class="mono">protected</code> and an implicit one inherits that visibility — the
+            redeclaration is the only thing making <code class="mono">new RaCanonicalizer(…)</code>
+            legal (TS2674). The code stays, now with a comment saying so.
+          </p>
+          <p>
+            <strong>8 — half right.</strong> The hard-coded digest was a real defect and is gone,
+            derived now as <code class="mono">EMPTY_DIGEST</code>. But the finding also called the
+            <code class="mono">size === 0</code> guard's saving “negligible”, and review asked for
+            a number: <strong>1,635 ms against 15 ms</strong> over 20,000 empty files, ~81 µs each,
+            on the hot path CLAUDE.md warns about. The guard stays, and the measurement now lives
+            in the comment.
+          </p>
+          <p>
+            <strong>9 — won't do.</strong> The alias carries a doc paragraph genuinely about
+            deletion records, and removing it would push <code class="mono">delete.test.mjs</code>'s
+            mock onto <code class="mono">snapshot-file.mjs</code>. Three lines is not worth either.
+          </p>
+          <p class="text-slate-600">
+            The skill now requires running the type check against any “this does nothing” claim
+            before reporting it, and asking for a measurement before calling a cost negligible.
+          </p>
         </div>
         <ul class="text-sm space-y-2 list-disc pl-5">
           <li>
