@@ -28,6 +28,195 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
+Surfaced 2026-08-06 (eleventh pass) — the first architecture read of the **snapshot-format
+work** (ADR-0071/0072/0073), the **walk rewrite** (ADR-0077), the **progress rework**
+(ADR-0076), **resolve-time credential expiry** (ADR-0075) and **`lib/referenced.mjs`**
+(ADR-0074): 27 PRs (#249–#275) since the open list was last emptied. Verified against the
+source at HEAD `4221fad`. Verdict: the new work is deep where it was designed as a module and
+thin where it was *wiring* — six of the nine candidates are a rule or a recipe that ended up in
+the callers rather than behind an interface, and three of those are also **the places nothing
+can test**.
+
+- **A — Deepen `progress.mjs` to own a counted pass.** _Strong._ Two of the three sweeps found
+  this independently. The whole shape of a counting pass — bare label, then
+  `<label> <count> in <elapsed>`, then a tally that must survive off a terminal — is re-typed
+  identically in [walk.mjs](../src/lib/walk.mjs) 190–260 and [upload.mjs](../src/lib/upload.mjs)
+  100–141 (that template string appears four times; the closing
+  `isInteractive(stderr) ? progress.update : console.warn` is the same five lines). The TTY gate
+  `progress.mjs` exists to absorb leaks back out to three callers (walk.mjs:15, upload.mjs:14,
+  s3.mjs:37), making its own header claim — *"every progress consumer routes through this
+  module"* — false. And the clock is hand-rolled twice (upload.mjs:122–134,
+  snapshot.mjs:285–295) and **absent from the walk**, which gates on `progress.due()` inside the
+  yield loop: `walkFiles` blocks on `readdirSync` per directory and on `resolveFileType`'s
+  `lstatSync` fallback, and yields nothing while descending a subtree it keeps no file from — so
+  the count *and its elapsed clock* freeze. That is the fault
+  [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) §3 already ruled against,
+  on the pass that never got the fix. Nothing anywhere asserts on `Finding files in` or
+  `Scanning existing objects`. Extends 0076; does not reopen it.
+  - **Grilled 2026-08-06, before any code.** Settled shape: `progress.mjs` gains
+    **`countedPass(stream, label, () => count)`** — a disposable that paints the bare label on
+    construction, redraws `<label> <count> in <elapsed>` on **its own 1-second `unref`'d timer**,
+    and exposes exactly **`done()`** to draw the final tally. Named for
+    [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s own word ("one progress
+    line per *pass*") rather than for `createProgress`'s prefix. Five decisions worth keeping:
+    (1) **scope is two callers**, walk and upload — `restore`'s `Restoring 12/200…` is a *third*
+    shape (a total, no elapsed, `logLines`) and one extra case doesn't earn a generalization (#3).
+    (2) **The timer is owned and the count is pulled**, not injected or pushed: the walk freezes
+    *because* the redraw can only happen when the caller reaches the next iteration, so only an
+    owned clock makes freezing structurally impossible; a thunk is house precedent
+    (`withProgress` already takes `bytes()`/`hashing()`). (3) **`done()` exists because disposal
+    can't tell it is unwinding from a throw** — the walk throws mid-loop on a duplicate path and
+    `storedHashes`' LIST can throw, and today no tally is written on those paths; a
+    dispose-drawn tally would print `…1,204 in 3 secs` directly above the error that says the
+    walk failed. So disposal keeps today's job (flush the held update, close the line) and the
+    caller states the one fact only it knows. (4) **The tick is 1000 ms, not `MIN_REDRAW_MS`** —
+    `secondsSince` rounds to whole seconds, so at 100 ms the elapsed half cannot change on nine
+    draws out of ten. This preserves `upload`'s cadence exactly and **slows the walk's from 10/s
+    to 1/s** (accepted: more legible, 0076's own goal for the dial), and it retires `due()` from
+    the walk's hot loop, since composing once a second is not a per-file cost. (5) **The closing
+    tally keeps today's exact two branches** and is *not* rerouted through `statusLine` — that
+    writes its own `\n` and disposal would then add a second, so the naive swap prints a blank
+    line on a terminal. Output byte-identical throughout except the walk's cadence.
+  - **Deliberately out of scope, recorded so the next reader doesn't re-count it:**
+    `s3.mjs:720`'s `isInteractive` is **not** a third copy of this gate — it asks *"was a bar
+    drawn, so should I log a line instead?"*, a question `progress.mjs` already answers
+    internally (`drawn`) but does not expose. Its own small change, its own decision (a `drawn`
+    getter? `clear()` returning whether it wiped?). And once the walk migrates, **`due()` has
+    exactly one production caller left** (`restore.mjs:222`) — kept, because deleting it would
+    push pacing back out to the caller, but noted: `restore`'s counter is itself a counted pass
+    with a total, and migrating it one day retires `due()` with it.
+  - **Verification plan:** durable tests in `progress.test.mjs` (same interface, so no dotted
+    aspect file) driven by `mock.timers` — a caller that does *nothing* while the line keeps
+    redrawing with a growing elapsed — **plus one hand-verification of the walk against a real
+    tree**, the precedent [#204](https://github.com/allens/s3cab/pull/204) set. Stated plainly
+    rather than dressed up: a fixture that reliably blocks `readdirSync` would be a flake, so the
+    freeze fix is verified by hand, not by an assertion. `storedHashes`' migration **deletes a
+    `try/finally` around a `for await`** over the `objects/` LIST, which is control flow on an S3
+    read path — so `npm run test:integration` applies (this machine has no `.env.test`; if it
+    can't be wired, the PR says so rather than passing the gap over in silence).
+  - **Delivery:** a worktree, one PR, three commits (progress.mjs + tests + the amended header;
+    walk; upload), so the byte-identical claim is reviewable one caller at a time.
+    **ADR-0076 amended by a paragraph, no new ADR** — no new trade-off, a refined interface,
+    exactly as the tenth pass's candidate A amended ADR-0069.
+- **B — Bring Roles Anywhere inside the credential-error family.** _Strong._
+  `resolveCredentials` ([auth.mjs](../src/lib/auth.mjs) 531–534) returns from the RA branch
+  *before* entering its `try`, so only the **absent identity** case is wrapped (auth.mjs:483–490).
+  Every *runtime* `createSession` failure — expired certificate, 403 from STS, socket error,
+  timeout — escapes raw from [roles-anywhere.mjs](../src/lib/roles-anywhere.mjs) 774–819. The
+  request-time relay can't catch it either: `createSession` issues a raw `node:http` request, so
+  it never passes `s3.mjs`. The asymmetry's cost is the wrong way round — the *once-per-machine*
+  setup failure gets the polished five-line RA fix, the *recurring* one (a certificate that aged
+  out) gets an HTTP status and a response body. `isExpiredSignIn` would very likely fire on that
+  body and is never consulted. `resolveCredentials` is imported by **no** test.
+  Completes 0075/0037's remedy table for the mode 0057 added.
+- **C — `generateSnapshot` takes the baseline whole.** _Strong._ Three of its six options are
+  `readBaseline`'s own fields renamed and re-threaded by hand, identically at **2 of 2** call
+  sites: `lookup` (commands/snapshot.mjs:32, backup.mjs:81), `sizes: previous` (:36, :84),
+  `previousInstant` (:38, :85). The `SnapshotBaseline` typedef marks all four fields optional
+  ([snapshot.mjs](../src/lib/snapshot.mjs) 42–45) but `readBaseline` sets `previous`/`instant`
+  **iff** it sets `name`, and the caller pays for the missing invariant with a dead branch —
+  commands/snapshot.mjs:45–48's false arm can only ever evaluate to `undefined`. And
+  backup.test.mjs:155–159 exists *solely* to stop a refactor dropping `sizes`: a test defending
+  an interface against a mistake that interface invites. The guard is one-sided — deleting
+  `sizes: previous` from commands/snapshot.mjs:36 fails zero tests. Both `sizes` and
+  `previousInstant` post-date the last pass (#250, #259). Does **not** reopen ADR-0069: the
+  `through` seam was re-examined this pass and is still clean.
+- **D — Let `referenced.mjs` answer the questions its own shape implies.** _Strong._ The
+  three-deep nest exists to preserve torn-snapshot size disagreement, but
+  [referenced.mjs](../src/lib/referenced.mjs) exports nothing that touches it, so four planners
+  walk it by hand and re-derive the same two questions. *Safe (largest) size before a destructive
+  act*: delete.mjs:175–177 and unrestorable.mjs:164–166, near-verbatim rationale, independent
+  code. *Does any recorded size disagree with storage*: verify.mjs:74–84 and cleanup.mjs:104–110.
+  The nested walk is spelled four times; the `sizes`-is-a-Set rationale appears in five doc
+  comments. Both derivations are arithmetic over a `Set`, so
+  [ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md)'s zero-import property
+  survives — this *applies* 0074 rather than straining it.
+- **E — `compileExclude` owns only half the matching convention.** _Strong._
+  [exclude.mjs](../src/lib/exclude.mjs) normalizes the *pattern* side and returns a bare
+  `RegExp`, then documents in prose three obligations the caller must honour on the *subject*
+  side — all implemented in [walk.mjs](../src/lib/walk.mjs) 333–364: separator normalization
+  (:345), the trailing-`/` **directory rule** (:347–349), and `matchers.find` to recover which
+  pattern hit (:351). So the directory rule is reachable only through the filesystem.
+  `exclude.test.mjs`'s helper re-implements the first obligation and **cannot express the
+  second** — there is no directory-exclusion case in it at all, and the only coverage is one
+  `walk.test.mjs` case building a real temp tree. Four of the six active starter patterns are
+  directory form, so the least-tested half of the grammar is the most-used half. One production
+  caller.
+- **F — The snapshot pass's counters are unobservable.** _Strong._ `progressLine` was extracted
+  for testability and got 16 tests, but every real defect in the pass lives in what is *passed*
+  to it, and none of that is reachable: off a TTY `createProgress` writes nothing
+  (progress.mjs:69–71), so the `bytesTotal` loop (snapshot.mjs:166–170), the `bytesDone`
+  accumulation (:184–199) and the `hashing` binding (:157–158) are inert under `node --test`.
+  `snapshot.test.mjs` imports exactly one symbol; `backup.test.mjs` mocks the other two away.
+  The behavioural question this hides: `bytesDone += props.size` counts a **reused** file's
+  bytes and `fileProps` returns stored props without reading one, so *"38% of 2.4 GB"* means
+  bytes read on a first run and files settled on a no-change run — a difference no `progressLine`
+  test can see. Whether that is right is a product question; that nothing observes it is the
+  architectural one. Pairs with A (the injected clock is the same seam).
+- **G — The dispatcher carries policy and has no test surface.** _Worth exploring._
+  [s3cab.mjs](../src/s3cab.mjs) holds ~10 policies — version fast path, topics-first help
+  routing, unknown-command 127, the `unhandledRejection` handler (:82–97), `--json` merged then
+  stripped, render-vs-JSON with the empty-output trim, `InterruptedError` → 130, the usage
+  synopsis and the 1-vs-2 exit split — and **cannot be imported**, because dispatch runs as a
+  top-level side effect. `isCredentialProviderError` has six unit tests; the policy that *uses*
+  it (warn once and never twice, rethrow everything else, `statusLine` not `console.warn` because
+  a bar may be mid-line) has none and can have none. That is a pure function extracted for
+  testability with the bug surface left on the other side. No ADR to reopen — CLAUDE.md's
+  placement note already says to guard the run block with `import.meta.main` *"if dispatch ever
+  needs unit testing"*; #256 made the conditional true.
+- **H — "Deliberate ≠ fault" is decided twice.** _Worth exploring._ One rule — an absent object
+  is either a recorded **deletion** (context, exit 0) or an unexplained absence (a fault, exit 1)
+  — is implemented in two shapes with no shared name: `verifySet` pure and eager over
+  `Map<hash,{deletedOn}>` ([verify.mjs](../src/lib/verify.mjs) 59–71, exit rule at :148), and
+  `restore` imperative and lazy over the same map
+  ([commands/restore.mjs](../src/commands/restore.mjs) 148–173, 195–215, exit rule at :232). The
+  rationale is spelled out in prose in both. **This abuts the standing "three shapes of the
+  deletion-record lookup" rejection below and must not be conflated with it:** that rejection
+  turns on three consumers asking *distinct* questions (map / membership / keys) and it still
+  holds — this is a **fourth** consumer asking `verifySet`'s *identical* question in the
+  identical shape and reaching the identical exit-code rule.
+- **I — One run prints the same count both ways.** _Strong (small)._ `formatCount` exists because
+  *"six digits run together are unreadable at a glance"*, but whether to apply it is re-decided
+  at every interpolation: 20 grouped sites in [render.mjs](../src/render.mjs) against 8 ungrouped
+  ones (:215, :232, :245, :257, :286–287, :290, :538) — and the eight are exactly the counts that
+  scale with the file set. One session shows both spellings of one number: a first snapshot
+  prints `First snapshot: 265,716 files` (:105), the next prints `Added (265716)` and
+  `265716 added, …`. **Not a re-litigation of #254**, which routed six inline
+  `toLocaleString("en")` calls through `formatCount`: these eight never formatted at all, so that
+  sweep could not see them.
+
+**Smaller, verified (eleventh pass).** `snapshotName` (snapshot-file.mjs:516) is an export whose
+only importer is its own test — production mints names through `snapshotMoment()`; _Strong,
+small_. One classification rule lives outside the classifier: `compareSnapshots` applies "a path
+that failed hashing is not a deletion" by mutating `diff`'s output (compare.mjs:141–152), so
+`diff`'s contract documents a rule it does not implement, and those two cases need real
+`.tsv.zst` files while the other twelve run on in-memory Maps. The bucket-scan **ordering
+invariant** (snapshots → `objects/` LIST → `deletions/`) is held only by adjacency in two
+commands (verify.mjs:57–74, cleanup.mjs:78–95) — Strong the moment a third bucket-scan command
+lands. The enumeration fixture is invented **five incompatible ways** across eight test modules
+(ten construction points); pairs with D. `render.mjs`'s four section builders duplicate the
+heading grammar and thread a triple-curried `painter` through five signatures. And two premises
+that cannot both be true: snapshot-file.mjs:285 unlinks before renaming because *"Windows will
+not rename onto an existing file"*, while :290 renames onto an existing file under `overwrite`,
+green on `windows-latest` — a comment to settle, not a candidate.
+
+**Examined & left alone (eleventh pass)** (not candidates — skip future runs): `progress.mjs`'s
+**core mechanic** (`update`/`due`/`clear`/`Disposable` hides the TTY gate, write-then-clear-tail
+ordering, the held-update rule, wrap truncation and cursor parking, all covered including flicker
+ordering — A is about what its interface *lacks*); `uploadObjects` (small interface over dedup,
+drift guard, never-throw-mid-stream, and the two-fields-not-one outcome); `writeSnapshot`'s
+`through` seam and `withSnapshotFile`'s three release paths; `planDelete` / `planUnrestorable` /
+`diff` (each intricate behind a small interface — deleting any would spread complexity into its
+command); `fileProps` (`onHashStart` earns its width by reporting from inside and so avoiding a
+second stat); `putObjectParams`/`awsOnlyPutParams`; `deletion-record.mjs`, `env-file.mjs`,
+`set-marker.mjs`, `error.mjs` (incl. `errorText`'s aggregate backstop), `commands/aws.mjs` and the
+ADR-0059 quarantine, `read-lines.mjs`, `command-details.mjs`; the **network-resilience trio** and
+`referencedObjects`' unfiltered set names, both re-confirmed; and **ADR-0072's two clock checks**
+(snapshot.mjs:491–506, compare.mjs:354–371), which look duplicated but fire at creation vs
+consumption and leave no gap, because `sinceInstant` is set only on the read branch.
+
+---
+
 Surfaced 2026-07-29 (tenth pass) — the first review of the **deletion rework** (ADR-0063/0064),
 the **network-resilience** work (ADR-0065/0068), **interrupt hash-parking** (ADR-0067) and the
 **fused snapshot+upload pipeline** (ADR-0069): 73 commits (PRs #217–#245) since the open list was
@@ -68,7 +257,8 @@ interfaces*, not new seams. Everything Strong landed same-day — both bugs fixe
 also candidate B; the `aws --save --profile` drop →
 [PR #199](https://github.com/allens/s3cab/pull/199)) and **A landed in
 [PR #202](https://github.com/allens/s3cab/pull/202)**, **C in [PR #203](https://github.com/allens/s3cab/pull/203)**,
-and **D in [PR #204](https://github.com/allens/s3cab/pull/204)** (run log below). Only E remains open.
+and **D in [PR #204](https://github.com/allens/s3cab/pull/204)**. Only E remained open. (Its run-log
+entries were retired by the eleventh pass under the three-pass cap; see `git log -p` on this file.)
 
 _Nothing from these two passes is still open._ The eighth and ninth passes (A–G) all landed or
 parked; the eighth-pass E bundle's four items are all in — provider.mjs and render.mjs with F
@@ -210,83 +400,6 @@ least once; re-open only if the stated reason no longer holds.
 > `git log -p --follow -- proposals/architecture-improvements.md`. Keep this section bounded —
 > a pass that lands a candidate should retire the *open* entry, not append indefinitely here.
 
-- **2026-07-16 — eighth pass** (user-directed: architecture review + tdd lens, **tuned to code
-  simplification** — clear/concise, fewer lines/branches/indirections, bug-hunt en route). Run
-  inline (no Explore agents): every production module under `src/` read in full at HEAD
-  `b072f93`, plus a test-quality sample (lib/upload.test.mjs, commands/backup.test.mjs — both
-  strong: seam-based, behavior-driven, independent literals). The open list had sat empty since
-  2026-07-14. **Two bugs found** → [bugs.md](bugs.md): `dirs.txt` `#`-comments walked as
-  directories (readSet/readSetConfig vs parseLines's own doc), and `aws --save --profile`
-  silently dropping the profile (stack-arns builds its client with `{ region }` only). **Five
-  candidates recorded above (A–E)**, all simplifications behind existing interfaces rather than
-  new seams — the standout being **A: `backup` re-derives the fresh-name + baseline its own
-  `snapshot()` call already returned as `CompareResult.until`/`.since`** (the in-code comment
-  claiming otherwise is false), a pure deletion that makes the pair consistent by construction.
-  Ride-along doc fixes: the stale `emptyBucket` bullet deleted from engine-robustness.md
-  (retired in PR #167) and the trust-on-write staleness note recorded there. Top pick: **A**,
-  with **B** (the bug-fixing dedup) as the natural same-session second. Overwrote the HTML
-  report in place.
-- **2026-07-16 — B landed** ([PR #201](https://github.com/allens/s3cab/pull/201)). *One
-  line-parsing rule for `dirs.txt`*: `readSet` and
-  `readSetConfig` now route through `parseLines`, making its own doc ("the shape a set's
-  exclude.txt and dirs.txt are read as at runtime") finally true — the comment-line bug fixed
-  and the duplicated split/trim/filter deleted. Built test-first, one red unit per reader:
-  sets.test.mjs hand-edits a `dirs.txt` with `#`/blank lines; set-marker.test.mjs gained the
-  objects.test.mjs-style `s3.mjs` module mock (its first behaviour coverage outside the
-  integration suite). The bugs.md entry is deleted (bugs go when fixed).
-- **2026-07-16 — A landed** ([PR #202](https://github.com/allens/s3cab/pull/202)). *`backup`
-  takes the fresh name + baseline from `snapshot()`'s diff*: `{ until, since }` destructured
-  from the returned `CompareResult` — both `listSnapshotNames` read-backs, the "No snapshot was
-  produced" guard, and the false "returns its diff, not the name" comment deleted (net −10
-  lines); backup↔snapshot now agree by construction. The grilled caveat sharpened into a real
-  fix: an `S3CAB_DEBUG` same-minute overwrite makes the diff's `since` the fresh name itself,
-  and diffing the snapshot against itself would plan zero objects and break
-  objects-first/snapshot-last — a `since === until` (or null) baseline now falls back to the
-  first-backup store LIST, with its own test. Built test-first (mocked `snapshot()` returns its
-  real contract; the stub-file machinery deleted); a Copilot comment moved the test's inline
-  `import("…").CompareResult` to the house `@import` tag. **This closes the eighth pass's
-  Strong tier** — C/D/E remain open above.
-- **2026-07-16 — D landed** ([PR #204](https://github.com/allens/s3cab/pull/204)). *Fail the walk
-  at the first duplicate file*: the overlapping-member-dirs check was a full second pass over
-  `files` after the walk had already finished, so an overlapping set paid for the **entire** walk
-  (minutes, on a big set) before erroring on a condition knowable the moment the duplicate is
-  reached. The `seen` Set now sits beside `files`, spans all roots, and is checked as each path
-  arrives — the first duplicate throws, and the second pass is deleted. Same error message,
-  deliberately: the existing overlap test was strengthened *first* to pin the **named duplicate
-  path** rather than just `/overlap/`, so the refactor couldn't silently reword it. Verified by
-  driving `walkDirs` over a 1200-file root with a nested root under it — it throws on the nested
-  root's *first* file, and the `using progress` disposal already covered the mid-loop throw (its
-  newline is `drawn`-gated, so the cursor lands on a fresh line; `progress.mjs`'s doc comment
-  states that contract explicitly). The pre-walk root-containment alternative stays **rejected** and
-  now has its own entry above (exclude patterns can make nested roots a legitimately working
-  config today, so only the file-level check is faithful). C and E remain open.
-- **2026-07-16 — C landed** ([PR #203](https://github.com/allens/s3cab/pull/203)). *Drop
-  `objectExists`'s metadata heuristic*: any successful
-  HEAD now counts as present, so a metadata-less object costs one HEAD instead of a full
-  multipart body the conditional PUT then rejects. `objectExists` is **inlined into `putFile`**
-  along the way — one module-private caller, and the boolean round-trip (`objectExists` returns
-  *true* so `putFile` returns *false*) read as a double negative. **The blame dug up the reason
-  the code never stated, and it refuted itself:** the heuristic is a fossil of the `getMetadata`
-  *parser*
-  ([#25](https://github.com/allens/s3cab/pull/25)) whose `null` meant "no metadata to parse",
-  not "object absent". That PR *correctly* dropped it, then restored it (`fix(s3): preserve
-  multipart no-clobber metadata check`) to satisfy a Copilot review claiming a metadata-less
-  object "would be overwritten" — but `IfNoneMatch: "*"` and the `PreconditionFailed` catch were
-  already in `putFile` **in that same commit**, so it never could be. Bug-for-bug compatibility
-  with dead code, preserved on a false premise. Built test-first: the wasted body is only
-  observable *as* wire traffic, so the new suite runs the real `client()`/SDK against a fake S3
-  on loopback and asserts the request sequence (`captureRequest` can't serve — it builds its own
-  client, bypassing the memoized one). The exactly-`partSize` fixture keeps lib-storage on the
-  single-`PutObject` path, so the fake needs no multipart choreography. The red run was the
-  proof: an 8.4MB body on the wire for an object already there. Two further captures ride along:
-  the **`putFile` no-clobber split** is now a standing rejection above (the HEAD and the
-  conditional PUT are a deliberate division of labour, not redundancy), and the discussion
-  surfaced a real defect — the snapshot→upload staleness window, filed in [bugs.md](bugs.md),
-  which this pass had recorded as "a deliberate design stance… not a defect", an AI-invented
-  verdict nobody held. The coverage audit it produced was captured as `test-coverage.md`
-  (since worked through and deleted, 2026-07-17: the skip/accept matrix is now pinned across
-  the loopback fake in `src/lib/s3.test.mjs` — grown real multipart choreography — and
-  `test/integration/s3.test.mjs`). **Only E now remains open.**
 - **2026-07-17 — ninth pass.** E re-verified at HEAD `80a45aa` — **holds** (anchors refreshed:
   E's remote.mjs get-or-inserts 182–186/252–265). The #199–#202 churn
   examined directly: backup.mjs post-#202 is clean thin porcelain (the `since === until` debug
@@ -466,3 +579,28 @@ least once; re-open only if the stated reason no longer holds.
   exactly, with its expected lines generated from the function rather than hand-counted. One
   pre-existing oddity was **deliberately preserved, not fixed**: a table whose only row is the
   total still emits a rule with nothing above it, exactly as the popped-total code did.
+- **2026-08-06 — eleventh pass.** The open list had sat empty since 2026-07-30, so this pass
+  explored the **27 PRs since** (#249–#275) at HEAD `4221fad` — the first architecture read of the
+  snapshot-format work (ADR-0071/0072/0073), the walk rewrite (ADR-0077), the progress rework
+  (ADR-0076), resolve-time credential expiry (ADR-0075) and `lib/referenced.mjs` (ADR-0074). Run
+  as **three background Explore sweeps** (snapshot engine / walk+progress+output /
+  credentials+upload+removal), each primed with the standing rejections below, plus an inline read
+  of the slice none of them covered (`s3cab.mjs`, restore, setup/reattach, `aws`, `set-marker`,
+  `error`, `prompt`, the test layout). **Every load-bearing claim was re-verified against source
+  before it was recorded** — which mattered: the sweeps' line anchors and counts were checked one
+  by one, and the two strongest findings were each confirmed by reading the code rather than the
+  report. **Nine candidates recorded above (A–I)** plus seven smaller verified items. The standout
+  — **A**, found *independently by two of the three sweeps* from different directions — is the
+  only one with a live behaviour fault behind it: the walk's progress line freezes on
+  `readdirSync`, on the `lstat` fallback, and while descending a subtree it keeps nothing from,
+  which is exactly what ADR-0076 §3 ruled against. Runner-up **B** (an aged-out Roles Anywhere
+  certificate prints an HTTP body where every sibling failure prints the fix). Two findings are
+  about **test surface rather than duplication** (F, G) — the pattern this pass kept hitting is a
+  pure function extracted for testability with the bug surface left on the other side. **The
+  rejected/parked list was re-checked and stands untouched**; H deliberately abuts the
+  "three shapes of the deletion-record lookup" rejection and the entry says so — they must not be
+  conflated. Planned as three tracks by file overlap: **track 1 sequential C → A → F**
+  (`snapshot.mjs`/`progress.mjs`/the two porcelain commands), **track 2 D → H** (they share
+  `verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
+  `.env.test`, so `npm run test:integration` can't reach a real bucket here — tracks 1 and 2 are
+  pure or local and verify fully, but **B leans on CI**. Overwrote the HTML report in place.

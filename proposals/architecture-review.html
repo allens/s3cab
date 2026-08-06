@@ -3,593 +3,1644 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Architecture review — s3cab (tenth pass)</title>
+    <title>Architecture review — s3cab (eleventh pass)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "neutral",
+        securityLevel: "loose",
+        flowchart: { curve: "basis" },
+      });
     </script>
     <style>
-      .chip { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.7rem; }
-      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+      .seam {
+        stroke-dasharray: 5 4;
+      }
+      .deep {
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+      }
+      .hatch {
+        background-image: repeating-linear-gradient(
+          45deg,
+          transparent,
+          transparent 5px,
+          rgba(220, 38, 38, 0.12) 5px,
+          rgba(220, 38, 38, 0.12) 10px
+        );
+      }
+      .label {
+        font-size: 0.625rem;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+      .mermaid {
+        display: flex;
+        justify-content: center;
+      }
+      code {
+        font-size: 0.8125em;
+      }
     </style>
   </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
-    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
-      <header class="space-y-3">
-        <h1 class="font-serif text-3xl">Architecture review — s3cab</h1>
-        <p class="text-sm text-slate-600">
-          Tenth pass · 2026-07-29 · HEAD <code class="font-mono">0268c73</code> ·
-          the open list has been empty since 2026-07-17, so this pass explored the
-          <strong>73 commits since</strong> (PRs #217–#245): the deletion rework
-          (ADR-0063/0064 — <code class="font-mono">forget</code>, path-scoped
-          <code class="font-mono">delete</code>, the <code class="font-mono">deletions/</code>
-          record), the network-resilience work (ADR-0065/0068 and the retry relay), the
-          Glacier-IR tier (ADR-0066), interrupt hash-parking (ADR-0067) and the fused
-          snapshot+upload pipeline (ADR-0069). Four candidates: <strong>A</strong> and
-          <strong>D</strong> Strong, <strong>B</strong> and <strong>C</strong> worth exploring.
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-14 space-y-14">
+      <!-- ══════════════════════════ HEADER ══════════════════════════ -->
+      <header class="space-y-6">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+          <h1 class="font-serif text-4xl tracking-tight">
+            Architecture review — <span class="text-indigo-700">s3cab</span>
+          </h1>
+          <p class="text-sm text-slate-500 font-mono">
+            2026-08-06 · eleventh pass · HEAD 4221fad
+          </p>
+        </div>
+        <p class="text-slate-600 max-w-3xl">
+          Scope: the 27 PRs since the tenth pass (#249–#275) — the snapshot-format
+          work (ADR-0071/0072/0073), the walk rewrite (ADR-0077), the progress
+          rework (ADR-0076), resolve-time credential expiry (ADR-0075) and
+          <code class="bg-stone-200 px-1 rounded">lib/referenced.mjs</code>
+          (ADR-0074). Three sweeps plus an inline read; every claim below was
+          re-verified against source before it was written down.
         </p>
-        <p class="text-xs text-slate-500">
-          Legend: solid box = module · <span class="text-red-600">red</span> = leak / duplication /
-          drift · dark box = deep module ·
-          <span class="inline-block px-1.5 rounded bg-emerald-100 text-emerald-800">Strong</span>
-          <span class="inline-block px-1.5 rounded bg-amber-100 text-amber-800">Worth exploring</span>
-          <span class="inline-block px-1.5 rounded bg-slate-200 text-slate-700">Speculative</span>
-        </p>
+
+        <div
+          class="flex flex-wrap gap-x-8 gap-y-3 text-xs text-slate-600 border-y border-stone-300 py-4"
+        >
+          <span class="flex items-center gap-2"
+            ><span class="w-6 h-4 border-2 border-slate-400 inline-block"></span
+            >module</span
+          >
+          <span class="flex items-center gap-2"
+            ><svg width="26" height="10">
+              <line
+                x1="0"
+                y1="5"
+                x2="26"
+                y2="5"
+                class="seam"
+                stroke="#64748b"
+                stroke-width="2"
+              /></svg
+            >seam</span
+          >
+          <span class="flex items-center gap-2"
+            ><svg width="26" height="10">
+              <line
+                x1="0"
+                y1="5"
+                x2="22"
+                y2="5"
+                stroke="#dc2626"
+                stroke-width="2"
+              />
+              <path d="M22 1 L26 5 L22 9Z" fill="#dc2626" /></svg
+            >leaks across the seam</span
+          >
+          <span class="flex items-center gap-2"
+            ><span class="w-6 h-4 deep inline-block rounded-sm"></span>deep
+            module</span
+          >
+          <span class="flex items-center gap-2"
+            ><span class="w-6 h-4 hatch border border-red-300 inline-block"></span
+            >duplicated implementation</span
+          >
+        </div>
+
+        <nav class="text-sm grid sm:grid-cols-2 gap-x-8 gap-y-1 text-slate-700">
+          <a class="hover:text-indigo-700" href="#a"
+            >A · Deepen <code>progress.mjs</code> to own a counted pass
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#b"
+            >B · Roles Anywhere escapes the credential-error family
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#c"
+            >C · <code>generateSnapshot</code> takes the baseline whole
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#d"
+            >D · <code>referenced.mjs</code> answers its own questions
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#e"
+            >E · <code>compileExclude</code> owns half a convention
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#f"
+            >F · The snapshot pass's counters are unobservable
+            <span class="text-emerald-700">Strong</span></a
+          >
+          <a class="hover:text-indigo-700" href="#g"
+            >G · The dispatcher has no test surface
+            <span class="text-amber-700">Worth exploring</span></a
+          >
+          <a class="hover:text-indigo-700" href="#h"
+            >H · "Deliberate ≠ fault", decided twice
+            <span class="text-amber-700">Worth exploring</span></a
+          >
+          <a class="hover:text-indigo-700" href="#i"
+            >I · One run prints a count both ways
+            <span class="text-emerald-700">Strong</span></a
+          >
+        </nav>
       </header>
 
-      <section id="candidates" class="space-y-10">
-
-        <!-- ══════════════════════ A ══════════════════════ -->
-        <article id="cand-a" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">A · One PUT loop — <code class="mono text-base">uploadDir</code> is the third source that never joined it</h2>
-            <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-rose-50 text-rose-700">carries a live correctness gap</span>
-          </div>
-
-          <div class="text-sm space-y-1">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
-            <p class="mono text-xs">src/lib/upload.mjs — <span class="text-slate-500">the module header (l.12–27), <code>uploadObjects</code> (l.192), <code>fileChange</code> (l.270), <code>uploadDir</code> (l.387)</span></p>
-            <p class="mono text-xs">src/commands/upload.mjs — <span class="text-slate-500"><code>--dir</code> dispatch (l.138–160), <code>--file</code> dispatch (l.125–135)</span></p>
-          </div>
-
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
-            <p>
-              <code class="mono">upload.mjs</code>'s own header states the design:
-              <em>"One PUT loop, one drift guard, two sources."</em> That sentence arrived with
-              ADR-0069 (#245) and is <strong>not true of the module it heads</strong>. There are
-              <strong>two</strong> PUT loops and <strong>three</strong> sources.
-              <code class="mono">uploadDir</code> — added earlier, in #227 — hand-rolls its own
-              <code class="mono">seen</code>-dedup + <code class="mono">putObject</code> loop, and
-              #245 built the shared transform beside it without folding it in.
-            </p>
-            <p>
-              The consequence is not stylistic. <code class="mono">uploadObjects</code> re-checks
-              size+mtime between hashing a file and PUTting its bytes, and its own doc explains
-              exactly why: <em>"the store trusts the hash on write, so PUTting its current bytes
-              would file them under the recorded content's hash — corrupting that object for every
-              snapshot and path that dedups to it, surfacing only at restore."</em>
-              <code class="mono">uploadDir</code> has the identical hash-then-PUT window and
-              <strong>no guard at all</strong>: <code class="mono">fileProps(path)</code> reads and
-              hashes the whole file, then <code class="mono">putObject</code> streams it again from
-              disk.
-            </p>
-            <p>
-              And the window is widest for exactly the files
-              <code class="mono">upload --dir</code> exists to serve. It is the
-              "seed my priority folders before the initial backup" primitive
-              (docs/design/backup.md), and those folders are the multi-GB video population, where
-              hashing one file takes <em>minutes</em> before the PUT re-reads it.
-              <code class="mono">upload --file</code> shares the shape
-              (<code class="mono">prop()</code> then <code class="mono">putObject</code>) at
-              one-file stakes.
-            </p>
-          </div>
-
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before — two loops, one guard</p>
-              <pre class="mermaid text-xs">flowchart TD
-  B["backup"] --> UO
-  US["uploadSnapshot"] --> UO
-  UO["uploadObjects<br/>guarded PUT loop"] --> G{"fileChange?<br/>size + mtime"}
-  G -->|drifted| SKIP["skip file · record<br/>FileChangedError"]
-  G -->|same| P1["putObject"]
-  UD["uploadDir<br/>its own PUT loop"] --> P2["putObject"]
-  style UO fill:#1e293b,color:#fff
-  style G fill:#d1fae5
-  style UD fill:#fecaca,stroke:#b91c1c,stroke-width:2px
-  style P2 fill:#fecaca,stroke:#b91c1c</pre>
-              <p class="text-xs text-rose-800">
-                Nothing between <code class="mono">uploadDir</code> and the store re-asks
-                "is this still the file I hashed?"
-              </p>
-            </div>
-            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After — one loop, three sources</p>
-              <pre class="mermaid text-xs">flowchart TD
-  B["backup<br/>(hash pass rows)"] --> UO
-  US["uploadSnapshot<br/>(re-read snapshot)"] --> UO
-  UD["uploadDir<br/>(walk + hash rows)"] --> UO
-  UO["uploadObjects<br/>the PUT loop"] --> G{"fileChange?"}
-  G -->|drifted| SKIP["skip file · record"]
-  G -->|same| P["putObject"]
-  style UO fill:#1e293b,color:#fff
-  style G fill:#d1fae5</pre>
-              <p class="text-xs text-emerald-800">
-                All three paths become row sources for one transform. The guard cannot be missing
-                from a path, because there is only one path.
-              </p>
+      <section id="candidates" class="space-y-16">
+        <!-- ══════════════════════════ A ══════════════════════════ -->
+        <article id="a" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              A · Deepen <code class="text-indigo-700">progress.mjs</code> to own
+              a counted pass
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
             </div>
           </div>
+          <p class="text-xs text-slate-500">
+            Surfaced independently by two of the three sweeps.
+          </p>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Solution (sketch — for grilling, not settled)</p>
-            <p>
-              <code class="mono">uploadDir</code> becomes a <em>row source</em> rather than a second
-              engine: walk → hash → yield <code class="mono">[path, Props]</code>, and
-              <code class="mono">run</code> those rows through
-              <code class="mono">uploadObjects</code> with an empty
-              <code class="mono">stored</code> set (its current design point: the conditional PUT
-              <em>is</em> the already-stored check, so no LIST and no baseline). Its
-              <code class="mono">seen</code>/<code class="mono">uploaded</code> counters and the
-              <code class="mono">{ candidates, uploaded }</code> return are already exactly what
-              <code class="mono">uploadObjects.result()</code> reports.
-            </p>
-            <p class="text-xs text-slate-600">
-              Open questions worth grilling: the seed writes no snapshot, so what should a drifted
-              file <em>do</em> — record a <code class="mono">FileChangedError</code> naming a re-run
-              (the transform's contract) or skip and count it? And the drift error names
-              <code class="mono">s3cab backup &lt;set&gt;</code>, honest advice for a seed too, but
-              worded as though a snapshot was written.
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/progress.mjs:4-24, :67-71</div>
+            <div>src/lib/walk.mjs:190-260</div>
+            <div>src/lib/upload.mjs:100-141</div>
+            <div>src/lib/snapshot.mjs:285-295 · src/lib/s3.mjs:720-723</div>
+          </div>
+
+          <!-- before / after: cross-section -->
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">Before — the recipe, twice</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <p class="text-[11px] font-mono text-slate-500 mb-1">
+                    walk.mjs
+                  </p>
+                  <div class="space-y-1">
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      start = Now.instant()
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      label = "…'&lt;dir&gt;'…"
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      createProgress(stderr)
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      paint bare label
+                    </div>
+                    <div
+                      class="border border-amber-400 bg-amber-50 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      due() gate ⟵ no clock
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      label + count + elapsed
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      isInteractive ? : warn
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-[11px] font-mono text-slate-500 mb-1">
+                    upload.mjs
+                  </p>
+                  <div class="space-y-1">
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      start = Now.instant()
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      label = "…'s3://b'…"
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      createProgress(stderr)
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      paint bare label
+                    </div>
+                    <div
+                      class="border border-slate-400 text-[10px] px-2 py-1 rounded-sm bg-slate-50"
+                    >
+                      setInterval + unref
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      label + count + elapsed
+                    </div>
+                    <div
+                      class="hatch border border-red-300 text-[10px] px-2 py-1 rounded-sm"
+                    >
+                      isInteractive ? : warn
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="mt-3 border-2 border-slate-400 text-center text-[10px] py-1.5 rounded-sm text-slate-600"
+              >
+                progress.mjs — update / due / clear
+              </div>
+              <svg class="w-full h-8 mt-1" viewBox="0 0 300 32">
+                <line
+                  x1="40"
+                  y1="30"
+                  x2="40"
+                  y2="6"
+                  stroke="#dc2626"
+                  stroke-width="1.5"
+                />
+                <path d="M36 10 L40 4 L44 10Z" fill="#dc2626" />
+                <line
+                  x1="150"
+                  y1="30"
+                  x2="150"
+                  y2="6"
+                  stroke="#dc2626"
+                  stroke-width="1.5"
+                />
+                <path d="M146 10 L150 4 L154 10Z" fill="#dc2626" />
+                <line
+                  x1="260"
+                  y1="30"
+                  x2="260"
+                  y2="6"
+                  stroke="#dc2626"
+                  stroke-width="1.5"
+                />
+                <path d="M256 10 L260 4 L264 10Z" fill="#dc2626" />
+                <text x="150" y="30" text-anchor="middle" font-size="8" fill="#dc2626">
+                  isInteractive re-imported by 3 callers
+                </text>
+              </svg>
+            </div>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">After — one deep module</p>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div
+                  class="border-2 border-slate-800 text-[11px] px-2 py-3 rounded-sm text-center font-mono"
+                >
+                  walk.mjs<br /><span class="text-slate-500 text-[10px]"
+                    >label + count</span
+                  >
+                </div>
+                <div
+                  class="border-2 border-slate-800 text-[11px] px-2 py-3 rounded-sm text-center font-mono"
+                >
+                  upload.mjs<br /><span class="text-slate-500 text-[10px]"
+                    >label + count</span
+                  >
+                </div>
+              </div>
+              <svg class="w-full h-7" viewBox="0 0 300 28">
+                <line x1="75" y1="0" x2="75" y2="20" stroke="#334155" stroke-width="1.5" />
+                <path d="M71 16 L75 24 L79 16Z" fill="#334155" />
+                <line x1="225" y1="0" x2="225" y2="20" stroke="#334155" stroke-width="1.5" />
+                <path d="M221 16 L225 24 L229 16Z" fill="#334155" />
+              </svg>
+              <div class="deep rounded-md p-4 text-white">
+                <p class="label text-slate-400 mb-2">progress.mjs</p>
+                <p class="font-mono text-xs mb-3 text-emerald-300">
+                  countedPass(stream, label, () =&gt; n)
+                </p>
+                <div class="grid grid-cols-2 gap-1.5 text-[10px] text-slate-300">
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">TTY gate</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">redraw cadence</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">the clock tick</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">bare-label paint</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">count + elapsed</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">retained tally</div>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-3">
+                The interface is the test surface: a passed-in clock makes the
+                whole pass assertable off a terminal.
+              </p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                <code>progress.mjs</code> owns the terminal mechanic and the
+                cadence, but the <em>shape of a counting pass</em> — bare label,
+                then <code>&lt;label&gt; &lt;count&gt; in &lt;elapsed&gt;</code>,
+                then a tally that must survive off a terminal — is re-typed
+                identically in two modules, and the clock that drives the tick is
+                hand-rolled twice and missing from the third.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Give <code>progress.mjs</code> the concept it lacks: a counted
+                pass it draws on its own clock and closes with a retained line —
+                so no caller reaches for <code>isInteractive</code> or
+                <code>setInterval</code>, and the walk cannot be the one pass that
+                forgets.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-red-200 bg-red-50 p-4 text-sm">
+            <p class="label text-red-700 mb-1">The live consequence</p>
+            <p class="text-slate-700">
+              The walk redraws inside
+              <code>for (const path of walkFiles(…))</code> — data-driven, not
+              clock-driven. <code>walkFiles</code> blocks on
+              <code>readdirSync</code> per directory and on
+              <code>resolveFileType</code>'s <code>lstatSync</code> fallback (the
+              NFS/FUSE case), and yields nothing while descending a subtree it
+              keeps no files from. In each, the count <em>and its elapsed
+              clock</em> freeze — the exact fault ADR-0076 §3 was written about,
+              on the one pass that never got the fix, and the pass that runs
+              longest on the biggest sets.
             </p>
           </div>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
-            <ul class="list-disc pl-5 space-y-1">
-              <li><strong>Leverage:</strong> the guard, the dedup, the counting and the
-                stop-on-first-transport-failure policy arrive with the transform. Every future
-                object source inherits them instead of re-deriving them.</li>
-              <li><strong>Locality:</strong> "how does s3cab put an object into the store, safely"
-                becomes one function to read. Today the answer depends on which of two loops the
-                caller reached.</li>
-              <li><strong>Tests:</strong> the drift cases are already covered against
-                <code class="mono">uploadObjects</code>' interface (mock-free, over in-memory
-                rows). Routing <code class="mono">uploadDir</code> through it puts the seed path
-                under that existing suite rather than needing a parallel one.</li>
-              <li><strong>The header stops lying</strong> — "one PUT loop, three sources" becomes a
-                checkable statement (doc-discipline rule 1).</li>
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>locality: one pass shape, one place</li>
+              <li>the walk's line stops freezing</li>
+              <li>
+                <code>isInteractive</code> stops leaking to three callers
+              </li>
+              <li>four copies of one template collapse</li>
+              <li>leverage: injected clock ⇒ testable off a TTY</li>
+              <li>
+                <code>progress.mjs</code>'s own doc claim becomes true again
+              </li>
             </ul>
           </div>
 
-          <div class="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-xs text-amber-900">
-            <strong>Also a bug, independently of the refactor.</strong> The missing drift guard on
-            <code class="mono">upload --dir</code> belongs in
-            <a class="underline" href="bugs.md">proposals/bugs.md</a> whether or not this candidate
-            is taken — a two-line <code class="mono">fileChange</code> call would close it. The
-            architecture argument is about why it was missing in the first place.
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Extends ADR-0076</strong>, doesn't reopen it — 0076 already
+            rules that bursty or blocking passes must be clock-driven. This is
+            cashing that rule at the site that missed it, and moving the tick
+            inside the module that already owns cadence.
+          </div>
+
+          <div class="rounded-md border border-slate-300 bg-white p-3 text-sm">
+            <p class="label text-slate-500 mb-1">Test-surface note</p>
+            <p class="text-slate-700">
+              Nothing anywhere asserts on <code>Finding files in</code> or
+              <code>Scanning existing objects</code>. The
+              <code>progress.mjs</code> core mechanic itself is well covered
+              (<code>progress.test.mjs</code>, including flicker ordering) — the
+              gap is everything the callers built on top of it.
+            </p>
           </div>
         </article>
 
-        <!-- ══════════════════════ D ══════════════════════ -->
-        <article id="cand-d" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">D · The bucket's unreadable snapshots have no name</h2>
-            <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Strong</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">missing seam · earns a CONTEXT.md term</span>
-          </div>
-
-          <div class="text-sm space-y-1">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
-            <p class="mono text-xs">src/lib/cleanup.mjs — <span class="text-slate-500">typedef l.44, flatMap l.74–76</span></p>
-            <p class="mono text-xs">src/lib/unrestorable.mjs — <span class="text-slate-500">typedef l.56, flatMap l.94–100, display l.294</span></p>
-            <p class="mono text-xs">src/lib/delete.mjs — <span class="text-slate-500">typedef l.79, flatMap l.105–107, display l.389</span></p>
-            <p class="mono text-xs">src/commands/cleanup.mjs l.107–116 · src/commands/delete.mjs l.154–163 — <span class="text-slate-500">the two aborts</span></p>
-            <p class="mono text-xs">src/lib/verify.mjs l.43 · src/lib/remote.mjs l.234–262 — <span class="text-slate-500">where it originates</span></p>
-          </div>
-
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
-            <p>
-              <code class="mono">referencedObjects</code> yields per-set results carrying
-              <code class="mono">unreadable: { snapshot, reason }[]</code>. Every consumer wants the
-              same derived thing — <em>the whole bucket's unreadable snapshots, qualified by which
-              set they belong to</em> — and every consumer builds it itself:
-            </p>
-            <div class="rounded-lg bg-slate-900 text-slate-100 p-3 text-xs mono overflow-x-auto">
-<pre>// cleanup.mjs:74, unrestorable.mjs:94, delete.mjs:105 — three times, identical
-const unreadable = [...referencedBySet].flatMap(([set, r]) =&gt;
-  r.unreadable.map((u) =&gt; ({ set, snapshot: u.snapshot, reason: u.reason })),
-);
-
-// …then declared as an inline structural type, three times
-@property {{ set: string, snapshot: string, reason: string }[]} unreadable
-
-// …then rendered, four times
-const where = plan.unreadable.map((u) =&gt; `${u.set}/${u.snapshot}`);</pre>
+        <!-- ══════════════════════════ B ══════════════════════════ -->
+        <article id="b" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              B · Roles Anywhere escapes the credential-error family
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >ports &amp; adapters</span
+              >
             </div>
-            <p>
-              Ten copies of one concept across five files, and it has no name — not a typedef, not
-              a CONTEXT.md term. The tell is the last line: <code class="mono">set/snapshot</code>
-              is a <strong>user-facing identifier</strong> for a snapshot inside a bucket, invented
-              independently in four places. And two of the sites build the same abort from the same
-              skeleton (<em>"Can't … safely: N snapshot(s) won't read … Unreadable: … Triage first:
-              s3cab verify &lt;bucket&gt;"</em>), differing only in one middle clause — which is
-              precisely the "heavy, actionable, reused → a named factory" row of
-              <code class="mono">error.mjs</code>'s own taxonomy.
-            </p>
           </div>
 
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before — each plan re-derives it</p>
-              <pre class="mermaid text-xs">flowchart LR
-  R["referencedObjects<br/>per-set {snapshot, reason}"] --> C["planCleanup<br/>flatMap + typedef"]
-  R --> U["planUnrestorable<br/>flatMap + typedef"]
-  R --> D["planDelete<br/>flatMap + typedef"]
-  C --> CC["cleanup cmd<br/>set/snapshot + abort"]
-  U --> UU["summary<br/>set/snapshot"]
-  D --> DD1["summary<br/>set/snapshot"]
-  D --> DD2["delete cmd<br/>set/snapshot + abort"]
-  style C fill:#fecaca,stroke:#b91c1c
-  style U fill:#fecaca,stroke:#b91c1c
-  style D fill:#fecaca,stroke:#b91c1c</pre>
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/auth.mjs:481-494, :531-549, :89-108, :64-65</div>
+            <div>src/lib/roles-anywhere.mjs:774-806, :816-819, :832-866</div>
+          </div>
+
+          <div class="rounded-lg border border-slate-300 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  RC["resolveCredentials()"]
+  RA{"isRolesAnywhere<br/>Mode()?"}
+  EARLY["return resolveRolesAnywhereCredentials()<br/><i>before the try</i>"]
+  MISS["!identity → noCredentialsError<br/>(the polished 5-line RA fix)"]
+  CS["await createSession(identity)"]
+  TRY["try { standardChain() }"]
+  CATCH["catch → noCredentialsError<br/>set · profile · knownProfiles · endpoint"]
+  TOP["top-level catch in s3cab.mjs"]
+  OUT["'Roles Anywhere CreateSession failed<br/>(HTTP 403): &lt;body&gt;'"]
+
+  RC --> RA
+  RA -- yes --> EARLY
+  RA -- no --> TRY
+  TRY --> CATCH
+  CATCH --> TOP
+  EARLY --> MISS
+  EARLY --> CS
+  CS -- "403 · expired cert · socket · timeout" --> OUT
+  OUT --> TOP
+
+  classDef leak stroke:#dc2626,stroke-width:2.5px,fill:#fef2f2;
+  classDef good stroke:#059669,stroke-width:2px,fill:#ecfdf5;
+  class CS,OUT leak
+  class CATCH,MISS good
+            </pre>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                <code>resolveCredentials</code> returns from the RA branch
+                <em>before</em> entering its <code>try</code>, so only the
+                <em>absent identity</em> case is wrapped. Every
+                <em>runtime</em> <code>CreateSession</code> failure — expired
+                certificate, 403 from STS, socket error, timeout — reaches the
+                user as a raw HTTP dump. The request-time relay can't catch it
+                either: <code>createSession</code> issues a raw
+                <code>node:http</code> request, so it never passes
+                <code>s3.mjs</code>.
+              </p>
             </div>
-            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After — one named concept</p>
-              <pre class="mermaid text-xs">flowchart LR
-  R["referencedObjects"] --> N["the named derivation<br/>→ UnreadableSnapshot[]<br/>+ naming + abort factory"]
-  N --> C["planCleanup"]
-  N --> U["planUnrestorable"]
-  N --> D["planDelete"]
-  C --> X["commands consume<br/>the named shape"]
-  U --> X
-  D --> X
-  style N fill:#1e293b,color:#fff</pre>
-              <p class="text-xs text-emerald-800">
-                One typedef, one derivation, one spelling of
-                <code class="mono">set/snapshot</code>, one abort.
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Bring the <code>createSession</code> call inside the same failure
+                handling the standard chain already gets, so an RA runtime failure
+                is classified by the existing predicates and lands in the RA
+                <code>credentialCase</code> — or, when the message says so, the
+                expiry one.
               </p>
             </div>
           </div>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
-            <ul class="list-disc pl-5 space-y-1">
-              <li><strong>Locality:</strong> the three plan modules stop carrying an identical
-                six-line preamble that has nothing to do with their actual question
-                (orphans / unrestorable files / deletable objects).</li>
-              <li><strong>Leverage:</strong> the widened type stops being three structural literals
-                that can silently drift apart — the type checker starts holding one contract
-                instead of three coincidences.</li>
-              <li><strong>Vocabulary:</strong> a CONTEXT.md term for the qualified
-                <code class="mono">set/snapshot</code> name, which currently exists only as a
-                template literal repeated four times.</li>
-              <li><strong>Tests:</strong> the abort's wording is asserted per command today; a
-                factory makes the shared skeleton assertable once and leaves each command's own
-                clause as the thing worth testing there.</li>
+          <div class="rounded-md border border-red-200 bg-red-50 p-4 text-sm">
+            <p class="label text-red-700 mb-1">The asymmetry's cost</p>
+            <p class="text-slate-700">
+              The <strong>once-per-machine</strong> setup failure gets the
+              polished five-line fix. The <strong>recurring</strong> one — a
+              client certificate that aged out — gets an HTTP status and a
+              response body. <code>isExpiredSignIn</code> matches
+              <code>/\bexpired\b/i</code> and would very likely fire on that body,
+              but is never consulted on this path.
+            </p>
+          </div>
+
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>one credential-failure vocabulary, four modes</li>
+              <li>an aged-out certificate says how to fix it</li>
+              <li>locality: ADR-0037's remedy table finally total</li>
+              <li>
+                gives <code>resolveCredentials</code> its first test
+              </li>
             </ul>
           </div>
 
-          <div class="rounded-lg border-l-4 border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
-            <strong>Placement is the grilling question, not the existence.</strong>
-            <code class="mono">remote.mjs</code> produces the per-set results;
-            <code class="mono">verify.mjs</code> owns the <code class="mono">ReferencedResult</code>
-            typedef the three modules <code class="mono">@import</code>;
-            <code class="mono">error.mjs</code> hosts the taxonomy the abort factory belongs to.
-            Splitting the derivation and the message across two homes may well be right — that is
-            the conversation, and it decides whether this lands as one small module or as two
-            additions to existing ones.
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Completes ADR-0075/0037</strong> rather than contradicting
+            them — 0075 extended expiry diagnosis to resolve time for the standard
+            chain; the RA adapter, added by ADR-0057, was never brought into it.
           </div>
         </article>
 
-        <!-- ══════════════════════ B ══════════════════════ -->
-        <article id="cand-b" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">B · The consequence-summary table, built twice; <code class="mono text-base">count</code>/<code class="mono text-base">plural</code>, built four times</h2>
-            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
+        <!-- ══════════════════════════ C ══════════════════════════ -->
+        <article id="c" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              C · <code class="text-indigo-700">generateSnapshot</code> takes the
+              baseline whole
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
           </div>
 
-          <div class="text-sm space-y-1">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
-            <p class="mono text-xs">src/lib/unrestorable.mjs — <span class="text-slate-500"><code>formatUnrestorableSummary</code> l.242–277, <code>files</code> l.379, <code>objects</code> l.382</span></p>
-            <p class="mono text-xs">src/lib/delete.mjs — <span class="text-slate-500"><code>formatDeleteSummary</code> l.306–341, <code>files</code> l.434</span></p>
-            <p class="mono text-xs">src/lib/deletion-record.mjs — <span class="text-slate-500"><code>files</code> l.179, inline "stored object(s)" l.166</span></p>
-            <p class="mono text-xs">src/render.mjs — <span class="text-slate-500"><code>count</code> l.825, <code>plural</code> l.830 — private, ~20 call sites</span></p>
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/snapshot.mjs:41-46, :62-99, :113-125</div>
+            <div>src/commands/snapshot.mjs:25-48</div>
+            <div>src/commands/backup.mjs:62-91</div>
           </div>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
-            <p>
-              <code class="mono">delete.mjs</code>'s doc says it outright: the per-path table
-              <em>"follows the unrestorable summary's shape exactly"</em>. It does — by copy. Both
-              compute three column widths, close over the same
-              <code class="mono">row()</code> renderer, pop the total, draw the same
-              <code class="mono">─</code> rule at
-              <code class="mono">fileCol + byteCol + 2</code>, and both append a
-              <em>shared across N …</em> line under the same sole-vs-shared rule. Roughly 30 lines,
-              near-verbatim, in two files.
+          <!-- before / after: rename fan -->
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                Before — three renames, at both call sites
+              </p>
+              <div class="flex gap-3 items-stretch">
+                <div class="w-32 shrink-0">
+                  <div
+                    class="border-2 border-slate-500 rounded-sm p-2 text-[10px] font-mono space-y-1 bg-slate-50"
+                  >
+                    <p class="label text-slate-500 !text-[9px] mb-1">
+                      SnapshotBaseline
+                    </p>
+                    <div>name</div>
+                    <div class="text-red-700">previous</div>
+                    <div class="text-red-700">lookup</div>
+                    <div class="text-red-700">instant</div>
+                  </div>
+                </div>
+                <svg class="flex-1 h-[104px]" viewBox="0 0 120 104" preserveAspectRatio="none">
+                  <path d="M0 40 C60 40 60 26 118 26" stroke="#dc2626" fill="none" stroke-width="1.5" />
+                  <path d="M0 58 C60 58 60 48 118 48" stroke="#dc2626" fill="none" stroke-width="1.5" />
+                  <path d="M0 76 C60 76 60 70 118 70" stroke="#dc2626" fill="none" stroke-width="1.5" />
+                  <text x="58" y="20" font-size="7" fill="#dc2626" text-anchor="middle">renamed ×3</text>
+                </svg>
+                <div class="w-36 shrink-0">
+                  <div
+                    class="border-2 border-slate-500 rounded-sm p-2 text-[10px] font-mono space-y-1"
+                  >
+                    <p class="label text-slate-500 !text-[9px] mb-1">
+                      generateSnapshot opts
+                    </p>
+                    <div class="text-red-700">lookup</div>
+                    <div class="text-red-700">sizes</div>
+                    <div class="text-red-700">previousInstant</div>
+                    <div class="text-slate-400">through</div>
+                    <div class="text-slate-400">transfer</div>
+                    <div class="text-slate-400">debug</div>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="mt-3 border border-amber-400 bg-amber-50 rounded-sm p-2 text-[11px] font-mono"
+              >
+                since: previous &amp;&amp; previousName<br />
+                &nbsp;&nbsp;? { name: previousName, entries: previous }<br />
+                &nbsp;&nbsp;: previousName
+                <span class="text-amber-800 not-italic font-sans"
+                  >← dead arm</span
+                >
+              </div>
+            </div>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">After — one value, one arrow</p>
+              <div class="flex gap-3 items-stretch">
+                <div class="w-32 shrink-0">
+                  <div
+                    class="border-2 border-slate-800 rounded-sm p-2 text-[10px] font-mono bg-slate-50"
+                  >
+                    <p class="label text-slate-500 !text-[9px] mb-1">
+                      SnapshotBaseline
+                    </p>
+                    <div class="text-slate-500 text-[9px] leading-snug">
+                      two states, not four optionals
+                    </div>
+                  </div>
+                </div>
+                <svg class="flex-1 h-[72px]" viewBox="0 0 120 72" preserveAspectRatio="none">
+                  <path d="M0 34 L112 34" stroke="#334155" fill="none" stroke-width="2" />
+                  <path d="M112 30 L120 34 L112 38Z" fill="#334155" />
+                </svg>
+                <div class="w-36 shrink-0">
+                  <div
+                    class="border-2 border-slate-800 rounded-sm p-2 text-[10px] font-mono space-y-1"
+                  >
+                    <p class="label text-slate-500 !text-[9px] mb-1">
+                      generateSnapshot opts
+                    </p>
+                    <div class="text-emerald-700">baseline</div>
+                    <div class="text-slate-400">through</div>
+                    <div class="text-slate-400">transfer</div>
+                    <div class="text-slate-400">debug</div>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="mt-3 border border-emerald-300 bg-emerald-50 rounded-sm p-2 text-[11px] text-slate-700"
+              >
+                The dead arm can't be written — the type says
+                <code>name</code> and <code>previous</code> arrive together.
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                Three of <code>generateSnapshot</code>'s six options are
+                <code>readBaseline</code>'s own fields renamed and re-threaded by
+                hand — identically at 2 of 2 call sites. The interface is wider
+                than what it hides, and the widening is pure re-spelling.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Pass the <code>SnapshotBaseline</code> value whole, and give the
+                typedef the two states it actually has (first run / has a
+                previous) instead of four independent optionals.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-slate-300 bg-white p-4 text-sm">
+            <p class="label text-slate-500 mb-1">
+              The interface's own admission
             </p>
-            <p>
-              Underneath it, the smaller duplication: <code class="mono">render.mjs</code> already
-              has <code class="mono">count</code> and <code class="mono">plural</code> — but
-              <strong>private</strong>, so the three lib modules that need them each hand-rolled
-              <code class="mono">files(n)</code>, and two hand-rolled
-              <code class="mono">objects(n)</code> as well. The ninth pass logged this as
-              <em>"pluralization hand-rolls outside render.mjs's <code>plural</code>
-              (marginal)"</em>; the deletion rework has since tripled it.
+            <p class="text-slate-700">
+              <code>backup.test.mjs:155-159</code> exists solely to stop a
+              refactor dropping <code>sizes</code> — "dropping it in a refactor
+              costs nothing visible in a test but silently reverts the progress
+              line to counts alone". A test defending an interface against a
+              mistake that interface invites is the shape asking to change. And
+              the guard is one-sided: deleting <code>sizes: previous</code> from
+              <code>commands/snapshot.mjs:36</code> fails zero tests.
             </p>
           </div>
 
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-3">
-              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before</p>
-              <div class="space-y-2">
-                <div class="rounded border border-rose-300 bg-white p-2">
-                  <p class="text-xs font-semibold mono">unrestorable.mjs</p>
-                  <p class="text-[11px] text-slate-600">width calc · row() · rule · total · <span class="text-rose-700">files()</span> · <span class="text-rose-700">objects()</span></p>
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>interface shrinks 6 options → 4</li>
+              <li>the dead branch becomes unwritable</li>
+              <li>locality: baseline invariant in the type</li>
+              <li>two porcelain commands lose a third of their body</li>
+            </ul>
+          </div>
+
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Does not reopen ADR-0069.</strong> The <code>through</code>
+            seam — one optional parameter carrying the whole snapshot-vs-backup
+            difference — was examined again this pass and found clean. This is
+            about the three <em>baseline</em> options beside it, both of which
+            (<code>sizes</code>, <code>previousInstant</code>) post-date the last
+            architecture pass.
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ D ══════════════════════════ -->
+        <article id="d" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              D · Let <code class="text-indigo-700">referenced.mjs</code> answer
+              the questions its own shape implies
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/referenced.mjs:16-27</div>
+            <div>
+              src/lib/verify.mjs:55-84 · cleanup.mjs:86-112 · delete.mjs:169-184 ·
+              unrestorable.mjs:150-172
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                Before — the vocabulary owns the noun, not the verbs
+              </p>
+              <pre class="mermaid">
+flowchart TB
+  R["referenced.mjs<br/><i>typedefs only</i>"]
+  V["verify.mjs<br/>size disagrees?"]
+  C["cleanup.mjs<br/>size disagrees?"]
+  D["delete.mjs<br/>safe size = max"]
+  U["unrestorable.mjs<br/>safe size = max"]
+  R -.-> V
+  R -.-> C
+  R -.-> D
+  R -.-> U
+  V <-. "same derivation" .-> C
+  D <-. "same derivation" .-> U
+  classDef dup stroke:#dc2626,stroke-width:2px,fill:#fef2f2;
+  class V,C,D,U dup
+              </pre>
+              <p class="text-[11px] text-slate-500 mt-2">
+                The triple-nested walk is spelled four times; the
+                <code>sizes</code>-is-a-Set rationale appears in five doc
+                comments.
+              </p>
+            </div>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                After — the derivations sit beside the field that causes them
+              </p>
+              <pre class="mermaid">
+flowchart TB
+  R["referenced.mjs<br/>safeSize · sizeDisagrees<br/><i>still imports nothing</i>"]
+  V["verify.mjs"]
+  C["cleanup.mjs"]
+  D["delete.mjs"]
+  U["unrestorable.mjs"]
+  R --> V
+  R --> C
+  R --> D
+  R --> U
+  classDef deep stroke:#0f172a,stroke-width:3px,fill:#0f172a,color:#fff;
+  class R deep
+              </pre>
+              <p class="text-[11px] text-slate-500 mt-2">
+                Zero-import purity survives — this is arithmetic over a Set, not
+                I/O.
+              </p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                The three-deep nest exists to preserve torn-snapshot size
+                disagreement, but the vocabulary module exports nothing that
+                touches it. So four planners walk it by hand and re-derive the
+                same two questions — "the safe (largest) size before a destructive
+                act" (<code>delete</code>, <code>unrestorable</code>, near-verbatim
+                rationale each time) and "does any recorded size disagree with
+                storage" (<code>verify</code>, <code>cleanup</code>).
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Give <code>referenced.mjs</code> the two derivations its own field
+                implies, so the torn-snapshot reasoning lives once, beside the
+                <code>Set&lt;number&gt;</code> that causes it.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>locality: one home for the torn-snapshot rule</li>
+              <li>"never understate before a deletion" stated once</li>
+              <li>four hand-written nested walks collapse</li>
+              <li>leverage: pure, so testable with no fixtures</li>
+            </ul>
+          </div>
+
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Applies ADR-0074, doesn't strain it.</strong> 0074 created
+            this module precisely to own the enumeration's vocabulary away from
+            its SDK-reaching producer. The derivations are arithmetic, so the
+            zero-import property that made 0074 necessary is untouched.
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ E ══════════════════════════ -->
+        <article id="e" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              E · <code class="text-indigo-700">compileExclude</code> owns half a
+              matching convention
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/exclude.mjs:16-34 · src/lib/walk.mjs:333-364</div>
+            <div>
+              src/lib/exclude.test.mjs:15 · src/lib/walk.test.mjs:152-164
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">Before — a seam through one rule</p>
+              <div class="relative">
+                <div class="border-2 border-slate-500 rounded-sm p-3 bg-slate-50">
+                  <p class="label text-slate-500 mb-1">exclude.mjs</p>
+                  <ul class="text-[11px] text-slate-700 space-y-0.5 list-disc list-inside">
+                    <li>normalize the <em>pattern</em> separators</li>
+                    <li>glob tokens → RegExp</li>
+                    <li>win32 case folding</li>
+                  </ul>
+                  <p class="text-[10px] font-mono text-slate-500 mt-2">
+                    returns RegExp
+                  </p>
                 </div>
-                <div class="rounded border border-rose-300 bg-white p-2">
-                  <p class="text-xs font-semibold mono">delete.mjs</p>
-                  <p class="text-[11px] text-slate-600">width calc · row() · rule · total · <span class="text-rose-700">files()</span> · inline objects</p>
-                </div>
-                <div class="rounded border border-rose-300 bg-white p-2">
-                  <p class="text-xs font-semibold mono">deletion-record.mjs</p>
-                  <p class="text-[11px] text-slate-600"><span class="text-rose-700">files()</span> · inline objects</p>
-                </div>
-                <div class="rounded border border-slate-300 bg-slate-100 p-2">
-                  <p class="text-xs font-semibold mono">render.mjs</p>
-                  <p class="text-[11px] text-slate-600">count() · plural() — <em>private, unreachable</em></p>
+                <svg class="w-full h-9" viewBox="0 0 300 36">
+                  <line x1="0" y1="18" x2="300" y2="18" class="seam" stroke="#64748b" stroke-width="2" />
+                  <text x="150" y="13" font-size="8" fill="#64748b" text-anchor="middle">
+                    seam — three obligations stated only in prose
+                  </text>
+                </svg>
+                <div class="border-2 border-red-400 rounded-sm p-3 hatch">
+                  <p class="label text-red-700 mb-1">walk.mjs</p>
+                  <ul class="text-[11px] text-slate-700 space-y-0.5 list-disc list-inside">
+                    <li>normalize the <em>subject</em> separators</li>
+                    <li>
+                      append <code>/</code> when the entry is a directory
+                    </li>
+                    <li>
+                      <code>join(baseDir, pattern)</code> before compiling
+                    </li>
+                    <li>
+                      <code>matchers.find</code> to recover which pattern hit
+                    </li>
+                  </ul>
                 </div>
               </div>
             </div>
-            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
-              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After</p>
-              <div class="space-y-2">
-                <div class="rounded border-2 border-emerald-500 bg-slate-900 text-slate-100 p-2">
-                  <p class="text-xs font-semibold mono">the counting primitives</p>
-                  <p class="text-[11px] text-slate-300">count() · plural() — one home, render.mjs included</p>
-                </div>
-                <div class="rounded border-2 border-emerald-500 bg-slate-900 text-slate-100 p-2">
-                  <p class="text-xs font-semibold mono">one aligned-total table</p>
-                  <p class="text-[11px] text-slate-300">rows + total → padded lines + rule</p>
-                </div>
-                <div class="rounded border border-emerald-300 bg-white p-2">
-                  <p class="text-xs font-semibold mono">unrestorable.mjs / delete.mjs</p>
-                  <p class="text-[11px] text-slate-600">choose the rows and the labels — the part that actually differs</p>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">After — one question, one answer</p>
+              <div class="deep rounded-md p-4 text-white mb-3">
+                <p class="label text-slate-400 mb-2">exclude.mjs</p>
+                <p class="font-mono text-xs text-emerald-300 mb-3">
+                  excluder(baseDir, patterns)<br />
+                  &nbsp;&nbsp;→ (path, fileType) =&gt; pattern | undefined
+                </p>
+                <div class="grid grid-cols-2 gap-1.5 text-[10px] text-slate-300">
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">pattern side</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">subject side</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">directory rule</div>
+                  <div class="bg-white/10 px-2 py-1 rounded-sm">which pattern hit</div>
                 </div>
               </div>
-              <p class="text-xs text-emerald-800">
-                Each summary keeps its own prose, headline and warnings; only the alignment
-                mechanic moves.
+              <div class="border-2 border-slate-800 rounded-sm p-2 text-center text-[11px] font-mono">
+                walk.mjs — records the match, descends or doesn't
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                The module normalizes the pattern side, then documents in prose a
+                calling convention the caller must honour on the subject side. The
+                directory rule — trailing <code>/</code> — is implemented in
+                <code>walk.mjs</code>, so it is reachable only through the
+                filesystem.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Move the subject-side normalization and the directory marking
+                inside <code>exclude.mjs</code>, so its interface answers "does
+                this entry match, and by which pattern" instead of handing back a
+                <code>RegExp</code> with rules attached.
               </p>
             </div>
           </div>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
-            <ul class="list-disc pl-5 space-y-1">
-              <li><strong>Locality:</strong> "why do the numbers line up like that" becomes one
-                function with one doc comment. Today the reasoning
-                (<em>"right-align the numbers so the magnitudes line up"</em>) is written out in
-                one file and silently copied into the other.</li>
-              <li><strong>Tests:</strong> alignment is fiddly and currently asserted only through
-                two whole rendered summaries. A table primitive is testable directly — including
-                the case that would break both copies (a byte figure wider than its header).</li>
-              <li>The next destructive command's preview gets the house table for free, rather
-                than a third copy.</li>
-            </ul>
+          <div class="rounded-md border border-red-200 bg-red-50 p-4 text-sm">
+            <p class="label text-red-700 mb-1">
+              The least-tested half is the most-used half
+            </p>
+            <p class="text-slate-700">
+              Four of the six active starter patterns are directory form —
+              <code>**/node_modules/</code>, <code>**/.git/</code>,
+              <code>$RECYCLE.BIN/</code>, <code>System Volume Information/</code>
+              — and <code>exclude.test.mjs</code> has
+              <strong>no directory-exclusion case at all</strong>; its helper
+              (<code>compileExclude(pattern).test(path)</code>) re-implements the
+              convention and cannot express the rule. The only coverage is one
+              <code>walk.test.mjs</code> case that builds a real temp tree.
+            </p>
           </div>
 
-          <div class="rounded-lg border-l-4 border-amber-400 bg-amber-50 p-3 text-xs text-amber-900">
-            <strong>Why only "worth exploring".</strong> Two arguments cut against it, and both are
-            real. (1) These are two <em>different commands' user-facing output</em>, and
-            deliberately-similar-today is not must-stay-identical — a shared renderer couples them,
-            and ADR-0006/#5 has form against exactly this kind of presentational machinery.
-            (2) <code class="mono">render.mjs</code> is the render layer (ADR-0043), yet these
-            summaries deliberately bypass it because they are <em>pre-decision</em> output printed
-            before the command returns — so "put the table in render.mjs" may be the wrong home
-            even though that is where its siblings live. Grilling should probably split the
-            candidate: the <code class="mono">count</code>/<code class="mono">plural</code> half is
-            cheap and clearly right; the table half is a judgement call.
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>the directory rule becomes unit-testable</li>
+              <li>three unwritten obligations disappear</li>
+              <li>locality: one home for "does this match"</li>
+              <li>the walk stops knowing the grammar</li>
+            </ul>
           </div>
         </article>
 
-        <!-- ══════════════════════ C ══════════════════════ -->
-        <article id="cand-c" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
-          <div class="flex items-baseline gap-3 flex-wrap">
-            <h2 class="font-serif text-xl">C · <code class="mono text-base">putText</code> re-spells <code class="mono text-base">putObjectParams</code>, and <code class="mono text-base">PreconditionFailed</code> has no <code class="mono text-base">isObjectNotFound</code> twin</h2>
-            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Worth exploring</span>
-            <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">small · inside one module</span>
-          </div>
-
-          <div class="text-sm space-y-1">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Files</p>
-            <p class="mono text-xs">src/lib/s3.mjs — <span class="text-slate-500"><code>awsOnlyPutParams</code> l.593, <code>putObjectParams</code> l.619, <code>putFile</code>'s catch l.677–688, <code>isObjectNotFound</code> l.708, <code>putText</code> l.752–775</span></p>
-          </div>
-
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Problem</p>
-            <p>
-              <code class="mono">awsOnlyPutParams</code>' doc claims the gating rule
-              <em>"lives in one place"</em>, shared by <em>"putFile (via putObjectParams) and
-              putText"</em>. Half true. The AWS-only gating is shared; the rest of
-              <code class="mono">putObjectParams</code>' body is <strong>re-typed</strong> inside
-              <code class="mono">putText</code> — its own <code class="mono">parseS3Uri</code>, its
-              own <code class="mono">awsOnlyPutParams()</code> spread, its own
-              <code class="mono">IfNoneMatch: "*"</code> conditional. So the conditional-PUT
-              spelling exists twice in the module whose entire job is to be the one SDK boundary.
-            </p>
-            <p>
-              Then the mirror image: both uploaders map
-              <code class="mono">PreconditionFailed</code> → <code class="mono">false</code> with
-              the same four-line
-              <code class="mono">Error.isError(error) &amp;&amp; error.name === …</code> guard. The
-              module already has the pattern for this —
-              <code class="mono">isObjectNotFound</code>, whose doc gives the reason:
-              <em>"the single spelling of 'missing object' for this SDK boundary, so callers don't
-              each repeat the SDK's names."</em> "Already there" is the same kind of fact, and it
-              is spelled twice.
-            </p>
-          </div>
-
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-rose-200 bg-rose-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-rose-700 uppercase tracking-wide">Before</p>
-              <pre class="mermaid text-xs">flowchart TD
-  PF["putFile"] --> POP["putObjectParams<br/>Bucket/Key + AWS-only + IfNoneMatch"]
-  PF --> C1["name === 'PreconditionFailed'<br/>→ false"]
-  PT["putText"] --> INL["inline: parseS3Uri +<br/>awsOnlyPutParams + IfNoneMatch"]
-  PT --> C2["name === 'PreconditionFailed'<br/>→ false"]
-  AOP["awsOnlyPutParams"] --> POP
-  AOP --> INL
-  INF["isObjectNotFound<br/>(the pattern, already here)"]
-  style INL fill:#fecaca,stroke:#b91c1c
-  style C1 fill:#fecaca,stroke:#b91c1c
-  style C2 fill:#fecaca,stroke:#b91c1c
-  style INF fill:#e2e8f0,stroke-dasharray: 4 3</pre>
+        <!-- ══════════════════════════ F ══════════════════════════ -->
+        <article id="f" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              F · The snapshot pass's counters are unobservable
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
             </div>
-            <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
-              <p class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">After</p>
-              <pre class="mermaid text-xs">flowchart TD
-  PF["putFile"] --> POP
-  PT["putText"] --> POP["putObjectParams<br/>the one param builder"]
-  PF --> ALP["the already-present predicate<br/>(twin of isObjectNotFound)"]
-  PT --> ALP
-  AOP["awsOnlyPutParams"] --> POP
-  style POP fill:#1e293b,color:#fff
-  style ALP fill:#1e293b,color:#fff</pre>
-              <p class="text-xs text-emerald-800">
-                One params builder, one "already present" predicate — the shape the module already
-                uses for absence.
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>
+              src/lib/snapshot.mjs:157-158, :166-170, :184-199, :252-297, :314-362
+            </div>
+            <div>
+              src/lib/snapshot.test.mjs · src/lib/progress.mjs:69-71 ·
+              src/lib/file-props.mjs:67-74
+            </div>
+          </div>
+
+          <!-- mass diagram -->
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                Before — tests concentrated where the bugs aren't
+              </p>
+              <div class="flex gap-6 items-end h-56">
+                <div class="flex-1 flex flex-col justify-end items-center">
+                  <div
+                    class="w-full bg-emerald-500/80 border-2 border-emerald-700 rounded-t-sm flex items-center justify-center text-white text-[11px] font-semibold"
+                    style="height: 40%"
+                  >
+                    16 tests
+                  </div>
+                  <div
+                    class="w-full border-2 border-t-0 border-slate-400 bg-slate-100 flex items-center justify-center text-[11px] text-slate-600"
+                    style="height: 25%"
+                  >
+                    progressLine
+                  </div>
+                  <p class="text-[10px] text-slate-500 mt-2 text-center">
+                    pure composer<br />padding · budgets · trimming
+                  </p>
+                </div>
+                <div class="flex-1 flex flex-col justify-end items-center">
+                  <div
+                    class="w-full border-2 border-dashed border-red-400 bg-red-50 flex items-center justify-center text-red-700 text-[11px] font-semibold"
+                    style="height: 8%"
+                  >
+                    0 tests
+                  </div>
+                  <div
+                    class="w-full border-2 border-t-0 border-slate-400 hatch flex items-center justify-center text-[11px] text-slate-700 text-center px-1"
+                    style="height: 72%"
+                  >
+                    the wiring<br />
+                    <span class="text-[10px]"
+                      >bytesTotal · bytesDone · hashing · sizes</span
+                    >
+                  </div>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-3">
+                Off a TTY <code>createProgress</code> writes nothing, so every
+                counter is inert under <code>node --test</code>.
+              </p>
+            </div>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                After — the counters cross the interface
+              </p>
+              <div class="flex gap-6 items-end h-56">
+                <div class="flex-1 flex flex-col justify-end items-center">
+                  <div
+                    class="w-full bg-emerald-500/80 border-2 border-emerald-700 rounded-t-sm flex items-center justify-center text-white text-[11px] font-semibold"
+                    style="height: 20%"
+                  >
+                    tests
+                  </div>
+                  <div
+                    class="w-full border-2 border-t-0 border-slate-400 bg-slate-100 flex items-center justify-center text-[11px] text-slate-600"
+                    style="height: 25%"
+                  >
+                    progressLine
+                  </div>
+                </div>
+                <div class="flex-1 flex flex-col justify-end items-center">
+                  <div
+                    class="w-full bg-emerald-500/80 border-2 border-emerald-700 rounded-t-sm flex items-center justify-center text-white text-[11px] font-semibold"
+                    style="height: 22%"
+                  >
+                    tests
+                  </div>
+                  <div
+                    class="w-full deep border-2 border-t-0 border-slate-800 flex items-center justify-center text-[11px] text-slate-200 text-center px-1"
+                    style="height: 72%"
+                  >
+                    the pass<br />
+                    <span class="text-[10px] text-slate-400"
+                      >counters asserted where computed</span
+                    >
+                  </div>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-3">
+                Injecting the sink and the clock makes the denominators
+                assertable without a terminal.
               </p>
             </div>
           </div>
 
-          <div class="space-y-2 text-sm">
-            <p class="text-slate-500 uppercase tracking-wide text-xs font-semibold">Benefits</p>
-            <ul class="list-disc pl-5 space-y-1">
-              <li><strong>Locality:</strong> a future change to how s3cab writes objects (a new
-                AWS-only param, a different no-clobber mechanism) is one edit, not two — and the
-                second is easy to miss, because <code class="mono">putText</code>'s copy doesn't
-                look like a copy.</li>
-              <li><strong>Tests:</strong> <code class="mono">putObjectParams</code> is already
-                exported and asserted directly (pure, no upload). Routing
-                <code class="mono">putText</code> through it puts the marker/config write path
-                under that existing coverage.</li>
-              <li>The predicate names the concept the way the module names its sibling —
-                consistency of interface, which #5 explicitly counts as "simpler".</li>
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                <code>progressLine</code> was extracted for testability and got 16
+                tests — but every real defect in this pass lives in what is
+                <em>passed</em> to it, and none of that is reachable through the
+                current interface. <code>snapshot.test.mjs</code> imports exactly
+                one symbol; <code>backup.test.mjs</code> mocks the other two away.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Make the pass's counters inspectable at
+                <code>generateSnapshot</code>'s own interface — or let
+                <code>withProgress</code> accept the sink and the clock — so the
+                denominators are asserted where they are computed rather than
+                where they are formatted.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-red-200 bg-red-50 p-4 text-sm">
+            <p class="label text-red-700 mb-1">
+              The behavioural question this hides
+            </p>
+            <p class="text-slate-700">
+              <code>bytesDone += props.size</code> counts a <em>reused</em> file's
+              bytes, and <code>fileProps</code> returns the stored props without
+              reading a byte. So <em>"38% of 2.4 GB"</em> means
+              <strong>bytes read</strong> on a first run and
+              <strong>files settled</strong> on a no-change run — a difference no
+              <code>progressLine</code> test can see. Whether that is right is a
+              product question; that nothing can observe it is the architectural
+              one.
+            </p>
+          </div>
+
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>the interface becomes the test surface</li>
+              <li>
+                deleting <code>sizes:</code> stops being silent (see C)
+              </li>
+              <li>the byte denominator gets a stated meaning</li>
+              <li>locality: pass behaviour verified in one place</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ G ══════════════════════════ -->
+        <article id="g" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              G · The dispatcher carries policy and has no test surface
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-amber-500 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Worth exploring</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/s3cab.mjs:21-170 (whole file)</div>
+            <div>src/lib/auth.mjs:450-466 · src/lib/auth.test.mjs:378-429</div>
+          </div>
+
+          <!-- cross-section -->
+          <div class="grid md:grid-cols-2 gap-5">
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                Before — ten policies behind an unreachable door
+              </p>
+              <div class="space-y-1">
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">--version fast path</div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">topics-first help routing</div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">unknown command → 127</div>
+                <div class="border-l-4 border-red-500 bg-red-50 text-[11px] px-2 py-1">
+                  unhandledRejection: warn once, else rethrow
+                </div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">--json merged, then stripped</div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">render vs JSON; empty ⇒ no newline</div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">InterruptedError → exit 130</div>
+                <div class="border-l-4 border-slate-400 bg-slate-50 text-[11px] px-2 py-1">usage synopsis; exit 1 vs 2</div>
+              </div>
+              <div class="mt-3 border-2 border-dashed border-red-400 bg-red-50 text-center text-[11px] py-2 rounded-sm text-red-700">
+                no importable seam — dispatch runs at import
+              </div>
+              <div class="mt-2 border-2 border-emerald-600 bg-emerald-50 text-center text-[11px] py-1.5 rounded-sm text-emerald-800">
+                isCredentialProviderError — 6 unit tests
+              </div>
+            </div>
+
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-3">
+                After — the door CLAUDE.md already left open
+              </p>
+              <div class="deep rounded-md p-4 text-white mb-3">
+                <p class="label text-slate-400 mb-2">s3cab.mjs</p>
+                <p class="font-mono text-xs text-emerald-300 mb-2">
+                  export function dispatch(argv, io)
+                </p>
+                <p class="font-mono text-xs text-slate-400">
+                  if (import.meta.main) { … }
+                </p>
+              </div>
+              <div class="border-2 border-emerald-600 bg-emerald-50 text-center text-[11px] py-2 rounded-sm text-emerald-800">
+                the ten policies become assertable in-process
+              </div>
+              <p class="text-[11px] text-slate-500 mt-3">
+                The e2e subprocess suite stays what it is — the
+                <em>integration</em> check — rather than the only reachable
+                surface.
+              </p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                The predicate is unit-tested; the <em>policy that uses it</em> —
+                warn once, never twice, rethrow everything else, and use
+                <code>statusLine</code> not <code>console.warn</code> because a
+                bar may be mid-line — is not testable at all. That is a pure
+                function extracted for testability with the real bug surface left
+                on the other side.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Guard the run block with <code>import.meta.main</code> and export
+                the dispatch function, exactly as CLAUDE.md's architecture
+                orientation already anticipates.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>the once-only warning gets a test</li>
+              <li>exit-code mapping asserted without a subprocess</li>
+              <li>locality: dispatch policy verified in one place</li>
+              <li>a library-consumer entry falls out for free</li>
             </ul>
           </div>
 
-          <div class="rounded-lg border-l-4 border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
-            <strong>Check before touching:</strong> the standing rejection on
-            <em>parameterizing <code class="mono">putFile</code>'s no-clobber mechanism</em> is
-            adjacent but different — that one was about making the HEAD-preflight vs
-            conditional-PUT <em>division of labour</em> configurable, and stays rejected. This
-            changes no mechanism and no round trip; it only stops the same mechanism being written
-            twice. Worth re-reading that entry during grilling so the two don't get conflated.
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>No ADR to reopen.</strong> CLAUDE.md's own placement note
+            already says: <em>"If dispatch ever needs unit testing, guard the run
+            block with <code>if (import.meta.main)</code>."</em> #256 added
+            process-level policy that made the conditional true.
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ H ══════════════════════════ -->
+        <article id="h" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              H · "Deliberate ≠ fault" is decided twice
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-amber-500 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Worth exploring</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>src/lib/verify.mjs:26-39, :59-71, :138-149</div>
+            <div>src/commands/restore.mjs:148-173, :195-215, :227-234</div>
+          </div>
+
+          <div class="rounded-lg border border-slate-300 bg-white p-4">
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="border-2 border-slate-500 rounded-sm p-3">
+                <p class="label text-slate-500 mb-2">verify — pure, eager</p>
+                <div class="space-y-1 text-[11px]">
+                  <div class="bg-slate-100 px-2 py-1 rounded-sm font-mono">
+                    stored.get(hash) === undefined
+                  </div>
+                  <div class="bg-slate-100 px-2 py-1 rounded-sm font-mono">
+                    deleted.get(hash) ?
+                  </div>
+                  <div class="bg-emerald-50 border border-emerald-300 px-2 py-1 rounded-sm">
+                    → expectedMissing (exit 0)
+                  </div>
+                  <div class="bg-red-50 border border-red-300 px-2 py-1 rounded-sm">
+                    → problems (exit 1)
+                  </div>
+                </div>
+              </div>
+              <div class="border-2 border-slate-500 rounded-sm p-3 hatch">
+                <p class="label text-slate-500 mb-2">restore — imperative, lazy</p>
+                <div class="space-y-1 text-[11px]">
+                  <div class="bg-white/70 px-2 py-1 rounded-sm font-mono">
+                    isObjectNotFound(error)
+                  </div>
+                  <div class="bg-white/70 px-2 py-1 rounded-sm font-mono">
+                    recordFor(hash) ?
+                  </div>
+                  <div class="bg-emerald-50 border border-emerald-300 px-2 py-1 rounded-sm">
+                    → deleted[] (exit 0)
+                  </div>
+                  <div class="bg-red-50 border border-red-300 px-2 py-1 rounded-sm">
+                    → missing[] (exit 1)
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-3 text-center">
+              <span class="text-[11px] text-slate-500">
+                same question · same
+                <code>Map&lt;hash, RecordedDeletion&gt;</code> · same exit-code
+                rule · no shared name
+              </span>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                One domain rule — an absent object is either a recorded
+                <strong>deletion</strong> (context, exit 0) or an unexplained
+                absence (a fault, exit 1) — is implemented in two modules with no
+                shared name, and its rationale is spelled out in prose in both.
+                A change to what counts as "explained" has two homes.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Name the classification once, in the deletion-record vocabulary,
+                and let both callers keep their own I/O policy — eager for
+                <code>verify</code>'s whole-bucket scan, lazy for
+                <code>restore</code>'s first casualty.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
+            <p class="label text-amber-800 mb-1">
+              Abuts a standing rejection — do not conflate
+            </p>
+            <p class="text-slate-700">
+              The tenth pass declined <em>"the three shapes of the deletion-record
+              lookup"</em> because <code>verifySet</code>,
+              <code>planCleanup</code> and <code>baselineHashes</code> ask
+              <strong>distinct</strong> questions (map / membership / keys). That
+              reasoning holds. This is a different claim: <code>restore</code> is a
+              <strong>fourth</strong> consumer that asks the
+              <em>identical</em> question to <code>verifySet</code>, in the
+              identical shape, and reaches the identical exit-code rule. Two
+              consumers of one question, not three of three.
+            </p>
+          </div>
+
+          <div>
+            <p class="label text-slate-500 mb-2">Wins</p>
+            <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside">
+              <li>locality: one definition of "explained"</li>
+              <li>ADR-0064's exit-code stance stated once</li>
+              <li>restore's classifier becomes pure and testable</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ══════════════════════════ I ══════════════════════════ -->
+        <article id="i" class="space-y-5 scroll-mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <h2 class="font-serif text-3xl">
+              I · One run prints the same count both ways
+            </h2>
+            <div class="flex gap-2 shrink-0 pt-2">
+              <span
+                class="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold"
+                >Strong</span
+              >
+              <span
+                class="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-full"
+                >in-process</span
+              >
+            </div>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <div>
+              src/render.mjs:105, :215, :232, :245, :257, :286-287, :290, :538
+            </div>
+            <div>src/lib/format.mjs:46-56</div>
+          </div>
+
+          <div class="rounded-lg border border-slate-300 bg-white p-4">
+            <p class="label text-slate-500 mb-3">
+              Two snapshots of the same tree, one session
+            </p>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <p class="text-[11px] text-slate-500 mb-1">first snapshot</p>
+                <pre class="bg-slate-900 text-slate-100 text-xs p-3 rounded-sm overflow-x-auto">First snapshot: <span class="text-emerald-400">265,716</span> files (2.4 GB)</pre>
+              </div>
+              <div>
+                <p class="text-[11px] text-slate-500 mb-1">the next one</p>
+                <pre class="bg-slate-900 text-slate-100 text-xs p-3 rounded-sm overflow-x-auto">Added (<span class="text-red-400">265716</span>)
+<span class="text-red-400">265716</span> added, 0 renamed, 0 moved…</pre>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center gap-3">
+              <div class="flex-1 h-6 bg-emerald-500/80 rounded-sm flex items-center justify-center text-white text-[11px] font-semibold" style="flex-grow: 20">
+                20 grouped
+              </div>
+              <div class="h-6 bg-red-500/80 rounded-sm flex items-center justify-center text-white text-[11px] font-semibold" style="flex-grow: 8">
+                8 ungrouped
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">
+              And the eight ungrouped are exactly the counts that scale with the
+              file set.
+            </p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="label text-slate-500 mb-1">Problem</p>
+              <p class="text-slate-700">
+                <code>formatCount</code> exists because "six digits run together
+                are unreadable at a glance", but <em>whether to apply it</em> is
+                re-decided at every interpolation — so the compare and verify
+                renderers get it wrong for precisely the figures that reach six
+                digits.
+              </p>
+            </div>
+            <div>
+              <p class="label text-slate-500 mb-1">Solution</p>
+              <p class="text-slate-700">
+                Settle the rule once — any count that can pass 999 is grouped —
+                and apply it at the eight sites. The leverage is already in
+                <code>format.mjs</code>; nothing new is needed at the interface.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-md border border-slate-300 bg-white p-3 text-sm">
+            <p class="text-slate-700">
+              <strong>Not a re-litigation of #254.</strong> That PR routed six
+              inline <code>toLocaleString("en")</code> calls through
+              <code>formatCount</code> and left that spelling absent from
+              <code>src/</code>. These eight sites never <em>formatted</em> at all
+              — they interpolate <code>.length</code> raw, so the sweep couldn't
+              see them.
+            </p>
           </div>
         </article>
       </section>
 
-      <!-- ══════════════════════ examined & left alone ══════════════════════ -->
+      <!-- ══════════════════════════ ALSO SURFACED ══════════════════════════ -->
+      <section class="space-y-4">
+        <h2 class="font-serif text-2xl">Also surfaced — smaller, verified</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="text-left border-b-2 border-stone-300 text-slate-500">
+                <th class="py-2 pr-4 font-semibold label">Finding</th>
+                <th class="py-2 pr-4 font-semibold label">Where</th>
+                <th class="py-2 font-semibold label">Note</th>
+              </tr>
+            </thead>
+            <tbody class="align-top">
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  <code>snapshotName</code> is an export with no caller
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  snapshot-file.mjs:516
+                </td>
+                <td class="py-3 text-slate-700">
+                  Only its own test imports it. Production mints names through
+                  <code>snapshotMoment()</code>. Deletion test: nothing
+                  concentrates — there is nothing to concentrate.
+                  <span class="text-emerald-700 font-semibold">Strong, small.</span>
+                </td>
+              </tr>
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  One classification rule lives outside the classifier
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  compare.mjs:141-152, :236-239
+                </td>
+                <td class="py-3 text-slate-700">
+                  "A path that failed hashing is not a deletion" is applied by
+                  <code>compareSnapshots</code> mutating <code>diff</code>'s
+                  output, so <code>diff</code>'s contract documents a rule it
+                  doesn't implement — and those two cases need real
+                  <code>.tsv.zst</code> files while the other twelve run on
+                  in-memory Maps.
+                </td>
+              </tr>
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  The bucket-scan ordering invariant is held by adjacency
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  commands/verify.mjs:57-74 · cleanup.mjs:78-95
+                </td>
+                <td class="py-3 text-slate-700">
+                  Snapshots → <code>objects/</code> LIST → <code>deletions/</code>,
+                  in that order, load-bearing, captured only in two prose blocks.
+                  Two sites today; Strong the moment a third bucket-scan command
+                  lands.
+                </td>
+              </tr>
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  The enumeration fixture is invented five ways
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  8 test modules, 10 construction points
+                </td>
+                <td class="py-3 text-slate-700">
+                  Five mutually incompatible input DSLs for one
+                  <code>Map&lt;set, ReferencedResult&gt;</code>. Pairs naturally
+                  with <a class="text-indigo-700 underline" href="#d">D</a> —
+                  <code>referenced.mjs</code> imports nothing and would host a
+                  builder for free.
+                </td>
+              </tr>
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  <code>render.mjs</code>'s four section builders
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  render.mjs:75-76, :208-259
+                </td>
+                <td class="py-3 text-slate-700">
+                  The heading grammar is written four times, and a
+                  triple-curried <code>painter</code> is threaded through five
+                  signatures despite being fixed for the whole render.
+                </td>
+              </tr>
+              <tr class="border-b border-stone-200">
+                <td class="py-3 pr-4 font-medium">
+                  Two premises that can't both be true
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  snapshot-file.mjs:285 vs :290
+                </td>
+                <td class="py-3 text-slate-700">
+                  <code>:285</code> unlinks before renaming, justified by "Windows
+                  will not rename onto an existing file" — while <code>:290</code>
+                  renames onto an existing file under <code>overwrite</code>, green
+                  on <code>windows-latest</code>. Not a candidate; a comment to
+                  settle.
+                </td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-4 font-medium">
+                  Four spellings of "a snapshot and its entries"
+                </td>
+                <td class="py-3 pr-4 font-mono text-xs text-slate-600">
+                  snapshot.mjs · compare.mjs · upload.mjs · remote.mjs
+                </td>
+                <td class="py-3 text-slate-700">
+                  <code>previous</code> / <code>entries</code> /
+                  <code>baseline</code> / <code>lookup</code> for one concept, and
+                  <code>lookup</code> means two different things. Largely
+                  dissolves if <a class="text-indigo-700 underline" href="#c">C</a>
+                  lands.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════ FOUND CLEAN ══════════════════════════ -->
       <section class="space-y-3">
-        <h2 class="font-serif text-2xl">Examined &amp; left alone</h2>
-        <p class="text-sm text-slate-600">
-          Read this pass and deliberately <em>not</em> candidates — recorded so future runs skip them.
-        </p>
-        <ul class="text-sm space-y-2 list-disc pl-5">
-          <li>
-            <strong>The destructive-command pattern across <code class="mono">delete</code> /
-            <code class="mono">forget</code> / <code class="mono">cleanup</code></strong>
-            (ADR-0064). The non-interactive gate is structurally identical three times — but it is
-            <em>three lines</em>, and the substance is the bespoke ADR-0030 message each one needs
-            (naming its own <code class="mono">--dry-run</code>/<code class="mono">--force</code>
-            invocation). A helper taking the whole message is shallow: deleting it would move
-            complexity, not concentrate it. Drift risk is already covered — each command has its
-            own "refuses a non-interactive run without --force" test.
-          </li>
-          <li>
-            <strong>The three shapes of the deletion-record lookup</strong> —
-            <code class="mono">verifySet</code> takes
-            <code class="mono">Map&lt;hash, {deletedOn}&gt;</code>,
-            <code class="mono">planCleanup</code> takes
-            <code class="mono">Set | Map&lt;hash, unknown&gt;</code>,
-            <code class="mono">baselineHashes</code> takes
-            <code class="mono">Iterable&lt;hash&gt;</code>. Looks like a scatter; isn't. Each asks a
-            genuinely different question (when was it deleted / is it a member / subtract these),
-            and one unified value would serve none well. Same reasoning that declined the
-            <code class="mono">credentialMode</code> classifier.
-          </li>
-          <li>
-            <strong>The network-resilience trio</strong> —
-            <code class="mono">s3.mjs</code>'s <code class="mono">requestErrorRelay</code>,
-            <code class="mono">network-status.mjs</code>, the
-            <code class="mono">requestErrorTable</code>. Deep: the relay is exported and pure of a
-            live client, the error table is data not branching, and
-            <code class="mono">network-status.mjs</code> justifies its module-level state
-            explicitly (the terminal is one shared resource; the outage is one fact about the run).
-            The curried-window signature even carries the bug it prevents in its own doc. Exemplar
-            alongside the SigV4-X509 signer.
-          </li>
-          <li>
-            <strong><code class="mono">lib/snapshot.mjs</code> and the fused pipeline</strong>
-            (ADR-0069). The <code class="mono">through</code> seam is the cleanest kind: one
-            optional transform parameter is the entire difference between
-            <code class="mono">snapshot</code> and <code class="mono">backup</code>, and
-            <code class="mono">backup.mjs</code> is thin porcelain over it. The
-            never-throw-mid-stream contract is stated where a future editor will read it.
-          </li>
-          <li>
-            <strong><code class="mono">command-details.mjs</code></strong> (#222) — a clean prose
-            extraction with a stated invariant ("every command <code class="mono">details</code>
-            string lives here"), no imports, and the "short one-liners stay inline" boundary
-            written down. Nothing to deepen.
-          </li>
-          <li>
-            <strong>The plan/execute discipline, again clean</strong> —
-            <code class="mono">planDelete</code>, <code class="mono">planUnrestorable</code>,
-            <code class="mono">planRestore</code>, <code class="mono">planCleanup</code>,
-            <code class="mono">verifySet</code> and <code class="mono">planUpload</code> are all
-            pure and all say so. The deletion rework followed the house pattern rather than
-            inventing one; candidates B and D are duplications <em>between</em> these modules, not
-            failures of the split itself.
-          </li>
-        </ul>
+        <h2 class="font-serif text-2xl">Read and found deep — skip next pass</h2>
+        <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700">
+          <p>· <code>progress.mjs</code>'s core mechanic (the gap is what it lacks, not what it hides)</p>
+          <p>· <code>uploadObjects</code> — small interface, two distinct failure fields</p>
+          <p>· <code>writeSnapshot</code>'s <code>through</code> seam and park lifecycle</p>
+          <p>· <code>planDelete</code>, <code>planUnrestorable</code>, <code>diff</code></p>
+          <p>· <code>requestErrorRelay</code> + <code>network-status.mjs</code> (re-confirmed)</p>
+          <p>· <code>putObjectParams</code> / <code>awsOnlyPutParams</code></p>
+          <p>· <code>fileProps</code> — <code>onHashStart</code> avoids a second stat</p>
+          <p>· <code>deletion-record.mjs</code>, <code>env-file.mjs</code>, <code>set-marker.mjs</code></p>
+          <p>· <code>error.mjs</code>'s taxonomy and <code>errorText</code>'s aggregate backstop</p>
+          <p>· <code>commands/aws.mjs</code> and the ADR-0059 provisioning quarantine</p>
+          <p>· <code>read-lines.mjs</code>, <code>style.mjs</code>, <code>command-details.mjs</code></p>
+          <p>· ADR-0072's two clock checks — different moments, no gap</p>
+        </div>
       </section>
 
-      <!-- ══════════════════════ top recommendation ══════════════════════ -->
-      <section class="rounded-xl border-2 border-emerald-500 bg-emerald-50 p-6 space-y-3">
-        <h2 class="font-serif text-2xl text-emerald-900">Top recommendation — A</h2>
-        <p class="text-sm text-emerald-950">
-          <strong>Fold <code class="mono">uploadDir</code> into the one PUT loop.</strong> It is the
-          only candidate that closes a <em>correctness</em> gap rather than a tidiness one:
-          <code class="mono">upload --dir</code> can today store the wrong bytes under a hash and
-          corrupt that object for every path that dedups to it, surfacing only at restore — the
-          exact failure ADR-0069 wrote the drift guard to prevent, on the path built for the
-          multi-GB files where the window is minutes wide. The refactor and the fix are the same
-          change, the blast radius is one module plus its existing test suite, and it makes the
-          module header's own claim true.
-        </p>
-        <p class="text-sm text-emerald-950">
-          <strong>Then D</strong> — the largest genuine duplication found (ten copies of one
-          unnamed concept across five files), and the one that earns a CONTEXT.md term. It has an
-          open placement question worth grilling before any code moves.
-          <strong>C</strong> is a cheap ride-along the next time
-          <code class="mono">s3.mjs</code> is open. <strong>B</strong> should be split in grilling:
-          take the <code class="mono">count</code>/<code class="mono">plural</code> half, decide
-          the table half on its merits.
-        </p>
+      <!-- ══════════════════════════ TOP RECOMMENDATION ══════════════════════════ -->
+      <section id="top-recommendation">
+        <div class="deep rounded-xl p-8 text-white space-y-4">
+          <p class="label text-slate-400">Top recommendation</p>
+          <h2 class="font-serif text-3xl">
+            <a href="#a" class="hover:text-emerald-300"
+              >A · Deepen <code>progress.mjs</code> to own a counted pass</a
+            >
+          </h2>
+          <p class="text-slate-300 max-w-3xl">
+            Two of the three sweeps found it independently, from different
+            directions. It is the only candidate where the missing piece of an
+            interface produces a <em>live behaviour fault</em>: the walk's line
+            freezes on <code>readdirSync</code>, on the <code>lstat</code>
+            fallback, and while descending a subtree it keeps nothing from — the
+            fault ADR-0076 §3 already ruled against, on the longest pass over the
+            biggest sets. Everything it touches is in-process, so an injected
+            clock makes the whole pass assertable off a terminal, where today
+            nothing asserts on those lines at all. It also repairs a doc claim
+            that has quietly gone false.
+          </p>
+          <p class="text-slate-400 text-sm max-w-3xl">
+            Runner-up:
+            <a href="#b" class="text-emerald-300 hover:underline"
+              >B · Roles Anywhere escapes the credential-error family</a
+            >
+            — narrower, but it is the recurring failure (a certificate that aged
+            out) that currently prints an HTTP body where every sibling failure
+            prints the fix.
+          </p>
+        </div>
       </section>
 
-      <footer class="text-xs text-slate-500 pt-4 border-t border-slate-200">
-        Durable capture: <a class="underline" href="architecture-improvements.md">proposals/architecture-improvements.md</a>
-        (open candidates, standing rejections, run log). This report is the latest only — it is
-        overwritten by the next pass.
+      <footer class="text-xs text-slate-400 pt-4 border-t border-stone-300">
+        Vocabulary: <code>codebase-design</code> (module · interface ·
+        implementation · depth · seam · adapter · leverage · locality) over
+        s3cab's own <code>CONTEXT.md</code>. Standing rejections in
+        <code>proposals/architecture-improvements.md</code> were loaded before the
+        sweep and are not re-proposed. Loads Tailwind and Mermaid from public
+        CDNs.
       </footer>
     </main>
   </body>
