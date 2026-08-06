@@ -22,6 +22,22 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, sep } from "node:path";
 
+/** @import { Dirent } from "node:fs" */
+
+/**
+ * A directory's entries, name-sorted. `readdirSync` order is filesystem-dependent,
+ * which would make every mode's output differ between machines — `exports` and
+ * `fan-in` iterate in walk order, and `docs` lists the files each name appears in.
+ * Sorting once here makes all of them reproducible and diff-friendly.
+ * @param {string} dir
+ * @returns {Dirent[]}
+ */
+function sortedEntries(dir) {
+  return readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
 /**
  * Every `.mjs` file under `dir`, recursively. A *missing* directory yields nothing,
  * so a caller may name one that does not exist in every checkout — but any other
@@ -39,7 +55,7 @@ function walk(dir, includeTests = false) {
   if (!existsSync(dir)) {
     return found;
   }
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of sortedEntries(dir)) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...walk(path, includeTests));
@@ -305,8 +321,18 @@ function docs() {
       }
       if (text.endsWith(".mjs")) {
         const wanted = text.replace(/^\.\//, "");
-        const known =
-          paths.has(wanted) || [...paths].some((f) => f.endsWith("/" + wanted));
+        // Iterate the Set directly and stop at the first match — `[...paths]`
+        // rebuilt an array on every hit, and `.some()` over it dropped the
+        // short-circuit's value by paying for the copy first.
+        let known = paths.has(wanted);
+        if (!known) {
+          for (const file of paths) {
+            if (file.endsWith("/" + wanted)) {
+              known = true;
+              break;
+            }
+          }
+        }
         if (!known) {
           record(text, shown);
         }
@@ -314,14 +340,20 @@ function docs() {
     }
   }
 
-  for (const [name, where] of [...hits].sort()) {
-    console.log(name.padEnd(32), [...where].join(", "));
+  // Sort by key explicitly. A bare `.sort()` on `[key, Set]` pairs stringifies
+  // each to `"name,[object Set]"` — it happens to order by name because the
+  // suffix is constant, which is accident rather than intent.
+  const sorted = [...hits].sort(([a], [b]) => a.localeCompare(b));
+  for (const [name, where] of sorted) {
+    console.log(name.padEnd(32), [...where].sort().join(", "));
   }
   console.log(`\n${hits.size} candidates across ${markdown.length} live docs`);
 }
 
 /**
  * Every `.md` file under `dir`, recursively — the Markdown twin of {@link walk}.
+ * Entries are sorted by name, so a sweep's output is the same on every machine
+ * and two runs diff cleanly; `readdirSync` order is filesystem-dependent.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -331,7 +363,7 @@ function walkMarkdown(dir) {
   if (!existsSync(dir)) {
     return found;
   }
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of sortedEntries(dir)) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...walkMarkdown(full));
