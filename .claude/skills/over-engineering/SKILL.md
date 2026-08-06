@@ -94,6 +94,24 @@ separately from the internal ones.
   still right; the justification was overstated, and the change duplicated a test
   that already existed.)
 
+## Run the type check before reporting a redundancy
+
+A shape can be **load-bearing in the type system while looking redundant in
+JavaScript**, and reading `src/` cold is exactly the vantage point that misses it.
+The cheapest guard is mechanical: for any finding whose claim is *"this does
+nothing"*, delete it locally and run `npm run typecheck` before writing it up.
+
+Worked example, and the reason this section exists: a finding called a subclass's
+`constructor(init) { super(init); }` "exactly what JavaScript supplies by default".
+True of the runtime semantics, false of the types — the base constructor was
+`protected`, an implicit constructor inherits that visibility, and the redeclaration
+was the only thing making `new Subclass(…)` legal. `tsc` caught it; the cold read
+could not have.
+
+This generalizes past constructors: an `@overload` block, a seemingly pointless cast,
+a re-export, a widened parameter type. **If the only argument for a finding is that
+the code looks like a no-op, that argument is not yet evidence.**
+
 ## Finding categories
 
 Rank by complexity removed, heaviest first. These are the veins worth working:
