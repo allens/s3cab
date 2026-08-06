@@ -119,7 +119,10 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
 - **The whole-project type check (`typecheck`) is kept clean**, `scripts/` included.
   `jsconfig.json` maps `events`/`punycode`/`string_decoder` back to the builtin declarations —
   transitive deps install shims that would otherwise shadow them (mechanism in the jsconfig
-  comment).
+  comment). **A fresh worktree needs its own `npm ci` before `typecheck` means anything**: that
+  mapping is the relative path `./node_modules/…`, so without a local install it resolves to
+  nothing, the shims win, and hundreds of errors from those three modules bury any real one.
+  They are an artifact of the empty directory, not a failure — don't debug them.
 - **Test layout** ([ADR-0049](docs/adr/0049-centralize-cross-cutting-test-tiers.md), full
   rationale in [test/README.md](test/README.md)): **co-locate the unit tier** (`*.test.mjs` beside
   its module), **centralize the cross-cutting ones** in [test/](test/) — real-bucket integration
