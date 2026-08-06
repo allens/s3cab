@@ -188,6 +188,10 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           EXE: ${{ needs.exe.result }}
+          # The hyphen needs no bracket notation, contrary to a review suggestion:
+          # property dereference accepts a name that starts with a letter or `_`
+          # and holds only alphanumerics, `-` or `_` (GitHub's contexts reference).
+          # Left as-is so all four read alike; the echo below proves it resolves.
           S3: ${{ needs.s3-integration.result }}
         run: |
           echo "lint=$LINT  test=$TEST  exe=$EXE  s3-integration=$S3"
