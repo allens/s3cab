@@ -70,10 +70,12 @@ jobs:
       # Resolve the way a user's install does: from the caret ranges alone, with no
       # lockfile in play. Deleting it first is the unambiguous way to get that —
       # `npm ci` would defeat the entire point of this job, and `npm install` on its
-      # own would just replay our pins.
+      # own would just replay our pins. `-f` because the goal is "no lockfile in
+      # play", not "a lockfile was here": if one ever stops being committed, this
+      # step should carry on rather than fail with a confusing missing-file error.
       - name: Resolve dependencies fresh, ignoring the lockfile
         run: |
-          rm package-lock.json
+          rm -f package-lock.json
           npm install
 
       # Put the resolved versions in the log. When this job goes red the first

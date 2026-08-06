@@ -35,7 +35,13 @@ jobs:
     # the workflow whose whole job is merging things unattended (ADR-0005).
     # This deliberately covers ungrouped security updates too — a CVE fix landing
     # fast on green is the behaviour we want.
-    if: github.actor == 'dependabot[bot]' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/')
+    #
+    # Gate on the PR AUTHOR rather than `github.actor`. They differ on a `reopened`
+    # event, where the actor is whoever reopened the PR — an actor check would
+    # silently skip a legitimate Dependabot PR there, and silence is the worst
+    # failure mode for a workflow nobody watches. The author is a property of the
+    # pull request itself and is stable across every event type.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/')
     runs-on: ubuntu-latest
     steps:
       # `--auto` queues; it does not merge now. GitHub holds the PR until the
