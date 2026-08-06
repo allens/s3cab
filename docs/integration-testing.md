@@ -194,12 +194,12 @@ aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOU
 > can't read Git Bash's `/tmp`.
 
 > **This minimal policy covers the per-PR integration job only.** The project's own
-> [`ci/aws/trust-policy.json`](../ci/aws/trust-policy.json) additionally scopes two release-only
-> subjects — `:ref:refs/heads/main` (for `workflow_dispatch`) and `StringLike
-> :ref:refs/tags/v*` (for a `v*` tag) — so release.yml's per-platform real-S3 round-trip can
-> assume the same role ([ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md)). All three
-> gate on the same write-access boundary. A fork that only wants per-PR integration can skip
-> those.
+> [`ci/aws/trust-policy.json`](../ci/aws/trust-policy.json) additionally scopes two branch- and
+> tag-ref subjects — `:ref:refs/heads/main` (release.yml via `workflow_dispatch`, and
+> [fresh-deps.yml](../.github/workflows/fresh-deps.yml)'s weekly scheduled run) and `StringLike
+> :ref:refs/tags/v*` (for a `v*` tag) — so those real-S3 round-trips can assume the same role
+> ([ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md)). All three gate on the same
+> write-access boundary. A fork that only wants per-PR integration can skip those.
 
 > Keep your account ID out of a public repo: commit `trust-policy.json` with an
 > `ACCOUNT_ID` placeholder, substitute it only at apply time (`sed`, or PowerShell's
