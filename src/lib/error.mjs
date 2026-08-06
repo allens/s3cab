@@ -231,15 +231,3 @@ export function errorText(error) {
   }
   return error.message || error.name;
 }
-
-/**
- * Throw the standard "not built yet" error for a `planned` stub command in the
- * registry, keeping the message in one place. No command uses it right now (the
- * last stub, `verify`, is built) — kept as the convention's factory for the next
- * scaffolded-but-unbuilt command, and exercised by error.test.mjs.
- * @param {string} name - The unbuilt feature, e.g. `verify`
- * @returns {never}
- */
-export function notImplemented(name) {
-  throw new Error(`Not yet implemented: ${name}`);
-}

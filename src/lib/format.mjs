@@ -74,6 +74,18 @@ export const formatCount = (count) => countFormat.format(count);
 export const plural = (n, word) => (n === 1 ? word : `${word}s`);
 
 /**
+ * A counted noun: `countOf(1204, "file")` → `"1,204 files"`. The grouped count
+ * and its plural always travel together in the report prose, and three modules
+ * had spelled the pair out as an identical private helper
+ * (`delete`/`deletion-record`/`unrestorable`), so it lives here with the two
+ * halves it composes.
+ * @param {number} n
+ * @param {string} word
+ * @returns {string}
+ */
+export const countOf = (n, word) => `${formatCount(n)} ${plural(n, word)}`;
+
+/**
  * A headed `label / count / size` table with the numbers right-aligned and the
  * last row ruled off as the total:
  *

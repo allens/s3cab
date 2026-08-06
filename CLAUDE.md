@@ -247,9 +247,12 @@ Module *ownership* (`objects/` → `objects.mjs`, `snapshots/` → `remote.mjs`,
 [docs/design/auth.md](docs/design/auth.md). Only the placements the code **can't** tell you are
 listed here:
 
-- **Stubs for unbuilt commands stay _inline_ in the registry**, marked `planned: true` (help
-  renders `(not yet available)`) — a file is earned by logic, not reserved ahead of it
-  ([ADR-0006](docs/adr/0006-minimal-code.md)).
+- **Stubs for unbuilt commands stay _inline_ in the registry** — a file is earned by logic, not
+  reserved ahead of it ([ADR-0006](docs/adr/0006-minimal-code.md)). The `planned: true` marker
+  that once rendered `(not yet available)` in help is **gone**: the last stub (`verify`) was
+  built, leaving the flag, its help branch and a `notImplemented` factory with zero instances —
+  structure for a caller that didn't exist. Reinstating it is a three-line change if a command
+  is ever scaffolded ahead of its body again.
 - **[src/commands/](src/commands/) and [src/lib/](src/lib/) are siblings on purpose** — `lib/` is
   depended on *by* commands, not a layer above them. Group by **subsystem/cohesion, not abstract
   layer**: no `lib/util/` junk-drawer. If `lib/` ever cleaves, extract a directory named for the
