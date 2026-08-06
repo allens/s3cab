@@ -234,8 +234,8 @@ s3-integration:
     id-token: write # mint the OIDC token
     contents: read
   steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-node@v6
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v7
       with:
         node-version: 26.3.0
     - run: npm ci
