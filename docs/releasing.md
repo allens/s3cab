@@ -72,6 +72,10 @@ the **version string**, not the GitHub flag — a `-alpha.N` keeps it off `lates
 
 ## Cutting a real release
 
+Run a bare `npm audit` first — the `verify` gate skips dev deps on purpose, and
+[the dev half](#before-a-tag-audit-the-dev-half-by-hand) is on the build runner beside the
+publish credential.
+
 1. **Decide the version** per the rules above (e.g. `0.1.0-alpha.1` for a preview, `0.1.0` for a
    public cut).
 2. **Bump `package.json` (+ `package-lock.json`) via a PR.** `main` is protected — no direct
@@ -125,6 +129,28 @@ patch release is the fix; there is no other mechanism.
 
 New releases are gated the other way: `verify` runs `npm audit --omit=dev --audit-level=high`, so
 a tag cannot ship a known high-severity advisory in the first place.
+
+### Before a tag, audit the dev half by hand
+
+`--omit=dev` is the right scope for that gate — the tarball is `src/` and the binaries bundle
+runtime deps only, so a dev-scoped advisory cannot reach a user. But the tag build *runs* the
+whole dev tree (esbuild, the test runner, every transitive install script) on a runner holding
+the OIDC publish credential. That is the one moment dev-scoped supply-chain surface matters, and
+the gate is deliberately blind to it. Nothing else covers it either: GitHub's default auto-triage
+rule dismisses dev-scoped alerts the second they're raised, so Dependabot never opens a PR for
+one, and version updates only bump direct dependencies — a transitive pin that still satisfies
+its parent's range never moves on its own.
+
+So run a bare `npm audit` before you tag, and read it for **class, not count**:
+
+- **Blocking, whatever the scope** — anything that lets an attacker execute code: RCE, an install
+  script, a compromised-package advisory.
+- **Not blocking** — a DoS or ReDoS in a build tool. Its only input is a pattern you wrote.
+
+Fix the blocking ones with `npm audit fix` and land the lockfile change through the bump PR in
+step 2 above. Check the `resolved` URLs afterwards: `npm install` rewrites them to whatever
+registry the local config points at, which silently makes the lockfile unusable outside that
+network.
 
 ---
 
