@@ -1,0 +1,57 @@
+# Queue Dependabot's npm updates for merge as soon as `ci gate` is green.
+#
+# The objection this answers: a green `ci gate` is a WEAK signal for an AWS SDK bump
+# specifically. The unit tier mocks the `s3.mjs` seam, and `s3 integration` is
+# skipped on Dependabot PRs (GitHub withholds this repo's secrets from them), so
+# green means "it installs and the bundle boots", not "S3 still works".
+#
+# fresh-deps.yml is what makes this safe, and auto-merge should not be enabled
+# without it. That job runs `npm install` weekly on main, so it tests the NEWEST
+# resolvable SDK against a real bucket. A Dependabot PR pins a version that is
+# older-or-equal, so the canary has already covered it. The two are deliberately
+# NOT chained — a red canary is an alarm you act on, not a gate wired into this
+# workflow, because cron adjacency between the two would be timing guesswork that
+# gates nothing.
+#
+# GitHub Actions updates are excluded on purpose. Their risk is supply chain rather
+# than correctness — no test here can tell a good `actions/checkout` bump from a
+# compromised one — and they arrive rarely enough to eyeball.
+name: dependabot auto-merge
+
+on: pull_request
+
+# Dependabot-triggered runs get a read-only token unless the workflow asks; this is
+# the shape GitHub documents for exactly this job.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # The branch prefix IS the ecosystem: Dependabot names npm branches
+    # `dependabot/npm_and_yarn/…` and Actions ones `dependabot/github_actions/…`.
+    # Matching on it avoids taking a dependency on `dependabot/fetch-metadata` just
+    # to read a field, which would add a third-party action to the supply chain of
+    # the workflow whose whole job is merging things unattended (ADR-0005).
+    # This deliberately covers ungrouped security updates too — a CVE fix landing
+    # fast on green is the behaviour we want.
+    #
+    # Gate on the PR AUTHOR rather than `github.actor`. They differ on a `reopened`
+    # event, where the actor is whoever reopened the PR — an actor check would
+    # silently skip a legitimate Dependabot PR there, and silence is the worst
+    # failure mode for a workflow nobody watches. The author is a property of the
+    # pull request itself and is stable across every event type.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/')
+    runs-on: ubuntu-latest
+    steps:
+      # `--auto` queues; it does not merge now. GitHub holds the PR until the
+      # required `ci gate` check passes, then squashes it.
+      #
+      # If green Dependabot PRs start piling up un-merged, check this first: main
+      # requires branches be up to date, so an out-of-date branch blocks the queued
+      # merge until something refreshes it. `@dependabot rebase` is the manual lever.
+      - name: Queue for merge once CI is green
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
