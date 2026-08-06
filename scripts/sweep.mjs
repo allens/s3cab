@@ -10,6 +10,7 @@
  *   node scripts/sweep.mjs size      # code vs comment lines, so you know what you are reading
  *   node scripts/sweep.mjs fan-in    # production importers per module, ascending
  *   node scripts/sweep.mjs exports   # exports with no production consumer, with sort keys
+ *   node scripts/sweep.mjs docs      # names in the live docs that the code no longer defines
  *
  * Lived in the skill as inline `node -e` one-liners until they were extracted here:
  * embedding JS in a shell string inside Markdown cost a regex-escaping trap
@@ -19,7 +20,23 @@
  * read each table.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { dirname, join, normalize, sep } from "node:path";
+
+/** @import { Dirent } from "node:fs" */
+
+/**
+ * A directory's entries, name-sorted. `readdirSync` order is filesystem-dependent,
+ * which would make every mode's output differ between machines — `exports` and
+ * `fan-in` iterate in walk order, and `docs` lists the files each name appears in.
+ * Sorting once here makes all of them reproducible and diff-friendly.
+ * @param {string} dir
+ * @returns {Dirent[]}
+ */
+function sortedEntries(dir) {
+  return readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
 
 /**
  * Every `.mjs` file under `dir`, recursively. A *missing* directory yields nothing,
@@ -38,7 +55,7 @@ function walk(dir, includeTests = false) {
   if (!existsSync(dir)) {
     return found;
   }
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of sortedEntries(dir)) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...walk(path, includeTests));
@@ -220,7 +237,144 @@ function exports() {
   }
 }
 
-const modes = { size, "fan-in": fanIn, exports };
+/**
+ * Every Markdown file that makes a **live** claim about how the code behaves.
+ *
+ * `docs/adr/` is deliberately absent, and that is the whole design of this mode: an
+ * ADR body records what was decided *then*, so a name it mentions going stale is
+ * correct history, not a defect — rewriting one to match today's code destroys the
+ * record that stops a reversed decision being re-proposed
+ * ([docs/adr/README.md](../docs/adr/README.md)). `proposals/` is out for the same
+ * reason: it is provisional by definition.
+ */
+const LIVE_DOCS = [
+  "docs/design",
+  "guide",
+  "README.md",
+  "CONTEXT.md",
+  "docs/integration-testing.md",
+  "docs/releasing.md",
+];
+
+/**
+ * Backticked identifiers and `.mjs` paths in the live docs that name nothing in
+ * `src/`, `scripts/`, `test/` or `package.json`.
+ *
+ * The failure mode this catches is **renames**: prose stays true while the symbol it
+ * names quietly moves, and nothing notices because neither `tsc` nor eslint reads a
+ * Markdown file. Every defect the 2026-08 doc sweep found was that shape, as was the
+ * `loadEnv` trail a review caught in #263.
+ *
+ * Candidates, not verdicts — same rule as every other mode. Expect false positives
+ * from names this repo doesn't define: AWS APIs, CI secrets, shell tools, and things
+ * a doc mentions precisely to say it **rejected** them (`S3CAB_ENDPOINT`, `--grace`).
+ * Read each hit in context; a mention already marked rejected or historical is
+ * correct as written.
+ */
+function docs() {
+  const code = [
+    ...walk("src", true),
+    ...walk("scripts", true),
+    ...walk("test", true),
+  ];
+  const defined = new Set(
+    (
+      code.map((f) => readFileSync(f, "utf8")).join("\n") +
+      readFileSync("package.json", "utf8")
+    ).match(/[A-Za-z0-9_$]+/g) ?? [],
+  );
+  const paths = new Set(code.map((f) => f.split(sep).join("/")));
+
+  /** @type {Map<string, Set<string>>} */
+  const hits = new Map();
+  const record = (/** @type {string} */ k, /** @type {string} */ doc) => {
+    if (!hits.has(k)) {
+      hits.set(k, new Set());
+    }
+    hits.get(k)?.add(doc);
+  };
+
+  const markdown = LIVE_DOCS.flatMap((entry) =>
+    entry.endsWith(".md")
+      ? existsSync(entry)
+        ? [entry]
+        : []
+      : walkMarkdown(entry),
+  );
+
+  for (const doc of markdown) {
+    const shown = doc.split(sep).join("/");
+    for (const [, raw] of readFileSync(doc, "utf8").matchAll(/`([^`\n]+)`/g)) {
+      const text = raw?.trim();
+      if (!text) {
+        continue;
+      }
+      // A bare identifier, or `ident()` — the shapes that name code. Short names
+      // are skipped: they collide with ordinary prose more often than they help.
+      const identifier = /^([A-Za-z_$][A-Za-z0-9_$]*)(\(\))?$/.exec(text);
+      if (
+        identifier?.[1] &&
+        identifier[1].length > 3 &&
+        !defined.has(identifier[1])
+      ) {
+        record(identifier[1], shown);
+      }
+      if (text.endsWith(".mjs")) {
+        const wanted = text.replace(/^\.\//, "");
+        // Iterate the Set directly and stop at the first match — `[...paths]`
+        // rebuilt an array on every hit, and `.some()` over it dropped the
+        // short-circuit's value by paying for the copy first.
+        let known = paths.has(wanted);
+        if (!known) {
+          for (const file of paths) {
+            if (file.endsWith("/" + wanted)) {
+              known = true;
+              break;
+            }
+          }
+        }
+        if (!known) {
+          record(text, shown);
+        }
+      }
+    }
+  }
+
+  // Sort by key explicitly. A bare `.sort()` on `[key, Set]` pairs stringifies
+  // each to `"name,[object Set]"` — it happens to order by name because the
+  // suffix is constant, which is accident rather than intent.
+  const sorted = [...hits].sort(([a], [b]) => a.localeCompare(b));
+  for (const [name, where] of sorted) {
+    console.log(name.padEnd(32), [...where].sort().join(", "));
+  }
+  console.log(`\n${hits.size} candidates across ${markdown.length} live docs`);
+}
+
+/**
+ * Every `.md` file under `dir`, recursively — the Markdown twin of {@link walk}.
+ * Entries are sorted by name, so a sweep's output is the same on every machine
+ * and two runs diff cleanly; `readdirSync` order is filesystem-dependent.
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function walkMarkdown(dir) {
+  /** @type {string[]} */
+  const found = [];
+  if (!existsSync(dir)) {
+    return found;
+  }
+  for (const entry of sortedEntries(dir)) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...walkMarkdown(full));
+    } else if (entry.name.endsWith(".md")) {
+      found.push(normalize(full));
+    }
+  }
+  return found;
+}
+
+const modes = { size, "fan-in": fanIn, exports, docs };
 const mode = process.argv[2];
 const run = Object.hasOwn(modes, mode ?? "")
   ? modes[/** @type {keyof typeof modes} */ (mode)]
