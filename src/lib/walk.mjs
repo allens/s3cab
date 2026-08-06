@@ -10,9 +10,8 @@ import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
 import { formatCount, plural, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { createProgress } from "./progress.mjs";
+import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
-import { isInteractive } from "./style.mjs";
 
 /**
  * @import { Dirent, Stats } from "node:fs"
@@ -187,25 +186,23 @@ export function walkDirs(dirs, patterns) {
 
   for (let dir of dirs) {
     dir = realpathSync.native(dir);
-    const dirStart = Temporal.Now.instant();
     const before = files.length;
-    // Which directory, its running count, and its final tally are all one line,
-    // redrawn in place — the announce used to be its own `console.warn` above a
-    // separate counter, so the naming of the directory scrolled away from the
-    // number it belonged to. In-place animation is terminal only (the TTY gate
-    // and the closing newline live in lib/progress.mjs); off a terminal the
-    // redraws stay silent and only each directory's closing line is logged, so a
-    // redirected log holds no carriage returns. The `using` is scoped to the loop
-    // *body*, so every directory's line is closed before the next one opens.
-    const label = `Finding files in '${tildeify(dir)}'…`;
-    using progress = createProgress(stderr);
-    // Paint the label before walking a single entry. Folding the announce into
-    // the progress line otherwise costs the immediate feedback the old separate
-    // `console.warn` gave: with the first redraw a tenth of a second away, a
-    // slow or cold directory would sit blank and look hung. Bare label, no count
-    // — a "0" would be worse than nothing. A no-op off a terminal, where each
-    // directory's closing line is the whole story.
-    progress.update(label);
+    // Which directory, its running count, and its final tally are all one line
+    // — the announce used to be its own `console.warn` above a separate counter,
+    // so the naming of the directory scrolled away from the number it belonged
+    // to. Everything about how that line is drawn (the bare first paint, the
+    // clock, the TTY gate, the closing newline) lives in lib/progress.mjs; this
+    // supplies only what it says and where the count comes from. The `using` is
+    // scoped to the loop *body*, so every directory's line closes before the
+    // next one opens — and the duplicate-path throw below closes it *without* a
+    // tally, since that directory never finished.
+    using progress = countedPass(
+      stderr,
+      `Finding files in '${tildeify(dir)}'…`,
+      // This directory's files, not the set-wide total, so the figure belongs
+      // to the line it sits on.
+      () => files.length - before,
+    );
 
     const walkCallbackFn = createWalkCallbackFn(
       dir,
@@ -233,31 +230,13 @@ export function walkDirs(dirs, patterns) {
         unrepresentable.push(path);
       }
       files.push(path);
-      // Count *this directory's* files, not the set-wide total, so the figure
-      // belongs to the line it sits on, and carry the elapsed time live rather
-      // than only in the closing summary — the same `<label>… <figure> in
-      // <elapsed>` shape the other phases hold to. Redrawn on lib/progress.mjs'
-      // clock (it owns the cadence); `due` is asked first because this loop is
-      // the hot path — a warm dircache yields tens of thousands of paths a
-      // second, and formatting a line nobody will see is the per-file cost that
-      // mounts up.
-      if (progress.due()) {
-        progress.update(
-          `${label} ${formatCount(files.length - before)} in ${secondsSince(dirStart)}`,
-        );
-      }
     }
 
-    // This directory's true total (not whatever the last redraw showed) with its
-    // own elapsed time: redrawn in place on a terminal, or logged as one clean
-    // line otherwise. Always drawn, so a directory too small to trigger a single
-    // redraw still gets its line.
-    const summary = `${label} ${formatCount(files.length - before)} in ${secondsSince(dirStart)}`;
-    if (isInteractive(stderr)) {
-      progress.update(summary);
-    } else {
-      console.warn(summary);
-    }
+    // This directory finished, so its line settles on the true total rather than
+    // whatever the last redraw showed. Nothing is drawn from here: the loop no
+    // longer touches the line at all, which is the point — it used to redraw
+    // from inside this loop, and the count froze whenever the walk did.
+    progress.done();
   }
 
   // After the walk, so one failure names every offender, never truncated
