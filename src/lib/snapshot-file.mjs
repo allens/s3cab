@@ -575,40 +575,30 @@ export function snapshotNames(names) {
 }
 
 /**
- * @overload
- * @param {string} snapshotDir
- * @param {{ latest: true }} options
- * @returns {string | undefined}
- */
-
-/**
- * @overload
- * @param {string} snapshotDir
- * @param {{ latest?: false }} [options]
- * @returns {string[]}
- */
-
-/**
  * List the snapshot names in a snapshot directory, newest first — the storage
  * core behind the `list` command, and reused by `snapshot`/`compare`/`status`,
  * which already hold a resolved snapshot directory. Reads the directory, then
  * filters and sorts the names through `snapshotNames`.
+ *
+ * Always the array, never "just the newest": callers wanting the latest write
+ * `.at(0)`, which gives `undefined` on an empty directory exactly as a
+ * dedicated option did. A `{ latest: true }` option used to flip the return
+ * type between `string[]` and `string | undefined`, costing two `@overload`
+ * blocks and two contracts to hold in your head — and it wasn't even shorter
+ * at the call site.
  * @param {string} snapshotDir - Directory holding the snapshot files
- * @param {object} [options]
- * @param {boolean} [options.latest] - Return only the latest snapshot name
- * @returns {string[] | string | undefined} Snapshot names, or the latest name
+ * @returns {string[]} Snapshot names, newest first
  */
-export function listSnapshotNames(snapshotDir, options = {}) {
+export function listSnapshotNames(snapshotDir) {
   if (!existsSync(snapshotDir)) {
-    return options.latest ? undefined : [];
+    return [];
   }
 
   const fileNames = readdirSync(snapshotDir, { withFileTypes: true })
     .filter((dirent) => dirent.isFile())
     .map((dirent) => dirent.name);
 
-  const names = snapshotNames(fileNames);
-  return options.latest ? names.at(0) : names;
+  return snapshotNames(fileNames);
 }
 
 /**
