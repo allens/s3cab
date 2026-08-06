@@ -1,23 +1,36 @@
 /**
- * Stage-1 queries for the `/over-engineering` sweep
- * ([.claude/skills/over-engineering/](../.claude/skills/over-engineering/)).
+ * Stage-1 queries for the `/over-engineering` sweep — the executable half of the
+ * skill in [SKILL.md](./SKILL.md), which sits beside this file.
  *
  * These produce **candidates, not verdicts** — a single-caller module can be
  * deliberate placement, and a dead export can be a genuine seam. Nothing here is
  * reportable until stage 2 has read the hit in context.
  *
  * Usage:
- *   node scripts/sweep.mjs size      # code vs comment lines, so you know what you are reading
- *   node scripts/sweep.mjs fan-in    # production importers per module, ascending
- *   node scripts/sweep.mjs exports   # exports with no production consumer, with sort keys
- *   node scripts/sweep.mjs docs      # names in the live docs that the code no longer defines
+ *   node .claude/skills/over-engineering/sweep.mjs size      # code vs comment lines, so you know what you are reading
+ *   node .claude/skills/over-engineering/sweep.mjs fan-in    # production importers per module, ascending
+ *   node .claude/skills/over-engineering/sweep.mjs exports   # exports with no production consumer, with sort keys
+ *   node .claude/skills/over-engineering/sweep.mjs docs      # names in the live docs that the code no longer defines
  *
- * Lived in the skill as inline `node -e` one-liners until they were extracted here:
+ * Lived inside SKILL.md as inline `node -e` one-liners until they were extracted:
  * embedding JS in a shell string inside Markdown cost a regex-escaping trap
  * (`"\\b"` does not survive into `new RegExp`) and made every edit a hand-edit of
- * minified code. As files they are linted, formatted and type-checked like the rest
- * of `scripts/`. The counting semantics are unchanged — see the skill for how to
- * read each table.
+ * minified code. As a real file it is linted, formatted and type-checked.
+ *
+ * It sits **in the skill's own folder**, not in `scripts/`, because a vendored
+ * skill should be self-contained — the Agent Skills layout is `SKILL.md` plus its
+ * supporting files, and nothing outside the sweep runs this. `scripts/` remains
+ * what CLAUDE.md says it is: standalone dev utilities, run by hand, that answer to
+ * no skill.
+ *
+ * That placement costs one line of config to keep honest. `tsc`'s default
+ * traversal skips dot-directories, so `jsconfig.json` names the `.claude/skills`
+ * tree in its `include` — without that this file would still be linted and
+ * formatted but silently **not** type-checked, losing a third of what extracting
+ * it bought. (Spelling the glob out here would end this comment early: it contains
+ * the `*` and `/` pair that closes a block comment.)
+ *
+ * The counting semantics are unchanged — see the skill for how to read each table.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, sep } from "node:path";
@@ -272,10 +285,14 @@ const LIVE_DOCS = [
  * correct as written.
  */
 function docs() {
+  // `.claude/skills` is in the corpus because it now holds code — this file. A
+  // doc naming something only a skill's script defines should read as defined,
+  // not as rot, for the same reason `jsconfig.json` had to name that tree.
   const code = [
     ...walk("src", true),
     ...walk("scripts", true),
     ...walk("test", true),
+    ...walk(".claude/skills", true),
   ];
   const defined = new Set(
     (
@@ -381,7 +398,7 @@ const run = Object.hasOwn(modes, mode ?? "")
   : undefined;
 if (!run) {
   console.error(
-    `Usage: node scripts/sweep.mjs <${Object.keys(modes).join("|")}>`,
+    `Usage: node .claude/skills/over-engineering/sweep.mjs <${Object.keys(modes).join("|")}>`,
   );
   process.exit(2);
 }

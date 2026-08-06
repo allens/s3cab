@@ -21,5 +21,11 @@
       "string_decoder": ["./node_modules/@types/node/string_decoder.d.ts"]
     }
   },
-  "exclude": ["node_modules", "dist"]
+  // With no "include", tsc takes everything under the root except "exclude" —
+  // but that default traversal skips **dot-directories**, so a vendored skill's
+  // own script under `.claude/skills/` would go unchecked. Naming both keeps the
+  // default's reach and adds that one tree; `.claude/worktrees/` stays out (each
+  // is a full checkout of this repo, and eslint ignores it for the same reason).
+  "include": ["**/*", ".claude/skills/**/*"],
+  "exclude": ["node_modules", "dist", ".claude/worktrees"]
 }
