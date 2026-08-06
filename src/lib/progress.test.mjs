@@ -266,6 +266,30 @@ describe("countedPass", () => {
     );
   });
 
+  it("composes nothing on a tick that cannot be written", async (t) => {
+    // Off a terminal `update` declines the draw — but its argument is built
+    // first, so an ungated tick would do Intl and Temporal work once a second
+    // for the whole pass and discard it. The count thunk is the witness: it is
+    // only ever read to compose a line.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream, writes } = fakeStream(false);
+    let reads = 0;
+    const pass = countedPass(stream, "Scanning…", () => {
+      reads++;
+      return 5;
+    });
+
+    t.mock.timers.tick(10_000);
+    assert.equal(reads, 0, "expected no line to be composed");
+
+    // …and the tally still lands, since off a terminal that one line is the
+    // whole record of the step.
+    pass.done();
+    pass[Symbol.dispose]();
+    assert.equal(reads, 1);
+    assert.equal(writes.length, 1);
+  });
+
   it("off a terminal, an aborted pass writes nothing", () => {
     const { stream, writes } = fakeStream(false);
     const pass = countedPass(stream, "Finding files…", () => 42);

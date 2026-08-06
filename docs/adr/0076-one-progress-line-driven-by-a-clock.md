@@ -130,9 +130,11 @@ Three things follow that are decisions, not detail.
   `secondsSince`, which rounds to whole seconds, so at 100 ms the elapsed half cannot change on
   nine draws out of ten. Tick at the rate of the slowest-changing field the line actually shows.
   This preserves the store scan's cadence and **slows the walk's from ten redraws a second to
-  one** — accepted, and in the direction §1's dial was tuned for. It also retires `due()` from the
-  walk's hot loop: composing one line a second is not a per-file cost, which is the only thing
-  that gate was ever guarding against.
+  one** — accepted, and in the direction §1's dial was tuned for. It also moves `due()` out of the
+  callers: composing one line a second is not a per-file cost, so no caller needs the gate — but
+  the *pass* still does, because `update`'s argument is built before `update` can decline it, and
+  off a terminal nothing is ever written. So the gate is asked once per second in one place
+  instead of per item in two, which is the same consolidation as the rest of this amendment.
 
 One consumer deliberately still reaches for `isInteractive` itself: `s3.mjs`'s per-file byte bar
 asks *"was a bar drawn, so should I log a line instead?"* — a different question, which

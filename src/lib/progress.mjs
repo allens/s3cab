@@ -232,9 +232,21 @@ export function countedPass(stream, label, count) {
   const line = () =>
     `${label} ${formatCount(count())} in ${secondsSince(start)}`;
 
+  // `due` gates the tick because `update`'s argument is evaluated before
+  // `update` can decline it: off a terminal (and without `logLines`) nothing is
+  // ever written, so composing the line would be `Intl` and Temporal work done
+  // once a second and thrown away for the length of the pass. This is the hot-
+  // path idiom `due` documents, and the callers used to spell it per item —
+  // asked once per second in the one place, it costs nothing and no caller has
+  // to remember it.
+  //
   // `unref` so a pending tick can never hold the process open; both `done` and
   // disposal stop it, so a pass that throws past `done` still stops ticking.
-  const ticking = setInterval(() => progress.update(line()), COUNTED_TICK_MS);
+  const ticking = setInterval(() => {
+    if (progress.due()) {
+      progress.update(line());
+    }
+  }, COUNTED_TICK_MS);
   ticking.unref();
 
   return {
