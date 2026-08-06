@@ -53,7 +53,12 @@ overlap that leaves is accepted over sync machinery
 1. **After non-trivial work, update the docs** in the right home (see the map): a design decision
    → an ADR; vocabulary → CONTEXT.md; a coding rule → this file. **Once a rule has settled,
    distill it to {rule + why + at most one example}** and let `git blame` hold the story —
-   appending every correction without compressing is what bloats this file.
+   appending every correction without compressing is what bloats this file. **But distillation
+   alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** Four
+   distillation passes (Jun 29, Jul 2, Jul 11, Jul 16) each cut 60–90 lines and the file regrew
+   past its starting point every time — 472 → 544 in nine days. What *did* work was enforcement:
+   the `git -C` rule took six revisions as prose and none since it became a `deny` entry, and the
+   two `local/*` ESLint rules have never been re-argued.
 2. **Refactors and minor chores may ride along with a feature** — a small refactor, a
    settings.json tweak, a `proposals/` note, or a doc fix needn't be its own PR (still prefer a
    separate *commit* each). This includes notes already sitting uncommitted in `proposals/`: roll
@@ -71,9 +76,12 @@ overlap that leaves is accepted over sync machinery
    ([ADR-0020](docs/adr/0020-coverage-review-not-gate.md)) — asserting tests for changed behaviour
    are a per-PR obligation, checked by reading the diff. Assert about the *result*, not that the
    line executed.
-5. **Reply to every review comment you act on** — cite the commit if you fixed it, give the
-   reasoning if you're declining. Never silently push a fix or resolve a thread: a decision that
-   never lands back on the thread is invisible.
+5. **Open PRs with `npm run pr`** — it is `gh pr create --reviewer "@copilot"`, so the review is
+   requested by construction rather than by remembering; pass the rest through
+   (`npm run pr -- --fill`). Then move on: don't verify or re-request, because
+   `gh pr view --json reviewRequests` reads **empty even on success** and treating that as
+   failure just duplicates the request. Harmless for contributors without Copilot enabled — the
+   flag is a no-op for them.
 
 ### Coding conventions
 
@@ -216,7 +224,9 @@ is whether the seam has two or more **production** callers with different needs.
 disposable (fixed names, latest-only); what has to survive a run is a **rejection**, and those go
 in the code — the doc comment on the thing a future reader would otherwise remove — with
 `proposals/over-engineering-rejections.md` as the fallback for the ones that have no such home,
-consulted only *after* findings are drafted.
+consulted only *after* findings are drafted. **That file does not exist yet and shouldn't until
+it does: create it with the first rejection that has nowhere better to live** — an empty one is
+the speculative structure #3 forbids.
 
 ---
 
