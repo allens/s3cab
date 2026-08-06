@@ -7,12 +7,18 @@
 # husky was adding. A dependency for that would sit badly with ADR-0005
 # (built-ins over dependencies).
 #
-# That `prepare` is a `node -e` one-liner rather than the obvious
-# `git config … || true`, and package.json cannot hold a comment saying why:
-# `true` is not a cmd.exe builtin. On Windows it resolves to Git's own
-# `usr/bin/true.exe`, so the guard works only while git is installed — and the
-# case it exists for is git *missing*, where it would fail exactly when needed.
-# `node` is the one interpreter guaranteed present, since npm just ran it.
+# That `prepare` carries **no `|| true` guard**, and package.json cannot hold a
+# comment saying why. `prepare` only runs where a checkout already exists — a dev
+# `npm install`, a worktree, CI's `actions/checkout`, `npm pack`/`publish` — and
+# not at all when the published package is installed as a dependency. The one
+# case without a `.git` is someone unzipping the GitHub source archive, who gets
+# a legible `fatal: not in a git directory`. Guarding a caller nobody has been is
+# the speculative structure ADR-0006 warns off; add one if it ever bites.
+#
+# (For the record, since the obvious guard is wrong twice over: `true` is not a
+# cmd.exe builtin — on Windows it resolves to Git's own `usr/bin/true.exe`, so it
+# would be missing in exactly the case it guards. `|| exit 0` is the portable
+# spelling if a guard is ever wanted.)
 #
 # **`npm test` is deliberately not here.** It is ~12s, and a gate slow enough
 # to be routinely skipped with `--no-verify` is worse than no gate: it makes
