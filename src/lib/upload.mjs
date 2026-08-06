@@ -5,13 +5,12 @@ import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
 import { FileChangedError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
-import { formatCount, plural, secondsSince } from "./format.mjs";
+import { plural } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
-import { createProgress } from "./progress.mjs";
+import { countedPass } from "./progress.mjs";
 import { remoteSnapshotUri } from "./remote.mjs";
 import { objectExists, putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
-import { isInteractive } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
@@ -97,48 +96,33 @@ export async function storedHashes({ bucket, set, since, baseline }) {
   // the set. Same shape as `walkDirs`' `Finding files in '<dir>'…`, quotes and
   // all. Bucket only, no `objects/`: the prefix is internal layout
   // (guide/format.md), while `s3://<bucket>` is the thing the user configured.
-  const start = Temporal.Now.instant();
-  const label = `Scanning existing objects in 's3://${bucket}'…`;
-  using progress = createProgress(stderr);
-  // Paint the label before the first request, not once objects are already
-  // arriving: ADR-0044/0045 put this announce *ahead* of the LIST precisely
-  // because the wait is unpredictable, and a bucket slow to answer is exactly
-  // when a blank screen reads as a hang. Bare label, no count — a "0" would be
-  // worse.
-  progress.update(label);
   /** @type {Set<string>} */
   const stored = new Set();
 
-  // A clock, not the arriving keys, drives this line — the one progress line
-  // here whose data comes in bursts. `listObjects` does `yield* page.Contents`,
-  // so a whole LIST page (1,000 keys) drains with no wait between items: gating
-  // on the redraw interval instead meant the first key after each round trip
-  // drew and the other 999 were held, so the count only ever appeared as a
-  // multiple of 1,000 *plus one* and then sat still for the next round trip. On
-  // a timer the count is sampled whenever it fires — whatever has really landed
-  // — and the elapsed figure keeps moving across the wait rather than freezing
-  // on it. `unref` so a pending tick can never hold the process open; the
-  // `finally` stops it if the LIST throws.
-  const ticking = setInterval(() => {
-    progress.update(
-      `${label} ${formatCount(stored.size)} in ${secondsSince(start)}`,
-    );
-  }, 1000);
-  ticking.unref();
-  try {
-    for await (const hash of listObjectHashes(bucket)) {
-      stored.add(hash);
-    }
-  } finally {
-    clearInterval(ticking);
+  // A clock, not the arriving keys, drives this line — the data comes in bursts.
+  // `listObjects` does `yield* page.Contents`, so a whole LIST page (1,000 keys)
+  // drains with no wait between items: redrawing per key meant the count only
+  // ever appeared as a multiple of 1,000 *plus one* and then sat still for the
+  // next round trip. A counted pass samples whatever has really landed at the
+  // moment it draws, and its elapsed figure keeps moving across the wait rather
+  // than freezing on it — and it stops on its own if the LIST throws, which is
+  // what retires the `try`/`finally` this used to need.
+  //
+  // The label is painted before the first request, not once objects are already
+  // arriving: ADR-0044/0045 put this announce *ahead* of the LIST precisely
+  // because the wait is unpredictable, and a bucket slow to answer is exactly
+  // when a blank screen reads as a hang.
+  using progress = countedPass(
+    stderr,
+    `Scanning existing objects in 's3://${bucket}'…`,
+    () => stored.size,
+  );
+
+  for await (const hash of listObjectHashes(bucket)) {
+    stored.add(hash);
   }
 
-  const summary = `${label} ${formatCount(stored.size)} in ${secondsSince(start)}`;
-  if (isInteractive(stderr)) {
-    progress.update(summary);
-  } else {
-    console.warn(summary);
-  }
+  progress.done();
   return stored;
 }
 

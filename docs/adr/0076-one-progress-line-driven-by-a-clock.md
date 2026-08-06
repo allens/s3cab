@@ -1,6 +1,7 @@
 # One progress line per pass, driven by a clock
 
-**Status:** accepted & implemented. Extends
+**Status:** accepted & implemented; amended 2026-08-06 (§3 now has an owner — see *A counted pass
+is a thing the module offers*). Extends
 [0010](0010-cli-output-conventions.md)'s output/stream discipline and
 [0043](0043-human-first-output.md)'s human-first rendering to *progress*, and settles the display
 [0069](0069-fused-snapshot-upload-pipeline.md) left behind when it fused two passes into one.
@@ -90,7 +91,52 @@ data cannot report on the data's own stalls.**
 - **A caller that reads live state gets a *reader*, never a subscription.** `transfer()` and the
   hash's `read()` are polled by the renderer on its own clock, so the SDK's event rate and the
   disk's chunk size never set the redraw rate.
-- **Timing behaviour is not covered by tests.** Both the pacing and the timers rest on real
-  elapsed time, and asserting them needs tests that sleep. Verified by simulation and by real
-  runs; the reasoning and what would unblock it (a fake clock) are recorded in
-  [proposals/output-ux.md](../../proposals/output-ux.md).
+- **Timing behaviour is not covered by tests** — *partly answered by the amendment below.* Both
+  the pacing and the timers rest on real elapsed time, and asserting them needs tests that sleep.
+  Verified by simulation and by real runs; the reasoning and what would unblock it (a fake clock)
+  are recorded in [proposals/output-ux.md](../../proposals/output-ux.md). The fake clock arrived
+  for the counted pass (`mock.timers` over `setInterval` alone, so a short real sleep can still
+  clear the pacing gate), so *that* pass's clock is asserted. The fused pass's and the per-file
+  bar's are still not.
+
+## Amendment (2026-08-06) — a counted pass is a thing the module offers
+
+§3 states the rule but named no owner, so it was obeyed by copies. `lib/progress.mjs` owned the
+mechanic and the cadence; the *shape* of a counting pass — bare label, then
+`<label> <count> in <elapsed>`, then a tally that survives off a terminal — sat re-typed in
+`walk.mjs` and `upload.mjs`, each carrying its own `setInterval`. **The walk carried none**, and
+gated its redraw on `progress.due()` inside its own yield loop, so the line could only move when
+the caller reached the next iteration. `walkFiles` blocks on `readdirSync` per directory and on
+`resolveFileType`'s `lstatSync` fallback (the NFS/FUSE case), and yields nothing at all while
+descending a subtree it keeps no file from — so the count *and its clock* froze in exactly the
+moments §3 identifies as the ones worth reporting. The longest pass over the biggest sets was the
+one site the rule had missed.
+
+So the pass itself is now the unit the module hands out: `countedPass(stream, label, () => count)`.
+Three things follow that are decisions, not detail.
+
+- **The count is pulled on a clock the module owns, never pushed by the caller.** A caller cannot
+  forget a timer it does not own, which is the only shape under which §3 cannot be missed again.
+  This is the same *reader, never a subscription* stance the consequence above records for
+  `transfer()` and `read()`, applied one level up — to whether the redraw happens at all rather
+  than only to what it says.
+- **`done()` is the one method, because disposal cannot tell it is unwinding from a throw.** The
+  walk aborts mid-loop on a duplicate path (ADR-0054/0073) and the store LIST can fail, and on
+  those paths no tally is written today. Drawing it from `[Symbol.dispose]` would print
+  `… 1,204 in 3 secs` directly above the error saying the pass failed. So the caller states the
+  one fact only it knows — the pass finished — and the module still decides everything about how
+  that is drawn.
+- **A counted pass ticks at one second, not at `MIN_REDRAW_MS`.** Its line shows a count and
+  `secondsSince`, which rounds to whole seconds, so at 100 ms the elapsed half cannot change on
+  nine draws out of ten. Tick at the rate of the slowest-changing field the line actually shows.
+  This preserves the store scan's cadence and **slows the walk's from ten redraws a second to
+  one** — accepted, and in the direction §1's dial was tuned for. It also moves `due()` out of the
+  callers: composing one line a second is not a per-file cost, so no caller needs the gate — but
+  the *pass* still does, because `update`'s argument is built before `update` can decline it, and
+  off a terminal nothing is ever written. So the gate is asked once per second in one place
+  instead of per item in two, which is the same consolidation as the rest of this amendment.
+
+One consumer deliberately still reaches for `isInteractive` itself: `s3.mjs`'s per-file byte bar
+asks *"was a bar drawn, so should I log a line instead?"* — a different question, which
+`progress.mjs` answers internally (`drawn`) but does not expose. Left open by name rather than
+folded in, so the omission reads as known.

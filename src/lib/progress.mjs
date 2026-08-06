@@ -1,4 +1,5 @@
 import { clearLine, cursorTo } from "node:readline";
+import { formatCount, secondsSince } from "./format.mjs";
 import { isInteractive } from "./style.mjs";
 
 // The one owner of the in-place stderr progress mechanic (clig.dev): gate on the
@@ -11,10 +12,9 @@ import { isInteractive } from "./style.mjs";
 // snapshot, restore, and the upload bar each used to hand-roll this; the copies
 // diverged, and snapshot's forgot the TTY gate entirely (it wrote `\r` into any
 // stream). Centralizing it here means the "don't animate off a TTY" rule that
-// style.mjs decides can't be forgotten again — every progress consumer routes
-// through this module, which routes through `isInteractive`. The renderer (what
-// each line *says* — a byte bar, a percentage, an n/total counter) stays with
-// each caller; only the terminal-writing mechanic lives here.
+// style.mjs decides can't be forgotten again. The renderer (what each line
+// *says* — a byte bar, a percentage, an n/total counter) stays with each caller;
+// only the terminal-writing mechanic lives here.
 //
 // *Cadence* lives here too, for the same reason. Each caller used to carry its
 // own count-based gate — every 500 objects, every 1,000 files, every changed
@@ -22,10 +22,32 @@ import { isInteractive } from "./style.mjs";
 // the identical gate is placid on a network-paced LIST (a page per round trip)
 // and a strobe on a warm dircache (tens of thousands of paths a second). Rate is
 // what the eye reacts to, so it is one dial in one place.
+//
+// **And one whole line shape lives here: {@link countedPass}.** `createProgress`
+// hands back the bare mechanic, which left the *shape* of a counting pass — bare
+// label, then `<label> <count> in <elapsed>`, then a tally that survives off a
+// terminal — re-typed identically in walk.mjs and upload.mjs, each with its own
+// clock or (in the walk's case) none. A pass is the unit
+// [ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md) names,
+// so a pass is what this module offers.
+//
+// One consumer deliberately still reaches for `isInteractive` itself:
+// `s3.mjs`'s per-file upload bar asks a *different* question — "was a bar drawn,
+// so should I log a line instead?" — which this module answers internally
+// (`drawn`) but does not expose. That is its own small change and its own
+// decision; it is named here so the omission reads as known rather than missed.
 
 // Redraw at most ten times a second. Fast enough to read as live, slow enough
 // that the digits stay legible instead of blurring.
 const MIN_REDRAW_MS = 100;
+
+// A counted pass redraws once a second, not on `MIN_REDRAW_MS`. Its line shows a
+// count and `secondsSince`, which **rounds to whole seconds** — so at 100ms the
+// elapsed half cannot change on nine draws out of ten, and the count alone does
+// not earn ten redraws a second. Ticking at the rate of the slowest-changing
+// field the line actually shows is also what lets the callers drop their
+// per-item `due()` gate: composing one line a second is not a per-file cost.
+const COUNTED_TICK_MS = 1000;
 
 /**
  * Write one *retained* status line, over whatever a progress bar left on the
@@ -162,6 +184,92 @@ export function createProgress(stream, { logLines = false } = {}) {
       if (interactive && drawn) {
         stream.write("\n");
       }
+    },
+  };
+}
+
+/**
+ * Run a **counted pass**: one line that names what is happening, then carries a
+ * running count and the elapsed time, then stays on screen as that step's tally
+ * ([ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md)). The
+ * walk's per-directory `Finding files in '~/src'… 1,204 in 3 secs` and the
+ * store scan's `Scanning existing objects in 's3://b'… 312,004 in 12 secs` are
+ * the two.
+ *
+ * **The count is pulled on a clock this owns, never pushed by the caller.** That
+ * is the whole point rather than a style choice: the walk used to redraw inside
+ * its own `for (const path of walkFiles(…))` loop, so the line could only move
+ * when the caller reached the next iteration — and `walkFiles` blocks on
+ * `readdirSync` per directory, on `resolveFileType`'s `lstatSync` fallback, and
+ * yields nothing at all while descending a subtree it keeps no file from. The
+ * count *and its clock* froze in exactly the places a user most needs to see the
+ * run is alive. A caller cannot forget a timer it does not own.
+ *
+ * `done()` is the one method, and it exists because disposal cannot tell it is
+ * unwinding from a throw. The walk aborts mid-loop on a duplicate path and the
+ * store scan's LIST can fail; drawing the tally from `[Symbol.dispose]` would
+ * print `… 1,204 in 3 secs` directly above the error saying the pass failed,
+ * reading as a step that finished. So disposal keeps `createProgress`'s job —
+ * flush the held update, close the line — and the caller states the one fact
+ * only it knows.
+ *
+ * Use it with `using`, so an abort still leaves the cursor on a fresh line.
+ * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
+ * @param {string} label - What the pass is doing, conventionally ending in `…`.
+ *   Drawn bare before the first count: with a redraw a second away, a slow or
+ *   cold step would otherwise sit blank and look hung, and a leading "0" would
+ *   be worse than nothing.
+ * @param {() => number} count - Read on every redraw for what has been got
+ *   through so far. A thunk, not a number, so the pass samples whatever has
+ *   really landed at the moment it draws.
+ * @returns {{ done: () => void } & Disposable}
+ */
+export function countedPass(stream, label, count) {
+  const start = Temporal.Now.instant();
+  const progress = createProgress(stream);
+  progress.update(label);
+
+  const line = () =>
+    `${label} ${formatCount(count())} in ${secondsSince(start)}`;
+
+  // `due` gates the tick because `update`'s argument is evaluated before
+  // `update` can decline it: off a terminal (and without `logLines`) nothing is
+  // ever written, so composing the line would be `Intl` and Temporal work done
+  // once a second and thrown away for the length of the pass. This is the hot-
+  // path idiom `due` documents, and the callers used to spell it per item —
+  // asked once per second in the one place, it costs nothing and no caller has
+  // to remember it.
+  //
+  // `unref` so a pending tick can never hold the process open; both `done` and
+  // disposal stop it, so a pass that throws past `done` still stops ticking.
+  const ticking = setInterval(() => {
+    if (progress.due()) {
+      progress.update(line());
+    }
+  }, COUNTED_TICK_MS);
+  ticking.unref();
+
+  return {
+    /**
+     * The pass finished: draw its true final tally, whatever the last redraw
+     * happened to show. Always drawn, so a step too quick to trigger a single
+     * redraw still gets its line. On a terminal it replaces the line in place
+     * and disposal supplies the closing newline; off one it is the single plain
+     * line a redirected log keeps — which is why this is not `statusLine`, whose
+     * own newline disposal would then follow with a second.
+     */
+    done() {
+      clearInterval(ticking);
+      const summary = line();
+      if (isInteractive(stream)) {
+        progress.update(summary);
+      } else {
+        stream.write(`${summary}\n`);
+      }
+    },
+    [Symbol.dispose]() {
+      clearInterval(ticking);
+      progress[Symbol.dispose]();
     },
   };
 }
