@@ -328,13 +328,27 @@ what it is actually asserting about.
 
 ## Smaller items
 
-**7. `RaCanonicalizer`'s constructor is a no-op.**
-[roles-anywhere.mjs:608-611](src/lib/roles-anywhere.mjs#L608-L611):
+> **Resolved** — [PR #267](https://github.com/allens/s3cab/pull/267): **8 shipped**,
+> **7 refuted**, **9 will not be done**. Details under each.
+
+**7. `RaCanonicalizer`'s constructor is a no-op.** ❌ **REFUTED — the claim is
+false, and the code stays.** `SignatureV4Base`'s constructor is `protected`; an
+implicit constructor inherits that visibility, so the redeclaration is the only
+thing that makes `new RaCanonicalizer(…)` legal. Removing it fails the type check
+with TS2674. True of JavaScript's runtime semantics, false of the types — which is
+precisely the blind spot of a cold read, and why the skill now requires running
+`typecheck` against any "this does nothing" claim before reporting it. The code
+carries a comment saying so, since it still *looks* removable.
+The original claim, left as written: *"[roles-anywhere.mjs:608-611](src/lib/roles-anywhere.mjs#L608-L611):
 `constructor(init) { super(init); }` is exactly what JavaScript supplies by
 default. The two method wrappers below it are load-bearing (they widen `protected`
-members); the constructor is not. **−4 lines.**
+members); the constructor is not. −4 lines."* The second sentence was right about
+the wrappers and wrong about the constructor, for the same reason it was right
+about the wrappers.
 
 **8. `SHA256_EMPTY_FILE` special-cases what the general path already handles.**
+✅ **SHIPPED** — #267. Verified rather than assumed: running a real empty file
+through `fileProps` returns `e3b0c44…52b855`, the constant that was removed.
 [file-props.mjs:27,95-97](src/lib/file-props.mjs#L27): a hardcoded digest constant
 and a third `else` branch, to avoid hashing zero bytes.
 `crypto.hash("sha256", readFileSync(path), "hex")` returns exactly that constant
@@ -343,6 +357,13 @@ It does save one `readFileSync` per empty file — negligible, and the walk `lst
 it either way. **−6 lines, one fewer branch, one fewer magic constant.**
 
 **9. `deletionRecordMoment = snapshotMoment` is a rename with no behaviour.**
+🚫 **WON'T DO** — decided 2026-08-06, so it isn't re-picked. The alias earns its
+keep on two counts the finding already conceded: it carries a doc paragraph about
+minute-precision collision that is genuinely about *deletion records*, not
+snapshots, and `delete.test.mjs` `mock.module`s it — removing the alias would push
+that mock onto `snapshot-file.mjs`, reaching further than the test intends. Three
+lines is not worth either cost.
+
 [deletion-record.mjs:41](src/lib/deletion-record.mjs#L41) re-exports another
 module's function under a new name. Marginal, and reported last for that reason:
 the alias carries a doc paragraph about minute-precision collision that is genuinely
