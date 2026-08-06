@@ -117,7 +117,7 @@ describe("backup (fused snapshot + upload, real engine)", () => {
     // No manifest went up (only the one failed object attempt) …
     assert.equal(putUris.length, 1);
     // … but the snapshot is on disk, complete, with every file in it.
-    const name = listSnapshotNames(snapshotDir, { latest: true });
+    const name = listSnapshotNames(snapshotDir).at(0);
     assert.ok(name, "expected the local snapshot to have landed");
     const { entries } = await readSnapshot(snapshotDir, name);
     assert.equal(entries.size, 3);

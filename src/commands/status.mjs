@@ -35,7 +35,7 @@ export async function status(setName) {
   const set = loadSet(setName);
 
   const snapshotDir = set.snapshotsDir;
-  const localName = listSnapshotNames(snapshotDir, { latest: true });
+  const localName = listSnapshotNames(snapshotDir).at(0);
   if (!localName) {
     throw new Error(
       `No snapshot yet for set '${set.name}'. ` +

@@ -234,7 +234,7 @@ function parkSentinelHashes(snapshotsDir) {
 async function hashesIn(snapshotsDir) {
   // Via the lister, as production does: it yields bare snapshot names (and
   // skips the dot-prefixed lookup file), which is what `readSnapshot` resolves.
-  const name = listSnapshotNames(snapshotsDir, { latest: true });
+  const name = listSnapshotNames(snapshotsDir).at(0);
   const { entries } = await readSnapshot(snapshotsDir, name ?? "");
   return [...entries.values()].map((props) => props.hash);
 }

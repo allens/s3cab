@@ -95,7 +95,7 @@ export async function list(setName, options = {}) {
   // No set named → every set, compact (name + snapshot times).
   const sets = listSets().map((name) => {
     const set = readSet(name);
-    const snapshots = listSnapshotNames(set.snapshotsDir, {});
+    const snapshots = listSnapshotNames(set.snapshotsDir);
     return {
       name,
       snapshots: options.latest ? snapshots.slice(0, 1) : snapshots,
@@ -128,6 +128,6 @@ function providerOverrides(set) {
 async function snapshotsFor(set, { latest, remote }) {
   const names = remote
     ? await listRemoteSnapshots(set.bucket, set.name)
-    : listSnapshotNames(set.snapshotsDir, {});
+    : listSnapshotNames(set.snapshotsDir);
   return latest ? names.slice(0, 1) : names;
 }

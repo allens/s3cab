@@ -66,7 +66,7 @@ export async function readBaseline(set, { rehash } = {}) {
   let previous;
   /** @type {string | undefined} */
   let instant;
-  const name = listSnapshotNames(snapshotDir, { latest: true });
+  const name = listSnapshotNames(snapshotDir).at(0);
   if (name) {
     // One line for the whole step, naming the file it reads. `readSnapshotFile`
     // used to log a second "Read snapshot file … in N sec" of its own on the way
