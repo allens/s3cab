@@ -46,7 +46,7 @@
     "@aws-sdk/client-s3": "^3.1101.0",
     "@aws-sdk/credential-providers": "^3.1101.0",
     "@aws-sdk/lib-storage": "^3.1101.0",
-    "@smithy/shared-ini-file-loader": "^4.6.15",
+    "@smithy/shared-ini-file-loader": "^4.6.16",
     "@smithy/signature-v4": "^5.6.11"
   },
   "devDependencies": {
@@ -55,7 +55,7 @@
     "esbuild": "0.28.1",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.8.0",
+    "globals": "^17.9.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2"
   },
