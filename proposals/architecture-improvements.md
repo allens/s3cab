@@ -42,6 +42,21 @@ retired to the run log below, its lasting knowledge now in
 [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment. **B–I remain
 open.** Track 1 continues **C → F**, both in the files #277 just touched.
 
+**Picking these up cold (a later session, or another machine).** Everything needed is in this
+file plus the ADRs — with three caveats worth stating rather than rediscovering.
+(1) **Line anchors rot on every landing.** E's and F's were refreshed after #277 shifted
+`walk.mjs` up ~21 lines and `progress.mjs` down ~22; the rest cite files #277 never touched.
+Re-verify before trusting any of them — this file's own opening rule.
+(2) **The three tracks are grouped by *file overlap*, not theme**, so they parallelize badly on
+purpose: track 1 is strictly sequential (C → F share `snapshot.mjs`/`progress.mjs`), track 2 is
+D → H (they share `verify.mjs`), and track 3 (B, E, G, I + the smaller items) is genuinely
+independent — start there if two people are working at once.
+(3) **`.env.test` is gitignored and does not travel.** Every candidate except **B** is pure or
+local and verifies with `npm test` alone; B is the exception — it needs the gated suite *and* the
+Roles Anywhere prerequisites, both now written up in
+[docs/integration-testing.md](../docs/integration-testing.md). Do that setup before starting B,
+not after.
+
 - **B — Bring Roles Anywhere inside the credential-error family.** _Strong._
   `resolveCredentials` ([auth.mjs](../src/lib/auth.mjs) 531–534) returns from the RA branch
   *before* entering its `try`, so only the **absent identity** case is wrapped (auth.mjs:483–490).
@@ -78,9 +93,10 @@ open.** Track 1 continues **C → F**, both in the files #277 just touched.
 - **E — `compileExclude` owns only half the matching convention.** _Strong._
   [exclude.mjs](../src/lib/exclude.mjs) normalizes the *pattern* side and returns a bare
   `RegExp`, then documents in prose three obligations the caller must honour on the *subject*
-  side — all implemented in [walk.mjs](../src/lib/walk.mjs) 333–364: separator normalization
-  (:345), the trailing-`/` **directory rule** (:347–349), and `matchers.find` to recover which
-  pattern hit (:351). So the directory rule is reachable only through the filesystem.
+  side — all implemented in [walk.mjs](../src/lib/walk.mjs) 312–343 (anchors refreshed after #277
+  shifted this file up ~21 lines): separator normalization (:324), the trailing-`/` **directory
+  rule** (:326–327), and `matchers.find` to recover which pattern hit (:330), over matchers built
+  at (:315). So the directory rule is reachable only through the filesystem.
   `exclude.test.mjs`'s helper re-implements the first obligation and **cannot express the
   second** — there is no directory-exclusion case in it at all, and the only coverage is one
   `walk.test.mjs` case building a real temp tree. Four of the six active starter patterns are
@@ -89,7 +105,7 @@ open.** Track 1 continues **C → F**, both in the files #277 just touched.
 - **F — The snapshot pass's counters are unobservable.** _Strong._ `progressLine` was extracted
   for testability and got 16 tests, but every real defect in the pass lives in what is *passed*
   to it, and none of that is reachable: off a TTY `createProgress` writes nothing
-  (progress.mjs:69–71), so the `bytesTotal` loop (snapshot.mjs:166–170), the `bytesDone`
+  (progress.mjs:91–93, refreshed after #277), so the `bytesTotal` loop (snapshot.mjs:166–170), the `bytesDone`
   accumulation (:184–199) and the `hashing` binding (:157–158) are inert under `node --test`.
   `snapshot.test.mjs` imports exactly one symbol; `backup.test.mjs` mocks the other two away.
   The behavioural question this hides: `bytesDone += props.size` counts a **reused** file's

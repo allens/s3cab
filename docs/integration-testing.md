@@ -77,6 +77,32 @@ aws sso login          # only if your profile is SSO and the session has expired
 npm run test:integration
 ```
 
+A configured bucket gets you every suite but two. The **Roles Anywhere** cases
+([test/integration/roles-anywhere.test.mjs](../test/integration/roles-anywhere.test.mjs)) report
+as *skipped* until this machine has a working RA identity, because they authenticate with a real
+certificate rather than the ambient chain. That needs two things beyond the bucket — a
+**deployed** trust anchor, and a pointer to the s3cab home holding the certificate:
+
+```sh
+s3cab aws <bucket> --roles-anywhere                        # writes ~/.s3cab/<bucket>.yaml + the CA/cert
+aws cloudformation deploy --template-file ~/.s3cab/<bucket>.yaml --stack-name s3cab-<bucket> \
+  --capabilities CAPABILITY_NAMED_IAM
+s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # captures the ARNs locally
+export S3CAB_TEST_RA_HOME="$HOME/.s3cab"                        # the home holding roles-anywhere/
+```
+
+Skipping them is not a hole in the safety net: the signer itself is pinned by a byte-for-byte
+parity unit test against a live-validated spike ([ADR-0058](adr/0058-roles-anywhere-cert-generation.md)),
+so the live run is confirmation rather than the only proof. Stand it up when you are changing the
+RA path itself.
+
+> **A `NoSuchBucket` on *every* file usually means a typo, not a broken setup.** The harness only
+> checks that `S3CAB_TEST_BUCKET` is *set*, so a misspelling gets all the way to S3 before
+> failing. Check the name against what exists —
+> `aws s3api list-buckets --query "Buckets[].Name"` — before debugging anything else, and be
+> careful choosing among similarly-named buckets: these tests **write and delete objects**, so
+> never point them at a bucket holding real backups.
+
 `test:integration` loads `.env.test` and runs the gated suites. Because the tests relocate only
 s3cab's own home (via `S3CAB_HOME`) and leave `HOME` alone, the AWS SDK resolves
 credentials from your `~/.aws` profile exactly as the real app would — so **any** identity
