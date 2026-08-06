@@ -224,7 +224,9 @@ is whether the seam has two or more **production** callers with different needs.
 disposable (fixed names, latest-only); what has to survive a run is a **rejection**, and those go
 in the code — the doc comment on the thing a future reader would otherwise remove — with
 `proposals/over-engineering-rejections.md` as the fallback for the ones that have no such home,
-consulted only *after* findings are drafted.
+consulted only *after* findings are drafted. **That file does not exist yet and shouldn't until
+it does: create it with the first rejection that has nowhere better to live** — an empty one is
+the speculative structure #3 forbids.
 
 ---
 
