@@ -1,0 +1,45 @@
+#!/bin/sh
+# The pre-commit gate: the *fast* half of CI's `lint` job — format, lint,
+# typecheck — so a commit that CI would reject never gets made.
+#
+# No husky. Git has had `core.hooksPath` since 2.9, and `package.json`'s
+# `prepare` script points it here on `npm install`, which is the only thing
+# husky was adding. A dependency for that would sit badly with ADR-0005
+# (built-ins over dependencies).
+#
+# That `prepare` carries **no `|| true` guard**, and package.json cannot hold a
+# comment saying why. `prepare` only runs where a checkout already exists — a dev
+# `npm install`, a worktree, CI's `actions/checkout`, `npm pack`/`publish` — and
+# not at all when the published package is installed as a dependency. The one
+# case without a `.git` is someone unzipping the GitHub source archive, who gets
+# a legible `fatal: not in a git directory`. Guarding a caller nobody has been is
+# the speculative structure ADR-0006 warns off; add one if it ever bites.
+#
+# (For the record, since the obvious guard is wrong twice over: `true` is not a
+# cmd.exe builtin — on Windows it resolves to Git's own `usr/bin/true.exe`, so it
+# would be missing in exactly the case it guards. `|| exit 0` is the portable
+# spelling if a guard is ever wanted.)
+#
+# **`npm test` is deliberately not here.** It is ~12s, and a gate slow enough
+# to be routinely skipped with `--no-verify` is worse than no gate: it makes
+# the claim false while still reading as true. CI runs the full four on every
+# PR and is the required check; this only shortens the loop.
+#
+# It checks the *working tree*, not the staged content, so a partial `git add`
+# can pass here and fail CI. Stashing unstaged work to close that gap costs
+# more than the case is worth — CI remains the authority.
+#
+# Bypass with `git commit --no-verify` when you mean to.
+set -e
+
+if [ ! -d node_modules ]; then
+  echo "pre-commit: node_modules is missing — run 'npm ci' first." >&2
+  echo "  A fresh worktree has none, and typecheck then resolves up into the" >&2
+  echo "  main checkout, failing on the builtin shims jsconfig maps away here." >&2
+  exit 1
+fi
+
+# --silent drops npm's own banner lines; each tool still reports its failures.
+npm run --silent format:check
+npm run --silent lint
+npm run --silent typecheck
