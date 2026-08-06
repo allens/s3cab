@@ -162,13 +162,13 @@ not report a stage-1 hit until stage 2 has seen it in context.
 **Size the pass — code vs comment, so you know what you are actually reading:**
 
 ```bash
-node scripts/sweep.mjs size
+node .claude/skills/over-engineering/sweep.mjs size
 ```
 
 **Production fan-in — which modules have earned being modules:**
 
 ```bash
-node scripts/sweep.mjs fan-in
+node .claude/skills/over-engineering/sweep.mjs fan-in
 ```
 
 Read it **ascending**. High fan-in is evidence a module is *earned*; the interesting
@@ -181,7 +181,7 @@ for a dev utility shows its real caller rather than reading as an orphan.
 **Exports with zero production consumers, with the three numbers that sort them:**
 
 ```bash
-node scripts/sweep.mjs exports
+node .claude/skills/over-engineering/sweep.mjs exports
 ```
 
 Every hit already has no production consumer outside its own file. The counts say

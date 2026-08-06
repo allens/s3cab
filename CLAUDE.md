@@ -207,7 +207,12 @@ Three layout notes the README and code don't carry:
 - **Standalone dev utilities live in [scripts/](scripts/)** — ad-hoc tools run by hand with
   `node`, outside the package and the test suite: benchmarks, `setup-test-bucket.mjs`, preserved
   rejected spikes. Not "scratch" as in disposable — a script earns its place. Never a parked
-  sandbox under `src/` or `test/`.
+  sandbox under `src/` or `test/`. **A script that exists only to serve a skill is the
+  exception and lives with it** (`.claude/skills/<skill>/`), so a vendored skill stays
+  self-contained — `sweep.mjs` beside the over-engineering skill is the one today. That
+  placement needs `jsconfig.json` to name `.claude/skills/**/*`, because `tsc`'s default
+  traversal skips dot-directories; without it such a script is linted and formatted but
+  never type-checked.
 - **Snapshots no longer land in the repo tree** — since backup-sets slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/`, outside any working copy, so `.gitignore` only keeps the
   `/.s3cab/env*` secret guards for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt)
