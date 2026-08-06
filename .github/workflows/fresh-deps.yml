@@ -1,0 +1,104 @@
+# The only test s3cab has of what a USER actually runs.
+#
+# We publish `src/` to npm (package.json `files`), not a bundle, and our ranges are
+# carets. So npm resolves the AWS SDK on the user's machine, at THEIR install time,
+# to the newest version the caret allows — and npm never publishes a lockfile, so
+# they never see ours. package-lock.json pins our builds; it pins nothing for them.
+# AWS ships a new SDK almost daily, so a user's SDK can be many versions ahead of
+# anything CI has ever executed.
+#
+# ci.yml structurally cannot cover this: it runs `npm ci` against our lockfile, the
+# unit tier mocks the `s3.mjs` seam so it never speaks to S3 (ADR-0019), and
+# `s3 integration` is skipped on Dependabot PRs because GitHub withholds this repo's
+# secrets from them. Net: the dependency that matters most is the one nothing
+# exercises at the version users get. For a backup tool that is a real exposure — a
+# fault in the S3 write path damages an object or a snapshot file, and the user
+# finds out at restore time.
+#
+# WHY NOT FREEZE THE VERSIONS INSTEAD — ship the esbuild bundle, or add
+# `bundledDependencies`, so users run exactly what CI tested? Considered and
+# rejected, and this job is the alternative that was chosen over it:
+#   - shipping readable `src/` is part of the transparency the project trades on
+#     (ADR-0002), and a bundle is one opaque 1.8 MB file;
+#   - `bundledDependencies` puts the whole ~84 MB tree in a tarball that is 776 KB
+#     today, for a CLI;
+#   - either way users get no SDK security fix until we cut a release, and releases
+#     here are months apart;
+#   - stack traces in bug reports stay meaningful against real source.
+# Accepting the drift and *watching* it is the deliberate trade. Delete this job and
+# the trade silently becomes an unmonitored bet.
+#
+# It also underwrites dependabot-auto-merge.yml. That workflow merges npm updates on
+# a green `ci gate`, which is a weak signal for the SDK by itself; it is only safe
+# because this job has already run a newer-or-equal SDK against a real bucket.
+name: fresh deps
+
+on:
+  schedule:
+    # Wednesdays, 06:00 UTC. Deliberately NOT Dependabot's day: a failure here should
+    # be attributable to upstream drift, not confused with a pending update PR.
+    - cron: "0 6 * * 3"
+  # Manual runs — for testing changes to this file, and as a pre-release sanity pass.
+  workflow_dispatch:
+
+# Two things to know about scheduled workflows, because both fail quietly:
+# GitHub runs them only from the default branch (so edits take effect once merged,
+# not on the PR), and it disables the schedule after 60 days of repository
+# inactivity. Failure mail goes to whoever last touched the cron line.
+permissions:
+  contents: read
+
+env:
+  # Same pin as ci.yml and release.yml — the engines floor we ship on. Duplicated
+  # rather than shared because `env` cannot cross workflow files. The drift under
+  # test here is the dependency tree, so Node is held still on purpose.
+  NODE_VERSION: "26.3.0"
+
+jobs:
+  fresh-deps:
+    name: fresh deps
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Resolve the way a user's install does: from the caret ranges alone, with no
+      # lockfile in play. Deleting it first is the unambiguous way to get that —
+      # `npm ci` would defeat the entire point of this job, and `npm install` on its
+      # own would just replay our pins. `-f` because the goal is "no lockfile in
+      # play", not "a lockfile was here": if one ever stops being committed, this
+      # step should carry on rather than fail with a confusing missing-file error.
+      - name: Resolve dependencies fresh, ignoring the lockfile
+        run: |
+          rm -f package-lock.json
+          npm install
+
+      # Put the resolved versions in the log. When this job goes red the first
+      # question is "which SDK?", and the run that failed is the only record of it.
+      - name: Record what resolved
+        run: npm ls --depth=0
+
+      # Fresh deps can break the mocked tier too (a changed export shape, a dropped
+      # entry point), and this is cheap next to the S3 round-trips below.
+      - run: npm test
+
+      # A scheduled run's OIDC subject is `repo:<owner>/<repo>:ref:refs/heads/main`,
+      # NOT the `:pull_request` subject ci.yml's s3-integration job uses.
+      # ci/aws/trust-policy.json already allows both, so no AWS change was needed —
+      # but nothing else assumes the role from a branch ref (releases match the tag
+      # statement), so this run is the first to exercise it. If the assume-role step
+      # fails, check the live policy against that file before looking anywhere else.
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
+
+      # The reason the job exists: real S3, against the SDK a new user would get.
+      - run: npm run test:integration
+        env:
+          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}

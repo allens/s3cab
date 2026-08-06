@@ -327,6 +327,35 @@ Two constraints on that list:
   and dismissed" section is one run's judgement and is fine to re-derive; a
   rejection is a decision that should stick.
 
+## Do not escalate any of this into an ADR
+
+**"The way the code is" is itself an architecture decision.** An ADR earns its
+place only when *both* halves hold: the reasoning is not recoverable from the code,
+**and** someone would plausibly re-argue the decision. ADRs exist to stop obscure or
+hard-to-reason-about decisions being re-litigated — not to narrate what the next
+reader can simply see.
+
+This binds the sweep at both ends.
+
+**On output.** A rejection belongs in the code, at the point someone would undo it
+(above). Never promote one to an ADR instead. The doc comment already satisfies both
+halves — unrecoverable reasoning, sitting exactly where the re-argument would start
+— and an ADR moves it somewhere a cold reader has been *told not to look*. (Worked
+example: a weekly canary job and an auto-merge switch were both proposed as an ADR
+and built as workflow-header comments instead. The file a person edits is the file
+that has to carry the why.)
+
+**On findings.** `docs/adr/` is a subject of this sweep. An ADR that only describes
+what the code plainly shows is the documentation form of exactly what this skill
+hunts: shape that costs a reader something and buys nothing. Report it like any
+other finding.
+
+Apply the second half of the test carefully, though, because it is the one that
+protects the good ones: an ADR recording **why not the obvious alternative** is
+doing real work even when the decision itself is visible in the code. Code shows
+what was built. It can never show the road deliberately not taken, which is
+precisely the thing a cold reader re-proposes.
+
 ## Relationship to `/improve-codebase-architecture`
 
 > *Assistant-proposed framing — not part of the original brief.*
