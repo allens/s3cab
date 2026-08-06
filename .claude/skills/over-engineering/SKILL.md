@@ -94,23 +94,39 @@ separately from the internal ones.
   still right; the justification was overstated, and the change duplicated a test
   that already existed.)
 
-## Run the type check before reporting a redundancy
+## Before claiming something is unnecessary
 
-A shape can be **load-bearing in the type system while looking redundant in
-JavaScript**, and reading `src/` cold is exactly the vantage point that misses it.
-The cheapest guard is mechanical: for any finding whose claim is *"this does
-nothing"*, delete it locally and run `npm run typecheck` before writing it up.
+Every finding asserts the same thing: *nothing depends on this.* That is a claim
+about dependencies, and a cold read is the vantage point least able to see them.
+On the first run it was wrong four times out of nine — and all four were this one
+error wearing different clothes.
 
-Worked example, and the reason this section exists: a finding called a subclass's
-`constructor(init) { super(init); }` "exactly what JavaScript supplies by default".
-True of the runtime semantics, false of the types — the base constructor was
-`protected`, an implicit constructor inherits that visibility, and the redeclaration
-was the only thing making `new Subclass(…)` legal. `tsc` caught it; the cold read
-could not have.
+So before writing the claim down, look in the four places it hides. **If the only
+argument for a finding is that the code looks unnecessary, that argument is not yet
+evidence.**
 
-This generalizes past constructors: an `@overload` block, a seemingly pointless cast,
-a re-export, a widened parameter type. **If the only argument for a finding is that
-the code looks like a no-op, that argument is not yet evidence.**
+- **Types.** Delete it locally and run `npm run typecheck`. A shape can be
+  load-bearing in the type system while looking redundant in JavaScript. *(A
+  finding called a subclass's `constructor(init) { super(init); }` "exactly what
+  JavaScript supplies by default" — true of the runtime, false of the types: the
+  base constructor was `protected`, an implicit one inherits that, and the
+  redeclaration was the only thing making `new Subclass(…)` legal. Generalizes to
+  an `@overload` block, a pointless-looking cast, a re-export, a widened parameter
+  type.)*
+- **Tests.** Open the test file — see *What does not count*, and mark the claim a
+  hypothesis in the report, per *Output*.
+- **Cost.** Never call a saving negligible without a number. *(A finding dismissed
+  a skipped `readFileSync` as "negligible"; measured, it was 1,635ms against 15ms
+  over 20,000 empty files — on the walk/snapshot hot path CLAUDE.md warns about.
+  The guard it wanted removed stayed, and now carries the measurement.)*
+- **Your own judgement, earlier in the same report.** Re-read the
+  *looked at and dismissed* list before filing. *(A finding called `formatSets` a
+  surplus export three sections after the same report dismissed `progressLine` as
+  a legitimate test seam — identical shape, opposite verdicts, one document.)*
+
+The type check now has a mechanical backstop: the repo's `pre-commit` hook runs it,
+so a wrong "this does nothing" cannot be committed. That does not retire the check
+here — this one runs at *reporting* time, before any code exists to commit.
 
 ## Finding categories
 
@@ -296,6 +312,13 @@ The reports above are disposable; a **rejection is not.** A finding the user
 declines stays true of the code, so the next cold run will re-derive it with equal
 confidence — and the reasoning that spared it must outlive the report that carried
 it.
+
+**A finding *refuted* during implementation needs the same home, for a different
+reason.** It was never true — `tsc` or a measurement disproved it — but the code
+still *looks* the way that produced it, so the next run re-derives it just as
+readily. Record the refutation exactly where the rejection would go: the doc
+comment on the thing, saying what holds it up. The `super(init)` constructor is the
+worked example; its comment now says why removing it breaks the type check.
 
 **Primary rule: record it in the code, at the point a future reader would undo
 it.** The symbol's own doc comment, or the module header if the rejection is about
