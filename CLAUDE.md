@@ -113,9 +113,14 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   …`, a standalone `await …;`, a ternary branch, destructuring, and `await` as a call argument
   (Copilot flags the last three — decline those). Deliberately **not** linted: too
   false-positive-prone ([ADR-0006](docs/adr/0006-minimal-code.md)).
-- **Before committing code, run _both_ halves of CI's `lint` job — `format:check` *and* `lint`.**
-  eslint passing alone is not enough; the job also runs `prettier --check .`, so unformatted hand
-  edits fail CI every time. The pre-commit gate is format + lint + typecheck + test, mirroring CI.
+- **A `pre-commit` hook runs `format:check` + `lint` + `typecheck`, so just commit** — one
+  command and one output instead of running the three by hand and reading each. It is a plain
+  git hook in [.githooks/](.githooks/) (no husky — `core.hooksPath` is a built-in, ADR-0005),
+  wired up by `npm install`'s `prepare` script, so a fresh clone or worktree gets it after
+  `npm ci`. **`npm test` is _not_ in it** — 12s is where a gate starts getting skipped, and a
+  bypassed gate is worse than none; run it yourself before pushing. The hook checks the working
+  tree, not the staged content, so CI stays the authority: it runs all four, and `ci-gate` is
+  the required check.
 - **The whole-project type check (`typecheck`) is kept clean**, `scripts/` included.
   `jsconfig.json` maps `events`/`punycode`/`string_decoder` back to the builtin declarations —
   transitive deps install shims that would otherwise shadow them (mechanism in the jsconfig

@@ -22,6 +22,7 @@
   ],
   "repository": "allens/s3cab.git",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "pr": "gh pr create --reviewer \"@copilot\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
