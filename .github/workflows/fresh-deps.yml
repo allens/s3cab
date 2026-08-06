@@ -27,10 +27,6 @@
 #   - stack traces in bug reports stay meaningful against real source.
 # Accepting the drift and *watching* it is the deliberate trade. Delete this job and
 # the trade silently becomes an unmonitored bet.
-#
-# It also underwrites dependabot-auto-merge.yml. That workflow merges npm updates on
-# a green `ci gate`, which is a weak signal for the SDK by itself; it is only safe
-# because this job has already run a newer-or-equal SDK against a real bucket.
 name: fresh deps
 
 on:
