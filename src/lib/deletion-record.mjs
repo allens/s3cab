@@ -1,4 +1,4 @@
-import { formatByteValue, formatCount, plural } from "./format.mjs";
+import { countOf, formatByteValue, formatCount, plural } from "./format.mjs";
 import { getText, listObjects, putText } from "./s3.mjs";
 import { snapshotMoment } from "./snapshot-file.mjs";
 
@@ -163,7 +163,7 @@ export function formatDeletionRecord(context, rows) {
     `# scope:      ${everywhere ? "everywhere (every reference, all sets)" : "the sets above only"}`,
     ...pathLines,
     `#`,
-    `# ${files(totals.files)}, holding ${formatByteValue(totals.bytes)} across ` +
+    `# ${countOf(totals.files, "file")}, holding ${formatByteValue(totals.bytes)} across ` +
       `${formatCount(totals.objects)} ${plural(totals.objects, "stored object")}.`,
     `#`,
     `# The objects backing the files below were deleted on purpose; snapshots`,
@@ -175,6 +175,3 @@ export function formatDeletionRecord(context, rows) {
   const body = rows.map(({ hash, path }) => `${hash}\t${path}`);
   return [...header, ...body, ``].join("\n");
 }
-
-/** @param {number} n */
-const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;

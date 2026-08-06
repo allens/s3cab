@@ -264,11 +264,7 @@ export function usage(commands, commandName, style) {
         lines.push("", heading(`${section}:`));
         group = section;
       }
-      lines.push(
-        `  ${name}`.padEnd(nameColumn) +
-          command.summary +
-          (command.planned ? " (not yet available)" : ""),
-      );
+      lines.push(`  ${name}`.padEnd(nameColumn) + command.summary);
     }
 
     // Global options — the flags the dispatcher answers for every command (and

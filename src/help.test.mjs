@@ -29,7 +29,6 @@ const fakeRegistry = {
   },
   later: {
     summary: "Not built",
-    planned: true,
     exec: () => undefined,
     render: String,
   },
@@ -42,13 +41,6 @@ describe("usage", () => {
     assert.match(text, /Usage: s3cab <command>/);
     assert.match(text, /go\s+Do the thing/);
     assert.match(text, /later\s+Not built/);
-  });
-
-  it("marks planned commands as not yet available", () => {
-    const text = usage(fakeRegistry);
-
-    assert.match(text, /later\s+Not built \(not yet available\)/);
-    assert.doesNotMatch(text, /Do the thing \(not yet available\)/);
   });
 
   it("groups commands under headings, sticky until the next group", () => {

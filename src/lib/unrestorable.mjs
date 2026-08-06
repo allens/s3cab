@@ -1,8 +1,8 @@
 import {
   alignTotalTable,
+  countOf,
   formatByteValue,
   formatCount,
-  plural,
 } from "./format.mjs";
 import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
 
@@ -316,8 +316,8 @@ export function formatUnrestorableReport(
     `# bucket:     ${bucket}`,
     `# snapshots:  ${snapshots.join(", ")}`,
     `#`,
-    `# ${files(plan.totalFiles)}, holding ${formatByteValue(plan.totalBytes)} ` +
-      `across ${objects(plan.totalObjects)}.`,
+    `# ${countOf(plan.totalFiles, "file")}, holding ${formatByteValue(plan.totalBytes)} ` +
+      `across ${countOf(plan.totalObjects, "stored object")}.`,
     `# (Fewer objects than files: identical content is stored once, however many`,
     `# files hold it — so the space freed is the object total, not the file count.)`,
     `#`,
@@ -358,9 +358,3 @@ export function formatForcedReport({ set, bucket, snapshots, generated }) {
     ].join("\n") + `\n`
   );
 }
-
-/** @param {number} n */
-const files = (n) => `${formatCount(n)} ${plural(n, "file")}`;
-
-/** @param {number} n */
-const objects = (n) => `${formatCount(n)} ${plural(n, "stored object")}`;

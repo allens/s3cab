@@ -70,7 +70,6 @@ import {
  * @property {string} summary
  * @property {string} [details] - The long-form `--help` body, rendered under "Description:" (lives in command-details.mjs). Distinct from an arg/option's one-line `description`.
  * @property {string[]} [examples] - Example invocations, one per line, shown right after the summary in `--help` (lead with examples — clig.dev)
- * @property {boolean} [planned] - Scaffolded but not yet implemented (awaiting the S3 milestone)
  * @property {string} [group] - Top-level help section heading; sticks for the commands that follow, so only the first command of each section sets it
  */
 

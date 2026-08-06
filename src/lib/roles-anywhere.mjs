@@ -605,6 +605,10 @@ class Sha256 {
  * (the correctness we're reusing) and only supply the X509 signature ourselves.
  */
 class RaCanonicalizer extends SignatureV4Base {
+  // Not redundant, however much it looks it: `SignatureV4Base`'s constructor is
+  // `protected`, and an implicit one inherits that visibility — so without this
+  // redeclaration `new RaCanonicalizer(…)` below fails the type check (TS2674).
+  // Widening it to public is the whole job; the `super(init)` is incidental.
   /** @param {SignatureV4Init & SignatureV4CryptoInit} init */
   constructor(init) {
     super(init);
