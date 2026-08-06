@@ -45,6 +45,20 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
+      # Don't ship a binary with a known high-severity advisory in it. This gate
+      # exists for the SEA executables and the portable bundle specifically: they are
+      # built with `npm ci`, so they freeze this lockfile FOREVER — an installed
+      # binary has no float and cannot be reached, and the only fix is cutting
+      # another release. (The npm tarball is the opposite: carets, no published
+      # lockfile, so its users resolve past a bad version on their own.)
+      #
+      # `--omit=dev` on purpose: esbuild/eslint/prettier advisories never reach a
+      # user, and a gate that cries wolf is a gate people learn to skip.
+      #
+      # If an advisory with no available fix ever blocks an urgent release, that is a
+      # judgement call to make in the open — raise the level or drop the step in a
+      # commit that says why, rather than quietly weakening it here.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
