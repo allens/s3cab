@@ -4,7 +4,11 @@ import {
   formatByteValue,
   formatCount,
 } from "./format.mjs";
-import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
+import {
+  safeSize,
+  unreadableMessage,
+  unreadableSnapshots,
+} from "./referenced.mjs";
 
 // The pure core of `forget`'s **unrestorable check** (docs/design/snapshot-deletion.md):
 // given the bucket's referenced enumeration (`referencedObjects` in remote.mjs)
@@ -153,17 +157,10 @@ export function planUnrestorable(
       continue; // unreachable: `orphaned ⊆ doomed ⊆ target`. Narrows the type.
     }
 
-    // Content fixes size, so every path records the same one; a *torn* snapshot
-    // can disagree, and the largest is the safe figure to show before a deletion
-    // (never understate what is at stake). `verify` is where a disagreement is a
-    // finding — here it must not derail the preview.
-    let bytes = 0;
+    const bytes = safeSize(entry);
     /** @type {Set<string>} */
     const referencing = new Set();
-    for (const { sizes, snapshots: refs } of entry.paths.values()) {
-      for (const size of sizes) {
-        bytes = Math.max(bytes, size);
-      }
+    for (const { snapshots: refs } of entry.paths.values()) {
       for (const name of refs) {
         referencing.add(name);
       }

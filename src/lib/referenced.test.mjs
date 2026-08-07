@@ -2,14 +2,35 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   isCorruptSnapshotError,
+  safeSize,
+  sizeDisagreements,
   unreadableMessage,
   unreadableSnapshots,
 } from "./referenced.mjs";
 
 // Pure unit tests for the referenced-object enumeration's shared vocabulary —
 // the bucket-wide unreadable list every consumer used to derive itself, the one
-// message the three commands build from it, and the damage classifier that says
-// which read failures become findings at all.
+// message the three commands build from it, the damage classifier that says
+// which read failures become findings at all, and the two questions the `sizes`
+// Set exists to answer.
+
+/**
+ * A `ReferencedObject` from a compact spec: path → the sizes its rows record,
+ * optionally with the snapshots referencing it. The torn case — one path at two
+ * sizes — is the whole reason `sizes` is a Set, so the helper has to be able to
+ * express it.
+ * @param {Record<string, number[] | { sizes: number[], snapshots: string[] }>} spec
+ */
+const object = (spec) => ({
+  paths: new Map(
+    Object.entries(spec).map(([path, value]) => {
+      const { sizes, snapshots } = Array.isArray(value)
+        ? { sizes: value, snapshots: ["s1"] }
+        : value;
+      return [path, { sizes: new Set(sizes), snapshots: new Set(snapshots) }];
+    }),
+  ),
+});
 
 /**
  * A `Map<set, ReferencedResult>` carrying only the field under test: each set
@@ -167,5 +188,103 @@ describe("isCorruptSnapshotError", () => {
     assert.equal(isCorruptSnapshotError(notFound), false);
     assert.equal(isCorruptSnapshotError(new Error("network down")), false);
     assert.equal(isCorruptSnapshotError("not even an error"), false);
+  });
+});
+
+describe("safeSize", () => {
+  it("is the recorded size for a healthy object", () => {
+    assert.equal(safeSize(object({ "photos/a.jpg": [4096] })), 4096);
+  });
+
+  it("takes the largest when a torn snapshot recorded one path twice", () => {
+    // Overstating what a deletion frees is harmless; understating it is not.
+    assert.equal(safeSize(object({ "photos/a.jpg": [4096, 9001] })), 9001);
+  });
+
+  it("takes the largest across paths, not the first or the last", () => {
+    const shared = object({
+      "photos/a.jpg": [4096],
+      "backup/a.jpg": [9001],
+      "archive/a.jpg": [2048],
+    });
+    assert.equal(safeSize(shared), 9001);
+  });
+
+  it("is 0 for an object with no paths, rather than -Infinity or NaN", () => {
+    // A degenerate shape the enumeration never builds; asserted so a future
+    // `Math.max(...[])` rewrite can't quietly return -Infinity into a byte total.
+    assert.equal(safeSize(object({})), 0);
+  });
+});
+
+describe("sizeDisagreements", () => {
+  it("finds nothing when every recorded size matches storage", () => {
+    const healthy = object({ "photos/a.jpg": [4096], "b.jpg": [4096] });
+    assert.deepEqual(sizeDisagreements(healthy, 4096), []);
+  });
+
+  it("reports the path, the recorded size and the stored size it contradicts", () => {
+    const wrong = object({
+      "photos/a.jpg": { sizes: [512], snapshots: ["2026-08-01-0900"] },
+    });
+
+    assert.deepEqual(sizeDisagreements(wrong, 4096), [
+      {
+        path: "photos/a.jpg",
+        snapshots: ["2026-08-01-0900"],
+        recordedSize: 512,
+      },
+    ]);
+  });
+
+  it("yields a row per bad size on a torn path, keeping the good one silent", () => {
+    // The second size must not hide behind the first — each is checked against
+    // the one stored object independently.
+    const torn = object({ "photos/a.jpg": [4096, 512, 99] });
+    const found = sizeDisagreements(torn, 4096);
+
+    assert.deepEqual(
+      found.map(({ recordedSize }) => recordedSize).sort((a, b) => a - b),
+      [99, 512],
+    );
+  });
+
+  it("checks every path, so a second file's bad size is its own row", () => {
+    const two = object({ "photos/a.jpg": [4096], "backup/a.jpg": [512] });
+    const found = sizeDisagreements(two, 4096);
+
+    assert.deepEqual(
+      found.map(({ path }) => path),
+      ["backup/a.jpg"],
+    );
+  });
+
+  it("sorts snapshots, so a report never varies with encounter order", () => {
+    const wrong = object({
+      "photos/a.jpg": { sizes: [512], snapshots: ["2026-08-02", "2026-08-01"] },
+    });
+
+    assert.deepEqual(sizeDisagreements(wrong, 4096)[0]?.snapshots, [
+      "2026-08-01",
+      "2026-08-02",
+    ]);
+  });
+
+  it("gives every row of a torn path the same sorted snapshots", () => {
+    // The sort is hoisted to once per path, so the rows share one array. They
+    // must still each read as sorted — a reader of row two is owed the same
+    // order as row one.
+    const torn = object({
+      "photos/a.jpg": {
+        sizes: [512, 99],
+        snapshots: ["2026-08-02", "2026-08-01"],
+      },
+    });
+    const found = sizeDisagreements(torn, 4096);
+
+    assert.equal(found.length, 2);
+    for (const row of found) {
+      assert.deepEqual(row.snapshots, ["2026-08-01", "2026-08-02"]);
+    }
   });
 });

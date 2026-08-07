@@ -39,18 +39,22 @@ can test**.
 
 **A landed 2026-08-06** ([PR #277](https://github.com/allens/s3cab/pull/277)); its entry is
 retired to the run log below, its lasting knowledge now in
-[ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment. **B–I remain
-open.** Track 1 continues **C → F**, both in the files #277 just touched.
+[ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment. **D landed
+2026-08-07**, likewise retired to the run log. **B, C and E–I remain open.** Track 1 continues
+**C → F**, both in the files #277 touched; track 2 is now **H alone**.
 
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
-(1) **Line anchors rot on every landing.** E's and F's were refreshed after #277 shifted
-`walk.mjs` up ~21 lines and `progress.mjs` down ~22; the rest cite files #277 never touched.
-Re-verify before trusting any of them — this file's own opening rule.
+(1) **Line anchors rot on every landing, and so do the file paths.** E's and F's were refreshed
+after #277 shifted `walk.mjs` up ~21 lines and `progress.mjs` down ~22. D's were worse than
+stale: it cited bare `delete.mjs` / `unrestorable.mjs` / `verify.mjs` / `cleanup.mjs`, which read
+as `src/commands/` when all four are in **`src/lib/`** — two files of the same name exist in
+each directory. **Write paths from `src/`, not bare filenames.** Re-verify before trusting any
+anchor — this file's own opening rule.
 (2) **The three tracks are grouped by *file overlap*, not theme**, so they parallelize badly on
-purpose: track 1 is strictly sequential (C → F share `snapshot.mjs`/`progress.mjs`), track 2 is
-D → H (they share `verify.mjs`), and track 3 (B, E, G, I + the smaller items) is genuinely
-independent — start there if two people are working at once.
+purpose: track 1 is strictly sequential (C → F share `snapshot.mjs`/`progress.mjs`), track 2 was
+D → H (they share `verify.mjs`) and is now just H, and track 3 (B, E, G, I + the smaller items)
+is genuinely independent — start there if two people are working at once.
 (3) **`.env.test` is gitignored and does not travel.** Every candidate except **B** is pure or
 local and verifies with `npm test` alone; B is the exception — it needs the gated suite *and* the
 Roles Anywhere prerequisites, both now written up in
@@ -80,16 +84,6 @@ not after.
   `sizes: previous` from commands/snapshot.mjs:36 fails zero tests. Both `sizes` and
   `previousInstant` post-date the last pass (#250, #259). Does **not** reopen ADR-0069: the
   `through` seam was re-examined this pass and is still clean.
-- **D — Let `referenced.mjs` answer the questions its own shape implies.** _Strong._ The
-  three-deep nest exists to preserve torn-snapshot size disagreement, but
-  [referenced.mjs](../src/lib/referenced.mjs) exports nothing that touches it, so four planners
-  walk it by hand and re-derive the same two questions. *Safe (largest) size before a destructive
-  act*: delete.mjs:175–177 and unrestorable.mjs:164–166, near-verbatim rationale, independent
-  code. *Does any recorded size disagree with storage*: verify.mjs:74–84 and cleanup.mjs:104–110.
-  The nested walk is spelled four times; the `sizes`-is-a-Set rationale appears in five doc
-  comments. Both derivations are arithmetic over a `Set`, so
-  [ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md)'s zero-import property
-  survives — this *applies* 0074 rather than straining it.
 - **E — `compileExclude` owns only half the matching convention.** _Strong._
   [exclude.mjs](../src/lib/exclude.mjs) normalizes the *pattern* side and returns a bare
   `RegExp`, then documents in prose three obligations the caller must honour on the *subject*
@@ -561,7 +555,7 @@ least once; re-open only if the stated reason no longer holds.
   "three shapes of the deletion-record lookup" rejection and the entry says so — they must not be
   conflated. Planned as three tracks by file overlap: **track 1 sequential C → A → F**
   (`snapshot.mjs`/`progress.mjs`/the two porcelain commands), **track 2 D → H** (they share
-  `verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
+  `src/lib/verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
   `.env.test`, so `npm run test:integration` can't reach a real bucket here — tracks 1 and 2 are
   pure or local and verify fully, but **B leans on CI**. Overwrote the HTML report in place.
 - **2026-08-06 — A landed** ([PR #277](https://github.com/allens/s3cab/pull/277), grilled
@@ -606,3 +600,24 @@ least once; re-open only if the stated reason no longer holds.
   - **`npm run test:integration` did not run** (no `.env.test`; ADR-0049 hard-failed, as designed),
     and the `upload` commit deletes a `try`/`finally` around a `for await` over the `objects/`
     LIST. Stated in the PR body rather than passed over: CI was the authority on that one.
+- **2026-08-07 — D landed.** *`referenced.mjs` answers the two questions its `sizes` Set exists
+  to pose.* `safeSize(object)` and `sizeDisagreements(object, storedSize)` now hold the
+  derivations that four planners were walking by hand; the module stays zero-import, so
+  [ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md) is *applied*, not
+  strained, and no ADR was needed — 0074 already decided where this kind of thing lives.
+  - **The candidate said "four planners, the same two questions"; the code said two pairs.** Each
+    derivation had exactly two callers, and within a pair the two wanted *different shapes*:
+    `lib/unrestorable.mjs` takes the max over one object, `lib/delete.mjs` accumulates it across
+    sets (fine — max is associative); `lib/verify.mjs` needs every disagreeing *(path, size)* to
+    build a row, `lib/cleanup.mjs` needs only a boolean. So the honest interface was one function
+    per *question*, not one per call site, with the boolean caller testing `.length` — not a
+    predicate plus a lister, which would have been four exports for four callers and no
+    consolidation at all.
+  - **The refactor found a real (if harmless) inefficiency in `verify`.** `storedSize === undefined`
+    is a property of the *hash*, but the old loop re-tested it at every path of every object.
+    Extracting the disagreement walk hoisted the check up one level, where it reads as what it is:
+    nothing stored → every path is a finding and none has a size to disagree with.
+  - **Verified by mutation, not just by green.** The whole suite passes untouched before and
+    after — correct for a pure refactor, and exactly why it proves nothing about the new code.
+    `Math.max` → `Math.min` in `safeSize` was confirmed to fail the new "largest across paths"
+    case before the tests were trusted.

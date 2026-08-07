@@ -11,6 +11,8 @@
 // consumes — and the classifier deciding which snapshot reads become findings —
 // is the enumeration's own vocabulary, in referenced.mjs.
 
+import { sizeDisagreements } from "./referenced.mjs";
+
 /** @import { ReferencedResult } from "./referenced.mjs" */
 
 /**
@@ -54,10 +56,14 @@ export function verifySet(name, referencedResult, stored, deleted = new Map()) {
 
   for (const [hash, entry] of referenced) {
     const storedSize = stored.get(hash);
-    for (const [path, { sizes, snapshots }] of entry.paths) {
-      const snaps = [...snapshots].sort();
-      if (storedSize === undefined) {
-        const record = deleted.get(hash);
+
+    // Missing is a property of the *hash*, so it is decided once per object
+    // rather than re-tested at every path: nothing is stored, so every path
+    // referencing it is a finding and none has a size to disagree with.
+    if (storedSize === undefined) {
+      const record = deleted.get(hash);
+      for (const [path, { snapshots }] of entry.paths) {
+        const snaps = [...snapshots].sort();
         if (record) {
           expectedMissing.push({
             path,
@@ -67,21 +73,21 @@ export function verifySet(name, referencedResult, stored, deleted = new Map()) {
         } else {
           problems.push({ path, problem: "missing", snapshots: snaps });
         }
-        continue;
       }
-      // Every recorded size for this path is checked against the one stored
-      // object; a torn snapshot file that recorded two sizes yields a row per bad one.
-      for (const size of sizes) {
-        if (size !== storedSize) {
-          problems.push({
-            path,
-            problem: "wrong-size",
-            snapshots: snaps,
-            recordedSize: size,
-            storedSize,
-          });
-        }
-      }
+      continue;
+    }
+
+    for (const { path, snapshots, recordedSize } of sizeDisagreements(
+      entry,
+      storedSize,
+    )) {
+      problems.push({
+        path,
+        problem: "wrong-size",
+        snapshots,
+        recordedSize,
+        storedSize,
+      });
     }
   }
 

@@ -1,8 +1,11 @@
 // The vocabulary of the *referenced-object enumeration* — the shape
 // `referencedObjects` (remote.mjs) produces, the classifier that decides which
-// read failures become findings, and the two things every consumer of a
-// bucket-wide scan needs: the set-qualified list of snapshots that would not
-// read, and the one message the commands report it with.
+// read failures become findings, and the derivations every consumer of a
+// bucket-wide scan re-asks of that shape: the set-qualified list of snapshots
+// that would not read and the one message the commands report it with, plus the
+// two questions the `sizes` Set exists to answer — what an object is *safely*
+// worth before a destructive act, and where a recorded size disagrees with
+// storage.
 //
 // **Why this is not in remote.mjs, which produces the shape**
 // ([ADR-0074](../../docs/adr/0074-referenced-enumeration-vocabulary-module.md)):
@@ -68,6 +71,67 @@ export function isCorruptSnapshotError(error) {
     (typeof code === "string" && code.startsWith("ZSTD_"))
   );
 }
+
+/**
+ * The size to report for one referenced object before a destructive act: the
+ * largest any of its paths records. Content fixes size, so a healthy object
+ * records exactly one and this returns that; a *torn* snapshot file can record
+ * two, and the largest is the safe figure to show — overstating what is at stake
+ * is the harmless direction in a deletion preview, understating it is not.
+ *
+ * A disagreement is a **finding, not this function's problem**: `verify` reports
+ * it (via {@link sizeDisagreements}) and a preview must not derail over one.
+ * Returns 0 for an object recording no sizes at all, which the enumeration
+ * doesn't produce — a path exists because a snapshot row created it, and every
+ * row carries a size.
+ * @param {ReferencedObject} object
+ * @returns {number}
+ */
+export const safeSize = (object) => {
+  let bytes = 0;
+  for (const { sizes } of object.paths.values()) {
+    for (const size of sizes) {
+      bytes = Math.max(bytes, size);
+    }
+  }
+  return bytes;
+};
+
+/**
+ * Every recorded size for one referenced object that disagrees with what the
+ * content actually occupies in storage — the raw material of a `wrong-size`
+ * finding. *Every* size of *every* path is checked against the one stored
+ * object, so a torn snapshot file recording a path at two sizes yields a row per
+ * bad one instead of the second hiding behind the first.
+ *
+ * `snapshots` comes back sorted because both consumers put it in a report, and a
+ * report must not vary with snapshot encounter order. Callers needing only
+ * *whether* anything disagrees test `.length` — the healthy answer is an empty
+ * array, one allocation per object with nothing else to pay for.
+ * @param {ReferencedObject} object
+ * @param {number} storedSize - What the content occupies per the bucket LIST. Callers resolve a *missing* object first: nothing stored means no size to disagree with, and that is a different finding
+ * @returns {{ path: string, snapshots: string[], recordedSize: number }[]} Rows of the same path share one `snapshots` array — read it, don't mutate it
+ */
+export const sizeDisagreements = (object, storedSize) => {
+  /** @type {{ path: string, snapshots: string[], recordedSize: number }[]} */
+  const disagreements = [];
+  for (const [path, { sizes, snapshots }] of object.paths) {
+    // Sorted once per path and not before the first bad size: a healthy path
+    // sorts nothing at all, and a torn one recording several bad sizes sorts
+    // once instead of per row. The rows of a path then share that array, which
+    // is safe because every consumer only reads it — joins it into a report
+    // line, or counts it.
+    /** @type {string[] | undefined} */
+    let sorted;
+    for (const recordedSize of sizes) {
+      if (recordedSize !== storedSize) {
+        sorted ??= [...snapshots].sort();
+        disagreements.push({ path, snapshots: sorted, recordedSize });
+      }
+    }
+  }
+  return disagreements;
+};
 
 /**
  * The bucket's unreadable snapshots, each qualified by the set it belongs to —
