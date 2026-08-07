@@ -30,24 +30,37 @@ with the path-scoped `delete`
     be masking a real race in the code under test rather than in the test.
   - ~~**Timing — the drift leans on real mtime resolution.**~~ **Struck 2026-08-07, statically.**
     The guard is `current.size !== recorded.size || current.mtime… !== recorded.mtime`
-    ([upload.mjs](../src/lib/upload.mjs), `fileChanged`), `c.txt` is seeded as `"world"` (5 bytes)
+    ([upload.mjs](../src/lib/upload.mjs), `fileChange`), `c.txt` is seeded as `"world"` (5 bytes)
     and the drift mock overwrites it with a 38-byte string. **The size differs, so detection is
     deterministic** and clock granularity never enters into it.
   - ~~**Cross-test interference via shared mock state.**~~ **Also weaker than it reads:** there
     are 9 module-level `let` bindings in the file, but its single `beforeEach` resets **all
     nine** — no binding is missed.
-  - **The live lead: contention on the shared `test/` directory.** 29 test files create temp dirs
-    with `mkdtempDisposable(join("test", ".tmp"))`, and Node isolates per *file* across parallel
-    workers — so ~29 processes concurrently create and remove siblings in one directory, and
-    `await using` disposal is the least visible part of the call site. On Windows that is the
-    usual home of `EPERM`/`ENOTEMPTY`/`EBUSY` under load. It fits the shape better than either
-    hypothesis above: two *adjacent* tests failing together, on a PR touching none of the code,
-    never reproducible alone. **It also predicts the fault is not in `upload.mjs` at all** — which
-    would retire the "masking a real race" worry above.
-  - **Diagnose before fixing** — a fix cannot be verified while the suite is green either way.
-    Loop the file alone (expect: clean), then loop the full `npm test`, then compare against
-    `--test-concurrency=1`: clean sequential + dirty parallel is the contention signature.
-    **Capture the full failure text, not the test name** — an `EPERM` on disposal and a blown
-    assertion read nothing alike, and that one line picks between the theories. Note
-    `--test-isolation=none` destroys the per-file isolation under suspicion, so it is a probe
-    here, never a speed fix (and it is ~1.8× slower anyway).
+  - ~~**The live lead: contention on the shared `test/` directory.**~~ **Struck 2026-08-07,
+    empirically.** 29 concurrent processes running the exact `mkdtempDisposable(join("test",
+    ".tmp"))` → build-fixture → dispose cycle, 300 rounds each (8,700 cycles), raised no
+    `EPERM`/`ENOTEMPTY`/`EBUSY` at all. Windows tolerates this pattern far better than the theory
+    assumed, so the "not in `upload.mjs` at all" reassurance it offered **does not hold** — the
+    "masking a real race" worry above stays open.
+  - **Did not reproduce, 2026-08-07.** 500 runs of the file alone; ~50 full `npm test` runs, 20 of
+    them with two further full suites running concurrently (16.9s against a ~12s idle baseline, so
+    the contention was real). All green, `fail 0`.
+  - **The narrowing that survived.** Because detection is deterministic on size, these two tests
+    can fail *together* only if **the drift write never happened** — `driftAfterHash.has(path)`
+    was false, or `c.txt` never reached the hasher. (Once it fires, test 1's `skipped` and test
+    2's `putFiles`/`uploaded` are all forced.) So the fault is in the fixture or the path fed to
+    the mock, not in the guard. The one place a transient failure silently skips the drift: the
+    test's wrapper calls the **real** `fileProps` first and rewrites the file only afterwards, and
+    `fileProps` opens with an unguarded `lstatSync`
+    ([file-props.mjs](../src/lib/file-props.mjs)) — a throw there skips the rewrite and the run
+    carries on. That needs a transient FS error hitting both back-to-back tests.
+  - **Diagnose before fixing** — a fix cannot be verified while the suite is green either way. The
+    cheap loops are now exhausted; the next sighting is worth more than more running, so
+    `upload.test.mjs` now records whether the drift actually fired and asserts it in both tests: a
+    future red states *"the drift never happened"* outright instead of leaving the theories tied.
+    Still **capture the full failure text, not the test name.** Note `--test-isolation=none`
+    destroys per-file isolation, so it is a probe only, never a speed fix (~1.8× slower anyway).
+  - Noticed in passing, not a cause: [snapshot.test.mjs](../src/commands/snapshot.test.mjs) is the
+    only one of the 30 temp-dir users that skips `mkdtempDisposable`, building a deterministic
+    `test/.tmp/<test name>` instead — safe only because Node runs one file per worker, and the
+    reason a bare `test/.tmp` sits in the tree.

@@ -71,6 +71,16 @@ mock.module("./deletion-record.mjs", {
 });
 /** @type {Set<string>} paths rewritten the instant hashing finishes. */
 let driftAfterHash = new Set();
+/**
+ * @type {string[]} paths the wrapper below actually rewrote — the drift tests'
+ * *precondition*, not their subject. Recorded because the guard is deterministic
+ * once the rewrite lands (`"world"` is 5 bytes, the replacement 38, so `size`
+ * alone settles it), which means a drift test can only fail if the rewrite never
+ * happened at all. Without this, that reads as a failure of the corruption
+ * detection under test; with it, the test says so outright — the one fact the
+ * intermittent red in proposals/bugs.md has been missing.
+ */
+let rewrittenAfterHash = [];
 /** @type {string[]} `hash:`/`put:` events interleaved, proving lazy row production. */
 let callOrder = [];
 // Reproduce drift through the real mechanism rather than by faking props: the
@@ -89,6 +99,7 @@ mock.module("./file-props.mjs", {
       callOrder.push(`hash:${basename(path)}`);
       if (driftAfterHash.has(path)) {
         writeFileSync(path, "rewritten the instant hashing finished");
+        rewrittenAfterHash.push(path);
       }
       return props;
     },
@@ -113,8 +124,23 @@ beforeEach(() => {
   deletionRecords = new Map();
   putError = undefined;
   driftAfterHash = new Set();
+  rewrittenAfterHash = [];
   callOrder = [];
 });
+
+/**
+ * Assert the drift actually landed, before judging what the guard made of it.
+ * `deepEqual` rather than a length check so a *mismatched* path — the walk
+ * yielding a string `driftAfterHash` was never keyed on — prints both sides.
+ * @param {string} path - The file the test asked to drift
+ */
+const assertRewritten = (path) =>
+  assert.deepEqual(
+    rewrittenAfterHash,
+    [path],
+    "the drift never happened, so this run never exercised the guard: the fault " +
+      "is in the fixture or the path fed to the mock, not in the code under test",
+  );
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -743,6 +769,7 @@ describe("uploadDir (seed a folder's objects)", () => {
       excludePath,
     });
 
+    assertRewritten(join(root, "c.txt"));
     assert.ok(
       !putFiles.some(({ uri }) => uri.endsWith(sha("world"))),
       "the stale hash was never written",
@@ -767,6 +794,7 @@ describe("uploadDir (seed a folder's objects)", () => {
       excludePath,
     });
 
+    assertRewritten(join(root, "c.txt"));
     const expected = ["hello", "deep"]
       .map((c) => `s3://seed-bucket/objects/${sha(c)}`)
       .sort();
