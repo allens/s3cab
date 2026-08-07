@@ -156,18 +156,62 @@ jobs:
         env:
           S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
 
-  # The single required check. Always runs and fails if any job that ran failed (a
-  # fork- or Dependabot-skipped s3-integration is 'skipped', not 'failure', so it
-  # doesn't block).
-  # Mark this job — by its display name `ci gate` — as the required status check.
+  # The single required check: it passes only when every job it needs actually
+  # succeeded. Mark this job — by its display name `ci gate` — as the required
+  # status check.
   ci-gate:
     name: ci gate
     needs: [lint, test, exe, s3-integration]
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # ASSERT SUCCESS; NEVER BLOCKLIST FAILURE — and note the step carries no
+      # `if:`, so it runs on every outcome including ones nobody anticipated.
+      #
+      # The previous spelling guarded this step with
+      #   if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      # and was fail-OPEN. During the 2026-08-06 Actions outage, run 31120710389
+      # on main finished with four jobs cancelled and one failed, yet that
+      # condition evaluated FALSE — so the step was skipped and `ci gate`
+      # reported success having verified nothing. A required check that goes
+      # green when the suite never ran is worse than no check at all: it makes
+      # the claim false while still reading as true, which is the one thing this
+      # job exists to prevent.
+      #
+      # A blocklist can only reject the values you thought of. Anything not
+      # literally 'success' now blocks the merge, so an unfamiliar result — or an
+      # empty one, which is the shape the outage produced — fails closed.
       - name: Verify all required jobs passed
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        env:
+          # Via env, not inline `${{ }}` in the script: keeps the shell free of
+          # interpolated text and makes each value printable when it is wrong.
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+          EXE: ${{ needs.exe.result }}
+          # The hyphen needs no bracket notation, contrary to a review suggestion:
+          # property dereference accepts a name that starts with a letter or `_`
+          # and holds only alphanumerics, `-` or `_` (GitHub's contexts reference).
+          # Left as-is so all four read alike; the echo below proves it resolves.
+          S3: ${{ needs.s3-integration.result }}
         run: |
-          echo "::error::a required CI job failed or was cancelled"
-          exit 1
+          echo "lint=$LINT  test=$TEST  exe=$EXE  s3-integration=$S3"
+          rc=0
+          for pair in "lint:$LINT" "test:$TEST" "exe:$EXE"; do
+            job=${pair%%:*}
+            result=${pair#*:}
+            if [ "$result" != "success" ]; then
+              echo "::error::$job did not succeed (result: ${result:-<empty>})"
+              rc=1
+            fi
+          done
+          # 'skipped' is legitimate for s3-integration alone: GitHub withholds
+          # this repo's secrets from fork and Dependabot PRs, so the job cannot
+          # run there (see its own comment). No other job may be skipped.
+          case "$S3" in
+            success | skipped) ;;
+            *)
+              echo "::error::s3-integration did not succeed (result: ${S3:-<empty>})"
+              rc=1
+              ;;
+          esac
+          exit $rc
