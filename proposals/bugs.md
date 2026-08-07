@@ -49,17 +49,36 @@ with the path-scoped `delete`
     can fail *together* only if **the drift write never happened** — `driftAfterHash.has(path)`
     was false, or `c.txt` never reached the hasher. (Once it fires, test 1's `skipped` and test
     2's `putFiles`/`uploaded` are all forced.) So the fault is in the fixture or the path fed to
-    the mock, not in the guard. The one place a transient failure silently skips the drift: the
-    test's wrapper calls the **real** `fileProps` first and rewrites the file only afterwards, and
-    `fileProps` opens with an unguarded `lstatSync`
-    ([file-props.mjs](../src/lib/file-props.mjs)) — a throw there skips the rewrite and the run
-    carries on. That needs a transient FS error hitting both back-to-back tests.
+    the mock, not in the guard.
+  - ~~**A transient FS error in `fileProps` skipping the rewrite.**~~ **Struck 2026-08-07,
+    empirically.** The wrapper hashes before it edits, so a throw does skip the edit — but a throw
+    from `fileProps` is **not** absorbed into an `#ERROR` row on this path. Injecting one shows it
+    propagating straight out of `uploadDir`, failing the test with the raw error, its `code`, and a
+    stack, and taking out **six** `uploadDir` tests rather than two. So this mechanism cannot
+    produce the observed signature — a quiet failure of exactly the two drift tests. (Note the
+    contrast with `fileChange`'s own `lstat`, which *is* caught deliberately.) It also means the
+    trap's message is sound as written: whenever it prints, hashing did not throw.
+  - **So a path mismatch is the last mechanism standing** for a quiet two-test failure, and the
+    trap already reports it precisely, printing both strings. Start there.
+  - **Never seen in CI, 2026-08-07.** 134 `ci` runs since [#248](https://github.com/allens/s3cab/pull/248)
+    added these tests — each with a `windows-latest` leg — and not one drift failure. Of the three
+    red runs in that window, one was GitHub infrastructure (*"Failed to resolve action download
+    info"*), one an unrelated ubuntu job, one unrelated. [#252](https://github.com/allens/s3cab/pull/252)'s
+    own runs were green on a single attempt, so the sighting was **local, not CI**. A CI loop is
+    therefore the wrong instrument: it is 134 samples of not-reproducing. Whatever this is, it
+    involves the local Windows box.
   - **Diagnose before fixing** — a fix cannot be verified while the suite is green either way. The
     cheap loops are now exhausted; the next sighting is worth more than more running, so
     `upload.test.mjs` now records whether the drift actually fired and asserts it in both tests: a
     future red states *"the drift never happened"* outright instead of leaving the theories tied.
     Still **capture the full failure text, not the test name.** Note `--test-isolation=none`
     destroys per-file isolation, so it is a probe only, never a speed fix (~1.8× slower anyway).
+  - **This now needs a stopping rule, not more investigation.** Every cheap instrument is spent
+    and every named mechanism but one is struck. The trap is armed and costs nothing to leave, but
+    the entry cannot sit open indefinitely when it is the last thing between here and a release
+    that requires this file to be empty. If it has not recurred by the time the rest of the
+    release checklist is clear, close it as an un-reproducible local-environment artifact **with
+    the trap left in place** — that is a decision to take deliberately, not by default.
   - Noticed in passing, not a cause: [snapshot.test.mjs](../src/commands/snapshot.test.mjs) is the
     only one of the 30 temp-dir users that skips `mkdtempDisposable`, building a deterministic
     `test/.tmp/<test name>` instead — safe only because Node runs one file per worker, and the
