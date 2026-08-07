@@ -73,12 +73,18 @@ with the path-scoped `delete`
     future red states *"the drift never happened"* outright instead of leaving the theories tied.
     Still **capture the full failure text, not the test name.** Note `--test-isolation=none`
     destroys per-file isolation, so it is a probe only, never a speed fix (~1.8× slower anyway).
-  - **This now needs a stopping rule, not more investigation.** Every cheap instrument is spent
-    and every named mechanism but one is struck. The trap is armed and costs nothing to leave, but
-    the entry cannot sit open indefinitely when it is the last thing between here and a release
-    that requires this file to be empty. If it has not recurred by the time the rest of the
-    release checklist is clear, close it as an un-reproducible local-environment artifact **with
-    the trap left in place** — that is a decision to take deliberately, not by default.
+  - **Stopping rule: if it has not recurred by 2026-08-31, delete this entry.** Close it as an
+    un-reproducible local-environment artifact and **leave the trap in place** — the trap is the
+    thing of value, and it costs nothing to keep. Every cheap instrument is spent and every named
+    mechanism but one is struck, so what remains is waiting, and waiting needs an end: this is the
+    only entry in the file, and the file must be empty to release. Deleting it is then a
+    deliberate call on stated evidence, not the entry rotting open by default.
+    - **What counts as recurring:** a red on *either* drift test, on any machine. If that happens,
+      the clock is void — capture the full failure text and start from the trap's message, which
+      distinguishes a path mismatch (the last mechanism standing) from anything else.
+    - **What does not reset it:** the suite passing. It has passed ~50 full local runs, 500
+      isolated runs and 134 CI runs already; more green is not new evidence, and re-running to
+      build confidence is the trap this rule exists to stop.
   - Noticed in passing, not a cause: [snapshot.test.mjs](../src/commands/snapshot.test.mjs) is the
     only one of the 30 temp-dir users that skips `mkdtempDisposable`, building a deterministic
     `test/.tmp/<test name>` instead — safe only because Node runs one file per worker, and the
