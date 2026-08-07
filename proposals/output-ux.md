@@ -23,9 +23,15 @@ niceties.
   line. **Settle this before** [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)'s
   open `#ERROR`-on-drift follow-up, which would make the scenario routine rather than rare (an
   autosaving document would flip between errored and recorded on most runs).
-- **"Did you mean…?" for misspelled commands** (edit distance over the registry);
-  `s3cab help <unknown-topic>` currently falls back silently to the command list — say
-  "unknown topic" and list the valid ones.
+- ~~**"Did you mean…?" for misspelled commands**~~ — **rejected 2026-08-07**, built and closed
+  unmerged ([#233](https://github.com/allens/s3cab/pull/233)). It is redundant by construction
+  here: `git` doesn't print its 150+ subcommands on a miss, so edit distance is the only signal
+  a user gets — s3cab has 18 and already prints all of them, grouped, directly below the error,
+  so the hint lands on top of a full enumeration of the answers. ~62 lines of DP (including four
+  `?? 0` branches unreachable by construction) to save a glance at a list already on screen —
+  working rule #3. **Reopen only if the registry grows past what's worth printing**, which is the
+  condition that made it pay for git. The entry's other half — `help <unknown-topic>` falling
+  silently through to the command list on stdout under exit 0 — was the real defect and is fixed.
 - **An "under the hood" subsection for every command in the guide** (user request,
   2026-07-20): detailed but definitely not code — what the command reads, what it writes,
   and what decides, as a numbered walk (the `delete` section in
