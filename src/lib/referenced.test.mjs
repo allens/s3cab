@@ -269,4 +269,22 @@ describe("sizeDisagreements", () => {
       "2026-08-02",
     ]);
   });
+
+  it("gives every row of a torn path the same sorted snapshots", () => {
+    // The sort is hoisted to once per path, so the rows share one array. They
+    // must still each read as sorted — a reader of row two is owed the same
+    // order as row one.
+    const torn = object({
+      "photos/a.jpg": {
+        sizes: [512, 99],
+        snapshots: ["2026-08-02", "2026-08-01"],
+      },
+    });
+    const found = sizeDisagreements(torn, 4096);
+
+    assert.equal(found.length, 2);
+    for (const row of found) {
+      assert.deepEqual(row.snapshots, ["2026-08-01", "2026-08-02"]);
+    }
+  });
 });

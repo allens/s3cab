@@ -555,7 +555,7 @@ least once; re-open only if the stated reason no longer holds.
   "three shapes of the deletion-record lookup" rejection and the entry says so — they must not be
   conflated. Planned as three tracks by file overlap: **track 1 sequential C → A → F**
   (`snapshot.mjs`/`progress.mjs`/the two porcelain commands), **track 2 D → H** (they share
-  `lib/verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
+  `src/lib/verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
   `.env.test`, so `npm run test:integration` can't reach a real bucket here — tracks 1 and 2 are
   pure or local and verify fully, but **B leans on CI**. Overwrote the HTML report in place.
 - **2026-08-06 — A landed** ([PR #277](https://github.com/allens/s3cab/pull/277), grilled

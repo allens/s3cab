@@ -110,19 +110,23 @@ export const safeSize = (object) => {
  * array, one allocation per object with nothing else to pay for.
  * @param {ReferencedObject} object
  * @param {number} storedSize - What the content occupies per the bucket LIST. Callers resolve a *missing* object first: nothing stored means no size to disagree with, and that is a different finding
- * @returns {{ path: string, snapshots: string[], recordedSize: number }[]}
+ * @returns {{ path: string, snapshots: string[], recordedSize: number }[]} Rows of the same path share one `snapshots` array — read it, don't mutate it
  */
 export const sizeDisagreements = (object, storedSize) => {
   /** @type {{ path: string, snapshots: string[], recordedSize: number }[]} */
   const disagreements = [];
   for (const [path, { sizes, snapshots }] of object.paths) {
+    // Sorted once per path and not before the first bad size: a healthy path
+    // sorts nothing at all, and a torn one recording several bad sizes sorts
+    // once instead of per row. The rows of a path then share that array, which
+    // is safe because every consumer only reads it — joins it into a report
+    // line, or counts it.
+    /** @type {string[] | undefined} */
+    let sorted;
     for (const recordedSize of sizes) {
       if (recordedSize !== storedSize) {
-        disagreements.push({
-          path,
-          snapshots: [...snapshots].sort(),
-          recordedSize,
-        });
+        sorted ??= [...snapshots].sort();
+        disagreements.push({ path, snapshots: sorted, recordedSize });
       }
     }
   }
