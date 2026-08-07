@@ -28,12 +28,26 @@ with the path-scoped `delete`
     ADR-0069's hash-then-PUT corruption window. An intermittent red on a *corruption-detection*
     test is the kind that gets waved through as "just flaky" — and it is also the kind that could
     be masking a real race in the code under test rather than in the test.
-  - **Two hypotheses, and the evidence favours the second.** (a) Timing: the drift is reproduced
-    through the real mechanism (hash the bytes, then edit the file), so it leans on real mtime
-    resolution. (b) **Cross-test interference** — shared temp dir, mock state, or a lingering
-    handle. Both failures landed in the *same file in the same run*, which independent timing
-    jitter would not usually produce, and Node's isolation is per **file**, so tests inside
-    `upload.test.mjs` do share a process.
+  - ~~**Timing — the drift leans on real mtime resolution.**~~ **Struck 2026-08-07, statically.**
+    The guard is `current.size !== recorded.size || current.mtime… !== recorded.mtime`
+    ([upload.mjs](../src/lib/upload.mjs), `fileChanged`), `c.txt` is seeded as `"world"` (5 bytes)
+    and the drift mock overwrites it with a 38-byte string. **The size differs, so detection is
+    deterministic** and clock granularity never enters into it.
+  - ~~**Cross-test interference via shared mock state.**~~ **Also weaker than it reads:** there
+    are 9 module-level `let` bindings in the file, but its single `beforeEach` resets **all
+    nine** — no binding is missed.
+  - **The live lead: contention on the shared `test/` directory.** 29 test files create temp dirs
+    with `mkdtempDisposable(join("test", ".tmp"))`, and Node isolates per *file* across parallel
+    workers — so ~29 processes concurrently create and remove siblings in one directory, and
+    `await using` disposal is the least visible part of the call site. On Windows that is the
+    usual home of `EPERM`/`ENOTEMPTY`/`EBUSY` under load. It fits the shape better than either
+    hypothesis above: two *adjacent* tests failing together, on a PR touching none of the code,
+    never reproducible alone. **It also predicts the fault is not in `upload.mjs` at all** — which
+    would retire the "masking a real race" worry above.
   - **Diagnose before fixing** — a fix cannot be verified while the suite is green either way.
-    Start by running that file alone in a loop, then with `--test-concurrency=1`, and check what
-    the two tests share (temp dirs, `mock.module` state, the fake clock).
+    Loop the file alone (expect: clean), then loop the full `npm test`, then compare against
+    `--test-concurrency=1`: clean sequential + dirty parallel is the contention signature.
+    **Capture the full failure text, not the test name** — an `EPERM` on disposal and a blown
+    assertion read nothing alike, and that one line picks between the theories. Note
+    `--test-isolation=none` destroys the per-file isolation under suspicion, so it is a probe
+    here, never a speed fix (and it is ~1.8× slower anyway).
