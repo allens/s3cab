@@ -32,6 +32,23 @@ niceties.
   working rule #3. **Reopen only if the registry grows past what's worth printing**, which is the
   condition that made it pay for git. The entry's other half — `help <unknown-topic>` falling
   silently through to the command list on stdout under exit 0 — was the real defect and is fixed.
+- **Retire `helpTopics` — it is down to one member** (user, 2026-08-07, noticing the topics path
+  still existed at all: *"I thought that was all rolled into command help."*). The consolidation
+  did happen — [ADR-0041](../docs/adr/0041-auth-command-hosts-credential-guide.md) folded the
+  `auth` topic into that command's registry `details` and
+  [ADR-0047](../docs/adr/0047-provider-command-neutral-config-door.md) did the same for
+  `provider`, with `help.test.mjs`'s "no topic shares a command's name" case guarding the return
+  trip. What it left behind is `exclude`, alone, holding up a whole dispatch path: the
+  `helpTopics` map in [src/help.mjs](../src/help.mjs), the topics-first lookup in
+  [src/s3cab.mjs](../src/s3cab.mjs), the disjointness test, and a footer line reading
+  `topics: exclude`. Retiring it deletes all four.
+  _Blocked on a host, not on appetite:_ exclude patterns govern `snapshot`, `backup` and `status`
+  alike, so no existing command naturally owns the guide — which is presumably why this one
+  survived. `setup` only writes the starter `exclude.txt`, so it's a poor fit. The clean opening
+  is **an `exclude` command**, if pattern management is ever built; the guide would move to its
+  `details` and the topic mechanism would go with it. Until then the one-member map is the honest
+  cost of CLAUDE.md's rule that exclude-pattern rules earn a mid-task, browser-free guide —
+  keeping it isn't an oversight, but it should stop being invisible.
 - **An "under the hood" subsection for every command in the guide** (user request,
   2026-07-20): detailed but definitely not code — what the command reads, what it writes,
   and what decides, as a numbered walk (the `delete` section in
