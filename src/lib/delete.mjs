@@ -5,7 +5,11 @@ import {
   formatCount,
   plural,
 } from "./format.mjs";
-import { unreadableMessage, unreadableSnapshots } from "./referenced.mjs";
+import {
+  safeSize,
+  unreadableMessage,
+  unreadableSnapshots,
+} from "./referenced.mjs";
 import { pathMatcher } from "./restore.mjs";
 
 // The pure core of the `delete` command (ADR-0064): given the bucket's
@@ -155,8 +159,7 @@ export function planDelete(
   }
 
   // Pass 2 — classify each candidate against every reference it has,
-  // bucket-wide. The size is the max any row records for it (a torn snapshot
-  // can disagree; never understate before a deletion).
+  // bucket-wide, at the size `safeSize` reports for it.
   /** @type {DeletableObject[]} */
   const deletable = [];
   /** @type {SurvivorFile[]} */
@@ -171,10 +174,10 @@ export function planDelete(
       if (!entry) {
         continue;
       }
-      for (const [path, { sizes }] of entry.paths) {
-        for (const size of sizes) {
-          candidate.size = Math.max(candidate.size, size);
-        }
+      // Max across sets of the max within each — the same figure as scanning
+      // every row at once, since max is associative.
+      candidate.size = Math.max(candidate.size, safeSize(entry));
+      for (const path of entry.paths.keys()) {
         const inSelection = scope.has(setName) && anyMatch(path);
         refs.push({ set: setName, path, inSelection });
         if (!inSelection) {

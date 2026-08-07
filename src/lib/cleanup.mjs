@@ -10,7 +10,7 @@
 // (abort on unreadable, refuse `--delete` on missing) is the command's, so the
 // plan is unit-testable by asserting on returned data, with no mocked seams.
 
-import { unreadableSnapshots } from "./referenced.mjs";
+import { sizeDisagreements, unreadableSnapshots } from "./referenced.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
 
@@ -84,7 +84,7 @@ export function planCleanup(
   const damagedHashes = new Set();
   let missing = 0;
   for (const { referenced } of referencedBySet.values()) {
-    for (const [hash, { paths }] of referenced) {
+    for (const [hash, entry] of referenced) {
       const storedSize = stored.get(hash)?.size;
       // missing is per distinct hash — decide it once, on first sighting. A
       // hash the deletion record explains is deliberately absent, not missing.
@@ -101,12 +101,10 @@ export function planCleanup(
       if (storedSize === undefined || damagedHashes.has(hash)) {
         continue;
       }
-      for (const { sizes } of paths.values()) {
-        for (const size of sizes) {
-          if (size !== storedSize) {
-            damagedHashes.add(hash);
-          }
-        }
+      // Only *whether* anything disagrees — cleanup counts damaged objects, it
+      // doesn't report which file or which size (that is `verify`'s job).
+      if (sizeDisagreements(entry, storedSize).length > 0) {
+        damagedHashes.add(hash);
       }
     }
   }
