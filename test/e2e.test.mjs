@@ -308,6 +308,22 @@ describe("cli (e2e)", () => {
     assert.match(stderr, /Unknown command/);
   });
 
+  it("help <unknown> fails on stderr instead of succeeding on stdout", () => {
+    const { status, stdout, stderr } = run("help", "definitely-not-a-topic");
+
+    // The regression this guards: the command list used to arrive on stdout
+    // under exit 0, so `s3cab help "$topic" || fallback` never took the
+    // fallback. Nothing may reach stdout for a request that failed.
+    assert.strictEqual(status, 2);
+    assert.strictEqual(stdout, "");
+    assert.match(stderr, /No help available for 'definitely-not-a-topic'/);
+    // The valid names are still offered — commands, and the topics footer.
+    // (Which topics the footer names is asserted precisely in help.test.mjs;
+    // here it only has to reach stderr rather than stdout.)
+    assert.match(stderr, /\n {2}backup\b/);
+    assert.match(stderr, /topics: \w/);
+  });
+
   it("the removed login command is gone from the CLI surface", () => {
     // Deliberately deleted (see docs/specs/auth.md History) — must not come back.
     const { status } = run("login");

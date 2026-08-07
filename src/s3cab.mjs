@@ -38,8 +38,7 @@ if (commandName === "--version" || commandName === "-v") {
 
 // Top-level help: no command given, or an explicit help request. `help <topic>`
 // (e.g. `help exclude`) prints that topic; `help <command>` prints that command's
-// help (usage() falls back to the command list for anything unrecognized).
-// Topic and command names are disjoint by convention (test-enforced in
+// help. Topic and command names are disjoint by convention (test-enforced in
 // help.test.mjs), so the topics-first lookup order can never shadow a command.
 if (
   !commandName ||
@@ -47,7 +46,24 @@ if (
   commandName === "--help" ||
   commandName === "-h"
 ) {
-  console.log(helpTopics[args[0] ?? ""] ?? usage(commands, args[0], helpStyle));
+  const topic = args[0];
+  // A name that is neither a topic nor a command is a failed request, so it
+  // reports as one: the miss and the list go to stderr and the exit is non-zero
+  // (clig.dev), rather than the command list arriving on stdout under exit 0 —
+  // which made `s3cab help "$topic" || fallback` never take the fallback. Bare
+  // `help` still prints the list on stdout, because that request succeeded.
+  if (
+    topic !== undefined &&
+    !Object.hasOwn(helpTopics, topic) &&
+    !Object.hasOwn(commands, topic)
+  ) {
+    console.error(
+      `No help available for '${topic}' (not a command or a help topic).\n`,
+    );
+    console.error(usage(commands));
+    process.exit(2);
+  }
+  console.log(helpTopics[topic ?? ""] ?? usage(commands, topic, helpStyle));
   process.exit(0);
 }
 
