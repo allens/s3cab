@@ -40,8 +40,10 @@ can test**.
 **A landed 2026-08-06** ([PR #277](https://github.com/allens/s3cab/pull/277)); its entry is
 retired to the run log below, its lasting knowledge now in
 [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment. **D landed
-2026-08-07**, likewise retired to the run log. **B, C and E–I remain open.** Track 1 continues
-**C → F**, both in the files #277 touched; track 2 is now **H alone**.
+2026-08-07**, likewise retired to the run log. **H was rejected the same day** — the rule it
+wanted to extract already has a name and a home (see *Rejected & parked*). **B, C, E, F, G and I
+remain open.** Track 1 continues **C → F**, both in the files #277 touched; **track 2 is empty**,
+so every remaining candidate is now independent.
 
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
@@ -53,8 +55,9 @@ each directory. **Write paths from `src/`, not bare filenames.** Re-verify befor
 anchor — this file's own opening rule.
 (2) **The three tracks are grouped by *file overlap*, not theme**, so they parallelize badly on
 purpose: track 1 is strictly sequential (C → F share `snapshot.mjs`/`progress.mjs`), track 2 was
-D → H (they share `verify.mjs`) and is now just H, and track 3 (B, E, G, I + the smaller items)
-is genuinely independent — start there if two people are working at once.
+D → H (they shared `src/lib/verify.mjs`) and is now **empty** — D landed and H was rejected — and
+track 3 (B, E, G, I + the smaller items) is genuinely independent. With track 2 gone, only C → F
+still has an ordering constraint.
 (3) **`.env.test` is gitignored and does not travel.** Every candidate except **B** is pure or
 local and verifies with `npm test` alone; B is the exception — it needs the gated suite *and* the
 Roles Anywhere prerequisites, both now written up in
@@ -118,17 +121,6 @@ not after.
   testability with the bug surface left on the other side. No ADR to reopen — CLAUDE.md's
   placement note already says to guard the run block with `import.meta.main` *"if dispatch ever
   needs unit testing"*; #256 made the conditional true.
-- **H — "Deliberate ≠ fault" is decided twice.** _Worth exploring._ One rule — an absent object
-  is either a recorded **deletion** (context, exit 0) or an unexplained absence (a fault, exit 1)
-  — is implemented in two shapes with no shared name: `verifySet` pure and eager over
-  `Map<hash,{deletedOn}>` ([verify.mjs](../src/lib/verify.mjs) 59–71, exit rule at :148), and
-  `restore` imperative and lazy over the same map
-  ([commands/restore.mjs](../src/commands/restore.mjs) 148–173, 195–215, exit rule at :232). The
-  rationale is spelled out in prose in both. **This abuts the standing "three shapes of the
-  deletion-record lookup" rejection below and must not be conflated with it:** that rejection
-  turns on three consumers asking *distinct* questions (map / membership / keys) and it still
-  holds — this is a **fourth** consumer asking `verifySet`'s *identical* question in the
-  identical shape and reaching the identical exit-code rule.
 - **I — One run prints the same count both ways.** _Strong (small)._ `formatCount` exists because
   *"six digits run together are unreadable at a glance"*, but whether to apply it is re-decided
   at every interpolation: 20 grouped sites in [render.mjs](../src/render.mjs) against 8 ungrouped
@@ -244,6 +236,32 @@ signer).
 Recorded so future runs (and reviewers) skip them. Each was verified against the source at
 least once; re-open only if the stated reason no longer holds.
 
+- **Giving `verify` and `restore` a shared "deliberate ≠ fault" implementation** (was open
+  candidate **H**, eleventh pass) — **rejected 2026-08-07** after reading both sides, in the
+  session that had just refactored `verifySet`. The candidate's premise was that the rule is
+  *"implemented in two shapes with no shared name."* **It has a name.**
+  [CONTEXT.md](../CONTEXT.md)'s **Deletion record** entry defines the distinction, coins
+  **expected-missing** *(context, exit 0)*, and names all four consumers in one sentence, with
+  [ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md) as the decision of record —
+  cited at both code sites. The vocabulary was never missing; only a *function* was, and the code
+  doesn't want one:
+  - **The shapes have not converged, and a refactor moving them closer did not change that.** They
+    differ on how absence is learned (set difference up front vs a failed GET), when the record map
+    loads (eager parameter vs lazy `??=`, so restore's happy path never pays), what they key on
+    (path, one hash → N rows, vs dest file memoized per hash), sync vs async, and both output
+    shapes. Strip those and the shared logic is `record ? deliberate : fault` — a ternary. Sharing
+    it means parameterizing on all five, which is the injection reflex and a solution more complex
+    than its problem (working rule #3).
+  - **The drift risk it exists to close is already closed behaviourally.**
+    `restore.missing-object.test.mjs` asserts *"reports a recorded absence as deleted-with-date,
+    not missing, and exits 0"* and *"an unrecorded absence beside a recorded one still exits 1"*;
+    `verify.test.mjs` asserts exit 1 on findings and untouched on clean. Changing the rule on one
+    side alone goes red.
+  - Re-open only if a **third** consumer needs the same decision *in the same shape* — at which
+    point it is a rule with three call sites, not a coincidence with two. Note this is a different
+    thing from the "three shapes of the deletion-record lookup" rejection below, which turns on
+    consumers asking *distinct* questions; that one stands on its own reasoning and the two must
+    not be merged.
 - **A pre-walk root-containment check** (compare the set's realpath'd roots up front, reject when
   one is a prefix of another) — rejected 2026-07-16 while building candidate D
   ([PR #204](https://github.com/allens/s3cab/pull/204)). It looks like the strictly better fix —
