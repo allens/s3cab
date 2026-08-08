@@ -128,6 +128,11 @@ niceties.
   was the deciding argument against skip-and-record in
   [ADR-0073](../docs/adr/0073-refuse-tab-newline-paths.md), so it is currently visible only as a
   supporting clause in an ADR. Surfacing a count in the snapshot/backup summary would retire it.
+  **Settled by [ADR-0078](../docs/adr/0078-backup-run-report.md) (2026-08-08), not yet built:** a
+  count in the backup summary's `Couldn't be backed up` block, and the full list in `compare`.
+  Delete this entry when 0078 lands. The hole is not theoretical — in the set that prompted 0078,
+  `D:\OneDrive\Personal Vault` was skipped on one run and absent from the previous snapshot
+  entirely, so the skipped set *changed between runs* and nothing said so.
 - **Snapshot labels** (`snapshot -m "before reorg"`) — a commit-message-like note, storable as
   a header comment line without breaking the TSV format.
 - **Friendlier failure for "no snapshots found"** — suggest running `s3cab snapshot` rather
@@ -135,3 +140,24 @@ niceties.
 - **Exit-code doctrine**: document the codes (0/1/2/127 today); decide whether `compare`
   should signal "differences found" diff-style (probably not, for a consumer tool — but
   decide).
+- **Show more in the progress line's in-flight detail — needs experimentation, not a decision**
+  (user, 2026-08-08, while settling [ADR-0078](../docs/adr/0078-backup-run-report.md)). Today a
+  row earns its name only by taking a second
+  ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) §5), so a run of tens of
+  thousands of ordinary files names none of them and the detail column mostly sits empty.
+  _Why it matters, and why 0078 does not cover it:_ 0078 answers "what did it just do", **after**
+  the run. It cannot answer **"crikey, what is it uploading all that for?"** — the question you
+  ask at minute two, when the only useful response is Ctrl-C. That is the one thing an
+  rsync-style scroll genuinely bought and this design gives up. The suggestion is not to restore
+  the scroll but to lower the naming threshold: names flickering past far too fast to *read*
+  would still let the eye catch a steady root — a `node_modules` or a cache directory
+  repeating — which is exactly the signal that sends you to the exclude file.
+  _Unresolved, and only settleable by trying it:_ whether a name changing 10×/sec reads as
+  information or as noise; whether the eye really does catch a repeated root at that rate;
+  what it costs in the hot path (0076 §5's threshold exists partly so naming tens of thousands
+  of fast files doesn't hide the one actually holding things up — the opposite worry to this
+  one); and whether a `--verbose`-style opt-in is the honest home for it. Try it on a real set
+  before writing anything down.
+  _Adjacent:_ a pre-flight "what would this back up" is the other answer to the same question
+  and may be the better one — `status` already reports what a backup would upload without
+  transferring anything. Check whether it is enough before changing the live line.
