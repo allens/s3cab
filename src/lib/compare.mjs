@@ -40,6 +40,19 @@ import {
  * @property {string} reason
  */
 /**
+ * A path the newer snapshot's walk left out by design — a symlink, a socket, a
+ * FIFO, an entry the filesystem couldn't classify. The `fileType` is the stored
+ * `dirent_type` exactly as the snapshot recorded it (`Symbolic Link`), which the
+ * walk already writes in readable form — so no renderer has to restyle it.
+ *
+ * Distinct from {@link CompareError}, which is a *fault* — a file s3cab tried to
+ * back up and couldn't. A skipped entry was never a candidate.
+ * @typedef {Object} SkippedEntry
+ * @property {string} path
+ * @property {string} fileType
+ * @property {string} reason
+ */
+/**
  * Structured diff between two snapshots — **absolute paths throughout**
  * (ADR-0043). Path shortening is presentation, so it lives in the renderer
  * (`renderCompareResult`, which shortens against the common ancestor of `dirs`);
@@ -56,6 +69,7 @@ import {
  * @property {PathSize[]} modified
  * @property {PathSize[]} deleted
  * @property {CompareError[]} errors
+ * @property {SkippedEntry[]} skipped
  */
 
 /**
@@ -151,6 +165,17 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
+  // Skipped paths get the same treatment, and for the same reason: a file that
+  // became a symlink between the two snapshots is absent from `entries` and so
+  // reads as deleted, when what happened is that the walk stopped being able to
+  // back it up. Only the path itself is reconciled, deliberately — when the
+  // skipped entry is a *directory*, the files that were under it really are gone
+  // from the backup, so reporting them as deleted is the truth, and the skipped
+  // line beside them is the explanation.
+  for (const path of untilSnapshot.skipped.keys()) {
+    deleted.delete(path);
+  }
+
   // Size is looked up from the snapshot entries rather than threaded through
   // `diff` (which is content/path-only): the current file for added/moved/
   // modified (its size in `until`), the vanished file for deleted (its size in
@@ -183,6 +208,10 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
       path,
       reason,
     })),
+    skipped: Array.from(
+      untilSnapshot.skipped,
+      ([path, { fileType, reason }]) => ({ path, fileType, reason }),
+    ),
   };
 }
 
@@ -341,9 +370,9 @@ export function diff(previousSnapshot, currentSnapshot) {
  * deletions, and the other way round.
  *
  * Compares the recorded instants, so it is certain rather than a guess, and says
- * nothing when it cannot be certain: either side may predate ADR-0072 and carry
- * no instant, and `snapshot`'s fused fast path hands its baseline over as
- * pre-parsed entries with no header at all. That path is already covered where
+ * nothing when it cannot be certain: `snapshot`'s fused fast path hands its
+ * baseline over as pre-parsed entries with no header, so no instant reaches
+ * here. That path is already covered where
  * the fault is *created*, by the clock-went-backwards warning in
  * `generateSnapshot`.
  * @param {string | undefined} since

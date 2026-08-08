@@ -233,7 +233,7 @@ describe("walkDirs", () => {
       const [wp0] = withPatterns.skipped;
       assert.ok(wp0);
       assert.equal(wp0.reason, "Unsupported file type");
-      assert.equal(wp0.fileType, "SymbolicLink");
+      assert.equal(wp0.fileType, "Symbolic Link");
 
       // Without patterns: same — still goes to skipped, not silently passed through
       const noPatterns = walkDirs([base], []);
@@ -247,7 +247,7 @@ describe("walkDirs", () => {
   );
 
   it(
-    "spaces the stored type token for the notice, leaving the record's alone",
+    "names the type identically in the notice and in the record",
     {
       skip:
         process.platform === "win32"
@@ -268,14 +268,16 @@ describe("walkDirs", () => {
         .map(({ arguments: args }) => args.join(" "))
         .filter((line) => line.startsWith("Skipped"));
 
-      // The sentence gets `Symbolic Links`; the record the snapshot is written
-      // from keeps `SymbolicLink`, which is the format's own token.
+      // One spelling, two places. The walk writes the type in its readable form,
+      // so the sentence pluralizes the very string the snapshot records — there
+      // is no camel-case token to translate, and so no way for the notice and
+      // the file to drift apart.
       assert.deepEqual(notices, [
         "Skipped 2 items that can't be backed up: 2 Symbolic Links",
       ]);
       assert.deepEqual(
         skipped.map(({ fileType }) => fileType),
-        ["SymbolicLink", "SymbolicLink"],
+        ["Symbolic Link", "Symbolic Link"],
       );
     },
   );

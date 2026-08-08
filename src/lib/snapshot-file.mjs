@@ -27,8 +27,6 @@ import { tildeify } from "./home.mjs";
 // rows are an internal detail (a recovery reader skips every `#` line), so their
 // grammar lives here:
 //   #SNAPSHOT<TAB>set<TAB>instant<TAB>name zone   opening header (ADR-0072); set = ADR-0024 identity
-//     …pre-0072 files instead read #SNAPSHOT<TAB><TAB>local_datetime<TAB>set, and are
-//     still read: snapshots are immutable, so both layouts persist forever.
 //   #DIR<TAB><TAB><TAB>path                       one per member directory
 //   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
 //   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
@@ -75,17 +73,26 @@ const ERROR = "#ERROR";
  */
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */
-/** @typedef {Map<string, string>} SnapshotSkipped */
+/**
+ * Paths the walk omitted by design, each with the `dirent_type` that got it
+ * omitted and the recorded reason. **Both columns, not just the reason:** the
+ * reason is nearly always the same string (`Unsupported file type`), while the
+ * type is what actually answers "what *was* that?" — the question a reader has
+ * when they meet the entry (ADR-0078). The row has carried the type all along;
+ * only the reader dropped it.
+ * @typedef {Map<string, { fileType: string, reason: string }>} SnapshotSkipped
+ */
 /**
  * A parsed snapshot: the file `entries`, paths that failed hashing (`errors`,
  * mapped to the recorded reason), paths skipped by design (`skipped`, mapped to
- * the skip reason — e.g. unsupported file type), plus the `#SNAPSHOT`/`#DIR`
+ * the dirent type and the skip reason), plus the `#SNAPSHOT`/`#DIR`
  * headers that make it self-describing (docs/design/backup.md). `dirs` are the
  * member directories captured at snapshot time; `identity` is the set name
  * (ADR-0024). `instant` and `zone` are the moment it was taken
- * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)) —
- * both **absent on a pre-0072 snapshot**, whose header carried no zone and no
- * true instant, so a consumer must treat them as optional rather than assume.
+ * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
+ * All three are optional because a snapshot may carry no `#SNAPSHOT` line at all
+ * — the row-only form the test fixture builder writes — not because any header
+ * layout omits them.
  * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string }} Snapshot
  */
 
@@ -666,44 +673,74 @@ export async function parseSnapshotStream(input) {
     if (line.trim() === "") {
       continue;
     }
-    const parts = line.split("\t");
-    const path = parts.pop();
-    const [hash, size, mtime] = parts.map((s) => s.trim());
+    // The four columns, named for their *position* only: what each one holds
+    // depends on the marker in col1 and is knowable only inside the branch that
+    // has read it. col4 in particular is a path on four of the five row kinds and
+    // is *not* a path on the fifth — on `#SNAPSHOT` it is `<name> <zone>`. So each
+    // column earns a real name inside its branch, where that name can be true, and
+    // is trimmed at the same moment: the format pads the leading fields with
+    // spaces so the raw file reads as columns, and requires readers to trim
+    // (guide/format.md). Path-valued columns are deliberately *not* trimmed — the
+    // writer never pads the last field, and a filename may legitimately begin or
+    // end with a space. Within a branch the names are declared in column order.
+    //
+    // Defaulted to `""` rather than left `undefined`, so every column is a string
+    // and `.trim()` needs no `?.` or `?? ""` at a dozen call sites. A short line
+    // yields empty columns, which are falsy exactly where `undefined` was, so the
+    // marker branches skip it and the file-row assert below still catches it.
+    //
+    // Positional, not `parts.pop()`: every row is exactly four fields, because a
+    // path containing a tab is refused at write time (ADR-0073). Popping the last
+    // field defended against a case the format forbids and mishandled the one it
+    // allows — on a truncated three-field line it silently returned col3 as the
+    // path, where col4 is empty and the assert fires.
+    const [col1 = "", col2 = "", col3 = "", col4 = ""] = line.split("\t");
+    const marker = col1.trim();
 
-    if (hash?.startsWith("#")) {
+    if (marker.startsWith("#")) {
       // Marker comments carry their payload in the trailing columns (see the
-      // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB><TAB>datetime
-      // <TAB>identity`, `#ERROR<TAB><TAB>reason<TAB>path` and
-      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path` (reason in col3, the `mtime`
-      // slot). `#EXCLUDED` and any other comment line are ignored on read.
-      if (hash === DIR && path) {
-        dirs.push(path);
-      } else if (hash === SNAPSHOT && path) {
-        // Two layouts, told apart by whether col2 holds anything. Current
-        // (ADR-0072): set | instant | "name zone". Pre-0072: (empty) | local
-        // datetime | set. The discriminator is sound because a set name is
-        // `[a-z0-9-]+` and so never empty, while the old writer always left col2
-        // blank — and it has to exist at all because snapshots are immutable, so
-        // files in the old layout are readable forever, not migrated.
-        if (size) {
-          identity = size;
-          instant = mtime;
-          // col4 is "<name> <zone>"; the name is the filename, which the reader
-          // already knows, so only the zone is surfaced (the header-vs-filename
-          // check is deliberately not built — ADR-0072).
-          const gap = path.indexOf(" ");
-          zone = gap === -1 ? undefined : path.slice(gap + 1);
-        } else {
-          identity = path;
-        }
-      } else if (hash === ERROR && path) {
-        errors.set(path, mtime ?? "");
-      } else if (hash === SKIPPED && path) {
-        skipped.set(path, mtime ?? "");
+      // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB>set<TAB>instant
+      // <TAB>name zone`, `#ERROR<TAB><TAB>reason<TAB>path` and
+      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path`. `#EXCLUDED` and any other
+      // comment line are ignored on read.
+      if (marker === DIR && col4) {
+        const dir = col4;
+        dirs.push(dir);
+      } else if (marker === SNAPSHOT && col4) {
+        // set | instant | "name zone" (ADR-0072).
+        identity = col2.trim();
+        instant = col3.trim();
+        // col4 is "<name> <zone>" here — not a path. The name is the filename,
+        // which the reader already knows, so only the zone is surfaced (the
+        // header-vs-filename check is deliberately not built — ADR-0072).
+        const nameAndZone = col4;
+        const gap = nameAndZone.indexOf(" ");
+        zone = gap === -1 ? undefined : nameAndZone.slice(gap + 1);
+      } else if (marker === ERROR && col4) {
+        const errorMessage = col3.trim();
+        const path = col4;
+        errors.set(path, errorMessage);
+      } else if (marker === SKIPPED && col4) {
+        const fileType = col2.trim();
+        const reason = col3.trim();
+        const path = col4;
+        skipped.set(path, { fileType, reason });
       }
       continue;
     }
 
+    // A file row — the only shape where all four columns are what their familiar
+    // names say, so this is where they get them.
+    //
+    // The assert reads the *trimmed* values, not the raw columns: the leading
+    // fields are space-padded (guide/format.md), so an all-blank column is
+    // *truthy* while the value it yields is empty — and `Number("   ")` is 0, not
+    // NaN, so a blank size column would file a real entry of size zero instead of
+    // refusing the line.
+    const hash = col1.trim();
+    const size = col2.trim();
+    const mtime = col3.trim();
+    const path = col4;
     assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
 
     entries.set(path, {
@@ -834,7 +871,7 @@ const excludedLine = (fileType, reason, path) =>
  * (user-chosen via pattern) and `#ERROR` (tried to process, failed). Surfaced
  * on read into `Snapshot.skipped` so callers can report what was ignored.
  * Module-private: `writeSnapshot` formats the walk's `skipped` records with it.
- * @param {string} fileType - The dirent type (SymbolicLink, FIFO, …)
+ * @param {string} fileType - The dirent type (Symbolic Link, FIFO, …)
  * @param {string} reason - Why it was skipped (e.g. "Unsupported file type")
  * @param {string} path - The skipped path
  * @returns {string}

@@ -33,7 +33,7 @@ import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
 /** @import { DeleteResult } from "./commands/delete.mjs" */
 /**
  * @import {
- *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError,
+ *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError, SkippedEntry,
  * } from "./lib/compare.mjs"
  */
 
@@ -104,6 +104,13 @@ export function renderCompareResult(result, { color = false } = {}) {
     const bytes = sumSize(result.added);
     const line = `First snapshot: ${formatCount(files)} ${plural(files, "file")} (${formatByteValue(bytes)})`;
     const parts = [head, line];
+    // Kept on a first snapshot, where the all-added listing is collapsed: these
+    // are the files that *didn't* go in, which is the one thing a collapsed
+    // listing can't tell you — and it matters more here than later, since a
+    // first run is when you find out what your set can't hold (ADR-0078).
+    if (result.skipped.length) {
+      parts.push(skippedSection(result.skipped, shorten, paint));
+    }
     if (result.errors.length) {
       parts.push(errorSection(result.errors, shorten, paint));
     }
@@ -138,6 +145,11 @@ export function renderCompareResult(result, { color = false } = {}) {
   }
   if (result.deleted.length) {
     sections.push(pathSection("Deleted", result.deleted, red, shorten, paint));
+  }
+  // Skipped then Errors last, both after the change sections: neither is a
+  // change, and the fault is the one that should be left on screen.
+  if (result.skipped.length) {
+    sections.push(skippedSection(result.skipped, shorten, paint));
   }
   if (result.errors.length) {
     sections.push(errorSection(result.errors, shorten, paint));
@@ -259,25 +271,60 @@ function errorSection(errors, shorten, paint) {
 }
 
 /**
+ * What the walk left out by design — a symlink, a socket, an entry the
+ * filesystem couldn't classify (ADR-0078). Named in full, every time, not
+ * diffed against the older snapshot: the question this answers is "what *is*
+ * that thing?", which a reader asks on whatever run they happen to be looking
+ * at, not only on the one where it first appeared. An entry that keeps
+ * reappearing is then its own argument for an exclude pattern.
+ *
+ * The line carries the **file type**, not the recorded reason: the walk writes
+ * one reason for every skip (`Unsupported file type`), so it would repeat down
+ * the column while `Symbolic Link` is the part that answers the question. The
+ * reason stays in the data for `--json` and for snapshots that recorded another.
+ *
+ * The type is printed as stored. The walk writes it in its readable form, so
+ * there is no token to un-camel-case on the way out — see `getFileType`.
+ *
+ * Yellow, not the errors' bold red: a skipped entry is by design, and colouring
+ * it like a fault would say something untrue about it.
+ * @param {SkippedEntry[]} skipped
+ * @param {(path: string) => string} shorten
+ * @param {(colourise: (t: string) => string) => (t: string) => string} paint
+ */
+function skippedSection(skipped, shorten, paint) {
+  const lines = skipped.map(
+    (entry) => `  ${shorten(entry.path)}  (${entry.fileType})`,
+  );
+  const heading = paint(yellow)(`Skipped (${skipped.length})`);
+  return `${heading}\n${lines.join("\n")}`;
+}
+
+/**
  * The closing summary: every category with its count (stable width, zeros
  * included) plus the bytes that changed — added + modified + deleted content
  * (rename and move both relocate the same bytes, so both are excluded).
- * Collapses to `No changes.` when nothing differs; appends the error count only
- * when > 0. `renamed`/`moved` counts are the human split of the one `moved`
- * category (passed in so the summary and its sections can't disagree).
+ * Collapses to `No changes.` when nothing differs; appends the skipped and
+ * error counts only when > 0. `renamed`/`moved` counts are the human split of
+ * the one `moved` category (passed in so the summary and its sections can't
+ * disagree).
  * @param {CompareResult} result
  * @param {number} renamedCount
  * @param {number} movedCount
  * @returns {string}
  */
 function summaryLine(result, renamedCount, movedCount) {
-  const { added, moved, modified, deleted, errors } = result;
+  const { added, moved, modified, deleted, errors, skipped } = result;
+  // Skipped joins the "did anything happen?" test alongside errors, so a
+  // snapshot whose only news is an unbacked-up symlink can't print `No changes.`
+  // directly beneath the section that just listed it.
   if (
     !added.length &&
     !moved.length &&
     !modified.length &&
     !deleted.length &&
-    !errors.length
+    !errors.length &&
+    !skipped.length
   ) {
     return "No changes.";
   }
@@ -286,6 +333,9 @@ function summaryLine(result, renamedCount, movedCount) {
     `${added.length} added, ${renamedCount} renamed, ${movedCount} moved, ` +
     `${modified.length} modified, ${deleted.length} deleted` +
     ` · ${formatByteValue(bytes)} changed`;
+  if (skipped.length) {
+    line += `, ${skipped.length} skipped`;
+  }
   if (errors.length) {
     line += `, ${errors.length} ${plural(errors.length, "error")}`;
   }

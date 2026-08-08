@@ -136,8 +136,8 @@ describe("walk on a filesystem that reports no entry types", () => {
       .filter((line) => line.startsWith("Skipped"));
 
     // One line, naming the count and the type — not a silent `#SKIPPED` row in a
-    // compressed file. Both counts pluralize: the type token is a regular noun
-    // once spaced, which is the whole reason `plural` can be let near it.
+    // compressed file. Both counts pluralize: every type the walk records is a
+    // regular noun, which is the whole reason `plural` can be let near it.
     assert.deepEqual(notices, [
       "Skipped 2 items that can't be backed up: 2 Unknown File Types",
     ]);

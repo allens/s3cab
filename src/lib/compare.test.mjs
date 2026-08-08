@@ -5,7 +5,13 @@ import { join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
 import { zstdCompressSync } from "node:zlib";
-import { stringifySnapshot, withSnapshotFile } from "./snapshot-file.mjs";
+import {
+  stringifySnapshot,
+  withSnapshotFile,
+  // The production writer, aliased: the local `writeSnapshot` is the file-rows
+  // test helper, and `#SKIPPED` rows only come out of the real one.
+  writeSnapshot as writeFullSnapshot,
+} from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { compareSnapshots, diff } from "./compare.mjs";
 
@@ -298,10 +304,29 @@ function summarize(result, base) {
     modified: result.modified.map((m) => r(m.path)),
     deleted: result.deleted.map((d) => r(d.path)),
     errors: result.errors.map((e) => `${r(e.path)} (${e.reason})`),
+    skipped: result.skipped.map((s) => `${r(s.path)} (${s.fileType})`),
   };
 }
 
-const EMPTY = { added: [], moved: [], modified: [], deleted: [], errors: [] };
+const EMPTY = {
+  added: [],
+  moved: [],
+  modified: [],
+  deleted: [],
+  errors: [],
+  skipped: [],
+};
+
+/**
+ * A moment for the production snapshot writer, which takes one rather than a
+ * bare name (ADR-0072).
+ * @param {string} name
+ */
+const momentOf = (name) => ({
+  name,
+  instant: "2024-01-02T01:01:00.000Z",
+  zone: "Europe/London",
+});
 
 describe("compareSnapshots", () => {
   it("shows added file (first snapshot compares against an empty baseline)", async () => {
@@ -452,6 +477,71 @@ describe("compareSnapshots", () => {
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
       errors: ["file1.txt (EACCES: permission denied)"],
+    });
+  });
+
+  it("lists what the walk skipped, naming the file type that explains it", async () => {
+    await using dir = await mkTmpDir();
+    const vault = resolve(dir.path, "Personal Vault");
+
+    await writeSnapshot(dir.path, PREVIOUS, []);
+    await writeFullSnapshot(dir.path, momentOf(CURRENT), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [],
+      excluded: [],
+      skipped: [
+        {
+          fileType: "Symbolic Link",
+          reason: "Unsupported file type",
+          path: vault,
+        },
+      ],
+      getProps: async () => assert.fail("no files to hash"),
+    });
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    // The whole point of the category: before this, a `#SKIPPED` row was parsed
+    // and then read by nobody, so a symlink the backup left out was invisible in
+    // every command. The type travels with it — "Symbolic Link", not just the
+    // one-size-fits-all "Unsupported file type" reason.
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      skipped: ["Personal Vault (Symbolic Link)"],
+    });
+  });
+
+  it("reports a file that became a symlink as skipped, not deleted", async () => {
+    await using dir = await mkTmpDir();
+
+    // file1.txt was a real file in the baseline and is a symlink now, so it is
+    // absent from `entries` and would otherwise read as a deletion — the same
+    // trap the errors category exists to avoid. It didn't go away; s3cab just
+    // stopped being able to store it.
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], "file1.txt"),
+    ]);
+    await writeFullSnapshot(dir.path, momentOf(CURRENT), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [],
+      excluded: [],
+      skipped: [
+        {
+          fileType: "Symbolic Link",
+          reason: "Unsupported file type",
+          path: resolve(dir.path, "file1.txt"),
+        },
+      ],
+      getProps: async () => assert.fail("no files to hash"),
+    });
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      skipped: ["file1.txt (Symbolic Link)"],
     });
   });
 
@@ -625,9 +715,11 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
    * @param {string | undefined} instant
    */
   function plant(dir, name, instant) {
+    // No instant means no `#SNAPSHOT` line at all — the row-only form a fused
+    // snapshot's pre-parsed baseline arrives as.
     const header = instant
       ? `#SNAPSHOT\tphotos\t${instant}\t${name} Europe/London\n`
-      : `#SNAPSHOT\t\t2026-10-25T01:15\tphotos\n`; // the pre-0072 shape
+      : ``;
     const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     writeFileSync(
       join(dir, `${name}.tsv.zst`),
@@ -687,7 +779,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     assert.doesNotMatch(said, /actually taken after/);
   });
 
-  it("stays quiet rather than guessing when a side predates ADR-0072", async () => {
+  it("stays quiet rather than guessing when a side carries no instant", async () => {
     await using dir = await mkTmpDir();
     // No instant to compare, so the check cannot be certain — and a check that
     // guessed from the names would reintroduce the very ambiguity it exists to

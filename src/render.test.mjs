@@ -46,6 +46,7 @@ const result = (over) => ({
   modified: [],
   deleted: [],
   errors: [],
+  skipped: [],
   ...over,
 });
 
@@ -247,6 +248,84 @@ describe("renderCompareResult", () => {
     assert.match(
       text,
       /0 added, 0 renamed, 0 moved, 0 modified, 1 deleted · .* changed, 1 error$/,
+    );
+  });
+
+  it("names each skipped path with its file type", () => {
+    // The FUD this exists to kill: "Skipped 1 item" told you a symlink was left
+    // out but never which one. The type is printed exactly as the snapshot
+    // stored it — the walk writes it readable, so nothing restyles it here.
+    const text = renderCompareResult(
+      result({
+        skipped: [
+          {
+            path: under("Personal Vault"),
+            fileType: "Symbolic Link",
+            reason: "Unsupported file type",
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /\nSkipped \(1\)\n {2}Personal Vault {2}\(Symbolic Link\)/,
+    );
+    // The one-size-fits-all reason stays in the data, off the line.
+    assert.doesNotMatch(text, /Unsupported file type/);
+    // Skipped alone is still news, so the summary cannot say "No changes."
+    assert.doesNotMatch(text, /No changes/);
+    assert.match(
+      text,
+      /0 added, 0 renamed, 0 moved, 0 modified, 0 deleted · .* changed, 1 skipped$/,
+    );
+  });
+
+  it("puts Skipped before Errors, after every change section", () => {
+    const text = renderCompareResult(
+      result({
+        deleted: [{ path: under("gone.txt"), size: 10 }],
+        skipped: [
+          {
+            path: under("pipe"),
+            fileType: "Named Pipe",
+            reason: "Unsupported file type",
+          },
+        ],
+        errors: [{ path: under("locked.bin"), reason: "EACCES" }],
+      }),
+    );
+
+    assert.ok(text.indexOf("Deleted") < text.indexOf("Skipped"));
+    assert.ok(text.indexOf("Skipped") < text.indexOf("Errors"));
+    // Printed exactly as stored — nothing between the snapshot and the screen
+    // is entitled to reword a type.
+    assert.match(text, /\n {2}pipe {2}\(Named Pipe\)/);
+    assert.match(text, /, 1 skipped, 1 error$/);
+  });
+
+  it("keeps the skipped list on a first snapshot, where the listing is collapsed", () => {
+    // `since: null` collapses the all-added listing to a count — but what
+    // *couldn't* go in is the one thing that collapse can't tell you, and a
+    // first run is when you find out (ADR-0078).
+    const text = renderCompareResult(
+      result({
+        since: null,
+        added: [{ path: under("a.jpg"), size: 4, duplicates: [] }],
+        skipped: [
+          {
+            path: under("Personal Vault"),
+            fileType: "Symbolic Link",
+            reason: "Unsupported file type",
+          },
+        ],
+      }),
+    );
+
+    assert.match(text, /First snapshot: 1 file/);
+    assert.match(
+      text,
+      /\nSkipped \(1\)\n {2}Personal Vault {2}\(Symbolic Link\)/,
     );
   });
 

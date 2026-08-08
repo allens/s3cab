@@ -90,6 +90,16 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
 [0005](docs/adr/0005-builtins-over-dependencies.md),
 [0018](docs/adr/0018-dependabot-not-renovate.md).
 
+- **Pre-1.0, never write compatibility code for an older s3cab.** No migration path, no
+  read-the-old-layout branch, no "both forms persist forever" reader, and no doc or comment
+  explaining a superseded shape. There are no installs to be compatible with (`package.json` major
+  `0`), so every such branch is debt bought for nobody — and it is worse than dead weight, because
+  a legacy branch is *live* code that quietly mis-parses. (Worked example: the pre-ADR-0072
+  `#SNAPSHOT` reader discriminated on an empty col2; without it, an old header's naive local
+  datetime is read as a UTC instant and fed to the snapshot-ordering check. The fix was deleting
+  the whole thing, not hardening it.) Change the format and move on; developer snapshots are not
+  data to protect. **This flips at 1.0**, when the stored format becomes the user-facing promise
+  ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)).
 - **Each file in `src/commands/` exports exactly one symbol — its command function**
   ([ADR-0023](docs/adr/0023-porcelain-plumbing-lib-layers.md); enforced by
   `local/one-export-per-command`). If a sibling command *or a test* needs anything else from it,
