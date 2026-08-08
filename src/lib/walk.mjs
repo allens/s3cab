@@ -8,7 +8,7 @@ import {
 import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { compileExclude } from "./exclude.mjs";
-import { formatCount, plural, secondsSince, spaced } from "./format.mjs";
+import { formatCount, plural, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -279,7 +279,7 @@ export function walkDirs(dirs, patterns) {
     const kinds = [...byType]
       .map(
         ([fileType, count]) =>
-          `${formatCount(count)} ${plural(count, spaced(fileType))}`,
+          `${formatCount(count)} ${plural(count, fileType)}`,
       )
       .join(", ");
     console.warn(
@@ -355,7 +355,23 @@ const UNKNOWN = "Unknown File Type";
  *
  * Takes either because a `Dirent` and a `Stats` answer the same seven questions
  * — which is what lets `resolveFileType` fall back from one to the other without
- * a second way of naming a type.
+ * a second way of naming a type. Seven is the whole set Node offers, so the
+ * `UNKNOWN` fallback is reached only when every predicate answers false.
+ *
+ * **These strings are stored, in the snapshot's `dirent_type` column, and shown
+ * to the user verbatim** — the walk's skip notice and `compare`'s Skipped list
+ * both print them as-is. Two rules they have to keep obeying:
+ *
+ * - **Plain words, no niche acronyms** ([ADR-0012](../../docs/adr/0012-consumer-vocabulary-naming.md)):
+ *   which is why a FIFO is a `Named Pipe` — the term both Unix (`mkfifo`) and
+ *   Windows use for the same thing, where `FIFO` is exactly the unexplained
+ *   acronym that ADR bars from user-facing text.
+ * - **Pluralizable by appending `s`**, because the skip notice counts them
+ *   (`2 Named Pipes`) through `plural`, which is naive by design. Every type
+ *   here is a regular noun — except `Directory`, which is never *skipped* (the
+ *   walk recurses into directories and only records one as excluded, and
+ *   excluded entries are never counted into a sentence). Anything added here
+ *   must be regular, or `plural` needs to grow first.
  * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
  * @returns {string} File type
  */
@@ -365,13 +381,13 @@ function getFileType(dirent) {
   } else if (dirent.isDirectory()) {
     return "Directory";
   } else if (dirent.isSymbolicLink()) {
-    return "SymbolicLink";
+    return "Symbolic Link";
   } else if (dirent.isBlockDevice()) {
-    return "BlockDevice";
+    return "Block Device";
   } else if (dirent.isCharacterDevice()) {
-    return "CharacterDevice";
+    return "Character Device";
   } else if (dirent.isFIFO()) {
-    return "FIFO";
+    return "Named Pipe";
   } else if (dirent.isSocket()) {
     return "Socket";
   }

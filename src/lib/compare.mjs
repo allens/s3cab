@@ -42,8 +42,8 @@ import {
 /**
  * A path the newer snapshot's walk left out by design — a symlink, a socket, a
  * FIFO, an entry the filesystem couldn't classify. The `fileType` is the stored
- * `dirent_type` token (`SymbolicLink`), spaced for reading by the renderer, not
- * here: this is data, and ADR-0043 keeps presentation in the render layer.
+ * `dirent_type` exactly as the snapshot recorded it (`Symbolic Link`), which the
+ * walk already writes in readable form — so no renderer has to restyle it.
  *
  * Distinct from {@link CompareError}, which is a *fault* — a file s3cab tried to
  * back up and couldn't. A skipped entry was never a candidate.
@@ -370,9 +370,9 @@ export function diff(previousSnapshot, currentSnapshot) {
  * deletions, and the other way round.
  *
  * Compares the recorded instants, so it is certain rather than a guess, and says
- * nothing when it cannot be certain: either side may predate ADR-0072 and carry
- * no instant, and `snapshot`'s fused fast path hands its baseline over as
- * pre-parsed entries with no header at all. That path is already covered where
+ * nothing when it cannot be certain: `snapshot`'s fused fast path hands its
+ * baseline over as pre-parsed entries with no header, so no instant reaches
+ * here. That path is already covered where
  * the fault is *created*, by the clock-went-backwards warning in
  * `generateSnapshot`.
  * @param {string | undefined} since

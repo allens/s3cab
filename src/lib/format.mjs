@@ -86,30 +86,6 @@ export const plural = (n, word) => (n === 1 ? word : `${word}s`);
 export const countOf = (n, word) => `${formatCount(n)} ${plural(n, word)}`;
 
 /**
- * `SymbolicLink` → `Symbolic Link`: a stored type token, spaced for reading.
- *
- * **Display only** — the snapshot's `dirent_type` column keeps the unspaced
- * token, because that is the format's grammar (guide/format.md) and not ours to
- * restyle. The two diverge on purpose: one is a field, the other is a sentence.
- * Without this the notice mixed conventions in a single line — `1 SymbolicLink,
- * 1 Unknown File Type` — since only some of the tokens are camel-cased.
- *
- * Casing is left alone. Lowercasing would read more naturally for most of them
- * but would mangle `FIFO`, and every skippable type is a regular noun, so
- * `plural` can pluralize the result as-is (`Directory`, the one irregular, is
- * kept by the walk and so never reaches here).
- *
- * Lives here rather than in `walk.mjs`, where it started, because the walk is no
- * longer its only caller: `compare` now names the same types when it lists what
- * a snapshot skipped (ADR-0078), and a renderer importing the *walker* to borrow
- * a string helper would be the wrong dependency entirely.
- * @param {string} fileType
- * @returns {string}
- */
-export const spaced = (fileType) =>
-  fileType.replace(/(?<=[a-z])(?=[A-Z])/g, " ");
-
-/**
  * A headed `label / count / size` table with the numbers right-aligned and the
  * last row ruled off as the total:
  *

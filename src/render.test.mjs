@@ -251,16 +251,16 @@ describe("renderCompareResult", () => {
     );
   });
 
-  it("names each skipped path with its file type, spaced for reading", () => {
+  it("names each skipped path with its file type", () => {
     // The FUD this exists to kill: "Skipped 1 item" told you a symlink was left
-    // out but never which one. The stored token is `SymbolicLink`; the sentence
-    // form is what a reader gets.
+    // out but never which one. The type is printed exactly as the snapshot
+    // stored it — the walk writes it readable, so nothing restyles it here.
     const text = renderCompareResult(
       result({
         skipped: [
           {
             path: under("Personal Vault"),
-            fileType: "SymbolicLink",
+            fileType: "Symbolic Link",
             reason: "Unsupported file type",
           },
         ],
@@ -288,7 +288,7 @@ describe("renderCompareResult", () => {
         skipped: [
           {
             path: under("pipe"),
-            fileType: "FIFO",
+            fileType: "Named Pipe",
             reason: "Unsupported file type",
           },
         ],
@@ -298,8 +298,9 @@ describe("renderCompareResult", () => {
 
     assert.ok(text.indexOf("Deleted") < text.indexOf("Skipped"));
     assert.ok(text.indexOf("Skipped") < text.indexOf("Errors"));
-    // FIFO has no lowercase→uppercase boundary, so it must survive unspaced.
-    assert.match(text, /\n {2}pipe {2}\(FIFO\)/);
+    // Printed exactly as stored — nothing between the snapshot and the screen
+    // is entitled to reword a type.
+    assert.match(text, /\n {2}pipe {2}\(Named Pipe\)/);
     assert.match(text, /, 1 skipped, 1 error$/);
   });
 
@@ -314,7 +315,7 @@ describe("renderCompareResult", () => {
         skipped: [
           {
             path: under("Personal Vault"),
-            fileType: "SymbolicLink",
+            fileType: "Symbolic Link",
             reason: "Unsupported file type",
           },
         ],

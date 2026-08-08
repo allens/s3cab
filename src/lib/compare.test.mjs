@@ -492,7 +492,7 @@ describe("compareSnapshots", () => {
       excluded: [],
       skipped: [
         {
-          fileType: "SymbolicLink",
+          fileType: "Symbolic Link",
           reason: "Unsupported file type",
           path: vault,
         },
@@ -504,11 +504,11 @@ describe("compareSnapshots", () => {
 
     // The whole point of the category: before this, a `#SKIPPED` row was parsed
     // and then read by nobody, so a symlink the backup left out was invisible in
-    // every command. The type travels with it — "SymbolicLink", not just the
+    // every command. The type travels with it — "Symbolic Link", not just the
     // one-size-fits-all "Unsupported file type" reason.
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
-      skipped: ["Personal Vault (SymbolicLink)"],
+      skipped: ["Personal Vault (Symbolic Link)"],
     });
   });
 
@@ -529,7 +529,7 @@ describe("compareSnapshots", () => {
       excluded: [],
       skipped: [
         {
-          fileType: "SymbolicLink",
+          fileType: "Symbolic Link",
           reason: "Unsupported file type",
           path: resolve(dir.path, "file1.txt"),
         },
@@ -541,7 +541,7 @@ describe("compareSnapshots", () => {
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
-      skipped: ["file1.txt (SymbolicLink)"],
+      skipped: ["file1.txt (Symbolic Link)"],
     });
   });
 
@@ -715,9 +715,11 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
    * @param {string | undefined} instant
    */
   function plant(dir, name, instant) {
+    // No instant means no `#SNAPSHOT` line at all — the row-only form a fused
+    // snapshot's pre-parsed baseline arrives as.
     const header = instant
       ? `#SNAPSHOT\tphotos\t${instant}\t${name} Europe/London\n`
-      : `#SNAPSHOT\t\t2026-10-25T01:15\tphotos\n`; // the pre-0072 shape
+      : ``;
     const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     writeFileSync(
       join(dir, `${name}.tsv.zst`),
@@ -777,7 +779,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     assert.doesNotMatch(said, /actually taken after/);
   });
 
-  it("stays quiet rather than guessing when a side predates ADR-0072", async () => {
+  it("stays quiet rather than guessing when a side carries no instant", async () => {
     await using dir = await mkTmpDir();
     // No instant to compare, so the check cannot be certain — and a check that
     // guessed from the names would reintroduce the very ambiguity it exists to

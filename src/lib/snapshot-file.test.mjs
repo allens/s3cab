@@ -39,7 +39,7 @@ const hashB = "b".repeat(64);
 describe("parseSnapshotStream", () => {
   it("parses entries and the #SNAPSHOT/#DIR headers", async () => {
     const text = [
-      "#SNAPSHOT\t\t2026-06-12T09:15\tphotos",
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
       "#DIR\t\t\tC:\\Users\\me\\Photos",
       "#DIR\t\t\tD:\\Pics",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\tC:\\Users\\me\\Photos\\beach.jpg`,
@@ -367,7 +367,7 @@ describe("writeSnapshot", () => {
       excluded: [],
       skipped: [
         {
-          fileType: "SymbolicLink",
+          fileType: "Symbolic Link",
           reason: "Unsupported file type",
           path: link,
         },
@@ -391,7 +391,7 @@ describe("writeSnapshot", () => {
     // for every skip the walk records — and it used to be dropped on read.
     assert.deepEqual(
       [...snap.skipped],
-      [[link, { fileType: "SymbolicLink", reason: "Unsupported file type" }]],
+      [[link, { fileType: "Symbolic Link", reason: "Unsupported file type" }]],
     );
   });
 
@@ -819,7 +819,7 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
   });
 });
 
-describe("the snapshot moment and its two header layouts (ADR-0072)", () => {
+describe("the snapshot moment and its header (ADR-0072)", () => {
   it("mints three spellings of one instant that agree with each other", () => {
     const { name, instant, zone } = snapshotMoment();
 
@@ -854,21 +854,16 @@ describe("the snapshot moment and its two header layouts (ADR-0072)", () => {
     assert.equal(entries.size, 1);
   });
 
-  it("still reads a pre-0072 header, since snapshots are never rewritten", async () => {
-    // The layouts are told apart by whether col2 holds anything: a set name is
-    // `[a-z0-9-]+` and never empty, and the old writer always left col2 blank.
-    // Old files stay readable forever rather than being migrated — that is the
-    // recovery promise, not a courtesy.
+  it("leaves the header fields absent when a snapshot carries no #SNAPSHOT line", async () => {
+    // The row-only form the test fixture builder writes. Absent, not guessed —
+    // which is why a consumer has to treat all three as optional.
     const text = [
-      "#SNAPSHOT\t\t2026-06-12T09:15\tphotos",
       "#DIR\t\t\t/home/me/Photos",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
     ].join("\n");
 
     const { identity, instant, zone, dirs, entries } = await parse(text);
-    assert.equal(identity, "photos", "the set must still be found");
-    // Absent, not guessed: the old header carried no zone and no true instant,
-    // so a consumer has to treat these as optional rather than assume.
+    assert.equal(identity, undefined);
     assert.equal(instant, undefined);
     assert.equal(zone, undefined);
     assert.deepEqual(dirs, ["/home/me/Photos"]);

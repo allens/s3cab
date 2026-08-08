@@ -12,7 +12,7 @@
 // (ADR-0043 — the user manages volume with a pager or redirect).
 
 import { dirname, relative, sep } from "node:path";
-import { formatByteValue, formatCount, plural, spaced } from "./lib/format.mjs";
+import { formatByteValue, formatCount, plural } from "./lib/format.mjs";
 import { tildeify } from "./lib/home.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
@@ -283,6 +283,9 @@ function errorSection(errors, shorten, paint) {
  * the column while `Symbolic Link` is the part that answers the question. The
  * reason stays in the data for `--json` and for snapshots that recorded another.
  *
+ * The type is printed as stored. The walk writes it in its readable form, so
+ * there is no token to un-camel-case on the way out — see `getFileType`.
+ *
  * Yellow, not the errors' bold red: a skipped entry is by design, and colouring
  * it like a fault would say something untrue about it.
  * @param {SkippedEntry[]} skipped
@@ -291,7 +294,7 @@ function errorSection(errors, shorten, paint) {
  */
 function skippedSection(skipped, shorten, paint) {
   const lines = skipped.map(
-    (entry) => `  ${shorten(entry.path)}  (${spaced(entry.fileType)})`,
+    (entry) => `  ${shorten(entry.path)}  (${entry.fileType})`,
   );
   const heading = paint(yellow)(`Skipped (${skipped.length})`);
   return `${heading}\n${lines.join("\n")}`;
