@@ -75,11 +75,19 @@ const ERROR = "#ERROR";
  */
 /** @typedef {Map<string, Props>} SnapshotEntries */
 /** @typedef {Map<string, string>} SnapshotErrors */
-/** @typedef {Map<string, string>} SnapshotSkipped */
+/**
+ * Paths the walk omitted by design, each with the `dirent_type` that got it
+ * omitted and the recorded reason. **Both columns, not just the reason:** the
+ * reason is nearly always the same string (`Unsupported file type`), while the
+ * type is what actually answers "what *was* that?" — the question a reader has
+ * when they meet the entry (ADR-0078). The row has carried the type all along;
+ * only the reader dropped it.
+ * @typedef {Map<string, { fileType: string, reason: string }>} SnapshotSkipped
+ */
 /**
  * A parsed snapshot: the file `entries`, paths that failed hashing (`errors`,
  * mapped to the recorded reason), paths skipped by design (`skipped`, mapped to
- * the skip reason — e.g. unsupported file type), plus the `#SNAPSHOT`/`#DIR`
+ * the dirent type and the skip reason), plus the `#SNAPSHOT`/`#DIR`
  * headers that make it self-describing (docs/design/backup.md). `dirs` are the
  * member directories captured at snapshot time; `identity` is the set name
  * (ADR-0024). `instant` and `zone` are the moment it was taken
@@ -699,7 +707,7 @@ export async function parseSnapshotStream(input) {
       } else if (hash === ERROR && path) {
         errors.set(path, mtime ?? "");
       } else if (hash === SKIPPED && path) {
-        skipped.set(path, mtime ?? "");
+        skipped.set(path, { fileType: size ?? "", reason: mtime ?? "" });
       }
       continue;
     }

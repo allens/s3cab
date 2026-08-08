@@ -386,8 +386,13 @@ describe("writeSnapshot", () => {
     // The skipped entry must not appear as an entry or an error.
     assert.ok(!snap.entries.has(link), "#SKIPPED row must not be an entry");
     assert.ok(!snap.errors.has(link), "#SKIPPED row must not be an error");
-    // It must be surfaced in skipped, mapped to its reason.
-    assert.deepEqual([...snap.skipped], [[link, "Unsupported file type"]]);
+    // It must be surfaced in skipped with *both* written columns. The file type
+    // is the one that answers "what was that?" — the reason is the same string
+    // for every skip the walk records — and it used to be dropped on read.
+    assert.deepEqual(
+      [...snap.skipped],
+      [[link, { fileType: "SymbolicLink", reason: "Unsupported file type" }]],
+    );
   });
 
   it("passes rows through `through` and writes the identical file (the fusion seam)", async () => {

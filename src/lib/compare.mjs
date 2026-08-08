@@ -40,6 +40,19 @@ import {
  * @property {string} reason
  */
 /**
+ * A path the newer snapshot's walk left out by design — a symlink, a socket, a
+ * FIFO, an entry the filesystem couldn't classify. The `fileType` is the stored
+ * `dirent_type` token (`SymbolicLink`), spaced for reading by the renderer, not
+ * here: this is data, and ADR-0043 keeps presentation in the render layer.
+ *
+ * Distinct from {@link CompareError}, which is a *fault* — a file s3cab tried to
+ * back up and couldn't. A skipped entry was never a candidate.
+ * @typedef {Object} SkippedEntry
+ * @property {string} path
+ * @property {string} fileType
+ * @property {string} reason
+ */
+/**
  * Structured diff between two snapshots — **absolute paths throughout**
  * (ADR-0043). Path shortening is presentation, so it lives in the renderer
  * (`renderCompareResult`, which shortens against the common ancestor of `dirs`);
@@ -56,6 +69,7 @@ import {
  * @property {PathSize[]} modified
  * @property {PathSize[]} deleted
  * @property {CompareError[]} errors
+ * @property {SkippedEntry[]} skipped
  */
 
 /**
@@ -151,6 +165,17 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
+  // Skipped paths get the same treatment, and for the same reason: a file that
+  // became a symlink between the two snapshots is absent from `entries` and so
+  // reads as deleted, when what happened is that the walk stopped being able to
+  // back it up. Only the path itself is reconciled, deliberately — when the
+  // skipped entry is a *directory*, the files that were under it really are gone
+  // from the backup, so reporting them as deleted is the truth, and the skipped
+  // line beside them is the explanation.
+  for (const path of untilSnapshot.skipped.keys()) {
+    deleted.delete(path);
+  }
+
   // Size is looked up from the snapshot entries rather than threaded through
   // `diff` (which is content/path-only): the current file for added/moved/
   // modified (its size in `until`), the vanished file for deleted (its size in
@@ -183,6 +208,10 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
       path,
       reason,
     })),
+    skipped: Array.from(
+      untilSnapshot.skipped,
+      ([path, { fileType, reason }]) => ({ path, fileType, reason }),
+    ),
   };
 }
 
