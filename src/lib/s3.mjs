@@ -27,10 +27,7 @@ import {
   refusedWithoutReasonError,
   resolveCredentials,
 } from "./auth.mjs";
-import {
-  customEndpoint,
-  profileSource as resolveProfileSource,
-} from "./env.mjs";
+import { customEndpoint, envSource } from "./env.mjs";
 import { errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
 import { enterNetworkWait, leaveNetworkWait } from "./network-status.mjs";
@@ -75,7 +72,7 @@ let _client;
  * generic contacting-the-cloud line rather than silence. An empty profile
  * (`AWS_PROFILE=`) counts as none.
  *
- * When given a `profileSource` (from env.mjs's `profileSource()`), it appends
+ * When given a `profileSource` (from env.mjs's `envSource("AWS_PROFILE")`), it appends
  * where that profile came from — `(from set 'photos' config)` or `(from your
  * environment)` — so a surprising profile (a stale shell export shadowing a set,
  * say) is traceable, not a silent mystery.
@@ -210,7 +207,7 @@ function client() {
   console.warn(
     authNotice({
       profile: process.env.AWS_PROFILE,
-      profileSource: resolveProfileSource(),
+      profileSource: envSource("AWS_PROFILE"),
       endpoint: customEndpoint(),
       rolesAnywhere: isRolesAnywhereMode(),
     }),

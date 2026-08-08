@@ -1,6 +1,6 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { parseKnownFiles } from "@smithy/shared-ini-file-loader";
-import { customEndpoint, loadedSet, profileSource } from "./env.mjs";
+import { customEndpoint, envSource, loadedSet } from "./env.mjs";
 import { tildeify } from "./home.mjs";
 import {
   createSession,
@@ -331,9 +331,12 @@ const rawAwsError = (cause) => {
  *
  * Reads the environment at call time (like `loadedSet`/`customEndpoint`
  * alongside it), since a set's env layer is applied before any S3 call
- * (ADR-0022/0055). Mirrors `authNotice` in s3.mjs — the same three sources in
- * the same precedence — but worded for an error rather than a progress notice,
- * and with no silent fallback: the no-profile case is the one most worth saying.
+ * (ADR-0022/0055). Every branch traces its own provenance through `envSource`
+ * rather than assuming one: a shell export and a set's env file are
+ * indistinguishable in `process.env`, so naming the wrong one would be the very
+ * mystery this line exists to dispel. Close kin to `authNotice` in s3.mjs, but
+ * worded for an error rather than a progress notice, and with no silent
+ * fallback: the no-profile case is the one most worth saying.
  * @returns {string}
  */
 export function credentialsUsed() {
@@ -345,14 +348,18 @@ export function credentialsUsed() {
   if (isRolesAnywhereMode()) {
     return "s3cab signed in with Roles Anywhere (keyless).";
   }
-  if (process.env.AWS_ACCESS_KEY_ID) {
-    return "s3cab signed in with the access key saved for this set.";
+  // `envSource` both detects the variable and traces it, so the sentence can
+  // never claim a set saved a key the shell actually exported — the failure this
+  // whole line exists to prevent, one variable over.
+  const keySource = envSource("AWS_ACCESS_KEY_ID");
+  if (keySource) {
+    return `s3cab signed in with the access key from ${keySource}.`;
   }
   const profile = process.env.AWS_PROFILE;
   if (!profile) {
     return "s3cab signed in with your default AWS credentials (no AWS_PROFILE is set).";
   }
-  const source = profileSource();
+  const source = envSource("AWS_PROFILE");
   const via = source ? ` (from ${source})` : "";
   return `s3cab signed in with AWS profile '${profile}'${via}.`;
 }

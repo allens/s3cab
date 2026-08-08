@@ -199,10 +199,15 @@ describe("credentialsUsed", () => {
     assert.doesNotMatch(line, /backup/);
   });
 
-  it("reports a saved access key without printing the key", () => {
+  it("traces an access key to where it came from, and never prints it", () => {
+    // A shell export and a set's env file are indistinguishable once merged into
+    // process.env, so the sentence must not claim the set saved a key the shell
+    // supplied — that would be the same silent mystery this line exists to
+    // dispel. Set here directly, so the honest answer is "your environment".
     process.env.AWS_ACCESS_KEY_ID = "AKIAEXAMPLEKEY";
     const line = credentialsUsed();
-    assert.match(line, /access key saved for this set/);
+    assert.match(line, /access key from your environment/);
+    assert.doesNotMatch(line, /this set/);
     assert.doesNotMatch(line, /AKIAEXAMPLEKEY/);
   });
 });
