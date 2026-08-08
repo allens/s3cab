@@ -23,12 +23,11 @@ import {
   isClockSkew,
   isExpiredCredentials,
   isInvalidCredentials,
+  isRefusedWithoutReason,
+  refusedWithoutReasonError,
   resolveCredentials,
 } from "./auth.mjs";
-import {
-  customEndpoint,
-  profileSource as resolveProfileSource,
-} from "./env.mjs";
+import { customEndpoint, envSource } from "./env.mjs";
 import { errorText } from "./error.mjs";
 import { formatByteValue } from "./format.mjs";
 import { enterNetworkWait, leaveNetworkWait } from "./network-status.mjs";
@@ -73,7 +72,7 @@ let _client;
  * generic contacting-the-cloud line rather than silence. An empty profile
  * (`AWS_PROFILE=`) counts as none.
  *
- * When given a `profileSource` (from env.mjs's `profileSource()`), it appends
+ * When given a `profileSource` (from env.mjs's `envSource("AWS_PROFILE")`), it appends
  * where that profile came from — `(from set 'photos' config)` or `(from your
  * environment)` — so a surprising profile (a stale shell export shadowing a set,
  * say) is traceable, not a silent mystery.
@@ -208,7 +207,7 @@ function client() {
   console.warn(
     authNotice({
       profile: process.env.AWS_PROFILE,
-      profileSource: resolveProfileSource(),
+      profileSource: envSource("AWS_PROFILE"),
       endpoint: customEndpoint(),
       rolesAnywhere: isRolesAnywhereMode(),
     }),
@@ -306,9 +305,14 @@ The connection failed with:
  * `accessDeniedError` can name the bucket and pick the AWS-vs-provider remedy.
  * Data, not branching (ADR-0006).
  *
- * The network row sits last because it is the only one that cannot collide: a
- * transport failure never carries an AWS code, and an AWS code never arrives
- * without a response.
+ * Three kinds of row, and the order encodes their precedence. The code-keyed
+ * rejections come first, so a response that named its problem always gets the
+ * remedy for *that* problem. Then the two rows that key on something else
+ * because there was no code to key on: a refusal that arrived without one (a
+ * HEAD's bodiless 403 — `isRefusedWithoutReason`), and a transport failure where
+ * no response arrived at all (matched on the errno). Neither of those can
+ * collide with a code row or with each other — an AWS code never arrives without
+ * a response, and a request that got a 403 got a reply.
  * @type {{
  *   match: (error: unknown) => boolean,
  *   make: (cause: unknown, ctx: { bucket?: string, endpoint?: string }) => Error,
@@ -329,6 +333,15 @@ const requestErrorTable = [
   },
   { match: isBadSignature, make: (cause) => badSignatureError(cause) },
   { match: isClockSkew, make: (cause) => clockSkewError(cause) },
+  // After every code-keyed row, because it is the fallback for a refusal that
+  // carried no code to key on (a HEAD's bodiless 403). Ordering is what keeps
+  // ADR-0037 intact: a genuine `AccessDenied` still matches its own row above
+  // and gets its own remedy, and only a response with nothing to match reaches
+  // this one.
+  {
+    match: isRefusedWithoutReason,
+    make: (cause, ctx) => refusedWithoutReasonError(cause, ctx),
+  },
   { match: isNetworkError, make: (cause) => networkError(cause) },
 ];
 

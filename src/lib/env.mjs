@@ -93,7 +93,7 @@ export const loadedSet = () => _loadedSet;
  * Which env layer last set each key: variable name → human label
  * (`set 'photos' config`). A key present in process.env but *absent* here came
  * from outside s3cab's layering — a shell export, a Node `--env-file`, the parent
- * process — which is exactly what `profileSource` reports as "your environment".
+ * process — which is exactly what `envSource` reports as "your environment".
  * Module-level like `appliedEnvFiles`: the set layer is applied over the shell,
  * last writer wins, matching the effective process.env value.
  * @type {Map<string, string>}
@@ -111,7 +111,7 @@ const envSources = new Map();
  * apply, so a file created later in the same process (e.g. by `setup`)
  * still loads on a subsequent call instead of being skipped forever.
  * @param {string} path
- * @param {string} label - Where this layer's values came from, for `profileSource`.
+ * @param {string} label - Where this layer's values came from, for `envSource`.
  */
 function applyEnvLayer(path, label) {
   if (appliedEnvFiles.has(path)) {
@@ -129,22 +129,27 @@ function applyEnvLayer(path, label) {
 }
 
 /**
- * Where the effective `AWS_PROFILE` came from — a set's config (the label
+ * Where an effective environment variable came from — a set's config (the label
  * `envSources` recorded), or "your environment" for anything s3cab didn't set
  * itself: a shell export, a Node `--env-file`, the parent process, all
  * indistinguishable once merged into process.env before we ran. `undefined` when
- * no profile is set at all.
+ * the variable isn't set at all.
  *
- * Feeds the auth notice (`authNotice` in s3.mjs), so a surprising profile — a stale
- * shell export shadowing a set's config, say — is traceable at a glance instead of
- * a silent mystery.
+ * Feeds the auth notice (`authNotice` in s3.mjs) and the identity line every
+ * request-time rejection carries (`credentialsUsed` in auth.mjs), so a surprising
+ * credential — a stale shell export shadowing a set's config, say — is traceable
+ * at a glance instead of a silent mystery. Which is exactly why it takes the
+ * variable name rather than hard-coding `AWS_PROFILE`: **provenance is the whole
+ * point, so no caller may assume it.** Claiming a key came from the set when the
+ * shell supplied it would be the same silent mystery, one variable over.
+ * @param {string} name - The variable to trace, e.g. `AWS_PROFILE`.
  * @returns {string | undefined}
  */
-export function profileSource() {
-  if (!process.env.AWS_PROFILE) {
+export function envSource(name) {
+  if (!process.env[name]) {
     return undefined;
   }
-  return envSources.get("AWS_PROFILE") ?? "your environment";
+  return envSources.get(name) ?? "your environment";
 }
 
 /**

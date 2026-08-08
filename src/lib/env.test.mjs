@@ -68,7 +68,7 @@ async function setup(root) {
   const setEnvPath = (name) => join(home, ".s3cab", "sets", name, "env");
   return {
     loadSet: env.loadSet,
-    profileSource: env.profileSource,
+    envSource: env.envSource,
     setEnvPath,
     /** @param {string} contents */
     user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
@@ -153,12 +153,12 @@ describe("loadSet", () => {
   });
 });
 
-describe("profileSource", () => {
+describe("envSource", () => {
   it("is undefined when no profile is set", async () => {
     await using dir = await mkTmpDir();
     const t = await setup(dir.path);
 
-    assert.equal(t.profileSource(), undefined);
+    assert.equal(t.envSource("AWS_PROFILE"), undefined);
   });
 
   it("reports 'your environment' for a shell/ambient profile s3cab didn't set", async () => {
@@ -168,7 +168,7 @@ describe("profileSource", () => {
     // here before s3cab's layering runs, indistinguishable from each other.
     process.env.AWS_PROFILE = "shellprof";
 
-    assert.equal(t.profileSource(), "your environment");
+    assert.equal(t.envSource("AWS_PROFILE"), "your environment");
   });
 
   it("names the set config when the set layer supplies the profile", async () => {
@@ -179,7 +179,7 @@ describe("profileSource", () => {
     t.loadSet("photos");
 
     assert.equal(process.env.AWS_PROFILE, "setprof");
-    assert.equal(t.profileSource(), "set 'photos' config");
+    assert.equal(t.envSource("AWS_PROFILE"), "set 'photos' config");
   });
 
   it("attributes the winning layer: a set profile overriding an ambient one", async () => {
@@ -193,6 +193,24 @@ describe("profileSource", () => {
     // The set value wins the merge, so the reported source follows it — not the
     // shadowed shell export.
     assert.equal(process.env.AWS_PROFILE, "setprof");
-    assert.equal(t.profileSource(), "set 'photos' config");
+    assert.equal(t.envSource("AWS_PROFILE"), "set 'photos' config");
+  });
+
+  it("traces any variable, not just the profile", async () => {
+    // The reason this takes a name: credentials arrive as a key just as often,
+    // and a caller that assumed the profile would have to guess for the rest.
+    await using dir = await mkTmpDir();
+    const t = await setup(dir.path);
+    process.env.AWS_SESSION_TOKEN = "ambient";
+    t.set(
+      "photos",
+      "S3CAB_BUCKET=photobucket\nAWS_ACCESS_KEY_ID=AKIAFROMSET\n",
+    );
+
+    t.loadSet("photos");
+
+    assert.equal(t.envSource("AWS_ACCESS_KEY_ID"), "set 'photos' config");
+    assert.equal(t.envSource("AWS_SESSION_TOKEN"), "your environment");
+    assert.equal(t.envSource("AWS_SECRET_ACCESS_KEY"), undefined);
   });
 });
