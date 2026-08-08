@@ -2,6 +2,12 @@
 
 **Status:** accepted
 
+> **Naming note.** This ADR says `s3cab help auth` throughout. That command was renamed
+> `auth` → `provider` by [0047](0047-provider-command-neutral-config-door.md), so the live
+> pointer is **`s3cab help provider`** — `s3cab help auth` now exits 2. The error messages
+> themselves moved with the rename; only this text kept the old name, and it is left as
+> decided rather than rewritten.
+
 When the resolved AWS credentials work at startup but the *server* rejects a request
 (invalid/expired token, missing permission, bad signature, clock skew), s3cab translates the
 rejection into a friendly, actionable message at the SDK relay boundary
