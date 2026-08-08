@@ -99,6 +99,48 @@ as a credential/authorization problem with one generic message, so codes we neve
   the day a real user hits one ([0006](0006-minimal-code.md)). A generic guess that can
   misdirect is *worse* than AWS's own honest words.
 
+## Amendment (2026-08-08): the response that carries no code at all
+
+Everything above assumes a `<Code>` is there to read. **A HEAD response has no body**, so a
+rejected `HeadObject` has nowhere to put one: the SDK falls back to a placeholder `name` and a
+literal `"UnknownError"` message. `backup`'s *first* S3 call is exactly such a HEAD — the
+baseline-trust check in [`src/lib/upload.mjs`](../../src/lib/upload.mjs)'s `storedHashes` — so a
+permission problem printed as a bare `ERROR: UnknownError`, while the **same** refusal on a GET
+(`status`, `restore`) reported perfectly. Which verb a command happened to reach for first decided
+whether its error was legible.
+
+So the table gains one row, `isRefusedWithoutReason` → `refusedWithoutReasonError`, keyed on the
+**absence of `Code`** at HTTP 403. This is *not* the coverage net rejected above, and the trigger
+is the difference:
+
+- The rejected net fired on a code we hadn't enumerated, and asserted a cause anyway. This fires
+  only when the response named no code **at all**. An unenumerated but genuine code
+  (`AccountProblem`) still deserializes into `Code` and still falls through to the raw dump — "no
+  mushy middle" is intact.
+- It **asserts no cause.** A code-less 403 spans `AccessDenied`, `SignatureDoesNotMatch`,
+  `RequestTimeTooSkewed` and `InvalidAccessKeyId` alike, so the message says outright that s3cab
+  cannot tell which, and orders the candidates by likelihood for a request that got as far as
+  being signed and refused. Misdirection was the net's fatal flaw; declining to direct avoids it.
+
+It sits **after** every code-keyed row, so precedence does the rest. Scoped to 403 because that is
+the status it was observed on; a bodiless 400 (`ExpiredToken`'s status) is plausible but
+unobserved, and adding it now would be the speculation this ADR already declined once.
+
+### Every request-time rejection now names the identity it used
+
+The same bug exposed a second gap, on the path that *worked*. `accessDeniedError` was the one
+factory that did **not** embed the raw AWS error — but AWS spells the calling identity into that
+text (`User: arn:aws:sts::…/SecurityAudit/… is not authorized to perform: s3:GetObject`), and that
+is the line separating "my policy is wrong" from "I am signed in as the wrong role". It now embeds
+it, like its siblings.
+
+Beyond that, `credentialsUsed()` prefixes the diagnosis of every request-time rejection with which
+credentials s3cab signed in with: the profile and where it came from, a saved access key, Roles
+Anywhere, or the silent fall-through to `default` when no `AWS_PROFILE` is set. That last case is
+the one most worth saying — it is invisible, and it makes backing up as the *wrong role* look
+identical to holding no permission. It is a statement of fact, not a diagnosis, so it does not
+reintroduce the guessing this ADR rejects.
+
 ## Consequences
 
 - A new `accessDeniedError` factory + predicate, a new invalid/signature/clock factory fed by

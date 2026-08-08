@@ -8,6 +8,7 @@ import {
   accessDeniedError,
   badSignatureError,
   clockSkewError,
+  credentialsUsed,
   expiredCredentialsError,
   invalidCredentialsError,
   isAccessDenied,
@@ -16,8 +17,10 @@ import {
   isCredentialProviderError,
   isExpiredCredentials,
   isInvalidCredentials,
+  isRefusedWithoutReason,
   listProfiles,
   noCredentialsError,
+  refusedWithoutReasonError,
 } from "./auth.mjs";
 
 /** An error carrying the AWS-style `name` the SDK sets from the service code. */
@@ -121,6 +124,26 @@ describe("accessDeniedError", () => {
     assert.match(error.message, /s3cab aws my-backups/);
   });
 
+  it("embeds the raw AWS error, which is where the identity is named", () => {
+    // AWS spells the calling identity into its own AccessDenied text ("User:
+    // arn:aws:sts::…/SomeRole/… is not authorized to perform: s3:GetObject").
+    // That is the line separating "my policy is wrong" from "I'm signed in as
+    // the wrong role", so it has to reach the terminal.
+    const denial = named(
+      "AccessDenied",
+      "User: arn:aws:sts::1234:assumed-role/SecurityAudit/me is not authorized",
+    );
+    const error = accessDeniedError(denial, { bucket: "my-backups" });
+    assert.match(error.message, /The server reported:/);
+    assert.match(error.message, /assumed-role\/SecurityAudit\/me/);
+  });
+
+  it("states the identity used and how to change it", () => {
+    const error = accessDeniedError(cause, { bucket: "my-backups" });
+    assert.match(error.message, /s3cab signed in with/);
+    assert.match(error.message, /s3cab provider --profile <name>/);
+  });
+
   it("points at the provider's permissions (not 's3cab aws') off AWS", () => {
     const error = accessDeniedError(cause, {
       bucket: "my-backups",
@@ -129,6 +152,121 @@ describe("accessDeniedError", () => {
     assert.doesNotMatch(error.message, /s3cab aws/);
     assert.match(error.message, /provider's bucket and token permissions/);
     assert.match(error.message, /my-backups/);
+    // AWS profiles are an AWS concept — the switch-identity advice is AWS-only.
+    assert.doesNotMatch(error.message, /--profile <name>/);
+  });
+});
+
+describe("credentialsUsed", () => {
+  /** @type {NodeJS.ProcessEnv} */
+  let savedEnv;
+  beforeEach(() => {
+    savedEnv = { ...process.env };
+    for (const name of ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "S3CAB_RA"]) {
+      delete process.env[name]; // restored by afterEach
+    }
+  });
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, savedEnv);
+  });
+
+  it("names the silent fall-through to `default` when no profile is set", () => {
+    // The whole point: an unset AWS_PROFILE is invisible, and backing up as the
+    // wrong role then looks identical to holding no permission.
+    assert.match(
+      credentialsUsed(),
+      /default AWS credentials \(no AWS_PROFILE is set\)/,
+    );
+  });
+
+  it("names the profile and where it came from", () => {
+    process.env.AWS_PROFILE = "backup";
+    const line = credentialsUsed();
+    assert.match(line, /AWS profile 'backup'/);
+    assert.match(line, /\(from your environment\)/);
+  });
+
+  it("reports Roles Anywhere ahead of a profile, as resolveCredentials does", () => {
+    process.env.S3CAB_RA = "1";
+    process.env.AWS_PROFILE = "backup";
+    const line = credentialsUsed();
+    assert.match(line, /Roles Anywhere \(keyless\)/);
+    assert.doesNotMatch(line, /backup/);
+  });
+
+  it("reports a saved access key without printing the key", () => {
+    process.env.AWS_ACCESS_KEY_ID = "AKIAEXAMPLEKEY";
+    const line = credentialsUsed();
+    assert.match(line, /access key saved for this set/);
+    assert.doesNotMatch(line, /AKIAEXAMPLEKEY/);
+  });
+});
+
+describe("isRefusedWithoutReason", () => {
+  /** The shape the SDK builds when a *bodiless* response is a rejection. */
+  const refusal = (
+    /** @type {number} */ status,
+    /** @type {object} */ extra = {},
+  ) =>
+    Object.assign(new Error("UnknownError"), {
+      name: "Unknown",
+      $metadata: { httpStatusCode: status, requestId: "ABC123" },
+      ...extra,
+    });
+
+  it("recognizes a 403 that arrived with no error code", () => {
+    assert.equal(isRefusedWithoutReason(refusal(403)), true);
+  });
+
+  it("leaves a coded 403 alone — ADR-0037's no mushy middle", () => {
+    // An unenumerated but *genuine* code still deserializes into `Code`, and
+    // must keep falling through to the raw dump rather than being half-dressed.
+    assert.equal(
+      isRefusedWithoutReason(refusal(403, { Code: "AccountProblem" })),
+      false,
+    );
+  });
+
+  it("ignores other statuses and non-errors", () => {
+    assert.equal(isRefusedWithoutReason(refusal(404)), false);
+    assert.equal(isRefusedWithoutReason(new Error("plain")), false);
+    assert.equal(isRefusedWithoutReason("UnknownError"), false);
+    assert.equal(isRefusedWithoutReason(undefined), false);
+  });
+});
+
+describe("refusedWithoutReasonError", () => {
+  const cause = Object.assign(new Error("UnknownError"), {
+    name: "Unknown",
+    $metadata: { httpStatusCode: 403, requestId: "715V96E92GDSE291" },
+  });
+
+  it("admits it cannot name the cause, and leads with the identity used", () => {
+    const error = refusedWithoutReasonError(cause, { bucket: "my-backups" });
+    assert.equal(error.cause, cause); // original kept for the debug path
+    assert.match(error.message, /didn't say why/);
+    assert.match(error.message, /can't tell you which cause it\s+was/);
+    assert.match(error.message, /s3cab signed in with/);
+    // The request id earns its parenthetical: it is what AWS support asks for.
+    assert.match(error.message, /715V96E92GDSE291/);
+    // Both candidate remedies, identity first — neither claimed as *the* cause.
+    assert.match(error.message, /s3cab provider --profile <name>/);
+    assert.match(error.message, /s3cab aws my-backups/);
+  });
+
+  it("drops the AWS-only advice off-provider", () => {
+    const error = refusedWithoutReasonError(cause, {
+      bucket: "my-backups",
+      endpoint: "https://example.r2.cloudflarestorage.com",
+    });
+    assert.doesNotMatch(error.message, /s3cab aws/);
+    assert.doesNotMatch(error.message, /--profile <name>/);
+    assert.match(error.message, /provider's bucket and token permissions/);
   });
 });
 

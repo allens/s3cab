@@ -503,6 +503,45 @@ describe("requestErrorRelay", () => {
     );
   });
 
+  // A HEAD's response has no body, so a rejected one carries no `<Code>` for the
+  // rows above to key on. It reached the raw dump instead — which is why
+  // `backup` (whose first S3 call is the baseline-trust HEAD) printed a bare
+  // `ERROR: UnknownError` while `status` reported the same refusal properly.
+  it("maps a code-less 403 to the refused-without-reason error", async () => {
+    const cause = Object.assign(new Error("UnknownError"), {
+      name: "Unknown",
+      $metadata: { httpStatusCode: 403, requestId: "ABC123" },
+    });
+    await assert.rejects(
+      rejectWith(cause, { Bucket: "my-backups" }),
+      (/** @type {any} */ error) => {
+        assert.equal(error.cause, cause);
+        assert.match(error.message, /didn't say why/);
+        assert.match(error.message, /the bucket "my-backups"/);
+        // The useless string that used to *be* the whole error is gone.
+        assert.doesNotMatch(error.message, /UnknownError/);
+        return true;
+      },
+    );
+  });
+
+  // Row order is what keeps ADR-0037 intact: a refusal that *did* name its
+  // problem must still get that problem's remedy, not the hedged fallback.
+  it("still routes a coded AccessDenied to its own remedy, not the fallback", async () => {
+    const cause = Object.assign(named("AccessDenied"), {
+      $metadata: { httpStatusCode: 403, requestId: "ABC123" },
+      Code: "AccessDenied",
+    });
+    await assert.rejects(
+      rejectWith(cause, { Bucket: "my-backups" }),
+      (/** @type {any} */ error) => {
+        assert.match(error.message, /don't have permission/);
+        assert.doesNotMatch(error.message, /didn't say why/);
+        return true;
+      },
+    );
+  });
+
   // A dropped network never reaches the AWS-code rows above — no response, no
   // `<Code>` — so it is matched on the errno instead.
   for (const code of ["ECONNRESET", "ENETUNREACH", "ETIMEDOUT", "EAI_AGAIN"]) {

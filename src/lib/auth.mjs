@@ -1,6 +1,6 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { parseKnownFiles } from "@smithy/shared-ini-file-loader";
-import { customEndpoint, loadedSet } from "./env.mjs";
+import { customEndpoint, loadedSet, profileSource } from "./env.mjs";
 import { tildeify } from "./home.mjs";
 import {
   createSession,
@@ -9,7 +9,7 @@ import {
   readSigningIdentity,
 } from "./roles-anywhere.mjs";
 
-/** @import { AwsCredentialIdentity, AwsCredentialIdentityProvider } from "@aws-sdk/types" */
+/** @import { AwsCredentialIdentity, AwsCredentialIdentityProvider, MetadataBearer } from "@aws-sdk/types" */
 
 // AWS credential resolution. This is the single source of truth for *how* s3cab
 // obtains AWS credentials; the S3 SDK boundary (`src/lib/s3.mjs`) hands
@@ -318,6 +318,57 @@ const rawAwsError = (cause) => {
 };
 
 /**
+ * Which credentials s3cab actually signed in with — the sentence every
+ * request-time rejection below leads its diagnosis with.
+ *
+ * It exists because the *identity* is the likeliest thing to be wrong and the
+ * one thing the user cannot see: the credential chain falls through to the
+ * `default` profile when no `AWS_PROFILE` is set, so backing up as the wrong
+ * role looks identical to holding no permission at all. Stating what was used
+ * turns that into a one-line read. Deliberately a statement of *fact*, not a
+ * diagnosis — ADR-0037 rejects guessing a cause from a rejection we cannot
+ * decode, and this claims nothing about why the server said no.
+ *
+ * Reads the environment at call time (like `loadedSet`/`customEndpoint`
+ * alongside it), since a set's env layer is applied before any S3 call
+ * (ADR-0022/0055). Mirrors `authNotice` in s3.mjs — the same three sources in
+ * the same precedence — but worded for an error rather than a progress notice,
+ * and with no silent fallback: the no-profile case is the one most worth saying.
+ * @returns {string}
+ */
+export function credentialsUsed() {
+  // The four modes docs/design/auth.md describes, in the precedence that
+  // actually decides the request: Roles Anywhere short-circuits the chain
+  // (`resolveCredentials` checks it first), then the standard chain's own order
+  // — explicit keys in the environment, then a named profile, then whatever
+  // `default` yields. Never prints the key itself, only that one was used.
+  if (isRolesAnywhereMode()) {
+    return "s3cab signed in with Roles Anywhere (keyless).";
+  }
+  if (process.env.AWS_ACCESS_KEY_ID) {
+    return "s3cab signed in with the access key saved for this set.";
+  }
+  const profile = process.env.AWS_PROFILE;
+  if (!profile) {
+    return "s3cab signed in with your default AWS credentials (no AWS_PROFILE is set).";
+  }
+  const source = profileSource();
+  const via = source ? ` (from ${source})` : "";
+  return `s3cab signed in with AWS profile '${profile}'${via}.`;
+}
+
+/**
+ * The "…and if that identity is wrong, here is how to change it" follow-on to
+ * {@link credentialsUsed}. Split out because two factories need it, and because
+ * `s3cab provider --profile` is the one *durable* fix: it writes the profile
+ * into the set's own env file, so it sticks instead of living in a shell export
+ * the next terminal won't have.
+ */
+const wrongIdentityAdvice = `If that isn't the identity you meant to use, point this set at the right
+profile and run the command again:
+  s3cab provider --profile <name>`;
+
+/**
  * Whether an AWS error is the server refusing the request for lack of
  * permission — the credentials are valid and signed in, they just aren't
  * allowed. `AccessDenied` is a modeled SDK class with `readonly name`, and the
@@ -335,6 +386,12 @@ export const isAccessDenied = (error) =>
  * endpoint) the IAM JSON is meaningless, so we point at the provider's own
  * bucket/token permissions instead. A plain-`Error` factory (nothing catches it
  * by type); keeps `cause` for the S3CAB_DEBUG path. ADR-0030 wording.
+ * It embeds the raw AWS error like its siblings above, and for a *permission*
+ * rejection that is the load-bearing part rather than googling material: AWS
+ * names the calling identity in the text ("User: arn:aws:sts::…/SomeRole/…
+ * is not authorized to perform: s3:GetObject"). Dropping it — which this factory
+ * alone used to do — threw away the one line that distinguishes "my policy is
+ * wrong" from "I am signed in as the wrong role", the far likelier of the two.
  * @param {unknown} cause - The AWS error that triggered it.
  * @param {{ bucket?: string, endpoint?: string }} [ctx] - Request bucket and the
  *   custom endpoint, if any (its presence means "not AWS").
@@ -344,17 +401,24 @@ export const accessDeniedError = (cause, { bucket, endpoint } = {}) => {
   const remedy = endpoint
     ? `Check that your provider's bucket and token permissions allow listing
 and read/write access to ${target}.`
-    : `To see the exact least-privilege policy your identity needs, run:
+    : `If the identity is right, then it is missing permission on the bucket. To
+see the exact least-privilege policy it needs, run:
   s3cab aws ${bucket ?? "<bucket>"}`;
-  return new Error(
-    `You're signed in, but you don't have permission to use ${target}.
-
-Your sign-in worked — this is a permissions problem, not a credentials one.
-${remedy}
-
-Run 's3cab help provider' for details.`,
-    { cause },
-  );
+  const message = [
+    `You're signed in, but you don't have permission to use ${target}.`,
+    `Your sign-in worked — this is a permissions problem, not a credentials one.`,
+    `${credentialsUsed()}
+The server reported:
+     ${rawAwsError(cause)}`,
+    // AWS profiles are an AWS concept, so the switch-identity advice is dropped
+    // off-provider, where the endpoint branch's own remedy stands alone.
+    endpoint ? undefined : wrongIdentityAdvice,
+    remedy,
+    `Run 's3cab help provider' for details.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return new Error(message, { cause });
 };
 
 /**
@@ -372,6 +436,7 @@ const credentialAdviceError = (cause, { headline, advice }) =>
 
 ${advice}
 
+${credentialsUsed()}
 The server reported:
      ${rawAwsError(cause)}
 
@@ -435,6 +500,80 @@ export const clockSkewError = (cause) =>
     advice: `S3 rejects requests whose timestamp drifts too far from its own, and
 yours did. Sync your system clock, then run the command again.`,
   });
+
+/**
+ * Whether the server refused the request but sent **no error code at all** —
+ * the one case ADR-0037's code-first matching cannot reach, because it assumes
+ * a `<Code>` is always there to read.
+ *
+ * A HEAD response carries no body by definition, so a rejected `HeadObject` has
+ * nowhere to put the code: the SDK falls back to a placeholder name and a
+ * literal `"UnknownError"` message, which is what reached the terminal before
+ * this row existed. `backup`'s first S3 call is exactly that HEAD (the
+ * baseline-trust check in lib/upload.mjs `storedHashes`), so a permission
+ * problem printed as a bare `ERROR: UnknownError` while the same problem on a
+ * GET — `status`, `restore` — reported perfectly. Which verb a command happened
+ * to reach for first decided whether its error was legible.
+ *
+ * The discriminator is the **absence of `Code`**, not the status: an
+ * unenumerated but genuine code (`AccountProblem`, `AllAccessDisabled`) still
+ * deserializes into `Code` and must keep falling through to the raw dump, per
+ * ADR-0037's "no mushy middle". Narrowed to 403 because that is the status this
+ * was demonstrated on; a bodiless 400 (`ExpiredToken`'s status) is plausible but
+ * unobserved, and speculative rows are what ADR-0037 declined to add.
+ * @param {unknown} error
+ */
+export function isRefusedWithoutReason(error) {
+  if (!Error.isError(error)) {
+    return false;
+  }
+  const refusal =
+    /** @type {Error & Partial<MetadataBearer> & { Code?: string }} */ (error);
+  return (
+    refusal.$metadata?.httpStatusCode === 403 && refusal.Code === undefined
+  );
+}
+
+/**
+ * The "refused, with no reason given" error. Unlike every other factory here it
+ * **names no single cause**, because the response carried nothing to identify
+ * one: a code-less 403 spans `AccessDenied`, `SignatureDoesNotMatch`,
+ * `RequestTimeTooSkewed` and `InvalidAccessKeyId` alike. ADR-0037 rejected a
+ * status-keyed "coverage net" precisely because one message for that span
+ * misdirects — so this one says outright that s3cab cannot tell which it is,
+ * and leads with {@link credentialsUsed}, a fact rather than a guess. The
+ * ordering is by likelihood for a request that got as far as being signed and
+ * refused; a wrong secret or a skewed clock would have failed every request,
+ * not this one.
+ * @param {unknown} cause - The AWS error that triggered it.
+ * @param {{ bucket?: string, endpoint?: string }} [ctx] - Request bucket and the
+ *   custom endpoint, if any (its presence means "not AWS").
+ */
+export const refusedWithoutReasonError = (cause, { bucket, endpoint } = {}) => {
+  const target = bucket ? `the bucket "${bucket}"` : "that bucket";
+  const requestId = /** @type {Partial<MetadataBearer>} */ (cause)?.$metadata
+    ?.requestId;
+  const detail = requestId ? `HTTP 403, request ${requestId}` : "HTTP 403";
+  const remedy = endpoint
+    ? `Check that your provider's bucket and token permissions allow listing
+and read/write access to ${target}.`
+    : `If the identity is right, it may be missing permission on the bucket. To
+see the exact least-privilege policy it needs, run:
+  s3cab aws ${bucket ?? "<bucket>"}`;
+  const message = [
+    `The cloud refused to answer a question about ${target}, and didn't say why (${detail}).`,
+    `This kind of request is answered without a reply body, so the refusal
+arrived with no reason code in it. s3cab can't tell you which cause it
+was — what follows is the likeliest first, not a diagnosis.`,
+    credentialsUsed(),
+    endpoint ? undefined : wrongIdentityAdvice,
+    remedy,
+    `Run 's3cab help provider' for details.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return new Error(message, { cause });
+};
 
 // The standard AWS SDK Node.js provider chain, built once. The SDK client caches
 // the credentials it returns and re-invokes the provider near expiry, so a single
