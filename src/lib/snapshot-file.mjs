@@ -837,10 +837,10 @@ function formatLine(col1, col2, col3, col4) {
  * @returns {string}
  */
 function snapshotHeader({ moment, identity, dirs }) {
-  // Four columns, repurposed rather than added to (ADR-0072): the set, the
-  // machine-readable instant in `mtime`'s own column, then the snapshot's own
-  // name and the clock it was minted from. Col4 is *the name*, not "the local
-  // time" — so a file that gets renamed or copied still says what it was called.
+  // Four columns (ADR-0072): the set, the machine-readable instant in `mtime`'s
+  // own column, then the snapshot's own name and the clock it was minted from.
+  // Col4 is *the name*, not "the local time" — so a file that gets renamed or
+  // copied still says what it was called.
   let out = formatLine(
     SNAPSHOT,
     identity,

@@ -41,7 +41,7 @@ const fileUri = (bucket, set, file) =>
  * A set's remote ownership marker (the `info` file's fields).
  * @typedef {Object} SetInfo
  * @property {string} owner - The machine that owns the set (raw hostname)
- * @property {string} created - When the set was first created: a UTC instant at millisecond precision (ADR-0072). Pre-0072 markers hold a naive local minute instead, so read it as an opaque string
+ * @property {string} created - When the set was first created: a UTC instant at millisecond precision
  */
 
 /**
