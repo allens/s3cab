@@ -5,12 +5,11 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 // Tests for env.mjs's env loading (see docs/design/auth.md). The one s3cab layer
-// is a set's env file, applied by loadSet over the ambient shell (ADR-0055 dropped
-// the user layer, and ADR-0022's entry-point `loadEnv` went with it). applyEnvLayer
-// mutates process.env and applies each file at most once per run — so each test
-// (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh* copy of the module so the
-// once-per-run guard starts empty, and (c) has process.env snapshotted and restored
-// around it.
+// is a set's env file, applied by loadSet over the ambient shell (ADR-0055).
+// applyEnvLayer mutates process.env and applies each file at most once per run —
+// so each test (a) points S3CAB_HOME at a temp dir, (b) gets a *fresh* copy of the
+// module so the once-per-run guard starts empty, and (c) has process.env
+// snapshotted and restored around it.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -52,7 +51,7 @@ function writeEnv(path, contents) {
 
 /**
  * Wire up a temp home, point S3CAB_HOME at it, and return a fresh `loadSet` plus
- * helpers to populate the set file (and the retired user file, for the guard above).
+ * a helper to populate a set's env file.
  * @param {string} root - The disposable temp directory.
  */
 async function setup(root) {
@@ -70,34 +69,10 @@ async function setup(root) {
     loadSet: env.loadSet,
     envSource: env.envSource,
     setEnvPath,
-    /** @param {string} contents */
-    user: (contents) => writeEnv(join(home, ".s3cab", "env"), contents),
     /** @param {string} name @param {string} contents */
     set: (name, contents) => writeEnv(setEnvPath(name), contents),
   };
 }
-
-describe("the retired user layer", () => {
-  // ADR-0055 dropped `~/.s3cab/env`: a set's env file is the only s3cab layer.
-  // This guards that decision from the one direction it could regress — nothing
-  // reads the user file today, so only new code could resurrect it. The guard
-  // used to hang off `loadEnv`, which applied that layer before ADR-0055 and was
-  // retired once it had nothing left to apply; it now runs through `loadSet`,
-  // the door that remains.
-  it("ignores a ~/.s3cab/env file, even when a set layer is loaded", async () => {
-    await using dir = await mkTmpDir();
-    const t = await setup(dir.path);
-    t.user("AWS_PROFILE=userprof\nAWS_REGION=us-user\n");
-    t.set("photos", "S3CAB_BUCKET=photobucket\n");
-
-    t.loadSet("photos");
-
-    // The set carries neither key, so both must be absent — a user-file value
-    // reaching process.env would show up here as `userprof` / `us-user`.
-    assert.equal(process.env.AWS_PROFILE, undefined);
-    assert.equal(process.env.AWS_REGION, undefined);
-  });
-});
 
 describe("loadSet", () => {
   // `loadSet` applies the set layer over the ambient shell (set > shell — the one

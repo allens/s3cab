@@ -17,8 +17,8 @@ describe("restore arguments", () => {
   });
 
   it("rejects paths given with no --set rather than reading one as the set", async () => {
-    // The pre-ADR-0062 shape took the set as the first positional, so this call
-    // would have restored a set named after the path. It must be a usage error.
+    // The positionals are paths (ADR-0062), so a lone path has no set to belong
+    // to. It must say so, not quietly restore a set named after the path.
     await assert.rejects(restore(["C:\\Users\\me\\Photos\\beach.jpg"]), {
       code: "ERR_PARSE_ARGS",
       message: "Missing required argument: set",
