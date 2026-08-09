@@ -112,7 +112,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @property {string} name - The snapshot's name
  * @property {string} path - Where it landed locally
  * @property {number} files - Files the walk kept and the pass went through
- * @property {number} bytes - Bytes it read through (every file, hashed afresh or reused — the figure the progress line counted up to)
+ * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
  * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`)
  * @property {number} errors - Files it couldn't hash (`#ERROR`)
  * @property {number} elapsedMs - How long the whole pass took, walking included

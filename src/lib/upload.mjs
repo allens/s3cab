@@ -192,7 +192,7 @@ export function planUpload(target, stored) {
  * thing — and any caller that tolerates drift would have reported success on a
  * dead network.
  * @typedef {Object} UploadOutcome
- * @property {number} candidates - Objects considered for upload (not already stored)
+ * @property {number} candidates - Objects this run *attempted* — distinct hashes the `stored` skip-list didn't cover. Not the same as "not in the store": the skip-list is a baseline or a LIST taken earlier, and the conditional PUT is what actually settles presence, so some of these come back no-ops
  * @property {number} uploaded - Those actually transferred (the rest were no-ops the conditional PUT found present)
  * @property {number} uploadedBytes - Bytes those transfers moved
  * @property {number} sendingMs - Milliseconds spent inside the PUTs. The fused pass is strictly sequential — each PUT is awaited before its row is yielded on — so this and the rest of the pass's elapsed time sum to the pass exactly, which is what lets a backup report disk time and link time apart ([ADR-0078](../../docs/adr/0078-backup-run-report.md) §9)

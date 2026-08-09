@@ -54,9 +54,9 @@ import {
  * @property {string} bucket - Where its objects went
  * @property {string} snapshot - The fresh snapshot that was uploaded
  * @property {number} files - Files the pass went through
- * @property {number} bytes - Bytes it read through to do it
- * @property {number} scanMs - Milliseconds spent finding and reading them — the pass, minus the sending
- * @property {number} candidates - Objects considered for upload (new since the last backup)
+ * @property {number} bytes - Those files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. Which is why the report says "Scanned", not "Hashed"
+ * @property {number} scanMs - Milliseconds the pass spent on everything except sending: walking, stat-ing, and hashing whatever had changed
+ * @property {number} candidates - Objects this backup attempted — the ones its skip-list (the trusted baseline, else a store LIST) didn't already account for
  * @property {number} uploaded - Those actually transferred (the rest were already in the store)
  * @property {number} uploadedBytes - Bytes those transfers moved
  * @property {number} uploadMs - Milliseconds spent sending them
