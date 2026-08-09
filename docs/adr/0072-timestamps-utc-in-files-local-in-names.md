@@ -1,6 +1,7 @@
 # Timestamps: UTC inside files, local wall clock in names
 
-**Status:** accepted & implemented. Settles the timezone/precision question the
+**Status:** accepted & implemented — except the pre-0072 compatibility reader, **withdrawn
+2026-08-08** (see "Both layouts were read"). Settles the timezone/precision question the
 snapshot-format proposal carried. Extends
 [0004](0004-tsv-snapshot-manifests.md) (the row grammar) and applies
 [0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).
@@ -84,21 +85,30 @@ and zone:
 # generated:  2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
 ```
 
-### Both layouts are read, forever
+### Both layouts were read — withdrawn
 
-Snapshots are **immutable and never rewritten**, so changing the `#SNAPSHOT` row does not migrate
-anything — every file written before this keeps the old row, and a reader must handle both for
-good. That is the coexistence cost this whole ADR was weighed against, and it is paid here rather
-than avoided.
+> **Withdrawn 2026-08-08 by the pre-1.0 no-compatibility rule** (CLAUDE.md → Coding conventions).
+> Only the layout above is parsed. This section is kept as the record of what was decided and why
+> it was undone.
 
-The two are told apart by **whether col2 holds anything**. A set name is `[a-z0-9-]+` and so is
-never empty; the pre-0072 writer always left col2 blank (`#SNAPSHOT<TAB><TAB>datetime<TAB>set`).
-No version marker is needed, and none is added — the layouts are self-distinguishing.
+The reasoning at the time: snapshots are **immutable and never rewritten**, so changing the
+`#SNAPSHOT` row migrates nothing — every file written before this keeps the old row, and a reader
+must handle both for good. The two were told apart by **whether col2 holds anything**: a set name
+is `[a-z0-9-]+` and so is never empty, while the pre-0072 writer always left col2 blank
+(`#SNAPSHOT<TAB><TAB>datetime<TAB>set`), so the layouts were self-distinguishing and no version
+marker was needed.
 
-An old header yields `identity` as before, with `instant` and `zone` **absent** rather than
-guessed, so `Snapshot` types them as optional and a consumer has to decide what to do without
-them. That is what keeps the warn-only checks below honest: they simply do not fire on a snapshot
-that cannot answer.
+That coexistence was bought for nobody. Nothing is released, so the only files in the old layout
+are developers' own — and the branch was not inert: without it, an old header's naive local
+datetime is read straight into `instant`. It then reaches `Temporal.Instant.compare` in check A
+below, which rejects it (`RangeError: Required fields missing from Instant string`). So the cost
+of deletion is a loud failure on a developer's own stale file, against the cost of keeping it: a
+discriminator every future reader of the parse loop has to understand.
+
+`Snapshot` still types `identity`, `instant` and `zone` as **optional**, but no longer because a
+header layout omits them — a snapshot may carry no `#SNAPSHOT` line at all (the row-only form the
+test fixture builder writes). That is what keeps the warn-only checks below honest: they simply do
+not fire on a snapshot that cannot answer.
 
 ## Why names stay local
 

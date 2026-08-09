@@ -153,8 +153,7 @@ function resolveDirectories(directories) {
  * The `info` marker's `CREATED` value: a full UTC instant
  * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
  * It is a record, never typed and never sorted, so a fully-qualified form costs
- * no UX — and it retires the odd third spelling of naive local time this used to
- * write. What a *user* sees is rendered down to a date by `collisionError`.
+ * no UX. What a *user* sees is rendered down to a date by `collisionError`.
  */
 const nowStamp = () =>
   Temporal.Now.instant().toString({ smallestUnit: "millisecond" });
@@ -176,8 +175,7 @@ const collisionError = (name, bucket, info) => {
   if (info?.created) {
     // Just the date. The file keeps the full instant, but a millisecond UTC
     // timestamp mid-sentence is the sort of jargon ADR-0030 keeps out of a
-    // headline, and "roughly when" is all this line needs. Slicing suits both
-    // spellings: an old marker's `2026-06-12T09:15` yields the same date.
+    // headline, and "roughly when" is all this line needs.
     parts.push(`created ${info.created.slice(0, 10)}`);
   }
   const detail = parts.length ? ` (${parts.join(", ")})` : "";

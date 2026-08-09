@@ -147,10 +147,6 @@ self-describing even found alone in a bucket; then one row per file:
 - **`path`** — absolute, in the OS's native style, last on the line so the fixed-width
   columns stay aligned.
 
-Snapshots written by an older s3cab carry a shorter `#SNAPSHOT` line — the set name last, a
-local time with no zone, and no UTC instant. They are still read, and always will be: a snapshot
-is never rewritten once written, so both forms are permanent.
-
 After its marker, the `#SNAPSHOT` line carries three fields: the **set** name, the **instant the
 snapshot started** (UTC, the same form as `mtime`, so it lines up in the same column), and
 the snapshot's **own name followed by the time zone that name was minted in**. Snapshot

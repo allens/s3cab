@@ -251,7 +251,7 @@ describe("readSnapshot", () => {
       join(snapshotDir, snapshotFileName(name)),
       zstdCompressSync(
         [
-          "#SNAPSHOT\t\t2026-06-23T10:00\tphotos",
+          "#SNAPSHOT\tphotos\t2026-06-23T09:00:00.000Z\t2026-06-23T1000 Europe/London",
           `${hashA}\t3\t2026-06-23T10:00:00.000Z\t${file}`,
         ].join("\n"),
       ),
