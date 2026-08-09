@@ -42,7 +42,7 @@ import { walkSet } from "./walk.mjs";
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
  * @property {SnapshotEntries} [lookup] - The hash lookup: those entries with parked hashes overlaid
- * @property {string} [instant] - When it was taken, as a UTC instant (ADR-0072). Absent on a first run, there being no previous snapshot to read it from
+ * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT` header
  */
 
 /**
@@ -481,9 +481,12 @@ function fitPath(path, room) {
  * **Warns, never blocks.** A clock oddity must not stop a backup — least of all
  * while travelling, which is one of the two ways to get here.
  *
- * Silent when there is nothing to compare — a first snapshot, which has no
- * predecessor to have gone back from. Guessing from the names instead would
- * reintroduce exactly the ambiguity this check exists to see through.
+ * Silent whenever the predecessor cannot answer — the condition is
+ * `previousInstant`, not "is this a first run". Usually there is no predecessor
+ * at all; a predecessor whose file carries no `#SNAPSHOT` header reaches here
+ * the same way, since `Snapshot` leaves the instant absent rather than guessing
+ * it. Guessing from the names instead would reintroduce exactly the ambiguity
+ * this check exists to see through.
  * @param {{ name: string, instant: string }} moment - The snapshot about to be written
  * @param {string} [previousInstant] - The predecessor's instant, if it has one
  */
