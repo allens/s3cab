@@ -99,6 +99,28 @@ export async function readBaseline(set, { rehash } = {}) {
 }
 
 /**
+ * What one snapshot pass produced — the file it wrote, and the facts about the
+ * run that only the pass itself knows. It used to return `{name, path}` and drop
+ * the rest on the floor, so `backup` had nothing to report but an object count
+ * ([ADR-0078](../../docs/adr/0078-backup-run-report.md)).
+ *
+ * `skipped` and `errors` come from **here**, not from the diff that follows,
+ * even though the diff carries them too: they are facts about the snapshot just
+ * written rather than about the comparison, and a first backup — which runs no
+ * diff at all (ADR-0078 §7) — still has to report them.
+ * @typedef {Object} SnapshotPass
+ * @property {string} name - The snapshot's name
+ * @property {string} path - Where it landed locally
+ * @property {number} files - Files the walk kept and the pass went through
+ * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
+ * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
+ * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
+ * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`)
+ * @property {number} errors - Files it couldn't hash (`#ERROR`)
+ * @property {number} elapsedMs - How long the whole pass took, walking included
+ */
+
+/**
  * Take the set's snapshot: walk every member directory, hash each kept file
  * (reusing `lookup`'s hash where the file is unchanged), and write the result
  * into the set's snapshot store.
@@ -118,12 +140,16 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
  * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
- * @returns {Promise<{ name: string, path: string }>} The snapshot's name and local path
+ * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
 export async function generateSnapshot(
   set,
   { lookup, sizes, through, transfer, debug, previousInstant } = {},
 ) {
+  // From here, not from the first hashed row: the walk is part of what the
+  // report calls scanning, and on a big set it is minutes of it.
+  const startedAt = performance.now();
+
   // One clock read gives the name, the UTC instant, and the zone — the three
   // spellings the file needs, which therefore cannot disagree (ADR-0072).
   const moment = snapshotMoment();
@@ -140,6 +166,18 @@ export async function generateSnapshot(
   const displayPath = join(set.snapshotsDir, snapshotFileName(name));
   const verb = transfer ? "Backing up" : "Snapshotting";
   console.warn(`${verb} '${set.name}/${name}' ('${tildeify(displayPath)}'):`);
+  // Where the objects are going, on a second line (ADR-0078 §11). Until now the
+  // only line that named the bucket was the store LIST's, which fires *only*
+  // when there is no trusted baseline — so s3cab named the destination on a
+  // first backup and never again, and every routine run afterwards said which
+  // folders it was reading and stayed silent about where it was sending them.
+  // Same shape as that line, quotes and all: the bucket alone, since the
+  // `objects/` prefix is internal layout (guide/format.md) while `s3://<bucket>`
+  // is the thing the user configured. Only when this pass is sending — an
+  // offline `snapshot` has no destination to name.
+  if (transfer) {
+    console.warn(`Storing objects in 's3://${set.bucket}'`);
+  }
 
   const { files, excluded, skipped } = walkSet(set);
 
@@ -164,6 +202,18 @@ export async function generateSnapshot(
   // know — new ones — are absent from it, so it is an estimate; `progressLine`
   // grows it rather than letting the percentage exceed 100.
   let bytesDone = 0;
+  // Of those, what was really read rather than reused. Two figures that look
+  // alike and answer different questions: `bytesDone` is how big the set is,
+  // this is how much work the pass did. A backup that re-read 1.8TB and one
+  // that reused every hash are minutes apart and otherwise indistinguishable
+  // in the report — which is exactly the case a sync client rewriting mtimes
+  // produces, silently, on a set nobody has touched.
+  let hashedFiles = 0;
+  let hashedBytes = 0;
+  // Files the pass couldn't hash. Counted at the one place that learns of them —
+  // `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
+  // the tally cannot drift from the rows actually written.
+  let errored = 0;
   let bytesTotal = 0;
   for (const file of files) {
     bytesTotal += sizes?.get(file)?.size ?? 0;
@@ -192,7 +242,20 @@ export async function generateSnapshot(
         // whether it was hashed or reused, so the numerator is exact even where
         // the denominator is estimated.
         bytesDone += props.size;
+        // Read or reused, told apart at no cost: `fileProps` returns the
+        // baseline's own `Props` object on a reuse and sets `hashDuration`
+        // only on a path that actually hashed — and a row parsed back out of a
+        // snapshot file never carries one (`parseSnapshotStream` builds
+        // hash/size/mtime and nothing else). So the field's presence is an
+        // exact discriminator rather than a heuristic.
+        if (props.hashDuration !== undefined) {
+          hashedFiles++;
+          hashedBytes += props.size;
+        }
         return props;
+      } catch (error) {
+        errored++;
+        throw error;
       } finally {
         hashing = null;
       }
@@ -209,7 +272,17 @@ export async function generateSnapshot(
     );
   }
 
-  return { name, path };
+  return {
+    name,
+    path,
+    files: files.length,
+    bytes: bytesDone,
+    hashedFiles,
+    hashedBytes,
+    skipped: skipped.length,
+    errors: errored,
+    elapsedMs: performance.now() - startedAt,
+  };
 }
 
 /**

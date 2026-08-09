@@ -6,6 +6,7 @@ import {
   formatCount,
   formatDuration,
   plural,
+  shortDuration,
 } from "./format.mjs";
 
 describe("formatByteValue", () => {
@@ -141,4 +142,29 @@ describe("formatDuration", () => {
       assert.equal(formatDuration(Number(milliseconds)), expected);
     });
   }
+});
+
+describe("shortDuration", () => {
+  // Two most significant units, unpadded — a backup's closing report puts two
+  // spans in one line (ADR-0078 §9), where the prose form's own comma would run
+  // into the commas separating the clauses.
+  for (const [milliseconds, expected] of [
+    [0, "0s"],
+    [45_400, "45s"],
+    [552_000, "9m 12s"],
+    [132_000, "2m 12s"],
+    [60_000, "1m 00s"],
+    [11_045_000, "3h 04m"],
+    // Negative can only come of arithmetic between two clocks; it reports as
+    // nothing elapsed rather than as a duration that ran backwards.
+    [-5_000, "0s"],
+  ]) {
+    it(`renders ${milliseconds}ms as "${expected}"`, () => {
+      assert.equal(shortDuration(Number(milliseconds)), expected);
+    });
+  }
+
+  it("carries no padding, unlike the progress line's fixed-width twin", () => {
+    assert.equal(shortDuration(45_000).length, "45s".length);
+  });
 });

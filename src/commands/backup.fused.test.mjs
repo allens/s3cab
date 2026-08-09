@@ -42,6 +42,7 @@ const { backup } = await import("./backup.mjs");
 const { writeSet } = await import("../lib/sets.mjs");
 const { listSnapshotNames, readSnapshot } =
   await import("../lib/snapshot-file.mjs");
+const { writeSnapshot } = await import("../../test/helpers/write-snapshot.mjs");
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 const sha = (/** @type {string} */ content) =>
@@ -122,5 +123,113 @@ describe("backup (fused snapshot + upload, real engine)", () => {
     const { entries } = await readSnapshot(snapshotDir, name);
     assert.equal(entries.size, 3);
     assert.ok(existsSync(join(snapshotDir, `${name}.tsv.zst`)));
+  });
+});
+
+// What a finished run reports (ADR-0078), measured by the real engine rather
+// than a faked one — the figures are only worth anything if they are the pass's
+// own, and the files-versus-objects gap below is exactly what makes an object
+// count a bad answer to "what did that do?".
+describe("backup's run report (real engine)", () => {
+  const data = (/** @type {string} */ root) =>
+    realpathSync.native(join(root, "data"));
+
+  it("counts the files it went through, apart from the objects it sent", async () => {
+    await using dir = await mkTmpDir();
+    oneSet(dir.path);
+
+    const result = await backup("photos");
+
+    assert.equal(result.bucket, "b");
+    // Three files, 15 bytes read — but two of them share their content, so only
+    // two objects and 10 bytes ever went over the wire. Reporting the transfer
+    // alone would have called this a two-file backup.
+    assert.equal(result.files, 3);
+    assert.equal(result.bytes, 15);
+    assert.equal(result.uploaded, 2);
+    assert.equal(result.uploadedBytes, 10);
+    assert.equal(result.skipped, 0);
+    assert.equal(result.errors, 0);
+    // Nothing to reuse on a first backup, so every file was really read.
+    assert.equal(result.hashedFiles, 3);
+    assert.equal(result.hashedBytes, 15);
+    // Both halves of the pass are measured, and neither can be negative — the
+    // scan half is the pass minus the sending (ADR-0078 §9).
+    assert.ok(result.scanMs >= 0);
+    assert.ok(result.uploadMs >= 0);
+    // A first backup runs no diff at all (§7).
+    assert.equal(result.comparison, null);
+  });
+
+  it("counts what it really read, apart from what it only checked", async () => {
+    // The figure that tells a routine pass from one that re-read the whole set.
+    // Every file is unchanged against the baseline, so all three hashes are
+    // reused and not a byte is opened — while `files`/`bytes` still describe
+    // the set in full.
+    await using dir = await mkTmpDir();
+    const snapshotDir = oneSet(dir.path);
+    await writeSnapshot(
+      snapshotDir,
+      "2020-01-01T0900",
+      ["a.txt", "b.txt", "copy.txt"],
+      data(dir.path),
+    );
+
+    const result = await backup("photos");
+
+    assert.equal(result.files, 3);
+    assert.equal(result.bytes, 15);
+    assert.equal(result.hashedFiles, 0);
+    assert.equal(result.hashedBytes, 0);
+  });
+
+  it("names the destination bucket in the preamble", async () => {
+    // Until this, the only line naming the bucket was the store LIST's, which
+    // fires only when there is no trusted baseline — so s3cab said where the
+    // backup was going on the first run and never again (ADR-0078 §11).
+    await using dir = await mkTmpDir();
+    oneSet(dir.path);
+    /** @type {string[]} */
+    const said = [];
+    const warn = mock.method(console, "warn", (/** @type {unknown[]} */ ...m) =>
+      said.push(m.join(" ")),
+    );
+
+    try {
+      await backup("photos");
+    } finally {
+      warn.mock.restore();
+    }
+
+    assert.match(said.join("\n"), /^Storing objects in 's3:\/\/b'$/m);
+  });
+
+  it("diffs the snapshot it just wrote against the baseline already in memory", async () => {
+    // The summary and the command it prints have to be the same computation, or
+    // "1 added" over a listing of none is a trust bug (ADR-0078 §8).
+    await using dir = await mkTmpDir();
+    const snapshotDir = oneSet(dir.path);
+    const root = data(dir.path);
+    // A baseline taken before `copy.txt` existed.
+    await writeSnapshot(
+      snapshotDir,
+      "2020-01-01T0900",
+      ["a.txt", "b.txt"],
+      root,
+    );
+
+    const result = await backup("photos");
+
+    assert.equal(result.comparison?.since, "2020-01-01T0900");
+    assert.equal(result.comparison?.until, result.snapshot);
+    assert.deepEqual(
+      result.comparison?.added.map((entry) => entry.path),
+      [join(root, "copy.txt")],
+    );
+    // It is a copy of content the backup already holds, which is why nothing
+    // about it was uploaded — the diff says so rather than calling it new.
+    assert.deepEqual(result.comparison?.added[0]?.duplicates, [
+      join(root, "a.txt"),
+    ]);
   });
 });

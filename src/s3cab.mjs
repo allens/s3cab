@@ -139,9 +139,10 @@ try {
   // defined-result guard stays: a command's declared return type still admits
   // `undefined`, and calling a renderer on it would throw.
   if (result !== undefined) {
+    const context = { color: styleEnabled(process.stdout) };
     const output = json
       ? JSON.stringify(result, null, 2)
-      : command.render(result, { color: styleEnabled(process.stdout) });
+      : command.render(result, context);
     // A renderer can return "" — an empty `tree`/`hashes` stream. Emit nothing
     // then, not a lone "\n": the empty→empty-string contract must survive a
     // redirect/pipe (a stray newline would corrupt it, and read as one line to
@@ -149,6 +150,17 @@ try {
     // empty-stream case.
     if (output) {
       process.stdout.write(output + "\n");
+    }
+    // Output the command has to *ask* about, offered only once its result is
+    // already on screen — `backup`'s "show what changed?" (ADR-0078 §5), whose
+    // whole point is that the summary above it is what the answer is judged on.
+    // Never under `--json`: that is machine output, and a prompt in the middle
+    // of it is neither.
+    if (!json && command.offer) {
+      const extra = await command.offer(result, context);
+      if (extra) {
+        process.stdout.write(extra + "\n");
+      }
     }
   }
 } catch (error) {

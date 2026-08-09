@@ -28,8 +28,14 @@ let storedCalls = [];
 let generateCalls = [];
 /** @type {Record<string, unknown>[]} the args each manifest upload got */
 let manifestCalls = [];
-/** @type {{ candidates: number, uploaded: number, drifted: Drift[], failure?: Error }} */
+/** @type {{ candidates: number, uploaded: number, uploadedBytes: number, sendingMs: number, drifted: Drift[], failure?: Error }} */
 let outcome;
+/** @type {Record<string, unknown>} what `generateSnapshot` reports about the pass */
+let pass;
+/** @type {Record<string, unknown>[]} the args each `compareSnapshots` call got */
+let compareCalls = [];
+/** @type {object | null} what the mocked compare returns */
+let comparison;
 /** @type {{ drifted: Drift[], set: string }[]} calls into the drift-error factory */
 let driftErrorCalls = [];
 /** @type {(() => void) | undefined} let `pushSetConfig` throw, to test best-effort */
@@ -65,7 +71,20 @@ mock.module("../lib/snapshot.mjs", {
     ) => {
       calls.push("generateSnapshot");
       generateCalls.push(options);
-      return { name: "2026-01-02T0900", path: "snaps/2026-01-02T0900.tsv.zst" };
+      return pass;
+    },
+  },
+});
+mock.module("../lib/compare.mjs", {
+  exports: {
+    compareSnapshots: async (
+      /** @type {string} */ snapshotDir,
+      /** @type {string[]} */ dirs,
+      /** @type {Record<string, unknown>} */ options,
+    ) => {
+      calls.push("compareSnapshots");
+      compareCalls.push({ snapshotDir, dirs, ...options });
+      return comparison;
     },
   },
 });
@@ -118,7 +137,26 @@ beforeEach(() => {
   storedCalls = [];
   generateCalls = [];
   manifestCalls = [];
-  outcome = { candidates: 3, uploaded: 2, drifted: [] };
+  compareCalls = [];
+  pass = {
+    name: "2026-01-02T0900",
+    path: "snaps/2026-01-02T0900.tsv.zst",
+    files: 400,
+    bytes: 4_000_000,
+    hashedFiles: 12,
+    hashedBytes: 300_000,
+    skipped: 1,
+    errors: 2,
+    elapsedMs: 9_000,
+  };
+  outcome = {
+    candidates: 3,
+    uploaded: 2,
+    uploadedBytes: 1_500_000,
+    sendingMs: 2_000,
+    drifted: [],
+  };
+  comparison = { since: "2026-01-01T0900", until: "2026-01-02T0900" };
   driftErrorCalls = [];
   pushCalls = [];
   pushFails = undefined;
@@ -145,6 +183,10 @@ describe("backup (the fused pass)", () => {
       "generateSnapshot",
       "uploadSnapshotFile",
       "pushSetConfig",
+      // Last, over the snapshot that has just landed — the run's report is a
+      // *reading* of the finished snapshot, never a tally kept alongside it
+      // (ADR-0078 §8).
+      "compareSnapshots",
     ]);
     // The uploader rides *inside* the snapshot write — that is the fusion.
     assert.ok(
@@ -167,10 +209,70 @@ describe("backup (the fused pass)", () => {
     ]);
     assert.deepEqual(result, {
       set: "photos",
+      bucket: "b",
       snapshot: "2026-01-02T0900",
+      files: 400,
+      bytes: 4_000_000,
+      hashedFiles: 12,
+      hashedBytes: 300_000,
+      // The pass took 9s, 2s of which were spent sending — the halves are
+      // exclusive because the fused pass awaits each PUT before moving on, which
+      // is what makes "is my disk slow or my link slow" answerable (ADR-0078 §9).
+      scanMs: 7_000,
       candidates: 3,
       uploaded: 2,
+      uploadedBytes: 1_500_000,
+      uploadMs: 2_000,
+      skipped: 1,
+      errors: 2,
+      comparison,
     });
+  });
+
+  it("reports skipped and errored files from the pass, not from the diff", async () => {
+    // Two sources for one number is the divergence ADR-0078 §8 refuses. These
+    // are facts about the snapshot just written, and a first backup — which runs
+    // no diff at all — still has to report them.
+    pass.skipped = 7;
+    pass.errors = 4;
+    comparison = { since: "x", until: "y", skipped: [], errors: [] };
+
+    const result = await backup("photos");
+
+    assert.equal(result.skipped, 7);
+    assert.equal(result.errors, 4);
+  });
+
+  it("diffs against the baseline it already parsed, never a second read of it", async () => {
+    const result = await backup("photos");
+
+    assert.deepEqual(compareCalls, [
+      {
+        snapshotDir: "snaps",
+        dirs: [],
+        // The entries handed straight through, not the baseline's *name*: the
+        // run is holding that parse already (`readBaseline`), and `compare`
+        // accepts it in this form precisely so it isn't decompressed twice.
+        since: { name: "2026-01-01T0900", entries: baseline.previous },
+        until: "2026-01-02T0900",
+        setName: "photos",
+      },
+    ]);
+    assert.equal(result.comparison, comparison);
+  });
+
+  it("runs no comparison at all on a first backup", async () => {
+    // Every file is an addition against an empty baseline: the diff is both the
+    // most expensive one there is and the least informative (ADR-0078 §7). The
+    // couldn't-be-backed-up counts still come through.
+    baseline = {}; // no previous snapshot
+    pass.skipped = 3;
+
+    const result = await backup("photos");
+
+    assert.ok(!calls.includes("compareSnapshots"));
+    assert.equal(result.comparison, null);
+    assert.equal(result.skipped, 3);
   });
 
   it("hands the previous local snapshot to storedHashes as the baseline", async () => {
@@ -199,7 +301,7 @@ describe("backup (the fused pass)", () => {
     // The local snapshot landed (generateSnapshot returned), so the fix is to
     // re-send the objects — not to re-hash the whole set.
     const failure = new Error("connection reset");
-    outcome = { candidates: 3, uploaded: 1, drifted: [], failure };
+    outcome = { ...outcome, uploaded: 1, failure };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
       assert.match(error.message, /connection reset/);
@@ -221,7 +323,7 @@ describe("backup (the fused pass)", () => {
     // at a retry that must fail. `backup` hands the whole list to the factory.
     /** @type {Drift[]} */
     const drifted = [{ path: "photo.raw", reason: "changed" }];
-    outcome = { candidates: 3, uploaded: 2, drifted };
+    outcome = { ...outcome, drifted };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
       assert.ok(error instanceof FileChangedError);
@@ -239,7 +341,7 @@ describe("backup (the fused pass)", () => {
     // the user was sent at a fresh backup when the actual problem was the link.
     const failure = new Error("connection reset");
     outcome = {
-      candidates: 3,
+      ...outcome,
       uploaded: 1,
       drifted: [{ path: "photo.raw", reason: "changed" }],
       failure,

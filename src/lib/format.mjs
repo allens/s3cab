@@ -152,26 +152,53 @@ const durationFormat = new Intl.DurationFormat("en", {
 const ELAPSED_COLUMNS = 7;
 
 /**
+ * A whole-second span in the compact two-unit form — `45s`, `12m 21s`,
+ * `3h 04m` — the shared core of the two spellings below. Private, because the
+ * choice a caller actually makes is *padded or not*, and both those doors are
+ * exported.
+ * @param {number} totalSeconds
+ * @returns {string}
+ */
+function compactSpan(totalSeconds) {
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  return hours > 0
+    ? `${hours}h ${String(minutes).padStart(2, "0")}m`
+    : minutes > 0
+      ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
+      : `${seconds}s`;
+}
+
+/**
  * `    45s`, `12m 21s`, ` 3h 04m` — fixed width for a column that must not move.
  * @param {Temporal.Instant} instant
  * @returns {string}
  */
-export const elapsedSince = (instant) => {
-  const total = Math.max(
-    0,
-    Math.floor(Temporal.Now.instant().since(instant).total("seconds")),
-  );
-  const seconds = total % 60;
-  const minutes = Math.floor(total / 60) % 60;
-  const hours = Math.floor(total / 3600);
-  const text =
-    hours > 0
-      ? `${hours}h ${String(minutes).padStart(2, "0")}m`
-      : minutes > 0
-        ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
-        : `${seconds}s`;
-  return text.padStart(ELAPSED_COLUMNS);
-};
+export const elapsedSince = (instant) =>
+  compactSpan(
+    Math.max(
+      0,
+      Math.floor(Temporal.Now.instant().since(instant).total("seconds")),
+    ),
+  ).padStart(ELAPSED_COLUMNS);
+
+/**
+ * The same compact form for a span already measured in milliseconds, unpadded —
+ * for a line printed once rather than redrawn, where padding would only insert a
+ * gap mid-sentence.
+ *
+ * The compact form rather than {@link formatDuration}'s prose one, against
+ * [ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s
+ * default for a retained summary: a backup's closing report puts *two* spans in
+ * one line ([ADR-0078](../../docs/adr/0078-backup-run-report.md) §9), and
+ * `9 minutes, 12 seconds` carries a comma of its own that collides with the
+ * commas separating the line's own clauses.
+ * @param {number} milliseconds
+ * @returns {string}
+ */
+export const shortDuration = (milliseconds) =>
+  compactSpan(Math.max(0, Math.round(milliseconds / 1000)));
 
 /** @param {Temporal.Instant} instant */
 export const secondsSince = (instant) =>

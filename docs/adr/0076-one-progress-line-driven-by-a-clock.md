@@ -1,7 +1,8 @@
 # One progress line per pass, driven by a clock
 
 **Status:** accepted & implemented; amended 2026-08-06 (§3 now has an owner — see *A counted pass
-is a thing the module offers*). Extends
+is a thing the module offers*) and 2026-08-09 (§4's announce gained the destination bucket, with
+[0078](0078-backup-run-report.md)). Extends
 [0010](0010-cli-output-conventions.md)'s output/stream discipline and
 [0043](0043-human-first-output.md)'s human-first rendering to *progress*, and settles the display
 [0069](0069-fused-snapshot-upload-pipeline.md) left behind when it fused two passes into one.
@@ -60,6 +61,11 @@ data cannot report on the data's own stalls.**
    naming what it is doing and to what (`Backing up 'photos/2026-07-31T0915' ('<path>'):`), so the
    dynamic line carries no constant text — a dozen columns repeated four times a second, which the
    file path needs instead. `<set>/<snapshot>` is the notation the rest of the output already uses.
+   A backup's announce takes a **second line naming the destination bucket**
+   (`Storing objects in 's3://<bucket>'`), added when
+   [0078](0078-backup-run-report.md) §11 was built: the only other line that named it was the
+   store LIST's, which fires only when there is no trusted baseline, so s3cab said where the
+   backup was going on a first run and never again.
 5. **A row earns its name by taking a second.** Below that it is over before it can be read, and
    naming tens of thousands of fast files hides the one that is actually holding things up.
    Applied uniformly to hashing and uploading, both of which carry a start time.

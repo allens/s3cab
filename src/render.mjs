@@ -10,14 +10,28 @@
 // Renderer bodies compose the primitives in lib/format.mjs and the colourisers
 // in lib/style.mjs; a renderer never prints (it returns), and never truncates
 // (ADR-0043 — the user manages volume with a pager or redirect).
+//
+// One function here is not a renderer: `offerBackupChanges` *asks* whether to
+// render more, so it is async and it reads the terminal (ADR-0078). It lives
+// beside the renderers because what it hands back is rendered text, produced by
+// the very renderer `compare` uses — and it still returns rather than prints.
+// The dispatcher runs it through the registry's `offer` field, after the result
+// it follows is already on screen.
 
 import { dirname, relative, sep } from "node:path";
-import { formatByteValue, formatCount, plural } from "./lib/format.mjs";
+import {
+  countOf,
+  formatByteValue,
+  formatCount,
+  plural,
+  shortDuration,
+} from "./lib/format.mjs";
 import { tildeify } from "./lib/home.mjs";
+import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
-import { bold, cyan, green, red, yellow } from "./lib/style.mjs";
+import { bold, cyan, green, isInteractive, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { ListResult } from "./commands/list.mjs" */
@@ -301,6 +315,24 @@ function skippedSection(skipped, shorten, paint) {
 }
 
 /**
+ * Whether a diff has anything at all to report. Skipped is in the test alongside
+ * errors, so a snapshot whose only news is an unbacked-up symlink can't print
+ * `No changes.` directly beneath the section that just listed it — and so a
+ * backup with nothing but a skip still has something to offer showing.
+ * @param {CompareResult} result
+ * @returns {boolean}
+ */
+const hasFindings = ({ added, moved, modified, deleted, errors, skipped }) =>
+  Boolean(
+    added.length ||
+    moved.length ||
+    modified.length ||
+    deleted.length ||
+    errors.length ||
+    skipped.length,
+  );
+
+/**
  * The closing summary: every category with its count (stable width, zeros
  * included) plus the bytes that changed — added + modified + deleted content
  * (rename and move both relocate the same bytes, so both are excluded).
@@ -314,18 +346,8 @@ function skippedSection(skipped, shorten, paint) {
  * @returns {string}
  */
 function summaryLine(result, renamedCount, movedCount) {
-  const { added, moved, modified, deleted, errors, skipped } = result;
-  // Skipped joins the "did anything happen?" test alongside errors, so a
-  // snapshot whose only news is an unbacked-up symlink can't print `No changes.`
-  // directly beneath the section that just listed it.
-  if (
-    !added.length &&
-    !moved.length &&
-    !modified.length &&
-    !deleted.length &&
-    !errors.length &&
-    !skipped.length
-  ) {
+  const { added, modified, deleted, errors, skipped } = result;
+  if (!hasFindings(result)) {
     return "No changes.";
   }
   const bytes = sumSize(added) + sumSize(modified) + sumSize(deleted);
@@ -636,27 +658,220 @@ function problemDetail(p) {
 }
 
 /**
- * Confirm a `backup` (ADR-0043) — which set and snapshot went up, and how much
- * new content transferred. `candidates` is the objects this backup considered
- * (new since the last one); `uploaded` those actually sent — the rest the store
- * already held (dedup, or a resumed backup). Zero candidates is the up-to-date
- * case; when every candidate uploaded, the "already stored" aside is dropped.
+ * Report a finished `backup` ([ADR-0078](../../docs/adr/0078-backup-run-report.md)) —
+ * a line per question, in that order because they are different questions:
+ *
+ * ```
+ * Backed up 'onedrive' → snapshot 2026-08-08T0206
+ * Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
+ * Uploaded 426 objects (14.9GB) in 2m 12s
+ * Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
+ * Couldn't be backed up: 1 skipped, 1 error
+ *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
+ * ```
+ *
+ * **The report is about files** (§1). The object counts stay — they are the
+ * transfer, and the answer to "why did that take so long" — but they no longer
+ * stand in for what happened: content-addressed dedup (ADR-0001) means a file
+ * that merely moved changes everything and uploads nothing.
+ *
+ * **What is listed in full versus counted** (§2) is the dividing line: `backup`
+ * spells out only what only `backup` can know — bytes, timings, transfers.
+ * Everything the *snapshot* holds is a count plus the copy-pasteable command,
+ * because the snapshot is permanent, so nothing is lost by not printing it. The
+ * command names **both** snapshots on purpose: a bare `s3cab compare` stops
+ * meaning "that run" the moment another backup lands.
+ *
+ * **`moved` is in the changes line** so a large reorganisation cannot read as
+ * "nothing happened" beside `uploaded 0 objects`. **The heading is `Couldn't`**,
+ * not "Not backed up" (§4) — excluded files are also not backed up, in their
+ * thousands, and the distinction that matters is *didn't choose to* versus
+ * *couldn't*.
+ *
+ * Every figure is read off the result, never derived here (§10) — including
+ * `skipped`/`errors`, which the *pass* counted rather than the diff, so a first
+ * backup (which runs no diff) still reports them.
  * @param {BackupResult} result
  * @returns {string}
  */
-export function renderBackup({ set, snapshot, candidates, uploaded }) {
-  return objectUploadLine(
-    `Backed up '${set}' (snapshot ${snapshot})`,
-    candidates,
-    uploaded,
+export function renderBackup(result) {
+  const { set, snapshot, skipped, errors, comparison } = result;
+  const lines = [
+    `Backed up '${set}' → snapshot ${snapshot}`,
+    scanLine(result),
+    uploadLine(result),
+    changesLine(comparison),
+  ];
+
+  if (skipped || errors) {
+    const parts = [];
+    if (skipped) {
+      parts.push(`${formatCount(skipped)} skipped`);
+    }
+    if (errors) {
+      parts.push(countOf(errors, "error"));
+    }
+    lines.push(`Couldn't be backed up: ${parts.join(", ")}`);
+  }
+
+  // The pointer, only when it has something to show. On a run with no changes,
+  // nothing skipped and nothing failed there is nothing behind the command, and
+  // offering it would be busywork dressed as a next step.
+  if (skipped || errors || (comparison && changed(comparison))) {
+    const since = comparison?.since ? `--since ${comparison.since} ` : "";
+    lines.push(`  s3cab compare ${set} ${since}--until ${snapshot}`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * What the pass got through off the disk, and how much of it was *work*
+ * (ADR-0078 §9). Two figures that look alike and answer different questions:
+ * the size of the set, and the bytes actually read. A backup that re-hashed
+ * 1.8TB and one that reused every stored hash differ by minutes and are
+ * otherwise indistinguishable — and the second silently becomes the first the
+ * day a sync client rewrites every mtime on a set nobody touched.
+ *
+ * The re-hash clause is **not** dropped when it happens to equal the scan (an
+ * incremental run that re-read everything is precisely the alarm this exists to
+ * raise); it is dropped only on a first backup, which hashes everything by
+ * definition and would just restate the figure beside it.
+ * @param {BackupResult} result
+ * @returns {string}
+ */
+function scanLine({
+  files,
+  bytes,
+  scanMs,
+  hashedFiles,
+  hashedBytes,
+  comparison,
+}) {
+  const scanned =
+    `Scanned ${countOf(files, "file")} (${formatByteValue(bytes)}) ` +
+    `in ${shortDuration(scanMs)}`;
+  if (!comparison) {
+    return scanned;
+  }
+  if (hashedFiles === 0) {
+    return `${scanned} — nothing needed re-hashing`;
+  }
+  return (
+    `${scanned} — ${formatCount(hashedFiles)} needed re-hashing ` +
+    `(${formatByteValue(hashedBytes)})`
   );
 }
 
 /**
- * The shared "how much content went up" line for the object-set uploads —
- * `backup` and `upload --snapshot`, which report the same candidates/uploaded
- * counts under different headlines (ADR-0044). Zero candidates is the up-to-date
- * case; when every candidate uploaded, the "already stored" aside is dropped.
+ * What went over the link, with its own elapsed time — the other half of §9's
+ * split, on its own line because it answers the other half of "is my disk slow
+ * or my link slow". One combined figure answers it wrongly: 14.9GB in 11m 24s
+ * reads as a 22MB/s link when the time went on reading 1.8TB off the disk.
+ * @param {BackupResult} result
+ * @returns {string}
+ */
+function uploadLine({ candidates, uploaded, uploadedBytes, uploadMs }) {
+  if (candidates === 0) {
+    return `Nothing new to upload`;
+  }
+  // "3 of 120" whenever the store already held some of them — a resumed backup,
+  // or content that deduped against another set — since 3 alone would read as a
+  // backup that considered only three files.
+  const objects =
+    uploaded === candidates
+      ? countOf(uploaded, "object")
+      : `${formatCount(uploaded)} of ${countOf(candidates, "object")}`;
+  const stored =
+    uploaded === candidates
+      ? ""
+      : `, ${formatCount(candidates - uploaded)} already stored`;
+  return (
+    `Uploaded ${objects} (${formatByteValue(uploadedBytes)}${stored}) ` +
+    `in ${shortDuration(uploadMs)}`
+  );
+}
+
+/**
+ * The diff line: what changed, and *since when* — "425 added" is meaningless
+ * without the baseline, so the baseline is named rather than implied. A first
+ * backup has no baseline and no diff to summarize (ADR-0078 §7); a run where
+ * nothing moved says so in one line instead of four zeros.
+ * @param {CompareResult | null} comparison
+ * @returns {string}
+ */
+function changesLine(comparison) {
+  if (!comparison?.since) {
+    return `First backup — every file is new.`;
+  }
+  const { since, added, modified, deleted, moved } = comparison;
+  if (!changed(comparison)) {
+    return `No changes since ${since}.`;
+  }
+  // Grouped counts, like every other figure s3cab prints: a big reorganisation
+  // puts five digits in this line, and `12480 moved` is the one number here that
+  // gets read as a magnitude rather than a label.
+  return (
+    `Changes since ${since}: ${formatCount(added.length)} added, ` +
+    `${formatCount(modified.length)} modified, ${formatCount(deleted.length)} deleted, ` +
+    `${formatCount(moved.length)} moved`
+  );
+}
+
+/**
+ * Whether a diff found any *change* — the four categories the changes line
+ * counts. Skipped and errored entries are deliberately not in it: they have
+ * their own line, and a symlink that has been skipped on every run since March
+ * is not news about this one.
+ * @param {CompareResult} comparison
+ * @returns {boolean}
+ */
+const changed = ({ added, modified, deleted, moved }) =>
+  Boolean(added.length || modified.length || deleted.length || moved.length);
+
+/**
+ * Offer a finished backup's full diff, and render it if it is wanted — the
+ * interactive half of ADR-0078 §5, run by the dispatcher *after* the report is
+ * on screen, because the report is what the answer is judged on.
+ *
+ * The diff is the one already in memory, rendered through the very renderer
+ * `compare` uses: no second parse, no re-run, and no way for the summary and the
+ * detail to disagree. It returns the text rather than printing it, like every
+ * other renderer here — the dispatcher owns the stream, and output the user
+ * asked for is output, so it lands on stdout (ADR-0010).
+ *
+ * **Nothing is asked off a terminal, and an unattended run prints the same thing
+ * minus the prompt** (§6): one output shape, not two. Dumping a full diff into a
+ * cron mail is ADR-0076's wall-of-bars mistake in new clothes — the counts and
+ * the command are in the log, and the snapshot on disk holds the rest.
+ *
+ * The prompt is the shared `promptYesNo`, default **No**. Not a variant with a
+ * default of yes: that helper is shared with `forget` and `cleanup`, where its
+ * "a stray Enter/EOF cancels rather than deletes" invariant is load-bearing, and
+ * one saved keystroke is not worth putting a second default in play.
+ * @param {BackupResult} result
+ * @param {RenderContext} [context]
+ * @returns {Promise<string | undefined>} The rendered diff, or nothing
+ */
+export async function offerBackupChanges({ comparison }, context = {}) {
+  if (
+    !comparison ||
+    !hasFindings(comparison) ||
+    !isInteractive(process.stdin)
+  ) {
+    return undefined;
+  }
+  const show = await promptYesNo("Show what changed?");
+  return show ? renderCompareResult(comparison, context) : undefined;
+}
+
+/**
+ * The "how much content went up" line for the object-set uploads —
+ * `upload --snapshot` and the folder seed, which report the same
+ * candidates/uploaded counts under different headlines (ADR-0044). Zero
+ * candidates is the up-to-date case; when every candidate uploaded, the
+ * "already stored" aside is dropped. (`backup` used to share it, and has its own
+ * report now — ADR-0078 — where the same counts are one clause of a longer line.)
  * @param {string} head - The headline naming what was uploaded
  * @param {number} candidates - Objects considered for upload (new since the baseline)
  * @param {number} uploaded - Those actually transferred (the rest were already stored)

@@ -1,3 +1,4 @@
+import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
@@ -8,6 +9,8 @@ import {
   uploadObjects,
   uploadSnapshotFile,
 } from "../lib/upload.mjs";
+
+/** @import { CompareResult } from "../lib/compare.mjs" */
 
 /**
  * Back up a set to the cloud (docs/design/backup.md) — snapshot and upload in
@@ -38,11 +41,30 @@ import {
  * drifted only costs a fresh `backup`, which reads that snapshot as its hash
  * lookup and so re-reads nothing that didn't change.
  *
+ * **What a finished run reports** ([ADR-0078](../../docs/adr/0078-backup-run-report.md)):
+ * in *files*, not objects — content-addressed dedup means a moved file changes
+ * everything and uploads nothing, so an object count alone answers a question
+ * nobody asked. `backup` states in full only what only `backup` knows (bytes,
+ * timings, transfers), and hands the detail to `compare`: everything the
+ * *snapshot* holds is a count plus a copy-pasteable command. Every figure lands
+ * here rather than in the renderer, so `--json` gains it deliberately.
+ *
  * @typedef {Object} BackupResult
  * @property {string} set - The set backed up
+ * @property {string} bucket - Where its objects went
  * @property {string} snapshot - The fresh snapshot that was uploaded
- * @property {number} candidates - Objects considered for upload (new since the last backup)
+ * @property {number} files - Files the pass went through
+ * @property {number} bytes - Those files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. Which is why the report says "Scanned", not "Hashed"
+ * @property {number} hashedFiles - How many were really read and hashed; the rest reused their stored hash
+ * @property {number} hashedBytes - Their bytes — what `scanMs` was actually spent on
+ * @property {number} scanMs - Milliseconds the pass spent on everything except sending: walking, stat-ing, and hashing whatever had changed
+ * @property {number} candidates - Objects this backup attempted — the ones its skip-list (the trusted baseline, else a store LIST) didn't already account for
  * @property {number} uploaded - Those actually transferred (the rest were already in the store)
+ * @property {number} uploadedBytes - Bytes those transfers moved
+ * @property {number} uploadMs - Milliseconds spent sending them
+ * @property {number} skipped - Entries the walk left out by design (a symlink, a socket)
+ * @property {number} errors - Files that couldn't be read to be backed up
+ * @property {CompareResult | null} comparison - What changed since the baseline; `null` on a first backup, which runs no comparison at all (ADR-0078 §7)
  *
  * With no update mode ([ADR-0052](../../docs/adr/0052-retire-setup-update-mode.md)),
  * a set's `dirs.txt`/`exclude.txt` are edited by hand, so `backup` is where those
@@ -77,7 +99,7 @@ export async function backup(setName, options = {}) {
     stored,
     ownProgress: true,
   });
-  const { name } = await generateSnapshot(set, {
+  const pass = await generateSnapshot(set, {
     lookup,
     // Doubles as the progress line's byte total — it already records a size for
     // every file, so the figure costs no `stat` (lib/snapshot.mjs `withProgress`).
@@ -99,7 +121,9 @@ export async function backup(setName, options = {}) {
   // so it asks for a fresh backup; anything else is a transfer that can simply be
   // resumed. The transport failure is checked **first** — it is the terminal one,
   // and it must not be spoken for by a drift met on an earlier row.
-  const { candidates, uploaded, drifted, failure } = uploader.result();
+  const { name } = pass;
+  const { candidates, uploaded, uploadedBytes, sendingMs, drifted, failure } =
+    uploader.result();
   if (failure) {
     throw uploadFailedError(failure, set.name, name);
   }
@@ -130,7 +154,48 @@ export async function backup(setName, options = {}) {
     );
   }
 
-  return { set: set.name, snapshot: name, candidates, uploaded };
+  // What changed, computed by **`compare` itself** over the snapshot just
+  // written, with the baseline handed straight in from memory — it already
+  // accepts that form, and `readBaseline` above is holding those very entries
+  // (ADR-0078 §8). Accumulating the diff during the fused pass would be cheaper
+  // and would reimplement `compare`; a report reading "425 added" above a
+  // command that then lists 424 is a trust bug in the one place this design asks
+  // for trust. One parse of a file still in the page cache is the price of
+  // "these cannot diverge".
+  //
+  // A first backup runs none of it (§7): every file is an addition against an
+  // empty baseline, which is where the diff is both most expensive and least
+  // worth having.
+  const comparison =
+    since && previous
+      ? await compareSnapshots(set.snapshotsDir, set.dirs, {
+          since: { name: since, entries: previous },
+          until: name,
+          setName: set.name,
+        })
+      : null;
+
+  return {
+    set: set.name,
+    bucket: set.bucket,
+    snapshot: name,
+    files: pass.files,
+    bytes: pass.bytes,
+    hashedFiles: pass.hashedFiles,
+    hashedBytes: pass.hashedBytes,
+    // The pass minus the sending. The two are exclusive because the fused pass
+    // is strictly sequential (ADR-0078 §9), so this really is the disk half —
+    // which is the whole point: one combined figure makes 14.9GB in 11m 24s
+    // read as a slow link when the time went on reading 1.8TB off the disk.
+    scanMs: Math.max(0, pass.elapsedMs - sendingMs),
+    candidates,
+    uploaded,
+    uploadedBytes,
+    uploadMs: sendingMs,
+    skipped: pass.skipped,
+    errors: pass.errors,
+    comparison,
+  };
 }
 
 /**

@@ -1,7 +1,7 @@
 # What a completed backup reports
 
-**Status:** proposed — designed 2026-08-08, **not built**. Nothing below describes live
-behaviour. Extends [0043](0043-human-first-output.md)'s human-first rendering and
+**Status:** accepted — designed 2026-08-08, implemented 2026-08-09 (`compare`'s skipped listing,
+§3, landed first). Extends [0043](0043-human-first-output.md)'s human-first rendering and
 [0076](0076-one-progress-line-driven-by-a-clock.md)'s *live* line to the **finished run**, and
 depends on [0027](0027-compare-local-only-adoption-syncs-manifests.md) keeping `compare` local.
 
@@ -62,10 +62,11 @@ detail to `compare`.**
 
    ```
    Backed up 'onedrive' → snapshot 2026-08-08T0206
-   Hashed 1.8TB in 9m 12s, uploaded 426 objects (14.9GB) in 2m 12s
+   Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
+   Uploaded 426 objects (14.9GB) in 2m 12s
    Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
    Couldn't be backed up: 1 skipped, 1 error
-     s3cab compare --since 2026-08-01T0846 --until 2026-08-08T0206
+     s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
    ```
 
    `Changes since` names the baseline: "425 added" is meaningless without *since when*. `moved`
@@ -73,6 +74,12 @@ detail to `compare`.**
    `uploaded 0 objects`. The heading is **`Couldn't`**, not "Not backed up" — excluded files are
    also not backed up, in their thousands, and the distinction that matters is *didn't choose to*
    versus *couldn't*.
+
+   Two details settled while building. The verb is **`Scanned`**, not "Hashed": the figure is
+   every walked file's bytes, and on a routine run most of those hashes were *reused* from the
+   baseline rather than computed — "Hashed 1.8TB in 20 sec" would be a plain untruth. And the
+   command **names the set**, as every other command s3cab prints does: the set positional
+   defaults to the only set, which is not the machine this design is written for.
 
 5. **Interactive runs are offered the detail; the pointer prints either way.** A
    `Show what changed? [y/N]` prompt via the existing `promptYesNo` (default **No** — the shared
@@ -86,10 +93,12 @@ detail to `compare`.**
    Dumping a full diff into a cron mail is [0076](0076-one-progress-line-driven-by-a-clock.md)'s
    wall-of-bars mistake in new clothes.
 
-7. **A first backup runs no compare at all** — `First backup of 'onedrive' — 266,121 files`, no
-   prompt. There is no "what changed" question, and it is the one run where building the diff is
-   most expensive (every file is an `AddedEntry`) and least informative. The
-   `Couldn't be backed up` block still prints; it matters *more* on a first run.
+7. **A first backup runs no compare at all** — `First backup — every file is new.`, no prompt.
+   There is no "what changed" question, and it is the one run where building the diff is most
+   expensive (every file is an `AddedEntry`) and least informative. The count that illustration
+   originally carried is already on the line above it, so the line says the one thing that line
+   cannot. The `Couldn't be backed up` block still prints — it matters *more* on a first run — and
+   takes the command with it, naming the one snapshot there is (`--until <name>`).
 
 8. **One computation, not two.** The counts come from `compareSnapshots` re-reading the snapshot
    just written, with the baseline handed in pre-parsed from memory (it already accepts that
@@ -103,6 +112,17 @@ detail to `compare`.**
    awaits each PUT before yielding the row — so two accumulators sum to the pass exactly. One
    figure for both makes 14.9GB in 11m 24s read as a 22MB/s link when the time went on reading
    1.8TB off the disk, and "is my disk slow or my upload slow" is the whole diagnostic question.
+
+   **The scan half also says how much of it was work** — `1,204 needed re-hashing (12.4GB)`
+   beside the set's own size. Same question, one level finer: the scanned bytes are how big the
+   set is, the hashed bytes are what the elapsed time actually went on, and the two can differ by
+   a hundredfold on the same set. `fileProps` already tells them apart at no cost — it returns
+   the baseline's own `Props` on a reuse and sets `hashDuration` only where it really hashed, and
+   a row parsed back out of a snapshot never carries one — so this is a counter, not a
+   measurement. The clause is dropped **only** on a first backup, which hashes everything by
+   definition; it is deliberately kept when it happens to equal the scan, because an *incremental*
+   run that re-read the whole set is the one thing here worth an alarm (a sync client rewriting
+   every mtime looks exactly like that, and is otherwise invisible).
 
 10. **All of it lands in `BackupResult`**, so `--json` gains the counts and times deliberately
     rather than by accident. A renderer that computes its own facts is what
@@ -121,9 +141,19 @@ detail to `compare`.**
   `walkSet`'s, shared with `tree` ([`tree.mjs`](../../src/commands/tree.mjs)), and suppressing it
   for one caller means threading a flag through two functions for that caller alone — working
   rule #3. The repetition costs one line at the top of a long run.
-- **[0076](0076-one-progress-line-driven-by-a-clock.md) §4 gains a sentence when this is built,
-  not before** — it is marked implemented, and an unbuilt clause inside it would be exactly the
-  drift the documentation-discipline rule forbids.
+- **[0076](0076-one-progress-line-driven-by-a-clock.md) §4 gained its sentence when this was
+  built, not before** — it is marked implemented, and an unbuilt clause inside it would have been
+  exactly the drift the documentation-discipline rule forbids.
+- **The registry gained an `offer` hook, and `backup` is its only user.** The prompt cannot live
+  inside the command: the report is what the answer is judged on, and a command's report reaches
+  stdout only after it returns — so asking from inside would ask above the summary. Nor can it
+  live in the renderer, which is synchronous and must not read a terminal. It belongs to the
+  dispatcher, which already owns the stream, the ordering and the `--json` toggle (the toggle
+  matters: a command printing its own report would print it under `--json` too). So
+  `commands.mjs` carries an optional `offer(result, context)` alongside `render`, run after the
+  rendered result is on screen and never under `--json`. One hook for one caller is the smallest
+  shape that keeps §6's *one output shape* — the alternative, printing the block from the command
+  when it is about to prompt and from the renderer otherwise, is two paths to the same text.
 - **Out of scope, captured in [proposals/](../../proposals/):** `tree --excluded` (exclusion
   discoverability — the data is computed on every walk and discarded), and the progress line's
   in-flight detail (the "what *is* it uploading?" question, which is about the live line, not the
