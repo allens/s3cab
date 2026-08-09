@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { afterEach, describe, it } from "node:test";
+import { Readable } from "node:stream";
+import { afterEach, describe, it, mock } from "node:test";
 import {
+  offerBackupChanges,
   renderBackup,
   renderCleanup,
   renderCompareResult,
@@ -20,7 +22,8 @@ import {
 } from "./render.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
-/** @import { CompareResult } from "./lib/compare.mjs" */
+/** @import { AddedEntry, CompareResult } from "./lib/compare.mjs" */
+/** @import { BackupResult } from "./commands/backup.mjs" */
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { RestoreResult } from "./commands/restore.mjs" */
@@ -49,6 +52,13 @@ const result = (over) => ({
   skipped: [],
   ...over,
 });
+
+/**
+ * A minimal added-file entry, for the tests that care only how many there were.
+ * @param {string} path
+ * @returns {AddedEntry}
+ */
+const added = (path) => ({ path, size: 1, duplicates: [] });
 
 // The render layer (ADR-0043) turns a command's returned data into the
 // human-readable text the dispatcher writes to stdout. Renderers are pure
@@ -765,41 +775,222 @@ describe("renderVerify", () => {
 });
 
 describe("renderBackup", () => {
-  it("reports uploads against the candidate set, with an already-stored aside", () => {
-    const text = renderBackup({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      candidates: 120,
-      uploaded: 3,
-    });
+  /**
+   * A finished run's result, overlaid by `over` — one modest backup with a
+   * baseline behind it, so each test states only what it is about.
+   * @param {Partial<BackupResult>} [over]
+   * @returns {BackupResult}
+   */
+  const run = (over = {}) => ({
+    set: "photos",
+    bucket: "my-backups",
+    snapshot: "2026-07-04T1000",
+    files: 265_716,
+    bytes: 1_800_000_000_000,
+    scanMs: 552_000,
+    candidates: 426,
+    uploaded: 426,
+    uploadedBytes: 14_900_000_000,
+    uploadMs: 132_000,
+    skipped: 0,
+    errors: 0,
+    comparison: result({ since: "2026-07-01T0900", until: "2026-07-04T1000" }),
+    ...over,
+  });
+
+  it("reports the whole run: files scanned, objects sent, what changed, and what couldn't go", () => {
+    const text = renderBackup(
+      run({
+        skipped: 1,
+        errors: 1,
+        comparison: result({
+          since: "2026-07-01T0900",
+          until: "2026-07-04T1000",
+          added: Array.from({ length: 425 }, () => added(under("a.jpg"))),
+          modified: [{ path: under("b.jpg"), size: 1 }],
+        }),
+      }),
+    );
+
     assert.equal(
       text,
-      "Backed up 'photos' (snapshot 2026-07-04T1000): " +
-        "uploaded 3 of 120 objects (117 already stored).",
+      "Backed up 'photos' → snapshot 2026-07-04T1000\n" +
+        "Scanned 265,716 files (1.8TB) in 9m 12s, uploaded 426 objects (14.9GB) in 2m 12s\n" +
+        "Changes since 2026-07-01T0900: 425 added, 1 modified, 0 deleted, 0 moved\n" +
+        "Couldn't be backed up: 1 skipped, 1 error\n" +
+        "  s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000",
     );
   });
 
-  it("drops the aside when every candidate uploaded", () => {
-    const text = renderBackup({
-      set: "photos",
-      snapshot: "2026-07-04T1000",
-      candidates: 3,
-      uploaded: 3,
-    });
-    assert.equal(
+  it("keeps disk time and link time apart", () => {
+    // One combined figure would make 14.9GB in 11m 24s read as a 22MB/s link,
+    // when the time went on reading 1.8TB off the disk (ADR-0078 §9).
+    const text = renderBackup(run({ scanMs: 552_000, uploadMs: 132_000 }));
+    assert.match(text, /1\.8TB\) in 9m 12s, uploaded .*14\.9GB\) in 2m 12s/);
+  });
+
+  it("names how many of the candidates were already stored", () => {
+    const text = renderBackup(run({ candidates: 120, uploaded: 3 }));
+    assert.match(
       text,
-      "Backed up 'photos' (snapshot 2026-07-04T1000): uploaded 3 objects.",
+      /uploaded 3 of 120 objects \(14\.9GB, 117 already stored\) in 2m 12s/,
     );
   });
 
-  it("reports the up-to-date case when nothing was new to upload", () => {
-    const text = renderBackup({
+  it("says nothing was new to upload rather than printing a zero", () => {
+    const text = renderBackup(run({ candidates: 0, uploaded: 0 }));
+    assert.match(text, /in 9m 12s, nothing new to upload$/m);
+  });
+
+  it("counts moved files, so a big reorganisation can't read as nothing happening", () => {
+    // The whole point of `moved` being in the line: dedup means the objects
+    // count stays at zero while every path in the set changed.
+    const text = renderBackup(
+      run({
+        candidates: 0,
+        uploaded: 0,
+        comparison: result({
+          since: "2026-07-01T0900",
+          moved: [{ path: under("a.jpg"), to: under("new", "a.jpg"), size: 1 }],
+        }),
+      }),
+    );
+    assert.match(
+      text,
+      /Changes since 2026-07-01T0900: 0 added, 0 modified, 0 deleted, 1 moved/,
+    );
+  });
+
+  it("collapses an unchanged run to one line, with no command to run", () => {
+    const text = renderBackup(run());
+    assert.match(text, /^No changes since 2026-07-01T0900\.$/m);
+    assert.doesNotMatch(text, /s3cab compare/);
+  });
+
+  it("says a first backup is one, and runs no diff to summarize", () => {
+    const text = renderBackup(run({ comparison: null }));
+    assert.match(text, /^First backup — every file is new\.$/m);
+  });
+
+  it("still reports what couldn't be backed up on a first backup, with the command to see it", () => {
+    // It matters *more* here: a first run is when you find out what your set
+    // can't hold (ADR-0078 §7). With no baseline the command names one side.
+    const text = renderBackup(run({ comparison: null, skipped: 2 }));
+    assert.match(text, /^Couldn't be backed up: 2 skipped$/m);
+    assert.match(text, /^ {2}s3cab compare photos --until 2026-07-04T1000$/m);
+  });
+
+  it("heads the block 'Couldn't', never 'Not backed up'", () => {
+    // Excluded files are also not backed up, in their thousands, and they are
+    // the ones the user chose — the distinction is didn't-choose-to vs couldn't.
+    const text = renderBackup(run({ errors: 3 }));
+    assert.match(text, /^Couldn't be backed up: 3 errors$/m);
+  });
+});
+
+describe("offerBackupChanges", () => {
+  const changed = result({
+    since: "2026-07-01T0900",
+    added: [added(under("beach.jpg"))],
+  });
+
+  /**
+   * A finished run carrying `comparison`, with a fake stdin whose TTY-ness the
+   * test sets — the one thing the offer gates on.
+   * @param {CompareResult | null} comparison
+   * @returns {BackupResult}
+   */
+  const run = (comparison) =>
+    /** @type {BackupResult} */ ({
       set: "photos",
       snapshot: "2026-07-04T1000",
-      candidates: 0,
-      uploaded: 0,
+      comparison,
     });
-    assert.match(text, /already up to date, nothing new to upload\.$/);
+
+  /**
+   * Answer the prompt with `reply` on a stdin that claims to be a terminal, and
+   * return what the offer produced. `process.stdin` is swapped because the gate
+   * reads it ambiently (like every other `isInteractive` caller).
+   * @param {BackupResult} result
+   * @param {string} reply
+   * @param {boolean} [isTTY]
+   */
+  const answer = async (result, reply, isTTY = true) => {
+    const stdin = Readable.from([`${reply}\n`]);
+    Object.defineProperty(stdin, "isTTY", { value: isTTY });
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process, "stdin");
+    Object.defineProperty(process, "stdin", {
+      value: stdin,
+      configurable: true,
+    });
+    /** @type {string[]} */
+    const asked = [];
+    const write = mock.method(
+      process.stderr,
+      "write",
+      (/** @type {string} */ text) => {
+        asked.push(text);
+        return true;
+      },
+    );
+    try {
+      return { text: await offerBackupChanges(result), asked };
+    } finally {
+      write.mock.restore();
+      if (stdinDescriptor) {
+        Object.defineProperty(process, "stdin", stdinDescriptor);
+      }
+    }
+  };
+
+  it("renders the diff already in memory when the answer is yes", async () => {
+    const { text, asked } = await answer(run(changed), "y");
+
+    assert.match(asked.join(""), /Show what changed\? \[y\/N\] /);
+    // The very text `compare` would have printed — one renderer, so the summary
+    // above it and this cannot disagree.
+    assert.equal(text, renderCompareResult(changed));
+  });
+
+  it("defaults to no, so a stray Enter shows nothing", async () => {
+    const { text } = await answer(run(changed), "");
+    assert.equal(text, undefined);
+  });
+
+  it("asks nothing off a terminal — the same output, minus the prompt", async () => {
+    // An unattended run gets the counts and the command; dumping a full diff
+    // into a cron mail is the wall-of-bars mistake in new clothes (ADR-0078 §6).
+    const { text, asked } = await answer(run(changed), "y", false);
+    assert.equal(text, undefined);
+    assert.deepEqual(asked, []);
+  });
+
+  it("asks nothing on a first backup, which has no diff at all", async () => {
+    const { text, asked } = await answer(run(null), "y");
+    assert.equal(text, undefined);
+    assert.deepEqual(asked, []);
+  });
+
+  it("asks nothing when the diff found nothing — there is no detail behind it", async () => {
+    const { text, asked } = await answer(run(result({})), "y");
+    assert.equal(text, undefined);
+    assert.deepEqual(asked, []);
+  });
+
+  it("offers the detail when the only news is a skipped entry", async () => {
+    // No change, but something the user has never been shown: the skipped list
+    // is exactly what the offer exists to surface.
+    const onlySkipped = result({
+      skipped: [
+        {
+          path: under("link"),
+          fileType: "Symbolic Link",
+          reason: "Unsupported file type",
+        },
+      ],
+    });
+    const { text } = await answer(run(onlySkipped), "y");
+    assert.equal(text, renderCompareResult(onlySkipped));
   });
 });
 

@@ -230,6 +230,12 @@ objects-first/snapshot-last invariant and the conditional-PUT backstop are uncha
 live in `lib/upload.mjs`'s shared transform, which `upload --snapshot` runs over a re-read snapshot
 and `backup` runs over its live hash pass.
 
+**What a finished run reports** is [ADR-0078](../adr/0078-backup-run-report.md): counts in
+*files* rather than objects, disk time and link time apart, and everything the snapshot itself
+holds — added/modified/deleted/moved/skipped/errored — as a count plus the `compare` command that
+lists it, offered interactively as a y/N. The diff is computed by `compareSnapshots` re-reading
+the snapshot just written, so the summary and that command cannot disagree.
+
 ### `upload --dir` — seed a folder before the first backup (**built**)
 
 For a large first backup, you can push the folders you care about most *first*, so their

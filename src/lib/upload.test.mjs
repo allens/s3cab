@@ -270,12 +270,39 @@ describe("uploadObjects (the streaming PUT transform)", () => {
       putFiles.map((put) => put.uri),
       [uri("hello"), uri("world")],
     );
-    assert.deepEqual(upload.result(), {
+    const { sendingMs, ...outcome } = upload.result();
+    assert.deepEqual(outcome, {
       candidates: 2,
       uploaded: 2,
+      // Only the two distinct objects' bytes — `copy.txt` shares content with
+      // `a.txt`, so it costs no transfer and must not be counted as one
+      // (ADR-0078 reports the *transfer*, and dedup is why it can be smaller
+      // than the files it covers).
+      uploadedBytes: "hello".length + "world".length,
       drifted: [],
       failure: undefined,
     });
+    // Real elapsed time, so only its existence is assertable here.
+    assert.ok(sendingMs >= 0);
+  });
+
+  it("counts no upload bytes for content the store already held", async () => {
+    // A conditional PUT that finds the object present transfers nothing, so the
+    // byte figure has to stay at zero — otherwise a resumed backup would report
+    // sending gigabytes it never sent.
+    await using dir = await mkTmpDir();
+    const rows = await rowsOf(dir.path);
+    // The PUTs are attempted and come back no-ops: the conditional put found
+    // both objects already there.
+    storedUris = new Set([uri("hello"), uri("world")]);
+    const upload = uploader();
+
+    await Array.fromAsync(upload.through(rows));
+
+    const { candidates, uploaded, uploadedBytes } = upload.result();
+    assert.equal(candidates, 2);
+    assert.equal(uploaded, 0);
+    assert.equal(uploadedBytes, 0);
   });
 
   it("attempts nothing for content already stored", async () => {

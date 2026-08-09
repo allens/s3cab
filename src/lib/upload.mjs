@@ -194,6 +194,8 @@ export function planUpload(target, stored) {
  * @typedef {Object} UploadOutcome
  * @property {number} candidates - Objects considered for upload (not already stored)
  * @property {number} uploaded - Those actually transferred (the rest were no-ops the conditional PUT found present)
+ * @property {number} uploadedBytes - Bytes those transfers moved
+ * @property {number} sendingMs - Milliseconds spent inside the PUTs. The fused pass is strictly sequential — each PUT is awaited before its row is yielded on — so this and the rest of the pass's elapsed time sum to the pass exactly, which is what lets a backup report disk time and link time apart ([ADR-0078](../../docs/adr/0078-backup-run-report.md) §9)
  * @property {Drift[]} drifted - Files the guard refused, in the order met (see `uploadObjects`)
  * @property {Error} [failure] - The transport failure that stopped the transfers, if one did
  */
@@ -286,6 +288,10 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
   let settled = 0;
   /** @type {Sending | null} */
   let inFlight = null;
+  // Time spent with a PUT in flight, accumulated per transfer rather than
+  // measured end-to-end: the pass is doing something else in between, and the
+  // whole point of the figure is to tell that something else apart from this.
+  let sendingMs = 0;
 
   /** @type {RowTransform} */
   async function* through(rows) {
@@ -326,6 +332,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
             failure ??= Error.isError(error) ? error : new Error(String(error));
             transfersStopped = true;
           } finally {
+            sendingMs += performance.now() - startedAt;
             inFlight = null;
           }
         }
@@ -347,7 +354,14 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
       sent: settled + (inFlight?.loaded ?? 0),
       current: inFlight,
     }),
-    result: () => ({ candidates, uploaded, drifted, failure }),
+    result: () => ({
+      candidates,
+      uploaded,
+      uploadedBytes: settled,
+      sendingMs,
+      drifted,
+      failure,
+    }),
   };
 }
 

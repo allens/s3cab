@@ -121,18 +121,6 @@ niceties.
   snapshot is not an atomic unit of work the way a commit is. The idea's stated motivation, a
   silent-typo bug, has since been fixed. The useful residue — naming the snapshots that *do*
   exist when one isn't found — is built, so only the rejection is kept here.
-- **The walk's `#SKIPPED` entries never surface in output.** A symlink (or any unsupported type)
-  is recorded in the snapshot file and parsed back into `Snapshot.skipped`, but no renderer ever
-  shows it, so a backup omits it silently. That sits awkwardly beside `assertWalkableDirs`'s own
-  principle — *"a backup must never silently skip a directory the user means to keep"* — and it
-  was the deciding argument against skip-and-record in
-  [ADR-0073](../docs/adr/0073-refuse-tab-newline-paths.md), so it is currently visible only as a
-  supporting clause in an ADR. Surfacing a count in the snapshot/backup summary would retire it.
-  **Settled by [ADR-0078](../docs/adr/0078-backup-run-report.md) (2026-08-08), not yet built:** a
-  count in the backup summary's `Couldn't be backed up` block, and the full list in `compare`.
-  Delete this entry when 0078 lands. The hole is not theoretical — in the set that prompted 0078,
-  `D:\OneDrive\Personal Vault` was skipped on one run and absent from the previous snapshot
-  entirely, so the skipped set *changed between runs* and nothing said so.
 - **Snapshot labels** (`snapshot -m "before reorg"`) — a commit-message-like note, storable as
   a header comment line without breaking the TSV format.
 - **Friendlier failure for "no snapshots found"** — suggest running `s3cab snapshot` rather
