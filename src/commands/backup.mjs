@@ -55,6 +55,8 @@ import {
  * @property {string} snapshot - The fresh snapshot that was uploaded
  * @property {number} files - Files the pass went through
  * @property {number} bytes - Those files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. Which is why the report says "Scanned", not "Hashed"
+ * @property {number} hashedFiles - How many were really read and hashed; the rest reused their stored hash
+ * @property {number} hashedBytes - Their bytes — what `scanMs` was actually spent on
  * @property {number} scanMs - Milliseconds the pass spent on everything except sending: walking, stat-ing, and hashing whatever had changed
  * @property {number} candidates - Objects this backup attempted — the ones its skip-list (the trusted baseline, else a store LIST) didn't already account for
  * @property {number} uploaded - Those actually transferred (the rest were already in the store)
@@ -179,6 +181,8 @@ export async function backup(setName, options = {}) {
     snapshot: name,
     files: pass.files,
     bytes: pass.bytes,
+    hashedFiles: pass.hashedFiles,
+    hashedBytes: pass.hashedBytes,
     // The pass minus the sending. The two are exclusive because the fused pass
     // is strictly sequential (ADR-0078 §9), so this really is the disk half —
     // which is the whole point: one combined figure makes 14.9GB in 11m 24s

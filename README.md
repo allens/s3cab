@@ -111,7 +111,8 @@ dirs (C:\Users\me\.s3cab\sets\photos\dirs.txt):
 # 2. Back it up to the cloud. With one set, you can leave its name out.
 > s3cab backup
 Backed up 'photos' → snapshot 2025-11-12T0915
-Scanned 1,312 files (4.2GB) in 2m 41s, uploaded 1,240 objects (4.2GB) in 6m 08s
+Scanned 1,312 files (4.2GB) in 2m 41s
+Uploaded 1,240 objects (4.2GB) in 6m 08s
 First backup — every file is new.
 
 # 3. Deleted a file by accident? Get just that one back:

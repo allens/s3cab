@@ -659,12 +659,12 @@ function problemDetail(p) {
 
 /**
  * Report a finished `backup` ([ADR-0078](../../docs/adr/0078-backup-run-report.md)) —
- * four lines and a command, in that order because they answer four different
- * questions:
+ * a line per question, in that order because they are different questions:
  *
  * ```
  * Backed up 'onedrive' → snapshot 2026-08-08T0206
- * Scanned 265,716 files (1.8TB) in 9m 12s, uploaded 426 objects (14.9GB) in 2m 12s
+ * Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
+ * Uploaded 426 objects (14.9GB) in 2m 12s
  * Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
  * Couldn't be backed up: 1 skipped, 1 error
  *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
@@ -698,7 +698,8 @@ export function renderBackup(result) {
   const { set, snapshot, skipped, errors, comparison } = result;
   const lines = [
     `Backed up '${set}' → snapshot ${snapshot}`,
-    passLine(result),
+    scanLine(result),
+    uploadLine(result),
     changesLine(comparison),
   ];
 
@@ -725,28 +726,54 @@ export function renderBackup(result) {
 }
 
 /**
- * The run's two halves in one line — what it read off the disk, and what it sent
- * over the link, each with its own elapsed time (ADR-0078 §9). Kept apart
- * because "is my disk slow or my upload slow" is the whole diagnostic question,
- * and one combined figure answers it wrongly: 14.9GB in 11m 24s reads as a
- * 22MB/s link when the time went on reading 1.8TB.
+ * What the pass got through off the disk, and how much of it was *work*
+ * (ADR-0078 §9). Two figures that look alike and answer different questions:
+ * the size of the set, and the bytes actually read. A backup that re-hashed
+ * 1.8TB and one that reused every stored hash differ by minutes and are
+ * otherwise indistinguishable — and the second silently becomes the first the
+ * day a sync client rewrites every mtime on a set nobody touched.
+ *
+ * The re-hash clause is **not** dropped when it happens to equal the scan (an
+ * incremental run that re-read everything is precisely the alarm this exists to
+ * raise); it is dropped only on a first backup, which hashes everything by
+ * definition and would just restate the figure beside it.
  * @param {BackupResult} result
  * @returns {string}
  */
-function passLine({
+function scanLine({
   files,
   bytes,
   scanMs,
-  candidates,
-  uploaded,
-  uploadedBytes,
-  uploadMs,
+  hashedFiles,
+  hashedBytes,
+  comparison,
 }) {
   const scanned =
     `Scanned ${countOf(files, "file")} (${formatByteValue(bytes)}) ` +
     `in ${shortDuration(scanMs)}`;
+  if (!comparison) {
+    return scanned;
+  }
+  if (hashedFiles === 0) {
+    return `${scanned} — nothing needed re-hashing`;
+  }
+  return (
+    `${scanned} — ${formatCount(hashedFiles)} needed re-hashing ` +
+    `(${formatByteValue(hashedBytes)})`
+  );
+}
+
+/**
+ * What went over the link, with its own elapsed time — the other half of §9's
+ * split, on its own line because it answers the other half of "is my disk slow
+ * or my link slow". One combined figure answers it wrongly: 14.9GB in 11m 24s
+ * reads as a 22MB/s link when the time went on reading 1.8TB off the disk.
+ * @param {BackupResult} result
+ * @returns {string}
+ */
+function uploadLine({ candidates, uploaded, uploadedBytes, uploadMs }) {
   if (candidates === 0) {
-    return `${scanned}, nothing new to upload`;
+    return `Nothing new to upload`;
   }
   // "3 of 120" whenever the store already held some of them — a resumed backup,
   // or content that deduped against another set — since 3 alone would read as a
@@ -760,8 +787,8 @@ function passLine({
       ? ""
       : `, ${formatCount(candidates - uploaded)} already stored`;
   return (
-    `${scanned}, uploaded ${objects} ` +
-    `(${formatByteValue(uploadedBytes)}${stored}) in ${shortDuration(uploadMs)}`
+    `Uploaded ${objects} (${formatByteValue(uploadedBytes)}${stored}) ` +
+    `in ${shortDuration(uploadMs)}`
   );
 }
 

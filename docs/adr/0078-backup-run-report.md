@@ -62,7 +62,8 @@ detail to `compare`.**
 
    ```
    Backed up 'onedrive' → snapshot 2026-08-08T0206
-   Scanned 265,716 files (1.8TB) in 9m 12s, uploaded 426 objects (14.9GB) in 2m 12s
+   Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
+   Uploaded 426 objects (14.9GB) in 2m 12s
    Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
    Couldn't be backed up: 1 skipped, 1 error
      s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
@@ -111,6 +112,17 @@ detail to `compare`.**
    awaits each PUT before yielding the row — so two accumulators sum to the pass exactly. One
    figure for both makes 14.9GB in 11m 24s read as a 22MB/s link when the time went on reading
    1.8TB off the disk, and "is my disk slow or my upload slow" is the whole diagnostic question.
+
+   **The scan half also says how much of it was work** — `1,204 needed re-hashing (12.4GB)`
+   beside the set's own size. Same question, one level finer: the scanned bytes are how big the
+   set is, the hashed bytes are what the elapsed time actually went on, and the two can differ by
+   a hundredfold on the same set. `fileProps` already tells them apart at no cost — it returns
+   the baseline's own `Props` on a reuse and sets `hashDuration` only where it really hashed, and
+   a row parsed back out of a snapshot never carries one — so this is a counter, not a
+   measurement. The clause is dropped **only** on a first backup, which hashes everything by
+   definition; it is deliberately kept when it happens to equal the scan, because an *incremental*
+   run that re-read the whole set is the one thing here worth an alarm (a sync client rewriting
+   every mtime looks exactly like that, and is otherwise invisible).
 
 10. **All of it lands in `BackupResult`**, so `--json` gains the counts and times deliberately
     rather than by accident. A renderer that computes its own facts is what

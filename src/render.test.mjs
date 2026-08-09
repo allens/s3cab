@@ -787,6 +787,8 @@ describe("renderBackup", () => {
     snapshot: "2026-07-04T1000",
     files: 265_716,
     bytes: 1_800_000_000_000,
+    hashedFiles: 1_204,
+    hashedBytes: 12_400_000_000,
     scanMs: 552_000,
     candidates: 426,
     uploaded: 426,
@@ -815,7 +817,8 @@ describe("renderBackup", () => {
     assert.equal(
       text,
       "Backed up 'photos' → snapshot 2026-07-04T1000\n" +
-        "Scanned 265,716 files (1.8TB) in 9m 12s, uploaded 426 objects (14.9GB) in 2m 12s\n" +
+        "Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)\n" +
+        "Uploaded 426 objects (14.9GB) in 2m 12s\n" +
         "Changes since 2026-07-01T0900: 425 added, 1 modified, 0 deleted, 0 moved\n" +
         "Couldn't be backed up: 1 skipped, 1 error\n" +
         "  s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000",
@@ -826,20 +829,56 @@ describe("renderBackup", () => {
     // One combined figure would make 14.9GB in 11m 24s read as a 22MB/s link,
     // when the time went on reading 1.8TB off the disk (ADR-0078 §9).
     const text = renderBackup(run({ scanMs: 552_000, uploadMs: 132_000 }));
-    assert.match(text, /1\.8TB\) in 9m 12s, uploaded .*14\.9GB\) in 2m 12s/);
+    assert.match(text, /^Scanned .*1\.8TB\) in 9m 12s/m);
+    assert.match(text, /^Uploaded .*\(14\.9GB\) in 2m 12s$/m);
   });
 
   it("names how many of the candidates were already stored", () => {
     const text = renderBackup(run({ candidates: 120, uploaded: 3 }));
     assert.match(
       text,
-      /uploaded 3 of 120 objects \(14\.9GB, 117 already stored\) in 2m 12s/,
+      /^Uploaded 3 of 120 objects \(14\.9GB, 117 already stored\) in 2m 12s$/m,
     );
   });
 
   it("says nothing was new to upload rather than printing a zero", () => {
     const text = renderBackup(run({ candidates: 0, uploaded: 0 }));
-    assert.match(text, /in 9m 12s, nothing new to upload$/m);
+    assert.match(text, /^Nothing new to upload$/m);
+  });
+
+  it("says how much of the scan was real work, not just how big the set is", () => {
+    // The two figures look alike and answer different questions: 1.8TB is the
+    // size of the set, 12.4GB is what the 9m 12s actually went on.
+    const text = renderBackup(run({ hashedFiles: 1_204 }));
+    assert.match(
+      text,
+      /^Scanned 265,716 files \(1\.8TB\) in 9m 12s — 1,204 needed re-hashing \(12\.4GB\)$/m,
+    );
+  });
+
+  it("says outright when nothing needed re-hashing", () => {
+    // The most reassuring line the report has: the whole set was checked and
+    // not one byte had to be read again.
+    const text = renderBackup(run({ hashedFiles: 0, hashedBytes: 0 }));
+    assert.match(text, /^Scanned .* in 9m 12s — nothing needed re-hashing$/m);
+  });
+
+  it("still says so when a whole set had to be re-hashed — that is the alarm", () => {
+    // Deliberately *not* collapsed when it equals the scan. An incremental run
+    // that re-read everything is what a sync client rewriting every mtime looks
+    // like, and it is otherwise invisible.
+    const text = renderBackup(
+      run({ hashedFiles: 265_716, hashedBytes: 1_800_000_000_000 }),
+    );
+    assert.match(text, /— 265,716 needed re-hashing \(1\.8TB\)$/m);
+  });
+
+  it("drops the re-hash clause on a first backup, which hashes everything by definition", () => {
+    const text = renderBackup(
+      run({ comparison: null, hashedFiles: 265_716, hashedBytes: 1 }),
+    );
+    assert.match(text, /^Scanned 265,716 files \(1\.8TB\) in 9m 12s$/m);
+    assert.doesNotMatch(text, /re-hashing/);
   });
 
   it("counts moved files, so a big reorganisation can't read as nothing happening", () => {

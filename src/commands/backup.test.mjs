@@ -143,6 +143,8 @@ beforeEach(() => {
     path: "snaps/2026-01-02T0900.tsv.zst",
     files: 400,
     bytes: 4_000_000,
+    hashedFiles: 12,
+    hashedBytes: 300_000,
     skipped: 1,
     errors: 2,
     elapsedMs: 9_000,
@@ -211,6 +213,8 @@ describe("backup (the fused pass)", () => {
       snapshot: "2026-01-02T0900",
       files: 400,
       bytes: 4_000_000,
+      hashedFiles: 12,
+      hashedBytes: 300_000,
       // The pass took 9s, 2s of which were spent sending — the halves are
       // exclusive because the fused pass awaits each PUT before moving on, which
       // is what makes "is my disk slow or my link slow" answerable (ADR-0078 §9).

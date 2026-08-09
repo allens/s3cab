@@ -113,6 +113,8 @@ export async function readBaseline(set, { rehash } = {}) {
  * @property {string} path - Where it landed locally
  * @property {number} files - Files the walk kept and the pass went through
  * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
+ * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
+ * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
  * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`)
  * @property {number} errors - Files it couldn't hash (`#ERROR`)
  * @property {number} elapsedMs - How long the whole pass took, walking included
@@ -200,6 +202,14 @@ export async function generateSnapshot(
   // know — new ones — are absent from it, so it is an estimate; `progressLine`
   // grows it rather than letting the percentage exceed 100.
   let bytesDone = 0;
+  // Of those, what was really read rather than reused. Two figures that look
+  // alike and answer different questions: `bytesDone` is how big the set is,
+  // this is how much work the pass did. A backup that re-read 1.8TB and one
+  // that reused every hash are minutes apart and otherwise indistinguishable
+  // in the report — which is exactly the case a sync client rewriting mtimes
+  // produces, silently, on a set nobody has touched.
+  let hashedFiles = 0;
+  let hashedBytes = 0;
   // Files the pass couldn't hash. Counted at the one place that learns of them —
   // `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
   // the tally cannot drift from the rows actually written.
@@ -232,6 +242,16 @@ export async function generateSnapshot(
         // whether it was hashed or reused, so the numerator is exact even where
         // the denominator is estimated.
         bytesDone += props.size;
+        // Read or reused, told apart at no cost: `fileProps` returns the
+        // baseline's own `Props` object on a reuse and sets `hashDuration`
+        // only on a path that actually hashed — and a row parsed back out of a
+        // snapshot file never carries one (`parseSnapshotStream` builds
+        // hash/size/mtime and nothing else). So the field's presence is an
+        // exact discriminator rather than a heuristic.
+        if (props.hashDuration !== undefined) {
+          hashedFiles++;
+          hashedBytes += props.size;
+        }
         return props;
       } catch (error) {
         errored++;
@@ -257,6 +277,8 @@ export async function generateSnapshot(
     path,
     files: files.length,
     bytes: bytesDone,
+    hashedFiles,
+    hashedBytes,
     skipped: skipped.length,
     errors: errored,
     elapsedMs: performance.now() - startedAt,

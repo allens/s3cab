@@ -150,12 +150,37 @@ describe("backup's run report (real engine)", () => {
     assert.equal(result.uploadedBytes, 10);
     assert.equal(result.skipped, 0);
     assert.equal(result.errors, 0);
+    // Nothing to reuse on a first backup, so every file was really read.
+    assert.equal(result.hashedFiles, 3);
+    assert.equal(result.hashedBytes, 15);
     // Both halves of the pass are measured, and neither can be negative — the
     // scan half is the pass minus the sending (ADR-0078 §9).
     assert.ok(result.scanMs >= 0);
     assert.ok(result.uploadMs >= 0);
     // A first backup runs no diff at all (§7).
     assert.equal(result.comparison, null);
+  });
+
+  it("counts what it really read, apart from what it only checked", async () => {
+    // The figure that tells a routine pass from one that re-read the whole set.
+    // Every file is unchanged against the baseline, so all three hashes are
+    // reused and not a byte is opened — while `files`/`bytes` still describe
+    // the set in full.
+    await using dir = await mkTmpDir();
+    const snapshotDir = oneSet(dir.path);
+    await writeSnapshot(
+      snapshotDir,
+      "2020-01-01T0900",
+      ["a.txt", "b.txt", "copy.txt"],
+      data(dir.path),
+    );
+
+    const result = await backup("photos");
+
+    assert.equal(result.files, 3);
+    assert.equal(result.bytes, 15);
+    assert.equal(result.hashedFiles, 0);
+    assert.equal(result.hashedBytes, 0);
   });
 
   it("names the destination bucket in the preamble", async () => {
