@@ -91,8 +91,9 @@ export async function reattach(name, directories = [], options = {}) {
   const { dirs, exclude } = await readSetConfig(bucket, name);
   const set = writeSet(name, { dirs, bucket });
   // The remote config is reproduced exactly — including *no* exclude file for a
-  // legacy set that never had one. No starter file here: silently activating
-  // excludes would narrow what an established set backs up.
+  // set that has none (`pushSetConfig` deletes the remote one when the local set
+  // drops it). No starter file here: silently activating excludes would narrow
+  // what an established set backs up.
   if (exclude !== undefined) {
     writeSetExclude(name, exclude);
   }
@@ -109,7 +110,8 @@ export async function reattach(name, directories = [], options = {}) {
   );
 
   // A normal set always has member dirs (create requires ≥1 directory), so an
-  // empty `dirs` here means a partial/legacy remote marker. Not fatal — restore
+  // empty `dirs` here means a damaged remote marker — `dirs.txt` hand-edited in
+  // the console, or a claim whose config push never finished. Not fatal — restore
   // reads paths from the snapshot, not dirs.txt, so the set can still recover
   // files — but warn, since it can't snapshot/back up until directories are added.
   if (dirs.length === 0) {

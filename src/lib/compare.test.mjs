@@ -318,8 +318,8 @@ const EMPTY = {
 };
 
 /**
- * A moment for the production snapshot writer, which takes one rather than a
- * bare name (ADR-0072).
+ * A moment for the production snapshot writer, which needs all three spellings —
+ * name, instant and zone (ADR-0072).
  * @param {string} name
  */
 const momentOf = (name) => ({
