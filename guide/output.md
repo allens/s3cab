@@ -1,7 +1,7 @@
 # Output: human-readable text, and `--json` for machines
 
-By default every s3cab command prints **human-readable text** to stdout — short
-confirmations for actions (`backup`, `restore`, …), and readable reports for
+By default every s3cab command prints **human-readable text** to stdout — a
+report of what an action did (`backup`, `restore`, …), and readable answers for
 queries (`compare`, `list`, `status`, …). This is the format designed for a
 person at a terminal.
 
@@ -19,7 +19,8 @@ structured JSON value instead:
   "moved": [],
   "modified": [{ "path": "/home/me/Pictures/diary.txt", "size": 240 }],
   "deleted": [],
-  "errors": []
+  "errors": [],
+  "skipped": []
 }
 ```
 
