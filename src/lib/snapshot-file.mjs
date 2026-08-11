@@ -37,7 +37,11 @@ import { tildeify } from "./home.mjs";
 // `errorLine`); the walk yields these as separate data buckets and no longer
 // knows the grammar. On read, `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR`
 // (into the headers), `#ERROR` (into `errors`), and `#SKIPPED` (into `skipped`);
-// `#EXCLUDED` and any other comment line are ignored.
+// `#EXCLUDED` and any other comment line are ignored. That asymmetry is
+// deliberate and settled: the live question ("what are my patterns dropping?")
+// is answered by `tree --excluded` from a fresh walk, so a reader can check an
+// exclude.txt edit by re-running rather than by taking another snapshot
+// (ADR-0080). These rows stay a record for hand recovery — don't wire them up.
 
 // The comment markers heading the grammar's non-file lines — shared by the
 // (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)

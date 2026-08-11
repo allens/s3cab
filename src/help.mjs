@@ -25,7 +25,7 @@ import {
 // entry point still loads the SDK on every invocation anyway, via the static
 // command registry; making dispatch lazy is deliberately deferred — see
 // proposals/performance.md.) The exclude text mirrors the matcher in
-// `src/commands/tree.mjs` (guide/exclude.md). The former auth topic lives on as
+// `src/lib/exclude.mjs` (guide/exclude.md). The former auth topic lives on as
 // the `provider` command's registry details (ADR-0041, name per ADR-0047) —
 // `help provider` reaches it via the `help <command>` routing.
 //
@@ -47,6 +47,7 @@ member directories. Write / between directories; on Windows \\ works too.
 
   *    one or more characters, within a single name
   **/  zero or more whole directories
+  **   anything at all, across directories
   ?    exactly one character
 
 A pattern ending in / matches a directory and everything inside it.
@@ -57,6 +58,12 @@ Examples:
   build/             the top-level build directory only
   Tests/**/*.js      .js files anywhere under Tests
   **/log.txt         a file named log.txt in any directory
+  logs/**            everything under the top-level logs directory
+
+To see what your patterns are actually leaving out, and which pattern
+left each one out, run:
+
+  s3cab tree --excluded
 
 Full guide: https://s3cab.plantegral.com/guide/exclude`,
 };

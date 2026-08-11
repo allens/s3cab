@@ -34,6 +34,7 @@ too. A _segment_ is one directory or file name (the text between two separators)
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
 | `**/`  | zero or more whole segments                        |
+| `**`   | anything at all, across segments                   |
 | `?`    | exactly one character                              |
 
 A pattern ending in `/` matches a directory (and everything inside it, since the
@@ -49,6 +50,28 @@ Matching is case-insensitive on Windows and case-sensitive elsewhere.
   `log.txt`, `Tests/log.txt`, `Tests/UI/log.txt`.
 - `**/node_modules/` — every `node_modules` directory, wherever it appears.
 - `build/` — the top-level `build` directory only.
+- `logs/**` — everything under the top-level `logs` directory, at any depth.
 
 For a real-world example, see this repository's own
 [.s3cab/exclude.txt](../.s3cab/exclude.txt).
+
+## Seeing what a pattern actually drops
+
+Patterns are easy to get subtly wrong, and a backup that quietly holds less than
+you think is the worst way to find out. `tree --excluded` lists what the set's
+patterns are leaving out, and which pattern left each one out:
+
+```
+s3cab tree --excluded
+```
+
+It reads your directories, not a stored backup, so you can edit `exclude.txt`
+and run it again to check the effect straight away. A left-out directory appears
+as a single line — s3cab doesn't look inside one — so that line stands for
+everything it contains. Alongside the listing you get a count per pattern, which
+is usually the quickest way to spot a pattern matching far more than you meant.
+
+To find out why one particular file isn't being backed up, search that listing
+for it — `s3cab tree --excluded | findstr beach.jpg` on Windows, or
+`s3cab tree --excluded | grep beach.jpg` elsewhere. The plain `s3cab tree` is the
+other half of the same question: everything that *would* be backed up.

@@ -32,6 +32,20 @@ Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
 content already existed elsewhere is noted '(duplicate of ...)'.
 Full guide: https://s3cab.plantegral.com/guide/compare`;
 
+export const treeDetails = `--excluded turns the listing around: instead of the files that would be
+backed up, it shows what the set's exclude file is leaving out, and which
+pattern left it out. One entry per line, the path and the pattern separated
+by a tab, with a count per pattern printed alongside.
+
+A left-out directory is one line on its own: s3cab doesn't look inside it,
+so that line stands for everything it contains.
+
+Both listings are read from the directories themselves, not from a
+snapshot — edit the exclude file and run this again to see the effect
+straight away.
+
+Full guide: https://s3cab.plantegral.com/guide/exclude`;
+
 export const deleteDetails = `Removes the objects backing the named paths from the repository, across
 the whole backed-up history — "I have no use for this, stop paying to
 back it up", applied to backups already taken. Snapshots are never
