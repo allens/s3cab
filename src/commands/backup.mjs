@@ -84,6 +84,7 @@ export async function backup(setName, options = {}) {
   const {
     name: since,
     previous,
+    previousErrors,
     lookup,
     instant: previousInstant,
   } = await readBaseline(set);
@@ -169,7 +170,7 @@ export async function backup(setName, options = {}) {
   const comparison =
     since && previous
       ? await compareSnapshots(set.snapshotsDir, set.dirs, {
-          since: { name: since, entries: previous },
+          since: { name: since, entries: previous, errors: previousErrors },
           until: name,
           setName: set.name,
         })
