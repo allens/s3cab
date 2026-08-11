@@ -233,12 +233,14 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
       // the exact seam it uses: a real GetObject body handed to
       // parseCompressedSnapshotStream, destroyed on its first chunk — an
       // in-flight connection death. Before the pipeline rewrite this stalled
-      // forever (`.pipe` forwards no source error), hence the timeout.
+      // forever (`.pipe` forwards no source error), hence the timeout. The drop
+      // is armed before the parse starts, so catching the first chunk doesn't
+      // depend on when the pipeline's own consumption is scheduled.
       const body = await getStream(remoteSnapshotUri(bucket, set, name));
-      const parsed = parseCompressedSnapshotStream(body);
       body.once("data", () =>
         body.destroy(new Error("injected: connection dropped")),
       );
+      const parsed = parseCompressedSnapshotStream(body);
       await assert.rejects(parsed, (/** @type {Error} */ error) => {
         assert.match(error.message, /connection dropped/);
         // An operational failure, not snapshot damage: a bucket scan must
