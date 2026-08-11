@@ -9,6 +9,7 @@ import { InterruptedError } from "./error.mjs";
 import {
   listSnapshotNames,
   normalizeSnapshotName,
+  parseCompressedSnapshotStream,
   parseSnapshotStream,
   readParkedLookup,
   readSnapshot,
@@ -125,6 +126,66 @@ describe("parseSnapshotStream", () => {
     const { entries } = await parse(text);
     assert.equal(entries.size, 2);
   });
+});
+
+// parseCompressedSnapshotStream fronts the parser with zstd as the terminal
+// sink of a pipeline. The shape exists for error propagation: the `.pipe` it
+// replaced forwarded no source `error`, so a dropped stream stalled the parser
+// forever — which is why these tests carry timeouts (the failure mode under
+// guard is a hang, not a throw). The teardown half of the story — completing a
+// read without aborting the live S3 request (#171) — needs a real body and is
+// covered in test/integration/remote.test.mjs.
+describe("parseCompressedSnapshotStream", () => {
+  const text = [
+    "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
+    `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+  ].join("\n");
+
+  it(
+    "parses a compressed stream arriving in arbitrary chunks",
+    { timeout: 5000 },
+    async () => {
+      const compressed = zstdCompressSync(text);
+      const chunks = [];
+      for (let i = 0; i < compressed.length; i += 7) {
+        chunks.push(compressed.subarray(i, i + 7));
+      }
+      const { entries, identity } = await parseCompressedSnapshotStream(
+        Readable.from(chunks),
+      );
+      assert.equal(identity, "photos");
+      assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
+    },
+  );
+
+  it(
+    "rejects when the source errors mid-stream instead of stalling",
+    { timeout: 5000 },
+    async () => {
+      // Half the compressed bytes arrive, then the source dies — a dropped
+      // connection or a failed disk read, surfaced as the source's `error`.
+      const compressed = zstdCompressSync(text);
+      const source = new Readable({ read() {} });
+      source.push(compressed.subarray(0, Math.floor(compressed.length / 2)));
+      const parsed = parseCompressedSnapshotStream(source);
+      source.destroy(new Error("connection dropped"));
+      await assert.rejects(parsed, /connection dropped/);
+    },
+  );
+
+  it(
+    "rejects when the source closes without ending (silent drop)",
+    { timeout: 5000 },
+    async () => {
+      // A connection torn down without an error event: the source closes before
+      // ever ending. `pipeline` turns that into ERR_STREAM_PREMATURE_CLOSE.
+      const source = new Readable({ read() {} });
+      source.push(zstdCompressSync(text).subarray(0, 8));
+      const parsed = parseCompressedSnapshotStream(source);
+      source.destroy();
+      await assert.rejects(parsed, { code: "ERR_STREAM_PREMATURE_CLOSE" });
+    },
+  );
 });
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));

@@ -623,21 +623,43 @@ export function listSnapshotNames(snapshotDir) {
 export async function readSnapshotFile(path) {
   const readStream = createReadStream(path);
 
-  const input =
-    extname(path) === ".zst"
-      ? readStream.pipe(createZstdDecompress())
-      : readStream;
+  return extname(path) === ".zst"
+    ? parseCompressedSnapshotStream(readStream)
+    : parseSnapshotStream(readStream);
+}
 
-  return parseSnapshotStream(input);
+/**
+ * Parse a **compressed** (`.tsv.zst`) snapshot byte stream into a snapshot —
+ * the zstd-decompressing front of {@link parseSnapshotStream}, shared by the
+ * local `.zst` read ({@link readSnapshotFile}) and the remote read
+ * (`readRemoteSnapshot`, streaming an S3 body). A `pipeline` with the parser as
+ * its **terminal sink**, which is the one shape with both properties this read
+ * needs: a mid-stream source error (a dropped connection, a failed disk read)
+ * propagates and rejects instead of stalling the parser (`.pipe` forwards no
+ * `error`), and teardown waits for the sink — the source is fully consumed
+ * first, so a live S3 request is never aborted on normal completion (the eager
+ * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
+ * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
+ * @returns {Promise<Snapshot>}
+ */
+export async function parseCompressedSnapshotStream(source) {
+  const decompressed = createZstdDecompress();
+  // The sink closes over the zstd stream rather than taking pipeline's sink
+  // argument — the same object at runtime, but typed as a bare AsyncIterable,
+  // which the parser's readline can't take.
+  return await pipeline(source, decompressed, () =>
+    parseSnapshotStream(decompressed),
+  );
 }
 
 /**
  * Parse a decompressed snapshot TSV stream into a snapshot — the line-parsing
  * core of `readSnapshotFile`, split out so a snapshot can be read straight from
  * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
- * with no temp file. The caller hands in an already-**decompressed** TSV stream:
- * `readSnapshotFile` decompresses a `.zst` path itself; the remote reader pipes
- * the S3 body through zstd.
+ * with no temp file. The caller hands in an already-**decompressed** TSV stream;
+ * both compressed sources — a local `.zst` file and a remote S3 body — come
+ * through {@link parseCompressedSnapshotStream}, which fronts this parser with
+ * zstd as a pipeline sink.
  *
  * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
  * rather than discarded, so a snapshot stays self-describing on read — the

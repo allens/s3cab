@@ -1,19 +1,33 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import { deleteObject, listObjects, putText } from "../../src/lib/s3.mjs";
-import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { zstdCompressSync } from "node:zlib";
+import {
+  deleteObject,
+  getStream,
+  listObjects,
+  putText,
+} from "../../src/lib/s3.mjs";
+import {
+  parseCompressedSnapshotStream,
+  readSnapshot,
+  snapshotFileName,
+} from "../../src/lib/snapshot-file.mjs";
 import {
   deleteRemoteSnapshot,
   downloadRemoteSnapshots,
   listRemoteSnapshots,
   readLatestRemoteSnapshot,
+  readRemoteSnapshot,
   referencedObjects,
   remoteSnapshotsPrefix,
+  remoteSnapshotUri,
 } from "../../src/lib/remote.mjs";
-import { uploadSnapshot } from "../../src/lib/upload.mjs";
+import { isCorruptSnapshotError } from "../../src/lib/referenced.mjs";
+import { uploadSnapshot, uploadSnapshotFile } from "../../src/lib/upload.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 import { bucket } from "../helpers/integration.mjs";
 
@@ -166,6 +180,76 @@ describe("referencedObjects (real bucket)", () => {
       await deleteObject(`s3://${bucket}/${badKey}`);
     }
   });
+});
+
+describe("snapshot read stream lifecycle (real bucket)", () => {
+  // One seeded snapshot, big enough that its GetObject body spans many network
+  // chunks. That size is what makes both tests mean something: the happy read
+  // proves the pipeline consumes a live multi-chunk body to completion without
+  // aborting the request (#171's ABORT_ERR — the reason the read was ever
+  // `.pipe`), and the drop test kills a request that is genuinely still in
+  // flight rather than one already buffered.
+  const set = `stream-${Date.now()}`;
+  const name = "2025-05-05T0700";
+  const fileCount = 20_000;
+
+  /** @type {Awaited<ReturnType<typeof mkTmpDir>>} */
+  let dir;
+  before(async () => {
+    // Fabricated rather than walked: 20k real files would slow the suite for
+    // nothing — only the bytes on the wire matter here. Chained sha256 hashes
+    // keep the rows incompressible, so the object stays large after zstd.
+    const rows = [
+      `#SNAPSHOT\t${set}\t2025-05-05T06:00:00.000Z\t${name} Etc/UTC`,
+    ];
+    let hash = set;
+    for (let i = 0; i < fileCount; i++) {
+      hash = createHash("sha256").update(hash).digest("hex");
+      rows.push(`${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`);
+    }
+    dir = await mkTmpDir();
+    writeFileSync(
+      join(dir.path, snapshotFileName(name)),
+      zstdCompressSync(rows.join("\n")),
+    );
+    await uploadSnapshotFile({ bucket, set, snapshotDir: dir.path, name });
+  });
+  after(async () => {
+    await deleteObject(remoteSnapshotUri(bucket, set, name));
+    await dir.remove();
+  });
+
+  it("reads a multi-chunk body to completion — teardown must not abort the live request (#171)", async () => {
+    const { entries, identity } = await readRemoteSnapshot(bucket, set, name);
+    assert.equal(identity, set);
+    assert.equal(entries.size, fileCount);
+  });
+
+  it(
+    "fails, not stalls, when the body drops mid-download",
+    { timeout: 60_000 },
+    async () => {
+      // readRemoteSnapshot owns its body internally, so the drop is injected at
+      // the exact seam it uses: a real GetObject body handed to
+      // parseCompressedSnapshotStream, destroyed on its first chunk — an
+      // in-flight connection death. Before the pipeline rewrite this stalled
+      // forever (`.pipe` forwards no source error), hence the timeout. The drop
+      // is armed before the parse starts, so catching the first chunk doesn't
+      // depend on when the pipeline's own consumption is scheduled.
+      const body = await getStream(remoteSnapshotUri(bucket, set, name));
+      body.once("data", () =>
+        body.destroy(new Error("injected: connection dropped")),
+      );
+      const parsed = parseCompressedSnapshotStream(body);
+      await assert.rejects(parsed, (/** @type {Error} */ error) => {
+        assert.match(error.message, /connection dropped/);
+        // An operational failure, not snapshot damage: a bucket scan must
+        // abort on it, never record the snapshot unreadable (referenced.mjs).
+        assert.equal(isCorruptSnapshotError(error), false);
+        return true;
+      });
+    },
+  );
 });
 
 describe("deleteRemoteSnapshot (real bucket)", () => {
