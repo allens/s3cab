@@ -24,6 +24,7 @@ import {
   deleteDetails,
   providerDetails,
   snapshotDetails,
+  treeDetails,
 } from "./command-details.mjs";
 import {
   offerBackupChanges,
@@ -39,6 +40,7 @@ import {
   renderSetup,
   renderStatus,
   renderText,
+  renderTree,
   renderUpload,
   renderVerify,
 } from "./render.mjs";
@@ -571,12 +573,20 @@ export const commands = {
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
-    examples: ["s3cab tree", "s3cab tree photos"],
+    examples: ["s3cab tree", "s3cab tree photos", "s3cab tree --excluded"],
+    details: treeDetails,
     args: {
       set: { description: "The backup set to list (default: the only set)" },
     },
-    exec: (_options, [set] = []) => tree(set),
-    render: renderLines,
+    options: {
+      excluded: {
+        type: "boolean",
+        description:
+          "List what the set's exclude patterns are dropping instead, each with the pattern that matched it",
+      },
+    },
+    exec: (options, [set] = []) => tree(set, options),
+    render: renderTree,
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",

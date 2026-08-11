@@ -35,6 +35,7 @@ import { bold, cyan, green, isInteractive, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { ListResult } from "./commands/list.mjs" */
+/** @import { ExcludedEntry } from "./commands/tree.mjs" */
 /** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
@@ -477,6 +478,29 @@ function indentSnapshots(names) {
 export function renderLines(lines) {
   return lines.join("\n");
 }
+
+/**
+ * Render `tree` in either of its two directions: the kept paths (one per line,
+ * exactly as before) or, under `--excluded`, what the set's patterns dropped —
+ * the path, a tab, and the pattern that matched it. Two shapes, one renderer,
+ * because the registry gives a command a single `render`.
+ *
+ * The path stays in column 1 so `s3cab tree --excluded | cut -f1` yields the
+ * same stream shape as a plain `s3cab tree`, and the pattern rides alongside
+ * rather than in a second pass — which is what makes a per-path "why is *this*
+ * excluded?" a `grep` rather than another flag. A tab is the separator for the
+ * same reason snapshots use one (ADR-0004): no quoting, no escaping, and a
+ * column a script can cut. `--json` never sees this — it gets the record objects
+ * the command actually returned.
+ * @param {Array<string | ExcludedEntry>} entries
+ * @returns {string}
+ */
+export const renderTree = (entries) =>
+  renderLines(
+    entries.map((entry) =>
+      typeof entry === "string" ? entry : `${entry.path}\t${entry.pattern}`,
+    ),
+  );
 
 /**
  * The degenerate renderer for commands whose result already *is* the finished
