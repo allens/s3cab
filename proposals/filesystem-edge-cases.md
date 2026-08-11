@@ -90,8 +90,9 @@ mechanism, different code, different fix.
       `resolveDirectories` mapped the `ENOENT` to `Directory not found: <path>`, the one thing
       that is definitely untrue of a folder you can list, and `walkDirs`' `realpathSync.native(dir)`
       had no `try`/`catch` at all, so a set that somehow carried the path failed with a raw
-      `ENOENT` and no ADR-0030 shaping. Both now ask `existsSync` which of the two opposite things
-      that `ENOENT` means, and say the true one. Neither is vault-specific: any path the OS won't
+      `ENOENT` and no ADR-0030 shaping. Both now `stat` the path to see which of three different
+      things that `ENOENT` means — nothing there, a non-directory, or a real directory the OS
+      won't canonicalize — and say the true one. Neither is vault-specific: any path the OS won't
       canonicalize lands there.
   - **There is also no way to opt _in_ — an open question, not something being designed here.**
     Someone who wants the vault backed up — plausibly their most valuable data, and the copy

@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
@@ -125,13 +125,28 @@ const rolesAnywhereNotReadyError = (bucket) =>
   );
 
 /**
- * The error a directory the OS won't canonicalize raises: it is there, it lists,
- * but `realpathSync.native` can't say where it really is. Measured case (2026-08-11,
- * proposals/filesystem-edge-cases.md): an unlocked OneDrive Personal Vault, a
- * junction onto a volume GUID with no mount point, where `GetFinalPathNameByHandle`
- * fails — but nothing here is vault-specific, so the message names the *shape* of
- * the problem rather than one product. It used to read `Directory not found`, which
- * is the one thing that is definitely untrue of a folder you can list.
+ * "Not a directory", the answer to two different questions — the path resolved and
+ * turned out to be a file, or it wouldn't resolve *and* isn't a directory either.
+ * One factory so both say it the same way (src/lib/error.mjs's taxonomy: a reused
+ * message earns one).
+ * @param {string} directory - The path as the user typed it
+ */
+const notADirectoryError = (directory) =>
+  new Error(`Not a directory: ${directory}`);
+
+/**
+ * The error a directory the OS won't canonicalize raises: it is there, it is a
+ * directory, but `realpathSync.native` can't say where it really is. Measured case
+ * (2026-08-11, proposals/filesystem-edge-cases.md): an unlocked OneDrive Personal
+ * Vault, a junction onto a volume GUID with no mount point, where
+ * `GetFinalPathNameByHandle` fails — but nothing here is vault-specific, so the
+ * message names the *shape* of the problem rather than one product. It used to read
+ * `Directory not found`, which is the one thing that is definitely untrue of it.
+ *
+ * The wording claims only what the caller checked — that it is there, and that it
+ * is a directory. Not that it *lists*: the vault does, but proving that means a
+ * `readdir` of a directory that could hold a hundred thousand entries, to add a
+ * clause the user doesn't need.
  * @param {string} directory - The path as the user typed it
  * @param {string} name - The set being created
  * @param {string | undefined} bucket - Its bucket, if `--bucket` was given
@@ -139,7 +154,7 @@ const rolesAnywhereNotReadyError = (bucket) =>
  */
 const unresolvableDirectoryError = (directory, name, bucket, cause) =>
   new Error(
-    `Can't add '${directory}' to backup set '${name}': the folder is there and lists, ` +
+    `Can't add '${directory}' to backup set '${name}': the folder is there, ` +
       `but this computer won't say where it really is (resolving the path reports ` +
       `"no such file or directory").\n` +
       `A set stores each folder by its resolved location, so one that won't resolve ` +
@@ -166,18 +181,28 @@ function resolveDirectories(directories, name, bucket) {
       real = realpathSync.native(directory);
     } catch (error) {
       if (isENOENT(error)) {
-        // `ENOENT` from realpath means one of two opposite things, so ask whether
-        // the path is there before saying it isn't: absent (the typo, the
-        // unplugged drive) or present-but-uncanonicalizable.
-        if (existsSync(directory)) {
-          throw unresolvableDirectoryError(directory, name, bucket, error);
+        // `ENOENT` from realpath means one of three different things, so ask what
+        // is actually there before saying anything about it: nothing (the typo,
+        // the unplugged drive), a non-directory, or a real directory the OS just
+        // won't canonicalize. `stat`, not `existsSync`, because the last of those
+        // says "folder" and has to have earned it.
+        let stats;
+        try {
+          stats = statSync(directory);
+        } catch {
+          throw new Error(`Directory not found: ${directory}`, {
+            cause: error,
+          });
         }
-        throw new Error(`Directory not found: ${directory}`, { cause: error });
+        if (!stats.isDirectory()) {
+          throw notADirectoryError(directory);
+        }
+        throw unresolvableDirectoryError(directory, name, bucket, error);
       }
       throw error;
     }
     if (!statSync(real).isDirectory()) {
-      throw new Error(`Not a directory: ${directory}`);
+      throw notADirectoryError(directory);
     }
     return real;
   });

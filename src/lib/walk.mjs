@@ -87,6 +87,22 @@ export function readExcludePatterns(excludePath) {
 }
 
 /**
+ * Whether the path is a directory that is there right now — false for a missing
+ * one (ENOENT), an unreadable one, and a file. The two questions the walk asks
+ * about a root before it trusts anything it says about it: which directories are
+ * unavailable, and whether an unresolvable path has earned the word "folder".
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Guard that every member directory is present and really a directory before the
  * walk starts. `dirs.txt` is a hand-edited public file, so a line can point at a
  * deleted or renamed folder, a typo, or an unplugged drive; without this the walk
@@ -135,13 +151,7 @@ function assertWalkableDirs(set) {
     );
   }
 
-  const unavailable = set.dirs.filter((dir) => {
-    try {
-      return !statSync(dir).isDirectory();
-    } catch {
-      return true; // missing (ENOENT) or otherwise unreadable → unavailable
-    }
-  });
+  const unavailable = set.dirs.filter((dir) => !isDirectory(dir));
   if (unavailable.length) {
     throw new Error(
       `These directories in backup set '${set.name}' aren't available:\n` +
@@ -167,10 +177,14 @@ function assertWalkableDirs(set) {
  * any path the OS won't canonicalize lands here, and without this it came out as a
  * raw `ENOENT` naming no goal and no fix.
  *
- * A root that is genuinely *missing* keeps its raw `ENOENT` — both entry points
- * refuse one long before this (`assertWalkableDirs` for a set, `upload`'s
- * `--dir needs a folder that exists`), so re-explaining it here would be a message
- * for a path that can't arrive.
+ * A root that is genuinely *missing* — or that isn't a directory at all — keeps its
+ * raw `ENOENT`. Both entry points refuse either long before this
+ * (`assertWalkableDirs` for a set, `upload`'s `--dir needs a folder that exists`),
+ * so re-explaining it here would be a message for a path that can't arrive; and the
+ * shaped message below calls the path a folder, so it only fires once `isDirectory`
+ * says it is one. What it does *not* claim is that the directory lists: the vault
+ * does, but proving it means a `readdir` of a tree that could hold a hundred
+ * thousand entries, to add a clause the user doesn't need.
  * @param {string} dir - A member directory, absolute and already checked reachable
  * @returns {string} Its canonical path
  */
@@ -178,11 +192,11 @@ function resolveWalkRoot(dir) {
   try {
     return realpathSync.native(dir);
   } catch (error) {
-    if (!isENOENT(error) || !existsSync(dir)) {
+    if (!isENOENT(error) || !isDirectory(dir)) {
       throw error;
     }
     throw new Error(
-      `Can't back up '${dir}': the folder is there and lists, but this computer ` +
+      `Can't back up '${dir}': the folder is there, but this computer ` +
         `won't say where it really is (resolving the path reports "no such file ` +
         `or directory").\n` +
         `Every file goes into a backup under its folder's resolved location, so a ` +

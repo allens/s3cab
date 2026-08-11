@@ -343,8 +343,8 @@ describe("walkDirs on a root the OS won't canonicalize", () => {
     // `lstat` calls a directory and `readdir` lists, while
     // `GetFinalPathNameByHandle` answers ENOENT (proposals/filesystem-edge-cases.md).
     // Nothing portable creates one, so the *OS's answer* for this one path is
-    // what's faked; the directory itself is real, which is the whole point —
-    // `existsSync` has to see it, or the guard can't tell the two ENOENTs apart.
+    // what's faked; the directory itself is real, which is the whole point — the
+    // guard has to stat it, or it can't tell the two ENOENTs apart.
     const native = realpathSync.native;
     t.mock.method(
       realpathSync,
@@ -367,7 +367,7 @@ describe("walkDirs on a root the OS won't canonicalize", () => {
         // The user's goal, then the fact the old raw error contradicted: this
         // folder is *there* — it just has no resolvable location.
         error.message.startsWith(`Can't back up '${dir.path}'`) &&
-        /the folder is there and lists/.test(error.message) &&
+        /the folder is there/.test(error.message) &&
         /won't say where it really is/.test(error.message) &&
         // The errno stays a parenthetical gloss; it is never the headline.
         !/^ENOENT/.test(error.message) &&
@@ -384,6 +384,32 @@ describe("walkDirs on a root the OS won't canonicalize", () => {
     assert.throws(() => walkDirs([join(dir.path, "nope")], []), {
       code: "ENOENT",
     });
+  });
+
+  it("won't call a file a folder that is there", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "plain.txt");
+    const file = join(dir.path, "plain.txt");
+
+    // The message says "folder", so it only fires for something that stats as
+    // one — a path that exists but isn't a directory falls through to the raw
+    // error rather than being described as a folder.
+    const native = realpathSync.native;
+    t.mock.method(
+      realpathSync,
+      "native",
+      /** @param {PathLike} path */ (path) => {
+        if (path === file) {
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        }
+        return native(path);
+      },
+    );
+
+    assert.throws(
+      () => walkDirs([file], []),
+      (error) => Error.isError(error) && !/folder is there/.test(error.message),
+    );
   });
 });
 

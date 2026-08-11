@@ -129,6 +129,8 @@ describe("setup (offline validation)", () => {
   it("won't call a folder it can't resolve missing, and says what it can't do", async (t) => {
     await using dir = await mkTmpDir();
     const { photos } = withMemberDir(dir.path);
+    const file = join(dir.path, "plain.txt");
+    writeFileSync(file, "x");
 
     // Constructed, not reproduced. The measured case is an unlocked OneDrive
     // Personal Vault — a junction onto a volume GUID with no mount point, which
@@ -136,13 +138,15 @@ describe("setup (offline validation)", () => {
     // `GetFinalPathNameByHandle` answers ENOENT (proposals/filesystem-edge-cases.md).
     // A *locked* vault has no such path at all, so the misleading message was
     // reachable only with it open; nothing portable creates one, so the OS's
-    // answer for this one path is faked and the folder underneath is real.
+    // answer is faked for these two paths and what is under them is real — a
+    // directory and a file, which the same ENOENT has to tell apart.
+    const unresolvable = new Set([photos, file]);
     const native = realpathSync.native;
     t.mock.method(
       realpathSync,
       "native",
       /** @param {PathLike} path */ (path) => {
-        if (path === photos) {
+        if (typeof path === "string" && unresolvable.has(path)) {
           throw Object.assign(
             new Error(`ENOENT: no such file or directory, realpath '${path}'`),
             { code: "ENOENT" },
@@ -161,12 +165,19 @@ describe("setup (offline validation)", () => {
         error.message.startsWith(
           `Can't add '${photos}' to backup set 'photos'`,
         ) &&
-        /the folder is there and lists/.test(error.message) &&
+        /the folder is there/.test(error.message) &&
         // The fix carries the values we already know, placeholder only for the
         // one the user has to choose (ADR-0030).
         error.message.includes(
           "  s3cab setup --set photos --bucket b <directory>...",
         ),
+    );
+
+    // Same unresolvable ENOENT, different true answer: a path that exists but
+    // isn't a directory must not be described as a folder that is there.
+    await assert.rejects(
+      () => setup([file], { set: "photos", bucket: "b" }),
+      /Not a directory: /,
     );
   });
 
