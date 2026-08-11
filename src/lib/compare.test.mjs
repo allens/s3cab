@@ -16,7 +16,7 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 import { compareSnapshots, diff } from "./compare.mjs";
 
 /** @import { CompareResult, DiffResult } from "./compare.mjs" */
-/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+/** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
@@ -166,6 +166,26 @@ describe("diff", () => {
     });
   });
 
+  it("never pairs a move into a path the previous snapshot couldn't hash", () => {
+    // X.doc was in the previous snapshot as an `#ERROR` row — there, just
+    // unreadable — so nothing can have moved *to* it, however the content pairs
+    // up. Without the bar this prints `Y.doc → X.doc`: a rename that never
+    // happened, invented for a file that sat there the whole time. It reports as
+    // added instead, annotated as a copy of where that content used to live, and
+    // Y.doc's deletion stands (ADR-0079).
+    const result = diff(
+      entries({ "Y.doc": "h1" }),
+      entries({ "X.doc": "h1" }),
+      new Map([["X.doc", "EBUSY: resource busy"]]),
+    );
+
+    assert.deepStrictEqual(plain(result), {
+      ...NONE,
+      added: ["X.doc == Y.doc"],
+      deleted: ["Y.doc"],
+    });
+  });
+
   it("reports one move and one copy when a deleted holder is claimed", () => {
     const result = diff(
       entries({ "file.A": "h1", "file.B": "h1" }),
@@ -288,18 +308,20 @@ const CURRENT = "2024-01-02T0101";
 /**
  * Project a structured {@link CompareResult} into compact relative strings for
  * assertions: `path`, `path == dup1,dup2` for a duplicated add, `from → to` for
- * a move, and `path (reason)` for an error — all relative to `base`.
+ * a move, and `path (reason)` for an error — all relative to `base`. An add the
+ * older snapshot couldn't hash carries a trailing `(was unreadable)`.
  * @param {CompareResult} result
  * @param {string} base
  */
 function summarize(result, base) {
   const r = (/** @type {string} */ p) => relative(base, p);
   return {
-    added: result.added.map((a) =>
-      a.duplicates.length
-        ? `${r(a.path)} == ${a.duplicates.map(r).join(",")}`
-        : r(a.path),
-    ),
+    added: result.added.map((a) => {
+      const dupes = a.duplicates.length
+        ? ` == ${a.duplicates.map(r).join(",")}`
+        : "";
+      return `${r(a.path)}${dupes}${a.wasUnreadable ? " (was unreadable)" : ""}`;
+    }),
     moved: result.moved.map((m) => `${r(m.path)} → ${r(m.to)}`),
     modified: result.modified.map((m) => r(m.path)),
     deleted: result.deleted.map((d) => r(d.path)),
@@ -361,7 +383,12 @@ describe("compareSnapshots", () => {
     assert.equal(result.since, null); // first snapshot
     assert.equal(result.until, CURRENT);
     assert.deepStrictEqual(result.added, [
-      { path: resolve(dir.path, "file1.txt"), size: 5, duplicates: [] },
+      {
+        path: resolve(dir.path, "file1.txt"),
+        size: 5,
+        duplicates: [],
+        wasUnreadable: false,
+      },
     ]);
   });
 
@@ -370,8 +397,8 @@ describe("compareSnapshots", () => {
 
     await writeSnapshot(dir.path, CURRENT, [new File(["same"], "kept.txt")]);
 
-    // The baseline is handed in as { name, entries } — the threading seam
-    // `snapshot` uses so the previous snapshot isn't decompressed twice. No
+    // The baseline is handed in as { name, entries, errors } — the threading
+    // seam `snapshot` uses so the previous snapshot isn't decompressed twice. No
     // PREVIOUS file exists on disk, so a re-read would throw: the classification
     // below can only come from the synthetic entries.
     /** @type {SnapshotEntries} */
@@ -382,7 +409,7 @@ describe("compareSnapshots", () => {
       ],
     ]);
     const result = await compareSnapshots(dir.path, [dir.path], {
-      since: { name: PREVIOUS, entries },
+      since: { name: PREVIOUS, entries, errors: new Map() },
       until: CURRENT,
     });
 
@@ -569,6 +596,69 @@ describe("compareSnapshots", () => {
       ...EMPTY,
       errors: ["new.bin (EISDIR: is a directory)"],
     });
+  });
+
+  it("annotates a file the older snapshot couldn't hash as an addition, not a new file", async () => {
+    await using dir = await mkTmpDir();
+
+    // X.doc was locked when PREVIOUS was taken, so it is an `#ERROR` row there
+    // and in no manifest; CURRENT hashes it fine. Reported as added — the
+    // content really did reach the backup on this run, and the counts have to
+    // match what was stored — but flagged, because the file itself sat there the
+    // whole time. It cannot be `modified`: with no hash on the older side there
+    // is nothing to say the bytes changed (ADR-0079).
+    await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
+          ]),
+        ),
+        stream,
+      ),
+    );
+    await writeSnapshot(dir.path, CURRENT, [new File(["contents"], "X.doc")]);
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(summarize(result, dir.path), {
+      ...EMPTY,
+      added: ["X.doc (was unreadable)"],
+    });
+  });
+
+  it("reports nothing for a file that was unreadable and is then gone", async () => {
+    await using dir = await mkTmpDir();
+
+    // The fourth combination, and deliberately silent: the backup never held
+    // X.doc (an `#ERROR` row is in no manifest) and still doesn't, so nothing
+    // about it changed. Calling it deleted would claim a loss that never
+    // happened. kept.txt is here, unchanged, so the comparison is a real one
+    // that still finds nothing to say (ADR-0079).
+    const kept = resolve(dir.path, "kept.txt");
+    const keptProps = {
+      size: 4,
+      mtime: "2024-01-01T01:01:00.000Z",
+      hash: "a".repeat(64),
+    };
+    // Rows as an array rather than the Map the neighbouring tests build: this is
+    // the one snapshot here holding both kinds at once, and a mixed Map literal
+    // infers its value type from the first entry alone.
+    /** @type {SnapshotRow[]} */
+    const before = [
+      [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
+      [kept, keptProps],
+    ];
+    await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
+      pipeline(stringifySnapshot(before), stream),
+    );
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(stringifySnapshot([[kept, keptProps]]), stream),
+    );
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(summarize(result, dir.path), EMPTY);
   });
 
   it("rejects an explicit snapshot name that does not exist", async () => {

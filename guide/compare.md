@@ -58,7 +58,7 @@ touching a file without changing it does not show up.
 
 | Section    | Meaning                                                  |
 | ---------- | -------------------------------------------------------- |
-| `Added`    | a path that wasn't in the older snapshot                 |
+| `Added`    | content that wasn't in the older snapshot                |
 | `Renamed`  | content that moved to a new name in the same directory   |
 | `Moved`    | content that moved to a different directory              |
 | `Modified` | the same path with different content                     |
@@ -120,3 +120,22 @@ snapshot file itself and printed in the snapshot run's output.
 Errors (1)
   secret/vault.kdbx  (EACCES: permission denied)
 ```
+
+### When it becomes readable again
+
+A file that was locked or unreadable when the older snapshot was taken, and hashed fine for the
+newer one, is listed under `Added` with a note saying so:
+
+```console
+Added (1)
+  X.doc  (was unreadable in 2026-11-11T0830)
+```
+
+It is an addition to the **backup**, not a new file: because the older snapshot couldn't read it,
+its contents were never stored, and this is the run that stored them. The note is there because
+"added" on its own would suggest a file you had just created. (It can't be listed as `Modified`
+either — with no reading of the older contents, there is nothing to say they changed.)
+
+If instead the file was deleted before it ever became readable, the report says nothing about it.
+Nothing changed as far as the backup is concerned: those contents were never in it, and still
+aren't. The `Errors` line on the earlier report was the warning, and it simply stops appearing.
