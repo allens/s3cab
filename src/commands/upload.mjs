@@ -71,6 +71,9 @@ import { prop } from "./prop.mjs";
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
  * @property {Drift[]} skipped - Files that couldn't be confirmed while being read (changed,
  *   removed, or unreadable), so were not stored; each carries its `reason`
+ * @property {string[]} onlineOnly - Cloud placeholders left undownloaded (ADR-0080). Apart
+ *   from `skipped` because it is a different fact, not a milder one: those are files s3cab
+ *   read and couldn't confirm, these are files it deliberately never opened
  *
  * @typedef {FileUploadResult | SnapshotUploadResult | DirUploadResult} UploadResult
  *
@@ -190,12 +193,20 @@ export async function upload(setName, options = {}) {
     // sending, the way `backup` and `snapshot` head their pass, so the lines that
     // follow never have to repeat it.
     console.warn(`Uploading '${tildeify(dir)}' to '${set.bucket}':`);
-    const { candidates, uploaded, skipped } = await uploadDir({
+    const { candidates, uploaded, skipped, onlineOnly } = await uploadDir({
       bucket: set.bucket,
       dir,
       excludePath: set.excludePath,
     });
-    return { mode: "dir", set: set.name, dir, candidates, uploaded, skipped };
+    return {
+      mode: "dir",
+      set: set.name,
+      dir,
+      candidates,
+      uploaded,
+      skipped,
+      onlineOnly,
+    };
   }
 
   // ── Snapshot mode ─────────────────────────────────────────────────────────

@@ -73,7 +73,7 @@ import {
  * objects + snapshot are already safely up — the next backup re-publishes.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
- * @param {{ debug?: boolean }} [options]
+ * @param {{ debug?: boolean, "include-online-only"?: boolean }} [options]
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
@@ -111,6 +111,7 @@ export async function backup(setName, options = {}) {
     // does the sending, `transfer` is how that sending is going.
     transfer: uploader.transfer,
     debug: options.debug,
+    includeOnlineOnly: options["include-online-only"],
   });
 
   // The snapshot file has landed locally whatever happened above — that is what
