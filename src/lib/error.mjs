@@ -111,6 +111,38 @@ export class FileChangedError extends Error {
 }
 
 /**
+ * A file whose bytes are not on this disk: a cloud-sync placeholder left by
+ * Windows Files On-Demand (OneDrive, Dropbox, Google Drive), which reads back
+ * with its full logical size but nothing allocated behind it, and downloads
+ * itself the moment anything opens it. Raised by `fileProps` (lib/file-props.mjs)
+ * *instead of* reading such a file, so a first backup over a synced folder
+ * doesn't quietly pull the whole cloud account onto the local disk
+ * ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)).
+ *
+ * A subclass because the snapshot pipeline catches it *by type* to branch
+ * behaviour, and the branch is the whole point: every other throw out of
+ * `fileProps` is a **fault** and becomes an `#ERROR` row, while this one is a
+ * **choice** and becomes a `#SKIPPED` row beside the symlinks and the sockets.
+ * Recording "OneDrive downloaded nothing today" as a failure to read a file
+ * would say something untrue about a backup that worked exactly as designed.
+ */
+export class OnlineOnlyFileError extends Error {
+  /**
+   * @param {string} path - The placeholder that was not read
+   */
+  constructor(path) {
+    // Terse and factual: this message is never printed as an error. It lands in
+    // the `#SKIPPED` row's reason column, under a `dirent_type` of
+    // `Online-Only File` that already carries the explanation — and `compare`
+    // prints the type, not the reason (see `skippedSection` in src/render.mjs).
+    super(`Stored online, not on this computer: ${path}`);
+    this.name = "OnlineOnlyFileError";
+    /** The placeholder's absolute path, so a catcher needn't re-parse the message. */
+    this.path = path;
+  }
+}
+
+/**
  * The missing-argument sentence, given an argument's *display* form. One home for
  * the wording, two callers: {@link MissingArgError} composes it from the plain
  * name at the throw site, and the dispatcher recomposes it from the registry's

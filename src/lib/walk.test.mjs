@@ -5,7 +5,10 @@ import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
 import { walkDirs, walkSet } from "./walk.mjs";
 
-/** @import { BackupSet } from "./sets.mjs" */
+/**
+ * @import { PathLike } from "node:fs"
+ * @import { BackupSet } from "./sets.mjs"
+ */
 
 /**
  * A minimal resolved set for `walkSet` — it reads only name/dirs/dirsPath/
@@ -326,6 +329,86 @@ describe("walkSet dirs guard (ADR-0054)", () => {
     assert.throws(
       () => walkSet(setOf(dir.path, [])),
       /no directories to back up[\s\S]*dirs\.txt/,
+    );
+  });
+});
+
+describe("walkDirs on a root the OS won't canonicalize", () => {
+  it("says the folder won't resolve, rather than dying on a bare ENOENT", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "keep.txt");
+
+    // Constructed, not reproduced. The measured case is an unlocked OneDrive
+    // Personal Vault — a junction onto a volume GUID with no mount point, which
+    // `lstat` calls a directory and `readdir` lists, while
+    // `GetFinalPathNameByHandle` answers ENOENT (proposals/filesystem-edge-cases.md).
+    // Nothing portable creates one, so the *OS's answer* for this one path is
+    // what's faked; the directory itself is real, which is the whole point — the
+    // guard has to stat it, or it can't tell the two ENOENTs apart.
+    const native = realpathSync.native;
+    t.mock.method(
+      realpathSync,
+      "native",
+      /** @param {PathLike} path */ (path) => {
+        if (path === dir.path) {
+          throw Object.assign(
+            new Error(`ENOENT: no such file or directory, realpath '${path}'`),
+            { code: "ENOENT" },
+          );
+        }
+        return native(path);
+      },
+    );
+
+    assert.throws(
+      () => walkDirs([dir.path], []),
+      (error) =>
+        error instanceof Error &&
+        // The user's goal, then the fact the old raw error contradicted: this
+        // folder is *there* — it just has no resolvable location.
+        error.message.startsWith(`Can't back up '${dir.path}'`) &&
+        /the folder is there/.test(error.message) &&
+        /won't say where it really is/.test(error.message) &&
+        // The errno stays a parenthetical gloss; it is never the headline.
+        !/^ENOENT/.test(error.message) &&
+        error.message.includes("  s3cab list <set>"),
+    );
+  });
+
+  it("leaves a genuinely missing root to its raw ENOENT", async () => {
+    await using dir = await mkTmpDir();
+    // Deliberate: both entry points refuse a missing directory long before the
+    // walk (`assertWalkableDirs`, `upload --dir`), so re-explaining it here would
+    // be a message for a path that can't arrive — and it must not be dressed up
+    // as the unresolvable case, which claims the folder is there.
+    assert.throws(() => walkDirs([join(dir.path, "nope")], []), {
+      code: "ENOENT",
+    });
+  });
+
+  it("won't call a file a folder that is there", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "plain.txt");
+    const file = join(dir.path, "plain.txt");
+
+    // The message says "folder", so it only fires for something that stats as
+    // one — a path that exists but isn't a directory falls through to the raw
+    // error rather than being described as a folder.
+    const native = realpathSync.native;
+    t.mock.method(
+      realpathSync,
+      "native",
+      /** @param {PathLike} path */ (path) => {
+        if (path === file) {
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        }
+        return native(path);
+      },
+    );
+
+    assert.throws(
+      () => walkDirs([file], []),
+      (error) => Error.isError(error) && !/folder is there/.test(error.message),
     );
   });
 });

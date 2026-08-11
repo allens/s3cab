@@ -3,7 +3,7 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
-import { FileChangedError, isENOENT } from "./error.mjs";
+import { FileChangedError, isENOENT, OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
@@ -526,17 +526,46 @@ export async function uploadSnapshot({
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.dir - The subtree to seed from (already validated as a directory)
  * @param {string} args.excludePath - The set's `exclude.txt` (patterns applied to the walk)
- * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[] }>}
+ * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[], onlineOnly: string[] }>}
  *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
- *   (the rest were already stored); `skipped` = files the guard refused.
+ *   (the rest were already stored); `skipped` = files the guard refused;
+ *   `onlineOnly` = cloud placeholders left undownloaded (ADR-0081).
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
 
+  // Cloud placeholders this seed left alone (ADR-0081). Deliberately **not**
+  // folded into the `Drift[]` beside it: a drift is "the file moved on between
+  // being hashed and being sent", reported under a header that says s3cab
+  // couldn't confirm the file *while reading it* — and this is a file it never
+  // opened. Same outcome, different fact, so a different list.
+  /** @type {string[]} */
+  const online = [];
+
   /** One row at a time, so hashing and sending interleave per file. */
   async function* rows() {
     for (const path of files) {
-      yield /** @type {SnapshotRow} */ ([path, await fileProps(path)]);
+      // Caught here rather than left to the uploader, which would take an
+      // `Error` row as a file it couldn't read and pass it silently by. There is
+      // deliberately **no `--include-online-only` here**: this is a seeding
+      // shortcut whose objects a later `backup` re-derives anyway, so the way to
+      // store a cloud placeholder off-vendor is `backup --include-online-only`,
+      // and giving the same choice two homes means two places to get it wrong.
+      /** @type {Props} */
+      let props;
+      try {
+        props = await fileProps(path);
+      } catch (error) {
+        if (!(error instanceof OnlineOnlyFileError)) {
+          throw error;
+        }
+        online.push(path);
+        continue;
+      }
+      // Outside the `try` on purpose: the guard is on reading the file, and a
+      // generator's consumer can throw back in at the `yield` — which, caught
+      // here, would file a live upload failure as a placeholder we skipped.
+      yield /** @type {SnapshotRow} */ ([path, props]);
     }
   }
 
@@ -548,7 +577,7 @@ export async function uploadDir({ bucket, dir, excludePath }) {
   if (failure) {
     throw failure;
   }
-  return { candidates, uploaded, skipped: drifted };
+  return { candidates, uploaded, skipped: drifted, onlineOnly: online };
 }
 
 /**

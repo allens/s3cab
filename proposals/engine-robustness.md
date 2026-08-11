@@ -2,17 +2,15 @@
 
 Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
 
-- **Snapshot reads drop a mid-download body error.** `readRemoteSnapshot` (and the local
-  snapshot read in `snapshot-file.mjs`) pipe the body through zstd-decompress with a plain
-  `.pipe`, which doesn't forward the source's `error` — a truncated/dropped read stalls the
-  parser instead of failing. `compose`/`pipeline` *do* propagate it, but their teardown
-  **aborts the live S3 request** on normal completion (this regressed #171 with `ABORT_ERR`, so
-  `readRemoteSnapshot` was reverted to `.pipe`). Proper fix: make `parseSnapshotStream` the
-  terminal sink of a `pipeline` (source fully consumed before teardown), applied to both read
-  paths, with a real-S3 mid-stream-error integration test — needs local real-S3 to verify
-  ([docs/integration-testing.md](../docs/integration-testing.md)). (The *download* path,
-  `getObject` → `writeFileAtomic` via `pipeline`, already propagates — #171 fixed it by dropping
-  the old `S3ReadStream` wrapper; only the snapshot *reads* remain.)
+- **A truncated *stored* snapshot object can read as a shorter, valid snapshot.** Node's
+  zstd-decompress stream does not error when its input ends mid-frame (verified empirically,
+  Node 24 — unlike zlib's "unexpected end of file"), so a torn `.tsv.zst` whose cut happens to
+  land on a line boundary parses cleanly with rows missing; only a mid-line cut trips the
+  malformed-row assert. Distinct from the (now fixed) *stream*-error gap: this is damage in the
+  object at rest, the class `verify`/`isCorruptSnapshotError` exists for. Possible fix: track
+  whether the decompressor consumed a complete frame (or check the content size in the frame
+  header) and fail the read when it didn't. Noticed 2026-08-11 while building the
+  mid-stream-error tests.
 - **Network resilience knobs** for `backup`: retry policy, bandwidth limiting, resumability of
   a multi-thousand-file upload run. _(Mostly addressed: request + connection timeouts landed so a
   dropped connection fails instead of hanging — [ADR-0065](../docs/adr/0065-s3-client-request-timeouts.md)

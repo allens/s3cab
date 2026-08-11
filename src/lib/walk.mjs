@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
+import { isENOENT } from "./error.mjs";
 import { compileExclude } from "./exclude.mjs";
 import { formatCount, plural, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
@@ -86,6 +87,22 @@ export function readExcludePatterns(excludePath) {
 }
 
 /**
+ * Whether the path is a directory that is there right now — false for a missing
+ * one (ENOENT), an unreadable one, and a file. The two questions the walk asks
+ * about a root before it trusts anything it says about it: which directories are
+ * unavailable, and whether an unresolvable path has earned the word "folder".
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Guard that every member directory is present and really a directory before the
  * walk starts. `dirs.txt` is a hand-edited public file, so a line can point at a
  * deleted or renamed folder, a typo, or an unplugged drive; without this the walk
@@ -134,13 +151,7 @@ function assertWalkableDirs(set) {
     );
   }
 
-  const unavailable = set.dirs.filter((dir) => {
-    try {
-      return !statSync(dir).isDirectory();
-    } catch {
-      return true; // missing (ENOENT) or otherwise unreadable → unavailable
-    }
-  });
+  const unavailable = set.dirs.filter((dir) => !isDirectory(dir));
   if (unavailable.length) {
     throw new Error(
       `These directories in backup set '${set.name}' aren't available:\n` +
@@ -149,6 +160,53 @@ function assertWalkableDirs(set) {
         `missing (an unplugged drive, a deleted or renamed folder) or unreadable. ` +
         `Reconnect the drive, or edit the set's directory list:\n` +
         `  ${set.dirsPath}`,
+    );
+  }
+}
+
+/**
+ * Canonicalize one walk root — the low-frequency capture point CLAUDE.md reserves
+ * `realpathSync.native` for (once per root, never per entry), so every file below
+ * it is keyed on one stable path.
+ *
+ * It can fail on a directory that is plainly *there*: measured 2026-08-11 against
+ * an unlocked OneDrive Personal Vault, where `lstat`/`stat` report a directory and
+ * `readdir` lists it, but the junction targets a volume GUID with no mount point so
+ * `GetFinalPathNameByHandle` — and only that, not Node's JS `realpathSync` — gives
+ * `ENOENT` (proposals/filesystem-edge-cases.md). Nothing about it is vault-specific:
+ * any path the OS won't canonicalize lands here, and without this it came out as a
+ * raw `ENOENT` naming no goal and no fix.
+ *
+ * A root that is genuinely *missing* — or that isn't a directory at all — keeps its
+ * raw `ENOENT`. Both entry points refuse either long before this
+ * (`assertWalkableDirs` for a set, `upload`'s `--dir needs a folder that exists`),
+ * so re-explaining it here would be a message for a path that can't arrive; and the
+ * shaped message below calls the path a folder, so it only fires once `isDirectory`
+ * says it is one. What it does *not* claim is that the directory lists: the vault
+ * does, but proving it means a `readdir` of a tree that could hold a hundred
+ * thousand entries, to add a clause the user doesn't need.
+ * @param {string} dir - A member directory, absolute and already checked reachable
+ * @returns {string} Its canonical path
+ */
+function resolveWalkRoot(dir) {
+  try {
+    return realpathSync.native(dir);
+  } catch (error) {
+    if (!isENOENT(error) || !isDirectory(dir)) {
+      throw error;
+    }
+    throw new Error(
+      `Can't back up '${dir}': the folder is there, but this computer ` +
+        `won't say where it really is (resolving the path reports "no such file ` +
+        `or directory").\n` +
+        `Every file goes into a backup under its folder's resolved location, so a ` +
+        `folder that won't resolve can't be backed up. This is usually a link into ` +
+        `storage with no ordinary path of its own — a protected vault, or a drive ` +
+        `with no letter or mount point.\n` +
+        `Back up a folder that has an ordinary path instead. To see which folders a ` +
+        `set backs up, and the file that lists them:\n` +
+        `  s3cab list <set>`,
+      { cause: error },
     );
   }
 }
@@ -185,7 +243,7 @@ export function walkDirs(dirs, patterns) {
   const unrepresentable = [];
 
   for (let dir of dirs) {
-    dir = realpathSync.native(dir);
+    dir = resolveWalkRoot(dir);
     const before = files.length;
     // Which directory, its running count, and its final tally are all one line
     // — the announce used to be its own `console.warn` above a separate counter,
@@ -372,6 +430,13 @@ const UNKNOWN = "Unknown File Type";
  *   walk recurses into directories and only records one as excluded, and
  *   excluded entries are never counted into a sentence). Anything added here
  *   must be regular, or `plural` needs to grow first.
+ *
+ * **This is no longer the only source of that column.** `Online-Only File` is
+ * written straight by `stringifySnapshot` (lib/snapshot-file.mjs) for a
+ * dehydrated cloud placeholder — a type no `Dirent` or `Stats` can report, since
+ * libuv classifies on the reparse *tag* and a placeholder is a genuine `File`
+ * from both `readdir` and `lstat` ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)).
+ * It obeys the same two rules.
  * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
  * @returns {string} File type
  */

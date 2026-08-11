@@ -58,7 +58,12 @@ const result = (over) => ({
  * @param {string} path
  * @returns {AddedEntry}
  */
-const added = (path) => ({ path, size: 1, duplicates: [] });
+const added = (path) => ({
+  path,
+  size: 1,
+  duplicates: [],
+  wasUnreadable: false,
+});
 
 // The render layer (ADR-0043) turns a command's returned data into the
 // human-readable text the dispatcher writes to stdout. Renderers are pure
@@ -130,11 +135,17 @@ describe("renderCompareResult", () => {
     const text = renderCompareResult(
       result({
         added: [
-          { path: under("2025", "beach.jpg"), size: 5_000_000, duplicates: [] },
+          {
+            path: under("2025", "beach.jpg"),
+            size: 5_000_000,
+            duplicates: [],
+            wasUnreadable: false,
+          },
           {
             path: under("logo.png"),
             size: 1200,
             duplicates: [under("brand", "logo.png")],
+            wasUnreadable: false,
           },
         ],
         moved: [
@@ -174,6 +185,53 @@ describe("renderCompareResult", () => {
     );
   });
 
+  it("marks an added file the older snapshot couldn't read, naming that snapshot", () => {
+    // The line has to say what "added" alone would get wrong: X.doc is not a new
+    // file, it is a file that finally made it into the backup (ADR-0079). The
+    // older snapshot is named, not called "last time" — `compare` takes an
+    // arbitrary --since, and the header above shows the same name.
+    const text = renderCompareResult(
+      result({
+        added: [
+          {
+            path: under("X.doc"),
+            size: 12,
+            duplicates: [],
+            wasUnreadable: true,
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /\nAdded \(1\)\n {2}X\.doc {2}\(was unreadable in 2026-07-01T0900\)\n/,
+    );
+    // Still an addition, and still counted as one: the content did reach the
+    // store on this run, so the summary must not disagree with what was stored.
+    assert.match(text, /\n1 added, 0 renamed, 0 moved, 0 modified, 0 deleted/);
+  });
+
+  it("joins both notes on one added line rather than stuttering two brackets", () => {
+    const text = renderCompareResult(
+      result({
+        added: [
+          {
+            path: under("X.doc"),
+            size: 12,
+            duplicates: [under("copy of X.doc")],
+            wasUnreadable: true,
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /\n {2}X\.doc {2}\(was unreadable in 2026-07-01T0900; duplicate of copy of X\.doc\)\n/,
+    );
+  });
+
   it("splits the one `moved` category into Renamed (same dir) and Moved (cross dir)", () => {
     // The data has a single `moved`; the human view distinguishes a rename
     // (same directory) from a move (different directory) — a real difference to
@@ -202,7 +260,9 @@ describe("renderCompareResult", () => {
 
   it("emits no ANSI escapes without colour, and colours headers (not items) with it", () => {
     const data = result({
-      added: [{ path: under("a.jpg"), size: 1, duplicates: [] }],
+      added: [
+        { path: under("a.jpg"), size: 1, duplicates: [], wasUnreadable: false },
+      ],
     });
     const ESC = "\x1b"; // build the escape as a string — no control char in a regex
 
@@ -220,8 +280,18 @@ describe("renderCompareResult", () => {
       result({
         since: null,
         added: [
-          { path: under("a.jpg"), size: 3_000_000_000, duplicates: [] },
-          { path: under("b.jpg"), size: 1_200_000_000, duplicates: [] },
+          {
+            path: under("a.jpg"),
+            size: 3_000_000_000,
+            duplicates: [],
+            wasUnreadable: false,
+          },
+          {
+            path: under("b.jpg"),
+            size: 1_200_000_000,
+            duplicates: [],
+            wasUnreadable: false,
+          },
         ],
       }),
     );
@@ -321,7 +391,14 @@ describe("renderCompareResult", () => {
     const text = renderCompareResult(
       result({
         since: null,
-        added: [{ path: under("a.jpg"), size: 4, duplicates: [] }],
+        added: [
+          {
+            path: under("a.jpg"),
+            size: 4,
+            duplicates: [],
+            wasUnreadable: false,
+          },
+        ],
         skipped: [
           {
             path: under("Personal Vault"),
@@ -1095,6 +1172,7 @@ describe("renderUpload", () => {
       candidates: 40,
       uploaded: 40,
       skipped: [],
+      onlineOnly: [],
     });
     assert.equal(
       text,
@@ -1110,6 +1188,7 @@ describe("renderUpload", () => {
       candidates: 40,
       uploaded: 10,
       skipped: [],
+      onlineOnly: [],
     });
     assert.equal(
       text,
@@ -1131,6 +1210,7 @@ describe("renderUpload", () => {
         { path: "/home/me/Photos/2026/live.raw", reason: "changed" },
         { path: "/home/me/Photos/2026/gone.raw", reason: "removed" },
       ],
+      onlineOnly: [],
     });
 
     assert.match(text, /uploaded 38 of 40 objects/);
@@ -1155,6 +1235,7 @@ describe("renderUpload", () => {
       candidates: 1,
       uploaded: 0,
       skipped: [{ path: "/d/x.raw", reason: "unreadable" }],
+      onlineOnly: [],
     });
     // Reason-neutral header, so an `unreadable` skip is not described as a change.
     assert.match(text, /Skipped 1 file that couldn't be confirmed/);

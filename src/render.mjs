@@ -35,6 +35,7 @@ import { bold, cyan, green, isInteractive, red, yellow } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { ListResult } from "./commands/list.mjs" */
+/** @import { ExcludedEntry } from "./commands/tree.mjs" */
 /** @import { ProviderConfig } from "./lib/provider.mjs" */
 /** @import { StatusReport } from "./commands/status.mjs" */
 /** @import { Props } from "./lib/snapshot-file.mjs" */
@@ -144,7 +145,7 @@ export function renderCompareResult(result, { color = false } = {}) {
 
   const sections = [];
   if (result.added.length) {
-    sections.push(addedSection(result.added, shorten, paint));
+    sections.push(addedSection(result.added, result.since, shorten, paint));
   }
   if (renamed.length) {
     sections.push(fromToSection("Renamed", renamed, cyan, shorten, paint));
@@ -227,16 +228,33 @@ function commonAncestor(dirs) {
 }
 
 /**
+ * The added files, each with the notes that stop a reader drawing a wrong
+ * inference from the bare word "added" (ADR-0043's human-first reading):
+ * `(duplicate of …)` says the content is not new, and `(was unreadable in …)`
+ * says the *file* is not new — it sat there the whole time and simply couldn't
+ * be hashed for the older snapshot, so this run is when it reached the backup
+ * ([ADR-0079](../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)).
+ * The older snapshot is named rather than called "last time", because `compare`
+ * takes an arbitrary `--since`; the header shows the same name.
+ *
+ * Both notes share one parenthetical when both apply — two bracketed asides on
+ * one path read as a stutter.
  * @param {AddedEntry[]} added
+ * @param {string} since - The older snapshot's name (the caller has returned already when there is none)
  * @param {(path: string) => string} shorten
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
-function addedSection(added, shorten, paint) {
+function addedSection(added, since, shorten, paint) {
   const lines = added.map((entry) => {
-    const dupes = entry.duplicates.length
-      ? `  (duplicate of ${entry.duplicates.map(shorten).join(", ")})`
-      : "";
-    return `  ${shorten(entry.path)}${dupes}`;
+    const notes = [];
+    if (entry.wasUnreadable) {
+      notes.push(`was unreadable in ${since}`);
+    }
+    if (entry.duplicates.length) {
+      notes.push(`duplicate of ${entry.duplicates.map(shorten).join(", ")}`);
+    }
+    const note = notes.length ? `  (${notes.join("; ")})` : "";
+    return `  ${shorten(entry.path)}${note}`;
   });
   return `${paint(green)(`Added (${added.length})`)}\n${lines.join("\n")}`;
 }
@@ -460,6 +478,29 @@ function indentSnapshots(names) {
 export function renderLines(lines) {
   return lines.join("\n");
 }
+
+/**
+ * Render `tree` in either of its two directions: the kept paths (one per line,
+ * exactly as before) or, under `--excluded`, what the set's patterns dropped —
+ * the path, a tab, and the pattern that matched it. Two shapes, one renderer,
+ * because the registry gives a command a single `render`.
+ *
+ * The path stays in column 1 so `s3cab tree --excluded | cut -f1` yields the
+ * same stream shape as a plain `s3cab tree`, and the pattern rides alongside
+ * rather than in a second pass — which is what makes a per-path "why is *this*
+ * excluded?" a `grep` rather than another flag. A tab is the separator for the
+ * same reason snapshots use one (ADR-0004): no quoting, no escaping, and a
+ * column a script can cut. `--json` never sees this — it gets the record objects
+ * the command actually returned.
+ * @param {Array<string | ExcludedEntry>} entries
+ * @returns {string}
+ */
+export const renderTree = (entries) =>
+  renderLines(
+    entries.map((entry) =>
+      typeof entry === "string" ? entry : `${entry.path}\t${entry.pattern}`,
+    ),
+  );
 
 /**
  * The degenerate renderer for commands whose result already *is* the finished
@@ -912,12 +953,24 @@ export function renderUpload(result) {
     );
   }
   if (result.mode === "dir") {
-    const { set, dir, candidates, uploaded, skipped } = result;
-    const line = objectUploadLine(
+    const { set, dir, candidates, uploaded, skipped, onlineOnly } = result;
+    let line = objectUploadLine(
       `Seeded '${dir}' into '${set}'`,
       candidates,
       uploaded,
     );
+    // Its own block, above the drift list and never merged into it: that list's
+    // header says s3cab couldn't confirm a file *while reading it*, and these are
+    // files it never opened (ADR-0081). Counted rather than named — a seeded
+    // OneDrive folder can hold tens of thousands, and the paths are not the
+    // question here; whether to spend the disk space is.
+    if (onlineOnly.length) {
+      line +=
+        `\n\nLeft ${countOf(onlineOnly.length, "file")} online rather than ` +
+        `downloading them: this computer holds a placeholder for each, not the ` +
+        `contents.\nTo store them off-vendor, back the set up with room for ` +
+        `them on this disk:\n  s3cab backup ${set} --include-online-only`;
+    }
     if (skipped.length === 0) {
       return line;
     }

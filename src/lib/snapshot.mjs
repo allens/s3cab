@@ -2,8 +2,14 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
+import { OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
-import { elapsedSince, formatByteValue, formatCount } from "./format.mjs";
+import {
+  countOf,
+  elapsedSince,
+  formatByteValue,
+  formatCount,
+} from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { createProgress } from "./progress.mjs";
 import {
@@ -19,7 +25,7 @@ import { walkSet } from "./walk.mjs";
 /**
  * @import { BackupSet } from "./sets.mjs"
  * @import { HashProgress } from "./file-props.mjs"
- * @import { RowTransform, SnapshotEntries } from "./snapshot-file.mjs"
+ * @import { RowTransform, SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs"
  * @import { Sending, TransferState } from "./upload.mjs"
  */
 
@@ -41,6 +47,7 @@ import { walkSet } from "./walk.mjs";
  * @typedef {Object} SnapshotBaseline
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
+ * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#ERROR` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
  * @property {SnapshotEntries} [lookup] - The hash lookup: those entries with parked hashes overlaid
  * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT` header
  */
@@ -64,6 +71,8 @@ export async function readBaseline(set, { rehash } = {}) {
 
   /** @type {SnapshotEntries | undefined} */
   let previous;
+  /** @type {SnapshotErrors} */
+  let previousErrors = new Map();
   /** @type {string | undefined} */
   let instant;
   const name = listSnapshotNames(snapshotDir).at(0);
@@ -78,15 +87,19 @@ export async function readBaseline(set, { rehash } = {}) {
     // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
-    const { entries, instant: at } = await readSnapshotFile(path);
+    const { entries, errors, instant: at } = await readSnapshotFile(path);
     previous = entries;
+    // Kept for the same reason as the entries, and just as free: the compare
+    // that follows needs both halves of this snapshot to tell a file that was
+    // unreadable last time from one that is genuinely new (ADR-0079).
+    previousErrors = errors;
     // Already parsed on the way past, and free: the clock check below is the
     // only reason it is kept rather than discarded with the rest of the header.
     instant = at;
   }
 
   if (rehash) {
-    return { name, previous, instant };
+    return { name, previous, previousErrors, instant };
   }
 
   const parked = await readParkedLookup(snapshotDir);
@@ -95,7 +108,7 @@ export async function readBaseline(set, { rehash } = {}) {
       ? new Map([...previous, ...parked])
       : (parked ?? previous);
 
-  return { name, previous, lookup, instant };
+  return { name, previous, previousErrors, lookup, instant };
 }
 
 /**
@@ -115,7 +128,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
  * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
- * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`)
+ * @property {number} skipped - Entries left out by design (`#SKIPPED`): the walk's unsupported types, plus the cloud placeholders this pass declined to download (ADR-0081)
  * @property {number} errors - Files it couldn't hash (`#ERROR`)
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
@@ -140,11 +153,20 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
  * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
+ * @param {boolean} [options.includeOnlineOnly] - Hash cloud placeholders too, downloading each one (`--include-online-only`, ADR-0081). Off by default: a first pass over a synced folder otherwise pulls the whole cloud account onto the local disk
  * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
 export async function generateSnapshot(
   set,
-  { lookup, sizes, through, transfer, debug, previousInstant } = {},
+  {
+    lookup,
+    sizes,
+    through,
+    transfer,
+    debug,
+    previousInstant,
+    includeOnlineOnly,
+  } = {},
 ) {
   // From here, not from the first hashed row: the walk is part of what the
   // report calls scanning, and on a big set it is minutes of it.
@@ -214,6 +236,13 @@ export async function generateSnapshot(
   // `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
   // the tally cannot drift from the rows actually written.
   let errored = 0;
+  // Cloud placeholders this pass declined to download. Counted apart from
+  // `errored` above and folded into the skipped total below — they are `#SKIPPED`
+  // rows, so counting them as errors would report a working backup as a failing
+  // one. Kept as its own variable rather than added straight to a running skip
+  // total because the closing hint below needs the figure on its own: it is the
+  // only skip class with a flag that changes it.
+  let onlineOnly = 0;
   let bytesTotal = 0;
   for (const file of files) {
     bytesTotal += sizes?.get(file)?.size ?? 0;
@@ -233,11 +262,10 @@ export async function generateSnapshot(
     skipped,
     getProps: async (file) => {
       try {
-        const props = await fileProps(
-          file,
-          lookup,
-          (started) => (hashing = started),
-        );
+        const props = await fileProps(file, lookup, {
+          onHashStart: (started) => (hashing = started),
+          includeOnlineOnly,
+        });
         // The *real* size, not the baseline's guess at it: every file yields one
         // whether it was hashed or reused, so the numerator is exact even where
         // the denominator is estimated.
@@ -254,7 +282,17 @@ export async function generateSnapshot(
         }
         return props;
       } catch (error) {
-        errored++;
+        // Two throws, two tallies — and the split has to happen here, at the one
+        // place that learns of either, for the same reason `errored` is counted
+        // here: the writer turns the throw into a row, so a count taken anywhere
+        // else can drift from the rows actually written. A placeholder we
+        // declined to download is a `#SKIPPED` row and belongs with the walk's
+        // skips; everything else is a file we tried to read and couldn't.
+        if (error instanceof OnlineOnlyFileError) {
+          onlineOnly++;
+        } else {
+          errored++;
+        }
         throw error;
       } finally {
         hashing = null;
@@ -272,6 +310,11 @@ export async function generateSnapshot(
     );
   }
 
+  // `transfer` is what tells the two porcelains apart, the same discriminator the
+  // opening line uses for `Backing up` vs `Snapshotting` — so the command the
+  // hint offers is the command the user actually ran.
+  warnAboutOnlineOnly(onlineOnly, set.name, transfer ? "backup" : "snapshot");
+
   return {
     name,
     path,
@@ -279,7 +322,10 @@ export async function generateSnapshot(
     bytes: bytesDone,
     hashedFiles,
     hashedBytes,
-    skipped: skipped.length,
+    // The walk's skips and the pass's, added up: both are `#SKIPPED` rows in the
+    // file just written, so the figure the report prints and the rows `compare`
+    // lists come from the same set of things (ADR-0078 §2).
+    skipped: skipped.length + onlineOnly,
     errors: errored,
     elapsedMs: performance.now() - startedAt,
   };
@@ -534,6 +580,52 @@ function fitPath(path, room) {
     return path;
   }
   return room >= MIN_PATH_COLUMNS ? "…" + path.slice(-(room - 1)) : "";
+}
+
+/**
+ * Say that cloud placeholders were left out, and how to include them.
+ *
+ * The count alone reaches the user through the closing report's
+ * `Couldn't be backed up: N skipped` (ADR-0078 §2), and the paths and their type
+ * through `compare` — but neither says the one thing this skip class needs said:
+ * **it is the only one with a flag that changes it.** A symlink is skipped
+ * because it can't be backed up; these were skipped because backing them up
+ * means downloading them first, which is a choice the user is entitled to make
+ * and can't make from a number.
+ *
+ * Worded to fit both porcelains, because both reach it: `snapshot` stores
+ * nothing, so "backing them up" would be false there — the cost it warns about
+ * is the *reading*, which is the same either way. "Including them" also names
+ * what the flag on the line below does.
+ *
+ * ADR-0030 shape: the user's goal first, the mechanism in a parenthetical, the
+ * exact fix as a copy-pasteable line of its own. It names the disk-space cost
+ * because that is the reason the default is what it is — on a drive smaller than
+ * the cloud account, the flag fills it and the run dies part-way.
+ *
+ * Silent at zero, which is every run on a machine with no sync client and every
+ * run after the first on one that has (a placeholder already in the baseline
+ * reuses its stored hash and never reaches the check — see `fileProps`).
+ * @param {number} count - Placeholders this pass declined to download
+ * @param {string} setName - The set, so the offered command names it as every other printed command does
+ * @param {"backup" | "snapshot"} command - Which porcelain is running
+ */
+function warnAboutOnlineOnly(count, setName, command) {
+  if (!count) {
+    return;
+  }
+  // Worded so grammatical number never shows — `format.mjs`'s own advice for
+  // clause agreement, and here it saves three hand-rolled is/are, was/were and
+  // it/them pairs in one sentence.
+  console.warn(
+    `Left ${countOf(count, "file")} in '${setName}' online rather than ` +
+      `downloading them: this computer holds a placeholder for each, not the ` +
+      `contents (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
+      `Google Drive).\n` +
+      `Including them means downloading every one to this disk first, so ` +
+      `there has to be room for the lot. To do that:\n` +
+      `  s3cab ${command} ${setName} --include-online-only`,
+  );
 }
 
 /**

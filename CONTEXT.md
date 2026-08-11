@@ -124,6 +124,15 @@ The set name as the `snapshots/<set>/` path segment that isolates one set's snap
 other set sharing the repository. Equal to the set name; no `user@machine` prefix.
 _Avoid_: prefix, folder, scope.
 
+**Online-Only File**:
+A file in the set whose contents live in the cloud and not on this computer — a dehydrated
+placeholder left by Windows Files On-Demand (OneDrive, Dropbox, Google Drive). Backing one up
+means downloading it first, so s3cab leaves it online and records it as **skipped** until
+`--include-online-only` says otherwise (ADR-0081). Written verbatim as the `#SKIPPED` row's type,
+so it is capitalized like the other type names.
+_Avoid_: OneDrive file, cloud file (names one vendor, or every remote object); stub, dehydrated,
+placeholder, offline (implementer's words, and "offline" reads as the opposite of what it means).
+
 ### Cloud & commands
 
 **Remote**:

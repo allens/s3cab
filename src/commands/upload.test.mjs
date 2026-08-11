@@ -32,6 +32,8 @@ let uploadSnapshotCalls = [];
 let uploadDirCalls = [];
 /** @type {Drift[]} what the faked seeder reports skipping */
 let dirSkipped = [];
+/** @type {string[]} paths the faked seeder reports as online-only */
+let dirOnlineOnly = [];
 /** @type {[string, object][]} */
 let fileChangeCalls = [];
 /** @type {FileChange | undefined} what the faked guard reports */
@@ -76,7 +78,12 @@ mock.module("../lib/upload.mjs", {
     },
     uploadDir: async (/** @type {Record<string, unknown>} */ args) => {
       uploadDirCalls.push(args);
-      return { candidates: 40, uploaded: 12, skipped: dirSkipped };
+      return {
+        candidates: 40,
+        uploaded: 12,
+        skipped: dirSkipped,
+        onlineOnly: dirOnlineOnly,
+      };
     },
     fileChange: async (
       /** @type {string} */ path,
@@ -97,6 +104,7 @@ beforeEach(() => {
   uploadSnapshotCalls = [];
   uploadDirCalls = [];
   dirSkipped = [];
+  dirOnlineOnly = [];
   fileChangeCalls = [];
   fileChangeResult = undefined;
   putResult = true;
@@ -352,7 +360,22 @@ describe("upload --dir (seed a folder's objects)", () => {
       candidates: 40,
       uploaded: 12,
       skipped: [],
+      onlineOnly: [],
     });
+  });
+
+  it("passes the seeder's online-only skips through to the result", async () => {
+    // Separate from `skipped` all the way out to `--json`: a placeholder was
+    // never opened, a drift was read and couldn't be confirmed (ADR-0081).
+    dirOnlineOnly = ["D:\\OneDrive\\Photos\\2019\\IMG_0421.jpg"];
+
+    const result = await upload("photos", { dir: tmpdir() });
+
+    assert.equal(result.mode === "dir" && result.skipped.length, 0);
+    assert.deepEqual(
+      result.mode === "dir" ? result.onlineOnly : undefined,
+      dirOnlineOnly,
+    );
   });
 
   it("passes the seeder's skipped files through to the result", async () => {
