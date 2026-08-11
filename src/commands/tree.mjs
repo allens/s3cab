@@ -61,11 +61,18 @@ function reportExclusionTally(excluded, excludePath) {
   if (!excluded.length) {
     // Without this the whole command is silent: an empty result renders to the
     // empty string, which is right for a pipe but reads as a broken run at a
-    // terminal. Naming the file also separates "your patterns match nothing"
-    // from "you have no patterns" without a second read of the file.
+    // terminal.
+    //
+    // Deliberately says nothing about whether the set *has* any patterns —
+    // an empty result covers both "they matched nothing" and "there are none",
+    // and this count can't tell them apart. What can is the walk's own `Using
+    // exclude file …` line above (readExcludePatterns), which prints only when
+    // the file holds patterns; re-deriving it here would mean reading the file
+    // a second time to say something already on screen.
     console.warn(
-      `Nothing was excluded — no file or directory matched a pattern in ` +
-        `'${tildeify(excludePath)}'`,
+      `Nothing was excluded — nothing in this set matched an exclude ` +
+        `pattern. Its patterns, if any, are listed in:\n` +
+        `  ${tildeify(excludePath)}`,
     );
     return;
   }

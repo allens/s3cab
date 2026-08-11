@@ -52,6 +52,17 @@ function makeSet(dirPath, paths, patterns) {
  */
 const rel = (root, path) => relative(root, path).split(sep).join(posix.sep);
 
+/**
+ * The "nothing was excluded" notice out of a mocked `console.warn`, or
+ * `undefined` if it never came.
+ * @param {{ mock: { calls: { arguments: unknown[] }[] } }} warn
+ * @returns {string | undefined}
+ */
+const emptyNotice = (warn) =>
+  warn.mock.calls
+    .map(({ arguments: args }) => args.join(" "))
+    .find((line) => line.startsWith("Nothing was excluded"));
+
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
 beforeEach(() => {
@@ -144,11 +155,25 @@ describe("tree --excluded", () => {
     // so without the notice the command would be entirely silent at a terminal.
     assert.deepStrictEqual(excluded, []);
     assert.equal(renderTree(excluded), "");
-    const notice = warn.mock.calls
-      .map(({ arguments: args }) => args.join(" "))
-      .find((line) => line.startsWith("Nothing was excluded"));
+    const notice = emptyNotice(warn);
     assert.ok(notice, "expected a 'nothing was excluded' notice");
     assert.match(notice, /exclude\.txt/);
+  });
+
+  it("gives the same neutral notice when the set has no patterns at all", async (t) => {
+    await using dir = await mkTmpDir();
+    const warn = t.mock.method(console, "warn", () => {});
+    makeSet(dir.path, ["keep.txt"], []);
+
+    tree("photos", { excluded: true });
+
+    // An empty `excluded` means either "the patterns matched nothing" or "there
+    // are no patterns", and the count can't tell them apart — so the notice must
+    // not assert that any exist. (What distinguishes them is the walk's own
+    // `Using exclude file …` line, which prints only when the file holds some.)
+    const notice = emptyNotice(warn);
+    assert.ok(notice, "expected a 'nothing was excluded' notice");
+    assert.doesNotMatch(notice, /matched a pattern in/);
   });
 });
 
