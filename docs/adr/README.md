@@ -8,6 +8,11 @@ Domain vocabulary lives in [CONTEXT.md](../../CONTEXT.md); fuller designs in
 New ADR: take the next number, `NNNN-slug.md`. Offer one only when a decision is **hard to
 reverse**, **surprising without context**, and **the result of a real trade-off**.
 
+Two concurrent branches will both take the same next number and both be right until the second
+merges, so **uniqueness is checked in CI** ([test/adr-numbering.test.mjs](../../test/adr-numbering.test.mjs)) rather than
+left to whoever notices. If it fails on your branch, the one that merged second yields: renumber
+and move its citations.
+
 Every ADR carries a `**Status:**` line directly under its title, starting with one of
 `accepted`, `proposed`, or `partly superseded by NNNN` (trailing detail — a date,
 `implemented`, what a supersession left standing — may follow). This adapts the status
