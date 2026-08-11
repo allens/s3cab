@@ -41,7 +41,7 @@ import { tildeify } from "./home.mjs";
 // deliberate and settled: the live question ("what are my patterns dropping?")
 // is answered by `tree --excluded` from a fresh walk, so a reader can check an
 // exclude.txt edit by re-running rather than by taking another snapshot
-// (ADR-0079). These rows stay a record for hand recovery — don't wire them up.
+// (ADR-0080). These rows stay a record for hand recovery — don't wire them up.
 
 // The comment markers heading the grammar's non-file lines — shared by the
 // (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)
