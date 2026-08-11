@@ -96,3 +96,6 @@ mechanism, different code, different fix.
   - A name-based exclude pattern is not the answer either — "Personal Vault" is localized (French
     Windows: *Coffre-fort personnel*), so such a pattern would silently protect nothing on a
     non-English install while looking like it did.
+- **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
+  `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
+  [misc.md](misc.md) 2026-08-11 — same theme as the two entries above.)_
