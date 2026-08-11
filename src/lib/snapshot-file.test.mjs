@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import { InterruptedError } from "./error.mjs";
+import { InterruptedError, OnlineOnlyFileError } from "./error.mjs";
 import {
   listSnapshotNames,
   normalizeSnapshotName,
@@ -454,6 +454,49 @@ describe("writeSnapshot", () => {
       [...snap.skipped],
       [[link, { fileType: "Symbolic Link", reason: "Unsupported file type" }]],
     );
+  });
+
+  it("records a cloud placeholder as #SKIPPED, not #ERROR", async () => {
+    // ADR-0080. The one throw out of `fileProps` that is a *decision* rather than
+    // a fault, and the difference is the whole point: an `#ERROR` row would say a
+    // backup failed to read a file when in fact it succeeded at declining to
+    // download one. It reaches the writer down the error channel — the row type
+    // is `Props | Error` — so this asserts which row that channel produces.
+    await using dir = await mkTmpDir();
+    const regular = resolve(dir.path, "regular.txt");
+    const online = resolve(dir.path, "IMG_0421.jpg");
+
+    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [regular, online],
+      excluded: [],
+      getProps: async (file) => {
+        if (file === online) {
+          throw new OnlineOnlyFileError(file);
+        }
+        return { size: 3, mtime: "2026-06-23T10:00:00.000Z", hash: hashA };
+      },
+    });
+
+    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
+
+    assert.ok(!snap.entries.has(online), "a placeholder is not an entry");
+    assert.ok(!snap.errors.has(online), "a placeholder is not a failure");
+    assert.deepEqual(
+      [...snap.skipped],
+      [
+        [
+          online,
+          {
+            fileType: "Online-Only File",
+            reason: `Stored online, not on this computer: ${online}`,
+          },
+        ],
+      ],
+    );
+    // The rest of the pass is untouched — one placeholder does not cost the run.
+    assert.equal(snap.entries.get(regular)?.hash, hashA);
   });
 
   it("passes rows through `through` and writes the identical file (the fusion seam)", async () => {

@@ -430,6 +430,13 @@ const UNKNOWN = "Unknown File Type";
  *   walk recurses into directories and only records one as excluded, and
  *   excluded entries are never counted into a sentence). Anything added here
  *   must be regular, or `plural` needs to grow first.
+ *
+ * **This is no longer the only source of that column.** `Online-Only File` is
+ * written straight by `stringifySnapshot` (lib/snapshot-file.mjs) for a
+ * dehydrated cloud placeholder — a type no `Dirent` or `Stats` can report, since
+ * libuv classifies on the reparse *tag* and a placeholder is a genuine `File`
+ * from both `readdir` and `lstat` ([ADR-0080](../../docs/adr/0080-online-only-files-skipped.md)).
+ * It obeys the same two rules.
  * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
  * @returns {string} File type
  */

@@ -96,6 +96,11 @@ export const commands = {
         description:
           "Re-hash every file instead of reusing unchanged files' hashes from the previous snapshot",
       },
+      "include-online-only": {
+        type: "boolean",
+        description:
+          "Download files stored online (OneDrive and the like) so they can be hashed, instead of skipping them",
+      },
     },
     exec: (options, [set] = []) => snapshot(set, options),
     render: renderCompareResult,
@@ -335,6 +340,13 @@ export const commands = {
     details: backupDetails,
     args: {
       set: { description: "The backup set to back up (default: the only set)" },
+    },
+    options: {
+      "include-online-only": {
+        type: "boolean",
+        description:
+          "Download files stored online (OneDrive and the like) so they can be backed up, instead of skipping them",
+      },
     },
     exec: (options, [set] = []) => backup(set, options),
     render: renderBackup,

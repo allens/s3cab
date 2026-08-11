@@ -12,7 +12,11 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
+import {
+  EXIT_INTERRUPTED,
+  InterruptedError,
+  OnlineOnlyFileError,
+} from "./error.mjs";
 import { localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 
@@ -51,6 +55,22 @@ const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
 const SKIPPED = "#SKIPPED";
 const ERROR = "#ERROR";
+
+/**
+ * The `dirent_type` a dehydrated cloud-sync placeholder is recorded and reported
+ * under ([ADR-0080](../../docs/adr/0080-online-only-files-skipped.md)) — the one
+ * value in that column the walk does **not** produce, because nothing knows a
+ * file is one until the hashing pass reaches its `lstat`.
+ *
+ * Named for what the user has already been shown rather than for the mechanism
+ * or the vendor: OneDrive's own Explorer status column reads *Online-only*, and
+ * Dropbox and Google Drive use the same words, so the phrase arrives familiar and
+ * points at the fix (make it available offline) without a sentence. It obeys both
+ * rules `getFileType` sets for this column (src/lib/walk.mjs): plain words with no
+ * niche acronym (ADR-0012), and a regular noun that `plural` can pluralize by
+ * appending `s` — `48,213 Online-Only Files`.
+ */
+const ONLINE_ONLY_FILE = "Online-Only File";
 
 /**
  * The properties a snapshot records for one file — its content `hash`, `size`,
@@ -820,6 +840,23 @@ function propsRows(getProps, signal) {
  */
 export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
+    // A cloud placeholder is the one throw out of `fileProps` that is a
+    // *decision* rather than a fault, so it lands beside the symlinks and the
+    // sockets rather than among the read failures (ADR-0080). It travels the
+    // error channel because that is the channel the pipeline already has for
+    // "this path produced no entry" — the row type is `Props | Error`, and the
+    // uploader passes any `Error` row along without storing anything, which is
+    // exactly the handling a skip needs.
+    //
+    // These rows come out *interleaved* with the entries rather than in the
+    // header block, because nothing knows about them until the file is reached:
+    // the walk takes no `stat` (the hot-path rule), so detection can only happen
+    // where the `lstat` already is. Harmless — parsing is marker-driven and the
+    // writer's doc says so explicitly.
+    if (props instanceof OnlineOnlyFileError) {
+      yield skippedLine(ONLINE_ONLY_FILE, props.message, path);
+      continue;
+    }
     if (Error.isError(props)) {
       yield errorLine(props.message, path);
       continue;

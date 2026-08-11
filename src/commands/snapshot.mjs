@@ -14,9 +14,13 @@ import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
  * the same two engine calls with an object uploader spliced into the write
  * (ADR-0069) — which is why the engine lives in `lib` rather than here.
  * @param {string} [setName] - Backup set to snapshot (default: the only set)
- * @param {object} [options]
- * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
- * @param {boolean} [options.debug] - Enable debug mode (and allow a same-minute overwrite)
+ * @param {{ rehash?: boolean, "include-online-only"?: boolean, debug?: boolean }} [options] -
+ *   `--rehash` re-hashes every file instead of reusing previous hashes;
+ *   `--include-online-only` hashes cloud placeholders too, downloading each
+ *   (ADR-0080); `--debug` leaves an uncompressed copy and allows a same-minute
+ *   overwrite. The inline form (rather than a `@param options.x` list) because a
+ *   kebab-case key can't be spelled in the dotted one — the same shape
+ *   `cleanup`/`delete` use for `--dry-run`.
  * @returns {Promise<CompareResult>} Diff against the previous snapshot
  */
 export async function snapshot(setName, options = {}) {
@@ -37,6 +41,7 @@ export async function snapshot(setName, options = {}) {
     sizes: previous,
     debug: options.debug,
     previousInstant,
+    includeOnlineOnly: options["include-online-only"],
   });
 
   // Compare with the previous snapshot. When it was already read for the hash
