@@ -551,14 +551,21 @@ export async function uploadDir({ bucket, dir, excludePath }) {
       // shortcut whose objects a later `backup` re-derives anyway, so the way to
       // store a cloud placeholder off-vendor is `backup --include-online-only`,
       // and giving the same choice two homes means two places to get it wrong.
+      /** @type {Props} */
+      let props;
       try {
-        yield /** @type {SnapshotRow} */ ([path, await fileProps(path)]);
+        props = await fileProps(path);
       } catch (error) {
         if (!(error instanceof OnlineOnlyFileError)) {
           throw error;
         }
         online.push(path);
+        continue;
       }
+      // Outside the `try` on purpose: the guard is on reading the file, and a
+      // generator's consumer can throw back in at the `yield` — which, caught
+      // here, would file a live upload failure as a placeholder we skipped.
+      yield /** @type {SnapshotRow} */ ([path, props]);
     }
   }
 

@@ -121,7 +121,7 @@ it by name.**
    Left 48,213 files in 'onedrive' online rather than downloading them: this computer holds a
    placeholder for each, not the contents (OneDrive Files On-Demand, or the same feature in
    Dropbox or Google Drive).
-   Backing them up means downloading every one to this disk first, so there has to be room for
+   Including them means downloading every one to this disk first, so there has to be room for
    the lot. To do that:
      s3cab backup onedrive --include-online-only
    ```
@@ -129,6 +129,11 @@ it by name.**
    It names the vendor feature in a parenthetical — that is where the user will recognise it, and
    the code still never claims to know which vendor. The second sentence is the warning the
    original bug had no way to give: the cost is stated *before* it is paid.
+
+   **"Including", not "backing up"**, because `snapshot` reaches this line too and stores
+   nothing — the cost it warns about is the *reading*, which is identical either way. The verb
+   also names what the flag on the line below does. Only the command in the copy-pasteable line
+   varies between the two porcelains.
 
 ## Consequences
 

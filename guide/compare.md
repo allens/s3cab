@@ -143,7 +143,7 @@ die part-way. s3cab leaves them online instead and tells you how many:
 Left 48,213 files in 'onedrive' online rather than downloading them: this computer
 holds a placeholder for each, not the contents (OneDrive Files On-Demand, or the
 same feature in Dropbox or Google Drive).
-Backing them up means downloading every one to this disk first, so there has to be
+Including them means downloading every one to this disk first, so there has to be
 room for the lot. To do that:
   s3cab backup onedrive --include-online-only
 ```

@@ -593,6 +593,11 @@ function fitPath(path, room) {
  * means downloading them first, which is a choice the user is entitled to make
  * and can't make from a number.
  *
+ * Worded to fit both porcelains, because both reach it: `snapshot` stores
+ * nothing, so "backing them up" would be false there — the cost it warns about
+ * is the *reading*, which is the same either way. "Including them" also names
+ * what the flag on the line below does.
+ *
  * ADR-0030 shape: the user's goal first, the mechanism in a parenthetical, the
  * exact fix as a copy-pasteable line of its own. It names the disk-space cost
  * because that is the reason the default is what it is — on a drive smaller than
@@ -617,7 +622,7 @@ function warnAboutOnlineOnly(count, setName, command) {
       `downloading them: this computer holds a placeholder for each, not the ` +
       `contents (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
       `Google Drive).\n` +
-      `Backing them up means downloading every one to this disk first, so ` +
+      `Including them means downloading every one to this disk first, so ` +
       `there has to be room for the lot. To do that:\n` +
       `  s3cab ${command} ${setName} --include-online-only`,
   );
