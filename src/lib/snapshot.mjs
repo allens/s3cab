@@ -19,7 +19,7 @@ import { walkSet } from "./walk.mjs";
 /**
  * @import { BackupSet } from "./sets.mjs"
  * @import { HashProgress } from "./file-props.mjs"
- * @import { RowTransform, SnapshotEntries } from "./snapshot-file.mjs"
+ * @import { RowTransform, SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs"
  * @import { Sending, TransferState } from "./upload.mjs"
  */
 
@@ -41,6 +41,7 @@ import { walkSet } from "./walk.mjs";
  * @typedef {Object} SnapshotBaseline
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
+ * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#ERROR` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
  * @property {SnapshotEntries} [lookup] - The hash lookup: those entries with parked hashes overlaid
  * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT` header
  */
@@ -64,6 +65,8 @@ export async function readBaseline(set, { rehash } = {}) {
 
   /** @type {SnapshotEntries | undefined} */
   let previous;
+  /** @type {SnapshotErrors} */
+  let previousErrors = new Map();
   /** @type {string | undefined} */
   let instant;
   const name = listSnapshotNames(snapshotDir).at(0);
@@ -78,15 +81,19 @@ export async function readBaseline(set, { rehash } = {}) {
     // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
-    const { entries, instant: at } = await readSnapshotFile(path);
+    const { entries, errors, instant: at } = await readSnapshotFile(path);
     previous = entries;
+    // Kept for the same reason as the entries, and just as free: the compare
+    // that follows needs both halves of this snapshot to tell a file that was
+    // unreadable last time from one that is genuinely new (ADR-0079).
+    previousErrors = errors;
     // Already parsed on the way past, and free: the clock check below is the
     // only reason it is kept rather than discarded with the rest of the header.
     instant = at;
   }
 
   if (rehash) {
-    return { name, previous, instant };
+    return { name, previous, previousErrors, instant };
   }
 
   const parked = await readParkedLookup(snapshotDir);
@@ -95,7 +102,7 @@ export async function readBaseline(set, { rehash } = {}) {
       ? new Map([...previous, ...parked])
       : (parked ?? previous);
 
-  return { name, previous, lookup, instant };
+  return { name, previous, previousErrors, lookup, instant };
 }
 
 /**

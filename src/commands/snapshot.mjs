@@ -25,6 +25,7 @@ export async function snapshot(setName, options = {}) {
   const {
     name: previousName,
     previous,
+    previousErrors,
     lookup,
     instant: previousInstant,
   } = await readBaseline(set, options);
@@ -41,10 +42,13 @@ export async function snapshot(setName, options = {}) {
   // Compare with the previous snapshot. When it was already read for the hash
   // lookup above, hand the parse through so the baseline isn't decompressed and
   // parsed a second time; under --rehash it wasn't read, so the compare reads it.
+  // Both halves go through — its entries *and* the paths it couldn't hash, which
+  // is what stops a file that was merely locked last time reading as new
+  // (ADR-0079).
   return await compareSnapshots(set.snapshotsDir, set.dirs, {
     since:
       previous && previousName
-        ? { name: previousName, entries: previous }
+        ? { name: previousName, entries: previous, errors: previousErrors }
         : previousName,
     until: name,
     setName: set.name,
