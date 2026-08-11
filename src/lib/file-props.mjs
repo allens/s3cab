@@ -83,10 +83,13 @@ export const hasNoBytesOnDisk = ({ size, blocks }) =>
  *   (`truncate -s 1G` → `size=1073741824 blocks=0`). Torrent preallocation and a
  *   fresh `qemu-img` disk are both that shape, so enabling this on Linux would
  *   drop real files from a backup and misname the reason.
- * - **macOS** does have Files On-Demand, but its true signal is `st_flags &
- *   SF_DATALESS`, which Node's `Stats` doesn't carry, and APFS's sparse-file
- *   behaviour is unmeasured. Left off rather than guessed at; widening this is a
- *   one-line change once someone measures a real dataless file on a Mac.
+ * - **macOS** does have Files On-Demand, so it was measured rather than assumed —
+ *   and APFS turns out to behave like ext4: a written file always allocates
+ *   (1 byte → 8 blocks, so no false positive from small files), but every
+ *   truncate-extended file reports `blocks=0` at every size. Same collision, and
+ *   sparse files are ordinary there. Its true signal is `st_flags & SF_DATALESS`,
+ *   which Node's `Stats` doesn't carry, so reopening macOS needs a way to read
+ *   `st_flags` — not another look at `blocks`.
  */
 const DETECT_ONLINE_ONLY = platform === "win32";
 

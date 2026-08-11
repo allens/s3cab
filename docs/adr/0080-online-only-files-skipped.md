@@ -77,10 +77,17 @@ it by name.**
      (`truncate -s 1G` → `size=1073741824 blocks=0`; `fallocate -l 256K` → `blocks=512`, so only
      the sparse form collides). Torrent preallocation and a fresh `qemu-img` disk are both that
      shape. Enabling this on Linux would drop real files from a backup and misname the reason.
-   - **macOS** *does* have Files On-Demand, but its true signal is `st_flags & SF_DATALESS`, which
-     Node's `Stats` does not expose, and APFS's sparse-file behaviour here is unmeasured. Left off
-     rather than guessed at. Widening it is a one-line change once someone measures a real dataless
-     file on a Mac.
+   - **macOS** *does* have Files On-Demand (iCloud Drive, and the same third-party clients), which
+     made it the one platform worth measuring rather than assuming. Measured on APFS via a
+     temporary probe on the `macos-14` runner: a written file always allocates (1 byte → 8 blocks,
+     so there is no MFT-resident equivalent and no false positive from small files), but **every**
+     truncate-extended file reports `blocks=0` — at every size, 1 byte to 256KB. So APFS collides
+     with the placeholder shape exactly as ext4 does, and sparse files are ordinary there.
+     `blocks` cannot carry this signal on macOS.
+
+     Its true signal is `st_flags & SF_DATALESS`, which Node's `Stats` does not expose. So macOS
+     is **ruled out on measurement, not left unexamined** — and reopening it needs a way to read
+     `st_flags`, not another look at `blocks`.
 
 4. **It travels the existing skip channel, as an error subclass caught by type.** `fileProps`
    throws [`OnlineOnlyFileError`](../../src/lib/error.mjs) and `stringifySnapshot` writes a
