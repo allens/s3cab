@@ -30,6 +30,26 @@ describe("compileExclude", () => {
     assert.equal(matches(p, "/root/catalog.txt"), false);
   });
 
+  it("a `**` with no trailing separator spans segments", () => {
+    // Regression: with only the `**/` rule, a trailing `**` fell through to the
+    // single-`*` case twice and compiled to `[^/]+[^/]+` — "two or more
+    // characters, in one segment", which silently matched almost nothing a user
+    // writing `build/**` meant and matched short root-level names they didn't.
+    const p = "/root/build/**";
+    assert.equal(matches(p, "/root/build/out.js"), true);
+    assert.equal(matches(p, "/root/build/sub/deep.js"), true);
+    // The directory itself, which the walk tests with a trailing separator.
+    assert.equal(matches(p, "/root/build/"), true);
+    // Still anchored: a sibling segment is not swept up.
+    assert.equal(matches(p, "/root/builder/out.js"), false);
+
+    // A bare `**` is the whole root, which is what the walk joins it to.
+    assert.equal(matches("/root/**", "/root/a/b/c.txt"), true);
+    // …and the old degenerate reading is gone: a one-character name matched
+    // nothing under it, while two characters matched in the root only.
+    assert.equal(matches("/root/**", "/root/x"), true);
+  });
+
   it("`?` matches exactly one character", () => {
     const p = "/root/file?.txt";
     assert.equal(matches(p, "/root/file1.txt"), true);
