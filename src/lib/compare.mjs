@@ -5,16 +5,24 @@ import {
   readSnapshot,
 } from "./snapshot-file.mjs";
 
-/** @import { SnapshotEntries } from "./snapshot-file.mjs" */
+/** @import { SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs" */
 
 /**
  * One added file. `duplicates` are the *existing* paths whose content this file
  * copies — `[]` means genuinely new; non-empty means a copy of content already
  * stored elsewhere (the renderer says "(duplicate of …)").
+ *
+ * `wasUnreadable` marks the file the *older* snapshot recorded as an `#ERROR`
+ * row: it was on disk all along and simply couldn't be hashed, so it is an
+ * addition to the **backup** rather than a new file
+ * ([ADR-0079](../../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)).
+ * The renderer annotates the line; it stays in `added` because the content
+ * really did enter the store on this run.
  * @typedef {Object} AddedEntry
  * @property {string} path - Absolute path of the added file
  * @property {number} size
  * @property {string[]} duplicates - Absolute paths this file duplicates
+ * @property {boolean} wasUnreadable - The older snapshot couldn't hash this path
  */
 /**
  * One moved/renamed file. `path` is the old location, `to` the new one; the
@@ -81,16 +89,20 @@ import {
  * result. When `until` is the oldest snapshot (or the only one), the baseline
  * is empty and everything reports as added.
  *
- * The `since` side may arrive already parsed, as `{ name, entries }`:
+ * The `since` side may arrive already parsed, as `{ name, entries, errors }`:
  * `snapshot` reads the previous snapshot for its hash lookup anyway, and
  * handing the parse through here saves decompressing and re-parsing the same
  * baseline twice in one run (the hot-path rule: thread the data you already
  * have through the interface). The object pairs the name with its entries
- * structurally; a bare name is read from `snapshotDir` as before.
+ * structurally; a bare name is read from `snapshotDir` as before. `errors` is
+ * **required** on that form rather than optional: the classification below needs
+ * both halves of the older snapshot, and an optional field would let a caller
+ * silently reinstate the "previously unreadable file reads as new" bug the
+ * baseline's errors exist to prevent (ADR-0079).
  * @param {string} snapshotDir - Directory holding the snapshot files
  * @param {string[]} dirs - The set's member directories (for path display)
  * @param {object} [options]
- * @param {string | { name: string, entries: SnapshotEntries }} [options.since] - Older snapshot to compare from (default: the one before `until`), optionally carrying its already-parsed entries
+ * @param {string | { name: string, entries: SnapshotEntries, errors: SnapshotErrors }} [options.since] - Older snapshot to compare from (default: the one before `until`), optionally carrying its already-parsed entries and error rows
  * @param {string} [options.until] - Newer snapshot to compare to (default: latest)
  * @param {string} [options.setName] - The set's name, for the "no snapshots yet" guidance
  * @returns {Promise<CompareResult>} Diff results
@@ -110,11 +122,11 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
 
   // Older side (`since`) defaults to the snapshot immediately before `until`.
   let since;
-  /** @type {SnapshotEntries | undefined} */
-  let parsedEntries;
+  /** @type {{ entries: SnapshotEntries, errors: SnapshotErrors } | undefined} */
+  let parsedSince;
   if (typeof options.since === "object") {
     since = normalizeSnapshotName(options.since.name);
-    parsedEntries = options.since.entries;
+    parsedSince = options.since;
   } else {
     since = normalizeSnapshotName(options.since);
   }
@@ -132,16 +144,20 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
 
   /** @type {SnapshotEntries} */
   let sinceEntries;
+  /** @type {SnapshotErrors} */
+  let sinceErrors = new Map();
   /** @type {string | undefined} */
   let sinceInstant;
   if (since === undefined) {
     // Nothing older than `until`: an empty baseline; everything is "added".
     sinceEntries = new Map();
-  } else if (parsedEntries) {
-    sinceEntries = parsedEntries;
+  } else if (parsedSince) {
+    sinceEntries = parsedSince.entries;
+    sinceErrors = parsedSince.errors;
   } else {
     const sinceSnapshot = await readSnapshot(snapshotDir, since);
     sinceEntries = sinceSnapshot.entries;
+    sinceErrors = sinceSnapshot.errors;
     sinceInstant = sinceSnapshot.instant;
   }
   console.warn(
@@ -155,6 +171,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   const { added, moved, modified, deleted } = diff(
     sinceEntries,
     untilSnapshot.entries,
+    sinceErrors,
   );
 
   // A file the `until` snapshot couldn't hash parses into `errors`, not
@@ -176,6 +193,15 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
+  // The *older* snapshot's errored paths need no reconciliation of their own,
+  // only the marking below: such a path is in neither of that snapshot's maps,
+  // so it can only ever turn up as an addition (`diff` also bars it from being a
+  // move destination). The one combination left — unreadable in `since`, absent
+  // from `until` — is deliberately reported nowhere: the backup never held that
+  // path and still doesn't, so nothing about it changed, and calling it deleted
+  // would claim a loss that never happened (ADR-0079; guide/compare.md says so
+  // out loud).
+
   // Size is looked up from the snapshot entries rather than threaded through
   // `diff` (which is content/path-only): the current file for added/moved/
   // modified (its size in `until`), the vanished file for deleted (its size in
@@ -190,6 +216,12 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
       path,
       size: untilEntries.get(path)?.size ?? 0,
       duplicates: Array.from(duplicates),
+      // Added is the truth about the *backup* — that content was never stored,
+      // and this run stored it — but not the whole truth about the disk, where
+      // the file sat there all along. The flag is what the renderer says the
+      // rest with. Not `modified`: with no hash on the older side there is
+      // nothing to say the bytes changed (ADR-0079).
+      wasUnreadable: sinceErrors.has(path),
     })),
     moved: Array.from(moved, ([path, to]) => ({
       path,
@@ -267,11 +299,17 @@ function getPathsByHash(snapshotLookup) {
  *   `errors` map, not `currentSnapshot` — so `diff` never sees them.
  *   `compareSnapshots` reports them under its own `errors` category and keeps
  *   them out of `deleted`.
+ * - A path in `previousErrors` was *there* in the previous snapshot, unreadable
+ *   rather than absent, so nothing can have moved *to* it: it is barred from
+ *   being a move destination and reports as added, however its content pairs up
+ *   (ADR-0079). It can still be annotated as a duplicate — that claim is about
+ *   content, and the content is what it is.
  * @param {SnapshotEntries} previousSnapshot - Previous snapshot lookup
  * @param {SnapshotEntries} currentSnapshot - Current snapshot
+ * @param {SnapshotErrors} [previousErrors] - Paths the previous snapshot couldn't hash (`#ERROR` rows); only membership is read
  * @returns {DiffResult} Diff results
  */
-export function diff(previousSnapshot, currentSnapshot) {
+export function diff(previousSnapshot, currentSnapshot, previousErrors) {
   /** @type {PathDuplicatesLookup} */ // new paths - mapped to matching paths in previous snapshot
   const added = new Map();
 
@@ -307,9 +345,16 @@ export function diff(previousSnapshot, currentSnapshot) {
     const previousPathSetForHash = previousPathsByHash.get(hash);
 
     if (previousPathSetForHash) {
-      const sources = Array.from(previousPathSetForHash).filter((path) =>
-        deleted.has(path),
-      );
+      // A previously-unreadable path claims no move source: it already existed,
+      // so pairing it with a vanished file of the same content would print a
+      // rename that never happened (`Y.doc → X.doc` for an X.doc that sat there
+      // the whole time). With no sources it falls through to the copy branch,
+      // which annotates it as a duplicate of wherever that content also lives.
+      const sources = previousErrors?.has(addedPath)
+        ? []
+        : Array.from(previousPathSetForHash).filter((path) =>
+            deleted.has(path),
+          );
       const [firstSource] = sources;
 
       if (firstSource) {

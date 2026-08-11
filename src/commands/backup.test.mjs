@@ -20,7 +20,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
-/** @type {{ name?: string, previous?: Map<string, object>, lookup?: Map<string, object> }} */
+/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookup?: Map<string, object> }} */
 let baseline;
 /** @type {Record<string, unknown>[]} the args each `storedHashes` call got */
 let storedCalls = [];
@@ -132,6 +132,7 @@ beforeEach(() => {
   baseline = {
     name: "2026-01-01T0900",
     previous: new Map(),
+    previousErrors: new Map(),
     lookup: new Map(),
   };
   storedCalls = [];
@@ -250,10 +251,16 @@ describe("backup (the fused pass)", () => {
       {
         snapshotDir: "snaps",
         dirs: [],
-        // The entries handed straight through, not the baseline's *name*: the
-        // run is holding that parse already (`readBaseline`), and `compare`
-        // accepts it in this form precisely so it isn't decompressed twice.
-        since: { name: "2026-01-01T0900", entries: baseline.previous },
+        // The parse handed straight through, not the baseline's *name*: the run
+        // is holding it already (`readBaseline`), and `compare` accepts it in
+        // this form precisely so it isn't decompressed twice. Both halves go —
+        // the entries and the paths that snapshot couldn't hash, without which a
+        // file that was merely locked last time reads as new (ADR-0079).
+        since: {
+          name: "2026-01-01T0900",
+          entries: baseline.previous,
+          errors: baseline.previousErrors,
+        },
         until: "2026-01-02T0900",
         setName: "photos",
       },

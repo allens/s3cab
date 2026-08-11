@@ -144,7 +144,7 @@ export function renderCompareResult(result, { color = false } = {}) {
 
   const sections = [];
   if (result.added.length) {
-    sections.push(addedSection(result.added, shorten, paint));
+    sections.push(addedSection(result.added, result.since, shorten, paint));
   }
   if (renamed.length) {
     sections.push(fromToSection("Renamed", renamed, cyan, shorten, paint));
@@ -227,16 +227,33 @@ function commonAncestor(dirs) {
 }
 
 /**
+ * The added files, each with the notes that stop a reader drawing a wrong
+ * inference from the bare word "added" (ADR-0043's human-first reading):
+ * `(duplicate of …)` says the content is not new, and `(was unreadable in …)`
+ * says the *file* is not new — it sat there the whole time and simply couldn't
+ * be hashed for the older snapshot, so this run is when it reached the backup
+ * ([ADR-0079](../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)).
+ * The older snapshot is named rather than called "last time", because `compare`
+ * takes an arbitrary `--since`; the header shows the same name.
+ *
+ * Both notes share one parenthetical when both apply — two bracketed asides on
+ * one path read as a stutter.
  * @param {AddedEntry[]} added
+ * @param {string} since - The older snapshot's name (the caller has returned already when there is none)
  * @param {(path: string) => string} shorten
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
-function addedSection(added, shorten, paint) {
+function addedSection(added, since, shorten, paint) {
   const lines = added.map((entry) => {
-    const dupes = entry.duplicates.length
-      ? `  (duplicate of ${entry.duplicates.map(shorten).join(", ")})`
-      : "";
-    return `  ${shorten(entry.path)}${dupes}`;
+    const notes = [];
+    if (entry.wasUnreadable) {
+      notes.push(`was unreadable in ${since}`);
+    }
+    if (entry.duplicates.length) {
+      notes.push(`duplicate of ${entry.duplicates.map(shorten).join(", ")}`);
+    }
+    const note = notes.length ? `  (${notes.join("; ")})` : "";
+    return `  ${shorten(entry.path)}${note}`;
   });
   return `${paint(green)(`Added (${added.length})`)}\n${lines.join("\n")}`;
 }
