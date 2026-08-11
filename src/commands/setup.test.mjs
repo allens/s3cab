@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { setup } from "./setup.mjs";
 import { writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
+
+/** @import { PathLike } from "node:fs" */
 
 // Offline setup tests (docs/design/backup.md, ADR-0036, ADR-0052, ADR-0053): the
 // pre-S3 create validation, which fires before any network touch, and the refusal
@@ -121,6 +123,50 @@ describe("setup (offline validation)", () => {
     await assert.rejects(
       () => setup([photos, file], { set: "photos" }),
       /Not a directory: /,
+    );
+  });
+
+  it("won't call a folder it can't resolve missing, and says what it can't do", async (t) => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+
+    // Constructed, not reproduced. The measured case is an unlocked OneDrive
+    // Personal Vault — a junction onto a volume GUID with no mount point, which
+    // `lstat`/`stat` call a directory and `readdir` lists, while
+    // `GetFinalPathNameByHandle` answers ENOENT (proposals/filesystem-edge-cases.md).
+    // A *locked* vault has no such path at all, so the misleading message was
+    // reachable only with it open; nothing portable creates one, so the OS's
+    // answer for this one path is faked and the folder underneath is real.
+    const native = realpathSync.native;
+    t.mock.method(
+      realpathSync,
+      "native",
+      /** @param {PathLike} path */ (path) => {
+        if (path === photos) {
+          throw Object.assign(
+            new Error(`ENOENT: no such file or directory, realpath '${path}'`),
+            { code: "ENOENT" },
+          );
+        }
+        return native(path);
+      },
+    );
+
+    await assert.rejects(
+      () => setup([photos], { set: "photos", bucket: "b" }),
+      (error) =>
+        error instanceof Error &&
+        // The bug: a folder that plainly exists and lists was reported missing.
+        !/Directory not found/.test(error.message) &&
+        error.message.startsWith(
+          `Can't add '${photos}' to backup set 'photos'`,
+        ) &&
+        /the folder is there and lists/.test(error.message) &&
+        // The fix carries the values we already know, placeholder only for the
+        // one the user has to choose (ADR-0030).
+        error.message.includes(
+          "  s3cab setup --set photos --bucket b <directory>...",
+        ),
     );
   });
 

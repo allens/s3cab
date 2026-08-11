@@ -84,15 +84,20 @@ mechanism, different code, different fix.
     `GetFinalPathNameByHandle` cannot resolve it. (Node's JS `realpathSync` disagrees — it returns
     the path unchanged. Only the `.native` variant, the one CLAUDE.md mandates and both capture
     points use, fails.) So the vault cannot be adopted as a set root at all, which is the safe
-    outcome, but neither capture point says anything true about why: `setup`'s
-    `resolveDirectories` maps the `ENOENT` to `Directory not found: <path>` — **wrong, and
-    confusingly so, for a directory that plainly exists and lists** — and `walkDirs`'
-    `realpathSync.native(dir)` has no `try`/`catch` at all, so a set that somehow carried the path
-    would fail with a raw `ENOENT` and no ADR-0030 shaping. A locked vault has no such path, so
-    `setup` rejects it for real; the misleading message is reachable only with the vault open.
-  - **There is also no way to opt _in_.** Someone who wants the vault backed up — plausibly their
-    most valuable data, and the copy Microsoft doesn't hold — cannot, and hits that misleading
-    `Directory not found:` if they try.
+    outcome. A locked vault has no such path, so `setup` rejects it for real; the misleading
+    message below was reachable only with the vault open.
+    - **Both messages fixed 2026-08-11 — the refusal itself is unchanged.** `setup`'s
+      `resolveDirectories` mapped the `ENOENT` to `Directory not found: <path>`, the one thing
+      that is definitely untrue of a folder you can list, and `walkDirs`' `realpathSync.native(dir)`
+      had no `try`/`catch` at all, so a set that somehow carried the path failed with a raw
+      `ENOENT` and no ADR-0030 shaping. Both now ask `existsSync` which of the two opposite things
+      that `ENOENT` means, and say the true one. Neither is vault-specific: any path the OS won't
+      canonicalize lands there.
+  - **There is also no way to opt _in_ — an open question, not something being designed here.**
+    Someone who wants the vault backed up — plausibly their most valuable data, and the copy
+    Microsoft doesn't hold — cannot. They are now told that truthfully rather than
+    `Directory not found:`, but the answer is still no. Whether that is worth solving is a
+    separate decision.
   - A name-based exclude pattern is not the answer either — "Personal Vault" is localized (French
     Windows: *Coffre-fort personnel*), so such a pattern would silently protect nothing on a
     non-English install while looking like it did.
