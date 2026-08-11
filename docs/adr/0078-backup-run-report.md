@@ -154,7 +154,8 @@ detail to `compare`.**
   rendered result is on screen and never under `--json`. One hook for one caller is the smallest
   shape that keeps §6's *one output shape* — the alternative, printing the block from the command
   when it is about to prompt and from the renderer otherwise, is two paths to the same text.
-- **Out of scope, captured in [proposals/](../../proposals/):** `tree --excluded` (exclusion
-  discoverability — the data is computed on every walk and discarded), and the progress line's
-  in-flight detail (the "what *is* it uploading?" question, which is about the live line, not the
-  report).
+- **Out of scope here:** `tree --excluded` (exclusion discoverability — the data is computed on
+  every walk and discarded), since settled and built by
+  [0080](0080-exclusion-review-from-the-walk.md); and the progress line's in-flight detail (the
+  "what *is* it uploading?" question, which is about the live line, not the report), still
+  captured in [proposals/](../../proposals/).

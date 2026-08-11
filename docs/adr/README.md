@@ -8,6 +8,11 @@ Domain vocabulary lives in [CONTEXT.md](../../CONTEXT.md); fuller designs in
 New ADR: take the next number, `NNNN-slug.md`. Offer one only when a decision is **hard to
 reverse**, **surprising without context**, and **the result of a real trade-off**.
 
+Two concurrent branches will both take the same next number and both be right until the second
+merges, so **uniqueness is checked in CI** ([test/adr-numbering.test.mjs](../../test/adr-numbering.test.mjs)) rather than
+left to whoever notices. If it fails on your branch, the one that merged second yields: renumber
+and move its citations.
+
 Every ADR carries a `**Status:**` line directly under its title, starting with one of
 `accepted`, `proposed`, or `partly superseded by NNNN` (trailing detail — a date,
 `implemented`, what a supersession left standing — may follow). This adapts the status
@@ -78,6 +83,8 @@ ADR as a live constraint.
 - [0075](0075-resolve-time-credential-expiry.md) — An expired sign-in is diagnosed at *resolve* time too, matched on the chain's message (the SDK's error name can't tell expiry from a missing profile); expiry only, and one message shared with the request-time path *(accepted & implemented; completes 0037's remedy table, which caught expiry only at request time)*
 - [0076](0076-one-progress-line-driven-by-a-clock.md) — One progress line per pass, paced by `lib/progress.mjs` rather than by per-caller count gates, and redrawn from a clock where the data is bursty or blocking (a LIST page, a pull pipeline). The porcelain announces the pass once so the line carries no constant text; a row earns its name by taking a second, and a figure is shown only once measured *(accepted; extends 0010/0043, settles the display 0069 left behind)*
 - [0078](0078-backup-run-report.md) — What a finished backup reports: in **files**, not objects; `backup` prints in full only what it alone knows (transfer, times, drift) while everything the snapshot holds is a count plus a copy-pasteable `compare` command; a `Changes since <baseline>` block beside a `Couldn't be backed up` one; the detail offered by prompt and computed once, so counts and listing cannot diverge *(extends 0043/0076 to the finished run)*
+- [0079](0079-previously-unreadable-file-is-an-annotated-addition.md) — A file the older snapshot couldn't hash reports as **added, annotated** `(was unreadable in <since>)` rather than as a new file: the content really did reach the store on this run, so the category stays and the note corrects the reading, as `(duplicate of …)` already does. It can never be a move destination; unreadable-then-gone is reported nowhere *(applies 0043; settled ahead of 0069's `#ERROR`-on-drift follow-up, which would make it routine)*
+- [0080](0080-exclusion-review-from-the-walk.md) — `tree --excluded` answers "what are my patterns dropping?" from a **live walk**, not from a snapshot's `#EXCLUDED` rows (which are written but never read back) — so an `exclude.txt` edit can be checked by re-running. One flag, not two: the pattern rides on every row, making "why is *this* excluded?" a `grep`. stdout is `<path>` TAB `<pattern>`, stderr a count per pattern *(accepted & implemented; applies 0010/0043, uses the records 0028 already hands back)*
 
 ### Storage model, identity & home
 
@@ -109,6 +116,7 @@ ADR as a live constraint.
 - [0071](0071-snapshot-paths-absolute-native.md) — Snapshot paths stay absolute and OS-native (the snapshot is a statement of record; the row must stand alone for hand recovery); portability is `restore --output`, whose re-rooting is already separator-agnostic *(accepted; extends 0004, settles the relative-paths and cross-platform-restore questions)*
 - [0072](0072-timestamps-utc-in-files-local-in-names.md) — Timestamps split by kind: full UTC instants inside files (mtime, `#SNAPSHOT`, record headers, `CREATED`), local wall clock in names. The `#SNAPSHOT` line widens to carry set, instant, and its own name + IANA zone; the lexical-sort fault in the DST fold and across timezone moves is accepted, with warn-only checks where it is created *(accepted; extends 0004, applies 0012; its pre-0072 compatibility reader withdrawn 2026-08-08)*
 - [0073](0073-refuse-tab-newline-paths.md) — Paths containing a tab or newline are refused and abort the walk, listing every offender; `exclude.txt` is the escape hatch. Aborting is the only option that never writes the path into the TSV, so no escaping scheme is needed *(accepted; closes 0004's open edge case, applies 0054/0010)*
+- [0081](0081-online-only-files-skipped.md) — A dehydrated cloud placeholder (Windows Files On-Demand: OneDrive, Dropbox, Google Drive) is left online and reported as an `Online-Only File` skip, so a first backup stops silently hydrating a whole cloud account onto the local disk. Detected by `size >= 4096 && blocks === 0` on the `lstat` `fileProps` already takes — the 4KB floor clears NTFS's MFT-resident small files — checked *after* the baseline reuse, and confined to Windows because a fully sparse ext4 file is the identical shape; `--include-online-only` opts in *(accepted & implemented; routes through 0078's skip channel, applies 0030/0012; macOS ruled out on measurement — APFS collides the same way, and its real signal `SF_DATALESS` isn't in Node's `Stats`)*
 
 ### Auth, credentials & connection config
 

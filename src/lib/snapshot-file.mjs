@@ -12,7 +12,11 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
-import { EXIT_INTERRUPTED, InterruptedError } from "./error.mjs";
+import {
+  EXIT_INTERRUPTED,
+  InterruptedError,
+  OnlineOnlyFileError,
+} from "./error.mjs";
 import { localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 
@@ -37,7 +41,11 @@ import { tildeify } from "./home.mjs";
 // `errorLine`); the walk yields these as separate data buckets and no longer
 // knows the grammar. On read, `parseSnapshotStream` surfaces `#SNAPSHOT`/`#DIR`
 // (into the headers), `#ERROR` (into `errors`), and `#SKIPPED` (into `skipped`);
-// `#EXCLUDED` and any other comment line are ignored.
+// `#EXCLUDED` and any other comment line are ignored. That asymmetry is
+// deliberate and settled: the live question ("what are my patterns dropping?")
+// is answered by `tree --excluded` from a fresh walk, so a reader can check an
+// exclude.txt edit by re-running rather than by taking another snapshot
+// (ADR-0080). These rows stay a record for hand recovery — don't wire them up.
 
 // The comment markers heading the grammar's non-file lines — shared by the
 // (module-private) writers (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`)
@@ -47,6 +55,22 @@ const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
 const SKIPPED = "#SKIPPED";
 const ERROR = "#ERROR";
+
+/**
+ * The `dirent_type` a dehydrated cloud-sync placeholder is recorded and reported
+ * under ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)) — the one
+ * value in that column the walk does **not** produce, because nothing knows a
+ * file is one until the hashing pass reaches its `lstat`.
+ *
+ * Named for what the user has already been shown rather than for the mechanism
+ * or the vendor: OneDrive's own Explorer status column reads *Online-only*, and
+ * Dropbox and Google Drive use the same words, so the phrase arrives familiar and
+ * points at the fix (make it available offline) without a sentence. It obeys both
+ * rules `getFileType` sets for this column (src/lib/walk.mjs): plain words with no
+ * niche acronym (ADR-0012), and a regular noun that `plural` can pluralize by
+ * appending `s` — `48,213 Online-Only Files`.
+ */
+const ONLINE_ONLY_FILE = "Online-Only File";
 
 /**
  * The properties a snapshot records for one file — its content `hash`, `size`,
@@ -623,21 +647,43 @@ export function listSnapshotNames(snapshotDir) {
 export async function readSnapshotFile(path) {
   const readStream = createReadStream(path);
 
-  const input =
-    extname(path) === ".zst"
-      ? readStream.pipe(createZstdDecompress())
-      : readStream;
+  return extname(path) === ".zst"
+    ? parseCompressedSnapshotStream(readStream)
+    : parseSnapshotStream(readStream);
+}
 
-  return parseSnapshotStream(input);
+/**
+ * Parse a **compressed** (`.tsv.zst`) snapshot byte stream into a snapshot —
+ * the zstd-decompressing front of {@link parseSnapshotStream}, shared by the
+ * local `.zst` read ({@link readSnapshotFile}) and the remote read
+ * (`readRemoteSnapshot`, streaming an S3 body). A `pipeline` with the parser as
+ * its **terminal sink**, which is the one shape with both properties this read
+ * needs: a mid-stream source error (a dropped connection, a failed disk read)
+ * propagates and rejects instead of stalling the parser (`.pipe` forwards no
+ * `error`), and teardown waits for the sink — the source is fully consumed
+ * first, so a live S3 request is never aborted on normal completion (the eager
+ * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
+ * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
+ * @returns {Promise<Snapshot>}
+ */
+export async function parseCompressedSnapshotStream(source) {
+  const decompressed = createZstdDecompress();
+  // The sink closes over the zstd stream rather than taking pipeline's sink
+  // argument — the same object at runtime, but typed as a bare AsyncIterable,
+  // which the parser's readline can't take.
+  return await pipeline(source, decompressed, () =>
+    parseSnapshotStream(decompressed),
+  );
 }
 
 /**
  * Parse a decompressed snapshot TSV stream into a snapshot — the line-parsing
  * core of `readSnapshotFile`, split out so a snapshot can be read straight from
  * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
- * with no temp file. The caller hands in an already-**decompressed** TSV stream:
- * `readSnapshotFile` decompresses a `.zst` path itself; the remote reader pipes
- * the S3 body through zstd.
+ * with no temp file. The caller hands in an already-**decompressed** TSV stream;
+ * both compressed sources — a local `.zst` file and a remote S3 body — come
+ * through {@link parseCompressedSnapshotStream}, which fronts this parser with
+ * zstd as a pipeline sink.
  *
  * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
  * rather than discarded, so a snapshot stays self-describing on read — the
@@ -794,6 +840,23 @@ function propsRows(getProps, signal) {
  */
 export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
+    // A cloud placeholder is the one throw out of `fileProps` that is a
+    // *decision* rather than a fault, so it lands beside the symlinks and the
+    // sockets rather than among the read failures (ADR-0081). It travels the
+    // error channel because that is the channel the pipeline already has for
+    // "this path produced no entry" — the row type is `Props | Error`, and the
+    // uploader passes any `Error` row along without storing anything, which is
+    // exactly the handling a skip needs.
+    //
+    // These rows come out *interleaved* with the entries rather than in the
+    // header block, because nothing knows about them until the file is reached:
+    // the walk takes no `stat` (the hot-path rule), so detection can only happen
+    // where the `lstat` already is. Harmless — parsing is marker-driven and the
+    // writer's doc says so explicitly.
+    if (props instanceof OnlineOnlyFileError) {
+      yield skippedLine(ONLINE_ONLY_FILE, props.message, path);
+      continue;
+    }
     if (Error.isError(props)) {
       yield errorLine(props.message, path);
       continue;

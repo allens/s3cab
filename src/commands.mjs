@@ -24,6 +24,7 @@ import {
   deleteDetails,
   providerDetails,
   snapshotDetails,
+  treeDetails,
 } from "./command-details.mjs";
 import {
   offerBackupChanges,
@@ -39,6 +40,7 @@ import {
   renderSetup,
   renderStatus,
   renderText,
+  renderTree,
   renderUpload,
   renderVerify,
 } from "./render.mjs";
@@ -93,6 +95,11 @@ export const commands = {
         type: "boolean",
         description:
           "Re-hash every file instead of reusing unchanged files' hashes from the previous snapshot",
+      },
+      "include-online-only": {
+        type: "boolean",
+        description:
+          "Download files stored online (OneDrive and the like) so they can be hashed, instead of skipping them",
       },
     },
     exec: (options, [set] = []) => snapshot(set, options),
@@ -334,6 +341,13 @@ export const commands = {
     args: {
       set: { description: "The backup set to back up (default: the only set)" },
     },
+    options: {
+      "include-online-only": {
+        type: "boolean",
+        description:
+          "Download files stored online (OneDrive and the like) so they can be backed up, instead of skipping them",
+      },
+    },
     exec: (options, [set] = []) => backup(set, options),
     render: renderBackup,
     offer: offerBackupChanges,
@@ -559,12 +573,20 @@ export const commands = {
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
-    examples: ["s3cab tree", "s3cab tree photos"],
+    examples: ["s3cab tree", "s3cab tree photos", "s3cab tree --excluded"],
+    details: treeDetails,
     args: {
       set: { description: "The backup set to list (default: the only set)" },
     },
-    exec: (_options, [set] = []) => tree(set),
-    render: renderLines,
+    options: {
+      excluded: {
+        type: "boolean",
+        description:
+          "List what the set's exclude patterns are dropping instead, each with the pattern that matched it",
+      },
+    },
+    exec: (options, [set] = []) => tree(set, options),
+    render: renderTree,
   },
   prop: {
     summary: "Show a file's hash, size, and modified time",

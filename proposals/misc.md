@@ -1,8 +1,8 @@
 # Misc — unsorted ideas
 
 Ideas that don't fit a theme yet and aren't enough on their own to earn an epic file. When a
-cluster here grows, split it out into its own `proposals/<topic>.md` (these two look like a
-future "platform / release" epic).
+cluster here grows, split it out into its own `proposals/<topic>.md` (Distribution looks like the
+seed of a future "platform / release" epic).
 
 - **Selective bulk restore via a path list on stdin** (`s3cab restore --set <set> -`, the
   `rsync --files-from` pattern; clig.dev's `-` convention). Restoring *many specific files*
@@ -11,8 +11,6 @@ future "platform / release" epic).
   `s3cab tree photos | grep 2024 | s3cab restore --set photos -`, or a future compare/`verify`
   output — and a `--files-from <file>` twin would cover the non-pipe case. Would also want
   clig's guard: if stdin is an interactive terminal, don't hang waiting — show help instead.
-- **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
-  `NUL`…) — a photo/video archive will eventually hit one.
 - **Distribution**: winget / scoop / Homebrew manifests once released; a real Windows
   code-signing cert eventually (same class of trust problem as the macOS notarization gap).
 - **Use nodejs test runner tags** https://nodejs.org/docs/latest/api/test.html#test-tags

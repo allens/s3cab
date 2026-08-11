@@ -73,7 +73,7 @@ import {
  * objects + snapshot are already safely up — the next backup re-publishes.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
- * @param {{ debug?: boolean }} [options]
+ * @param {{ debug?: boolean, "include-online-only"?: boolean }} [options]
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
@@ -84,6 +84,7 @@ export async function backup(setName, options = {}) {
   const {
     name: since,
     previous,
+    previousErrors,
     lookup,
     instant: previousInstant,
   } = await readBaseline(set);
@@ -110,6 +111,7 @@ export async function backup(setName, options = {}) {
     // does the sending, `transfer` is how that sending is going.
     transfer: uploader.transfer,
     debug: options.debug,
+    includeOnlineOnly: options["include-online-only"],
   });
 
   // The snapshot file has landed locally whatever happened above — that is what
@@ -169,7 +171,7 @@ export async function backup(setName, options = {}) {
   const comparison =
     since && previous
       ? await compareSnapshots(set.snapshotsDir, set.dirs, {
-          since: { name: since, entries: previous },
+          since: { name: since, entries: previous, errors: previousErrors },
           until: name,
           setName: set.name,
         })

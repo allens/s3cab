@@ -125,25 +125,84 @@ const rolesAnywhereNotReadyError = (bucket) =>
   );
 
 /**
+ * "Not a directory", the answer to two different questions — the path resolved and
+ * turned out to be a file, or it wouldn't resolve *and* isn't a directory either.
+ * One factory so both say it the same way (src/lib/error.mjs's taxonomy: a reused
+ * message earns one).
+ * @param {string} directory - The path as the user typed it
+ */
+const notADirectoryError = (directory) =>
+  new Error(`Not a directory: ${directory}`);
+
+/**
+ * The error a directory the OS won't canonicalize raises: it is there, it is a
+ * directory, but `realpathSync.native` can't say where it really is. Measured case
+ * (2026-08-11, proposals/filesystem-edge-cases.md): an unlocked OneDrive Personal
+ * Vault, a junction onto a volume GUID with no mount point, where
+ * `GetFinalPathNameByHandle` fails — but nothing here is vault-specific, so the
+ * message names the *shape* of the problem rather than one product. It used to read
+ * `Directory not found`, which is the one thing that is definitely untrue of it.
+ *
+ * The wording claims only what the caller checked — that it is there, and that it
+ * is a directory. Not that it *lists*: the vault does, but proving that means a
+ * `readdir` of a directory that could hold a hundred thousand entries, to add a
+ * clause the user doesn't need.
+ * @param {string} directory - The path as the user typed it
+ * @param {string} name - The set being created
+ * @param {string | undefined} bucket - Its bucket, if `--bucket` was given
+ * @param {unknown} cause - The `ENOENT` from `realpathSync.native`
+ */
+const unresolvableDirectoryError = (directory, name, bucket, cause) =>
+  new Error(
+    `Can't add '${directory}' to backup set '${name}': the folder is there, ` +
+      `but this computer won't say where it really is (resolving the path reports ` +
+      `"no such file or directory").\n` +
+      `A set stores each folder by its resolved location, so one that won't resolve ` +
+      `can't be a member. This is usually a link into storage with no ordinary path ` +
+      `of its own — a protected vault, or a drive with no letter or mount point.\n` +
+      `To create the set, name a folder that has an ordinary path:\n` +
+      `  s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`,
+    { cause },
+  );
+
+/**
  * Resolve member directories to canonical absolute paths (what `dirs.txt` stores),
  * verifying each exists and is a directory. Pure-local and cheap, so `setup` runs
  * it *before* any S3 touch — a bad directory fails fast without claiming a name.
  * @param {string[]} directories
+ * @param {string} name - The set being created (named in the errors below)
+ * @param {string} [bucket] - Its bucket, if `--bucket` was given (checked after this)
  * @returns {string[]}
  */
-function resolveDirectories(directories) {
+function resolveDirectories(directories, name, bucket) {
   return directories.map((directory) => {
     let real;
     try {
       real = realpathSync.native(directory);
     } catch (error) {
       if (isENOENT(error)) {
-        throw new Error(`Directory not found: ${directory}`, { cause: error });
+        // `ENOENT` from realpath means one of three different things, so ask what
+        // is actually there before saying anything about it: nothing (the typo,
+        // the unplugged drive), a non-directory, or a real directory the OS just
+        // won't canonicalize. `stat`, not `existsSync`, because the last of those
+        // says "folder" and has to have earned it.
+        let stats;
+        try {
+          stats = statSync(directory);
+        } catch {
+          throw new Error(`Directory not found: ${directory}`, {
+            cause: error,
+          });
+        }
+        if (!stats.isDirectory()) {
+          throw notADirectoryError(directory);
+        }
+        throw unresolvableDirectoryError(directory, name, bucket, error);
       }
       throw error;
     }
     if (!statSync(real).isDirectory()) {
-      throw new Error(`Not a directory: ${directory}`);
+      throw notADirectoryError(directory);
     }
     return real;
   });
@@ -197,8 +256,9 @@ const collisionError = (name, bucket, info) => {
 async function create(name, directories, options) {
   requireArg(directories.length, "directory");
   // Resolve directories (local, cheap) before the --bucket check so a bad directory
-  // reports "Directory not found" regardless of whether a bucket was given.
-  const dirs = resolveDirectories(directories);
+  // reports itself regardless of whether a bucket was given — which is why the
+  // errors below take the bucket as possibly-undefined.
+  const dirs = resolveDirectories(directories, name, options.bucket);
   requireArg(options.bucket, "bucket");
   const bucket = options.bucket;
 
