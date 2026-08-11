@@ -128,7 +128,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
  * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
- * @property {number} skipped - Entries left out by design (`#SKIPPED`): the walk's unsupported types, plus the cloud placeholders this pass declined to download (ADR-0080)
+ * @property {number} skipped - Entries left out by design (`#SKIPPED`): the walk's unsupported types, plus the cloud placeholders this pass declined to download (ADR-0081)
  * @property {number} errors - Files it couldn't hash (`#ERROR`)
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
@@ -153,7 +153,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
  * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
- * @param {boolean} [options.includeOnlineOnly] - Hash cloud placeholders too, downloading each one (`--include-online-only`, ADR-0080). Off by default: a first pass over a synced folder otherwise pulls the whole cloud account onto the local disk
+ * @param {boolean} [options.includeOnlineOnly] - Hash cloud placeholders too, downloading each one (`--include-online-only`, ADR-0081). Off by default: a first pass over a synced folder otherwise pulls the whole cloud account onto the local disk
  * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
 export async function generateSnapshot(

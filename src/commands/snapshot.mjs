@@ -17,7 +17,7 @@ import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
  * @param {{ rehash?: boolean, "include-online-only"?: boolean, debug?: boolean }} [options] -
  *   `--rehash` re-hashes every file instead of reusing previous hashes;
  *   `--include-online-only` hashes cloud placeholders too, downloading each
- *   (ADR-0080); `--debug` leaves an uncompressed copy and allows a same-minute
+ *   (ADR-0081); `--debug` leaves an uncompressed copy and allows a same-minute
  *   overwrite. The inline form (rather than a `@param options.x` list) because a
  *   kebab-case key can't be spelled in the dotted one — the same shape
  *   `cleanup`/`delete` use for `--dry-run`.

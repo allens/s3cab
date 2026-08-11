@@ -8,7 +8,7 @@ import { platform } from "node:process";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
-// A backup over a folder holding a dehydrated cloud placeholder (ADR-0080) —
+// A backup over a folder holding a dehydrated cloud placeholder (ADR-0081) —
 // the real engine, with `node:fs` and `s3.mjs` the only seams faked. What it is
 // really for is the *report*: a placeholder must land in `skipped` and never in
 // `errors`, because an error count would call a backup that worked exactly as
@@ -145,7 +145,7 @@ describe("backup over a folder holding cloud placeholders", () => {
     // the identical shape is a fully sparse file — a real file that must stay in
     // the backup — so the engine reads it there and there is no skip to assert.
     if (platform !== "win32") {
-      t.skip("detection is Windows-only by design (ADR-0080)");
+      t.skip("detection is Windows-only by design (ADR-0081)");
       return;
     }
     await using dir = await mkTmpDir();
@@ -183,7 +183,7 @@ describe("backup over a folder holding cloud placeholders", () => {
 
   it("downloads and stores them under --include-online-only", async (t) => {
     if (platform !== "win32") {
-      t.skip("detection is Windows-only by design (ADR-0080)");
+      t.skip("detection is Windows-only by design (ADR-0081)");
       return;
     }
     await using dir = await mkTmpDir();

@@ -457,7 +457,7 @@ describe("writeSnapshot", () => {
   });
 
   it("records a cloud placeholder as #SKIPPED, not #ERROR", async () => {
-    // ADR-0080. The one throw out of `fileProps` that is a *decision* rather than
+    // ADR-0081. The one throw out of `fileProps` that is a *decision* rather than
     // a fault, and the difference is the whole point: an `#ERROR` row would say a
     // backup failed to read a file when in fact it succeeded at declining to
     // download one. It reaches the writer down the error channel — the row type

@@ -366,7 +366,7 @@ describe("upload --dir (seed a folder's objects)", () => {
 
   it("passes the seeder's online-only skips through to the result", async () => {
     // Separate from `skipped` all the way out to `--json`: a placeholder was
-    // never opened, a drift was read and couldn't be confirmed (ADR-0080).
+    // never opened, a drift was read and couldn't be confirmed (ADR-0081).
     dirOnlineOnly = ["D:\\OneDrive\\Photos\\2019\\IMG_0421.jpg"];
 
     const result = await upload("photos", { dir: tmpdir() });

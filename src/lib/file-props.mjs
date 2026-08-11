@@ -121,7 +121,7 @@ const DETECT_ONLINE_ONLY = platform === "win32";
  * @returns {Promise<Props>} The file's hash/size/mtime (no `hashDuration` when reused from `lookup`)
  * @throws {OnlineOnlyFileError} When the file is a dehydrated cloud placeholder
  *   and `includeOnlineOnly` is not set — the caller turns this into a `#SKIPPED`
- *   row, not an `#ERROR` one (ADR-0080)
+ *   row, not an `#ERROR` one (ADR-0081)
  */
 export async function fileProps(
   path,

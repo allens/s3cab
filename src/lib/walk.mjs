@@ -435,7 +435,7 @@ const UNKNOWN = "Unknown File Type";
  * written straight by `stringifySnapshot` (lib/snapshot-file.mjs) for a
  * dehydrated cloud placeholder — a type no `Dirent` or `Stats` can report, since
  * libuv classifies on the reparse *tag* and a placeholder is a genuine `File`
- * from both `readdir` and `lstat` ([ADR-0080](../../docs/adr/0080-online-only-files-skipped.md)).
+ * from both `readdir` and `lstat` ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)).
  * It obeys the same two rules.
  * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
  * @returns {string} File type

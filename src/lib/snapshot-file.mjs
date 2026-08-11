@@ -58,7 +58,7 @@ const ERROR = "#ERROR";
 
 /**
  * The `dirent_type` a dehydrated cloud-sync placeholder is recorded and reported
- * under ([ADR-0080](../../docs/adr/0080-online-only-files-skipped.md)) — the one
+ * under ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)) — the one
  * value in that column the walk does **not** produce, because nothing knows a
  * file is one until the hashing pass reaches its `lstat`.
  *
@@ -842,7 +842,7 @@ export async function* stringifySnapshot(snapshot) {
   for await (const [path, props] of snapshot) {
     // A cloud placeholder is the one throw out of `fileProps` that is a
     // *decision* rather than a fault, so it lands beside the symlinks and the
-    // sockets rather than among the read failures (ADR-0080). It travels the
+    // sockets rather than among the read failures (ADR-0081). It travels the
     // error channel because that is the channel the pipeline already has for
     // "this path produced no entry" — the row type is `Props | Error`, and the
     // uploader passes any `Error` row along without storing anything, which is

@@ -9,7 +9,7 @@ import { describe, it, mock } from "node:test";
 // Detection of dehydrated cloud-sync placeholders — Windows Files On-Demand
 // (OneDrive, and the same shape in Dropbox and Google Drive), which leave a file
 // with its full logical size and no bytes behind it, fetched on first read
-// (ADR-0080).
+// (ADR-0081).
 //
 // Its own file, and a dotted aspect name (ADR-0049), because a placeholder
 // cannot be *made* on the test machine: NTFS allocates on a truncate-extend
@@ -98,7 +98,7 @@ describe("hasNoBytesOnDisk", () => {
 describe("fileProps on a cloud placeholder", () => {
   it("refuses to download it on Windows, and reads it anywhere else", async () => {
     // One assertion per platform rather than a skip, because the *split* is the
-    // decision under test (ADR-0080): Windows is where Files On-Demand exists and
+    // decision under test (ADR-0081): Windows is where Files On-Demand exists and
     // where the signal was measured clean, while on ext4 the identical shape is a
     // fully sparse file (`truncate -s 1G` → blocks=0) — a real file that must
     // stay in the backup, and one no Linux cloud client would have made.

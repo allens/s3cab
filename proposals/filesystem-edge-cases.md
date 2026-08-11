@@ -8,7 +8,7 @@ a subtree is descended, skipped or read. Distinct from
 
 The entry below was measured on 2026-08-11 against a real OneDrive install (`D:\OneDrive`, vault
 unlocked for the test). It came out of the same investigation as the online-only-files problem —
-now built and settled in [ADR-0080](../docs/adr/0080-online-only-files-skipped.md) — but is
+now built and settled in [ADR-0081](../docs/adr/0081-online-only-files-skipped.md) — but is
 independent of it: different mechanism, different code, different fix.
 
 - **An unlocked OneDrive Personal Vault is skipped — correctly, but by coincidence.** Confirmed

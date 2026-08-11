@@ -961,7 +961,7 @@ export function renderUpload(result) {
     );
     // Its own block, above the drift list and never merged into it: that list's
     // header says s3cab couldn't confirm a file *while reading it*, and these are
-    // files it never opened (ADR-0080). Counted rather than named — a seeded
+    // files it never opened (ADR-0081). Counted rather than named — a seeded
     // OneDrive folder can hold tens of thousands, and the paths are not the
     // question here; whether to spend the disk space is.
     if (onlineOnly.length) {

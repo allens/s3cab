@@ -529,12 +529,12 @@ export async function uploadSnapshot({
  * @returns {Promise<{ candidates: number, uploaded: number, skipped: Drift[], onlineOnly: string[] }>}
  *   `candidates` = distinct objects walked; `uploaded` = those actually transferred
  *   (the rest were already stored); `skipped` = files the guard refused;
- *   `onlineOnly` = cloud placeholders left undownloaded (ADR-0080).
+ *   `onlineOnly` = cloud placeholders left undownloaded (ADR-0081).
  */
 export async function uploadDir({ bucket, dir, excludePath }) {
   const { files } = walkDirs([dir], readExcludePatterns(excludePath));
 
-  // Cloud placeholders this seed left alone (ADR-0080). Deliberately **not**
+  // Cloud placeholders this seed left alone (ADR-0081). Deliberately **not**
   // folded into the `Drift[]` beside it: a drift is "the file moved on between
   // being hashed and being sent", reported under a header that says s3cab
   // couldn't confirm the file *while reading it* — and this is a file it never

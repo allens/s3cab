@@ -71,7 +71,7 @@ import { prop } from "./prop.mjs";
  * @property {number} uploaded - Those actually transferred (the rest were already stored)
  * @property {Drift[]} skipped - Files that couldn't be confirmed while being read (changed,
  *   removed, or unreadable), so were not stored; each carries its `reason`
- * @property {string[]} onlineOnly - Cloud placeholders left undownloaded (ADR-0080). Apart
+ * @property {string[]} onlineOnly - Cloud placeholders left undownloaded (ADR-0081). Apart
  *   from `skipped` because it is a different fact, not a milder one: those are files s3cab
  *   read and couldn't confirm, these are files it deliberately never opened
  *

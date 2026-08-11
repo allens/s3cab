@@ -117,7 +117,7 @@ export class FileChangedError extends Error {
  * itself the moment anything opens it. Raised by `fileProps` (lib/file-props.mjs)
  * *instead of* reading such a file, so a first backup over a synced folder
  * doesn't quietly pull the whole cloud account onto the local disk
- * ([ADR-0080](../../docs/adr/0080-online-only-files-skipped.md)).
+ * ([ADR-0081](../../docs/adr/0081-online-only-files-skipped.md)).
  *
  * A subclass because the snapshot pipeline catches it *by type* to branch
  * behaviour, and the branch is the whole point: every other throw out of
