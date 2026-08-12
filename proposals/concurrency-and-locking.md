@@ -17,9 +17,9 @@ publishes the snapshot referencing them. A concurrent `cleanup` marks from publi
 only, so anything uploaded-but-not-yet-referenced looks exactly like an orphan.
 
 **What already protects it.** The fixed 7-day **grace window**
-([src/lib/cleanup.mjs:21](../src/lib/cleanup.mjs#L21)) — no object younger than a week is ever
-swept, so a normal in-flight backup is safe without a lock. There is deliberately no `--grace`
-knob.
+([src/lib/cleanup.mjs](../src/lib/cleanup.mjs), `GRACE_MS`) — no object younger than a week is
+ever swept, so a normal in-flight backup is safe without a lock. There is deliberately no
+`--grace` knob.
 
 **The residual hole the grace window does _not_ cover.** An **old** object (past grace —
 typically a crash orphan from weeks back) that a running backup *skips uploading* because the

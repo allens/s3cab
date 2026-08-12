@@ -140,8 +140,12 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    - **But the conditional is evaluated only at completion** — after every part has already
      uploaded. Relying on it alone for a large already-present object would burn the whole
      transfer, which is exactly why `putFile` ([../../src/lib/s3.mjs](../../src/lib/s3.mjs))
-     keeps a **HEAD preflight for files ≥ 8 MB** before starting a multipart upload. Keep that
-     preflight.
+     keeps a **HEAD preflight for any file large enough to go multipart** before starting one.
+     Keep that preflight. The threshold is `partSize` itself, so it cannot drift from the
+     boundary it guards — today that is 16 MB, not the 8 MB this note and
+     [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md) both still say in
+     prose ([ADR-0060](../adr/0060-multipart-tuning-in-flight-bytes.md) retuned it; the ADRs are
+     left alone deliberately — the decisions stand, only the illustrative number aged).
    - **Open risk — off-AWS providers.** Whether R2 / B2 / MinIO / Wasabi honour conditional
      writes on multipart is **unverified**. Because the conditional PUT is the correctness
      backstop, its reliability off-AWS must be confirmed per provider before s3cab leans on it
@@ -171,10 +175,10 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   still apply exactly as before.
 - **Conditional-write backstop off-AWS** (Finding 3 item 5): against the same non-AWS target,
   confirm a re-PUT of an already-stored object is rejected (`If-None-Match: *`) — for both the
-  single-PUT path and a **multipart** (≥ 8 MB) object. A provider that silently overwrites would
-  make the correctness backstop a no-op there. Extend the same probe to the other three promises
-  that ride on the conditional write: a second snapshot in one minute, a second claim of one set
-  name, and a same-minute second deletion record must each **fail**.
+  single-PUT path and a **multipart** (≥ `partSize`, today 16 MB) object. A provider that
+  silently overwrites would make the correctness backstop a no-op there. Extend the same probe to
+  the other three promises that ride on the conditional write: a second snapshot in one minute, a
+  second claim of one set name, and a same-minute second deletion record must each **fail**.
 
 ## Out of scope
 
