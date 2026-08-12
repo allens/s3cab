@@ -113,6 +113,25 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    conditional PUT (`If-None-Match: *`) as its *correctness* backstop
    ([ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md)) — the baseline is
    only a round-trip optimization, so a store already holding an object must reject a re-PUT.
+
+   **Change detection is not the only thing riding on it** (noted by the 2026-08-12 durability
+   audit — provenance in [../../proposals/bugs.md](../../proposals/bugs.md)). The same mechanism
+   carries **four** separate correctness promises, and a provider that accepts `If-None-Match: *`
+   but ignores it turns each loud failure into a silent overwrite:
+   - the object store's re-PUT rejection (this item);
+   - **snapshot immutability** — `uploadSnapshotFile` ([../../src/lib/upload.mjs](../../src/lib/upload.mjs))
+     relies on the 412 to refuse a second snapshot of the same set in the same minute, which
+     [../../guide/format.md](../../guide/format.md) states as a format commitment;
+   - the **set name claim** — `claimRemoteSet` ([../../src/lib/set-marker.mjs](../../src/lib/set-marker.mjs))
+     is first-writer-wins solely by conditional `putText`, so two machines claiming one name
+     would both believe they succeeded;
+   - **deletion records are never overwritten** ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)) —
+     a same-minute second `delete` run is meant to fail rather than replace the earlier record of
+     what was removed.
+
+   So the per-provider verification below is not a change-detection nicety; three of the four
+   promises above are what makes the repository safe to share between machines.
+
    What's verified, and the open risk:
    - **AWS S3 — works, including multipart.** `If-None-Match: *` is supported on
      `CompleteMultipartUpload` (general-purpose buckets, Nov 2024; `PutObject`, Aug 2024), and
@@ -152,8 +171,10 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   still apply exactly as before.
 - **Conditional-write backstop off-AWS** (Finding 3 item 5): against the same non-AWS target,
   confirm a re-PUT of an already-stored object is rejected (`If-None-Match: *`) — for both the
-  single-PUT path and a **multipart** (≥ 8 MB) object. A provider that silently overwrites
-  would make the correctness backstop a no-op there.
+  single-PUT path and a **multipart** (≥ 8 MB) object. A provider that silently overwrites would
+  make the correctness backstop a no-op there. Extend the same probe to the other three promises
+  that ride on the conditional write: a second snapshot in one minute, a second claim of one set
+  name, and a same-minute second deletion record must each **fail**.
 
 ## Out of scope
 

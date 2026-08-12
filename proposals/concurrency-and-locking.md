@@ -38,6 +38,24 @@ backstops it anyway — the delete is soft and recoverable, and `verify` reports
 `missing`. **Revisiting that stance is the point of this epic**; if it changes, amend
 docs/design/backup.md.
 
+**Two sharpenings from the 2026-08-12 durability audit** (see
+[bugs.md](bugs.md) for its provenance; the residual hole above was confirmed exactly as written,
+by a cold read):
+
+- **The stale-plan window is human-minutes, not milliseconds.** The interactive confirmation sits
+  *between* the scan and the deletes, so the plan is already as old as the user's decision time
+  by the time it executes. Any reasoning that treats this race as a narrow instant is measuring
+  the wrong interval — the same is true of `delete` in §3, which has the slower prompt of the two.
+- **`forget` + `cleanup` interleaves into the same hole from the other side.** A running backup
+  has already passed its baseline HEAD and is skipping the objects that baseline vouches for. If
+  the baseline is *forgotten* mid-run and `cleanup` follows, those objects — old, now unreferenced
+  — are deletable before the new manifest lands. The 2026-07-19 baseline-trust fix closes this for
+  the *next* backup (it re-HEADs and falls back to a LIST); it cannot help the one already in
+  flight, whose check has passed.
+
+**Versioning backstops all of this only if versioning is on, and no code path checks** — see the
+entry in [engine-robustness.md](engine-robustness.md).
+
 ## 2. Stale temp-file recovery (the local half)
 
 A crashed or interrupted snapshot leaves `.snapshot.tsv.zst` behind, and every later snapshot
@@ -111,6 +129,18 @@ three, and `delete`'s profile is the *least* protected of them:
   Still not corruption, but it is where "the record makes it fine" reads thinnest, and it is
   what a lock (or re-checking the reference set immediately before deleting) would actually
   close.
+- **Independently reached by the 2026-08-12 durability audit** (provenance in [bugs.md](bugs.md)),
+  which found this cross-set variant cold — without reading this file — and rated it the most
+  serious of the three destructive-actor races. Two things it adds to the bullet above:
+  - **Nobody involved gets a signal.** Because the deletion record explains H, the affected set's
+    `verify` reports expected-missing and exits **0**, and its `restore` skips the file and exits
+    **0**. The set that never consented has no mechanism by which it could find out — where the
+    `cleanup` race in §1 at least surfaces as `missing`. That is the concrete sense in which "the
+    record makes it fine" is thinnest: the record is not merely inadequate here, it is actively
+    supplying the explanation that suppresses the alarm.
+  - **`delete`'s window is the widest of the three**, because its confirmation is the
+    type-the-bucket-name prompt — the slowest deliberate pause in the tool sits between its scan
+    and its deletes.
 
 ## 4. Write the work file **uncompressed**, compress at finalize (revived 2026-07-29)
 

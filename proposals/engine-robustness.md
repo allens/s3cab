@@ -11,6 +11,22 @@ Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
   whether the decompressor consumed a complete frame (or check the content size in the frame
   header) and fail the read when it didn't. Noticed 2026-08-11 while building the
   mid-stream-error tests.
+- **Bucket versioning is load-bearing everywhere and verified nowhere.** The whole soft-delete
+  and ransomware-recovery story rests on it —
+  [ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md), [guide/maintenance.md](../guide/maintenance.md)
+  ("Versioning: why any of this is safe"), and the reassurance in
+  [concurrency-and-locking.md](concurrency-and-locking.md) §1 that the backup/cleanup race is
+  survivable because the delete is soft. `s3cab aws` turns versioning on when it provisions a
+  bucket, but **no code path ever asks whether it is on**: there is no `GetBucketVersioning`
+  anywhere in [src/lib/s3.mjs](../src/lib/s3.mjs). On a hand-made or provider bucket where it was
+  never enabled, every `forget` / `delete` / `cleanup` is a hard delete and every accepted race
+  above converts from recoverable to permanent — with no warning at any point, because the
+  degradation is invisible until the day someone needs to undo something. Not a loss path on its
+  own; an amplifier under all of them. Cheapest shape is probably a one-call check where the
+  repository is already being inspected (`verify`, or a `provider --check`-style probe —
+  [provider-check.md](provider-check.md)), reported as a finding rather than an error, and noting
+  that some S3-compatible providers have no versioning to check. _(From the 2026-08-12 durability
+  audit; provenance in [bugs.md](bugs.md).)_
 - **Network resilience knobs** for `backup`: retry policy, bandwidth limiting, resumability of
   a multi-thousand-file upload run. _(Mostly addressed: request + connection timeouts landed so a
   dropped connection fails instead of hanging — [ADR-0065](../docs/adr/0065-s3-client-request-timeouts.md)

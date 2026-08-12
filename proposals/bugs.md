@@ -17,6 +17,81 @@ with the path-scoped `delete`
 
 ---
 
+<sub>The five entries below came from an **adversarial durability audit of the 1.0 format
+freeze**, 2026-08-12 (Claude Fable at xhigh reasoning), reading `88fbc70`. Its brief was the one
+failure that matters — *a backup that reports success but cannot be restored* — and its full
+report, including the state model, the reproduction sequences and the **ruled-out** list (what was
+attacked and which guard held), is kept **outside the repo** as
+`s3cab-durability-audit-2026-08-12.pdf`. The state model it had to build first is now
+[docs/design/repository-protocol.md](../docs/design/repository-protocol.md). Headline result: the
+objects-first/snapshot-last invariant **holds under process termination at every step** — no kill
+sequence broke it. What broke was concurrency and time.</sub>
+
+- **A file mutated *during its upload* is stored as wrong bytes under a right hash — silently.**
+  **The gap is between PUT start and PUT completion**, which is precisely the window nothing
+  guards. `fileChange` ([upload.mjs](../src/lib/upload.mjs)) re-`lstat`s immediately *before* the
+  PUT and never again; `putFile` then re-reads the file from disk with `createReadStream` for the
+  transfer itself. For a multipart-sized file that transfer is minutes long (16 MB parts, and the
+  user data profile's top files are 1.3–14 GB), and any write landing inside it produces an object
+  whose bytes are not the preimage of its key.
+  - **Not the window [#248](https://github.com/allens/s3cab/pull/248) closed.** Those tests are
+    named *"never stores a file that changed while it was being hashed"* — hash → PUT-start. This
+    is PUT-start → PUT-end. The existing guard is correct and does not reach here.
+  - **Repro:** start `backup` over a multi-GB file; while its parts are uploading, append to or
+    rewrite it; the drift check has already passed, so the run publishes its manifest and reports
+    success.
+  - **Why it is the worst shape available:** `verify` checks presence and size only, so a
+    same-size in-place write is invisible **forever**; `restore` does catch it, in
+    `writeFileAtomic`'s digest check — but a digest mismatch is not `isObjectNotFound`, so it
+    **aborts the whole restore run** ([restore.mjs](../src/commands/restore.mjs)), and one corrupt
+    object holds every other file in the snapshot hostage. The object is also **permanent**: every
+    later backup's conditional PUT sees the key present and skips it. `upload --file --force` is
+    the only repair, and nothing tells you to run it.
+  - **No second machine, no crash, no misconfiguration required** — one user, one command, one
+    file being written while it is backed up.
+- **The baseline HEAD matches on snapshot *name*, so another machine's snapshot can vouch for one
+  that was never uploaded.** `storedHashes` ([upload.mjs](../src/lib/upload.mjs)) trusts the local
+  baseline as the complete skip-list once `objectExists(remoteSnapshotUri(bucket, set, since))`
+  returns true — **presence by name, with no ETag, size or content comparison.** Snapshot names are
+  minute-precision *local* wall-clock with the zone recorded inside the file but not in the name,
+  and two live machines on one set is a tolerated state (`reattach` never disables the prior
+  machine, [ADR-0053](../docs/adr/0053-reattach-command.md)).
+  - **Repro:** machine A runs `snapshot` offline at its local `2026-08-12T0915` and never uploads
+    it (nothing on a local snapshot records whether it was uploaded). Machine B — another timezone,
+    or simply the same minute — publishes a remote `2026-08-12T0915` for the same set. A's next
+    `backup` picks its own local `0915` as baseline, the HEAD finds B's remote `0915`, A trusts its
+    own never-uploaded hashes as stored, skips those objects, and publishes a manifest referencing
+    objects that were never uploaded — reporting success.
+  - **This is a corner of a hole believed closed.** The 2026-07-19 note at the top of this file
+    says the HEAD check "also covers a baseline snapshotted locally but never uploaded". That is
+    true single-machine — no remote snapshot with that name exists, the HEAD misses, and the run
+    falls back to a full LIST. The case it does not cover is a *second machine* occupying that
+    name.
+  - Caught later by `verify` as unexplained-missing (exit 1), so it is silently-incomplete rather
+    than silently-corrupt — but the backup that created it said it succeeded.
+  - The same collision also defeats snapshot immutability quietly in the other direction: A never
+    learns that its local `0915` and the remote `0915` are different documents.
+- **`backup` exits 0 when files were unreadable.** Unreadable files become `#ERROR` rows and are
+  reported in the run summary, but `backup` never sets `process.exitCode` — only `verify` and
+  `restore` do ([s3cab.mjs](../src/s3cab.mjs) sets 1/2/127 for *thrown* errors only). So
+  `s3cab backup && touch ok` records success for a backup that silently omitted files. The snapshot
+  itself is honest; it is the machine-readable signal that lies, which is the half a scheduled
+  backup runs on.
+- **A retried manifest PUT after a lost response reports a false failure.** If the no-clobber
+  manifest PUT succeeds but its response is lost and the retry relay
+  ([ADR-0068](../docs/adr/0068-network-retries-above-the-sdk.md)) re-sends, the retry collects a
+  412 from its own success and `uploadSnapshotFile` throws *"Snapshot '<name>' is already backed
+  up… immutable"*. The backup is complete and correct; only the report is wrong. Fails in the safe
+  direction, but it teaches the user to distrust a message that otherwise means something serious.
+  The same shape applies to `setup`'s `info` claim.
+- **Suspected: both staleness guards compare mtime at millisecond precision, so a same-size write
+  that preserves mtime escapes.** The baseline reuse check ([file-props.mjs](../src/lib/file-props.mjs))
+  and `fileChange` ([upload.mjs](../src/lib/upload.mjs)) both test `size` plus
+  `mtime.toISOString()`. A deliberate `touch -r`, or a filesystem with coarse timestamps (FAT32's
+  2 s, some network mounts), records an old hash against new bytes — and restore then "succeeds"
+  with the wrong content. `--rehash` exists as the escape hatch. **Suspected, not confirmed:** the
+  code path was read, real filesystem behaviour was not tested, so the frequency is unknown.
+
 - **`uploadDir`'s drift tests fail intermittently — undiagnosed.** Seen 2026-07-30 during
   [#252](https://github.com/allens/s3cab/pull/252) (a PR touching none of this code). Two tests in
   [src/lib/upload.test.mjs](../src/lib/upload.test.mjs) — *"never stores a file that changed while
