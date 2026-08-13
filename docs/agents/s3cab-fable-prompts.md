@@ -6,7 +6,7 @@ Everything here assumes Claude Code with `/effort` set per prompt. Run 1 and 2 b
 
 Where a prompt says "analysis only", keep it that way. The whole point of the first two is an independent opinion you can compare against your own; letting the same session fix what it finds contaminates that.
 
-Prompt 7 sits last because it contributes least to restore risk on AWS, which is where most people will run this. It is still a release blocker, for a different reason: you currently advertise compatibility with four object stores whose versioning and multipart behaviours differ, and nothing checks it. Treat its position as "last of the things you must do", not "optional".
+Prompt 7 sits last because it contributes least to restore risk on AWS, which is where most people will run this. It is still a release blocker, for a different reason: you currently advertise compatibility with three object stores whose versioning and multipart behaviours differ, and nothing checks it. Treat its position as "last of the things you must do", not "optional".
 
 ---
 
@@ -42,18 +42,18 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## 3. Model-based test suite with restore as the invariant
 
-**Effort: high. This is the long autonomous run — expect hours. Needs MinIO locally and a scratch AWS bucket.**
+**Effort: high. This is the long autonomous run — expect hours. Needs a scratch AWS bucket; Tier 1 needs nothing external.**
 
 > I want s3cab's test suite to be strong enough that I'd stake real data on a green build. The property I care about is not coverage, it's that every snapshot the tool reports as backed up can be restored byte-for-byte.
 >
 > Build a model-based test harness. Maintain a model of expected repository state, generate random valid command sequences (`snapshot`, `backup`, `forget`, `cleanup`, `restore`, `verify`, `reattach`), and after every step assert the invariants: every snapshot listed as complete restores byte-identically; every stored object's content matches its name; identical content is stored exactly once; no snapshot references a missing object; `cleanup` and `forget` never remove a referenced object; and `verify`'s verdict agrees with the model. On failure, shrink to a minimal reproducing sequence.
 >
-> **Make the storage backend a parameter of the harness from the start**, not something bolted on later. The same suite must run unmodified against MinIO, against real AWS S3, and later against other S3-compatible providers. Where a test can only pass on a backend with a particular capability, express that as a declared capability requirement the test skips on, rather than an assumption baked into the test body. Keep a written list of every capability the suite depends on — versioning, delete markers, lifecycle expiry of noncurrent versions, multipart, conditional writes, listing semantics — because that list is the real compatibility contract and I'll want it separately.
+> **Make the storage backend a parameter of the harness from the start**, not something bolted on later. Two backends ship with the suite: an in-memory fake at the `s3.mjs` seam, and real S3 reached through the environment (bucket, credentials, `AWS_ENDPOINT_URL_S3` for a custom endpoint) — which is how the same suite later runs unmodified against other S3-compatible providers. Where a test can only pass on a backend with a particular capability, express that as a declared capability requirement the test skips on, rather than an assumption baked into the test body. Keep a written list of every capability the suite depends on — versioning, delete markers, lifecycle expiry of noncurrent versions, multipart, conditional writes, listing semantics — because that list is the real compatibility contract and I'll want it separately. The fake declares only the capabilities it truly models: an optimistic fake that claims what it fakes poorly is how a suite passes against broken code.
 >
 > Then split the runs into three tiers:
 >
-> - **Tier 1, MinIO, per-commit and nightly.** The high-volume loop: thousands of sequences, full shrinking, and all fault injection. Add a fault-injecting layer in front of the backend that can produce throttling, 500s, timeouts, truncated responses, and duplicated requests, with a seed so any failure replays identically.
-> - **Tier 2, real AWS S3, pre-release and nightly.** A much smaller conformance subset — tens of cases, not thousands — targeting exactly where an emulator is most likely to diverge from the real thing: versioning and delete-marker behaviour, multipart ETag format, conditional-write atomicity if the set-name claim relies on it, listing pagination past a thousand keys, delimiter handling with awkward key names, real throttling responses, and credentials expiring mid-run.
+> - **Tier 1, in-memory fake, per-commit and nightly.** The high-volume loop: thousands of sequences, full shrinking, and all fault injection. The backend is an in-process fake behind the `s3.mjs` seam — the seam ADR-0019 already designates for deterministic error injection — modelling only the operations s3cab actually performs, not S3 at large. Add a fault-injecting layer in front of the backend that can produce throttling, 500s, timeouts, truncated responses, and duplicated requests, with a seed so any failure replays identically. No container, no credentials: this tier must run anywhere, including Windows CI runners and fork PRs.
+> - **Tier 2, real AWS S3, pre-release and nightly.** A much smaller conformance subset — tens of cases, not thousands — targeting exactly where the fake is most likely to diverge from the real thing: versioning and delete-marker behaviour, multipart ETag format, conditional-write atomicity if the set-name claim relies on it, listing pagination past a thousand keys, delimiter handling with awkward key names, real throttling responses, and credentials expiring mid-run.
 > - **Tier 3, real AWS, manual or scheduled slow-clock.** The things that need wall time, chiefly lifecycle expiry of noncurrent versions, which is the mechanism by which `cleanup` actually reclaims space. If it can't be tested in a normal run, write down the procedure and how often to run it.
 >
 > Pair all of this with a generator of hostile file trees. s3cab is Windows-first, so cover paths beyond MAX_PATH, reserved device names, trailing dots and spaces, mixed-case collisions, unicode and normalisation differences, junctions, symlinks, hardlinks, zero-byte files, files above the multipart threshold, files with implausible timestamps, and files that change or vanish mid-scan.
@@ -106,7 +106,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 **Effort: high. Run after 3, reusing its backend abstraction. Needs an account with each provider.**
 
-> s3cab advertises support for AWS S3 and for S3-compatible providers including Cloudflare R2, Backblaze B2, Wasabi and MinIO. Nothing currently verifies that claim, and these providers differ in exactly the areas s3cab's safety properties rest on. I want a conformance suite and an honest support matrix before 1.0.
+> s3cab advertises support for AWS S3 and for S3-compatible providers including Cloudflare R2, Backblaze B2 and Wasabi. Nothing currently verifies that claim, and these providers differ in exactly the areas s3cab's safety properties rest on. I want a conformance suite and an honest support matrix before 1.0.
 >
 > Start from the capability list produced by the test harness in the previous piece of work — the things s3cab depends on the object store doing. Build a suite that probes each capability directly against a live provider and reports what it actually does, rather than whether s3cab happens to pass. At minimum: bucket versioning and whether deletes become delete markers; whether noncurrent versions are listable and restorable; lifecycle rules for expiring noncurrent versions, or their absence; multipart upload thresholds and the ETag format returned; conditional writes and whether `If-None-Match` is genuinely atomic under contention; listing pagination past a thousand keys and delimiter handling; error codes and throttling behaviour under load; checksum and storage-class support; and the semantics of overwriting an existing key.
 >
@@ -122,7 +122,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## Notes on running these
 
-**Give it a sandbox that can actually execute.** MinIO locally, plus a scratch S3 bucket with throwaway data. The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
+**Give it a sandbox that can actually execute.** A scratch S3 bucket with throwaway data — Tier 1's in-memory fake needs nothing stood up. The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
 
 **Let it keep notes between runs.** A `notes/` directory with one lesson per file, referenced at the start of each session, meaningfully improves later runs on the same codebase.
 
