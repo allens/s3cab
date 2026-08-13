@@ -36,15 +36,24 @@ import os
 import re
 import sys
 import tempfile
-from compression import zstd
 from datetime import datetime, timedelta
+
+try:
+    from compression import zstd
+except ImportError:  # the stdlib zstd module arrived in Python 3.14
+    raise SystemExit("pyrestore.py needs Python >= 3.14 (stdlib compression.zstd)")
+
 
 def winlong(path):
     """Extended-length form for Windows OS calls, so restored paths deeper
     than MAX_PATH (260) work. The spec records absolute paths; re-rooting
-    them under an output directory routinely blows past 260 on Windows."""
+    them under an output directory routinely blows past 260 on Windows.
+    A UNC path (--output on a network share) takes the \\\\?\\UNC\\ form."""
     if os.name == "nt" and not path.startswith("\\\\?\\"):
-        return "\\\\?\\" + os.path.abspath(path)
+        path = os.path.abspath(path)
+        if path.startswith("\\\\"):
+            return "\\\\?\\UNC" + path[1:]
+        return "\\\\?\\" + path
     return path
 
 
