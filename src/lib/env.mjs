@@ -34,7 +34,7 @@ import { resolveSet } from "./sets.mjs";
 
 /**
  * The custom S3 endpoint, if one is configured — present for any S3-compatible
- * provider that isn't AWS (Cloudflare R2, Backblaze B2, MinIO, Wasabi, …). Its
+ * provider that isn't AWS (Cloudflare R2, Backblaze B2, Wasabi, …). Its
  * presence is the single `targets-AWS?` signal: a set endpoint means "not AWS",
  * which gates the AWS-only behaviours (region redirects, storage class, SSE —
  * `s3.mjs`) and routes onboarding/guidance (`aws`, `credentialGuidance`).

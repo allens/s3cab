@@ -171,7 +171,7 @@ export function clientConfig() {
           // AWS SDK v3 (since v3.730) computes a checksum whenever the operation
           // supports one — its default mode — so every upload carries a CRC trailer
           // (CRC64NVME for S3 multipart), which several S3-compatible providers
-          // (R2 / B2 / MinIO / Wasabi) reject, and whose CRC64NVME path can require
+          // (R2 / B2 / Wasabi) reject, and whose CRC64NVME path can require
           // the `@aws-sdk/crc64-nvme` addon our SEA bundle externalizes. s3cab already
           // SHA-256s every file, so the wire checksum adds nothing here. Switching to
           // the required-only mode still sends a checksum for the few operations that

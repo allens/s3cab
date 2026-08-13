@@ -289,7 +289,7 @@ skipped job is not a failure), and make **that** the required check. See `ci-gat
 ## Non-AWS providers
 
 The tests are provider-agnostic: point them at any S3-compatible service (Cloudflare R2,
-Backblaze B2, MinIO, …) by also setting an endpoint:
+Backblaze B2, …) by also setting an endpoint:
 
 ```sh
 export AWS_ENDPOINT_URL_S3=https://<your-endpoint>

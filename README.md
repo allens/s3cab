@@ -98,7 +98,7 @@ Macs too.
 You back up **directories**, grouped into a named **backup set**, to an **S3 bucket**.
 First you need the bucket: on AWS, `s3cab aws my-backups` prints a ready-to-deploy
 recipe (walkthrough in [guide/aws.md](guide/aws.md)); for Cloudflare R2, Backblaze B2,
-Wasabi, MinIO and the like, run `s3cab help provider`. With a bucket in hand:
+Wasabi and the like, run `s3cab help provider`. With a bucket in hand:
 
 ```console
 # 1. Create a backup set — a name, its directories, and the bucket to back up to.

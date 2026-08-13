@@ -3,7 +3,7 @@
 `s3cab aws <bucket>` helps you stand up an **AWS** S3 bucket as a backup
 destination, together with a least-privilege identity for s3cab to use — without
 s3cab becoming a manager of your cloud account. (Backing up to an S3-compatible
-provider instead — Cloudflare R2, Backblaze B2, Wasabi, MinIO, …? See
+provider instead — Cloudflare R2, Backblaze B2, Wasabi, …? See
 [Non-AWS providers](#non-aws-providers) below: those have no IAM, so setup runs
 through the `provider` command, not this one.)
 
@@ -295,7 +295,7 @@ That is an admin task s3cab deliberately leaves to the standard AWS tooling. See
 
 ## Non-AWS providers
 
-S3-compatible services — Cloudflare R2, Backblaze B2, Wasabi, MinIO, and so on —
+S3-compatible services — Cloudflare R2, Backblaze B2, Wasabi, and so on —
 have no AWS IAM, so there is no policy JSON to attach and no `aws` CLI to
 install. Onboarding reduces to three strings (endpoint, access key, secret key)
 plus a region label, all recorded by the **`provider`** command

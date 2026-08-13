@@ -140,7 +140,7 @@ config — that's why there are no credentials.`,
     annotation: "no credentials there",
     fix: `To give set '${set.name}' credentials, pick one:
   - an AWS profile:                 s3cab provider --profile <name> ${set.name}
-  - access keys (R2 / B2 / MinIO):  s3cab provider --keys ${set.name}
+  - access keys (R2 / B2 / Wasabi): s3cab provider --keys ${set.name}
   (for AWS IAM Identity Center, run \`aws sso login\` first)`,
   };
 };

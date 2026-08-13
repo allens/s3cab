@@ -52,7 +52,7 @@ So if your change touches the S3 path — [`src/lib/s3.mjs`](src/lib/s3.mjs),
 commands — please **run the gated suites against a bucket of your own and paste the
 result in your PR**. That's how we see they pass before merge (a maintainer otherwise
 reproduces the branch in-repo to run them). Any S3-compatible provider works (AWS, R2,
-B2, MinIO, …); the one-time, cross-platform setup is in
+B2, …); the one-time, cross-platform setup is in
 [docs/integration-testing.md](docs/integration-testing.md).
 
 ## Questions
