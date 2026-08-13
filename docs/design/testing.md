@@ -213,14 +213,16 @@ rather than by an approval gate.
 
 The harness is **provider-agnostic by construction**: it reads `S3CAB_TEST_BUCKET` +
 `AWS_*` (+ `AWS_ENDPOINT_URL_S3` for a custom endpoint). A contributor can therefore point
-it at **anything** S3-compatible — AWS, R2, B2, Wasabi, or a MinIO they stand up themselves —
+it at **anything** S3-compatible — AWS, R2, B2, Wasabi, anything with an endpoint —
 *their* choice, *their* account. We **neutrally support** any target without **depending on**
 one. That is strictly better than baking an emulator into CI, and it's free.
 
-- **MinIO — rejected.** The server is AGPL-licensed (open), but we're wary of building CI on a
-  dependency whose open edition's long-term direction feels uncertain to us — the caution
-  behind [ADR-0002](../adr/0002-no-lock-in-hard-constraint.md) (no lock-in). No criticism of the project intended; a
-  contributor choosing it for their *own* local runs is fine — that's "choose," not "depend."
+- **MinIO — rejected.** At the time: AGPL-licensed (open), but we were wary of building CI on
+  a dependency whose open edition's long-term direction felt uncertain to us — the caution
+  behind [ADR-0002](../adr/0002-no-lock-in-hard-constraint.md) (no lock-in). Since borne out
+  (2026-08): the community edition is frozen, development having moved to the commercial
+  AIStor, and s3cab no longer names MinIO among its providers. A contributor pointing the
+  harness at an instance they already run is still fine — that's "choose," not "depend."
 - **LocalStack — rejected.** Open-source core (Apache-2.0) and S3 is in the free tier, so the
   license bar is met — but it's a heavyweight all-of-AWS emulator shipped as a large
   container, far too much surface to bolt onto CI for one service

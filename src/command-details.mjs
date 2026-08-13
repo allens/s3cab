@@ -84,8 +84,8 @@ emits a template embedding the public CA as a trust anchor, then captures the
 deployed stack's ARNs back with:
   s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>
 
-AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
-MinIO, …), run 's3cab help provider' for the setup steps instead. Signing in
+AWS only. For a non-AWS S3 provider (Cloudflare R2, Backblaze B2,
+Wasabi, …), run 's3cab help provider' for the setup steps instead. Signing in
 with AWS IAM Identity Center (SSO)? It works through the standard credential
 chain — no separate setup; see 's3cab help provider'.
 
@@ -100,8 +100,8 @@ access keys. The initial setup is usually done when you create the set
 ('s3cab setup', same knobs); use this to change it later, or run it with no
 flags to see the current setup.
 
-Setting up a non-AWS S3 provider (Cloudflare R2, Backblaze B2, Wasabi,
-MinIO, …):
+Setting up a non-AWS S3 provider (Cloudflare R2, Backblaze B2,
+Wasabi, …):
 
 1. Create your bucket in the provider's console (or its CLI).
 2. Turn on object versioning if the provider supports it — your safety

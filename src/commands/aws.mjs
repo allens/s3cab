@@ -72,7 +72,7 @@ isn't on AWS — and 's3cab aws' generates an AWS CloudFormation template
 (bucket, IAM policy, IAM user) that S3-compatible providers can't use.
 
 For the provider-neutral setup steps (Cloudflare R2, Backblaze B2,
-Wasabi, MinIO, …), run:
+Wasabi, …), run:
   s3cab help provider`;
   }
 

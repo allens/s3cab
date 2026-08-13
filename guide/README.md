@@ -24,7 +24,7 @@ pages are the sit-down read.
 - **[Setting up a cloud bucket](aws.md)** — standing up an AWS bucket and a locked-down
   identity, the versioning/lifecycle model, keyless
   [Roles Anywhere](aws.md#--roles-anywhere--keyless-certificate-based-access) access, and
-  [non-AWS providers](aws.md#non-aws-providers) (R2, B2, Wasabi, MinIO, …).
+  [non-AWS providers](aws.md#non-aws-providers) (R2, B2, Wasabi, …).
 - **[Signing in to your storage](auth.md)** — the four ways a set signs in, where s3cab looks
   for credentials, and what to do when the server rejects them.
   (Quick reference: `s3cab help provider`.)

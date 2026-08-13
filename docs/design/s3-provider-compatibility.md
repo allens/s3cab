@@ -20,8 +20,14 @@ since been acted on: the Tier 2 machinery was removed in 2026-06 — see the His
 [auth.md](auth.md).)
 
 **Decision:** s3cab targets S3-compatible providers (Cloudflare R2, Backblaze B2, Wasabi,
-MinIO, …) as **first-class**. AWS is still the most important provider, but s3cab is
+…) as **first-class**. AWS is still the most important provider, but s3cab is
 deliberately provider-agnostic; AWS SSO is an optional convenience, not the centerpiece.
+
+**MinIO was in that list until 2026-08**, when its community edition froze (feature
+development moved to the commercial AIStor), and s3cab stopped naming it as a supported
+provider. The three-string model below is unchanged, so an instance someone already runs may
+well keep working — we just no longer advertise or verify it. Its row stays in the
+auth-landscape table below as research.
 
 ## Finding 1 — Static access-key + secret-key (SigV4) is the universal denominator
 
@@ -101,7 +107,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 4. **Gate the default integrity checksum off-AWS.** ✅ **Done.** Recent AWS SDK v3
    (since v3.730) computes a data-integrity checksum whenever the operation supports one —
    its default mode — so the SDK adds a CRC trailer (CRC64NVME for S3 multipart) to *every*
-   upload. Several S3-compatible providers (R2 / B2 / MinIO / Wasabi) reject the newer
+   upload. Several S3-compatible providers (R2 / B2 / Wasabi) reject the newer
    trailer, and the CRC64NVME path can require the `@aws-sdk/crc64-nvme` addon that the SEA
    bundle externalizes (`--external:aws-crt`). `client()` now switches
    `requestChecksumCalculation` / `responseChecksumValidation` to their required-only mode
@@ -146,7 +152,7 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
      [ADR-0045](../adr/0045-change-detection-local-baseline-list-fallback.md) both still say in
      prose ([ADR-0060](../adr/0060-multipart-tuning-in-flight-bytes.md) retuned it; the ADRs are
      left alone deliberately — the decisions stand, only the illustrative number aged).
-   - **Open risk — off-AWS providers.** Whether R2 / B2 / MinIO / Wasabi honour conditional
+   - **Open risk — off-AWS providers.** Whether R2 / B2 / Wasabi honour conditional
      writes on multipart is **unverified**. Because the conditional PUT is the correctness
      backstop, its reliability off-AWS must be confirmed per provider before s3cab leans on it
      there. Sources:
@@ -160,8 +166,8 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
 - Existing tests stay green: `node --test` across [../../test/](../../test/) and `src/**/*.test.mjs`.
 - Commands that never touch S3 (`list`, `tree`) keep working with **no** credentials
   configured (the lazy-`client()` guarantee must survive the endpoint change).
-- Exercise the object path against a **non-AWS** target — easiest is a local **MinIO**
-  container (static keys + endpoint), or real **Cloudflare R2 / Backblaze B2** credentials.
+- Exercise the object path against a **non-AWS** target — easiest is real
+  **Cloudflare R2 / Backblaze B2** credentials (static keys + endpoint).
   Confirm `hashes` (list) and the upload path succeed **with the storage-class/SSE options
   correctly omitted** — i.e. an upload that would fail today against R2/B2 now succeeds.
 - **Checksum gating now has automated coverage** (Finding 3 item 4). ✅
