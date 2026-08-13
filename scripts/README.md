@@ -1,7 +1,25 @@
 # Dev scripts
 
 Ad-hoc developer utilities. These are **not** part of the published package or
-the automated test suite — run them by hand with `node` when needed.
+the automated test suite — run them by hand with `node` (or `python` where a
+script says so) when needed.
+
+## pyrestore.py
+
+An independent s3cab restorer written in Python from
+[guide/format.md](../guide/format.md) **alone** — the experiment behind the
+[format-spec clean-room audit](../docs/format-spec-audit.md), which tested the
+no-lock-in promise literally and ranked every gap the spec left. Its inline
+`GUESS(n)` comments are the raw findings. Deliberately **not** maintained in
+step with s3cab: its value is being an independent reading of the spec as
+written on 2026-08-12 — if it drifts from a future format, that drift is a
+breaking format change to notice, not a bug to patch here. Needs Python ≥ 3.14
+(stdlib zstd) and boto3.
+
+```sh
+python scripts/pyrestore.py --bucket <bucket> list-sets
+python scripts/pyrestore.py --bucket <bucket> restore <set> <snapshot> --output <dir>
+```
 
 ## zstd-bench.mjs
 
