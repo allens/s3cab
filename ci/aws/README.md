@@ -9,9 +9,14 @@ only records **what this project uses**.
 
 ## Artifacts
 
-- [`policy.json`](policy.json) — least-privilege IAM policy: `Get/Put/Delete` on
-  objects, `ListBucket` on the bucket, scoped to the one test bucket. (`Delete`
-  because test teardown deletes.)
+- [`policy.json`](policy.json) — least-privilege IAM policy for the CI role, scoped
+  to the `test-s3cab-ci-*` wildcard (the test-bucket naming convention in
+  [docs/integration-testing.md](../../docs/integration-testing.md) makes the prefix
+  the safety boundary): `Get/Put/Delete` on objects + `ListBucket` for the
+  integration suite (`Delete` because test teardown deletes), plus version and
+  lifecycle actions so a versioned conformance bucket runs under the same role —
+  deliberately **no** `PutBucketVersioning`, so no identity below admin can flip a
+  bucket's versioning state.
 - [`trust-policy.json`](trust-policy.json) — assume-role trust for the GitHub Actions
   OIDC role, scoped to three precise subjects, each reachable only by a **write-access**
   actor (fork PRs get no OIDC token at all):
@@ -33,8 +38,8 @@ only records **what this project uses**.
 
 | Resource | Name | Region |
 | --- | --- | --- |
-| Test bucket | `s3cab-ci-test` | `us-east-1` |
-| IAM policy | `s3cab-ci-test-access` | — |
+| Test bucket | `test-s3cab-ci-integration` | `us-east-1` |
+| IAM policy | `test-s3cab-ci-access` | — |
 | OIDC role | `s3cab-ci` | — |
 
 **Permissions:** creating the IAM policy/role needs an **AdministratorAccess** session

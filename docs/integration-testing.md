@@ -36,24 +36,53 @@ run, so cleanup is exact and concurrent runs don't collide).
 
 ## Create a bucket
 
-Needed for both local and CI. From a clone, the bundled script creates the bucket **and**
-a 1-day auto-expiry rule in one cross-platform step (it uses the AWS SDK s3cab already
-depends on — no AWS CLI needed):
+Needed for both local and CI. Test buckets follow a naming convention:
+
+```
+test-s3cab-<owner>-<testType>
+```
+
+`owner` is who runs against it (a personal name, or `ci` for the Actions role);
+`testType` is the subtype below. Leading with `test-` makes real-vs-test the first thing
+a name says, and the `test-s3cab-` prefix is the **safety boundary**: scope each test
+identity to `arn:aws:s3:::test-s3cab-<owner>-*` and it can never touch a real backup
+bucket, whatever else goes wrong.
+
+Two subtypes exist:
+
+- **`integration`** — for this guide's suite. Unversioned, everything expires after
+  1 day. Shareable: the tests assert only on their own per-run objects, so concurrent
+  runs coexist in one bucket.
+- **`conformance`** — for the model-based conformance harness (planned; not part of
+  this guide yet). Versioning enabled plus a versioned-aware expiry baseline
+  (noncurrent versions and orphaned delete markers are reclaimed too). Its assertions
+  cover whole-bucket state, so a conformance bucket has exactly **one** owner and is
+  never shared.
+
+From a clone, the bundled script provisions either subtype in one cross-platform step
+(it uses the AWS SDK s3cab already depends on — no AWS CLI needed):
 
 ```sh
-node scripts/setup-test-bucket.mjs your-test-bucket
+node scripts/setup-test-bucket.mjs test-s3cab-<you>-integration
+node scripts/setup-test-bucket.mjs --conformance test-s3cab-<you>-conformance
 ```
 
 Region comes from `AWS_REGION` / `AWS_DEFAULT_REGION` (default `us-east-1`); the script is
 idempotent. Prefer raw `aws` CLI, or not in a clone? See the
 [appendix](#appendix-create-the-bucket-by-hand).
 
-> **Use a dedicated, throwaway name — never a real backup bucket.** The test lifecycle
-> expires *current* objects after 1 day (the deliberate opposite of a backup bucket's
-> *noncurrent*-only expiry). The script applies that rule even to a bucket you **already
-> own**, so running it against — or pointing `S3CAB_TEST_BUCKET` at — a bucket holding
-> real backups would set them to auto-delete. If a real backup bucket and a test bucket
-> share one account, keep the names unmistakably distinct.
+> **Run the script under a provisioning identity** (your admin/PowerUser profile), not the
+> scoped test identity: creating a bucket and — for `--conformance` — enabling versioning
+> are deliberately outside the test policy, which grants neither `s3:CreateBucket` nor
+> `s3:PutBucketVersioning`. Provision once with privilege; run the tests with the scoped
+> profile.
+
+> **Never point the script — or `S3CAB_TEST_BUCKET` — at a real backup bucket.** The test
+> lifecycle expires *current* objects after 1 day (the deliberate opposite of a backup
+> bucket's *noncurrent*-only expiry), and the script applies it even to a bucket you
+> **already own**. The script refuses a name outside the `test-s3cab-` prefix
+> (`--force` overrides), but `S3CAB_TEST_BUCKET` itself is not guarded — the tests
+> write and delete objects wherever it points.
 
 ---
 
@@ -65,7 +94,7 @@ Put your non-secret settings in a gitignored `.env.test` (copy
 [`.env.test.example`](../.env.test.example)) — **no credentials go here**:
 
 ```ini
-S3CAB_TEST_BUCKET=your-test-bucket
+S3CAB_TEST_BUCKET=test-s3cab-yourname-integration
 AWS_REGION=us-east-1
 AWS_PROFILE=your-profile   # the ~/.aws profile to use; omit for the default
 ```
@@ -114,9 +143,10 @@ works, no credential juggling:
 | **IAM Identity Center (SSO)** | `aws configure sso` | `aws sso login` |
 | **Assumed role** (profile with `role_arn` + `source_profile`) | add the profile to `~/.aws/config` | depends on the source identity |
 
-For least privilege, point `AWS_PROFILE` at an identity scoped to just the test bucket
-(`Get/Put/Delete` + `ListBucket` — the [same policy CI uses](#1-least-privilege-iam-policy));
-your normal admin/PowerUser profile works too. Prefer not to keep a `.env.test`? Set those
+For least privilege, point `AWS_PROFILE` at an identity scoped to your own test buckets —
+`arn:aws:s3:::test-s3cab-<you>-*`, the same shape as the
+[policy CI uses](#1-least-privilege-iam-policy); your normal admin/PowerUser profile
+works too. Prefer not to keep a `.env.test`? Set those
 three variables in your shell instead and run `npm run test:integration` (a plain
 `npm test` never globs the integration folder, so it won't run them however the
 environment is set).
@@ -136,38 +166,58 @@ can open — while fork PRs get no credentials and skip) is in
 
 ### 1. Least-privilege IAM policy
 
-This is the **same** least-privilege policy s3cab's onboarding generates — `bucketPolicy()`
-in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as the managed policy in
-the CloudFormation template it writes (ADR-0056), and which the everyday backup identity is
-scoped to. With explicit verbs the backup and test policies are identical, so one definition
-serves both; to see it, open the template `s3cab aws your-test-bucket` writes, or read
-`bucketPolicy()` directly.
+The data-plane core is the **same** least-privilege policy s3cab's onboarding generates —
+`bucketPolicy()` in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as the
+managed policy in the CloudFormation template it writes (ADR-0056), and which the everyday
+backup identity is scoped to. The test policy departs from it in two deliberate ways:
 
-Save as `policy.json` (substitute your bucket). The two-statement split matters: object
-actions target `…/*`, the bucket-level `ListBucket` targets the bare bucket ARN.
+- the resource is the **`test-s3cab-ci-*` wildcard**, not one bucket — every bucket inside
+  the naming convention's safety boundary, nothing outside it;
+- it adds **version and lifecycle actions** so a versioned conformance bucket works under
+  the same role — but *not* `s3:PutBucketVersioning`: whether a bucket is versioned is
+  fixed at provisioning time, and no test identity gets to flip it.
+
+Save as `policy.json` (substitute your owner segment for `ci` if it differs). The
+two-statement split matters: object actions target `…/*`, bucket-level actions target the
+bare bucket ARN. This is the project's own [`ci/aws/policy.json`](../ci/aws/policy.json):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ListBucket",
+      "Sid": "BucketOps",
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::your-test-bucket"]
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketVersioning",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:ListBucketMultipartUploads"
+      ],
+      "Resource": "arn:aws:s3:::test-s3cab-ci-*"
     },
     {
-      "Sid": "ObjectAccess",
+      "Sid": "ObjectOps",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": ["arn:aws:s3:::your-test-bucket/*"]
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:GetObjectVersion",
+        "s3:DeleteObjectVersion",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::test-s3cab-ci-*/*"
     }
   ]
 }
 ```
 
 ```sh
-aws iam create-policy --policy-name s3cab-ci-test-access --policy-document file://policy.json
+aws iam create-policy --policy-name test-s3cab-ci-access --policy-document file://policy.json
 ```
 
 ### 2. Register the GitHub OIDC provider (once per account)
@@ -211,7 +261,7 @@ OIDC token at all (GitHub's design), so it can't either. Save as `trust-policy.j
 
 ```sh
 aws iam create-role --role-name s3cab-ci --assume-role-policy-document file://trust-policy.json
-aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/s3cab-ci-test-access
+aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/test-s3cab-ci-access
 ```
 
 > **Updating an existing role** (not first-time setup): swap `create-role` for
@@ -237,7 +287,7 @@ aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOU
 In the repo on GitHub: **Settings → Secrets and variables → Actions**:
 
 - **Secret** `AWS_ROLE_ARN` = the role ARN (keeps the account ID out of the workflow file).
-- **Variable** `S3CAB_TEST_BUCKET` = your bucket name.
+- **Variable** `S3CAB_TEST_BUCKET` = your bucket name (`test-s3cab-ci-integration`).
 
 > **Want an explicit approval click too?** If you grant push access broadly and don't want
 > every collaborator's PR to spend automatically, add a GitHub **Environment** with required
@@ -320,13 +370,13 @@ A throwaway test bucket should never surprise you on the bill:
 
 ## Appendix: create the bucket by hand
 
-If you can't use the Node script, the equivalent AWS CLI is:
+If you can't use the Node script, the equivalent AWS CLI for an **integration** bucket is:
 
 ```sh
 # us-east-1 is the API default and must NOT carry a LocationConstraint; any other
 # region requires "--create-bucket-configuration LocationConstraint=<region>".
-aws s3api create-bucket --bucket your-test-bucket --region us-east-1
-aws s3api put-bucket-lifecycle-configuration --bucket your-test-bucket --lifecycle-configuration file://lifecycle.json
+aws s3api create-bucket --bucket test-s3cab-yourname-integration --region us-east-1
+aws s3api put-bucket-lifecycle-configuration --bucket test-s3cab-yourname-integration --lifecycle-configuration file://lifecycle.json
 ```
 
 with `lifecycle.json`:
@@ -344,3 +394,10 @@ with `lifecycle.json`:
   ]
 }
 ```
+
+A **conformance** bucket additionally needs versioning enabled —
+`aws s3api put-bucket-versioning --versioning-configuration Status=Enabled` — and a
+versioned-aware `lifecycle.json` with two rules, because S3 forbids
+`ExpiredObjectDeleteMarker` in a rule that also carries `Expiration.Days`; copy them from
+the `conformance` branch of
+[`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs).

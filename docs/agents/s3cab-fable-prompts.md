@@ -42,7 +42,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## 3. Model-based test suite with restore as the invariant
 
-**Effort: high. This is the long autonomous run — expect hours. Needs a scratch AWS bucket; Tier 1 needs nothing external.**
+**Effort: high. This is the long autonomous run — expect hours. Tier 1 needs nothing external; Tiers 2/3 use a pre-provisioned bucket named in the prompt.**
 
 > I want s3cab's test suite to be strong enough that I'd stake real data on a green build. The property I care about is not coverage, it's that every snapshot the tool reports as backed up can be restored byte-for-byte.
 >
@@ -55,6 +55,8 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 > - **Tier 1, in-memory fake, per-commit and nightly.** The high-volume loop: thousands of sequences, full shrinking, and all fault injection. The backend is an in-process fake behind the `s3.mjs` seam — the seam ADR-0019 already designates for deterministic error injection — modelling only the operations s3cab actually performs, not S3 at large. Add a fault-injecting layer in front of the backend that can produce throttling, 500s, timeouts, truncated responses, and duplicated requests, with a seed so any failure replays identically. No container, no credentials: this tier must run anywhere, including Windows CI runners and fork PRs.
 > - **Tier 2, real AWS S3, pre-release and nightly.** A much smaller conformance subset — tens of cases, not thousands — targeting exactly where the fake is most likely to diverge from the real thing: versioning and delete-marker behaviour, multipart ETag format, conditional-write atomicity if the set-name claim relies on it, listing pagination past a thousand keys, delimiter handling with awkward key names, real throttling responses, and credentials expiring mid-run.
 > - **Tier 3, real AWS, manual or scheduled slow-clock.** The things that need wall time, chiefly lifecycle expiry of noncurrent versions, which is the mechanism by which `cleanup` actually reclaims space. If it can't be tested in a normal run, write down the procedure and how often to run it.
+>
+> The real-AWS bucket for Tiers 2 and 3 already exists: `test-s3cab-allen-conformance` (eu-west-1, versioning enabled, versioned-aware expiry baseline), reached via the `test-s3cab-allen` AWS profile. It is reserved for this harness as its sole owner, so whole-bucket assertions are safe, and its lifecycle configuration is yours to mutate. The scoped identity deliberately cannot flip bucket versioning (`s3:PutBucketVersioning` is denied) — treat versioned-ness as fixed at provisioning. The naming convention and both bucket subtypes are documented in `docs/integration-testing.md` ("Create a bucket"); when you wire up the nightly Tier 2 run in CI, provision `test-s3cab-ci-conformance` with `node scripts/setup-test-bucket.mjs --conformance` — the CI role's policy already covers `test-s3cab-ci-*`.
 >
 > Pair all of this with a generator of hostile file trees. s3cab is Windows-first, so cover paths beyond MAX_PATH, reserved device names, trailing dots and spaces, mixed-case collisions, unicode and normalisation differences, junctions, symlinks, hardlinks, zero-byte files, files above the multipart threshold, files with implausible timestamps, and files that change or vanish mid-scan.
 >
@@ -122,7 +124,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## Notes on running these
 
-**Give it a sandbox that can actually execute.** A scratch S3 bucket with throwaway data — Tier 1's in-memory fake needs nothing stood up. The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
+**Give it a sandbox that can actually execute.** The test buckets are already stood up — prompt 3 names its conformance bucket, and Tier 1's in-memory fake needs nothing external. The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
 
 **Let it keep notes between runs.** A `notes/` directory with one lesson per file, referenced at the start of each session, meaningfully improves later runs on the same codebase.
 
