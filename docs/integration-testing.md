@@ -71,6 +71,12 @@ Region comes from `AWS_REGION` / `AWS_DEFAULT_REGION` (default `us-east-1`); the
 idempotent. Prefer raw `aws` CLI, or not in a clone? See the
 [appendix](#appendix-create-the-bucket-by-hand).
 
+> **Run the script under a provisioning identity** (your admin/PowerUser profile), not the
+> scoped test identity: creating a bucket and — for `--conformance` — enabling versioning
+> are deliberately outside the test policy, which grants neither `s3:CreateBucket` nor
+> `s3:PutBucketVersioning`. Provision once with privilege; run the tests with the scoped
+> profile.
+
 > **Never point the script — or `S3CAB_TEST_BUCKET` — at a real backup bucket.** The test
 > lifecycle expires *current* objects after 1 day (the deliberate opposite of a backup
 > bucket's *noncurrent*-only expiry), and the script applies it even to a bucket you
@@ -389,8 +395,9 @@ with `lifecycle.json`:
 }
 ```
 
-A **conformance** bucket additionally needs `aws s3api put-bucket-versioning
---versioning-configuration Status=Enabled` and a versioned-aware `lifecycle.json` — two
-rules, because S3 forbids `ExpiredObjectDeleteMarker` in a rule that also carries
-`Expiration.Days`; copy them from the `conformance` branch of
+A **conformance** bucket additionally needs versioning enabled —
+`aws s3api put-bucket-versioning --versioning-configuration Status=Enabled` — and a
+versioned-aware `lifecycle.json` with two rules, because S3 forbids
+`ExpiredObjectDeleteMarker` in a rule that also carries `Expiration.Days`; copy them from
+the `conformance` branch of
 [`scripts/setup-test-bucket.mjs`](../scripts/setup-test-bucket.mjs).
