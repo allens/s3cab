@@ -95,15 +95,18 @@ S3CAB_TEST_BUCKET=<bucket> node scripts/multipart-bench.mjs
 
 ## setup-test-bucket.mjs
 
-Provisions the S3 integration-test bucket: creates it (idempotently) and applies
-the ~1-day auto-expiry lifecycle rule the [testing strategy](../docs/design/testing.md)
-mandates. Uses the AWS SDK s3cab already depends on, so it's cross-platform and
-needs no AWS CLI — credentials come from the standard AWS chain (ambient `AWS_*`,
-an SSO session, etc.). Region is `AWS_REGION` / `AWS_DEFAULT_REGION`, default
-`us-east-1`. The reference `aws s3api` form is in the file header.
+Provisions an S3 test bucket: creates it (idempotently) and applies the ~1-day
+auto-expiry lifecycle the [testing strategy](../docs/design/testing.md) mandates —
+`--conformance` also enables versioning and swaps in the versioned-aware expiry
+baseline. Refuses a name outside the `test-s3cab-` naming convention
+(see [docs/integration-testing.md](../docs/integration-testing.md) "Create a bucket")
+unless `--force`. Uses the AWS SDK s3cab already depends on, so it's cross-platform
+and needs no AWS CLI — credentials come from the standard AWS chain (ambient
+`AWS_*`, an SSO session, etc.). Region is `AWS_REGION` / `AWS_DEFAULT_REGION`,
+default `us-east-1`. The reference `aws s3api` form is in the file header.
 
 ```sh
-node scripts/setup-test-bucket.mjs <bucket>
+node scripts/setup-test-bucket.mjs [--conformance] [--force] <bucket>
 # or: S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
 ```
 
