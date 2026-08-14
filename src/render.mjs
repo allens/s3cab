@@ -1005,14 +1005,15 @@ export function renderUpload(result) {
 
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
- * snapshot, then the existing files left untouched, then any file whose content
- * the bucket no longer holds. Both lists are given in full, never truncated:
- * each entry is a file the user asked for and didn't get, so name them all and
- * say what to do about it (`--overwrite` for the skipped, `verify` for the
- * missing — ADR-0030's constructive fix). The missing block comes last so it is
- * what remains on screen after a long run, and its exit code is set by the
- * command. An empty selection that did nothing at all says so plainly rather
- * than emitting blank output.
+ * snapshot, then the existing files left untouched, then the names this volume
+ * folded into an already-restored file, then any file whose content the bucket
+ * no longer holds. All lists are given in full, never truncated: each entry is
+ * a file the user asked for and didn't get, so name them all and say what to
+ * do about it (`--overwrite` for the skipped, a separate `--output` for the
+ * collided, `verify` for the missing — ADR-0030's constructive fix). The
+ * missing block comes last so it is what remains on screen after a long run,
+ * and its exit code is set by the command. An empty selection that did nothing
+ * at all says so plainly rather than emitting blank output.
  * @param {RestoreResult} result
  * @returns {string}
  */
@@ -1022,6 +1023,7 @@ export function renderRestore({
   snapshot,
   restored,
   skipped,
+  collided,
   missing,
   deleted,
 }) {
@@ -1030,7 +1032,13 @@ export function renderRestore({
   // anything happened — including the wrote-nothing-but-skipped case (every
   // requested file already existed), where "Restored 0 files" keeps that context
   // above the skipped list rather than starting cold on "Skipped …".
-  if (restored.length || skipped.length || missing.length || deleted.length) {
+  if (
+    restored.length ||
+    skipped.length ||
+    collided.length ||
+    missing.length ||
+    deleted.length
+  ) {
     sections.push(
       `Restored ${formatCount(restored.length)} ${plural(restored.length, "file")} ` +
         `from '${set}' (snapshot ${snapshot}).`,
@@ -1055,6 +1063,28 @@ export function renderRestore({
         ...deleted.map(
           ({ path, deletedOn }) => `  ${path}  (deleted ${deletedOn})`,
         ),
+      ].join("\n"),
+    );
+  }
+  if (collided.length) {
+    // A fault, not a routine skip: the volume folded two backed-up names into
+    // one file (case, or accent encoding on macOS), so a file the user asked
+    // for was not written and the command exits 1. The constructive fix
+    // (ADR-0030) is restoring the colliding paths somewhere they can coexist.
+    const heading =
+      `Could not restore ${formatCount(collided.length)} ` +
+      `${plural(collided.length, "file")} — this disk can't tell ` +
+      `${collided.length === 1 ? "its name" : "their names"} apart from ` +
+      `${collided.length === 1 ? "a file" : "files"} already restored ` +
+      `(the names differ only by letter case or accent encoding):`;
+    sections.push(
+      [
+        heading,
+        ...collided.map((path) => `  ${path}`),
+        "",
+        "Keep both versions by restoring a colliding path into its own directory:",
+        "",
+        `  s3cab restore ${set} <path> --output <directory>`,
       ].join("\n"),
     );
   }

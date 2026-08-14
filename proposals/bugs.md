@@ -45,16 +45,6 @@ every step** — what broke was concurrency and time.</sub>
 run against real S3. Same convention as above: each is pinned by a current-behaviour test that
 flips when the bug is fixed.</sub>
 
-- **Case-colliding manifest paths restore to one file — silently, exit 0.** Two rows whose paths
-  differ only in basename case (legal in a manifest: a case-sensitive source filesystem, another
-  machine, or a crafted edit) restore onto a case-insensitive volume as *one* file holding the
-  **last** row's bytes, while `restore` reports both files restored and exits 0. Nielsen would
-  call the count a lie; either an overwrite warning or a collision error is defensible, silence is
-  not. Pinned by *"restore claims both case-colliding paths while disk keeps one"*
-  ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)). APFS's
-  unicode-normalisation folding is the same hazard for NFC/NFD neighbour paths — macOS CI
-  collapsed the hostile suite's café pair on 2026-08-14 — so whatever fix lands here must key on
-  the filesystem's own equivalence, not on lowercasing.
 - **Latent: a non-ASCII name fed to the S3 layer lands under a percent-encoded key.**
   `parseS3Uri` ([s3.mjs](../src/lib/s3.mjs)) splits the URI with `new URL(...)` and takes
   `url.pathname`, which percent-encodes — a set named `café` would store its manifests under
