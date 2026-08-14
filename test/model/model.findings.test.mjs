@@ -234,48 +234,71 @@ describe("prior-audit findings, encoded", () => {
     const key = "snapshots/trunc/2026-01-05T0000.tsv.zst";
     const full = /** @type {Buffer} */ (await fake.getBytes(BUCKET, key));
 
-    // TODO(known bug, format-spec audit): zstd truncation never throws. Every
-    // truncation length parses as a *valid* snapshot — a cut inside a data
-    // block yields an empty (or shorter) one, and a cut in the frame's
-    // closing bytes parses indistinguishable from the complete manifest. When
-    // truncation becomes a loud parse error, flip this to `rejects`.
-    /** @type {Awaited<ReturnType<typeof parseCompressedSnapshotStream>>[]} */
-    const parses = [];
+    // The untruncated manifest must parse, or the loop below proves nothing:
+    // every one of its lengths is allowed to reject, so a parser that threw
+    // unconditionally would sail through it and through both downstream
+    // assertions.
+    const whole = await parseCompressedSnapshotStream(Readable.from([full]));
+    assert.equal(whole.entries.size, 3, "the complete manifest must parse");
+    assert.equal(whole.dirs.length, 1);
+
+    // ADR-0082: the #END trailer makes truncation loud. Zstd still decompresses
+    // a cut-short stream to a byte prefix without error, so the invariant is:
+    // every truncation either *rejects* (the trailer or a whole row is gone) or
+    // parses the complete manifest (the cut only shaved compression framing
+    // after the last content byte — nothing was lost). What no truncation may
+    // do any more is parse as a valid smaller-or-empty snapshot.
     for (let length = 0; length < full.length; length++) {
-      parses.push(
-        await parseCompressedSnapshotStream(
+      /** @type {Awaited<ReturnType<typeof parseCompressedSnapshotStream>>} */
+      let parsed;
+      try {
+        parsed = await parseCompressedSnapshotStream(
           Readable.from([full.subarray(0, length)]),
-        ),
+        );
+      } catch {
+        continue; // loud — exactly what a lossy truncation must be
+      }
+      assert.equal(
+        parsed.entries.size,
+        3,
+        `a cut at byte ${length} of ${full.length} parsed silently with entries missing`,
+      );
+      assert.equal(
+        parsed.dirs.length,
+        1,
+        `a cut at byte ${length} of ${full.length} parsed silently with the #DIR header missing`,
       );
     }
-    const emptyAt = parses.findIndex((parsed) => parsed.entries.size === 0);
-    const completeAt = parses.findIndex(
-      (parsed) => parsed.entries.size === 3 && parsed.dirs.length === 1,
-    );
-    assert.notEqual(emptyAt, -1, "some truncation parses as an empty snapshot");
-    assert.notEqual(
-      completeAt,
-      -1,
-      "some truncation parses indistinguishable from the complete manifest",
-    );
 
-    // Downstream, the empty parse suppresses every alarm: verify sees a
-    // snapshot with no references and exits 0 — a destroyed snapshot is
-    // invisible to it. (restore --output at least refuses, but for the wrong
-    // stated reason: the truncation ate the #DIR headers.)
-    await fake.putBytes(BUCKET, key, full.subarray(0, emptyAt));
+    // Downstream, the parse error is a *finding*, not a crash: verify records
+    // the snapshot as unreadable and exits 1 (isCorruptSnapshotError routes
+    // the AssertionError into the unreadable channel), and restore refuses for
+    // the true reason — the manifest is truncated.
+    await fake.putBytes(
+      BUCKET,
+      key,
+      full.subarray(0, Math.floor(full.length / 2)),
+    );
     process.exitCode = 0;
-    await verify(BUCKET);
+    const report = await verify(BUCKET);
     assert.equal(
       process.exitCode,
-      0,
-      "verify calls the destroyed snapshot healthy",
+      1,
+      "verify must flag the destroyed snapshot, not vouch for it",
+    );
+    assert.deepEqual(
+      report.sets.map((s) => [
+        s.set,
+        s.unreadableSnapshots.map((u) => u.snapshot),
+      ]),
+      [["trunc", ["2026-01-05T0000"]]],
+      "the truncated snapshot is reported unreadable under its set",
     );
     const out = join(root, "out");
     mkdirSync(out, { recursive: true });
     await assert.rejects(
       restore([], { set: "trunc", output: out }),
-      /no directory headers/,
+      /Truncated snapshot/,
     );
   });
 

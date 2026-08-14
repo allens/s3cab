@@ -45,6 +45,7 @@ describe("parseSnapshotStream", () => {
       "#DIR\t\t\tD:\\Pics",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\tC:\\Users\\me\\Photos\\beach.jpg`,
       `${hashB}\t34\t2026-06-02T08:30:00.000Z\tD:\\Pics\\ski.jpg`,
+      "#END",
     ].join("\n");
 
     const { entries, dirs, identity } = await parse(text);
@@ -63,7 +64,7 @@ describe("parseSnapshotStream", () => {
   });
 
   it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
-    const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`;
+    const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt\n#END`;
     const { entries, dirs, identity } = await parse(text);
     assert.equal(entries.size, 1);
     assert.deepEqual(dirs, []);
@@ -75,6 +76,7 @@ describe("parseSnapshotStream", () => {
       "#DIR\t\t\t/home/me/Docs",
       "#some hand-written note\t\t\t/home/me/Docs/whatever",
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
+      "#END",
     ].join("\n");
     const { entries, dirs, errors } = await parse(text);
     assert.deepEqual(dirs, ["/home/me/Docs"]);
@@ -90,6 +92,7 @@ describe("parseSnapshotStream", () => {
       "#DIR\t\t\t/home/me/Docs",
       "#ERROR\t\tEACCES: permission denied\t/home/me/Docs/locked.bin",
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
+      "#END",
     ].join("\n");
     const { entries, errors } = await parse(text);
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
@@ -104,13 +107,29 @@ describe("parseSnapshotStream", () => {
     // taken verbatim so a file whose name contains leading/trailing spaces
     // round-trips correctly (hand-editing is the no-lock-in story).
     const path = " /home/me/ a file with spaces .txt ";
-    const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}`;
+    const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}\n#END`;
     const { entries } = await parse(text);
     assert.ok(
       entries.has(path),
       "path with surrounding spaces must be kept verbatim",
     );
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
+  });
+
+  it("rejects a stream that ends without the #END trailer as truncated", async () => {
+    // ADR-0082: zstd decompresses a cut-short stream to a byte prefix without
+    // error, so the trailer is the only thing standing between a destroyed
+    // manifest and a clean parse. An AssertionError on purpose —
+    // isCorruptSnapshotError classifies it as snapshot damage, so verify
+    // records the finding instead of vouching for the wreck.
+    const text = [
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+    ].join("\n");
+    await assert.rejects(parse(text), {
+      name: "AssertionError",
+      message: /Truncated snapshot/,
+    });
   });
 
   it("skips blank lines without throwing", async () => {
@@ -121,6 +140,8 @@ describe("parseSnapshotStream", () => {
       `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
       "",
       `${hashB}\t7\t2026-06-02T08:00:00.000Z\t/home/me/b.txt`,
+      "",
+      "#END",
       "",
     ].join("\n");
     const { entries } = await parse(text);
@@ -139,6 +160,7 @@ describe("parseCompressedSnapshotStream", () => {
   const text = [
     "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
     `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+    "#END",
   ].join("\n");
 
   it(
@@ -314,6 +336,7 @@ describe("readSnapshot", () => {
         [
           "#SNAPSHOT\tphotos\t2026-06-23T09:00:00.000Z\t2026-06-23T1000 Europe/London",
           `${hashA}\t3\t2026-06-23T10:00:00.000Z\t${file}`,
+          "#END",
         ].join("\n"),
       ),
     );
@@ -775,10 +798,10 @@ describe("withSnapshotFile (park on interrupt)", () => {
       readFileSync(parkedPath(dir.path)),
     ).toString("utf8");
     assert.ok(
-      text.endsWith("\n"),
-      `parked file must end on a whole row, got: ${JSON.stringify(text.slice(-24))}`,
+      text.endsWith("#END\n"),
+      `parked file must close with the #END trailer, got: ${JSON.stringify(text.slice(-24))}`,
     );
-    for (const line of text.split("\n").filter(Boolean)) {
+    for (const line of text.split("\n").filter(Boolean).slice(0, -1)) {
       assert.equal(line.split("\t").length, 4, `whole row expected: ${line}`);
     }
   });
@@ -948,6 +971,7 @@ describe("the snapshot moment and its header (ADR-0072)", () => {
       "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
       "#DIR\t\t\t/home/me/Photos",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
+      "#END",
     ].join("\n");
 
     const { identity, instant, zone, dirs, entries } = await parse(text);
@@ -964,6 +988,7 @@ describe("the snapshot moment and its header (ADR-0072)", () => {
     const text = [
       "#DIR\t\t\t/home/me/Photos",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
+      "#END",
     ].join("\n");
 
     const { identity, instant, zone, dirs, entries } = await parse(text);
@@ -977,7 +1002,8 @@ describe("the snapshot moment and its header (ADR-0072)", () => {
   it("survives a header whose zone is missing", async () => {
     // A hand-edited file, or one truncated at col4. The name is the filename
     // anyway, so a missing zone costs the reader nothing it cannot recover.
-    const text = "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915";
+    const text =
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915\n#END";
     const { identity, instant, zone } = await parse(text);
     assert.equal(identity, "photos");
     assert.equal(instant, "2026-06-12T08:15:32.123Z");

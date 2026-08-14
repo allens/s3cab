@@ -23,6 +23,7 @@ import { tildeify } from "./home.mjs";
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
+/** @import { AssertionError } from "node:assert" */
 
 // The snapshot TSV — this module is its sole writer and parser. The file-row
 // grammar (the tab-separated `hash`/`size`/`mtime`/`path` columns) is the
@@ -35,6 +36,7 @@ import { tildeify } from "./home.mjs";
 //   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
 //   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
 //   #ERROR<TAB><TAB>reason<TAB>path               a file the walk couldn't hash
+//   #END                                          last line — the completeness trailer (ADR-0082)
 // so a snapshot is self-describing even found alone (docs/design/backup.md).
 // `writeSnapshot` is the sole writer of all of it (header via `snapshotHeader`,
 // then the `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows via `excludedLine`/`skippedLine`/
@@ -55,6 +57,7 @@ const DIR = "#DIR";
 const EXCLUDED = "#EXCLUDED";
 const SKIPPED = "#SKIPPED";
 const ERROR = "#ERROR";
+const END = "#END";
 
 /**
  * The `dirent_type` a dehydrated cloud-sync placeholder is recorded and reported
@@ -696,6 +699,9 @@ export async function parseCompressedSnapshotStream(source) {
  * snapshot.
  * @param {Readable} input - A decompressed snapshot TSV stream
  * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
+ * @throws {AssertionError} When the stream ends without
+ *   the `#END` trailer — a truncated snapshot (ADR-0082), which
+ *   `isCorruptSnapshotError` classifies as damage rather than an S3 failure
  */
 export async function parseSnapshotStream(input) {
   /** @type {SnapshotEntries} */
@@ -712,6 +718,7 @@ export async function parseSnapshotStream(input) {
   let instant;
   /** @type {string | undefined} */
   let zone;
+  let complete = false;
 
   const rl = createInterface({ input, crlfDelay: Infinity });
 
@@ -771,6 +778,8 @@ export async function parseSnapshotStream(input) {
         const reason = col3.trim();
         const path = col4;
         skipped.set(path, { fileType, reason });
+      } else if (marker === END) {
+        complete = true;
       }
       continue;
     }
@@ -795,6 +804,18 @@ export async function parseSnapshotStream(input) {
       hash,
     });
   }
+
+  // The completeness check (ADR-0082): zstd decompression is lenient about a
+  // cut-short stream — a truncated `.tsv.zst` decompresses to a byte *prefix*
+  // without error, which parses as a valid smaller (or empty) snapshot. The
+  // `#END` trailer is what makes truncation loud: any cut that loses content
+  // loses it. An AssertionError on purpose, matching the malformed-line assert
+  // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
+  // snapshot damage, so verify records the finding and cleanup/delete refuse.
+  assert(
+    complete,
+    "Truncated snapshot: the closing #END marker is missing, so the file was cut short",
+  );
 
   return { entries, errors, skipped, dirs, identity, instant, zone };
 }
@@ -833,7 +854,11 @@ function propsRows(getProps, signal) {
 }
 
 /**
- * Convert snapshot data to TSV lines.
+ * Convert snapshot data to TSV lines, closed by the `#END` trailer (ADR-0082) —
+ * every snapshot body ends here, so the trailer that proves the file wasn't cut
+ * short is emitted in exactly one place. The parked-on-interrupt file gets it
+ * too: a graceful stop ends the row stream early, and this generator's own tail
+ * still runs before the pipeline flushes.
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
@@ -863,6 +888,7 @@ export async function* stringifySnapshot(snapshot) {
     }
     yield formatLine(props.hash, props.size, props.mtime, path);
   }
+  yield `${END}\n`;
 }
 
 /**

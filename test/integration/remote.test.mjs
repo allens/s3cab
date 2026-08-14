@@ -207,6 +207,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
       hash = createHash("sha256").update(hash).digest("hex");
       rows.push(`${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`);
     }
+    rows.push("#END");
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),

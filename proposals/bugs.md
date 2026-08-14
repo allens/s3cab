@@ -112,18 +112,6 @@ regression test.</sub>
 run against real S3. Same convention as above: each is pinned by a current-behaviour test that
 flips when the bug is fixed.</sub>
 
-- **A truncated stored manifest parses as a *valid* snapshot, and `verify` calls the store
-  healthy.** `parseCompressedSnapshotStream` ([snapshot-file.mjs](../src/lib/snapshot-file.mjs))
-  never throws on a cut-short `.tsv.zst`: a cut inside the compressed block yields a valid *empty*
-  snapshot (zero entries, zero errors), and a cut that only loses the frame trailer parses as
-  complete — nothing distinguishes a destroyed manifest from a small honest one. `verify` walks
-  the references of what parses, and an empty parse references nothing, so a snapshot reduced to
-  garbage gets a clean bill (exit 0). `restore --output` happens to refuse (no directory headers
-  survive), so today the *verdict* and *restorability* diverge — the worse half is `verify`
-  vouching for a snapshot that cannot be restored. Worse than the format-spec audit's reading,
-  which assumed truncation would at least be a parse error.
-  Pinned by *"a truncated stored manifest parses as a valid empty snapshot"*
-  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
 - **Case-colliding manifest paths restore to one file — silently, exit 0.** Two rows whose paths
   differ only in basename case (legal in a manifest: a case-sensitive source filesystem, another
   machine, or a crafted edit) restore onto a case-insensitive volume as *one* file holding the
