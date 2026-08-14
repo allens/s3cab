@@ -59,10 +59,17 @@ const captureConsole = (into) => {
   console.warn = sink;
   console.error = sink;
   // Progress lines (lib/progress.mjs) write to the stderr stream directly,
-  // not through console — intercept those too.
+  // not through console — intercept those too. Honour the full write()
+  // signature: a caller passing a callback would otherwise wait forever.
   process.stderr.write = /** @type {typeof process.stderr.write} */ (
-    (/** @type {string | Uint8Array} */ chunk) => {
+    (
+      /** @type {string | Uint8Array} */ chunk,
+      /** @type {BufferEncoding | ((error?: Error | null) => void) | undefined} */ encoding,
+      /** @type {((error?: Error | null) => void) | undefined} */ callback,
+    ) => {
       into.push(String(chunk).trimEnd());
+      const cb = typeof encoding === "function" ? encoding : callback;
+      cb?.();
       return true;
     }
   );

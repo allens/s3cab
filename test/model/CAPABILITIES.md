@@ -93,8 +93,9 @@ s3cab's view: delete markers in LIST, `objectExists` on a marker, restore of
 an overwritten-then-deleted key.
 
 - Fake: **no** (unversioned hard delete, deliberately).
-- Tier 2 bucket `test-s3cab-allen-conformance`: **yes** (versioned,
-  `s3:PutBucketVersioning` denied so a test cannot un-version it).
+- Tier 2 bucket (`test-s3cab-<owner>-conformance`): **yes** — the conformance
+  provisioning convention creates it versioned, with `s3:PutBucketVersioning`
+  denied so a test cannot un-version it.
 
 ### `multipart`
 
