@@ -61,6 +61,36 @@ race in-process (the interleaving command runs from inside the backup's manifest
 dangling reference, and confirms `verify` reports it. Hypothesis → confirmed; whatever locking
 decision this epic reaches inherits them as regression tests.
 
+**Confirmed multi-process against real S3** (2026-08-14, crash tier): both interleaves reproduce
+with genuinely separate processes — the real CLI, separate `S3CAB_HOME`s, one real bucket, the
+in-flight backup parked immediately before its manifest PUT while a real `cleanup --force` (and,
+for the second interleave, `forget --force` first) runs to completion from another process. In
+both, the released backup **publishes its manifest and exits 0**; the store then holds dangling
+references and the snapshot is unrestorable. The two `PIN` tests in
+[test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs) are the deterministic
+repros (grace compressed to seconds via the labeled `S3CAB_XGRACE_MS` test instrument — the
+interleaving itself is the production one). The same suite confirms the **safe** arms with the
+mechanism named live:
+
+- *backup ∥ cleanup at real grace*: minutes-old crash orphans a second backup reuses survive the
+  sweep — `GRACE_MS` is the protection, exactly as documented above.
+- *backup ∥ backup, shared content across sets*: a backup whose upload plan went stale mid-run
+  lands every object PUT on an existing key; the no-clobber conditional PUT's 412 is treated as
+  "already stored" and both sets restore byte-identically.
+- *backup ∥ backup, same set + same snapshot name*: the no-clobber manifest PUT leaves exactly
+  one winner; the loser fails loudly (its error wording is the name-vouching corner — see
+  [bugs.md](bugs.md)).
+- *backup ∥ forget alone*: safe because `forget` deletes only `snapshots/<set>/` keys — every
+  object the in-flight manifest references is still stored.
+- *cleanup ∥ forget*: safe because cleanup reads snapshots strictly **before** its objects LIST,
+  so a mid-run forget makes it conservative (keeps now-unreferenced objects for the next run),
+  never destructive.
+- *cleanup ∥ cleanup* and *forget ∥ forget*: safe because S3 `DeleteObject` is idempotent —
+  overlapping sweeps of the same plan can't fail each other. (Two forgets of one snapshot both
+  report success and both file an audit record; cosmetic.)
+- *setup ∥ setup claiming one name*: two conditional claim PUTs released simultaneously produce
+  exactly one 200 and one 412; the loser's error names the owner and offers `reattach`.
+
 **Versioning backstops all of this only if versioning is on, and no code path checks** — see the
 entry in [engine-robustness.md](engine-robustness.md).
 
@@ -111,6 +141,18 @@ not for sweeping this stale lock, which it leaves untouched. That verdict above 
 > `.snapshot.lookup.tsv.zst` instead of leaving a stale lock, so Ctrl+C no longer wedges the
 > next run. What remains is only the **hard-kill / crash / power-loss** case — which ADR-0067
 > says outright it does not solve. Smaller, and rarer, but still hand-cleaned.
+
+**Confirmed live under real SIGKILL, and measured narrower than it reads** (2026-08-14, crash
+tier — [test/crash/crash.test.mjs](../test/crash/crash.test.mjs)): the residue exists only for a
+kill **inside the fused pipeline** (before/between object PUTs, mid-multipart). A kill in the
+window *between the last object PUT and the manifest PUT* — the widest torn-transition gap —
+leaves **no** lock, because the work file has already been renamed into place; the rerun recovers
+unaided (baseline HEAD misses the never-published manifest, falls back to a LIST, reuses the
+orphaned objects). When the lock *is* left, the rerun refuses with `inProgressError`'s message
+("A snapshot of this set is already in progress — or a previous one was interrupted…"), which
+names the exact file and the delete command — observed verbatim, and recovery after the delete
+was clean in every case. What the hard kill costs beyond the hand-delete is the interrupted hash
+pass (the work file dies mid-zstd-frame — §4's point 2, observed).
 
 ## 3. `delete` is a third destructive actor (added by the deletion rework)
 
