@@ -953,6 +953,20 @@ describe("putObjectParams", () => {
     const defaulted = putObjectParams("s3://bucket/key");
     assert.ok(!("IfNoneMatch" in defaulted));
   });
+
+  it("passes a non-ASCII key to the SDK verbatim, never percent-encoded", () => {
+    // The URI parse is a plain string split, not `new URL` — WHATWG parsing
+    // percent-encodes, so a set named `café` stored its manifests under
+    // `caf%C3%A9` in the real bucket (found by the Tier 2 conformance run;
+    // guide/format.md promises keys are `snapshots/<set>/…` verbatim). Latent
+    // today (`validateSetName` allows only `[a-z0-9-]+`), but the parse must
+    // not be what that validation is silently load-bearing for.
+    const params = putObjectParams(
+      "s3://bucket/snapshots/café/2026-01-01T0000.tsv.zst",
+    );
+    assert.equal(params.Bucket, "bucket");
+    assert.equal(params.Key, "snapshots/café/2026-01-01T0000.tsv.zst");
+  });
 });
 
 // The uploaders, driven end-to-end against a fake S3 on loopback. What went on the
