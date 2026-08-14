@@ -384,9 +384,10 @@ describe("hostile trees: files changing mid-run", () => {
     const result = await backup("hostile");
 
     assert.equal(result.errors, 1, "the vanished file must be counted");
-    // TODO(known bug, proposals/bugs.md): backup reports errors yet leaves the
-    // exit code 0. When that is fixed, this assertion flips to !== 0.
-    assert.equal(process.exitCode, 0);
+    // The machine-readable half must not lie: a backup that omitted files sets
+    // a nonzero exit code (guide/output.md — scripts branch on it), while the
+    // snapshot still publishes honestly with its #ERROR row.
+    assert.equal(process.exitCode, 1);
 
     // The snapshot that landed is still complete for what it *does* list.
     nextMinute();

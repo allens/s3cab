@@ -33,8 +33,8 @@ import {
 // to when the bug is fixed; a fix then fails here loudly and gets a
 // deliberate decision.
 //
-// Not here: the C1 mid-transfer mutation and the backup-exit-0 entries live
-// in model.hostile.test.mjs (they are hostile-tree cases); the
+// Not here: the mid-transfer mutation and backup-exit-0 cases (both fixed,
+// their tests flipped) live in model.hostile.test.mjs (hostile-tree cases); the
 // versioning-never-checked entry (engine-robustness.md) needs a real
 // versioned bucket and belongs to Tier 2 (see CAPABILITIES.md, "versioning").
 

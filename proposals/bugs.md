@@ -63,13 +63,6 @@ regression test.</sub>
     [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs).
   - Pinned by *"another machine's same-name snapshot vouches for a never-uploaded baseline"*
     ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
-- **`backup` exits 0 when files were unreadable.** Unreadable files become `#ERROR` rows and are
-  reported in the run summary, but `backup` never sets `process.exitCode` — only `verify` and
-  `restore` do ([s3cab.mjs](../src/s3cab.mjs) sets 1/2/127 for *thrown* errors only). So
-  `s3cab backup && touch ok` records success for a backup that silently omitted files. The snapshot
-  itself is honest; it is the machine-readable signal that lies, which is the half a scheduled
-  backup runs on. Pinned by *"counts a file vanishing mid-scan as an error, not silence — and still
-  exits 0"* ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)).
 - **A retried manifest PUT after a lost response reports a false failure.** If the no-clobber
   manifest PUT succeeds but its response is lost and the retry relay
   ([ADR-0068](../docs/adr/0068-network-retries-above-the-sdk.md)) re-sends, the retry collects a

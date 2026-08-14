@@ -177,6 +177,19 @@ export async function backup(setName, options = {}) {
         })
       : null;
 
+  // Files the pass couldn't read became `#ERROR` rows: the snapshot is honest
+  // about them and worth publishing (everything it *does* list is stored), but
+  // the run must not signal clean — a scheduled backup runs on the exit code
+  // alone (guide/output.md tells scripts to branch on it), and
+  // `s3cab backup && notify-ok` recording success for a backup that silently
+  // omitted files is the machine-readable half lying. Same pattern as `verify`
+  // and `restore`: set `process.exitCode` rather than throw, so the publish
+  // above stands and the run report still prints. Skips stay exit 0 — they are
+  // a *choice* (an excluded type, an online-only file), not a fault (ADR-0081).
+  if (pass.errors > 0) {
+    process.exitCode = 1;
+  }
+
   return {
     set: set.name,
     bucket: set.bucket,
