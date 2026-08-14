@@ -86,6 +86,34 @@ describe("fileProps", () => {
     assert.equal(props.hash, HELLO_HASH);
   });
 
+  it("re-hashes a size+mtime match when the file was touched after the baseline", async () => {
+    // The `touch -r` shape (ADR-0085): the utimes call just moved the file's
+    // ctime to now, so a baseline instant in the past proves the match stale.
+    await utimes(FILE, MTIME, MTIME);
+    const stale = { size: 12, mtime: MTIME_ISO, hash: "stale" };
+
+    const props = await fileProps(FILE, lookupOf(FILE, stale), {
+      baselineMs: MTIME.getTime(),
+    });
+
+    assert.equal(props.hash, HELLO_HASH);
+    assert.notEqual(props.hashDuration, undefined);
+  });
+
+  it("reuses a size+mtime match when the file's ctime predates the baseline", async () => {
+    await utimes(FILE, MTIME, MTIME);
+    const stored = { size: 12, mtime: MTIME_ISO, hash: "reused-not-rehashed" };
+
+    // A baseline taken after the file was last touched vouches for the match.
+    const afterCtime = Date.now() + 60_000;
+    const props = await fileProps(FILE, lookupOf(FILE, stored), {
+      baselineMs: afterCtime,
+    });
+
+    assert.equal(props, stored);
+    assert.equal(props.hashDuration, undefined);
+  });
+
   it("hashes when the path is absent from the lookup", async () => {
     await utimes(FILE, MTIME, MTIME);
     const other = { size: 1, mtime: MTIME_ISO, hash: "other" };
