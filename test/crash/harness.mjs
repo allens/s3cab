@@ -52,9 +52,8 @@ export const inspector = new RealS3();
  */
 export async function wipeBucket() {
   await inspector.wipe(bucket);
-  for (const { key, uploadId } of await inspector.listMultipartUploads(
-    bucket,
-  )) {
+  const stranded = await inspector.listMultipartUploads(bucket);
+  for (const { key, uploadId } of stranded) {
     await inspector.abortMultipartUpload(bucket, key, uploadId);
   }
 }
@@ -100,6 +99,16 @@ function childEnv(options) {
   /** @type {NodeJS.ProcessEnv} */
   const env = {
     ...process.env,
+    // Ambient instrumentation vars must never leak in from the developer's
+    // shell — a stray S3CAB_XKILL would sabotage every child. Cleared first,
+    // then re-set only from the explicit options below.
+    S3CAB_XKILL: undefined,
+    S3CAB_XHOLD: undefined,
+    S3CAB_XHOLD_GATE: undefined,
+    S3CAB_XHOLD_REACHED: undefined,
+    S3CAB_XGRACE_MS: undefined,
+    S3CAB_XLOG: undefined,
+    S3CAB_XTAG: undefined,
     S3CAB_HOME: options.home,
     ...(options.tz ? { TZ: options.tz } : {}),
     ...(options.kill ? { S3CAB_XKILL: options.kill } : {}),
@@ -207,8 +216,10 @@ export function makeTree(root, files) {
     mkdirSync(join(path, ".."), { recursive: true });
     if (typeof content === "number") {
       // Deterministic-enough filler; incompressible so sizes stay honest.
+      // Whole words only — a size that isn't a multiple of 4 keeps its last
+      // 1–3 bytes zero rather than overrunning the buffer.
       const bytes = Buffer.alloc(content);
-      for (let i = 0; i < content; i += 4) {
+      for (let i = 0; i + 4 <= content; i += 4) {
         bytes.writeUInt32LE(((i * 2654435761) ^ 0x9e3779b9) >>> 0, i);
       }
       writeFileSync(path, bytes);
