@@ -25,7 +25,12 @@ attacked and which guard held), is kept **outside the repo** as
 `s3cab-durability-audit-2026-08-12.pdf`. The state model it had to build first is now
 [docs/design/repository-protocol.md](../docs/design/repository-protocol.md). Headline result: the
 objects-first/snapshot-last invariant **holds under process termination at every step** — no kill
-sequence broke it. What broke was concurrency and time.</sub>
+sequence broke it. What broke was concurrency and time.
+
+**2026-08-14 update: each of these five entries is now pinned by a deterministic test** in the
+model-based suite ([test/model/](../test/model/)) — each cited test asserts *current* (wrong)
+behaviour with a TODO, so fixing the bug flips the test loudly and hands the fixer a ready-made
+regression test.</sub>
 
 - **A file mutated *during its upload* is stored as wrong bytes under a right hash — silently.**
   **The gap is between PUT start and PUT completion**, which is precisely the window nothing
@@ -49,6 +54,8 @@ sequence broke it. What broke was concurrency and time.</sub>
     the only repair, and nothing tells you to run it.
   - **No second machine, no crash, no misconfiguration required** — one user, one command, one
     file being written while it is backed up.
+  - Pinned by *"a file mutating mid-transfer corrupts the store silently"*
+    ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)).
 - **The baseline HEAD matches on snapshot *name*, so another machine's snapshot can vouch for one
   that was never uploaded.** `storedHashes` ([upload.mjs](../src/lib/upload.mjs)) trusts the local
   baseline as the complete skip-list once `objectExists(remoteSnapshotUri(bucket, set, since))`
@@ -71,26 +78,77 @@ sequence broke it. What broke was concurrency and time.</sub>
     than silently-corrupt — but the backup that created it said it succeeded.
   - The same collision also defeats snapshot immutability quietly in the other direction: A never
     learns that its local `0915` and the remote `0915` are different documents.
+  - Pinned by *"another machine's same-name snapshot vouches for a never-uploaded baseline"*
+    ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
 - **`backup` exits 0 when files were unreadable.** Unreadable files become `#ERROR` rows and are
   reported in the run summary, but `backup` never sets `process.exitCode` — only `verify` and
   `restore` do ([s3cab.mjs](../src/s3cab.mjs) sets 1/2/127 for *thrown* errors only). So
   `s3cab backup && touch ok` records success for a backup that silently omitted files. The snapshot
   itself is honest; it is the machine-readable signal that lies, which is the half a scheduled
-  backup runs on.
+  backup runs on. Pinned by *"counts a file vanishing mid-scan as an error, not silence — and still
+  exits 0"* ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)).
 - **A retried manifest PUT after a lost response reports a false failure.** If the no-clobber
   manifest PUT succeeds but its response is lost and the retry relay
   ([ADR-0068](../docs/adr/0068-network-retries-above-the-sdk.md)) re-sends, the retry collects a
   412 from its own success and `uploadSnapshotFile` throws *"Snapshot '<name>' is already backed
   up… immutable"*. The backup is complete and correct; only the report is wrong. Fails in the safe
   direction, but it teaches the user to distrust a message that otherwise means something serious.
-  The same shape applies to `setup`'s `info` claim.
-- **Suspected: both staleness guards compare mtime at millisecond precision, so a same-size write
-  that preserves mtime escapes.** The baseline reuse check ([file-props.mjs](../src/lib/file-props.mjs))
-  and `fileChange` ([upload.mjs](../src/lib/upload.mjs)) both test `size` plus
-  `mtime.toISOString()`. A deliberate `touch -r`, or a filesystem with coarse timestamps (FAT32's
-  2 s, some network mounts), records an old hash against new bytes — and restore then "succeeds"
-  with the wrong content. `--rehash` exists as the escape hatch. **Suspected, not confirmed:** the
-  code path was read, real filesystem behaviour was not tested, so the frequency is unknown.
+  The same shape applies to `setup`'s `info` claim. Pinned by *"a manifest PUT whose lost response
+  is retried reports a false failure"*
+  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
+- **Confirmed 2026-08-14: both staleness guards compare mtime at millisecond precision, so a
+  same-size write that preserves mtime escapes.** The baseline reuse check
+  ([file-props.mjs](../src/lib/file-props.mjs)) and `fileChange` ([upload.mjs](../src/lib/upload.mjs))
+  both test `size` plus `mtime.toISOString()`. A deliberate `touch -r`, or a filesystem with coarse
+  timestamps (FAT32's 2 s, some network mounts), records an old hash against new bytes — and restore
+  then "succeeds" with the wrong content. `--rehash` exists as the escape hatch. Was *suspected* from
+  reading the code path; now **confirmed on real NTFS** — a same-size rewrite plus `utimensat`-style
+  mtime restoration makes the next `backup` upload nothing, and the restore returns the old bytes.
+  Pinned by *"a same-size rewrite preserving mtime escapes the staleness guards"*
+  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
+
+<sub>The three entries below were **found by the model-based test suite itself** (prompt #3,
+2026-08-14) — the first two by Tier 1 hostile/targeted cases, the third by the Tier 2 conformance
+run against real S3. Same convention as above: each is pinned by a current-behaviour test that
+flips when the bug is fixed.</sub>
+
+- **A truncated stored manifest parses as a *valid* snapshot, and `verify` calls the store
+  healthy.** `parseCompressedSnapshotStream` ([snapshot-file.mjs](../src/lib/snapshot-file.mjs))
+  never throws on a cut-short `.tsv.zst`: a cut inside the compressed block yields a valid *empty*
+  snapshot (zero entries, zero errors), and a cut that only loses the frame trailer parses as
+  complete — nothing distinguishes a destroyed manifest from a small honest one. `verify` walks
+  the references of what parses, and an empty parse references nothing, so a snapshot reduced to
+  garbage gets a clean bill (exit 0). `restore --output` happens to refuse (no directory headers
+  survive), so today the *verdict* and *restorability* diverge — the worse half is `verify`
+  vouching for a snapshot that cannot be restored. Worse than the format-spec audit's reading,
+  which assumed truncation would at least be a parse error.
+  Pinned by *"a truncated stored manifest parses as a valid empty snapshot"*
+  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
+- **Case-colliding manifest paths restore to one file — silently, exit 0.** Two rows whose paths
+  differ only in basename case (legal in a manifest: a case-sensitive source filesystem, another
+  machine, or a crafted edit) restore onto a case-insensitive volume as *one* file holding the
+  **last** row's bytes, while `restore` reports both files restored and exits 0. Nielsen would
+  call the count a lie; either an overwrite warning or a collision error is defensible, silence is
+  not. Pinned by *"restore claims both case-colliding paths while disk keeps one"*
+  ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)).
+- **Latent: a non-ASCII name fed to the S3 layer lands under a percent-encoded key.**
+  `parseS3Uri` ([s3.mjs](../src/lib/s3.mjs)) splits the URI with `new URL(...)` and takes
+  `url.pathname`, which percent-encodes — a set named `café` would store its manifests under
+  `snapshots/caf%C3%A9/…`, verbatim, in the real bucket (observed on real S3 by the Tier 2
+  conformance run, driving the seam below the validation layer). Three consequences: the stored
+  layout breaks [guide/format.md](../guide/format.md)'s promise that keys are `snapshots/<set>/…`
+  (a no-lock-in reader must know to percent-decode); names derived from LIST results don't match
+  the names that produced them; and two different names (`café` and the literal string
+  `caf%C3%A9`) alias to one key. **Latent, not user-reachable today:** `validateSetName`
+  ([sets.mjs](../src/lib/sets.mjs)) restricts set names to `[a-z0-9-]+` at both entry points
+  (`setup`, `reattach`), and snapshot names, object keys and the fixed filenames are all
+  ASCII-safe — [remote.mjs](../src/lib/remote.mjs) documents that charset as the reason "no
+  escaping anywhere downstream" is safe. So this is the *seam* that validation guard is silently
+  load-bearing for: loosen the set-name charset (a plausible pre-1.0 ask) and the encoding bug is
+  live. Round-trips still work because every code path encodes identically — which is exactly why
+  Tier 1's fake (same URL parsing) could never see it and only Tier 2's independent inspector
+  did. Pinned by *"a unicode set name is stored under a percent-encoded key"*
+  ([test/model/conformance/store-semantics.test.mjs](../test/model/conformance/store-semantics.test.mjs)).
 
 - **`uploadDir`'s drift tests fail intermittently — undiagnosed.** Seen 2026-07-30 during
   [#252](https://github.com/allens/s3cab/pull/252) (a PR touching none of this code). Two tests in

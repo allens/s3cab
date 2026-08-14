@@ -53,11 +53,17 @@ Two subtypes exist:
 - **`integration`** — for this guide's suite. Unversioned, everything expires after
   1 day. Shareable: the tests assert only on their own per-run objects, so concurrent
   runs coexist in one bucket.
-- **`conformance`** — for the model-based conformance harness (planned; not part of
-  this guide yet). Versioning enabled plus a versioned-aware expiry baseline
-  (noncurrent versions and orphaned delete markers are reclaimed too). Its assertions
-  cover whole-bucket state, so a conformance bucket has exactly **one** owner and is
-  never shared.
+- **`conformance`** — for the model-based conformance suite
+  (`npm run test:conformance`, [test/model/conformance/](../test/model/conformance/);
+  capability contract in [test/model/CAPABILITIES.md](../test/model/CAPABILITIES.md)).
+  Versioning enabled plus a versioned-aware expiry baseline (noncurrent versions and
+  orphaned delete markers are reclaimed too). The suite **wipes the whole bucket**
+  as it runs (per suite or per test) and asserts on whole-bucket state, so a conformance bucket has exactly
+  **one** owner, is never shared, and the run is serial by construction
+  (`--test-concurrency=1` is baked into the npm script). Point
+  `S3CAB_CONFORMANCE_BUCKET` at it in `.env.test`; the suite hard-fails without it
+  rather than skipping, and refuses any name not matching
+  `test-s3cab-*-conformance`.
 
 From a clone, the bundled script provisions either subtype in one cross-platform step
 (it uses the AWS SDK s3cab already depends on — no AWS CLI needed):

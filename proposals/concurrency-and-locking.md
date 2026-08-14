@@ -53,6 +53,14 @@ by a cold read):
   the *next* backup (it re-HEADs and falls back to a LIST); it cannot help the one already in
   flight, whose check has passed.
 
+Both interleaves are now **pinned by deterministic tests** (2026-08-14, model-based suite):
+*"cleanup sweeps an old object a running backup just skipped"* and *"forget + cleanup mid-backup
+delete the baseline's objects before the manifest lands"* in
+[test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs) — each reproduces the
+race in-process (the interleaving command runs from inside the backup's manifest PUT), asserts the
+dangling reference, and confirms `verify` reports it. Hypothesis → confirmed; whatever locking
+decision this epic reaches inherits them as regression tests.
+
 **Versioning backstops all of this only if versioning is on, and no code path checks** — see the
 entry in [engine-robustness.md](engine-robustness.md).
 

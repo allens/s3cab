@@ -6,8 +6,8 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
 
 ## Where tests live
 
-Three tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutting tiers
-(integration in a folder, e2e as its single file)**
+Four tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutting tiers
+(integration and model-based in folders, e2e as its single file)**
 ([ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md), superseding
 [0046](../docs/adr/0046-test-layout-colocated-tier-suffix.md)'s integration placement; the
 *why* — the tier taxonomy and mock-vs-DI-vs-real — is
@@ -30,6 +30,16 @@ Three tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutt
 - **E2E** — [e2e.test.mjs](e2e.test.mjs): the one suite that owns no single module (it spawns
   `node src/s3cab.mjs` as a subprocess), so it lives here rather than co-located. One file, so
   no `test/e2e/` folder yet — count would earn it.
+- **Model-based** — [model/](model/): random command sequences against an in-memory fake of the
+  `s3.mjs` seam, an independent model of expected repository state as the oracle, invariants
+  (every snapshot restores byte-identically, content-addressing holds, …) checked after every
+  step, and delta-debugging shrinking on failure. Runs in plain `npm test`;
+  `.github/workflows/nightly.yml` re-runs it widened over a fresh seed window every night. Its
+  own [conformance/](model/conformance/) subfolder is the real-S3 twin — capability-gated,
+  sole-owner bucket, `npm run test:conformance` only, **never** in `test:all`. The
+  backend-capability contract is [model/CAPABILITIES.md](model/CAPABILITIES.md); what only
+  wall-clock time can test is written down in
+  [model/tier3-procedure.md](model/tier3-procedure.md).
 
 A second test file for one module qualifies with a **dotted aspect**
 (`setup.remote-first.test.mjs`), not a hyphen — a hyphen reads as a sibling command.
@@ -43,15 +53,17 @@ A second test file for one module qualifies with a **dotted aspect**
     (`temp-home.mjs`, `write-snapshot.mjs`, and `integration.mjs` — the gated-suite harness).
 
 The `test` script points the runner at explicit globs —
-`node --test --experimental-test-module-mocks "src/**/*.test.mjs" "test/*.test.mjs"` — rather
-than default discovery, which would run **every** `.mjs` under `test/`. That's what lets
-`helpers/` and `fixtures/` hold non-test `.mjs` here without them executing as phantom empty
-tests. The **shallow** `test/*.test.mjs` catches e2e ([e2e.test.mjs](e2e.test.mjs)) but *not*
-`test/integration/`, so a plain `npm test` is unit + e2e — hermetic, no bucket. (Node's
-positional globs can't negate, which is exactly why the tiers are split by directory rather
-than by suffix — [ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md).)
-`test:integration` runs just the integration folder; `test:all` runs both tiers for a
-bucket-equipped dev.
+`"src/**/*.test.mjs" "test/*.test.mjs" "test/model/*.test.mjs"` — rather than default
+discovery, which would run **every** `.mjs` under `test/`. That's what lets `helpers/`,
+`fixtures/` and `model/harness/` hold non-test `.mjs` here without them executing as phantom
+empty tests. The **shallow** `test/*.test.mjs` catches e2e ([e2e.test.mjs](e2e.test.mjs)) but
+*not* `test/integration/`, and `test/model/*.test.mjs` deliberately stops above
+`model/conformance/` — so a plain `npm test` is unit + e2e + model — hermetic, no bucket.
+(Node's positional globs can't negate, which is exactly why the tiers are split by directory
+rather than by suffix — [ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md).)
+`test:integration` runs just the integration folder; `test:model` just the model tier;
+`test:all` runs everything a bucket-equipped dev can share (conformance stays separate — its
+bucket wipe brooks no co-tenants).
 
 ### VS Code file nesting
 
