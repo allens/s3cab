@@ -152,7 +152,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
- * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning
+ * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`): the clock-went-backwards warning, and the ctime cross-check on hash reuse (ADR-0085)
  * @param {boolean} [options.includeOnlineOnly] - Hash cloud placeholders too, downloading each one (`--include-online-only`, ADR-0081). Off by default: a first pass over a synced folder otherwise pulls the whole cloud account onto the local disk
  * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
@@ -248,6 +248,12 @@ export async function generateSnapshot(
     bytesTotal += sizes?.get(file)?.size ?? 0;
   }
 
+  // The baseline's instant as epoch millis, parsed once for the whole pass:
+  // `fileProps` weighs every file's ctime against it, and re-parsing the string
+  // per file is exactly the per-file cost the hot path can't take.
+  const baselineMs =
+    previousInstant === undefined ? undefined : Date.parse(previousInstant);
+
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: set.dirs,
@@ -265,6 +271,7 @@ export async function generateSnapshot(
         const props = await fileProps(file, lookup, {
           onHashStart: (started) => (hashing = started),
           includeOnlineOnly,
+          baselineMs,
         });
         // The *real* size, not the baseline's guess at it: every file yields one
         // whether it was hashed or reused, so the numerator is exact even where

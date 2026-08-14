@@ -94,10 +94,52 @@ export const hasNoBytesOnDisk = ({ size, blocks }) =>
 const DETECT_ONLINE_ONLY = platform === "win32";
 
 /**
+ * Whether a size+mtime lookup match can be trusted, given when the baseline
+ * snapshot was taken — the ctime cross-check on the reuse test (ADR-0085).
+ *
+ * `mtime` can be set from userland, so a same-size rewrite that puts the old
+ * mtime back (`touch -r`; FAT32's 2-second timestamps collide the same way
+ * with nobody asking) looks unchanged to the size+mtime test and would carry
+ * the baseline's hash forward against new bytes. `ctime` cannot be set back:
+ * the rewrite — and the `utimes` call itself — bumps it. So a ctime at or
+ * after the baseline's instant proves the file was touched *since the baseline
+ * recorded it*, and the match is not trusted. Self-healing: that one re-hash
+ * lands the file in a baseline newer than its ctime, so the cost is a single
+ * pass, not one per backup.
+ *
+ * Two deliberate trust grants:
+ *
+ * - **No `baselineMs` → trust the match as before.** The `prop` command's
+ *   `--lookup` has no snapshot instant to offer, and a baseline written before
+ *   ADR-0072 carries no `#SNAPSHOT` header to read one from. (An instant that
+ *   won't parse arrives as `NaN`, which fails the comparison and so distrusts —
+ *   the safe direction, costing one re-hash.)
+ * - **A dehydrated placeholder is trusted regardless.** Dehydration moves
+ *   *only* ctime (measured; the ordering comment in {@link fileProps} leans on
+ *   the same fact), so without this exemption every file the sync client
+ *   reclaims would read as touched — and, having no bytes to re-hash, fall out
+ *   of the backup (ADR-0081). Windows-only like all placeholder detection: on
+ *   other platforms the same stat shape is a real sparse file, which the guard
+ *   must apply to.
+ *
+ * Takes epoch milliseconds rather than the `#SNAPSHOT` string: the instant is
+ * constant for a whole pass, so parsing it per file would be exactly the
+ * hot-path overhead the one-`lstat` rule below exists to avoid. The caller
+ * parses once (`generateSnapshot`, lib/snapshot.mjs).
+ * @param {Pick<Stats, "ctimeMs" | "size" | "blocks">} stat - The one stat already taken
+ * @param {number} [baselineMs] - When the baseline snapshot was taken, in epoch ms
+ * @returns {boolean}
+ */
+const trustMatch = (stat, baselineMs) =>
+  baselineMs === undefined ||
+  stat.ctimeMs < baselineMs ||
+  (DETECT_ONLINE_ONLY && hasNoBytesOnDisk(stat));
+
+/**
  * Compute a file's content properties — its `hash`, `size`, and `mtime` — from
  * the file on disk, reusing the stored hash from a previous snapshot's `lookup`
- * when the file is unchanged (same `size` *and* `mtime`), so an unchanged file is
- * never re-hashed.
+ * when the file is unchanged (same `size` *and* `mtime`, cross-checked against
+ * `ctime` via {@link trustMatch}), so an unchanged file is never re-hashed.
  *
  * The `lib` hashing primitive behind both callers: the `prop` command (which
  * resolves a `--lookup <snapshot>` path into the `lookup` Map) and the snapshot
@@ -118,6 +160,10 @@ const DETECT_ONLINE_ONLY = platform === "win32";
  * @param {boolean} [options.includeOnlineOnly] - Read a cloud placeholder anyway,
  *   downloading it (`--include-online-only`). Off by default, so the default backup
  *   never pulls a cloud account onto the disk it is being backed up from
+ * @param {number} [options.baselineMs] - When the snapshot behind `lookup` was
+ *   taken, in epoch ms (parsed once by the caller); a size+mtime match is reused
+ *   only if the file's ctime predates it (see {@link trustMatch}). Omitted, the
+ *   match is trusted on size+mtime alone
  * @returns {Promise<Props>} The file's hash/size/mtime (no `hashDuration` when reused from `lookup`)
  * @throws {OnlineOnlyFileError} When the file is a dehydrated cloud placeholder
  *   and `includeOnlineOnly` is not set — the caller turns this into a `#SKIPPED`
@@ -126,7 +172,7 @@ const DETECT_ONLINE_ONLY = platform === "win32";
 export async function fileProps(
   path,
   lookup,
-  { onHashStart, includeOnlineOnly } = {},
+  { onHashStart, includeOnlineOnly, baselineMs } = {},
 ) {
   const start = Temporal.Now.instant();
 
@@ -141,7 +187,8 @@ export async function fileProps(
   if (
     fromLookup &&
     fromLookup.size === size &&
-    fromLookup.mtime === mtime.toISOString()
+    fromLookup.mtime === mtime.toISOString() &&
+    trustMatch(stat, baselineMs)
   ) {
     return fromLookup;
   }

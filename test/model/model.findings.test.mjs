@@ -161,7 +161,7 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(restored, "safely stored bytes");
   });
 
-  it("a same-size rewrite preserving mtime escapes the staleness guards (bugs.md: suspected → confirmed — current behaviour)", async () => {
+  it("a same-size rewrite preserving mtime is caught by the ctime guard (bugs.md, fixed: ADR-0085)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -188,16 +188,12 @@ describe("prior-audit findings, encoded", () => {
     const result = await backup("stale");
     assert.equal(process.exitCode, 0);
 
-    // TODO(known bug, proposals/bugs.md: mtime-precision staleness escape —
-    // the "suspected" entry, confirmed here on NTFS): the baseline reuse
-    // check sees size+mtime unchanged, records the old hash against the new
-    // bytes, and uploads nothing. Restore then "succeeds" with the wrong
-    // content. `--rehash` is the documented escape hatch.
-    assert.equal(
-      result.uploaded,
-      0,
-      "nothing uploaded — the rewrite is invisible",
-    );
+    // The rewrite put the mtime back, but the write (and the utimes call
+    // itself) bumped ctime past the baseline's instant, so the reuse check
+    // distrusts the size+mtime match and re-hashes (ADR-0085). The exact
+    // older-vs-newer ctime boundary is pinned in src/lib/file-props.test.mjs;
+    // this asserts the end-to-end outcome: the new bytes are backed up.
+    assert.equal(result.uploaded, 1, "the rewrite is seen and uploaded");
     const out = join(root, "out");
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
@@ -208,10 +204,10 @@ describe("prior-audit findings, encoded", () => {
     });
     assert.equal(process.exitCode, 0);
     const restored = await readFile(join(out, "data", "f.txt"), "utf8");
-    assert.equal(restored, "old bytes!!", "the new bytes were never backed up");
+    assert.equal(restored, "new bytes!!", "the rewrite was backed up");
   });
 
-  it("a truncated stored manifest parses as a valid empty snapshot (format-spec audit — current behaviour)", async () => {
+  it("a truncated stored manifest is a loud parse error — verify reports it, restore refuses (format-spec audit, fixed by ADR-0082)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");

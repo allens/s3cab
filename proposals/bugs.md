@@ -19,30 +19,26 @@ fix introduced has since become a byte-identity GET
 
 ---
 
-<sub>The five entries below came from an **adversarial durability audit of the 1.0 format
-freeze**, 2026-08-12 (Claude Fable at xhigh reasoning), reading `88fbc70`. Its brief was the one
-failure that matters — *a backup that reports success but cannot be restored* — and its full
-report, including the state model, the reproduction sequences and the **ruled-out** list (what was
-attacked and which guard held), is kept **outside the repo** as
-`s3cab-durability-audit-2026-08-12.pdf`. The state model it had to build first is now
-[docs/design/repository-protocol.md](../docs/design/repository-protocol.md). Headline result: the
-objects-first/snapshot-last invariant **holds under process termination at every step** — no kill
-sequence broke it. What broke was concurrency and time.
-
-**2026-08-14 update: each of these five entries is now pinned by a deterministic test** in the
-model-based suite ([test/model/](../test/model/)) — each cited test asserts *current* (wrong)
-behaviour with a TODO, so fixing the bug flips the test loudly and hands the fixer a ready-made
-regression test.</sub>
-
-  same-size write that preserves mtime escapes.** The baseline reuse check
-  ([file-props.mjs](../src/lib/file-props.mjs)) and `fileChange` ([upload.mjs](../src/lib/upload.mjs))
-  both test `size` plus `mtime.toISOString()`. A deliberate `touch -r`, or a filesystem with coarse
-  timestamps (FAT32's 2 s, some network mounts), records an old hash against new bytes — and restore
-  then "succeeds" with the wrong content. `--rehash` exists as the escape hatch. Was *suspected* from
-  reading the code path; now **confirmed on real NTFS** — a same-size rewrite plus `utimensat`-style
-  mtime restoration makes the next `backup` upload nothing, and the restore returns the old bytes.
-  Pinned by *"a same-size rewrite preserving mtime escapes the staleness guards"*
-  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
+<sub>An **adversarial durability audit of the 1.0 format freeze** (2026-08-12, Claude Fable at
+xhigh reasoning, reading `88fbc70`) contributed five entries; its brief was the one failure that
+matters — *a backup that reports success but cannot be restored*. Each entry was pinned by a
+deterministic current-behaviour test in the model-based suite ([test/model/](../test/model/)),
+and **all five are fixed, 2026-08-14**, their pinning tests flipped to the correct behaviour: a
+file mutated *during* its upload stored as wrong bytes under a right hash, by `putFile`'s
+streamed-digest check ([ADR-0083](../docs/adr/0083-streamed-digest-upload-guard.md)); `backup`
+exiting 0 with unreadable files, by setting `process.exitCode = 1` whenever the pass recorded
+`#ERROR` rows; the pair rooted in snapshot *names* not identifying snapshots — another machine's
+same-name snapshot vouching for a never-uploaded baseline, and a retried manifest PUT harvesting
+a 412 from its own lost-response success — by keying both checks on byte-identity with the local
+file ([ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md)); and the mtime-precision
+staleness escape (a same-size rewrite that puts the old mtime back, confirmed on real NTFS), by
+distrusting any size+mtime match whose ctime postdates the baseline's instant
+([ADR-0085](../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)). The audit's full report —
+state model, reproduction sequences, and the **ruled-out** list (what was attacked and which
+guard held) — is kept **outside the repo** as `s3cab-durability-audit-2026-08-12.pdf`; the state
+model is now [docs/design/repository-protocol.md](../docs/design/repository-protocol.md).
+Headline result: the objects-first/snapshot-last invariant **holds under process termination at
+every step** — what broke was concurrency and time.</sub>
 
 <sub>The three entries below were **found by the model-based test suite itself** (prompt #3,
 2026-08-14) — the first two by Tier 1 hostile/targeted cases, the third by the Tier 2 conformance
