@@ -1,0 +1,99 @@
+# Nightly widened sweep of the Tier 1 model-based suite (test/model/). The
+# per-commit run (part of `npm test`, gated by ci.yml) keeps a small fixed
+# window — 12 sequences of 25 steps — inside the CI budget; this workflow is
+# the same suite told to roam: thousands of sequences, longer, over a *fresh*
+# seed window each night, so the explored state space grows instead of
+# re-treading seeds 1–12 forever.
+#
+# On failure the test's output is a self-contained repro: it prints the seed
+# and the shrunk step list. Re-run just that seed locally with
+#   S3CAB_MODEL_SEED=<seed> S3CAB_MODEL_SEQUENCES=1 S3CAB_MODEL_STEPS=30 npm run test:model
+# (S3CAB_MODEL_STEPS must match the sweep that failed — the generator derives
+# the whole sequence from seed + length.)
+#
+# Step length is a real cost knob, not a free one: the runner re-restores every
+# accumulated snapshot after each bucket-writing step, so per-sequence time
+# grows superlinearly with length (measured: ~0.4 s at 25 steps, ~1.3 s at 30,
+# ~2 s at 40). 2000 × 30 is ~45 min on a dev box; the job timeout allows for a
+# CI Windows runner taking roughly double that.
+#
+# Not part of the `ci gate` required check on purpose: a nightly discovery
+# should page a human, not wedge unrelated PRs. A red run here is a real
+# finding — the seed reproduces deterministically, so never dismiss one as
+# flaky.
+
+name: nightly-model
+
+on:
+  schedule:
+    - cron: "14 3 * * *" # 03:14 UTC, after the day's merges have settled
+  workflow_dispatch: # allow a manual widened sweep on demand
+
+permissions:
+  contents: read
+
+env:
+  # Match ci.yml: pin to the engines floor so the sweep runs the shipped version.
+  NODE_VERSION: "26.3.0"
+
+jobs:
+  model:
+    name: model sweep (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux for throughput, Windows because the suite's file-tree edges
+        # (case-insensitive collisions, path separators, mtime precision) are
+        # Windows-first by design — a Linux-only sweep never exercises them.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - name: Widened model sweep over a fresh seed window
+        shell: bash
+        run: |
+          # Disjoint window per night, reproducible from the date alone:
+          # night N (days since epoch) covers seeds N*SEQUENCES+1 upward.
+          SEQUENCES=2000
+          SEED=$(( ($(date +%s) / 86400) * SEQUENCES + 1 ))
+          echo "seed window: $SEED..$((SEED + SEQUENCES - 1)), 30 steps each"
+          S3CAB_MODEL_SEED=$SEED \
+          S3CAB_MODEL_SEQUENCES=$SEQUENCES \
+          S3CAB_MODEL_STEPS=30 \
+          npm run test:model
+
+  # Tier 2 against real S3: the conformance suite owns test-s3cab-ci-conformance
+  # outright (whole-bucket wipes), so this job must be its only tenant — the
+  # concurrency group serializes a manual dispatch landing during the scheduled
+  # run, which would otherwise interleave wipes. Auth is the same OIDC role as
+  # ci.yml's s3-integration job: a scheduled run presents the refs/heads/main
+  # subject the trust policy already allows, and the CI policy's
+  # test-s3cab-ci-* wildcard covers the bucket. One OS only — the S3 code path
+  # doesn't branch on platform.
+  conformance:
+    name: conformance (real S3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: nightly-conformance
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the conformance bucket's region
+      - run: npm run test:conformance
+        env:
+          S3CAB_CONFORMANCE_BUCKET: ${{ vars.S3CAB_CONFORMANCE_BUCKET }}
