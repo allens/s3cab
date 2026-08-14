@@ -6,8 +6,8 @@ Test layout for s3cab. Run the suite with `npm test` (Node's built-in
 
 ## Where tests live
 
-Four tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutting tiers
-(integration and model-based in folders, e2e as its single file)**
+Five tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutting tiers
+(integration, model-based and crash in folders, e2e as its single file)**
 ([ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md), superseding
 [0046](../docs/adr/0046-test-layout-colocated-tier-suffix.md)'s integration placement; the
 *why* — the tier taxonomy and mock-vs-DI-vs-real — is
@@ -40,6 +40,17 @@ Four tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutti
   backend-capability contract is [model/CAPABILITIES.md](model/CAPABILITIES.md); what only
   wall-clock time can test is written down in
   [model/tier3-procedure.md](model/tier3-procedure.md).
+- **Crash/concurrency** — [crash/](crash/): the real CLI spawned as child processes against a
+  real sole-owner bucket, hard-killed (`SIGKILL`) or deterministically parked at chosen
+  S3-request boundaries by the [crash/killswitch.mjs](crash/killswitch.mjs) `--import` preload.
+  Interruption cases tear every multi-step transition and assert the store stays restorable;
+  concurrency cases run backup/cleanup/forget/setup from separate processes with separate
+  `S3CAB_HOME`s against one bucket. Gated on `S3CAB_CRASH_BUCKET` (`test-s3cab-<owner>-crash` —
+  cases wipe the bucket), `npm run test:crash` only, **never** in `test:all`. Assertions go
+  through the model tier's independent inspector/parser, never `src/lib/s3.mjs`. The two `PIN`
+  tests in [crash/concurrency.test.mjs](crash/concurrency.test.mjs) assert *current wrong*
+  behaviour (the [concurrency epic](../proposals/concurrency-and-locking.md) §1 races) and flip
+  loudly when a fix lands, like `model.findings`.
 
 A second test file for one module qualifies with a **dotted aspect**
 (`setup.remote-first.test.mjs`), not a hyphen — a hyphen reads as a sibling command.
@@ -62,8 +73,8 @@ empty tests. The **shallow** `test/*.test.mjs` catches e2e ([e2e.test.mjs](e2e.t
 (Node's positional globs can't negate, which is exactly why the tiers are split by directory
 rather than by suffix — [ADR-0049](../docs/adr/0049-centralize-cross-cutting-test-tiers.md).)
 `test:integration` runs just the integration folder; `test:model` just the model tier;
-`test:all` runs everything a bucket-equipped dev can share (conformance stays separate — its
-bucket wipe brooks no co-tenants).
+`test:all` runs everything a bucket-equipped dev can share (conformance and crash stay
+separate — their bucket wipes brook no co-tenants).
 
 ### VS Code file nesting
 

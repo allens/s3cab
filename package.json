@@ -33,6 +33,7 @@
     "test:model": "node --test --experimental-test-module-mocks \"test/model/*.test.mjs\"",
     "test:integration": "node --test --env-file-if-exists=.env.test \"test/integration/**/*.test.mjs\"",
     "test:conformance": "node --test --test-concurrency=1 --env-file-if-exists=.env.test \"test/model/conformance/**/*.test.mjs\"",
+    "test:crash": "node --test --test-concurrency=1 --env-file-if-exists=.env.test \"test/crash/**/*.test.mjs\"",
     "test:all": "node --test --experimental-test-module-mocks --env-file-if-exists=.env.test \"src/**/*.test.mjs\" \"test/*.test.mjs\" \"test/model/*.test.mjs\" \"test/integration/**/*.test.mjs\"",
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
