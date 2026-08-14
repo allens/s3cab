@@ -1255,6 +1255,7 @@ const restoreResult = (over) => ({
   snapshot: "2026-07-04T1000",
   restored: [],
   skipped: [],
+  collided: [],
   missing: [],
   deleted: [],
   ...over,
@@ -1341,6 +1342,28 @@ describe("renderRestore", () => {
     assert.match(
       text,
       /\nCould not restore 1 file — the backup no longer holds its contents:\n/,
+    );
+  });
+
+  it("names every path this disk folded into an already-restored file (ADR-0086)", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/file.txt"],
+        collided: ["/home/me/File.txt"],
+      }),
+    );
+    assert.match(
+      text,
+      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nCould not restore 1 file — this disk can't tell its name apart from a file already restored \(the names differ only by letter case or accent encoding\):\n {2}\/home\/me\/File\.txt\n/,
+    );
+    // The constructive fix (ADR-0030): a copy-pasteable way to keep both.
+    assert.match(
+      text,
+      /\n {2}s3cab restore photos <path> --output <directory>/,
     );
   });
 
