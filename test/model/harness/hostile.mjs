@@ -1,6 +1,7 @@
 import {
   linkSync,
   mkdirSync,
+  readFileSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -126,12 +127,16 @@ export function writeImplausibleTimestamps(dir) {
 
 /**
  * Unicode normalisation neighbours: café spelled NFC (é = U+00E9) and NFD
- * (e + combining acute) — distinct names on NTFS, byte-distinct everywhere.
+ * (e + combining acute) — distinct names on NTFS and ext4, byte-distinct
+ * everywhere. APFS folds normalisation the way NTFS folds case, so on macOS
+ * the second write lands on the first file and the pair collapses to one.
  * @param {string} dir
+ * @returns {boolean} whether the two spellings remained distinct files
  */
 export function writeUnicodePair(dir) {
   writeFileSync(join(dir, "café.txt"), "nfc spelling");
   writeFileSync(join(dir, "café.txt"), "nfd spelling");
+  return readFileSync(join(dir, "café.txt"), "utf8") === "nfc spelling";
 }
 
 /** `sep` re-export so tests can build native paths without importing path. */

@@ -244,10 +244,16 @@ describe("hostile trees: links", () => {
 });
 
 describe("hostile trees: contents and timestamps", () => {
-  it("round-trips unicode normalisation neighbours as distinct files", async () => {
+  it("round-trips unicode normalisation neighbours as distinct files", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = makeSet(dir.path);
-    writeUnicodePair(data);
+    // APFS folds normalisation (the case-collision hazard's unicode twin —
+    // a foreign manifest with both spellings restores last-wins there), so
+    // the pair only exists as two files on NTFS/ext4.
+    if (!writeUnicodePair(data)) {
+      t.skip("filesystem folds unicode normalisation (APFS)");
+      return;
+    }
 
     const { restoredData } = await roundtrip(dir.path);
 
