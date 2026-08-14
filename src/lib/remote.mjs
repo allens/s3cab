@@ -27,7 +27,10 @@ import { isCorruptSnapshotError } from "./referenced.mjs";
 // `remoteSnapshotUri` so the layout stays spelled in one place; s3.mjs stays the
 // generic SDK boundary (so it never learns the layout, the same way objects.mjs
 // owns OBJECTS_PREFIX for its half). The set name is canonical `[a-z0-9-]+`
-// (validateSetName), so it is a safe key segment with no escaping.
+// (validateSetName), so it is a safe key segment with no escaping — and the
+// URI parse below the seam is a plain string split (see s3.mjs's parseS3Uri),
+// so even a future looser charset reaches the bucket verbatim rather than
+// percent-encoded.
 
 const SNAPSHOTS_PREFIX = "snapshots/";
 

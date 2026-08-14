@@ -133,41 +133,34 @@ describe("conformance: store semantics", () => {
   );
 
   it(
-    "a unicode set name is stored under a percent-encoded key (found by this tier — current behaviour)",
+    "a unicode set name is stored under its own raw-UTF-8 key (found by this tier — fixed)",
     { timeout: 120_000 },
     async () => {
-      // parseS3Uri (src/lib/s3.mjs) takes `new URL(uri).pathname`, which is
-      // percent-encoded — so `café`'s keys land in the bucket as `caf%C3%A9`.
+      // parseS3Uri (src/lib/s3.mjs) once took `new URL(uri).pathname`, which
+      // percent-encodes — `café`'s keys landed in the bucket as `caf%C3%A9`,
+      // breaking the format spec's promise that keys are `snapshots/<set>/…`
+      // under the set's own name. Only this tier's independent inspector could
+      // see it: every seam call encoded identically, so s3cab's own round-trip
+      // always worked (and the Tier 1 fake shared the parsing). The parse is a
+      // plain string split now; the *stored* key must be the raw spelling.
       await putText(
         `s3://${bucket}/snapshots/café/2026-01-01T0000.tsv.zst`,
         "c",
       );
 
-      // TODO(known bug, found 2026-08-14 by this test; Tier 1's fake shares the
-      // URL parsing so it cannot see it — only the independent inspector can):
-      // the stored key is the encoded spelling, which (a) breaks the format
-      // spec's promise that keys are `snapshots/<set>/…` under the set's own
-      // name — an external reader per guide/format.md sees `caf%C3%A9` and a
-      // header claiming `café`; (b) shows encoded names wherever s3cab derives
-      // names from listed keys; (c) aliases distinct names (a set literally
-      // named `caf%C3%A9` maps to the same keys). When keys become raw UTF-8,
-      // flip the expected listing to the plain spelling.
       const raw = await real.listAll(bucket);
       const stored = raw.map(({ key }) => key).filter((k) => k.includes("caf"));
-      assert.deepEqual(stored, ["snapshots/caf%C3%A9/2026-01-01T0000.tsv.zst"]);
+      assert.deepEqual(stored, ["snapshots/café/2026-01-01T0000.tsv.zst"]);
 
-      // Day-to-day s3cab is self-consistent: every seam call encodes the same
-      // way, so its own round-trip works — which is exactly why nothing ever
-      // noticed.
+      // And the seam's own view agrees with the inspector's — listing and
+      // fetching under the raw name round-trips.
       const seamListed = [];
       for await (const object of listObjects(
         `s3://${bucket}/snapshots/café/`,
       )) {
         seamListed.push(object.Key);
       }
-      assert.deepEqual(seamListed, [
-        "snapshots/caf%C3%A9/2026-01-01T0000.tsv.zst",
-      ]);
+      assert.deepEqual(seamListed, ["snapshots/café/2026-01-01T0000.tsv.zst"]);
       const body = await getText(
         `s3://${bucket}/snapshots/café/2026-01-01T0000.tsv.zst`,
       );

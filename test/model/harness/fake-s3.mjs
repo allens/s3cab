@@ -78,11 +78,14 @@ const notFound = (key) =>
  * @returns {{ bucket: string, key: string }}
  */
 export function parseUri(uri) {
-  const url = new URL(uri);
-  if (url.protocol !== "s3:") {
-    throw new Error(`Expected an s3:// URI (got ${url.protocol}//)`);
+  // A plain string split, mirroring s3.mjs's parseS3Uri: the key must survive
+  // verbatim (`new URL` percent-encodes non-ASCII), or the fake would mask the
+  // encoding bug only the Tier 2 inspector could see.
+  const match = /^s3:\/\/([^/]+)(?:\/(.*))?$/s.exec(uri);
+  if (!match) {
+    throw new Error(`Expected an s3://bucket[/key] URI (got ${uri})`);
   }
-  return { bucket: url.hostname, key: url.pathname.slice(1) };
+  return { bucket: match[1] ?? "", key: match[2] ?? "" };
 }
 
 /**

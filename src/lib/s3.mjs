@@ -498,15 +498,24 @@ export const requestErrorRelay =
  * Parse an `s3://bucket/key` URI into its bucket and key. Module-private: every
  * operation here takes a URI and splits it on the way through, so the parse never
  * needs to cross the SDK boundary.
+ *
+ * A plain string split, deliberately **not** `new URL`: the URI is an internal
+ * spelling assembled by callers (`` `s3://${bucket}/${key}` ``), and the key
+ * must reach S3 **verbatim** — WHATWG parsing percent-encodes anything outside
+ * its URL code points (a set named `café` stored its manifests under
+ * `caf%C3%A9`, breaking guide/format.md's promise that keys are
+ * `snapshots/<set>/…` under the set's own name), lowercases and IDN-maps the
+ * hostname, folds backslashes, and truncates at `#`/`?`. The SDK does its own
+ * wire escaping; the key here is the *name*, not a URL path.
  * @param {string} uri
  * @returns {{ Bucket: string, Key: string }}
  */
 function parseS3Uri(uri) {
-  const url = new URL(uri);
-  if (url.protocol !== "s3:") {
-    throw new Error(`Expected an s3:// URI (got ${url.protocol}//)`);
+  const match = /^s3:\/\/([^/]+)(?:\/(.*))?$/s.exec(uri);
+  if (!match) {
+    throw new Error(`Expected an s3://bucket[/key] URI (got ${uri})`);
   }
-  return { Bucket: url.hostname, Key: url.pathname.slice(1) };
+  return { Bucket: match[1] ?? "", Key: match[2] ?? "" };
 }
 
 /**
