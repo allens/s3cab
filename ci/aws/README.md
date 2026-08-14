@@ -39,6 +39,7 @@ only records **what this project uses**.
 | Resource | Name | Region |
 | --- | --- | --- |
 | Test bucket | `test-s3cab-ci-integration` | `us-east-1` |
+| Conformance bucket | `test-s3cab-ci-conformance` | `us-east-1` |
 | IAM policy | `test-s3cab-ci-access` | — |
 | OIDC role | `s3cab-ci` | — |
 

@@ -63,7 +63,9 @@ Two subtypes exist:
   (`--test-concurrency=1` is baked into the npm script). Point
   `S3CAB_CONFORMANCE_BUCKET` at it in `.env.test`; the suite hard-fails without it
   rather than skipping, and refuses any name not matching
-  `test-s3cab-*-conformance`.
+  `test-s3cab-*-conformance`. CI has its own sole-owner bucket
+  (`test-s3cab-ci-conformance`): the nightly workflow runs the suite against it,
+  so a personal bucket is only for local runs.
 
 From a clone, the bundled script provisions either subtype in one cross-platform step
 (it uses the AWS SDK s3cab already depends on — no AWS CLI needed):

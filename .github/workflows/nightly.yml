@@ -66,3 +66,34 @@ jobs:
           S3CAB_MODEL_SEQUENCES=$SEQUENCES \
           S3CAB_MODEL_STEPS=30 \
           npm run test:model
+
+  # Tier 2 against real S3: the conformance suite owns test-s3cab-ci-conformance
+  # outright (whole-bucket wipes), so this job must be its only tenant — the
+  # concurrency group serializes a manual dispatch landing during the scheduled
+  # run, which would otherwise interleave wipes. Auth is the same OIDC role as
+  # ci.yml's s3-integration job: a scheduled run presents the refs/heads/main
+  # subject the trust policy already allows, and the CI policy's
+  # test-s3cab-ci-* wildcard covers the bucket. One OS only — the S3 code path
+  # doesn't branch on platform.
+  conformance:
+    name: conformance (real S3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: nightly-conformance
+    permissions:
+      id-token: write # mint the OIDC token for the AWS assume-role
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1 # the conformance bucket's region
+      - run: npm run test:conformance
+        env:
+          S3CAB_CONFORMANCE_BUCKET: ${{ vars.S3CAB_CONFORMANCE_BUCKET }}
