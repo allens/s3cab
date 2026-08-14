@@ -48,7 +48,7 @@ a name says, and the `test-s3cab-` prefix is the **safety boundary**: scope each
 identity to `arn:aws:s3:::test-s3cab-<owner>-*` and it can never touch a real backup
 bucket, whatever else goes wrong.
 
-Two subtypes exist:
+Three subtypes exist:
 
 - **`integration`** — for this guide's suite. Unversioned, everything expires after
   1 day. Shareable: the tests assert only on their own per-run objects, so concurrent
@@ -66,6 +66,14 @@ Two subtypes exist:
   `test-s3cab-*-conformance`. CI has its own sole-owner bucket
   (`test-s3cab-ci-conformance`): the nightly workflow runs the suite against it,
   so a personal bucket is only for local runs.
+- **`crash`** — for the crash/concurrency tier (`npm run test:crash`,
+  [test/crash/](../test/crash/)): real CLI child processes hard-killed or parked
+  mid-protocol. Provision it exactly like a conformance bucket (versioned, same
+  lifecycle — pass `--conformance` to the script and name it `…-crash`): the tier
+  wipes the whole bucket between cases and additionally aborts stranded multipart
+  uploads, so the same sole-owner, never-shared, serial-by-construction rules
+  apply. Point `S3CAB_CRASH_BUCKET` at it in `.env.test`; the suite hard-fails
+  without it and refuses any name not matching `test-s3cab-*-crash`.
 
 From a clone, the bundled script provisions either subtype in one cross-platform step
 (it uses the AWS SDK s3cab already depends on — no AWS CLI needed):

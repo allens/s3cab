@@ -78,6 +78,13 @@ regression test.</sub>
     than silently-corrupt — but the backup that created it said it succeeded.
   - The same collision also defeats snapshot immutability quietly in the other direction: A never
     learns that its local `0915` and the remote `0915` are different documents.
+  - **That other direction is confirmed live, multi-process** (2026-08-14, crash tier): two real
+    CLI processes, separate `S3CAB_HOME`s, different tree content, same set and same minute —
+    the loser of the manifest no-clobber race fails with *"Snapshot '…' is already backed up …
+    Snapshots are immutable and never overwritten"*, which is true of the **name** and false of
+    the loser's **data** (its differing file's object is uploaded, but no manifest records it).
+    Repro: *"same set, same snapshot name"* in
+    [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs).
   - Pinned by *"another machine's same-name snapshot vouches for a never-uploaded baseline"*
     ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
 - **`backup` exits 0 when files were unreadable.** Unreadable files become `#ERROR` rows and are
