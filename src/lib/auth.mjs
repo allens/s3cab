@@ -516,11 +516,13 @@ yours did. Sync your system clock, then run the command again.`,
  * A HEAD response carries no body by definition, so a rejected `HeadObject` has
  * nowhere to put the code: the SDK falls back to a placeholder name and a
  * literal `"UnknownError"` message, which is what reached the terminal before
- * this row existed. `backup`'s first S3 call is exactly that HEAD (the
- * baseline-trust check in lib/upload.mjs `storedHashes`), so a permission
- * problem printed as a bare `ERROR: UnknownError` while the same problem on a
- * GET — `status`, `restore` — reported perfectly. Which verb a command happened
- * to reach for first decided whether its error was legible.
+ * this row existed. `backup`'s first S3 call was exactly that HEAD (the
+ * pre-ADR-0084 baseline-trust check), so a permission problem printed as a
+ * bare `ERROR: UnknownError` while the same problem on a GET — `status`,
+ * `restore` — reported perfectly. Which verb a command happened to reach for
+ * first decided whether its error was legible. The trust check reads bytes now
+ * (a GET), but HEADs stay on the hot path — `objectExists` preflights every
+ * large PUT — so the row is still earned.
  *
  * The discriminator is the **absence of `Code`**, not the status: an
  * unenumerated but genuine code (`AccountProblem`, `AllAccessDisabled`) still

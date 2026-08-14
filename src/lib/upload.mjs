@@ -13,8 +13,8 @@ import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
-import { remoteSnapshotUri } from "./remote.mjs";
-import { objectExists, putFile } from "./s3.mjs";
+import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
+import { putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
@@ -45,16 +45,20 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
  * paths diff against, and the one place the baseline-vs-LIST decision lives
  * (docs/design/backup.md).
  *
- * With a `since` baseline it is that snapshot's hashes, but only once one HEAD
- * has confirmed the baseline still exists remotely (proposals/bugs.md, HIGH).
- * The objects-first/snapshot-last invariant makes a remote snapshot's presence
- * proof its objects were stored, and cleanup never deletes referenced objects —
- * so a baseline still in the cloud is a trustworthy skip-list. One that isn't
- * (forgotten remotely, or taken locally but never uploaded) may claim more is
- * stored than is; a hash it wrongly skips never reaches the conditional-PUT
- * backstop, so the published snapshot would reference a missing object. On a
- * miss, drop the baseline entirely — its skips are exactly the untrusted data —
- * and LIST the store instead, like a first backup.
+ * With a `since` baseline it is that snapshot's hashes, but only once the
+ * remote copy has been confirmed **byte-identical** to the local baseline file
+ * (`matchRemoteSnapshot`, ADR-0084). The objects-first/snapshot-last invariant
+ * makes a remote snapshot's presence proof its objects were stored, and cleanup
+ * never deletes referenced objects — so a baseline still in the cloud is a
+ * trustworthy skip-list. But only *this* baseline's presence proves anything:
+ * names are minute-resolution wall clock, so another machine sharing the set
+ * can hold the same name for a different snapshot, whose presence would vouch
+ * for objects this machine never stored. A baseline that fails the check —
+ * absent (forgotten remotely, or taken locally but never uploaded) or
+ * different (someone else's) — may claim more is stored than is; a hash it
+ * wrongly skips never reaches the conditional-PUT backstop, so the published
+ * snapshot would reference a missing object. Drop it entirely — its skips are
+ * exactly the untrusted data — and LIST the store instead, like a first backup.
  *
  * The result is a materialized Set, not a stream: the fused pipeline asks about
  * one row at a time, so membership has to be random-access. It is sized by the
@@ -63,14 +67,21 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
+ * @param {string} args.snapshotDir - Local dir holding the baseline (`<since>.tsv.zst`)
  * @param {string} [args.since] - The baseline snapshot's name (trust-checked remotely)
  * @param {SnapshotEntries} [args.baseline] - That baseline's entries; without both, the store is LISTed
  * @returns {Promise<Set<string>>} Hashes that need no upload
  */
-export async function storedHashes({ bucket, set, since, baseline }) {
+export async function storedHashes({
+  bucket,
+  set,
+  snapshotDir,
+  since,
+  baseline,
+}) {
   if (since && baseline) {
-    const trusted = await objectExists(remoteSnapshotUri(bucket, set, since));
-    if (trusted) {
+    const match = await matchRemoteSnapshot(bucket, set, since, snapshotDir);
+    if (match === "identical") {
       // The PR-A interlock's other half (ADR-0064): existing remotely proves the
       // baseline's objects were stored *then*; the deletion record says which of
       // them a later `delete` removed since. Subtract those, or the baseline
@@ -81,8 +92,12 @@ export async function storedHashes({ bucket, set, since, baseline }) {
       return baselineHashes(baseline, deleted.keys());
     }
     console.warn(
-      `Baseline snapshot '${since}' is no longer in the cloud — ` +
-        `checking what's stored instead.`,
+      match === "absent"
+        ? `Baseline snapshot '${since}' is no longer in the cloud — ` +
+            `checking what's stored instead.`
+        : `The cloud's snapshot '${since}' isn't the one on this computer — ` +
+            `another machine backing up the set '${set}' may have taken it. ` +
+            `Checking what's stored instead.`,
     );
   }
 
@@ -429,8 +444,12 @@ export async function fileChange(path, recorded) {
 /**
  * Upload the snapshot manifest itself — the **last** step of any backup, which
  * is what makes a snapshot's mere presence proof its objects exist
- * (docs/design/backup.md). No-clobber, and here a name that already exists
- * remotely is an **error**, never an overwrite (snapshots are immutable).
+ * (docs/design/backup.md). No-clobber, and a name that already exists remotely
+ * holding **different bytes** is an error, never an overwrite (snapshots are
+ * immutable). Holding the **same bytes** is quiet success (ADR-0084): the
+ * no-clobber PUT retries on a lost response, and the retry then meets this
+ * run's own first attempt as a 412 — refusing there turned an upload that
+ * *worked* into a reported failure. Byte-identity tells the two apart exactly.
  * Called by `uploadSnapshot` and by `backup`, each once its own objects are up.
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
@@ -444,6 +463,10 @@ export async function uploadSnapshotFile({ bucket, set, snapshotDir, name }) {
   const snapshotPath = join(snapshotDir, snapshotFileName(name));
   const wrote = await putFile(snapshotPath, snapshotUri, { noClobber: true });
   if (!wrote) {
+    const match = await matchRemoteSnapshot(bucket, set, name, snapshotDir);
+    if (match === "identical") {
+      return; // this very manifest is already up — publishing is idempotent
+    }
     throw new Error(
       `Snapshot '${name}' is already backed up (${snapshotUri}). ` +
         `Snapshots are immutable and never overwritten (docs/design/backup.md).`,
@@ -488,7 +511,13 @@ export async function uploadSnapshot({
     const { entries } = await readSnapshot(snapshotDir, since);
     baseline = entries;
   }
-  const stored = await storedHashes({ bucket, set, since, baseline });
+  const stored = await storedHashes({
+    bucket,
+    set,
+    snapshotDir,
+    since,
+    baseline,
+  });
 
   // A snapshot's entries iterate as exactly the `[path, Props]` rows the transform
   // consumes — the "one consumer, two sources" seam.
