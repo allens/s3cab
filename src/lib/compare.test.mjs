@@ -813,7 +813,7 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
     const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     writeFileSync(
       join(dir, `${name}.tsv.zst`),
-      zstdCompressSync(Buffer.from(header + row, "utf8")),
+      zstdCompressSync(Buffer.from(header + row + "#END\n", "utf8")),
     );
   }
 

@@ -161,6 +161,18 @@ contents are [online only](compare.md#files-stored-online-not-on-this-computer))
 metadata rows recording what the snapshot does *not* include and why. A reader wanting only
 the file rows can simply skip every `#` line.
 
+The last line of every snapshot is the trailer `#END`, which today carries no further
+fields. It exists to make truncation detectable: zstd happily decompresses a cut-short file
+to a byte *prefix* of the original, which would otherwise read as a valid, smaller
+snapshot. A snapshot without the `#END` trailer is damaged goods — treat it as truncated,
+not as complete. (A reader that only wants the file rows can still skip every `#` line;
+checking for the trailer first is what tells it the rows it read are all of them.)
+
+Match the marker and **ignore anything after it** on that line: no truncation can add
+fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
+and tolerating them leaves room to add a column later without breaking readers already
+written against this spec.
+
 ## The local side (`~/.s3cab/`)
 
 The local layout is a user surface, not a hidden implementation detail — **the files are
