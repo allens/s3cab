@@ -39,9 +39,13 @@ const objectUri = (bucket, hash) => `s3://${bucket}/${objectKey(hash)}`;
  * present never needs re-storing — so this is a conditional PUT (`noClobber`)
  * that silently no-ops when the object is already there, returning whether it
  * actually uploaded. The caller supplies the hash it computed (from `prop` or a
- * snapshot); the store trusts it on write and verifies only on read
- * (`getObject`), mirroring how the store has always behaved. `force` overwrites
- * an existing object instead of skipping it.
+ * snapshot); the write is held to it — `putFile` hashes the bytes it actually
+ * streams and refuses if they no longer match, so a file rewritten mid-transfer
+ * can't be stored under the stale hash — and the read verifies again
+ * (`getObject`). The refusal removes the object it just created; under `force`,
+ * which overwrites an existing object instead of skipping it, it can't (the
+ * name may have held content this call already destroyed), so there the object
+ * is left and the error says so.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} hash - The file's SHA-256, its key under `objects/`
  * @param {string} path - Local path of the file to store
@@ -60,6 +64,7 @@ export function putObject(
   return putFile(path, objectUri(bucket, hash), {
     noClobber: !force,
     onProgress,
+    sha256: hash,
   });
 }
 

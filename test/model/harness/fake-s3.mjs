@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { ContentMismatchError } from "../../../src/lib/error.mjs";
 import { clockHolder } from "./clock.mjs";
 
 /** @import { _Object } from "@aws-sdk/client-s3" */
@@ -98,7 +100,8 @@ export class FakeS3 {
     /**
      * Targeted-test hook: runs after a `putFile` is asked for but *before* the
      * fake reads the file's bytes — the "file mutated during its transfer"
-     * window (proposals/bugs.md C1). Return value ignored.
+     * window, the one putFile's streamed-digest check closes (the C1 fix).
+     * Return value ignored.
      * @type {((path: string, uri: string) => Promise<void> | void) | null}
      */
     this.onPutFileRead = null;
@@ -206,11 +209,11 @@ export class FakeS3 {
   /**
    * @param {string} path - Local file whose bytes to store
    * @param {string} uri
-   * @param {{ noClobber?: boolean, onProgress?: (transfer: { path: string,
-   *   loaded: number, total: number }) => void }} [options]
+   * @param {{ noClobber?: boolean, sha256?: string, onProgress?: (transfer: {
+   *   path: string, loaded: number, total: number }) => void }} [options]
    * @returns {Promise<boolean>} true if stored, false if noClobber found it present
    */
-  async putFile(path, uri, { noClobber, onProgress } = {}) {
+  async putFile(path, uri, { noClobber, sha256, onProgress } = {}) {
     // The C1 window: the real putFile re-reads the file from disk for the
     // transfer itself, after the drift guard has already passed. Reading the
     // bytes here — after this hook — models that faithfully.
@@ -218,7 +221,7 @@ export class FakeS3 {
     const bytes = await readFile(path);
     onProgress?.({ path, loaded: bytes.length, total: bytes.length });
     const { bucket, key } = parseUri(uri);
-    return this.#apply("PUT", uri, () => {
+    const wrote = await this.#apply("PUT", uri, () => {
       const map = this.#bucket(bucket);
       if (noClobber && map.has(key)) {
         return false;
@@ -226,6 +229,26 @@ export class FakeS3 {
       map.set(key, { bytes, virtualMs: this.#now() });
       return true;
     });
+    // The real putFile's streamed-digest check, same ordering: verified only
+    // once the transfer *succeeded* (a fault from #apply throws first, a
+    // noClobber miss returns false untouched), and the mis-stored object is
+    // removed before the throw. Removal is direct rather than via
+    // `this.deleteObject` so a fault plan can't strand the corrupt object —
+    // that double-fault path (real code wraps it in a plain Error) is not
+    // modelled here. Nor is the forced (`noClobber` false) mismatch, which the
+    // real putFile leaves in place and reports as a plain Error: `uploadObjects`
+    // never forces, so no model run can reach it.
+    if (wrote && sha256) {
+      const got = createHash("sha256").update(bytes).digest("hex");
+      if (got !== sha256) {
+        this.#bucket(bucket).delete(key);
+        throw new ContentMismatchError(
+          `Content changed during upload: ${path} streamed as ${got}, ` +
+            `not the recorded ${sha256}; the mis-stored object was removed`,
+        );
+      }
+    }
+    return wrote;
   }
 
   /**
