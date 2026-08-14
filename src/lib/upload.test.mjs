@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -11,18 +12,19 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 /** @import { Drift } from "./upload.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
-// not the AWS SDK"): the baseline-trust check (one HEAD before the baseline is
-// believed) and the drift guard run here with zero AWS, on every push. The
-// recorded `putFiles`/`headUris`/`listedPrefixes` are the assertions' evidence
-// of exactly which remote calls a run made. Module mocking has a load-bearing
-// ordering rule (see objects.test.mjs): the mock is registered first and
-// upload.mjs is imported dynamically below — there is deliberately no static
-// import of it. The runner needs `--experimental-test-module-mocks`.
+// not the AWS SDK"): the baseline-trust check (the remote baseline fetched and
+// compared byte-for-byte before it is believed, ADR-0084) and the drift guard
+// run here with zero AWS, on every push. The recorded
+// `putFiles`/`gotUris`/`listedPrefixes` are the assertions' evidence of exactly
+// which remote calls a run made. Module mocking has a load-bearing ordering
+// rule (see objects.test.mjs): the mock is registered first and upload.mjs is
+// imported dynamically below — there is deliberately no static import of it.
+// The runner needs `--experimental-test-module-mocks`.
 
-/** Whether the mocked `objectExists` reports the remote baseline present. */
-let baselineExists = true;
-/** @type {string[]} URIs HEADed via `objectExists`. */
-let headUris = [];
+/** @type {Map<string, Buffer>} bytes `getStream` serves per URI — a miss throws NoSuchKey. */
+let remoteFiles = new Map();
+/** @type {string[]} URIs fetched via `getStream`. */
+let gotUris = [];
 /** @type {{ path: string, uri: string }[]} PUTs, in call order. */
 let putFiles = [];
 /** @type {Set<string>} object URIs the store already holds (PUT no-ops → false). */
@@ -37,10 +39,22 @@ let deletionRecords = new Map();
 let putError;
 mock.module("./s3.mjs", {
   exports: {
-    objectExists: async (/** @type {string} */ uri) => {
-      headUris.push(uri);
-      return baselineExists;
+    getStream: async (/** @type {string} */ uri) => {
+      gotUris.push(uri);
+      const bytes = remoteFiles.get(uri);
+      if (!bytes) {
+        throw Object.assign(new Error(`no such key: ${uri}`), {
+          name: "NoSuchKey",
+        });
+      }
+      return Readable.from([bytes]);
     },
+    // Name-based, like the real one — the mocked getStream above throws with
+    // the SDK's NoSuchKey name, so absence round-trips through the same check
+    // production uses.
+    isObjectNotFound: (/** @type {unknown} */ error) =>
+      Error.isError(error) &&
+      (error.name === "NoSuchKey" || error.name === "NotFound"),
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
       callOrder.push(`put:${basename(path)}`);
@@ -56,12 +70,8 @@ mock.module("./s3.mjs", {
       }
     },
     // Imported by modules in upload.mjs's graph (objects.mjs, remote.mjs);
-    // no test here reaches them.
-    getStream: async () => {
-      throw new Error("unexpected getStream in upload tests");
-    },
+    // no test here reaches it.
     deleteObject: async () => {},
-    isObjectNotFound: () => false,
   },
 });
 mock.module("./deletion-record.mjs", {
@@ -111,12 +121,13 @@ const {
   planUpload,
   uploadObjects,
   uploadSnapshot,
+  uploadSnapshotFile,
   uploadDir,
 } = await import("./upload.mjs");
 
 beforeEach(() => {
-  baselineExists = true;
-  headUris = [];
+  remoteFiles = new Map();
+  gotUris = [];
   putFiles = [];
   storedUris = new Set();
   storeHashes = [];
@@ -143,6 +154,21 @@ const assertRewritten = (path) =>
   );
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+
+/**
+ * Publish a local snapshot's bytes at its remote URI, so the mocked `getStream`
+ * serves exactly the copy the byte-identity check should trust (ADR-0084).
+ * @param {string} snapshotDir - Local dir holding `<name>.tsv.zst`
+ * @param {string} bucket - The fixture's bucket
+ * @param {string} set - The fixture's set
+ * @param {string} name - Snapshot name without extension
+ * @returns {string} The remote URI it was published at
+ */
+const publishSnapshot = (snapshotDir, bucket, set, name) => {
+  const uri = `s3://${bucket}/snapshots/${set}/${name}.tsv.zst`;
+  remoteFiles.set(uri, readFileSync(join(snapshotDir, `${name}.tsv.zst`)));
+  return uri;
+};
 
 /**
  * Build a snapshot lookup from a path→hash map — only the hash matters to
@@ -466,8 +492,10 @@ describe("uploadObjects (the streaming PUT transform)", () => {
 /**
  * Snapshot one real file as the upload target, plus a baseline snapshot of the
  * same file — so the target's one hash is in the baseline, and whether it gets
- * planned is decided entirely by whether the baseline is trusted. Returns the
- * file path, its content hash, and the shared `uploadSnapshot` args.
+ * planned is decided entirely by whether the baseline is trusted. The baseline's
+ * own bytes are published at its remote URI (the trusted state); tests that
+ * distrust it clear or replace that entry. Returns the file path, its content
+ * hash, the baseline's remote URI, and the shared `uploadSnapshot` args.
  * @param {string} dirPath - A temp dir to build the fixture in
  */
 const oneFileFixture = async (dirPath) => {
@@ -483,10 +511,17 @@ const oneFileFixture = async (dirPath) => {
   const baseline = "2025-01-15T1020";
   await writeSnapshot(snapshotDir, baseline, [file]);
   await writeSnapshot(snapshotDir, target, [file]);
+  const baselineUri = publishSnapshot(
+    snapshotDir,
+    "trust-bucket",
+    "trusty",
+    baseline,
+  );
 
   return {
     file,
     hash,
+    baselineUri,
     args: {
       bucket: "trust-bucket",
       set: "trusty",
@@ -497,24 +532,23 @@ const oneFileFixture = async (dirPath) => {
   };
 };
 
-// The baseline-trust check (proposals/bugs.md, the HIGH baseline-trust bug):
-// a `--since` baseline is believed iff its snapshot still exists remotely —
-// presence proves its objects were stored (objects-first/snapshot-last) and
-// cleanup never deletes referenced objects. A baseline forgotten remotely may
-// claim more is stored than is, and a hash it wrongly skips never reaches the
-// conditional-PUT backstop — so on a miss the baseline is dropped entirely and
-// the store is LISTed, as a first backup would.
+// The baseline-trust check (ADR-0084): a `--since` baseline is believed iff the
+// remote copy under its name is **byte-identical** to the local baseline file —
+// presence proves objects were stored (objects-first/snapshot-last) and cleanup
+// never deletes referenced objects, but snapshot names are minute-resolution
+// wall clock, so a same-name snapshot may be *another machine's*, vouching for
+// objects this machine never stored. A baseline that is absent remotely or
+// holds different bytes is dropped entirely and the store is LISTed, as a
+// first backup would.
 describe("uploadSnapshot baseline trust", () => {
-  it("trusts a baseline that still exists remotely — no object PUT, no store LIST", async () => {
+  it("trusts a baseline whose remote copy matches byte-for-byte — no object PUT, no store LIST", async () => {
     await using dir = await mkTmpDir();
-    const { args } = await oneFileFixture(dir.path);
+    const { args, baselineUri } = await oneFileFixture(dir.path);
 
     const result = await uploadSnapshot(args);
 
-    // The one HEAD, on the baseline's remote snapshot URI.
-    assert.deepEqual(headUris, [
-      `s3://trust-bucket/snapshots/trusty/${args.since}.tsv.zst`,
-    ]);
+    // The one GET, of the baseline's remote snapshot, for the byte comparison.
+    assert.deepEqual(gotUris, [baselineUri]);
     assert.deepEqual(listedPrefixes, []);
     // Nothing planned; the only PUT is the snapshot itself, last and alone.
     assert.deepEqual(
@@ -549,9 +583,9 @@ describe("uploadSnapshot baseline trust", () => {
 
   it("distrusts a baseline gone from the cloud — LISTs the store and re-plans its objects", async () => {
     await using dir = await mkTmpDir();
-    const { file, hash, args } = await oneFileFixture(dir.path);
+    const { file, hash, args, baselineUri } = await oneFileFixture(dir.path);
 
-    baselineExists = false; // forgotten remotely (or never uploaded)
+    remoteFiles.delete(baselineUri); // forgotten remotely (or never uploaded)
     const result = await uploadSnapshot(args);
 
     // Fallback ran: the store was LISTed, the stale baseline's skip was not
@@ -571,9 +605,9 @@ describe("uploadSnapshot baseline trust", () => {
 
   it("the LIST fallback still skips objects the store genuinely has", async () => {
     await using dir = await mkTmpDir();
-    const { hash, args } = await oneFileFixture(dir.path);
+    const { hash, args, baselineUri } = await oneFileFixture(dir.path);
 
-    baselineExists = false;
+    remoteFiles.delete(baselineUri);
     storeHashes = [hash]; // the object survived (still referenced elsewhere)
     const result = await uploadSnapshot(args);
 
@@ -582,6 +616,70 @@ describe("uploadSnapshot baseline trust", () => {
       [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
     );
     assert.equal(result.candidates, 0);
+  });
+
+  it("distrusts a same-name baseline holding different bytes — another machine's snapshot", async () => {
+    // The cross-machine vouching bug (ADR-0084): snapshot names are
+    // minute-resolution wall clock, so machine B can publish `2025-01-15T1020`
+    // for a completely different set of files. Its *presence* used to be enough
+    // for machine A to skip every hash its own local baseline lists — objects
+    // never stored anywhere, silently omitted, and the published snapshot
+    // references them. Bytes tell the machines apart exactly.
+    await using dir = await mkTmpDir();
+    const { file, hash, args, baselineUri } = await oneFileFixture(dir.path);
+
+    remoteFiles.set(baselineUri, Buffer.from("machine B's snapshot bytes"));
+    const result = await uploadSnapshot(args);
+
+    // Distrusted: the store was LISTed and the object went up, objects first,
+    // snapshot last — exactly the absent-baseline fallback.
+    assert.deepEqual(listedPrefixes, ["s3://trust-bucket/objects/"]);
+    assert.deepEqual(putFiles, [
+      { path: file, uri: `s3://trust-bucket/objects/${hash}` },
+      {
+        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+      },
+    ]);
+    assert.equal(result.candidates, 1);
+    assert.equal(result.uploaded, 1);
+  });
+});
+
+// Publishing the manifest is idempotent iff the remote copy is this very file
+// (ADR-0084): a no-clobber PUT whose response was lost is retried by the SDK,
+// and the retry then meets the first attempt's success as a 412. Refusing there
+// reported a backup that *worked* as failed. Different bytes under the name stay
+// the immutability error — that really is someone else's snapshot.
+describe("uploadSnapshotFile manifest idempotence", () => {
+  it("succeeds quietly when the remote manifest is byte-identical — its own earlier PUT landed", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+    const manifestUri = publishSnapshot(
+      args.snapshotDir,
+      "trust-bucket",
+      "trusty",
+      args.name,
+    );
+    storedUris.add(manifestUri); // the PUT 412s: the first attempt landed
+
+    await uploadSnapshotFile(args);
+
+    // Not trusted blindly: the identity check really fetched and compared.
+    assert.deepEqual(gotUris, [manifestUri]);
+  });
+
+  it("still refuses a same-name manifest holding different bytes — snapshots are immutable", async () => {
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`;
+    remoteFiles.set(manifestUri, Buffer.from("machine B's snapshot bytes"));
+    storedUris.add(manifestUri);
+
+    await assert.rejects(
+      () => uploadSnapshotFile(args),
+      /already backed up.*never overwritten/s,
+    );
   });
 });
 
@@ -657,6 +755,7 @@ describe("uploadSnapshot drift guard", () => {
     const baseline = "2025-01-15T1020";
     await writeSnapshot(snapshotDir, baseline, []); // empty → target file planned
     await writeSnapshot(snapshotDir, target, [file]);
+    publishSnapshot(snapshotDir, "drift-guard-bucket", "drifty", baseline);
 
     return {
       file,

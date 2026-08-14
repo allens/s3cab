@@ -395,7 +395,12 @@ already stored (`storedHashes`) is settled up front, before any hashing:
    `reattach` *re-stamps* the owner, it never shares), so there is no other machine whose
    uploads the local history wouldn't already know about. Its objects were stored when it
    was uploaded (the snapshot-last invariant), so anything it references can be skipped with
-   **no network read**.
+   **no per-object network read** — one read of the baseline's remote copy first confirms it
+   is byte-identical to the local file
+   ([ADR-0084](../adr/0084-snapshot-identity-byte-equality.md)): a baseline that is absent
+   remotely (taken offline, or forgotten) or differs (a snapshot *name* is minute wall clock,
+   so another machine can mint the same one) proves nothing about what is stored, and the
+   run falls back to the LIST below.
 2. Candidates = hashes **not** in that baseline (content-keyed, so a file that only moved or
    was renamed is not re-uploaded), and each distinct hash is uploaded once however many
    paths carry it.

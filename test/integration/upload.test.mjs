@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -110,8 +110,25 @@ describe("uploadSnapshot (real bucket)", () => {
       assert.equal(secondResult.candidates, 1);
       assert.equal(secondResult.uploaded, 1);
 
-      // Re-uploading the same name (first-backup path) uploads nothing — its
-      // objects are all in the store — and errors on the immutable snapshot.
+      // Re-uploading the same name uploads nothing — its objects are all in
+      // the store — and, because the remote manifest is byte-identical to the
+      // local file, the 412 reads as its own earlier success and the publish
+      // succeeds quietly (ADR-0084).
+      const reRun = await uploadSnapshot({
+        bucket,
+        set,
+        snapshotDir,
+        name: first,
+      });
+      assert.equal(reRun.uploaded, 0);
+      assert.deepEqual(await listRemoteSnapshots(bucket, set), [second, first]);
+
+      // But the same name holding *different* bytes is still the immutability
+      // error: rewrite the local `first` manifest (an extra file changes its
+      // rows — removed first, since the writer refuses same-name overwrites)
+      // and the remote copy no longer matches.
+      rmSync(join(snapshotDir, `${first}.tsv.zst`));
+      await writeSnapshot(snapshotDir, first, [fileA, fileB, fileC]);
       await assert.rejects(
         () => uploadSnapshot({ bucket, set, snapshotDir, name: first }),
         /already backed up/,
@@ -133,7 +150,8 @@ describe("uploadSnapshot (real bucket)", () => {
     // remote snapshot, cleanup deletes its now-orphan object — then a second
     // backup of the unchanged file used to trust the stale local baseline,
     // skip the object, and publish a snapshot referencing a missing object.
-    // The fix HEADs the baseline: gone remotely → distrust it, LIST instead.
+    // The fix reads the baseline's remote copy (byte-identity, ADR-0084):
+    // gone remotely → distrust it, LIST instead.
     await using dir = await mkTmpDir();
     const set = `trust-${Date.now()}`;
     const first = "2025-01-15T1030";

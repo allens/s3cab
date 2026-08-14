@@ -13,7 +13,9 @@ believing it, and on a miss drops the baseline and LISTs the store as a first ba
 The same check also covers a baseline snapshotted locally but never uploaded. The deletion
 rework's interlock — subtracting deletion-record hashes from any trusted baseline — landed
 with the path-scoped `delete`
-([ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md)).</sub>
+([ADR-0064](../docs/adr/0064-path-scoped-delete-deletion-record.md)). The name-only HEAD that
+fix introduced has since become a byte-identity GET
+([ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md), 2026-08-14).</sub>
 
 ---
 
@@ -32,47 +34,6 @@ model-based suite ([test/model/](../test/model/)) — each cited test asserts *c
 behaviour with a TODO, so fixing the bug flips the test loudly and hands the fixer a ready-made
 regression test.</sub>
 
-- **The baseline HEAD matches on snapshot *name*, so another machine's snapshot can vouch for one
-  that was never uploaded.** `storedHashes` ([upload.mjs](../src/lib/upload.mjs)) trusts the local
-  baseline as the complete skip-list once `objectExists(remoteSnapshotUri(bucket, set, since))`
-  returns true — **presence by name, with no ETag, size or content comparison.** Snapshot names are
-  minute-precision *local* wall-clock with the zone recorded inside the file but not in the name,
-  and two live machines on one set is a tolerated state (`reattach` never disables the prior
-  machine, [ADR-0053](../docs/adr/0053-reattach-command.md)).
-  - **Repro:** machine A runs `snapshot` offline at its local `2026-08-12T0915` and never uploads
-    it (nothing on a local snapshot records whether it was uploaded). Machine B — another timezone,
-    or simply the same minute — publishes a remote `2026-08-12T0915` for the same set. A's next
-    `backup` picks its own local `0915` as baseline, the HEAD finds B's remote `0915`, A trusts its
-    own never-uploaded hashes as stored, skips those objects, and publishes a manifest referencing
-    objects that were never uploaded — reporting success.
-  - **This is a corner of a hole believed closed.** The 2026-07-19 note at the top of this file
-    says the HEAD check "also covers a baseline snapshotted locally but never uploaded". That is
-    true single-machine — no remote snapshot with that name exists, the HEAD misses, and the run
-    falls back to a full LIST. The case it does not cover is a *second machine* occupying that
-    name.
-  - Caught later by `verify` as unexplained-missing (exit 1), so it is silently-incomplete rather
-    than silently-corrupt — but the backup that created it said it succeeded.
-  - The same collision also defeats snapshot immutability quietly in the other direction: A never
-    learns that its local `0915` and the remote `0915` are different documents.
-  - **That other direction is confirmed live, multi-process** (2026-08-14, crash tier): two real
-    CLI processes, separate `S3CAB_HOME`s, different tree content, same set and same minute —
-    the loser of the manifest no-clobber race fails with *"Snapshot '…' is already backed up …
-    Snapshots are immutable and never overwritten"*, which is true of the **name** and false of
-    the loser's **data** (its differing file's object is uploaded, but no manifest records it).
-    Repro: *"same set, same snapshot name"* in
-    [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs).
-  - Pinned by *"another machine's same-name snapshot vouches for a never-uploaded baseline"*
-    ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
-- **A retried manifest PUT after a lost response reports a false failure.** If the no-clobber
-  manifest PUT succeeds but its response is lost and the retry relay
-  ([ADR-0068](../docs/adr/0068-network-retries-above-the-sdk.md)) re-sends, the retry collects a
-  412 from its own success and `uploadSnapshotFile` throws *"Snapshot '<name>' is already backed
-  up… immutable"*. The backup is complete and correct; only the report is wrong. Fails in the safe
-  direction, but it teaches the user to distrust a message that otherwise means something serious.
-  The same shape applies to `setup`'s `info` claim. Pinned by *"a manifest PUT whose lost response
-  is retried reports a false failure"*
-  ([test/model/model.findings.test.mjs](../test/model/model.findings.test.mjs)).
-- **Confirmed 2026-08-14: both staleness guards compare mtime at millisecond precision, so a
   same-size write that preserves mtime escapes.** The baseline reuse check
   ([file-props.mjs](../src/lib/file-props.mjs)) and `fileChange` ([upload.mjs](../src/lib/upload.mjs))
   both test `size` plus `mtime.toISOString()`. A deliberate `touch -r`, or a filesystem with coarse
@@ -117,6 +78,17 @@ flips when the bug is fixed.</sub>
   did. Pinned by *"a unicode set name is stored under a percent-encoded key"*
   ([test/model/conformance/store-semantics.test.mjs](../test/model/conformance/store-semantics.test.mjs)).
 
+- **The loser of a same-name manifest race loses its snapshot behind a misleading error.**
+  **Confirmed live, multi-process** (2026-08-14, crash tier): two real CLI processes, separate
+  `S3CAB_HOME`s, different tree content, same set and same minute — the loser of the manifest
+  no-clobber race fails with *"Snapshot '…' is already backed up … Snapshots are immutable and
+  never overwritten"*, which is true of the **name** and false of the loser's **data** (its
+  differing file's object is uploaded, but no manifest records it). Repro: *"same set, same
+  snapshot name"* in [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs).
+  [ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md) settled the *identity* half of
+  this — the byte comparison tells a run's own retried PUT (identical, quiet success) from a
+  foreign snapshot (different) — but the *different* case still ends the run with that message
+  and nothing published.
 - **`uploadDir`'s drift tests fail intermittently — undiagnosed.** Seen 2026-07-30 during
   [#252](https://github.com/allens/s3cab/pull/252) (a PR touching none of this code). Two tests in
   [src/lib/upload.test.mjs](../src/lib/upload.test.mjs) — *"never stores a file that changed while

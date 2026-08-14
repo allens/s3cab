@@ -27,7 +27,8 @@ import {
  *    a credentials or network problem surfaces in seconds rather than after a
  *    long pass. The single-owner model makes the previous **local** snapshot the
  *    authoritative baseline (ADR-0045), trusted only once `storedHashes` has
- *    confirmed it still exists remotely; a first backup LISTs the store instead.
+ *    confirmed the remote copy is byte-identical to it (ADR-0084); a first
+ *    backup LISTs the store instead.
  * 3. **`generateSnapshot` with the object uploader spliced in** — the fused
  *    pass. The uploader is a pipe, not a callback: it consumes rows and yields
  *    them on unchanged, so a backup writes byte-for-byte the snapshot a plain
@@ -91,6 +92,7 @@ export async function backup(setName, options = {}) {
   const stored = await storedHashes({
     bucket: set.bucket,
     set: set.name,
+    snapshotDir: set.snapshotsDir,
     since,
     baseline: previous,
   });

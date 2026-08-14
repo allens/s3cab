@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomic } from "./atomic-file.mjs";
 import {
@@ -121,6 +121,43 @@ export async function readLatestRemoteSnapshot(bucket, set) {
   }
   const snapshot = await readRemoteSnapshot(bucket, set, name);
   return { name, lookup: snapshot.entries };
+}
+
+/**
+ * Whether the remote copy of a snapshot is **byte-identical** to the local file
+ * of the same name — `"identical"`, `"different"`, or `"absent"`. The identity
+ * check both trust decisions rest on (ADR-0084): a snapshot *name* is
+ * minute-resolution local wall clock, so two machines sharing a set can mint the
+ * same name for different content — existence under the name proves nothing
+ * about *whose* snapshot is up there. Bytes settle it exactly: a remote snapshot
+ * file is byte-identical to its local form by design (ADR-0004,
+ * `downloadRemoteSnapshots` relies on the same fact in the other direction), so
+ * equality means "this very snapshot". Compared as bytes, not ETags — an ETag is
+ * only a content hash for single-part uploads on real S3, and s3cab promises
+ * S3-*compatible* stores (ADR-0002). Manifests are small (zstd-compressed TSV),
+ * so buffering one is nothing.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} set - The set's name (its whole identity, ADR-0024)
+ * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
+ * @param {string} snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
+ * @returns {Promise<"identical" | "different" | "absent">}
+ */
+export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
+  /** @type {Buffer} */
+  let remote;
+  try {
+    const body = await getStream(remoteSnapshotUri(bucket, set, name));
+    remote = Buffer.concat(await Array.fromAsync(body));
+  } catch (error) {
+    if (isObjectNotFound(error)) {
+      return "absent";
+    }
+    throw error;
+  }
+  // Read after the fetch: both callers hold a local file (a read baseline, a
+  // just-PUT manifest), so a missing one is a real fault and may throw.
+  const local = await readFile(join(snapshotDir, snapshotFileName(name)));
+  return local.equals(remote) ? "identical" : "different";
 }
 
 /**
