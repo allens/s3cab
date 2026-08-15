@@ -125,8 +125,11 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
+/** @type {number | string | null | undefined} */
+let savedExitCode;
 beforeEach(() => {
   savedEnv = { ...process.env };
+  savedExitCode = process.exitCode;
   fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
   calls = [];
   baseline = {
@@ -169,6 +172,7 @@ afterEach(() => {
     }
   }
   Object.assign(process.env, savedEnv);
+  process.exitCode = savedExitCode; // never leak a set exit code to the runner
 });
 
 describe("backup (the fused pass)", () => {
@@ -228,6 +232,23 @@ describe("backup (the fused pass)", () => {
       errors: 2,
       comparison,
     });
+  });
+
+  it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {
+    // The fixture pass carries `errors: 2` (#ERROR rows). The snapshot still
+    // publishes — everything it lists is stored — but a scheduled backup runs
+    // on the exit code alone (guide/output.md), so it must go nonzero. Set via
+    // process.exitCode, not a throw, so the run report still prints.
+    process.exitCode = 0;
+    await backup("photos");
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("leaves the exit code alone when every file was read", async () => {
+    pass.errors = 0;
+    process.exitCode = 0;
+    await backup("photos");
+    assert.equal(process.exitCode, 0);
   });
 
   it("reports skipped and errored files from the pass, not from the diff", async () => {
