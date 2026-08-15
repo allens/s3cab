@@ -26,15 +26,17 @@ mock.module("../lib/s3.mjs", {
       }
       return true;
     },
-    objectExists: async () => false, // no baseline to trust on a first backup
     listObjects: async function* () {}, // an empty store
     putText: async () => {},
     getText: async () => undefined,
+    // The baseline-identity probe (ADR-0084) finds every remote snapshot
+    // absent, so no baseline is ever trusted and each backup LISTs the store.
     getStream: async () => {
-      throw new Error("unexpected getStream in a backup test");
+      throw Object.assign(new Error("NoSuchKey"), { name: "NoSuchKey" });
     },
+    isObjectNotFound: (/** @type {unknown} */ error) =>
+      Error.isError(error) && error.name === "NoSuchKey",
     deleteObject: async () => {},
-    isObjectNotFound: () => true,
   },
 });
 

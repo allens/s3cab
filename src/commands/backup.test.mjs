@@ -310,6 +310,7 @@ describe("backup (the fused pass)", () => {
       {
         bucket: "b",
         set: "photos",
+        snapshotDir: "snaps",
         since: "2026-01-01T0900",
         baseline: baseline.previous,
       },

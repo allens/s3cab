@@ -73,15 +73,17 @@ mock.module("node:fs/promises", {
 mock.module("../lib/s3.mjs", {
   exports: {
     putFile: async () => true,
-    objectExists: async () => false,
     listObjects: async function* () {},
     putText: async () => {},
     getText: async () => undefined,
+    // The baseline-identity probe (ADR-0084) finds every remote snapshot
+    // absent, so no baseline is ever trusted and each backup LISTs the store.
     getStream: async () => {
-      throw new Error("unexpected getStream in a backup test");
+      throw Object.assign(new Error("NoSuchKey"), { name: "NoSuchKey" });
     },
+    isObjectNotFound: (/** @type {unknown} */ error) =>
+      Error.isError(error) && error.name === "NoSuchKey",
     deleteObject: async () => {},
-    isObjectNotFound: () => true,
   },
 });
 

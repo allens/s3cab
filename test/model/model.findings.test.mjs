@@ -85,7 +85,7 @@ const makeSet = (root, set, dirName) => {
 };
 
 describe("prior-audit findings, encoded", () => {
-  it("another machine's same-name snapshot vouches for a never-uploaded baseline (bugs.md: baseline HEAD by name — current behaviour)", async () => {
+  it("another machine's same-name snapshot no longer vouches for a never-uploaded baseline (bugs.md, fixed: byte-identity trust, ADR-0084)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
 
@@ -103,38 +103,29 @@ describe("prior-audit findings, encoded", () => {
     writeFileSync(join(dataB, "b.txt"), "machine B content");
     await backup("col");
 
-    // A's next backup: its own local snapshot is the baseline, the HEAD finds
-    // B's remote snapshot by name, and A trusts its never-uploaded hashes as
-    // stored.
+    // A's next backup: its own local snapshot is the baseline. A name-only
+    // check would find B's snapshot and trust A's never-uploaded hashes as
+    // stored; the byte-identity check (ADR-0084) sees a different document,
+    // distrusts the baseline, LISTs the store and uploads A's objects.
     clockHolder.current.advance(MINUTE_MS);
     useHome(root, "mA");
     process.exitCode = 0;
     const result = await backup("col");
 
-    // The backup claims clean success and uploads nothing…
     assert.equal(result.errors, 0);
-    assert.equal(result.uploaded, 0, "the trusted baseline skips every object");
+    assert.equal(result.uploaded, 1, "A's object really goes up this time");
     assert.equal(process.exitCode, 0);
 
-    // …but the manifest it published references objects that were never
-    // uploaded. TODO(known bug, proposals/bugs.md: baseline HEAD matches on
-    // name only): when the HEAD compares more than the name, this backup must
-    // fall back to a store LIST and upload — flip to `deepEqual([])`.
+    // The store is complete: every manifest's references — A's and B's — are
+    // backed by stored objects, and verify agrees.
     const model = new RepoModel(BUCKET, backendHolder.current);
-    const violations = await checkStore(model);
-    assert.ok(
-      violations.some((v) => v.startsWith("dangling reference: col/")),
-      `expected dangling references, got: ${violations.join("\n")}`,
-    );
-
-    // verify does catch it after the fact — silently-incomplete, not
-    // silently-corrupt — but the backup above already said it succeeded.
+    assert.deepEqual(await checkStore(model), []);
     process.exitCode = 0;
     await verify(BUCKET);
-    assert.equal(process.exitCode, 1);
+    assert.equal(process.exitCode, 0);
   });
 
-  it("a manifest PUT whose lost response is retried reports a false failure (bugs.md: self-412 — current behaviour)", async () => {
+  it("a manifest PUT whose lost response is retried succeeds quietly (bugs.md, fixed: byte-identical = own success, ADR-0084)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -143,7 +134,9 @@ describe("prior-audit findings, encoded", () => {
 
     // The retry relay lives below the seam, so model its lost-response shape
     // at the seam: the manifest PUT lands, the re-sent request harvests a 412
-    // from its own success, and the caller is told "already present".
+    // from its own success, and the caller is told "already present". The fix
+    // (ADR-0084): fetch the remote manifest, see it is byte-identical to the
+    // one just sent, and treat the publish as the success it was.
     const fake = backendHolder.current;
     const realPutFile = fake.putFile.bind(fake);
     fake.putFile = async (path, uri, options) => {
@@ -151,14 +144,12 @@ describe("prior-audit findings, encoded", () => {
       return uri.includes("/snapshots/") ? false : wrote;
     };
 
-    // TODO(known bug, proposals/bugs.md: retried manifest PUT): backup throws
-    // the immutability error even though the backup is complete and correct.
-    // A fix (e.g. distinguishing own-write from foreign snapshot) flips this
-    // to `doesNotReject`.
-    await assert.rejects(backup("lost"), /already backed up/);
+    process.exitCode = 0;
+    await backup("lost");
+    assert.equal(process.exitCode, 0);
 
-    // The failure is false: the store holds a complete, consistent repository
-    // and the snapshot restores byte-identically.
+    // And it really was a success: the store holds a complete, consistent
+    // repository and the snapshot restores byte-identically.
     const model = new RepoModel(BUCKET, backendHolder.current);
     assert.deepEqual(await checkStore(model), []);
     const out = join(root, "out");
@@ -170,7 +161,7 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(restored, "safely stored bytes");
   });
 
-  it("a same-size rewrite preserving mtime escapes the staleness guards (bugs.md: suspected → confirmed — current behaviour)", async () => {
+  it("a same-size rewrite preserving mtime is caught by the ctime guard (bugs.md, fixed: ADR-0085)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -197,16 +188,12 @@ describe("prior-audit findings, encoded", () => {
     const result = await backup("stale");
     assert.equal(process.exitCode, 0);
 
-    // TODO(known bug, proposals/bugs.md: mtime-precision staleness escape —
-    // the "suspected" entry, confirmed here on NTFS): the baseline reuse
-    // check sees size+mtime unchanged, records the old hash against the new
-    // bytes, and uploads nothing. Restore then "succeeds" with the wrong
-    // content. `--rehash` is the documented escape hatch.
-    assert.equal(
-      result.uploaded,
-      0,
-      "nothing uploaded — the rewrite is invisible",
-    );
+    // The rewrite put the mtime back, but the write (and the utimes call
+    // itself) bumped ctime past the baseline's instant, so the reuse check
+    // distrusts the size+mtime match and re-hashes (ADR-0085). The exact
+    // older-vs-newer ctime boundary is pinned in src/lib/file-props.test.mjs;
+    // this asserts the end-to-end outcome: the new bytes are backed up.
+    assert.equal(result.uploaded, 1, "the rewrite is seen and uploaded");
     const out = join(root, "out");
     mkdirSync(out, { recursive: true });
     process.exitCode = 0;
@@ -217,10 +204,10 @@ describe("prior-audit findings, encoded", () => {
     });
     assert.equal(process.exitCode, 0);
     const restored = await readFile(join(out, "data", "f.txt"), "utf8");
-    assert.equal(restored, "old bytes!!", "the new bytes were never backed up");
+    assert.equal(restored, "new bytes!!", "the rewrite was backed up");
   });
 
-  it("a truncated stored manifest parses as a valid empty snapshot (format-spec audit — current behaviour)", async () => {
+  it("a truncated stored manifest is a loud parse error — verify reports it, restore refuses (format-spec audit, fixed by ADR-0082)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const root = dir.path;
     useHome(root, "mA");
@@ -362,8 +349,8 @@ describe("prior-audit findings, encoded", () => {
     await backup("interleave");
     clockHolder.current.advance(8 * DAY_MS);
 
-    // The second backup passes its baseline HEAD and is skipping every object
-    // the baseline vouches for. Mid-run, the baseline is forgotten and
+    // The second backup passes its baseline identity check and is skipping
+    // every object the baseline vouches for. Mid-run, the baseline is forgotten and
     // cleanup follows: those objects — old, now unreferenced — go before the
     // new manifest lands. (The 2026-07-19 baseline-trust fix re-checks at the
     // *start* of a backup; it cannot help the one already in flight.)

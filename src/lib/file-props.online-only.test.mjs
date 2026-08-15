@@ -155,4 +155,32 @@ describe("fileProps on a cloud placeholder", () => {
     // Reused, not re-derived: no `hashDuration` on a lookup hit.
     assert.equal(props.hashDuration, undefined);
   });
+
+  it("keeps reusing when dehydration bumped ctime past the baseline", async () => {
+    // The ctime staleness guard (ADR-0085) must exempt the placeholder shape:
+    // dehydration moves *only* ctime, so distrusting the match here would make
+    // every file the sync client reclaims read as touched — and, having no
+    // bytes to re-hash, drop out of the backup. On other platforms the same
+    // stat shape is a real sparse file, so the guard applies and re-reads it.
+    await using dir = await mkTmpDir();
+    const path = placeholderIn(dir.path);
+    const { mtime } = realFs.lstatSync(path);
+    const stored = {
+      hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      size: LOGICAL_SIZE,
+      mtime: mtime.toISOString(),
+    };
+    const lookup = new Map([[path, stored]]);
+    // The file was just written, so its ctime is after this baseline instant.
+    const options = { baselineMs: Date.parse("2020-01-01T00:00:00.000Z") };
+
+    if (platform === "win32") {
+      const props = await fileProps(path, lookup, options);
+      assert.equal(props, stored);
+    } else {
+      const props = await fileProps(path, lookup, options);
+      assert.notEqual(props.hash, stored.hash);
+      assert.notEqual(props.hashDuration, undefined);
+    }
+  });
 });
