@@ -139,6 +139,24 @@ jobs:
     name: s3 integration
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # One real-bucket run at a time, repo-wide. This suite assumes it owns
+    # test-s3cab-ci-integration, and some of what it exercises is bucket-global rather
+    # than test-local: two deletes finishing inside the same minute collide on the
+    # deletion record, which is named by the minute and never overwritten — a real
+    # failure on 2026-08-15 (run 31852887331), and one that reads like data corruption
+    # rather than a scheduling accident. The workflow-level group above cannot cover
+    # this: it keys on `github.ref`, and the runs that collide are *different* refs.
+    # Merging a stack of PRs makes that overlap routine rather than rare.
+    #
+    # `cancel-in-progress: false` — the running job holds the bucket, so killing it
+    # mid-transfer is the one thing that must not happen. Note GitHub keeps only ONE
+    # job pending per group: a third run arriving while one waits cancels the waiting
+    # one, and `ci gate` treats a cancelled job as failure (fail-closed by design), so
+    # that PR needs a re-run. Accepted — an obvious "cancelled, re-run me" beats an
+    # intermittent corruption-shaped error in a log nobody re-reads.
+    concurrency:
+      group: s3-integration
+      cancel-in-progress: false
     permissions:
       id-token: write # mint the OIDC token for the AWS assume-role
       contents: read

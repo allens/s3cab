@@ -79,13 +79,14 @@ could see that one, since every seam call encoded identically
   and *"removes exclusively-referenced content, records it, and every consumer honours the
   record"* ([test/integration/delete.test.mjs](../test/integration/delete.test.mjs)) failed on the
   second one. Two distinct defects wearing the same clothes:
-  - **The real-bucket tier assumes it owns the bucket.** Different PRs are different refs and
-    [ci.yml](../.github/workflows/ci.yml)'s `concurrency` group keys on `github.ref`, so runs
-    overlap by design — merging a stack makes that routine rather than rare. Cheapest fix: give
-    the `s3 integration` job its own repo-wide concurrency group (`group: s3-integration`,
-    `cancel-in-progress: false`) so real-bucket jobs queue instead of racing. Better fix, more
-    work: isolate each run under its own key prefix, which is already the IAM safety boundary for
-    these buckets.
+  - ~~**The real-bucket tier assumes it owns the bucket.**~~ **Fixed 2026-08-15.** Different PRs
+    are different refs and [ci.yml](../.github/workflows/ci.yml)'s workflow-level `concurrency`
+    group keys on `github.ref`, so runs overlapped by design — merging a stack made that routine
+    rather than rare. The `s3 integration` job now carries its own repo-wide group
+    (`group: s3-integration`, `cancel-in-progress: false`), so real-bucket runs queue instead of
+    racing. Per-run key-prefix isolation would be the stronger fix and is still available if
+    queueing ever costs too much wall clock; it wasn't bought, because one job serialized is the
+    small thing the current need justifies.
   - **The limitation underneath is the product's, not the test's.** Two people deleting from one
     bucket in the same minute hit the same wall, and "wait for the next minute" is the entire
     remedy on offer. Same root as the same-name manifest race above — a **minute-resolution name
