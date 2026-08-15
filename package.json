@@ -41,9 +41,7 @@
     "test:coverage:report": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-coverage-exclude=\"**/*.test.mjs\" --test-coverage-exclude=\"scripts/**\" \"src/**/*.test.mjs\" \"test/*.test.mjs\"",
     "build": "node build.mjs",
     "build:win": "npm run build && node --build-sea=sea/win-x64.json",
-    "build:linux": "npm run build && node --build-sea=sea/linux-x64.json",
-    "clean": "git clean -fdX",
-    "clean:dry": "git clean -ndX"
+    "build:linux": "npm run build && node --build-sea=sea/linux-x64.json"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.1106.0",
