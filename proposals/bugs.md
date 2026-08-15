@@ -67,6 +67,29 @@ could see that one, since every seam call encoded identically
   this — the byte comparison tells a run's own retried PUT (identical, quiet success) from a
   foreign snapshot (different) — but the *different* case still ends the run with that message
   and nothing published.
+- **A minute-resolution deletion record turns two concurrent deletes into a hard failure — and
+  fails CI as a flake.** `writeDeletionRecord`
+  ([deletion-record.mjs](../src/lib/deletion-record.mjs)) names each record
+  `deletions/<YYYY-MM-DDTHHmm>.tsv` and never overwrites it, so a second `delete` finishing inside
+  the same minute aborts with *"A deletion record for this minute already exists … another delete
+  finished within the last minute, and records are never overwritten. Wait for the next minute,
+  then re-run."* **Confirmed in CI** (2026-08-15, run
+  [31852887331](https://github.com/allens/s3cab/actions/runs/31852887331)): two workflow runs from
+  a stack of PRs merged back-to-back overlapped on the shared `test-s3cab-ci-integration` bucket,
+  and *"removes exclusively-referenced content, records it, and every consumer honours the
+  record"* ([test/integration/delete.test.mjs](../test/integration/delete.test.mjs)) failed on the
+  second one. Two distinct defects wearing the same clothes:
+  - **The real-bucket tier assumes it owns the bucket.** Different PRs are different refs and
+    [ci.yml](../.github/workflows/ci.yml)'s `concurrency` group keys on `github.ref`, so runs
+    overlap by design — merging a stack makes that routine rather than rare. Cheapest fix: give
+    the `s3 integration` job its own repo-wide concurrency group (`group: s3-integration`,
+    `cancel-in-progress: false`) so real-bucket jobs queue instead of racing. Better fix, more
+    work: isolate each run under its own key prefix, which is already the IAM safety boundary for
+    these buckets.
+  - **The limitation underneath is the product's, not the test's.** Two people deleting from one
+    bucket in the same minute hit the same wall, and "wait for the next minute" is the entire
+    remedy on offer. Same root as the same-name manifest race above — a **minute-resolution name
+    used as an identity** — so whatever settles that one should settle this.
 - **`uploadDir`'s drift tests fail intermittently — undiagnosed.** Seen 2026-07-30 during
   [#252](https://github.com/allens/s3cab/pull/252) (a PR touching none of this code). Two tests in
   [src/lib/upload.test.mjs](../src/lib/upload.test.mjs) — *"never stores a file that changed while
