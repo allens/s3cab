@@ -159,6 +159,11 @@ first, then restore:
   recorded, so a later `snapshot` sees it as unchanged rather than as new work.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
   copied, or a directory you'd moved — is fetched once and copied locally to the rest.
+- **Two names this disk can't tell apart restore as one — loudly.** A backup made on a
+  case-sensitive system can hold both `file.txt` and `File.txt`, but Windows (and macOS, by
+  default) treats those as the same file. The first is restored; each later one is listed as a
+  collision and the run exits non-zero, never silently overwritten. To keep both, restore a
+  colliding path into its own `--output` directory.
 - **Everything referenced should be there.** A snapshot only ever reaches the bucket _after_
   every object it references, so any snapshot you can see is complete and restorable. That
   invariant is part of the [format spec](format.md) — and if something has removed content

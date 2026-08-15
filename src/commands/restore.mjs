@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { copyFile, utimes } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
@@ -48,6 +48,12 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * other failure (network, credentials) still aborts, since those are wrong about
  * the *run*, not about one file.
  *
+ * A snapshot from a case-sensitive source can also list two paths **this**
+ * volume folds into one file (letter case; APFS's Unicode normalization). The
+ * first such path is restored; each later one is reported `collided` with
+ * **exit 1** rather than silently overwriting it — detection keyed on the
+ * filesystem's own equivalence, never on string folding (ADR-0086).
+ *
  * `--output <dir>` re-roots instead of restoring to original locations: each
  * member directory's contents land under `<dir>/<root-basename>/…` (see `reroot`).
  * That recovers a backup whose absolute paths don't fit this machine — a
@@ -67,6 +73,7 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * @property {string} snapshot - The snapshot restored from
  * @property {string[]} restored - Paths written
  * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
+ * @property {string[]} collided - Paths not written because this filesystem treats them as the same file as a path already restored (letter case, Unicode normalization — ADR-0086)
  * @property {string[]} missing - Paths not restored because their content is absent with no explanation
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
@@ -142,7 +149,27 @@ export async function restore(paths = [], options = {}) {
   /** @type {string[]} */
   const skipped = [];
   /** @type {string[]} */
+  const collided = [];
+  /** @type {string[]} */
   const missing = [];
+  // Collision detection keys on the filesystem's own equivalence, never on
+  // string folding (ADR-0086): a manifest written elsewhere can list two paths
+  // this volume cannot tell apart — letter case (Windows, macOS default), or
+  // Unicode normalization (APFS folds NFC/NFD) — and writing both would keep
+  // only the last row's bytes while reporting both restored. So each written
+  // file's canonical on-disk path is recorded, and a later target that already
+  // *exists* (the volume's own answer, whatever its folding rules) and
+  // canonicalizes into that record is a collision — reported, never written.
+  // The per-file `realpathSync.native` is deliberate, not the walk-hot-path
+  // mistake: this loop is download-bound, and no pure-string function can say
+  // whether two names are one file — trusting strings is the bug this closes.
+  /** @type {Set<string>} */
+  const writtenCanonical = new Set();
+  // Dests a collision left unwritten: a later `copy` step pointing at one
+  // would read whatever survivor the name resolves to — the wrong bytes — so
+  // it re-fetches from the store instead.
+  /** @type {Set<string>} */
+  const collidedDests = new Set();
   /** @type {{ path: string, deletedOn: string }[]} */
   const deleted = [];
   // Hashes whose fetch found nothing, with the deletion record's explanation if
@@ -186,11 +213,19 @@ export async function restore(paths = [], options = {}) {
       skipped.push(step.dest);
     } else if (absentHashes.has(hash)) {
       reportAbsent(hash, step.dest);
+    } else if (
+      existsSync(step.dest) &&
+      writtenCanonical.has(realpathSync.native(step.dest))
+    ) {
+      collided.push(step.dest);
+      collidedDests.add(step.dest);
     } else {
       mkdirSync(dirname(step.dest), { recursive: true });
       let found = true;
-      if (step.action === "copy") {
-        await copyFile(/** @type {string} */ (step.from), step.dest);
+      const from =
+        step.action === "copy" ? /** @type {string} */ (step.from) : undefined;
+      if (from !== undefined && !collidedDests.has(from)) {
+        await copyFile(from, step.dest);
       } else {
         try {
           await getObject(set.bucket, hash, step.dest);
@@ -206,6 +241,7 @@ export async function restore(paths = [], options = {}) {
         }
       }
       if (found) {
+        writtenCanonical.add(realpathSync.native(step.dest));
         const when = new Date(/** @type {string} */ (step.mtime));
         await utimes(step.dest, when, when);
         restored.push(step.dest);
@@ -224,12 +260,13 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Unexplained absence → exit 1, the same way `verify` reports findings: set
-  // process.exitCode rather than throw, so the run's report — including every
-  // file that *was* restored — still prints. Deliberately-deleted skips alone
-  // leave exit 0 (ADR-0064): the record proves the gap is intended, and a
-  // scripted restore should not alarm on a decision its owner already made.
-  if (missing.length) {
+  // Unexplained absence or a name collision → exit 1, the same way `verify`
+  // reports findings: set process.exitCode rather than throw, so the run's
+  // report — including every file that *was* restored — still prints.
+  // Deliberately-deleted skips alone leave exit 0 (ADR-0064): the record
+  // proves the gap is intended, and a scripted restore should not alarm on a
+  // decision its owner already made.
+  if (missing.length || collided.length) {
     process.exitCode = 1;
   }
 
@@ -239,6 +276,7 @@ export async function restore(paths = [], options = {}) {
     snapshot: name,
     restored,
     skipped,
+    collided,
     missing,
     deleted,
   };

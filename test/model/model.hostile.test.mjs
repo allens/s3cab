@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { useTempHome } from "../helpers/temp-home.mjs";
@@ -305,7 +305,7 @@ describe("hostile trees: contents and timestamps", () => {
 });
 
 describe("hostile trees: mixed-case collisions", () => {
-  it("restore claims both case-colliding paths while disk keeps one (bugs.md: silent last-wins — current behaviour)", async (t) => {
+  it("restore reports a case collision loudly and keeps the first row's bytes (bugs.md, fixed: ADR-0086)", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     // Only meaningful where the filesystem folds case (Windows, macOS default).
     writeFileSync(join(dir.path, "probe.tmp"), "");
@@ -319,7 +319,11 @@ describe("hostile trees: mixed-case collisions", () => {
     await backup("hostile");
 
     // One backup on this host cannot list file.txt AND File.txt, but another
-    // machine's case-sensitive tree can — craft that manifest directly.
+    // machine's case-sensitive tree can — craft that manifest directly. The
+    // third row shares File.txt's hash so its plan step is a dedupe *copy*
+    // pointing at File.txt's destination — which the collision leaves
+    // unwritten, so the copy must re-fetch rather than duplicate whatever
+    // survivor that name resolves to.
     const fake = backendHolder.current;
     const key = "snapshots/hostile/2026-01-05T0000.tsv.zst";
     const manifestBytes = /** @type {Buffer} */ (
@@ -335,6 +339,9 @@ describe("hostile trees: mixed-case collisions", () => {
     );
     rows.push(
       fileRow.replace(/^[0-9a-f]{64}/, altHash).replace("file.txt", "File.txt"),
+      fileRow
+        .replace(/^[0-9a-f]{64}/, altHash)
+        .replace("file.txt", "zzz-copy.txt"),
     );
     await fake.putBytes(
       BUCKET,
@@ -347,26 +354,31 @@ describe("hostile trees: mixed-case collisions", () => {
     process.exitCode = 0;
     const result = await restore([], { set: "hostile", output: out });
 
-    // TODO(known bug, proposals/bugs.md): restore reports both paths restored
-    // and exits 0, but the case-folding filesystem kept only the last row's
-    // bytes — the first file was silently overwritten. "Faithful or loud"
-    // requires detecting the collision (an error or a counted skip); when that
-    // lands, flip these assertions to the loud outcome.
-    assert.equal(result.restored.length, 2, "restore claims both paths");
-    assert.equal(process.exitCode, 0);
-    const names = readdirSync(join(out, "data"));
-    assert.equal(names.length, 1, "only one directory entry survives");
-    const survivor = /** @type {string} */ (names[0]);
+    // Faithful or loud (ADR-0086): the first row's file stands untouched, the
+    // colliding row is reported — never silently overwritten — and the run
+    // exits 1 so scripts see the snapshot could not be fully materialized.
+    // `resolve`: the temp dir is repo-relative, but restore's destinations are
+    // absolute (reroot resolves `--output`).
+    assert.deepEqual(result.collided, [resolve(out, "data", "File.txt")]);
+    assert.equal(result.restored.length, 2, "file.txt and zzz-copy.txt");
+    assert.equal(process.exitCode, 1);
+    const names = readdirSync(join(out, "data")).sort();
+    assert.deepEqual(names, ["file.txt", "zzz-copy.txt"]);
     assert.equal(
-      readFileSync(join(out, "data", survivor), "utf8"),
+      readFileSync(join(out, "data", "file.txt"), "utf8"),
+      "lowercase content",
+      "the first row's bytes must survive the collision",
+    );
+    assert.equal(
+      readFileSync(join(out, "data", "zzz-copy.txt"), "utf8"),
       "UPPERCASE CONTENT!",
-      "the last manifest row wins silently",
+      "a copy whose source row collided re-fetches the true content",
     );
   });
 });
 
 describe("hostile trees: files changing mid-run", () => {
-  it("counts a file vanishing mid-scan as an error, not silence — and still exits 0 (bugs.md: backup exit code)", async () => {
+  it("counts a file vanishing mid-scan as an error, not silence — and exits 1 (bugs.md exit-code fix)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = makeSet(dir.path);
     writeFileSync(join(data, "aaa-first.txt"), "uploads first");

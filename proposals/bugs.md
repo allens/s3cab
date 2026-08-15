@@ -40,39 +40,21 @@ model is now [docs/design/repository-protocol.md](../docs/design/repository-prot
 Headline result: the objects-first/snapshot-last invariant **holds under process termination at
 every step** — what broke was concurrency and time.</sub>
 
-<sub>The three entries below were **found by the model-based test suite itself** (prompt #3,
-2026-08-14) — the first two by Tier 1 hostile/targeted cases, the third by the Tier 2 conformance
-run against real S3. Same convention as above: each is pinned by a current-behaviour test that
-flips when the bug is fixed.</sub>
-
-- **Case-colliding manifest paths restore to one file — silently, exit 0.** Two rows whose paths
-  differ only in basename case (legal in a manifest: a case-sensitive source filesystem, another
-  machine, or a crafted edit) restore onto a case-insensitive volume as *one* file holding the
-  **last** row's bytes, while `restore` reports both files restored and exits 0. Nielsen would
-  call the count a lie; either an overwrite warning or a collision error is defensible, silence is
-  not. Pinned by *"restore claims both case-colliding paths while disk keeps one"*
-  ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)). APFS's
-  unicode-normalisation folding is the same hazard for NFC/NFD neighbour paths — macOS CI
-  collapsed the hostile suite's café pair on 2026-08-14 — so whatever fix lands here must key on
-  the filesystem's own equivalence, not on lowercasing.
-- **Latent: a non-ASCII name fed to the S3 layer lands under a percent-encoded key.**
-  `parseS3Uri` ([s3.mjs](../src/lib/s3.mjs)) splits the URI with `new URL(...)` and takes
-  `url.pathname`, which percent-encodes — a set named `café` would store its manifests under
-  `snapshots/caf%C3%A9/…`, verbatim, in the real bucket (observed on real S3 by the Tier 2
-  conformance run, driving the seam below the validation layer). Three consequences: the stored
-  layout breaks [guide/format.md](../guide/format.md)'s promise that keys are `snapshots/<set>/…`
-  (a no-lock-in reader must know to percent-decode); names derived from LIST results don't match
-  the names that produced them; and two different names (`café` and the literal string
-  `caf%C3%A9`) alias to one key. **Latent, not user-reachable today:** `validateSetName`
-  ([sets.mjs](../src/lib/sets.mjs)) restricts set names to `[a-z0-9-]+` at both entry points
-  (`setup`, `reattach`), and snapshot names, object keys and the fixed filenames are all
-  ASCII-safe — [remote.mjs](../src/lib/remote.mjs) documents that charset as the reason "no
-  escaping anywhere downstream" is safe. So this is the *seam* that validation guard is silently
-  load-bearing for: loosen the set-name charset (a plausible pre-1.0 ask) and the encoding bug is
-  live. Round-trips still work because every code path encodes identically — which is exactly why
-  Tier 1's fake (same URL parsing) could never see it and only Tier 2's independent inspector
-  did. Pinned by *"a unicode set name is stored under a percent-encoded key"*
-  ([test/model/conformance/store-semantics.test.mjs](../test/model/conformance/store-semantics.test.mjs)).
+<sub>The model-based test suite itself (prompt #3, 2026-08-14) found three more, **all fixed
+2026-08-14**, each pinned by a test that now asserts the correct behaviour: a truncated stored
+manifest parsing as a valid empty snapshot while `verify` called the store healthy, by the
+`#END` trailer ([ADR-0082](../docs/adr/0082-snapshot-end-trailer.md)); case-colliding manifest
+paths restoring to one silently-overwritten file with exit 0 — the same hazard APFS's
+unicode-normalisation folding poses for NFC/NFD neighbour paths — by keying collision detection
+on the filesystem's own equivalence rather than lowercasing
+([ADR-0086](../docs/adr/0086-restore-collision-filesystem-equivalence.md)); and the latent
+percent-encoding of non-ASCII S3 keys (`parseS3Uri` took `new URL(...).pathname`, so a set
+named `café` — reachable only if `validateSetName`'s `[a-z0-9-]+` charset is ever loosened —
+stored its manifests under `snapshots/caf%C3%A9/…`, breaking
+[guide/format.md](../guide/format.md)'s promise that keys are `snapshots/<set>/…`), by parsing
+the URI as a plain string split so keys reach the bucket verbatim; only the Tier 2 inspector
+could see that one, since every seam call encoded identically
+([test/model/conformance/store-semantics.test.mjs](../test/model/conformance/store-semantics.test.mjs)).</sub>
 
 - **The loser of a same-name manifest race loses its snapshot behind a misleading error.**
   **Confirmed live, multi-process** (2026-08-14, crash tier): two real CLI processes, separate
