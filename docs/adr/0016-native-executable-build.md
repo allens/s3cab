@@ -60,8 +60,3 @@ can't catch anything the bundle/SEA transform breaks). That smoke job exists bec
 it could only surface in the built artifact, which only `release.yml` built, which fires solely
 on a `v*` tag. `release.yml` triggers only on `v*` tags + manual dispatch and keeps its own
 single-OS lint+test gate to re-check the one commit CI doesn't see — the tag.
-
-`npm run clean` delegates to `git clean -fdX` rather than listing paths, so it stays in sync
-with `.gitignore` for free and needs no `rimraf`-style dep
-([0005](0005-builtins-over-dependencies.md)). It wipes *all* ignored files (incl.
-`node_modules/`), so `clean:dry` previews first.
