@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -1010,6 +1011,8 @@ describe("putFile / putText (fake S3 on loopback)", () => {
   let completeStatus;
   /** @type {number} Which UploadPart to refuse with AccessDenied (0 = none). */
   let failPartNumber;
+  /** @type {number} The status for a DeleteObject / AbortMultipartUpload. */
+  let deleteStatus;
   /** @type {string} */
   let dir;
   /** @type {string} */
@@ -1060,7 +1063,9 @@ describe("putFile / putText (fake S3 on loopback)", () => {
             : request.method === "POST"
               ? `POST ${path}?uploadId`
               : request.method === "DELETE"
-                ? `DELETE ${path}?uploadId`
+                ? params.has("uploadId")
+                  ? `DELETE ${path}?uploadId`
+                  : `DELETE ${path}`
                 : partNumber
                   ? `PUT ${path}?partNumber=${partNumber}`
                   : `PUT ${path}`;
@@ -1118,9 +1123,14 @@ describe("putFile / putText (fake S3 on loopback)", () => {
           xml(completeStatus, errorXml("PreconditionFailed"));
         }
       } else if (request.method === "DELETE") {
-        // AbortMultipartUpload
-        response.writeHead(204);
-        response.end();
+        // AbortMultipartUpload, or the mismatch guard's DeleteObject.
+        if (deleteStatus === 204) {
+          response.writeHead(204);
+          response.end();
+        } else {
+          // Non-retryable, so a failing delete is one request, not three.
+          xml(deleteStatus, errorXml("AccessDenied"));
+        }
       } else if (putStatus === 200) {
         response.writeHead(200, { etag: '"abc"' });
         response.end();
@@ -1158,6 +1168,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     putStatus = 200;
     completeStatus = 200;
     failPartNumber = 0;
+    deleteStatus = 204;
   });
 
   afterEach(() => {
@@ -1225,6 +1236,90 @@ describe("putFile / putText (fake S3 on loopback)", () => {
     // overwriting, and the one path to uploadSnapshot's "already backed up".
     assert.equal(wrote, false);
     assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  // ——— The streamed-digest guard (the mid-transfer-mutation fix): with
+  // `sha256` given, putFile hashes the bytes it actually streams and holds the
+  // finished transfer to that digest. What must be observable on the wire: a
+  // mismatch on a no-clobber PUT is followed by the DELETE that un-stores the
+  // wrong bytes, a forced one is *not* (no proof it created the key), a match
+  // adds no request, and a 412 (nothing stored) skips the check entirely.
+
+  it("removes the object and throws when the streamed bytes mismatch `sha256`", async () => {
+    // The digest of some *earlier* content — the file has since been rewritten.
+    const stale = createHash("sha256").update("what was hashed").digest("hex");
+    await assert.rejects(
+      putFile(smallFile, "s3://bucket/key", { noClobber: true, sha256: stale }),
+      (/** @type {Error} */ error) => {
+        assert.equal(error.name, "ContentMismatchError");
+        assert.match(error.message, /Content changed during upload/);
+        return true;
+      },
+    );
+    // The PUT has landed by the time the digest is known, so the guard's teeth
+    // are the DELETE after it: the store never keeps bytes that aren't the
+    // preimage of their key.
+    assert.deepEqual(seen, ["PUT /bucket/key", "DELETE /bucket/key"]);
+  });
+
+  it("leaves the object where the upload was forced, and says so", async () => {
+    const stale = createHash("sha256").update("what was hashed").digest("hex");
+    await assert.rejects(
+      putFile(smallFile, "s3://bucket/key", { sha256: stale }),
+      (/** @type {Error} */ error) => {
+        // Not a ContentMismatchError either: that type says the store is clean,
+        // and this leaves wrong bytes stored on purpose.
+        assert.equal(error.name, "Error");
+        assert.match(error.message, /left in place/);
+        assert.match(error.message, /s3:\/\/bucket\/key/);
+        return true;
+      },
+    );
+    // No DELETE. Without `IfNoneMatch` this PUT overwrote whatever the key
+    // held, so it has no proof it created the object — and an object other
+    // snapshots reference is worth more wrong than absent.
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("verifies clean when the streamed bytes match `sha256` — no extra request", async () => {
+    const digest = createHash("sha256").update("tiny").digest("hex");
+    const wrote = await putFile(smallFile, "s3://bucket/key", {
+      noClobber: true,
+      sha256: digest,
+    });
+    assert.equal(wrote, true);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("skips verification when the conditional PUT found the object present", async () => {
+    putStatus = 412;
+    const stale = createHash("sha256").update("what was hashed").digest("hex");
+    const wrote = await putFile(smallFile, "s3://bucket/key", {
+      noClobber: true,
+      sha256: stale,
+    });
+    // Nothing was stored, so there is nothing to verify or remove: the object
+    // already present is genuine content under that key, and the *file's*
+    // drift is the next run's pre-PUT guard to meet.
+    assert.equal(wrote, false);
+    assert.deepEqual(seen, ["PUT /bucket/key"]);
+  });
+
+  it("a mismatch whose cleanup DELETE also fails surfaces the stranded object", async () => {
+    deleteStatus = 403;
+    const stale = createHash("sha256").update("what was hashed").digest("hex");
+    await assert.rejects(
+      putFile(smallFile, "s3://bucket/key", { noClobber: true, sha256: stale }),
+      (/** @type {Error} */ error) => {
+        // Deliberately NOT a ContentMismatchError: that type certifies the
+        // store was left clean, and here it wasn't — this must reach the
+        // caller as a terminal failure, never as a skippable drift.
+        assert.equal(error.name, "Error");
+        assert.match(error.message, /removing the mis-stored copy failed/);
+        return true;
+      },
+    );
+    assert.deepEqual(seen, ["PUT /bucket/key", "DELETE /bucket/key"]);
   });
 
   it("multipart-sized + no-clobber, present: one HEAD, never the body", async () => {

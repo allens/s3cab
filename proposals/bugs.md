@@ -32,30 +32,6 @@ model-based suite ([test/model/](../test/model/)) — each cited test asserts *c
 behaviour with a TODO, so fixing the bug flips the test loudly and hands the fixer a ready-made
 regression test.</sub>
 
-- **A file mutated *during its upload* is stored as wrong bytes under a right hash — silently.**
-  **The gap is between PUT start and PUT completion**, which is precisely the window nothing
-  guards. `fileChange` ([upload.mjs](../src/lib/upload.mjs)) re-`lstat`s immediately *before* the
-  PUT and never again; `putFile` then re-reads the file from disk with `createReadStream` for the
-  transfer itself. For a multipart-sized file that transfer is minutes long (16 MB parts, and the
-  user data profile's top files are 1.3–14 GB), and any write landing inside it produces an object
-  whose bytes are not the preimage of its key.
-  - **Not the window [#248](https://github.com/allens/s3cab/pull/248) closed.** Those tests are
-    named *"never stores a file that changed while it was being hashed"* — hash → PUT-start. This
-    is PUT-start → PUT-end. The existing guard is correct and does not reach here.
-  - **Repro:** start `backup` over a multi-GB file; while its parts are uploading, append to or
-    rewrite it; the drift check has already passed, so the run publishes its manifest and reports
-    success.
-  - **Why it is the worst shape available:** `verify` checks presence and size only, so a
-    same-size in-place write is invisible **forever**; `restore` does catch it, in
-    `writeFileAtomic`'s digest check — but a digest mismatch is not `isObjectNotFound`, so it
-    **aborts the whole restore run** ([restore.mjs](../src/commands/restore.mjs)), and one corrupt
-    object holds every other file in the snapshot hostage. The object is also **permanent**: every
-    later backup's conditional PUT sees the key present and skips it. `upload --file --force` is
-    the only repair, and nothing tells you to run it.
-  - **No second machine, no crash, no misconfiguration required** — one user, one command, one
-    file being written while it is backed up.
-  - Pinned by *"a file mutating mid-transfer corrupts the store silently"*
-    ([test/model/model.hostile.test.mjs](../test/model/model.hostile.test.mjs)).
 - **The baseline HEAD matches on snapshot *name*, so another machine's snapshot can vouch for one
   that was never uploaded.** `storedHashes` ([upload.mjs](../src/lib/upload.mjs)) trusts the local
   baseline as the complete skip-list once `objectExists(remoteSnapshotUri(bucket, set, since))`

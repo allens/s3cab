@@ -401,31 +401,41 @@ describe("hostile trees: files changing mid-run", () => {
     );
   });
 
-  it("a file mutating mid-transfer corrupts the store silently (bugs.md C1 — current behaviour)", async () => {
+  it("a file mutating mid-transfer is refused loudly — the store never keeps wrong bytes (bugs.md C1, fixed)", async () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = makeSet(dir.path);
     writeFileSync(join(data, "victim.txt"), "original bytes");
 
     // Rewrite the file inside the putFile window: after hashing named the
-    // object, before the transfer reads the content.
+    // object, before the transfer reads the content. The pre-PUT drift guard
+    // has already passed by then — only putFile's streamed-digest check
+    // (ContentMismatchError) can catch this.
     backendHolder.current.onPutFileRead = (path) => {
       if (path.endsWith("victim.txt")) {
         writeFileSync(join(data, "victim.txt"), "mutated bytes!");
       }
     };
-    const result = await backup("hostile");
-    assert.equal(result.errors, 0, "backup reports clean success");
+    // The drift is fatal to a run that was about to publish a manifest: backup
+    // refuses with the same "changed while the backup was running" error the
+    // pre-PUT guard raises, and publishes nothing.
+    await assert.rejects(backup("hostile"), (/** @type {Error} */ error) => {
+      assert.equal(error.name, "FileChangedError");
+      assert.match(error.message, /changed while the backup was running/);
+      return true;
+    });
 
-    // TODO(known bug, proposals/bugs.md C1): the store now holds the mutated
-    // bytes under the original content's hash — the content-address invariant
-    // is broken and nothing noticed. When a mid-transfer guard lands, this
-    // flips to `deepEqual(violations, [])` (or backup reports the drift).
+    // The store is clean: the mis-stored object was removed (not merely
+    // detected), no manifest was published, and the content-address invariant
+    // holds for everything that remains.
     const model = new RepoModel(BUCKET, backendHolder.current);
-    const violations = await checkStore(model);
-    assert.equal(violations.length, 1, violations.join("\n"));
-    assert.match(
-      /** @type {string} */ (violations[0]),
-      /content-address violation: objects\/[0-9a-f]{64}/,
+    assert.deepEqual(await checkStore(model), []);
+    const originalHash = sha256("original bytes");
+    assert.equal(
+      await backendHolder.current.objectExists(
+        `s3://${BUCKET}/objects/${originalHash}`,
+      ),
+      false,
+      "the object stored from mutated bytes must not survive under the original hash",
     );
   });
 });

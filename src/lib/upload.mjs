@@ -3,7 +3,12 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
-import { FileChangedError, isENOENT, OnlineOnlyFileError } from "./error.mjs";
+import {
+  ContentMismatchError,
+  FileChangedError,
+  isENOENT,
+  OnlineOnlyFileError,
+} from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
@@ -260,7 +265,11 @@ export function planUpload(target, stored) {
  *   published, a reportable skip where none is. Because this transform re-checks
  *   *after* hashing, it also catches a file that changed **while** it was being
  *   hashed — a mixed-content read the old phase-boundary guard could only notice
- *   minutes later.
+ *   minutes later. The last window — a write landing **during the transfer**
+ *   itself, after the re-check passed — is closed inside `putFile`: it hashes
+ *   the bytes it actually streams, and a mismatch (a {@link ContentMismatchError},
+ *   the mis-stored object already removed) is recorded here as the same
+ *   `"changed"` drift.
  *
  * It takes no set name: the drift message is the caller's to build, so nothing
  * here needs to know which set (or whether there is one — the folder seed reaches
@@ -329,8 +338,19 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
               settled += props.size;
             }
           } catch (error) {
-            failure ??= Error.isError(error) ? error : new Error(String(error));
-            transfersStopped = true;
+            if (error instanceof ContentMismatchError) {
+              // The file was rewritten *during* its transfer — putFile hashed
+              // the bytes it streamed, saw they no longer match, and already
+              // removed the mis-stored object. Same fact as the pre-PUT drift
+              // guard, caught later: a per-file skip, not a dead link, so the
+              // remaining transfers go on.
+              drifted.push({ path, reason: "changed", cause: error });
+            } else {
+              failure ??= Error.isError(error)
+                ? error
+                : new Error(String(error));
+              transfersStopped = true;
+            }
           } finally {
             sendingMs += performance.now() - startedAt;
             inFlight = null;

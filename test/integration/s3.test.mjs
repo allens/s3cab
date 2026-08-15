@@ -14,6 +14,7 @@ import {
   clientConfig,
   deleteObject,
   getStream,
+  objectExists,
   putFile,
 } from "../../src/lib/s3.mjs";
 import { bucket } from "../helpers/integration.mjs";
@@ -28,7 +29,7 @@ import { bucket } from "../helpers/integration.mjs";
 // in teardown, mirroring upload.test.mjs's hygiene.
 
 /** Must match s3.mjs's private `partSize` — the multipart threshold. */
-const PART_SIZE = 8 * 1024 * 1024;
+const PART_SIZE = 16 * 1024 * 1024;
 
 /**
  * SHA-256 of a fully-read stream, so a round-trip is checked by content, not
@@ -89,6 +90,53 @@ describe("putFile multipart (real bucket)", () => {
       assert.equal(await sha256(await getStream(uri)), hash);
     } finally {
       await deleteObject(uri);
+    }
+  });
+
+  it("verifies the streamed bytes against `sha256` and removes a mismatched object (the C1 guard)", async () => {
+    // The mid-transfer-mutation shape, arranged statically: the file on disk
+    // already differs from the digest the caller recorded for it. putFile hashes
+    // the bytes it actually streams, so it must refuse — and because S3 has
+    // accepted the PUT by the time the digest is known, "refuse" must mean the
+    // object is *removed*, not merely reported: a later backup's conditional PUT
+    // would otherwise see the key present and trust the wrong bytes forever.
+    // Single-PUT sized on purpose — the check runs after `upload.done()`
+    // regardless of part count, and the multipart plumbing has its own tests.
+    const smallFile = join(dir, "mismatch.bin");
+    const smallContent = randomBytes(1024);
+    writeFileSync(smallFile, smallContent);
+    const recorded = createHash("sha256")
+      .update(Buffer.concat([smallContent, Buffer.from("stale")]))
+      .digest("hex");
+    const uri = `s3://${bucket}/objects/${recorded}`;
+    try {
+      await assert.rejects(
+        putFile(smallFile, uri, { noClobber: true, sha256: recorded }),
+        { name: "ContentMismatchError" },
+      );
+      assert.equal(
+        await objectExists(uri),
+        false,
+        "the mis-stored object must be removed, not left under the wrong key",
+      );
+
+      // And the honest digest still uploads — the guard rejects mismatches,
+      // not the feature.
+      const trueHash = createHash("sha256").update(smallContent).digest("hex");
+      const trueUri = `s3://${bucket}/objects/${trueHash}`;
+      try {
+        const wrote = await putFile(smallFile, trueUri, {
+          noClobber: true,
+          sha256: trueHash,
+        });
+        assert.equal(wrote, true);
+        assert.equal(await sha256(await getStream(trueUri)), trueHash);
+      } finally {
+        await deleteObject(trueUri);
+      }
+    } finally {
+      // Belt and braces: gone already if the removal worked.
+      await deleteObject(uri).catch(() => {});
     }
   });
 
