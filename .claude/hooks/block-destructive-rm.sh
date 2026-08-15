@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# Block destructive `rm` — any rm carrying a recursive (-r/-R/--recursive) or
+# Prompt on destructive `rm` — any rm carrying a recursive (-r/-R/--recursive) or
 # force (-f/--force) flag, in any flag ordering or bundling, anywhere in a
-# compound command. Closes the gap the static deny rule `Bash(rm -rf *)` leaves
-# open now that a bare `Bash` allow auto-approves everything not denied (CLAUDE.md's
-# permission-prompt convention): a fixed `-rf` prefix misses `rm -r`, `rm -fr`, `rm -f`,
-# `rm --recursive`, `rm -r -f`, etc. Plain non-recursive `rm <file>` still runs.
+# compound command. Plain non-recursive `rm <file>` still runs.
+#
+# Updated 2026-08-15. This used to return "deny", and existed because a bare
+# `Bash` allow auto-approved everything not explicitly denied. That allow is gone
+# and auto mode is the permission model now, so the classifier reads every rm.
+# What the classifier does not offer is determinism, and what the static deny
+# `Bash(rm -rf *)` could not do is parse — a prefix match misses `rm -r`,
+# `rm -fr`, `rm -f`, `rm --recursive`, and every compound form. So this hook
+# remains the deterministic detector and now returns "ask": a checkpoint that can
+# be cleared, not a wall. `Bash(rm -rf *)` was removed from settings.json in the
+# same change — it was a strict subset of what this parses, and being a deny it
+# resolved first, which made this hook's verdict unreachable for the one command
+# shape people actually type.
 #
 # Fired by the PreToolUse hook on every Bash call in .claude/settings.json (no
 # "if" scope) because the dangerous rm is usually mid-compound, e.g.
 # `cd build && rm -rf .` or `ls | xargs rm -rf` — a prefix-only gate would miss
-# those. Detection is in node (already used by the sibling git -C hook) so flag
-# bundling/ordering and shell separators are parsed, not pattern-guessed.
+# those. Detection is in node so flag bundling/ordering and shell separators are
+# parsed, not pattern-guessed.
 set -uo pipefail
 
 cat | node -e '
@@ -45,9 +54,9 @@ process.stdin.on("end", () => {
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
-          permissionDecision: "deny",
+          permissionDecision: "ask",
           permissionDecisionReason:
-            "Destructive rm (recursive/force) is blocked under the bare-Bash allow (the permission-prompt convention in CLAUDE.md). The static `rm -rf *` deny misses the -r / -fr / -f / --recursive orderings; this hook closes them. If a deliberate, scoped delete is genuinely needed, ask the user to run it (or confirm) rather than widening the rule.",
+            "Recursive or forced rm. This always prompts, whatever the permission mode. It is detected by parsing the command, so it catches -r / -fr / -f / --recursive in any ordering and anywhere in a compound (`cd build && rm -rf .`, `ls | xargs rm -rf`) — which the classifier judges but no static rule can match. Check the path is the one you meant, then approve.",
         },
       }),
     );
