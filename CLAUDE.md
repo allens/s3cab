@@ -83,6 +83,13 @@ overlap that leaves is accepted over sync machinery
    failure just duplicates the request. Harmless for contributors without Copilot enabled — the
    flag is a no-op for them.
 
+   **Nothing enforces this — branch protection on `main` is bypassable.** The ruleset requires a
+   pull request and a green `ci gate`, but a maintainer's push is taken anyway: GitHub prints
+   `Bypassed rule violations for refs/heads/main` and accepts it. That is deliberate, so
+   doc-only work lands on `main` without ceremony. The cost is that a `src/` change meets no
+   barrier either and the notice scrolls past in the push output — so a PR for anything beyond
+   docs is a convention held by the person pushing, not a gate they hit.
+
 ### Coding conventions
 
 *Style* rules; the tooling *decisions* (LF endings, Prettier-code-only, dependency policy) are
