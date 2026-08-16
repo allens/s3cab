@@ -9,6 +9,9 @@ must always match.
 
 Everything on this page is a **commitment**, not an implementation detail. If a future
 s3cab needs to change any of it, that is a breaking format change, treated accordingly.
+One exception, flagged again where it arises: the *text inside* `#` comment lines is
+human context and may change freely. What is committed is that skipping those lines
+leaves exactly the data.
 
 ## The remote repository (the keystone)
 
@@ -40,10 +43,44 @@ s3://my-backup-bucket/
   be invisible), records which machine created it, and mirrors the set's
   `dirs.txt`/`exclude.txt` so a fresh machine can adopt it
   (`s3cab reattach <set>`). The set's local `env` file is **never** uploaded — it
-  can hold credentials.
+  can hold credentials. `info` is two `KEY=value` lines, in this order:
+
+  ```
+  OWNER=DESKTOP
+  CREATED=2026-06-12T08:15:32.123Z
+  ```
+
+  `OWNER` is the machine's raw hostname; `CREATED` is a UTC instant in the same form as a
+  snapshot row's `mtime`.
 - **`deletions/`** holds the repository's [deletion records](#the-deletion-record) — one
   small plain-text file per `s3cab delete` run, marking content as *deliberately* removed.
   A repository where `delete` has never run simply has no `deletions/` keys.
+
+### Reading the text: four rules that hold everywhere
+
+These govern **every** text file in the format — snapshots, deletion records, `dirs.txt`,
+`exclude.txt`, `info`. Get them right and nothing else needs special handling.
+
+- **UTF-8, no BOM**, always, whatever machine wrote the file. A path is stored as its UTF-8
+  bytes even on Windows, where the operating system itself holds names as UTF-16. Decode
+  strictly: a decode error means the file is damaged, not that some other encoding is worth
+  trying.
+- **Every file s3cab writes ends its lines with LF** (`\n`), never CRLF, and the last line
+  is terminated like the rest. Split on LF *exactly*. Don't reach for a "split on any line
+  break" helper: Python's `str.splitlines()` and its equivalents also break on `\v`, `\f`
+  and U+0085, all of which are legal characters in a filename, so such a parser cuts a path
+  in half and never says why. (The two files *you* edit — `dirs.txt` and `exclude.txt` —
+  are the exception in the other direction: their lines are trimmed when read, so a Windows
+  editor's CRLF is harmless there.)
+- **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
+  naive `split("\t")` safe, and it is why a path can never contain a tab, LF or CR (all
+  three are [refused at backup time](#what-is-deliberately-not-stored)). Every other
+  character, control characters included, is fair game in a path.
+- **Trim the leading fields; never trim the path.** The leading fields are padded with
+  spaces so the raw file reads as columns. The path is always last, is never padded, and
+  must be taken **verbatim** from the final tab to the end of the line. On Linux and macOS
+  a filename may legitimately begin or end with a space, and a parser that strips every
+  field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing reported.
 
 ### The invariant: objects first, snapshot last
 
@@ -97,11 +134,22 @@ one tab-separated `hash → path` row for **every reference the deleted objects 
 3b8e…c0a1	C:\Users\me\Photos\raw-footage\clip-001.mov
 ```
 
-Rules for a reader: skip every `#` line; the first field of a row is the deleted object's
-hash (its old key under `objects/`), the rest of the line the path that referenced it; the
-file's timestamp name is *when*. The **write ordering is a commitment**: a record is always
-written *before* its objects are deleted, so a crash mid-delete can never leave a missing
-object the records don't explain. s3cab's own tools honour the record everywhere — `verify`
+Rules for a reader: skip every `#` line; a row is `hash<TAB>path` — the deleted object's
+hash (its old key under `objects/`), then the path that referenced it; the file's timestamp
+name is *when*. Record rows are **not** column-padded the way a snapshot's are, and the `#`
+block is prose for a human — its wording and the fields it lists will change, so read the
+rows and never parse the header.
+
+**Presence always wins.** A record explains an object's *absence*; it is not a tombstone. If
+a hash turns up in `objects/` again — content deleted, then later backed up afresh, which
+returns the object while the record stays forever — then the file is restorable and should
+be restored. Consult the records only when a fetch actually misses. A reader that treats
+records as authoritative skips restorable files indefinitely, and reports success while
+doing it.
+
+The **write ordering is a commitment**: a record is always written *before* its objects are
+deleted, so a crash mid-delete can never leave a missing object the records don't explain.
+s3cab's own tools honour the record everywhere — `verify`
 reports recorded hashes as expected (not damage, exit 0), `restore` skips them gracefully
 with their date, and `backup` knows not to trust an older snapshot's word that the content
 is still stored.
@@ -112,12 +160,14 @@ is still stored.
   no-lock-in promise forbids, and encryption breaks content-addressed dedup. The answer is
   server-side encryption (s3cab already requests it on AWS), bucket access policy, and
   provider trust.
-- **Paths containing a tab or a newline.** Both would break the row grammar, and the
-  format has no escaping by design — that plainness is the point. Such names are legal
-  only on Linux and macOS (Windows forbids them outright) and are almost always a script
-  bug rather than a choice. A file with one is **not backed up**: the run stops and names
-  it, so you can rename it, or exclude it with a pattern like `odd*name.jpg` and run
-  again.
+- **Paths containing a tab, a line feed, or a carriage return.** All three would break the
+  row grammar, and the format has no escaping by design — that plainness is the point. (A
+  bare CR counts: plenty of line-splitters treat it as a line ending, so allowing one would
+  hand different readers different answers.) Such names are legal only on Linux and macOS
+  (Windows forbids them outright) and are almost always a script bug rather than a choice.
+  A file with one is **not backed up**: the run stops and names it, so you can rename it,
+  or exclude it with a pattern like `odd*name.jpg` and run again. Every other character
+  — including control characters that are *not* those three — is stored as-is.
 - **Regular files only.** Snapshots record file content, size, and modification time —
   no symlinks or junctions, no hardlink identity, no empty directories, no permissions or
   ACLs. s3cab backs up *data* (documents, photos, video); it is not a system backup tool.
@@ -126,9 +176,9 @@ is still stored.
 
 A snapshot is a point-in-time record of every file in a backup set: a plain-text,
 tab-separated (TSV) table, zstd-compressed on disk and in the bucket (`.tsv.zst` —
-decompress with any zstd tool). Every line has four tab-separated fields; the leading
-fields are width-padded with spaces so the raw file reads as columns (trim whitespace when
-parsing). Lines whose first field starts with `#` are metadata, not file rows.
+decompress with any zstd tool). Lines whose first field starts with `#` are metadata, not
+file rows — **check for that before checking anything structural**, because the four-field
+grammar below describes file rows only, and the metadata lines do not all obey it.
 
 The file opens with a header naming the set and its member directories, so it is
 self-describing even found alone in a bucket; then one row per file:
@@ -142,10 +192,33 @@ self-describing even found alone in a bucket; then one row per file:
 
 - **`hash`** — the SHA-256 of the file's contents, lowercase hex: both the file's identity
   and its key under `objects/`.
-- **`size`** — bytes (right-aligned).
-- **`mtime`** — the file's modification time, ISO-8601 with milliseconds, UTC.
-- **`path`** — absolute, in the OS's native style, last on the line so the fixed-width
-  columns stay aligned.
+- **`size`** — bytes, in decimal (right-aligned).
+- **`mtime`** — the file's modification time as exactly `YYYY-MM-DDTHH:MM:SS.sssZ`: 24
+  characters, always three fractional digits, always a literal trailing `Z`. Never a
+  `+00:00` offset, never a comma for the decimal point, never a different digit count.
+- **`path`** — absolute, in the OS's native style, last on the line so the padded columns
+  stay aligned and so it can hold spaces without ambiguity.
+
+**A path appears at most once in a snapshot.** s3cab never writes a repeat, and a reader
+may treat one as a malformed file. The commitment matters because there is no safe way to
+guess: a first-wins reader and a last-wins reader would restore *different bytes* from the
+same snapshot, neither of them reporting anything wrong.
+
+**A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
+filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
+build against. A restore reproduces the *stored* value exactly, so a restored tree compares
+clean against the snapshot it came from and re-backing it up re-uploads nothing. But a
+restored file can sit up to half a millisecond either side of a *surviving original*, which
+any mtime-sensitive tool will report as a difference.
+
+**The columns are space-padded, and the example above collapses that padding to stay
+readable.** In a real file the first field is padded to 64 characters (so `#SNAPSHOT` is
+followed by 55 spaces), the second is right-aligned in 10, and the third is padded to 24. A
+value longer than its column simply overflows it — a 14-digit size makes that one row's
+second field 14 wide — so these are *minimum* widths, not a fixed-width record layout. The
+path, being last, is never padded. Any parser that trims the leading fields can ignore all
+of this; anyone writing a snapshot, building a golden test, or matching a line against
+`#SNAPSHOT\t` needs the real bytes.
 
 After its marker, the `#SNAPSHOT` line carries three fields: the **set** name, the **instant the
 snapshot started** (UTC, the same form as `mtime`, so it lines up in the same column), and
@@ -161,6 +234,25 @@ contents are [online only](compare.md#files-stored-online-not-on-this-computer))
 metadata rows recording what the snapshot does *not* include and why. A reader wanting only
 the file rows can simply skip every `#` line.
 
+What those rows carry, for anyone reading a snapshot by hand:
+
+| Row | Column 2 | Column 3 | Column 4 |
+| --- | --- | --- | --- |
+| `#SNAPSHOT` | the set name | the instant the snapshot started | `<name> <zone>` |
+| `#DIR` | *(blank)* | *(blank)* | a member directory |
+| `#EXCLUDED` | the entry's type | the exclude pattern that matched | the path |
+| `#SKIPPED` | the entry's type | why it was skipped | the path |
+| `#ERROR` | *(blank)* | the operating system's error text | the path |
+| `#END` | *(none — the whole line is `#END`)* | | |
+
+Those payloads are **context, not commitment**: new metadata kinds may appear and existing
+ones may change what they carry. The guarantee is the one above — skip every `#` line and
+what remains is exactly the file rows. Two details matter before writing a parser, and both
+are why the `#` test has to come first. `#ERROR`'s third column is a raw operating-system
+message, so unlike a path it carries no promise of being tab-free and may push its line past
+four fields; and `#END` is a bare single-field line. Neither troubles a reader that tests for
+`#` before counting fields, and both break one that counts first.
+
 The last line of every snapshot is the trailer `#END`, which today carries no further
 fields. It exists to make truncation detectable: zstd happily decompresses a cut-short file
 to a byte *prefix* of the original, which would otherwise read as a valid, smaller
@@ -172,6 +264,11 @@ Match the marker and **ignore anything after it** on that line: no truncation ca
 fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
 and tolerating them leaves room to add a column later without breaking readers already
 written against this spec.
+
+Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
+always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
+and the file is that name plus `.tsv.zst`. And a snapshot holding a header, a trailer and
+**no file rows at all** is perfectly legal: an empty backup set, not a damaged file.
 
 ## The local side (`~/.s3cab/`)
 
@@ -217,3 +314,32 @@ back down and syncs the snapshot history — whereas nothing can rebuild a lost 
    tells you its original path and modification time.
 
 Or write a replacement tool in an afternoon — that is the point.
+
+### If you are writing a restorer
+
+Everything above tells you how to read the format. These are the things that only turn up
+once you try to restore from it.
+
+- **Restore everything you can, then report.** A missing object that a [deletion
+  record](#the-deletion-record) explains is *expected*: skip it, say so with the record's
+  date, and finish successfully. A missing object that nothing explains is an integrity
+  fault: report it, **carry on with the rest**, and exit nonzero at the end. A recovery tool
+  that stops dead at file 3 of 400 is materially worse than one that recovers 397 and tells
+  you which three it couldn't — so the graceful path is not a nicety, it is the requirement.
+- **On Windows, go through the `\\?\` prefix.** Snapshot paths are absolute, so re-rooting
+  them under an output directory makes an already-deep tree deeper, and the 260-character
+  `MAX_PATH` limit arrives sooner than you would guess. It fails loudly rather than
+  corrupting anything, but it *will* happen on a real tree.
+- **Restoring across operating systems is your tool's problem, not the format's.** A
+  snapshot taken on Linux may hold two paths differing only in case, or characters NTFS
+  forbids outright; both collide or fail on a Windows target. The format records what was
+  there faithfully — deciding what to do on arrival is a choice your tool has to make and
+  should state.
+- **Keep `objects/` in a storage class you can actually GET.** Step 4 assumes a plain
+  download works. A bucket lifecycle rule that archives `objects/` to a cold tier breaks that
+  for every tool including s3cab, turning recovery into a restore-from-archive wait — worth
+  knowing before you set one, not after.
+
+And one thing that is deliberately **out of scope**: *where* a restored file lands — back at
+its original path, or re-rooted under an output directory — is a decision for the tool, not
+the format. The snapshot records the original absolute path; what you do with it is yours.
