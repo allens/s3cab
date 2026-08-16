@@ -8,7 +8,7 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 //
 //   sets/<set>/dirs.txt     the member directories (DR hint), one absolute path per line
 //   sets/<set>/exclude.txt  the exclude patterns (optional), verbatim
-//   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (ISO minute)
+//   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (UTC instant, ms)
 //
 // `info` doubles as the collision-registration marker and the atomic claim token:
 // `setup` claims a name by conditional-PUTting `info` (first writer wins), and the
