@@ -13,6 +13,35 @@ One exception, flagged again where it arises: the *text inside* `#` comment line
 human context and may change freely. What is committed is that skipping those lines
 leaves exactly the data.
 
+## Reading the text: four rules that hold everywhere
+
+These come first because they govern **every** text file in the format — snapshots,
+deletion records, `dirs.txt`, `exclude.txt`, `info`. Get them right and nothing else below
+needs special handling.
+
+- **UTF-8, no BOM**, always, whatever machine wrote the file. A path is stored as its UTF-8
+  bytes even on Windows, where the operating system itself holds names as UTF-16. Decode
+  strictly: a decode error means the file is damaged, not that some other encoding is worth
+  trying.
+- **Every file s3cab generates ends its lines with LF** (`\n`), never CRLF, and the last
+  line is terminated like the rest — snapshots, deletion records, `dirs.txt`, `info`. Split
+  on LF *exactly*. Don't reach for a "split on any line break" helper: Python's
+  `str.splitlines()` and its equivalents also break on `\v`, `\f` and U+0085, every one of
+  which can occur in a legal filename, so such a parser cuts a path in half and never says
+  why. **`exclude.txt` is the one exception, and in the other direction**: it is *yours*, so
+  s3cab stores and mirrors it byte-for-byte as you wrote it — a Windows editor's CRLF, or a
+  missing final newline, travels into the bucket intact. Harmless, because its lines (and
+  `dirs.txt`'s) are trimmed when read.
+- **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
+  naive `split("\t")` safe, and it is why a path can never contain a tab, LF or CR (all
+  three are [refused at backup time](#what-is-deliberately-not-stored)). Every other
+  character, control characters included, is fair game in a path.
+- **Trim the leading fields; never trim the path.** The leading fields are padded with
+  spaces so the raw file reads as columns. The path is always last, is never padded, and
+  must be taken **verbatim** from the final tab to the end of the line. On Linux and macOS
+  a filename may legitimately begin or end with a space, and a parser that strips every
+  field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing reported.
+
 ## The remote repository (the keystone)
 
 One S3 bucket is one **repository** — the layout is fixed by convention, never an arbitrary
@@ -55,32 +84,6 @@ s3://my-backup-bucket/
 - **`deletions/`** holds the repository's [deletion records](#the-deletion-record) — one
   small plain-text file per `s3cab delete` run, marking content as *deliberately* removed.
   A repository where `delete` has never run simply has no `deletions/` keys.
-
-### Reading the text: four rules that hold everywhere
-
-These govern **every** text file in the format — snapshots, deletion records, `dirs.txt`,
-`exclude.txt`, `info`. Get them right and nothing else needs special handling.
-
-- **UTF-8, no BOM**, always, whatever machine wrote the file. A path is stored as its UTF-8
-  bytes even on Windows, where the operating system itself holds names as UTF-16. Decode
-  strictly: a decode error means the file is damaged, not that some other encoding is worth
-  trying.
-- **Every file s3cab writes ends its lines with LF** (`\n`), never CRLF, and the last line
-  is terminated like the rest. Split on LF *exactly*. Don't reach for a "split on any line
-  break" helper: Python's `str.splitlines()` and its equivalents also break on `\v`, `\f`
-  and U+0085, all of which are legal characters in a filename, so such a parser cuts a path
-  in half and never says why. (The two files *you* edit — `dirs.txt` and `exclude.txt` —
-  are the exception in the other direction: their lines are trimmed when read, so a Windows
-  editor's CRLF is harmless there.)
-- **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
-  naive `split("\t")` safe, and it is why a path can never contain a tab, LF or CR (all
-  three are [refused at backup time](#what-is-deliberately-not-stored)). Every other
-  character, control characters included, is fair game in a path.
-- **Trim the leading fields; never trim the path.** The leading fields are padded with
-  spaces so the raw file reads as columns. The path is always last, is never padded, and
-  must be taken **verbatim** from the final tab to the end of the line. On Linux and macOS
-  a filename may legitimately begin or end with a space, and a parser that strips every
-  field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing reported.
 
 ### The invariant: objects first, snapshot last
 
@@ -180,6 +183,10 @@ decompress with any zstd tool). Lines whose first field starts with `#` are meta
 file rows — **check for that before checking anything structural**, because the four-field
 grammar below describes file rows only, and the metadata lines do not all obey it.
 
+The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) apply here in
+full — encoding, LF splitting, no escaping, and never trimming the path. This section adds
+only what is specific to snapshots.
+
 The file opens with a header naming the set and its member directories, so it is
 self-describing even found alone in a bucket; then one row per file:
 
@@ -249,9 +256,10 @@ Those payloads are **context, not commitment**: new metadata kinds may appear an
 ones may change what they carry. The guarantee is the one above — skip every `#` line and
 what remains is exactly the file rows. Two details matter before writing a parser, and both
 are why the `#` test has to come first. `#ERROR`'s third column is a raw operating-system
-message, so unlike a path it carries no promise of being tab-free and may push its line past
-four fields; and `#END` is a bare single-field line. Neither troubles a reader that tests for
-`#` before counting fields, and both break one that counts first.
+message and `#EXCLUDED`'s is a pattern copied from your `exclude.txt`, so neither carries a
+path's promise of being tab-free and either may push its line past four fields; and `#END`
+is a bare single-field line. Neither troubles a reader that tests for `#` before counting
+fields, and both break one that counts first.
 
 The last line of every snapshot is the trailer `#END`, which today carries no further
 fields. It exists to make truncation detectable: zstd happily decompresses a cut-short file
