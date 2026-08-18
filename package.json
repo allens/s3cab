@@ -44,20 +44,20 @@
     "build:linux": "npm run build && node --build-sea=sea/linux-x64.json"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "^3.1106.0",
-    "@aws-sdk/client-s3": "^3.1106.0",
-    "@aws-sdk/credential-providers": "^3.1106.0",
-    "@aws-sdk/lib-storage": "^3.1106.0",
-    "@smithy/shared-ini-file-loader": "^4.6.16",
-    "@smithy/signature-v4": "^5.6.11"
+    "@aws-sdk/client-cloudformation": "^3.1111.0",
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/credential-providers": "^3.1111.0",
+    "@aws-sdk/lib-storage": "^3.1111.0",
+    "@smithy/shared-ini-file-loader": "^4.7.0",
+    "@smithy/signature-v4": "^5.7.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.9.0",
+    "globals": "^17.11.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2"
   },
