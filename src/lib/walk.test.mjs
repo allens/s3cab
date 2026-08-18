@@ -333,6 +333,52 @@ describe("walkSet dirs guard (ADR-0054)", () => {
   });
 });
 
+// The walk root is canonicalized with `realpathSync.native` (resolveWalkRoot), and
+// these pin *that behaviour* rather than the error branch around it. Everything
+// downstream is keyed on the paths the walk yields — snapshot entries, the drift
+// guard's re-stat, restore's collision map — so a root that reaches the walk in a
+// different spelling of the same location has to come back in one form, or those
+// keys silently stop matching.
+//
+// Why they exist: swapping `realpathSync.native` for `resolve()` used to fail only
+// the ENOENT-shaping test above, which reads as "the vault error branch broke" and
+// invites deleting the now-unreachable branch — leaving canonicalization gone and
+// the suite green. Nothing named the property itself. Note `realpathSync` *without*
+// `.native` is not a substitute: measured 2026-08-18, the JS implementation returns
+// the drive letter as given, so only `.native` (GetFinalPathNameByHandle) fixes the
+// case. Every path here is derived from a real temp dir, never hardcoded to a drive.
+describe("walkDirs canonicalizes its root", () => {
+  it(
+    "yields canonical paths for a root given with a lowercase drive letter",
+    { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
+    async () => {
+      await using dir = await mkTmpDir();
+      write(dir.path, "a.txt");
+      write(dir.path, "sub/b.txt");
+
+      // The exact input a user can type into dirs.txt or `upload --dir`, and what
+      // a lowercase-drive cwd hands `resolve()` — the two ways this reaches the
+      // walk in the wild.
+      const canonical = realpathSync.native(dir.path);
+      const lowerDrive = canonical.charAt(0).toLowerCase() + canonical.slice(1);
+      assert.notEqual(lowerDrive, canonical, "the fixture must differ in case");
+
+      const { files } = walkDirs([lowerDrive], []);
+
+      // Byte-identical to a walk of the canonical root: not merely "resolves to
+      // the same file" (`resolve()` would pass that), but the same *string*,
+      // which is what a path-keyed lookup compares.
+      assert.deepStrictEqual(files, walkDirs([canonical], []).files);
+      for (const file of files) {
+        assert.ok(
+          file.startsWith(canonical),
+          `path kept the input's spelling instead of the canonical root: ${file}`,
+        );
+      }
+    },
+  );
+});
+
 describe("walkDirs on a root the OS won't canonicalize", () => {
   it("says the folder won't resolve, rather than dying on a bare ENOENT", async (t) => {
     await using dir = await mkTmpDir();
