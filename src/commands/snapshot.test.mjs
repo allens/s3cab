@@ -179,6 +179,48 @@ describe("snapshot", () => {
     assert.ok(dirLine.includes(realpathSync.native(workDir())));
   });
 
+  // `dirs.txt` is hand-edited (ADR-0052), so a member directory can be spelled
+  // in any casing Windows accepts, while the rows are canonical — the walk
+  // realpaths each root. Recording the raw text gave a header that disagreed
+  // with every row beneath it, and `restore --output` reads that disagreement as
+  // "this file is under no backed-up directory". win32-only: a drive letter is
+  // the component whose case the user can vary without naming another file.
+  it(
+    "canonicalizes the #DIR header, so it agrees with the rows beneath it",
+    { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
+    async (t) => {
+      const workDir = copyFixtureToWorkDir("before", t.fullName);
+      const home = useTempHome(workDir());
+
+      const canonical = realpathSync.native(workDir());
+      const lowerDrive = canonical.charAt(0).toLowerCase() + canonical.slice(1);
+      assert.notEqual(lowerDrive, canonical, "the fixture must differ in case");
+      writeSet("photos", { dirs: [lowerDrive], bucket: "b" });
+
+      await snapshot("photos", { rehash: true, debug: true });
+
+      const decompressed = readFileSync(
+        join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
+        "utf8",
+      );
+      const lines = decompressed.split("\n").filter(Boolean);
+      const dirLine = lines.find((line) => line.startsWith("#DIR"));
+      assert.ok(dirLine?.endsWith(canonical), `#DIR kept dirs.txt: ${dirLine}`);
+
+      // The point of canonicalizing: every row now sits under that header, which
+      // is exactly what `restore --output` needs to place them.
+      const rows = lines.filter((line) => !line.startsWith("#"));
+      assert.ok(rows.length, "expected the fixture to produce file rows");
+      for (const row of rows) {
+        const path = row.split("\t").at(-1) ?? "";
+        assert.ok(
+          path.startsWith(canonical),
+          `row is not under the #DIR header: ${path}`,
+        );
+      }
+    },
+  );
+
   it("refuses a same-minute snapshot unless overwriting under debug", async (t) => {
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.PlainDateTime.from("2025-03-01T12:00:00").toZonedDateTime(
