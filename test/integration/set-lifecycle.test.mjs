@@ -142,11 +142,18 @@ describe("setup (real bucket)", () => {
       // Machine A's starter exclude came over with the remote config.
       assert.equal(readSetExclude(name), starterExclude);
       // With directories present, reattach nudges that they came from the
-      // creating machine and may need editing before a backup (ADR-0054).
+      // creating machine and may need editing before a backup (ADR-0054) —
+      // naming it from the marker's outgoing OWNER, read here against the live
+      // provider rather than a mock.
       assert.match(
         warnings.join("\n"),
-        /directory list came from the machine that created/,
+        new RegExp(`directory list came from '${hostname()}'`),
       );
+      // The co-existence warning stays silent: both "machines" are temp homes on
+      // this one host, so the marker's owner is us. Proving the suppression on
+      // the real marker matters more than it looks — it is what keeps the
+      // documented delete-then-reattach flow from warning about yourself.
+      assert.doesNotMatch(warnings.join("\n"), /Reattaching doesn't stop/);
 
       // CREATED is preserved across the reattach (only OWNER is re-stamped).
       const after = await readRemoteInfo(bucket, name);

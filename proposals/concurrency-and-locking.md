@@ -78,8 +78,14 @@ mechanism named live:
   lands every object PUT on an existing key; the no-clobber conditional PUT's 412 is treated as
   "already stored" and both sets restore byte-identically.
 - *backup ∥ backup, same set + same snapshot name*: the no-clobber manifest PUT leaves exactly
-  one winner; the loser fails loudly (its error wording is the name-vouching corner — see
-  [bugs.md](bugs.md)).
+  one winner; the loser fails loudly, its objects stored but unrecorded, and re-runs. **This is a
+  supported configuration, not a misuse** — two live machines on one set is discouraged-but-
+  tolerated and explicitly never locked out
+  ([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md), reaffirmed by
+  [ADR-0053](../docs/adr/0053-reattach-command.md); the naming *claim* is the settled hard gate,
+  first-person-wins at `setup`). So the loser's error message is the whole product surface for
+  this, and it was wrong until 2026-08-18 — "already backed up" was true of the name and false of
+  the data. Fixed there; **not** a candidate for a lock.
 - *backup ∥ forget alone*: safe because `forget` deletes only `snapshots/<set>/` keys — every
   object the in-flight manifest references is still stored.
 - *cleanup ∥ forget*: safe because cleanup reads snapshots strictly **before** its objects LIST,

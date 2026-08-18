@@ -98,7 +98,10 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
 6. Throw on any collected upload failure or drift — **before** step 7, so no manifest is published.
    The local snapshot from step 5 survives.
 7. `uploadSnapshotFile` — no-clobber PUT of the manifest. **[atomic]. This is the commit point.**
-   A 412 here is reported as "already backed up… immutable".
+   A 412 here is resolved by byte-identity: identical is this run's own retried PUT and succeeds
+   quietly; different is another machine's snapshot under the name and fails, telling the user
+   their objects are stored but this backup went unrecorded; absent (the colliding snapshot
+   deleted in between) says so on its own.
 8. `pushSetConfig` — best-effort mirror of `dirs.txt`/`exclude.txt`; failure is tolerated and
    changes nothing about the backup's validity.
 
@@ -176,7 +179,8 @@ failure modes, deliberately different:
 Read `info` → pull `dirs.txt`/`exclude.txt` and the remote snapshots (each landing via an atomic
 local write) → re-stamp OWNER with a plain PUT **[atomic]**. It **never disables the prior
 machine**: two live machines on one set is a tolerated state, not an error state — which is a
-precondition for [C2](#where-the-model-is-violable).
+precondition for [C2](#where-the-model-is-violable). The outgoing `OWNER` is read here and
+nowhere else, so this is also where the co-existence warning is issued (design/backup.md).
 
 ### `setup`
 

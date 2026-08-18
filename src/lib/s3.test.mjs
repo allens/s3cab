@@ -1247,7 +1247,7 @@ describe("putFile / putText (fake S3 on loopback)", () => {
       noClobber: true,
     });
     // The PreconditionFailed catch — the guard that stops a losing racer
-    // overwriting, and the one path to uploadSnapshot's "already backed up".
+    // overwriting, and the one path to uploadSnapshotFile's byte-identity check.
     assert.equal(wrote, false);
     assert.deepEqual(seen, ["PUT /bucket/key"]);
   });

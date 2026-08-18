@@ -56,38 +56,31 @@ the URI as a plain string split so keys reach the bucket verbatim; only the Tier
 could see that one, since every seam call encoded identically
 ([test/model/conformance/store-semantics.test.mjs](../test/model/conformance/store-semantics.test.mjs)).</sub>
 
-- **The loser of a same-name manifest race loses its snapshot behind a misleading error.**
-  **Confirmed live, multi-process** (2026-08-14, crash tier): two real CLI processes, separate
-  `S3CAB_HOME`s, different tree content, same set and same minute — the loser of the manifest
-  no-clobber race fails with *"Snapshot '…' is already backed up … Snapshots are immutable and
-  never overwritten"*, which is true of the **name** and false of the loser's **data** (its
-  differing file's object is uploaded, but no manifest records it). Repro: *"same set, same
-  snapshot name"* in [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs).
-  [ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md) settled the *identity* half of
-  this — the byte comparison tells a run's own retried PUT (identical, quiet success) from a
-  foreign snapshot (different) — but the *different* case still ends the run with that message
-  and nothing published.
-- **A minute-resolution deletion record turns two concurrent deletes into a hard failure — and
-  fails CI as a flake.** `writeDeletionRecord`
-  ([deletion-record.mjs](../src/lib/deletion-record.mjs)) names each record
-  `deletions/<YYYY-MM-DDTHHmm>.tsv` and never overwrites it, so a second `delete` finishing inside
-  the same minute aborts with *"A deletion record for this minute already exists … another delete
-  finished within the last minute, and records are never overwritten. Wait for the next minute,
-  then re-run."* **Confirmed in CI** (2026-08-15, run
-  [31852887331](https://github.com/allens/s3cab/actions/runs/31852887331)): two workflow runs from
-  a stack of PRs merged back-to-back overlapped on the shared `test-s3cab-ci-integration` bucket,
-  and *"removes exclusively-referenced content, records it, and every consumer honours the
-  record"* ([test/integration/delete.test.mjs](../test/integration/delete.test.mjs)) failed on the
-  second one. Two distinct defects wearing the same clothes:
-  - ~~**The real-bucket tier assumes it owns the bucket.**~~ **Fixed 2026-08-15.** Different PRs
-    are different refs and [ci.yml](../.github/workflows/ci.yml)'s workflow-level `concurrency`
-    group keys on `github.ref`, so runs overlapped by design — merging a stack made that routine
-    rather than rare. The `s3 integration` job now carries its own repo-wide group
-    (`group: s3-integration`, `cancel-in-progress: false`), so real-bucket runs queue instead of
-    racing. Per-run key-prefix isolation would be the stronger fix and is still available if
-    queueing ever costs too much wall clock; it wasn't bought, because one job serialized is the
-    small thing the current need justifies.
-  - **The limitation underneath is the product's, not the test's.** Two people deleting from one
-    bucket in the same minute hit the same wall, and "wait for the next minute" is the entire
-    remedy on offer. Same root as the same-name manifest race above — a **minute-resolution name
-    used as an identity** — so whatever settles that one should settle this.
+<sub>The two **minute-resolution name** entries are fixed, 2026-08-18, and they wanted opposite
+answers. The *deletion record* stopped refusing: a second `delete` finishing inside the same
+minute used to abort with "wait for the next minute" as the entire remedy — two people sharing a
+bucket hit it, and CI hit it for real (2026-08-15, run
+[31852887331](https://github.com/allens/s3cab/actions/runs/31852887331), two workflow runs from a
+stack of back-to-back merges overlapping on the shared bucket, since serialized by the `s3
+integration` job's own repo-wide `concurrency` group). A record's name is read by nobody —
+`readDeletionRecords` LISTs the prefix and unions every file — so the refusal it inherited from
+the snapshot name grammar bought nothing; a taken name now takes the next one (`-2`, `-3`, …),
+the PUT stays conditional on every attempt, and the read side accepts `<timestamp>[-<n>].tsv`
+([ADR-0087](../docs/adr/0087-deletion-record-suffix-on-collision.md)). The *snapshot* kept
+refusing, because there the name is an identity users type and refusing a repeat is what stops an
+accidental double-run rewriting history — what changed is the message. Confirmed live,
+multi-process (2026-08-14, crash tier — *"same set, same snapshot name"* in
+[test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs)): the loser of the manifest
+no-clobber race failed with *"Snapshot '…' is already backed up"*, true of the **name** and false
+of the loser's **data**, which its objects-first upload had already stored. `uploadSnapshotFile`
+now branches on
+[ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md)'s byte comparison: *different*
+says the name holds a different backup, the files are safe, re-run to record them under the next
+minute's name; *absent* (the colliding snapshot deleted between the 412 and the read) gets its
+own, since "already backed up" was flatly false there. Nothing remains: two live machines on one
+set is a **settled** discouraged-but-tolerated state, never locked out
+([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md)), which is precisely why the
+loser's message — not a lock — was the thing to fix.</sub>
+
+**No known bugs** — the state this file has to be in at release, and the point at which it should
+be deleted rather than kept empty. Anything found before Issues open goes back in the list here.

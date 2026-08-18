@@ -160,6 +160,18 @@ interleaving is benign): `reattach` never disables the prior machine — re-stam
 its only remote change. An interactive wizard may later wrap this one-shot form; it is not part
 of v1.
 
+**Where "discouraged" is actually said.** `reattach` names the prior `OWNER` and warns that
+reattaching doesn't stop that machine — the one moment a human is present with a stated intent,
+and the only one where the marker's outgoing owner is still readable. Both facts are already in
+memory there (the marker was read to validate the set; the snapshot history has just been
+pulled), so it costs no extra request, where a backup-time check would cost a marker GET per run.
+It stays **advisory**: from the bucket a retired machine and a dormant one are indistinguishable —
+recency is the only signal and a weekly backup looks dead by day three — and succession is the
+dominant case, so a gate would make the common path pay for the rare one. A prompt was rejected
+for a different reason: both answers are permitted, so it would collect an intent and then act
+identically. The later name collision keeps its own self-contained message
+(`uploadSnapshotFile`), since the reattach may have been months earlier.
+
 ### `list` — show sets and their snapshots
 
 `s3cab list` is the **read** counterpart ([ADR-0036](../adr/0036-setup-mutates-list-shows-drop-sets.md)) —

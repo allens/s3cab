@@ -131,7 +131,7 @@ describe("uploadSnapshot (real bucket)", () => {
       await writeSnapshot(snapshotDir, first, [fileA, fileB, fileC]);
       await assert.rejects(
         () => uploadSnapshot({ bucket, set, snapshotDir, name: first }),
-        /already backed up/,
+        /the name was already taken when we wrote it/,
       );
     } finally {
       for (const hash of allHashes) {

@@ -462,17 +462,63 @@ export async function uploadSnapshotFile({ bucket, set, snapshotDir, name }) {
   const snapshotUri = remoteSnapshotUri(bucket, set, name);
   const snapshotPath = join(snapshotDir, snapshotFileName(name));
   const wrote = await putFile(snapshotPath, snapshotUri, { noClobber: true });
-  if (!wrote) {
-    const match = await matchRemoteSnapshot(bucket, set, name, snapshotDir);
-    if (match === "identical") {
-      return; // this very manifest is already up — publishing is idempotent
-    }
-    throw new Error(
-      `Snapshot '${name}' is already backed up (${snapshotUri}). ` +
-        `Snapshots are immutable and never overwritten (docs/design/backup.md).`,
-    );
+  if (wrote) {
+    return;
   }
+  const match = await matchRemoteSnapshot(bucket, set, name, snapshotDir);
+  if (match === "identical") {
+    return; // this very manifest is already up — publishing is idempotent
+  }
+  throw nameTakenError(set, name, snapshotUri);
 }
+
+/**
+ * The 412 that isn't this run's own retried PUT — the name was taken by someone
+ * else (ADR-0084: byte-identity is what tells the two apart).
+ *
+ * **One message for both losing outcomes**, `"different"` and `"absent"`. They
+ * differ only in whether the snapshot that beat us is still there when we look a
+ * moment later, which changes nothing the reader can act on: their objects are
+ * stored, their backup went unrecorded, and the fix is to run it again. Hence
+ * the past tense — *was* already taken *when we wrote it* — which stays true
+ * whether or not it has since been deleted. Two factories here would be two
+ * wordings for one user action.
+ *
+ * **A supported configuration, so this message is the whole product surface for
+ * it.** Two live machines on one set is discouraged-but-tolerated and explicitly
+ * never locked out ([ADR-0024](../../docs/adr/0024-set-name-is-the-whole-identity.md)
+ * — the OneDrive-synced-directory case), so a colliding minute is an expected
+ * event on a supported path, not a misuse to be terse about. `reattach` says the
+ * same thing in advance, naming the other machine
+ * ([reattach.mjs](../commands/reattach.mjs)); this has to stand alone anyway,
+ * since that may have been months ago. What is *not* tolerated is two machines
+ * claiming the name in the first place — `setup`'s first-person-wins claim,
+ * settled and hard.
+ *
+ * Worded against what the user is actually left with, because the message this
+ * replaced — "Snapshot '<name>' is already backed up" — was true of the *name*
+ * and false of their *data*, and read as reassurance at the exact moment their
+ * backup had not been recorded (ADR-0030). Their objects went up before the
+ * manifest (objects-first, docs/design/backup.md), so nothing is lost and a
+ * re-run mints the next minute's name and publishes. The likely cause is named
+ * as a cause and not asserted as fact: all the code can see is bytes it didn't
+ * write, which a regenerated local manifest produces too.
+ * @param {string} set - The set's name
+ * @param {string} name - The snapshot name that collided
+ * @param {string} uri - The remote snapshot's `s3://` URI
+ * @returns {Error}
+ */
+const nameTakenError = (set, name, uri) =>
+  new Error(
+    `Couldn't record this backup as '${name}': the name was already taken ` +
+      `when we wrote it (${uri}).\n` +
+      `Snapshot names are the local time to the minute, so another computer ` +
+      `backing up the same set can take one first. Your files were uploaded ` +
+      `and are safe in the store — it is this backup's record that wasn't ` +
+      `written, and snapshots are never overwritten.\n` +
+      `Run it again to record it under the next minute's name:\n` +
+      `  s3cab backup ${set}`,
+  );
 
 /**
  * Upload an **existing local snapshot** to the bucket: every object it
