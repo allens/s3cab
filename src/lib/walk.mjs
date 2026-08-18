@@ -169,6 +169,14 @@ function assertWalkableDirs(set) {
  * `realpathSync.native` for (once per root, never per entry), so every file below
  * it is keyed on one stable path.
  *
+ * Exported for `snapshot`, which records these same canonical roots as the
+ * snapshot's `#DIR` headers rather than the raw `dirs.txt` text — so the header
+ * and the rows beneath it are spelled the same way (guide/format.md, "Path
+ * casing"). It re-resolves rather than the walk handing its roots back: this is
+ * one call per member directory, against a walk that stats tens of thousands of
+ * files, and `WalkResult` stays what it says it is — the entries encountered,
+ * not a record of how the input was read.
+ *
  * It can fail on a directory that is plainly *there*: measured 2026-08-11 against
  * an unlocked OneDrive Personal Vault, where `lstat`/`stat` report a directory and
  * `readdir` lists it, but the junction targets a volume GUID with no mount point so
@@ -188,7 +196,7 @@ function assertWalkableDirs(set) {
  * @param {string} dir - A member directory, absolute and already checked reachable
  * @returns {string} Its canonical path
  */
-function resolveWalkRoot(dir) {
+export function resolveWalkRoot(dir) {
   try {
     return realpathSync.native(dir);
   } catch (error) {

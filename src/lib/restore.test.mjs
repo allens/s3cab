@@ -152,6 +152,44 @@ describe("reroot", () => {
       /not under any backed-up directory/,
     );
   });
+
+  // A `#DIR` header and the rows under it can disagree in case once someone
+  // edits the snapshot — a supported thing to do to a file we promise is plain
+  // text. On Windows the two spellings are one path, so re-rooting must not read
+  // the difference as "this file is under no backed-up directory". Folding keys
+  // on the drive letter, not on the running platform, because these snapshots
+  // get restored on other operating systems — which is what `--output` is for.
+  it("folds case in a Windows root, so an edited #DIR still re-roots", () => {
+    const map = reroot(["c:\\Users\\me\\Photos"], "out");
+    assert.equal(
+      map("C:\\Users\\me\\Photos\\beach.jpg"),
+      join(resolve("out"), "Photos", "beach.jpg"),
+    );
+  });
+
+  it("folds every segment of a Windows root, not just the drive", () => {
+    const map = reroot(["C:\\USERS\\ME\\photos"], "out");
+    assert.equal(
+      map("C:\\Users\\me\\Photos\\beach.jpg"),
+      join(resolve("out"), "photos", "beach.jpg"),
+    );
+  });
+
+  it("keeps a POSIX root case-sensitive — there the two are different files", () => {
+    const map = reroot(["/home/me/Photos"], "out");
+    assert.throws(
+      () => map("/home/me/photos/beach.jpg"),
+      /not under any backed-up directory/,
+    );
+  });
+
+  it("still picks the longest match when a shorter root also folds to a match", () => {
+    const map = reroot(["C:\\data", "C:\\data\\photos"], "out");
+    assert.equal(
+      map("c:\\DATA\\Photos\\x.jpg"),
+      join(resolve("out"), "photos", "x.jpg"),
+    );
+  });
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each

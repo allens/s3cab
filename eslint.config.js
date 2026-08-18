@@ -152,4 +152,37 @@ export default defineConfig([
   // adds or removes them. Placed *after* eslint-config-prettier, which disables
   // `curly` by default; in flat config the later block wins, so this re-asserts it.
   { rules: { curly: ["error", "all"] } },
+  // Path canonicalization goes through `realpathSync.native` and nothing else
+  // (CLAUDE.md: "the one reliable path canonicalizer"). `no-restricted-syntax`
+  // rather than a local rule because two selectors say it completely — the small
+  // thing the need justifies (CLAUDE.md working rule #3).
+  //
+  // Why a linter and not a test: the difference is invisible on a canonical
+  // machine, so a swap here stays green almost everywhere. Measured 2026-08-18 on
+  // win32, `realpathSync("d:\\src")` returns the drive letter **as given** while
+  // `realpathSync.native` returns `D:\src` — only the native binding goes through
+  // `GetFinalPathNameByHandle`. Anything keyed on the path (snapshot entries, the
+  // drift guard's re-stat, restore's collision map) then compares two spellings
+  // of one file and silently finds no match. Tests are held to it too: they build
+  // their expectations with the same call, so a test using the JS binding would
+  // agree with a *broken* implementation. `walkDirs canonicalizes its root`
+  // (src/lib/walk.test.mjs) pins the behaviour; this pins the spelling.
+  {
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'CallExpression[callee.name="realpathSync"]',
+          message:
+            "Use realpathSync.native(): the JS realpathSync leaves a Windows drive letter as typed, so paths keyed on it stop matching (CLAUDE.md coding conventions).",
+        },
+        {
+          selector:
+            'CallExpression[callee.type="MemberExpression"][callee.property.name="realpathSync"]',
+          message:
+            "Use realpathSync.native(): the JS realpathSync leaves a Windows drive letter as typed, so paths keyed on it stop matching (CLAUDE.md coding conventions).",
+        },
+      ],
+    },
+  },
 ]);

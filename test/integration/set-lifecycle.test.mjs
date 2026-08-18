@@ -43,9 +43,22 @@ describe("setup (real bucket)", () => {
     const name = `st-create-${Date.now()}`;
     const content = resolve(dir.path, "content");
     mkdirSync(content, { recursive: true });
+    // Enrolled in a *non-canonical* spelling of the same directory, because
+    // `dirs.txt` is hand-edited and a typed `d:\photos` is ordinary input. What
+    // gets stored must be the OS's canonical form (`resolveDirectories`), or the
+    // set is keyed on a string the walk will never yield — every path-keyed
+    // lookup downstream compares strings, not inodes. On win32 the drive letter
+    // is the available difference; elsewhere the input is already canonical and
+    // this is simply the same assertion as before. `realpathSync.native` is the
+    // only canonicalizer that fixes the case — plain `realpathSync` returns the
+    // drive letter as given (measured 2026-08-18).
+    const enrolled =
+      process.platform === "win32"
+        ? content.charAt(0).toLowerCase() + content.slice(1)
+        : content;
 
     try {
-      const set = await setup([content], { set: name, bucket });
+      const set = await setup([enrolled], { set: name, bucket });
       assert.equal(set?.name, name);
       assert.equal(set?.bucket, bucket);
       assert.deepEqual(set?.dirs, [realpathSync.native(content)]);

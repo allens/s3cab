@@ -20,7 +20,7 @@ import {
   snapshotMoment,
   writeSnapshot,
 } from "./snapshot-file.mjs";
-import { walkSet } from "./walk.mjs";
+import { resolveWalkRoot, walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
@@ -202,6 +202,17 @@ export async function generateSnapshot(
   }
 
   const { files, excluded, skipped } = walkSet(set);
+  // The `#DIR` headers, canonicalized the same way the walk canonicalized the
+  // roots it yielded these files from — `dirs.txt` is hand-edited (ADR-0052), so
+  // its text can name a directory in any casing Windows accepts while the rows
+  // below carry the on-disk spelling. Writing the raw text made a header that
+  // disagreed with every row it introduced, which `restore --output` reads as
+  // "this file is under no backed-up directory". After the walk, not before:
+  // `walkSet` runs `assertWalkableDirs` first, so an unplugged drive is reported
+  // as the whole list of what's unreachable (ADR-0054) instead of the first
+  // one's `ENOENT`. One realpath per member directory, against a walk that has
+  // just stat-ed every file under them.
+  const roots = set.dirs.map(resolveWalkRoot);
 
   // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
   // one #DIR line per member directory, so the file is self-describing even when
@@ -256,7 +267,7 @@ export async function generateSnapshot(
 
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
-    dirs: set.dirs,
+    dirs: roots,
     files: withProgress({
       total: files.length,
       bytesTotal,
