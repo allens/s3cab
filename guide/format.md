@@ -112,8 +112,12 @@ double-run can never destroy history.
 `s3cab delete` removes named paths' content from the whole backed-up history — and because
 snapshots are immutable, it does so **without touching a single snapshot file**: it deletes
 the backing objects and writes a **deletion record**, one per run, at
-`deletions/<timestamp>.tsv` (the same minute-precision local timestamp as snapshot names —
-and, like a snapshot, a record is never overwritten; a same-minute second run is an error).
+`deletions/<timestamp>.tsv` (the same minute-precision local timestamp as snapshot names).
+A record is never overwritten. Unlike a snapshot, though, a second run in the same minute is
+not an error: it takes the next free name — `2026-06-12T0915-2.tsv`, then `-3` — because two
+deletes are two real events and both have to be recorded. Read every file under `deletions/`
+matching `<timestamp>[-<n>].tsv`; a record's own `generated:` header carries the full UTC
+instant, so same-minute records can still be told apart and ordered.
 The record is what lets any tool — s3cab or a future reader of the bare files — tell
 *deliberately gone* from *corrupted*: an object a snapshot references but the store lacks is
 **expected** if a record lists its hash, and an integrity fault if none does.

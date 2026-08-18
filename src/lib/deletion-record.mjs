@@ -33,18 +33,41 @@ const deletionRecordUri = (bucket, name) =>
  * "Now" as a deletion record's moment — the *same* minute-precision local name,
  * UTC instant and zone a snapshot gets (`snapshotMoment`), reused deliberately
  * so the format spec tells one story for both timestamped artifacts (ADR-0072).
- * Minute precision means a same-minute second run *collides*; like a same-minute
- * snapshot, that is a loud error, not an overwrite (`writeDeletionRecord`'s
- * conditional PUT).
+ *
+ * Minute precision means two runs in one minute mint the same name. For a
+ * *snapshot* that collision is load-bearing — refusing it is what stops an
+ * accidental double-run destroying history (guide/format.md). For a record it
+ * protects nothing: two deletes in one minute are two real events, both of which
+ * must be recorded, so `writeDeletionRecord` disambiguates rather than refusing.
  * @returns {{ name: string, instant: string, zone: string }}
  */
 export const deletionRecordMoment = snapshotMoment;
 
+// How many same-minute records one bucket can take before the loop below gives
+// up. Not a contention limit — real contention is two or three runs — but a
+// backstop, so a `putText` refusing for some reason other than the key existing
+// can't spin against S3 forever.
+const MAX_SAME_MINUTE_RECORDS = 100;
+
 /**
- * Write one deletion record — a conditional PUT (`IfNoneMatch: *`), so a
- * same-minute second run fails atomically instead of silently overwriting a
- * record of a destructive act that cannot be reconstructed. Under `S3CAB_DEBUG`
- * the condition is dropped (tests re-run within a minute).
+ * Write one deletion record — always a conditional PUT (`IfNoneMatch: *`), so a
+ * record of a destructive act that cannot be reconstructed is never overwritten.
+ * A name already taken is **not** an error: the run retries under
+ * `<name>-2`, `<name>-3`, … until one lands, so two deletes finishing in the
+ * same minute both get recorded.
+ *
+ * That is the whole difference from a snapshot, whose same-minute collision
+ * *is* refused. A snapshot name is an identity users type (`s3cab restore <set>
+ * <name>`) and refusing a repeat is what makes an accidental double-run
+ * harmless. A record's name is read by nobody — `readDeletionRecords` LISTs the
+ * prefix and unions every file it finds — so it needs only to be unique and to
+ * sort. Refusing a collision there bought no safety and cost a hard failure with
+ * "wait a minute" as the entire remedy, which two people sharing a bucket hit
+ * routinely (and CI hit as a flake, run 31852887331).
+ *
+ * The suffix disambiguates the *file*, not the moment: every record still
+ * carries the full UTC instant in its `generated:` header, so same-minute
+ * records remain distinguishable and orderable by their own contents.
  *
  * The caller writes the record **before deleting any object** (record-first):
  * a crash mid-delete must never leave missing objects the record cannot
@@ -53,22 +76,25 @@ export const deletionRecordMoment = snapshotMoment;
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} name - The record name (from {@link deletionRecordMoment})
  * @param {string} content - The record body (from `formatDeletionRecord`)
- * @returns {Promise<string>} The record's `s3://` URI
+ * @returns {Promise<string>} The record's `s3://` URI, suffix included
  */
 export async function writeDeletionRecord(bucket, name, content) {
-  const uri = deletionRecordUri(bucket, name);
-  const wrote = await putText(uri, content, {
-    noClobber: !process.env.S3CAB_DEBUG,
-  });
-  if (!wrote) {
-    throw new Error(
-      `A deletion record for this minute already exists (${uri}) — another ` +
-        `delete finished within the last minute, and records are never ` +
-        `overwritten.\n` +
-        `Wait for the next minute, then re-run.`,
-    );
+  for (let attempt = 1; attempt <= MAX_SAME_MINUTE_RECORDS; attempt++) {
+    const candidate = attempt === 1 ? name : `${name}-${attempt}`;
+    const uri = deletionRecordUri(bucket, candidate);
+    const wrote = await putText(uri, content, { noClobber: true });
+    if (wrote) {
+      return uri;
+    }
   }
-  return uri;
+  throw new Error(
+    `Couldn't record this deletion: every name from '${name}' to ` +
+      `'${name}-${MAX_SAME_MINUTE_RECORDS}' is already taken in ` +
+      `s3://${bucket}/${DELETIONS_PREFIX}, which shouldn't happen.\n` +
+      `Nothing was deleted — the record is written first, so your data is ` +
+      `untouched. Check what is writing to that prefix, then re-run:\n` +
+      `  aws s3 ls s3://${bucket}/${DELETIONS_PREFIX}`,
+  );
 }
 
 /**
@@ -101,11 +127,17 @@ export async function readDeletionRecords(bucket) {
     `s3://${bucket}/${DELETIONS_PREFIX}`,
   )) {
     const file = Key?.slice(DELETIONS_PREFIX.length);
-    if (file && /^\d{4}-\d{2}-\d{2}T\d{4}\.tsv$/.test(file)) {
+    if (file && /^\d{4}-\d{2}-\d{2}T\d{4}(-\d+)?\.tsv$/.test(file)) {
       names.push(file.slice(0, -".tsv".length));
     }
   }
-  names.sort(); // oldest first, so a re-recorded hash keeps the newest timestamp
+  // Oldest first, so a re-recorded hash keeps the newest record's timestamp.
+  // Lexical is enough despite the numeric suffix sorting `-10` before `-2`: the
+  // minute prefix orders every record from a *different* minute correctly, and
+  // within one minute the only thing at stake is which same-minute name gets
+  // reported for a hash deleted, re-backed-up and re-deleted inside sixty
+  // seconds. Not worth a comparator.
+  names.sort();
 
   /** @type {Map<string, RecordedDeletion>} */
   const deleted = new Map();

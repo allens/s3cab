@@ -66,10 +66,10 @@ const PREVIEW_FILE = "delete-preview.txt";
  * *is* the computation of what to delete) and never the unreadable-snapshot
  * interlock.
  *
- * **Record-first ordering:** the record is written (conditional PUT — a
- * same-minute rerun fails loudly; records are never overwritten) *before* any
- * object is deleted, so a crash mid-run can never leave missing objects the
- * record cannot explain.
+ * **Record-first ordering:** the record is written (conditional PUT — never an
+ * overwrite; a name another run already took takes the next one, ADR-0087)
+ * *before* any object is deleted, so a crash mid-run can never leave missing
+ * objects the record cannot explain.
  *
  * Old muscle memory (`s3cab delete --set <set> <snapshot>`) fails loudly
  * twice over: `--set` is not an option here, and a snapshot name matches no

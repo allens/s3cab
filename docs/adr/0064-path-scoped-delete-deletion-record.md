@@ -1,8 +1,15 @@
 # Path-scoped `delete`: participating-set scope, the deletion record, and the destructive-command pattern
 
 **Status:** accepted (settled 2026-07-20, the PR D grilling session; builds on
-[0063](0063-forget-snapshots-delete-paths.md), whose closing shape line it amends). Reasoned
-under clig.dev (the `cli-design` skill) and [0012](0012-consumer-vocabulary-naming.md).
+[0063](0063-forget-snapshots-delete-paths.md), whose closing shape line it amends); the
+record-naming bullet partly superseded by
+[0087](0087-deletion-record-suffix-on-collision.md). Reasoned under clig.dev (the `cli-design`
+skill) and [0012](0012-consumer-vocabulary-naming.md).
+
+> **Partly superseded by [0087](0087-deletion-record-suffix-on-collision.md)** (accepted): a
+> same-minute record now takes the next free name (`-2`, `-3`) instead of failing, and the
+> `S3CAB_DEBUG` overwrite escape is removed. Everything else here — the prefix, the
+> record-first ordering, the row shape, the destructive-command pattern — stands.
 
 ## Context
 
@@ -23,13 +30,18 @@ UX, consumer semantics — was settled in this session and is recorded here.
   human-readable audit artifact and is small — direct readability beats a negligible size
   win (snapshots compress because they are huge).
 - **Minute-precision local timestamp names, the snapshot-name grammar** — one story for
-  both timestamped artifacts. The collision this invites is handled like a same-minute
+  both timestamped artifacts. ~~The collision this invites is handled like a same-minute
   snapshot: a **conditional PUT** (`IfNoneMatch: *`) refuses a same-minute second run loudly
   ("wait a minute"); records are never overwritten. `S3CAB_DEBUG` drops the condition
-  (dev/test escape). Second precision was rejected: denser names, a second timestamp shape
-  in the spec, and the refusal is safe here because of ordering (next bullet). (`forget`'s
-  *local* audit files stay at seconds deliberately: they are written *after* the destructive
-  act, where refusal is impossible — and they are not bucket format.)
+  (dev/test escape).~~ **Superseded by
+  [0087](0087-deletion-record-suffix-on-collision.md)** (2026-08-18): the PUT is still
+  conditional, but a taken name now takes the next free one (`-2`, `-3`) rather than failing,
+  and the `S3CAB_DEBUG` escape is gone. Refusing bought a snapshot's safety guarantee and
+  nothing here, while costing a legitimate second delete. Second precision was rejected:
+  denser names, a second timestamp shape in the spec, and the refusal is safe here because of
+  ordering (next bullet). (`forget`'s *local* audit files stay at seconds deliberately: they
+  are written *after* the destructive act, where refusal is impossible — and they are not
+  bucket format.)
 - **Record-first ordering:** the record is written *before* any object is deleted, so a
   crash mid-run can never leave missing objects unexplained. Over-recording (a recorded
   delete that then didn't finish) is the safe direction — the objects are simply present.

@@ -10,7 +10,7 @@ import { setup } from "../../src/commands/setup.mjs";
 import { verify } from "../../src/commands/verify.mjs";
 import { writeDeletionRecord } from "../../src/lib/deletion-record.mjs";
 import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
-import { deleteObject, objectExists } from "../../src/lib/s3.mjs";
+import { deleteObject, getText, objectExists } from "../../src/lib/s3.mjs";
 import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
 import { uploadSnapshot } from "../../src/lib/upload.mjs";
 import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
@@ -200,26 +200,33 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
     }
   });
 
-  it("the record's conditional PUT refuses a duplicate name against the live provider", async () => {
-    // The same-minute collision guard is an If-None-Match conditional write —
-    // exactly the kind of behaviour a mock can't vouch for on a real provider
-    // (docs/design/s3-provider-compatibility.md). A fixed record name makes the
+  it("a same-minute record takes the next name against the live provider", async () => {
+    // Both halves need a real provider (docs/design/s3-provider-compatibility.md):
+    // that `IfNoneMatch: "*"` actually refuses the taken key — a mock can only
+    // assert we asked — and that the retry then lands, so two deletes in one
+    // minute are both recorded (ADR-0087). A fixed record name makes the
     // collision deterministic instead of racing the wall clock.
     const name = `0000-01-01T0000`;
-    const uri = `s3://${bucket}/deletions/${name}.tsv`;
-    const debug = process.env.S3CAB_DEBUG;
-    delete process.env.S3CAB_DEBUG; // the guard under test is the conditional PUT
+    /** @type {string[]} */
+    const written = [];
     try {
-      await writeDeletionRecord(bucket, name, "# collision probe\n");
-      await assert.rejects(
-        () => writeDeletionRecord(bucket, name, "# second write\n"),
-        /already exists[\s\S]*Wait for the next minute/,
-      );
+      written.push(await writeDeletionRecord(bucket, name, "# first\n"));
+      written.push(await writeDeletionRecord(bucket, name, "# second\n"));
+      written.push(await writeDeletionRecord(bucket, name, "# third\n"));
+      assert.deepEqual(written, [
+        `s3://${bucket}/deletions/${name}.tsv`,
+        `s3://${bucket}/deletions/${name}-2.tsv`,
+        `s3://${bucket}/deletions/${name}-3.tsv`,
+      ]);
+
+      // The conditional PUT is still what makes that true: the first record's
+      // bytes are untouched, so no retry overwrote a record of a destructive act.
+      const first = await getText(`s3://${bucket}/deletions/${name}.tsv`);
+      assert.equal(first, "# first\n");
     } finally {
-      if (debug !== undefined) {
-        process.env.S3CAB_DEBUG = debug;
+      for (const uri of written) {
+        await deleteObject(uri).catch(() => {});
       }
-      await deleteObject(uri).catch(() => {});
     }
   });
 });
