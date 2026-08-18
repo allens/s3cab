@@ -16,6 +16,22 @@ const normalize = (p) => {
 };
 
 /**
+ * Whether split path segments came from a Windows path — i.e. whether the first
+ * segment is a drive (`C:`). Windows compares paths case-insensitively, so this
+ * decides whether two spellings of one path are the same path.
+ *
+ * Asked of the *path*, not of `process.platform`: `--output` is the restore mode
+ * for putting a backup somewhere other than where it came from, up to and
+ * including another operating system, so a Windows snapshot is routinely read on
+ * a machine where `platform` says otherwise. A UNC root (`\\server\share`) splits
+ * to a leading server name and is left case-sensitive — the drive letter is the
+ * shape we can recognize without guessing at a remote filesystem's rules.
+ * @param {string[]} segments - Path segments, separators already stripped
+ * @returns {boolean}
+ */
+const isWindowsPath = (segments) => /^[A-Za-z]:$/.test(segments[0] ?? "");
+
+/**
  * @typedef {Object} RestoreStep
  * @property {string} dest - Where this entry is written (or left alone, for `skip`)
  * @property {"skip" | "fetch" | "copy"} action
@@ -134,12 +150,20 @@ export function pathMatcher(filters) {
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split on both `/` and `\`, and matched by exact
- * segments. Path-vs-root matching is case-sensitive (a path and its `#DIR` root
- * were written by the same snapshot run, so their casing already agrees); only
- * the basename-collision check below folds case, deliberately, to catch two roots
- * that would land in the same `<output>` directory. The destination is rebuilt with
- * this platform's separator under `output`. The longest matching root wins, so a
+ * segments. Case-folded when — and only when — the root is a Windows path, since
+ * there the two spellings name one file (`isWindowsPath`); the basename-collision
+ * check below folds unconditionally, deliberately, to catch two roots that would
+ * land in the same `<output>` directory. The destination is rebuilt with this
+ * platform's separator under `output`. The longest matching root wins, so a
  * nested member dir takes precedence over a parent.
+ *
+ * `snapshot` writes canonical roots, so its own headers already agree with its
+ * rows — the folding is for a snapshot a *user* has edited, which is a supported
+ * thing to do to a file we promise is plain text (ADR-0002). Keyed on the path's
+ * shape rather than `process.platform` because the mismatch outlives the machine
+ * that made it: a Windows snapshot restored on Linux is exactly the case
+ * `--output` exists for, and there `platform === "win32"` is false while the
+ * paths are still Windows paths whose casing still doesn't matter.
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
@@ -159,7 +183,11 @@ export function reroot(dirs, output) {
 
   const roots = dirs
     .map((dir) => dir.split(/[\\/]/).filter(Boolean))
-    .map((segments) => ({ segments, base: segments.at(-1) ?? "" }))
+    .map((segments) => ({
+      segments,
+      base: segments.at(-1) ?? "",
+      fold: isWindowsPath(segments),
+    }))
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
 
@@ -182,7 +210,14 @@ export function reroot(dirs, output) {
     const root = roots.find(
       (r) =>
         r.segments.length <= segments.length &&
-        r.segments.every((seg, i) => seg === segments[i]),
+        r.segments.every((seg, i) => {
+          // The length guard above puts `i` in range; `?? ""` is for the type
+          // checker, and can't match a segment (they're non-empty by `filter`).
+          const other = segments[i] ?? "";
+          return r.fold
+            ? seg.toLowerCase() === other.toLowerCase()
+            : seg === other;
+        }),
     );
     if (!root) {
       throw new Error(

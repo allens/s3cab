@@ -211,6 +211,20 @@ may treat one as a malformed file. The commitment matters because there is no sa
 guess: a first-wins reader and a last-wins reader would restore *different bytes* from the
 same snapshot, neither of them reporting anything wrong.
 
+**Paths are written with the casing the filesystem itself reports** — the spelling you see
+in File Explorer or Finder, not the spelling anything was typed in. If a folder is on disk
+as `Photos` and the set's `dirs.txt` names it `PHOTOS`, the snapshot says `Photos`. The one
+exception is a **Windows drive letter, which is always uppercase**: a drive letter isn't a
+name on disk, it's an alias the operating system assigns to a volume, and Windows keeps no
+canonical case for it. So `C:` is what you get, whichever way you wrote it.
+
+That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
+are yours to edit: on Windows paths, where two spellings name one file, `#DIR` headers are
+matched against paths case-insensitively — so hand-editing a snapshot's headers, or a set's
+`dirs.txt`, won't stop `restore --output` finding where a file belongs. Paths without a
+drive letter are matched exactly, since a case-sensitive filesystem really can hold both
+`Photos` and `photos`.
+
 **A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
 filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
 build against. A restore reproduces the *stored* value exactly, so a restored tree compares

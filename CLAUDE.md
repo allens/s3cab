@@ -178,6 +178,22 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   call fine, per-file-in-a-loop deadly. So realpath only at the capture points (`setup`'s
   `resolveDirectories`, the walk root — once per root, never per entry), pure-string `path`
   downstream (the compare renderer must **not** reintroduce a per-path `realpathSync`).
+  **`.native` is load-bearing, and enforced** (`no-restricted-syntax` bans the bare call): the JS
+  `realpathSync` returns a Windows drive letter *as typed*, so only the native binding
+  canonicalizes case. Tests must use it too — they build expectations with the same call, so the
+  JS binding would make a test agree with a broken implementation. That is not hypothetical: it
+  cost a six-week "flake" hunt (`uploadDir`'s drift tests, fixed 2026-08-18) when a fixture keyed
+  a mock on `resolve()`'s spelling and a lowercase-drive cwd made the two disagree.
+- **Canonical on the way out, case-tolerant on the way in.** Every path s3cab *writes* is
+  canonical (`resolveWalkRoot`, so a snapshot's `#DIR` headers are spelled like the rows beneath
+  them); every path s3cab *reads back* from a file a user may have edited — `dirs.txt`,
+  `exclude.txt`, a snapshot — tolerates a case difference where the OS does, because on Windows
+  the two spellings are one file. Tolerance keys on the **path's shape** (`isWindowsPath`: is
+  segment 0 a drive letter?), never on `process.platform` — `restore --output` exists to put a
+  Windows backup on another machine, where `platform` says `linux` and the paths are still
+  Windows paths. What we promise users is in [guide/format.md](guide/format.md) ("Paths are
+  written with the casing the filesystem itself reports"); the drive letter is the one component
+  we normalize, since it is a mount alias with no on-disk case.
 - **Memory/async stance: assume a modern user PC, not a headless VM.** Don't needlessly use
   memory, but don't be shy either. No sync-purity dogma — async engine interfaces are welcome,
   mainly because progress reporting can hook in later. Where a streamed and a materialized form
