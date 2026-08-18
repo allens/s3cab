@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -828,8 +834,17 @@ describe("uploadDir (seed a folder's objects)", () => {
    * @param {string} dirPath - A temp dir to build the fixture in
    */
   const seedFixture = (dirPath) => {
-    const root = resolve(dirPath, "photos");
-    mkdirSync(join(root, "sub"), { recursive: true });
+    const built = resolve(dirPath, "photos");
+    mkdirSync(join(built, "sub"), { recursive: true });
+    // Canonicalized exactly as the walk canonicalizes its root (resolveWalkRoot),
+    // because the drift tests key `driftAfterHash` on these strings and compare
+    // them against walk output. `resolve()` trusts `process.cwd()` verbatim, and
+    // on Windows the cwd's drive-letter case is whatever the launcher set
+    // (PowerShell hands node `D:\…`, a fresh Git Bash `d:\…`) — keying on the
+    // `resolve()` form made both drift tests fail in any run launched from a
+    // lowercase-drive cwd, the "intermittent" red of 2026-07-30. One realpath per
+    // root, at the capture point, mirroring production's own discipline.
+    const root = realpathSync.native(built);
     writeFileSync(join(root, "a.txt"), "hello");
     writeFileSync(join(root, "b.txt"), "hello"); // identical content → deduped
     writeFileSync(join(root, "c.txt"), "world");
