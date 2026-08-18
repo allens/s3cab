@@ -74,10 +74,13 @@ multi-process (2026-08-14, crash tier — *"same set, same snapshot name"* in
 no-clobber race failed with *"Snapshot '…' is already backed up"*, true of the **name** and false
 of the loser's **data**, which its objects-first upload had already stored. `uploadSnapshotFile`
 now branches on
-[ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md)'s byte comparison: *different*
-says the name holds a different backup, the files are safe, re-run to record them under the next
-minute's name; *absent* (the colliding snapshot deleted between the 412 and the read) gets its
-own, since "already backed up" was flatly false there. Nothing remains: two live machines on one
+[ADR-0084](../docs/adr/0084-snapshot-identity-byte-equality.md)'s byte comparison: *identical* is
+this run's own retried PUT and still succeeds quietly, while the two losing outcomes — *different*
+(another machine's snapshot holds the name) and *absent* (that snapshot deleted between the 412
+and the read) — share **one** past-tense message, since the user's situation and remedy are the
+same in both: the name *was* taken when we wrote it, the files are stored, re-run to record them
+under the next minute's name. The past tense is what lets one wording cover a snapshot that is no
+longer there. Nothing remains: two live machines on one
 set is a **settled** discouraged-but-tolerated state, never locked out
 ([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md)), which is precisely why the
 loser's message — not a lock — was the thing to fix.</sub>

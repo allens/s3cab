@@ -132,11 +132,13 @@ export async function readDeletionRecords(bucket) {
     }
   }
   // Oldest first, so a re-recorded hash keeps the newest record's timestamp.
-  // Lexical is enough despite the numeric suffix sorting `-10` before `-2`: the
-  // minute prefix orders every record from a *different* minute correctly, and
-  // within one minute the only thing at stake is which same-minute name gets
-  // reported for a hash deleted, re-backed-up and re-deleted inside sixty
-  // seconds. Not worth a comparator.
+  // Lexical is enough despite the numeric suffix sorting `-10` before `-2`
+  // (ADR-0087): the minute prefix orders every record from a *different* minute
+  // correctly, and same-minute records carry an *identical* timestamp — the
+  // suffix disambiguates a file, it is not a time component. So the promise
+  // above holds either way; all that varies is which same-minute name is
+  // displayed for a hash deleted, re-backed-up and re-deleted inside sixty
+  // seconds, and `deletedOn` is only ever printed. Not worth a comparator.
   names.sort();
 
   /** @type {Map<string, RecordedDeletion>} */

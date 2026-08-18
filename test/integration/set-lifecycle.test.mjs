@@ -145,9 +145,13 @@ describe("setup (real bucket)", () => {
       // creating machine and may need editing before a backup (ADR-0054) —
       // naming it from the marker's outgoing OWNER, read here against the live
       // provider rather than a mock.
-      assert.match(
-        warnings.join("\n"),
-        new RegExp(`directory list came from '${hostname()}'`),
+      // A literal containment check, not a built RegExp: a hostname may legally
+      // contain `.` and `-`, and an FQDN's dots would silently become wildcards.
+      assert.ok(
+        warnings
+          .join("\n")
+          .includes(`directory list came from '${hostname()}'`),
+        "the nudge names this machine, read from the live marker's OWNER",
       );
       // The co-existence warning stays silent: both "machines" are temp homes on
       // this one host, so the marker's owner is us. Proving the suppression on
