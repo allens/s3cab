@@ -117,7 +117,7 @@ export function renderCompareResult(result, { color = false } = {}) {
     // First snapshot: collapse the whole listing to a count + total size.
     const files = result.added.length;
     const bytes = sumSize(result.added);
-    const line = `First snapshot: ${formatCount(files)} ${plural(files, "file")} (${formatByteValue(bytes)})`;
+    const line = `First snapshot: ${countOf(files, "file")} (${formatByteValue(bytes)})`;
     const parts = [head, line];
     // Kept on a first snapshot, where the all-added listing is collapsed: these
     // are the files that *didn't* go in, which is the one thing a collapsed
@@ -380,7 +380,7 @@ function summaryLine(result, renamedCount, movedCount) {
     line += `, ${formatCount(skipped.length)} skipped`;
   }
   if (errors.length) {
-    line += `, ${formatCount(errors.length)} ${plural(errors.length, "error")}`;
+    line += `, ${countOf(errors.length, "error")}`;
   }
   return line;
 }
@@ -561,9 +561,7 @@ export function renderProp(props) {
  */
 export function renderStatus({ set, snapshot, backedUp, toUpload }) {
   const upload =
-    toUpload === 0
-      ? "up to date"
-      : `${formatCount(toUpload)} ${plural(toUpload, "object")} to upload`;
+    toUpload === 0 ? "up to date" : `${countOf(toUpload, "object")} to upload`;
   return [
     set,
     `  latest snapshot   ${snapshot}`,
@@ -595,13 +593,13 @@ export function renderVerify(result, { color = false } = {}) {
 
   const verdict = findingSets.length
     ? paint((t) => bold(red(t)))(
-        `${formatCount(findingSets.length)} ${plural(findingSets.length, "set")} with findings ✗`,
+        `${countOf(findingSets.length, "set")} with findings ✗`,
       )
     : paint((t) => bold(green(t)))("all verified ✓");
 
   const head =
-    `${bucket}: ${formatCount(sets.length)} ${plural(sets.length, "set")}, ` +
-    `${formatCount(objectsChecked)} ${plural(objectsChecked, "object")} checked — ${verdict}`;
+    `${bucket}: ${countOf(sets.length, "set")}, ` +
+    `${countOf(objectsChecked, "object")} checked — ${verdict}`;
 
   // Deliberately deleted content (ADR-0064): context, not a finding — one line
   // per affected set, so the run's clean verdict and the "why are these files
@@ -650,9 +648,7 @@ function setFindings(report, paint) {
 
   const phrase = [];
   if (problems.length) {
-    phrase.push(
-      `${formatCount(problems.length)} ${plural(problems.length, "file")} with problems`,
-    );
+    phrase.push(`${countOf(problems.length, "file")} with problems`);
   }
   if (unreadableSnapshots.length) {
     phrase.push("could not fully check");
@@ -990,8 +986,7 @@ export function renderUpload(result) {
     return [
       line,
       ``,
-      `Skipped ${formatCount(skipped.length)} ${plural(skipped.length, "file")} ` +
-        `that couldn't be confirmed while being read:`,
+      `Skipped ${countOf(skipped.length, "file")} that couldn't be confirmed while being read:`,
       ...skipped.map(({ path, reason }) => `  ${path}   (${reason})`),
       ``,
       `Nothing references them, so there is nothing to repair — a backup will ` +
@@ -1043,8 +1038,7 @@ export function renderRestore({
     deleted.length
   ) {
     sections.push(
-      `Restored ${formatCount(restored.length)} ${plural(restored.length, "file")} ` +
-        `from '${set}' (snapshot ${snapshot}).`,
+      `Restored ${countOf(restored.length, "file")} from '${set}' (snapshot ${snapshot}).`,
     );
   }
   if (skipped.length) {
@@ -1058,7 +1052,7 @@ export function renderRestore({
     // they are context, not the alarm the missing block below is — and alone
     // they leave exit 0.
     const heading =
-      `Skipped ${formatCount(deleted.length)} ${plural(deleted.length, "file")} ` +
+      `Skipped ${countOf(deleted.length, "file")} ` +
       `whose contents were deliberately deleted from the backups (s3cab delete):`;
     sections.push(
       [
@@ -1153,9 +1147,9 @@ export function renderDelete({
     return "Nothing was deleted.";
   }
   return (
-    `${bucket}: deleted ${formatCount(deletedObjects)} ${plural(deletedObjects, "object")} ` +
-    `(${formatByteValue(deletedBytes)} across ${formatCount(deletedFiles)} ` +
-    `${plural(deletedFiles, "file")}). Snapshots were not modified.`
+    `${bucket}: deleted ${countOf(deletedObjects, "object")} ` +
+    `(${formatByteValue(deletedBytes)} across ${countOf(deletedFiles, "file")}). ` +
+    `Snapshots were not modified.`
   );
 }
 
@@ -1186,7 +1180,7 @@ export function renderCleanup(result) {
     );
   }
   let line =
-    `${bucket}: ${formatCount(storedObjects)} ${plural(storedObjects, "object")} stored, ` +
+    `${bucket}: ${countOf(storedObjects, "object")} stored, ` +
     `${formatCount(orphanObjects)} orphaned (${formatByteValue(reclaimableBytes)} reclaimable)`;
   if (withinGrace) {
     line += `, ${formatCount(withinGrace)} too new to touch (7-day grace)`;
