@@ -1415,6 +1415,25 @@ describe("renderDelete", () => {
     );
   });
 
+  it("reads as English at one, rather than '1 object(s)'", () => {
+    const text = renderDelete({
+      bucket: "my-backups",
+      paths: ["D:\\raw\\clip.mov"],
+      sets: ["media"],
+      everywhere: false,
+      deletedObjects: 1,
+      deletedFiles: 1,
+      deletedBytes: 2_300_000,
+      survivors: 0,
+      deleted: true,
+    });
+    assert.equal(
+      text,
+      "my-backups: deleted 1 object (2.3MB across 1 file). " +
+        "Snapshots were not modified.",
+    );
+  });
+
   it("says nothing was deleted for a dry run / declined / nothing-to-do result", () => {
     const text = renderDelete({
       bucket: "my-backups",

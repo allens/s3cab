@@ -130,28 +130,3 @@ niceties.
   _Adjacent:_ a pre-flight "what would this back up" is the other answer to the same question
   and may be the better one — `status` already reports what a backup would upload without
   transferring anything. Check whether it is enough before changing the live line.
-- **`forget` and `delete` each say their outcome twice** (noticed 2026-08-19, making the
-  `guide/maintenance.md` transcripts show real output —
-  [#315](https://github.com/allens/s3cab/pull/315)). A confirmed run prints the outcome on
-  stderr as the headline of its guidance block, and then again on stdout as the result
-  ([ADR-0043](../docs/adr/0043-human-first-output.md)), because the two are written in
-  different files and neither reads the other:
-
-  ```
-  Deleted 297 objects. Snapshots were not modified — verify and restore read the deletion record to tell deliberate removal from damage.
-  Record of this removal:
-    s3://my-backups/deletions/2026-07-19T1422.tsv
-  my-backups: deleted 297 objects (48.1GB across 312 files). Snapshots were not modified.
-  ```
-
-  `forget` is the same shape ("Forgot snapshot 'X' from set 'photos'." on stderr,
-  "Snapshot 'X' forgotten from set 'photos'." on stdout); `delete` additionally repeats
-  "Snapshots were not modified" word for word. Same family as the retained progress line
-  above — a line landing directly over the summary that says roughly what the summary says.
-  _Not a simple deletion, either half:_ the stderr headline is what gives the guidance under
-  it a subject ("Objects **they** referenced are still stored…", "**Record of this
-  removal**"), and the stdout line is the result — the thing you can pipe, and the shape
-  `--json` mirrors. The prompt above would supply the subject on a TTY, but a `--force` run
-  never asks. `cleanup` is the counter-example and may be the answer: its stderr carries only
-  the one thing the counts can't ("Don't run cleanup while a backup is running.") and reads
-  fine with no headline at all.

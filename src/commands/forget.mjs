@@ -241,10 +241,15 @@ export async function forget(snapshots = [], options = {}) {
   // much* is reclaimable was the unrestorable preview's job above (and is in the
   // audit record); repeating it here would restate a number the user has just
   // answered a prompt about, and it is unavailable under --force anyway.
+  //
+  // No headline: `renderForget` states the outcome on stdout, so opening this
+  // block with it too said the same thing twice in consecutive lines. What
+  // replaces it is a statement about forgetting *in general* — true whatever
+  // was named and however many, so it needs no subject from a headline and no
+  // singular/plural agreement. `cleanup` has always read this way.
   console.warn(
-    `Forgot ${describe(snapshots)} from set '${set.name}'.\n` +
-      `Objects they referenced are still stored; reclaim unreferenced ones with: ` +
-      `s3cab cleanup ${set.bucket}\n` +
+    `Forgetting removes snapshots, not the objects they point at; ` +
+      `reclaim unreferenced ones with:\n  s3cab cleanup ${set.bucket}\n` +
       `Record of this removal:\n  ${auditPath}`,
   );
 
