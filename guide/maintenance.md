@@ -82,8 +82,8 @@ Unrestorable preview — what you could no longer restore once these are gone:
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
 Forget snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
-Forgot snapshot '2026-05-01T0800' from set 'photos'.
-Objects they referenced are still stored; reclaim unreferenced ones with: s3cab cleanup my-backups
+Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
+  s3cab cleanup my-backups
 Record of this removal:
   C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-01T080213.txt
 Snapshot '2026-05-01T0800' forgotten from set 'photos'.
@@ -118,8 +118,8 @@ Unrestorable preview — what you could no longer restore once these are gone:
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
 Forget 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
-Forgot 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos'.
-Objects they referenced are still stored; reclaim unreferenced ones with: s3cab cleanup my-backups
+Forgetting removes snapshots, not the objects they point at; reclaim unreferenced ones with:
+  s3cab cleanup my-backups
 Record of this removal:
   C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-20T141807.txt
 3 snapshots forgotten from set 'photos'.
@@ -201,8 +201,7 @@ Full list:
 
 This permanently removes the content above from every backup in 'my-backups'.
 Type the bucket name to proceed: my-backups
-Deleted 297 objects. Snapshots were not modified — verify and restore read the deletion record to tell deliberate removal from damage.
-Record of this removal:
+Record of this removal — verify and restore read it to tell deliberate removal from damage:
   s3://my-backups/deletions/2026-07-19T1422.tsv
 my-backups: deleted 297 objects (48.1GB across 312 files). Snapshots were not modified.
 ```
