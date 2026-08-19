@@ -20,6 +20,8 @@ let storedObjects = [];
 let deleteCalls = [];
 let promptAnswer = false;
 let promptCalls = 0;
+/** What the confirmation actually asked — the count in it is what a user checks. */
+let promptMessage = "";
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
 
@@ -43,8 +45,9 @@ mock.module("../lib/objects.mjs", {
 });
 mock.module("../lib/prompt.mjs", {
   exports: {
-    promptYesNo: async () => {
+    promptYesNo: async (/** @type {string} */ message) => {
       promptCalls++;
+      promptMessage = message;
       return promptAnswer;
     },
   },
@@ -92,6 +95,7 @@ beforeEach(() => {
   deleteCalls = [];
   promptAnswer = false;
   promptCalls = 0;
+  promptMessage = "";
   deletionRecords = new Map();
 });
 afterEach(() => {
@@ -164,6 +168,9 @@ describe("cleanup command", () => {
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, ["old-orphan"]);
     assert.equal(result.deleted, 1);
+    // The count is the part a user checks before typing `y`, so it reads as
+    // English at one — not "1 orphaned object(s)".
+    assert.match(promptMessage, /Delete 1 orphaned object \(100B\) from/);
   });
 
   it("warns about an object stored at the wrong size, but does not count it missing or orphaned", async () => {
@@ -183,8 +190,8 @@ describe("cleanup command", () => {
       assert.equal(result.missingObjects, 0);
       assert.equal(result.orphanObjects, 0);
       assert.ok(
-        warnings.some((w) => /wrong size/.test(w)),
-        "warns about the wrong-size object",
+        warnings.some((w) => /1 object stored at the wrong size/.test(w)),
+        "warns about the wrong-size object, counted in English",
       );
     } finally {
       warn.mock.restore();
@@ -197,7 +204,7 @@ describe("cleanup command", () => {
 
     await assert.rejects(
       () => cleanup("b", { force: true }),
-      /Refusing to delete[\s\S]*missing[\s\S]*s3cab verify b/,
+      /Refusing to delete: the repository is missing 1 referenced object[\s\S]*s3cab verify b/,
     );
     assert.deepEqual(deleteCalls, []);
   });

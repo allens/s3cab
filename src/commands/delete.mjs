@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
-import { formatMoment } from "../lib/format.mjs";
+import { countOf, formatMoment } from "../lib/format.mjs";
 
 import {
   deletionRecordMoment,
@@ -264,7 +264,8 @@ export async function deletePaths(paths = [], options = {}) {
   }
 
   console.warn(
-    `Deleted ${plan.deletable.length} object(s). Snapshots were not modified — ` +
+    `Deleted ${countOf(plan.deletable.length, "object")}. ` +
+      `Snapshots were not modified — ` +
       `verify and restore read the deletion record to tell deliberate ` +
       `removal from damage.\n` +
       `Record of this removal:\n  ${recordUri}`,

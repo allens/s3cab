@@ -106,8 +106,6 @@ niceties.
   exist when one isn't found — is built, so only the rejection is kept here.
 - **Snapshot labels** (`snapshot -m "before reorg"`) — a commit-message-like note, storable as
   a header comment line without breaking the TSV format.
-- **Friendlier failure for "no snapshots found"** — suggest running `s3cab snapshot` rather
-  than a bare error.
 - **Exit-code doctrine**: document the codes (0/1/2/127 today); decide whether `compare`
   should signal "differences found" diff-style (probably not, for a consumer tool — but
   decide).
