@@ -15,7 +15,6 @@ import {
   readSnapshot,
   snapshotFileName,
   snapshotMoment,
-  snapshotName,
   snapshotNames,
   withSnapshotFile,
   writeSnapshot,
@@ -289,9 +288,9 @@ describe("listSnapshotNames", () => {
   });
 });
 
-describe("snapshotName", () => {
-  it("mints a minute-precision name the snapshot lister recognises", () => {
-    const name = snapshotName();
+describe("snapshotMoment's minted name", () => {
+  it("is a minute-precision name the snapshot lister recognises", () => {
+    const { name } = snapshotMoment();
     assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.

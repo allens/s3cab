@@ -538,18 +538,6 @@ function notFoundError(snapshotDir, name) {
 }
 
 /**
- * The name for a new snapshot: "now" at minute precision with the colon
- * dropped (`2026-06-12T0915`) — the one place a snapshot name is minted, from
- * a single clock read — the name alone, for callers that need nothing else.
- * The header's instant and zone come from that *same* read rather than being
- * derived from this string (`snapshotMoment`, which this calls through), so a
- * snapshot's filename and its own header still agree by construction — no
- * second `now()` for an `await` to slip a minute boundary between.
- * @returns {string}
- */
-export const snapshotName = () => snapshotMoment().name;
-
-/**
  * The moment a snapshot is taken, in the three spellings the format needs, from
  * **one clock read** ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)):
  *
