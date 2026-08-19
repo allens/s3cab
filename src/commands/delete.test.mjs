@@ -277,8 +277,8 @@ describe("delete command", () => {
     assert.deepEqual(effects, ["record", "delete:aaa", "delete:bbb"]);
     assert.equal(scans, 1); // single-pass: one scan covered preview + act
     assert.ok(
-      warnings.some((w) => w.startsWith("Deleted 2 objects.")),
-      "the closing line counts what went",
+      warnings.some((w) => w.includes("s3://b/deletions/2026-07-19T1422.tsv")),
+      "the closing line points at the record it just wrote",
     );
   });
 
@@ -289,11 +289,6 @@ describe("delete command", () => {
     assert.equal(result.deleted, true);
     assert.equal(promptCalls, 0);
     assert.deepEqual(effects, ["record", "delete:aaa"]);
-    // And it reads as English at one, rather than "1 object(s)".
-    assert.ok(
-      warnings.some((w) => w.startsWith("Deleted 1 object.")),
-      "the closing line counts what went",
-    );
   });
 
   it("does not prompt or write a record when nothing is deletable", async () => {

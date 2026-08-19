@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
-import { countOf, formatMoment } from "../lib/format.mjs";
+import { formatMoment } from "../lib/format.mjs";
 
 import {
   deletionRecordMoment,
@@ -263,12 +263,13 @@ export async function deletePaths(paths = [], options = {}) {
     await deleteStoredObject(bucket, hash);
   }
 
+  // No headline: `renderDelete` states the count and that snapshots stand, on
+  // stdout, so opening this block with both repeated them a line apart. What is
+  // left is the one thing the result can't carry — where the record went, and
+  // why it exists — folded into its own label so nothing starts mid-sentence.
   console.warn(
-    `Deleted ${countOf(plan.deletable.length, "object")}. ` +
-      `Snapshots were not modified — ` +
-      `verify and restore read the deletion record to tell deliberate ` +
-      `removal from damage.\n` +
-      `Record of this removal:\n  ${recordUri}`,
+    `Record of this removal — verify and restore read it to tell deliberate ` +
+      `removal from damage:\n  ${recordUri}`,
   );
 
   return { ...result, record: recordUri, deleted: true };

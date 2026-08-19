@@ -65,7 +65,7 @@ function assertKilled(run, label) {
   assert.ok(
     !run.stdout.includes("Backed up") &&
       !run.stdout.includes("Reclaimed") &&
-      !run.stderr.includes("Forgot "),
+      !run.stdout.includes("forgotten from set"),
     `${label}: killed run still reported success:\n${run.stdout}\n${run.stderr}`,
   );
 }

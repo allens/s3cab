@@ -569,8 +569,9 @@ describe("concurrency: forget and cleanup", () => {
     const [oneDone, twoDone] = await Promise.all([one.done, two.done]);
 
     // Safe for the store: DeleteObject is idempotent, the loser's delete is a
-    // 204 no-op. Observed cost: both runs report "Forgot …" and both file an
-    // audit record for one deletion — cosmetic, worth knowing, not damage.
+    // 204 no-op. Observed cost: both runs report the snapshot forgotten, and
+    // both file an audit record for one deletion — cosmetic, worth knowing,
+    // not damage.
     assert.equal(oneDone.status, 0, oneDone.stderr);
     assert.equal(twoDone.status, 0, twoDone.stderr);
     assert.equal((await manifestKeys()).length, 1);
