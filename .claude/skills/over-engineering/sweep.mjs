@@ -257,7 +257,7 @@ function exports() {
  * ADR body records what was decided *then*, so a name it mentions going stale is
  * correct history, not a defect — rewriting one to match today's code destroys the
  * record that stops a reversed decision being re-proposed
- * ([docs/adr/README.md](../docs/adr/README.md)). `proposals/` is out for the same
+ * ([docs/adr/README.md](../../../docs/adr/README.md)). `proposals/` is out for the same
  * reason: it is provisional by definition.
  */
 const LIVE_DOCS = [

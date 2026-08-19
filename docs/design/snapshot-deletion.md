@@ -115,7 +115,7 @@ is a *reclaimable-space forecast*, not a manifest of things about to vanish.
   holds that set's `snapshots/`, `exclude.txt` and `env`, so the scoping is free and needs no
   name mangling. Set rather than bucket because the deletion is set-scoped, two sets in one
   bucket produce genuinely different unrestorable lists, and set names are validated `[a-z0-9-]+`
-  ([ADR-0024](../adr/0024-set-name-is-identity.md)) so they are safe path segments.
+  ([ADR-0024](../adr/0024-set-name-is-the-whole-identity.md)) so they are safe path segments.
 
   **Second** precision in the timestamp, one unit finer than snapshot names' minute
   precision. A snapshot refuses a same-minute collision loudly; this would silently overwrite

@@ -43,7 +43,7 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * they can't threaten restorability — so they moved to `cleanup`'s
  * non-destructive mode, where the unreadable-snapshot caveat is a real safety
  * gate rather than an advisory flag (ADR-0042,
- * [proposals/cloud-cleanup.md](../../proposals/cloud-cleanup.md)). verify's result
+ * [docs/design/backup.md](../../docs/design/backup.md)). verify's result
  * is therefore just `{ bucket, sets }`.
  *
  * @param {string} [bucket] - The repository's S3 bucket to check

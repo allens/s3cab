@@ -1,7 +1,7 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
 **Status:** accepted — designed and implemented 2026-08-14. Extends
-[0004](0004-tsv-snapshot-format.md)'s row grammar; the classification of the failure rides
+[0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 
 ## Context
