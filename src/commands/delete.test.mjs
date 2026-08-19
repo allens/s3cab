@@ -24,6 +24,10 @@ let localSets = [];
 let failingSets = new Set();
 /** @type {string[]} every side-effect, in order: "record" then "delete:<hash>" */
 let effects = [];
+/** @type {string[]} the command's stderr guidance, captured rather than printed */
+let warnings = [];
+/** @type {ReturnType<typeof mock.method>} */
+let warn;
 /** @type {string | undefined} what the prompt answers (undefined = no TTY expected) */
 let promptAnswer;
 let promptCalls = 0;
@@ -139,9 +143,14 @@ beforeEach(() => {
   promptAnswer = undefined;
   promptCalls = 0;
   home = mkdtempSync(join(tmpdir(), "s3cab-delete-"));
+  warnings = [];
+  warn = mock.method(console, "warn", (/** @type {string} */ m) =>
+    warnings.push(m),
+  );
 });
 afterEach(() => {
   stdin.isTTY = savedTTY;
+  warn.mock.restore();
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -267,6 +276,10 @@ describe("delete command", () => {
     // must leave every missing object explained.
     assert.deepEqual(effects, ["record", "delete:aaa", "delete:bbb"]);
     assert.equal(scans, 1); // single-pass: one scan covered preview + act
+    assert.ok(
+      warnings.some((w) => w.startsWith("Deleted 2 objects.")),
+      "the closing line counts what went",
+    );
   });
 
   it("--force on a TTY skips the prompt but not the scan or the record", async () => {
@@ -276,6 +289,11 @@ describe("delete command", () => {
     assert.equal(result.deleted, true);
     assert.equal(promptCalls, 0);
     assert.deepEqual(effects, ["record", "delete:aaa"]);
+    // And it reads as English at one, rather than "1 object(s)".
+    assert.ok(
+      warnings.some((w) => w.startsWith("Deleted 1 object.")),
+      "the closing line counts what went",
+    );
   });
 
   it("does not prompt or write a record when nothing is deletable", async () => {

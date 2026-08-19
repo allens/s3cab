@@ -1,7 +1,7 @@
 import { planCleanup } from "../lib/cleanup.mjs";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { formatByteValue } from "../lib/format.mjs";
+import { countOf, formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { unreadableMessage } from "../lib/referenced.mjs";
@@ -120,7 +120,7 @@ export async function cleanup(bucket, options = {}) {
   if (damaged > 0) {
     // Not an orphanhood concern (that's hash-level) — just flag it and point at verify.
     console.warn(
-      `Note: ${damaged} object(s) stored at the wrong size. ` +
+      `Note: ${countOf(damaged, "object")} stored at the wrong size. ` +
         `Run 's3cab verify ${bucket}' for detail.`,
     );
   }
@@ -153,8 +153,9 @@ export async function cleanup(bucket, options = {}) {
   // data — refuse, so cleanup never compounds a loss. Fix with verify first.
   if (missing > 0) {
     throw new Error(
-      `Refusing to delete: ${missing} referenced object(s) are missing — the ` +
-        `repository is already losing data, so this is not the moment to reclaim.\n` +
+      `Refusing to delete: the repository is missing ` +
+        `${countOf(missing, "referenced object")} — it is already losing data, ` +
+        `so this is not the moment to reclaim.\n` +
         `Check them with:\n` +
         `  s3cab verify ${bucket}`,
     );
@@ -169,7 +170,7 @@ export async function cleanup(bucket, options = {}) {
   // --force (the up-front gate refuses otherwise), so this is the y/N for a human.
   if (!force && isInteractive(process.stdin)) {
     const ok = await promptYesNo(
-      `Delete ${orphanHashes.length} orphaned object(s) ` +
+      `Delete ${countOf(orphanHashes.length, "orphaned object")} ` +
         `(${formatByteValue(reclaimableBytes)}) from bucket '${bucket}'? ` +
         `This cannot be undone.`,
     );
