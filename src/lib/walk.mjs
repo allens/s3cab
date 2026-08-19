@@ -9,7 +9,7 @@ import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExclude } from "./exclude.mjs";
-import { formatCount, plural, secondsSince } from "./format.mjs";
+import { countOf, formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -343,14 +343,10 @@ export function walkDirs(dirs, patterns) {
       byType.set(fileType, (byType.get(fileType) ?? 0) + 1);
     }
     const kinds = [...byType]
-      .map(
-        ([fileType, count]) =>
-          `${formatCount(count)} ${plural(count, fileType)}`,
-      )
+      .map(([fileType, count]) => countOf(count, fileType))
       .join(", ");
     console.warn(
-      `Skipped ${formatCount(skipped.length)} ` +
-        `${plural(skipped.length, "item")} that can't be backed up: ${kinds}`,
+      `Skipped ${countOf(skipped.length, "item")} that can't be backed up: ${kinds}`,
     );
   }
 
