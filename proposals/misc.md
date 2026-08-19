@@ -31,10 +31,14 @@ seed of a future "platform / release" epic).
   (`walkSet`/`walkDirs`/`walkFiles`, [src/lib/walk.mjs](../src/lib/walk.mjs)) to a *findFiles*
   naming — it matches what the phase is and what it prints ("Finding files in…"), and the whole
   point of that phase is to enumerate names as fast as possible before anything changes. (2)
-  Rename `writeSnapshot` ([src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs)) to
-  `generateSnapshot` (or similar) — *write* sounds like it just writes a file, when it actually
-  does the heavy lifting (stat every file, hash the changed ones, format and compress). Pure
-  readability renames, no behaviour change; would sweep the callers and doc references.
+  Rename `writeSnapshot` ([src/lib/snapshot-file.mjs](../src/lib/snapshot-file.mjs)) — *write*
+  sounds like it just writes a file, when it actually does the heavy lifting (stat every file,
+  hash the changed ones, format and compress). **Not to `generateSnapshot`**, which this entry
+  originally proposed: that name is now taken by the fused pass's orchestrator in
+  [src/lib/snapshot.mjs](../src/lib/snapshot.mjs) ([ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)),
+  which *calls* this one — so the rename needs a name that distinguishes the two, not one that
+  collides them. Pure readability renames, no behaviour change; would sweep the callers and doc
+  references.
 - **`delete`'s participating-set scope has a silent completeness gap** (watch in real usage;
   ADR-0064). Because scope is *the sets attached on this machine*, a set of yours you haven't
   `reattach`-ed here **silently protects** its content — `delete` reclaims nothing for it, and
