@@ -83,10 +83,13 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
 ### `backup` — the long one (fused pipeline, [ADR-0069](../adr/0069-fused-snapshot-upload-pipeline.md))
 
 1. `readBaseline` — pick the latest **local** snapshot. Local read.
-2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — HEAD the baseline's remote snapshot.
-   Present → trust the baseline's hashes as the skip-list, minus every hash named by a deletion
-   record. Absent → drop the baseline and LIST `objects/` as a first backup would. **[atomic]**
-   read, but see [C2](#where-the-model-is-violable): the HEAD matches on *name*.
+2. `storedHashes` ([upload.mjs](../../src/lib/upload.mjs)) — compare the baseline's remote
+   snapshot against the local file, **byte for byte**
+   ([ADR-0084](../adr/0084-snapshot-identity-byte-equality.md)). Identical → trust the baseline's
+   hashes as the skip-list, minus every hash named by a deletion record. Anything else → drop the
+   baseline and LIST `objects/` as a first backup would. **[atomic]** read. This was a name-only
+   HEAD until 2026-08-14, which let another machine's same-named snapshot vouch for a local
+   baseline that was never uploaded.
 3. Acquire the lock — `open(".snapshot.tsv.zst", "wx")`. **[atomic]**, and a same-minute snapshot
    name is refused before this, by `existsSync` on the final name.
 4. Per file: one `lstat` + hash (or a reuse of the baseline hash on identical size+mtime), then in
@@ -98,7 +101,12 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
 6. Throw on any collected upload failure or drift — **before** step 7, so no manifest is published.
    The local snapshot from step 5 survives.
 7. `uploadSnapshotFile` — no-clobber PUT of the manifest. **[atomic]. This is the commit point.**
-   A 412 here is reported as "already backed up… immutable".
+   A 412 here is resolved by byte-identity: identical is this run's own retried PUT and succeeds
+   quietly. The two losing outcomes — different (another machine's snapshot holds the name) and
+   absent (that snapshot deleted between the 412 and the read) — share **one** past-tense
+   message: the name *was* already taken when we wrote it, the objects are stored, this backup
+   went unrecorded, run it again. One user action, one wording; the past tense stays true whether
+   or not the colliding snapshot is still there.
 8. `pushSetConfig` — best-effort mirror of `dirs.txt`/`exclude.txt`; failure is tolerated and
    changes nothing about the backup's validity.
 
@@ -176,7 +184,8 @@ failure modes, deliberately different:
 Read `info` → pull `dirs.txt`/`exclude.txt` and the remote snapshots (each landing via an atomic
 local write) → re-stamp OWNER with a plain PUT **[atomic]**. It **never disables the prior
 machine**: two live machines on one set is a tolerated state, not an error state — which is a
-precondition for [C2](#where-the-model-is-violable).
+precondition for [C2](#where-the-model-is-violable). The outgoing `OWNER` is read here and
+nowhere else, so this is also where the co-existence warning is issued (design/backup.md).
 
 ### `setup`
 
@@ -207,15 +216,20 @@ concurrency and time. Those findings live in their own homes rather than here, s
 a description of the protocol rather than a running defect list:
 
 - **C1** (mid-transfer mutation stores wrong bytes under a right key) and **C2** (the baseline HEAD
-  matches on snapshot *name*, so a second machine's same-named snapshot can vouch for a local
-  snapshot that was never uploaded) — [proposals/bugs.md](../../proposals/bugs.md).
+  matched on snapshot *name*, so a second machine's same-named snapshot could vouch for a local
+  snapshot that was never uploaded) — both **fixed 2026-08-14**, by
+  [ADR-0083](../adr/0083-streamed-digest-upload-guard.md)'s streamed-digest check on the PUT and
+  [ADR-0084](../adr/0084-snapshot-identity-byte-equality.md)'s byte-identity comparison
+  respectively. Kept named here because the transitions above cite them.
 - The `cleanup`-vs-backup and `delete`-vs-backup races —
   [proposals/concurrency-and-locking.md](../../proposals/concurrency-and-locking.md) §1 and §3.
 - The conditional-write backstop off-AWS — [s3-provider-compatibility.md](s3-provider-compatibility.md),
   Finding 3 item 5.
 - Bucket versioning is recommended by every guide and **checked by no code path** —
   [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
-- A truncated stored snapshot object reading as a shorter valid snapshot —
-  [proposals/engine-robustness.md](../../proposals/engine-robustness.md). (Independently found,
-  2026-08-11; the audit did not catch this one, because it is zstd frame semantics rather than
-  protocol.)
+- A truncated stored snapshot object reading as a shorter valid snapshot — **closed 2026-08-14** by
+  [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s `#END` trailer: a prefix cut either loses the
+  trailer or tears a row. (Independently found 2026-08-11; the audit did not catch this one,
+  because it is zstd frame semantics rather than protocol.) What remains is defence-in-depth, not a
+  hole — checking the decompressor consumed a complete frame —
+  [proposals/engine-robustness.md](../../proposals/engine-robustness.md).

@@ -43,9 +43,9 @@ afterEach(async () => {
 });
 
 /**
- * Snapshot names are minute-precision, so two backups in one wall-clock
- * minute collide ("already backed up"). Sleep past the boundary — the honest
- * cost of testing against the real clock.
+ * Snapshot names are minute-precision, so two backups in one wall-clock minute
+ * collide ("Couldn't record this backup as …"). Sleep past the boundary — the
+ * honest cost of testing against the real clock.
  */
 async function nextMinute() {
   await sleep(60_000 - (Date.now() % 60_000) + 500);

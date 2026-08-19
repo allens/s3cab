@@ -684,7 +684,46 @@ describe("uploadSnapshotFile manifest idempotence", () => {
 
     await assert.rejects(
       () => uploadSnapshotFile(args),
-      /already backed up.*never overwritten/s,
+      (/** @type {Error} */ error) => {
+        // The refusal is about the *name*, and the message must not let that
+        // read as "your files are backed up" — they went up first (objects
+        // before the manifest) and are sitting in the store.
+        assert.match(
+          error.message,
+          new RegExp(`Couldn't record this backup as '${args.name}'`),
+        );
+        assert.match(error.message, /files were uploaded and are safe/);
+        assert.match(error.message, /\n {2}s3cab backup trusty$/); // copy-pasteable
+        return true;
+      },
+    );
+  });
+
+  it("says the same thing when the colliding manifest has since been deleted", async () => {
+    // The 412 whose remote copy is gone by the time we look — a snapshot deleted
+    // between our PUT being refused and our read. One message covers it because
+    // the reader can act on nothing that distinguishes the two: objects stored,
+    // backup unrecorded, run it again. What the old wording got wrong was tense,
+    // not detail — "is already backed up" is false about a name now free, where
+    // "was already taken when we wrote it" stays true either way.
+    await using dir = await mkTmpDir();
+    const { args } = await oneFileFixture(dir.path);
+    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`;
+    storedUris.add(manifestUri); // the PUT 412s…
+    // …and `remoteFiles` has nothing under it, so the read is a NoSuchKey.
+
+    await assert.rejects(
+      () => uploadSnapshotFile(args),
+      (/** @type {Error} */ error) => {
+        assert.match(error.message, /was already taken when we wrote it/);
+        assert.match(error.message, /\n {2}s3cab backup trusty$/);
+        assert.doesNotMatch(
+          error.message,
+          /is already backed up|is still|is stored under/,
+          "no present-tense claim about a snapshot that isn't there",
+        );
+        return true;
+      },
     );
   });
 });

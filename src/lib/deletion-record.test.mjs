@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 
 // The deletion-record module against a mocked s3.mjs seam (docs/design/testing.md:
 // mock at s3.mjs, not the SDK): the record's write discipline (conditional PUT,
-// the same-minute refusal, the S3CAB_DEBUG escape) and the read side's lenient-
-// in-one-direction-only parsing. The record *format* is asserted directly on
-// the returned string — it is a format-spec commitment (guide/format.md).
+// suffixing past a name already taken) and the read side's lenient-in-one-
+// direction-only parsing. The record *format* is asserted directly on the
+// returned string — it is a format-spec commitment (guide/format.md).
 // Module-mock ordering (objects.test.mjs) applies: mocks first, dynamic import.
 
 /** @type {{ Key?: string }[]} keys the mocked LIST yields under `deletions/` */
@@ -14,7 +14,9 @@ let listed = [];
 let bodies = new Map();
 /** @type {{ uri: string, content: string, noClobber: boolean }[]} */
 let puts = [];
-/** Whether the mocked conditional PUT reports the key already present. */
+/** URIs the mocked bucket already holds, so a conditional PUT refuses them. */
+let taken = new Set();
+/** Whether *every* conditional PUT is refused, whatever the key. */
 let putConflict = false;
 
 mock.module("./s3.mjs", {
@@ -29,7 +31,7 @@ mock.module("./s3.mjs", {
       /** @type {{ noClobber?: boolean }} */ { noClobber = false } = {},
     ) => {
       puts.push({ uri, content, noClobber });
-      return !(noClobber && putConflict);
+      return !(noClobber && (putConflict || taken.has(uri)));
     },
   },
 });
@@ -44,22 +46,12 @@ const {
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
-/** @type {string | undefined} */
-let savedDebug;
 beforeEach(() => {
-  savedDebug = process.env.S3CAB_DEBUG;
-  delete process.env.S3CAB_DEBUG;
   listed = [];
   bodies = new Map();
   puts = [];
+  taken = new Set();
   putConflict = false;
-});
-afterEach(() => {
-  if (savedDebug === undefined) {
-    delete process.env.S3CAB_DEBUG;
-  } else {
-    process.env.S3CAB_DEBUG = savedDebug;
-  }
 });
 
 describe("deletionRecordMoment", () => {
@@ -127,19 +119,48 @@ describe("writeDeletionRecord", () => {
     assert.deepEqual(puts, [{ uri, content: "#x\n", noClobber: true }]);
   });
 
-  it("refuses a same-minute collision loudly, telling the user to wait", async () => {
-    putConflict = true;
-    await assert.rejects(
-      () => writeDeletionRecord("my-backups", "2026-07-19T1422", "#x\n"),
-      /already exists.*never\s+overwritten[\s\S]*Wait for the next minute/,
+  // Two deletes in one minute are two real events and both must be recorded.
+  // Unlike a snapshot, the name is read by nobody — `readDeletionRecords` LISTs
+  // and unions — so it only has to be unique, and refusing bought no safety.
+  it("suffixes past a name already taken, so a same-minute delete records", async () => {
+    taken = new Set(["s3://my-backups/deletions/2026-07-19T1422.tsv"]);
+    const uri = await writeDeletionRecord(
+      "my-backups",
+      "2026-07-19T1422",
+      "#x\n",
+    );
+    assert.equal(uri, "s3://my-backups/deletions/2026-07-19T1422-2.tsv");
+    // Still conditional on the retry: the suffix disambiguates, it never
+    // licenses an overwrite.
+    assert.deepEqual(
+      puts.map((p) => [p.uri, p.noClobber]),
+      [
+        ["s3://my-backups/deletions/2026-07-19T1422.tsv", true],
+        ["s3://my-backups/deletions/2026-07-19T1422-2.tsv", true],
+      ],
     );
   });
 
-  it("allows overwrite under S3CAB_DEBUG (the test/dev escape)", async () => {
-    process.env.S3CAB_DEBUG = "1";
-    putConflict = true; // irrelevant — the PUT is unconditional
-    await writeDeletionRecord("my-backups", "2026-07-19T1422", "#x\n");
-    assert.equal(puts[0]?.noClobber, false);
+  it("keeps counting when several records share the minute", async () => {
+    taken = new Set([
+      "s3://my-backups/deletions/2026-07-19T1422.tsv",
+      "s3://my-backups/deletions/2026-07-19T1422-2.tsv",
+      "s3://my-backups/deletions/2026-07-19T1422-3.tsv",
+    ]);
+    const uri = await writeDeletionRecord(
+      "my-backups",
+      "2026-07-19T1422",
+      "#x\n",
+    );
+    assert.equal(uri, "s3://my-backups/deletions/2026-07-19T1422-4.tsv");
+  });
+
+  it("gives up loudly if every name is taken, having deleted nothing", async () => {
+    putConflict = true; // every conditional PUT refused
+    await assert.rejects(
+      () => writeDeletionRecord("my-backups", "2026-07-19T1422", "#x\n"),
+      /shouldn't happen[\s\S]*Nothing was deleted/,
+    );
   });
 });
 
@@ -192,9 +213,21 @@ describe("readDeletionRecords", () => {
   it("ignores keys that don't follow the record-name grammar", async () => {
     listed.push({ Key: "deletions/" }); // console folder marker
     listed.push({ Key: "deletions/notes.txt" }); // a stray hand-dropped file
+    listed.push({ Key: "deletions/2026-07-19T1422-.tsv" }); // suffix with no number
     record("2026-07-19T1422", `${HASH_A}\tD:\\ok\n`);
     const deleted = await readDeletionRecords("b");
     assert.deepEqual([...deleted.keys()], [HASH_A]);
+  });
+
+  // The other half of the same-minute fix: a suffixed record is a real record,
+  // so the read side must union it in. Missing it would leave hashes the store
+  // deliberately deleted looking like unexplained damage to `verify`.
+  it("reads a same-minute suffixed record alongside the unsuffixed one", async () => {
+    record("2026-07-19T1422", `${HASH_A}\tD:\\a.mov\n`);
+    record("2026-07-19T1422-2", `${HASH_B}\tD:\\b.mov\n`);
+    const deleted = await readDeletionRecords("b");
+    assert.deepEqual([...deleted.keys()].sort(), [HASH_A, HASH_B]);
+    assert.equal(deleted.get(HASH_B)?.deletedOn, "2026-07-19T1422-2");
   });
 
   it("skips a record that vanished between the LIST and the read", async () => {
