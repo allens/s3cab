@@ -146,7 +146,7 @@ Added (1)
 Moved (1)
   2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
 
-1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812 KB changed
+1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812.0kB changed
 ```
 
 `list` shows your sets and their snapshots; `compare` diffs any two (`--since` picks an

@@ -74,9 +74,10 @@ A snapshot is a point in time. When you don't want to keep one any more:
 > s3cab forget --set photos 2026-05-01T0800
 Unrestorable preview — what you could no longer restore once these are gone:
 
-  2026-05-01T0800      3,201 files   12.4GB
-                     ───────────────────────
-  total unrestorable   3,201 files   12.4GB
+  snapshot            files    size
+  2026-05-01T0800     3,201  12.4GB
+                      ─────────────
+  total unrestorable  3,201  12.4GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
@@ -102,12 +103,13 @@ preview covers the whole selection:
 > s3cab forget --set photos 2026-05-01T0800 2026-05-08T0800 2026-05-15T0800
 Unrestorable preview — what you could no longer restore once these are gone:
 
-  2026-05-01T0800             3,201 files   12.4GB
-  2026-05-08T0800               118 files    412MB
-  2026-05-15T0800                 0 files       0B
-  shared across 3 snapshots     842 files    3.1GB
-                              ───────────────────────
-  total unrestorable          4,161 files   15.9GB
+  snapshot                   files     size
+  2026-05-01T0800            3,201   12.4GB
+  2026-05-08T0800              118  412.0MB
+  2026-05-15T0800                0       0B
+  shared across 3 snapshots    842    3.1GB
+                             ──────────────
+  total unrestorable         4,161   15.9GB
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
@@ -179,9 +181,10 @@ removes its content from the backups you've already taken:
 > s3cab delete --bucket my-backups C:\Users\me\Photos\raw-footage
 Delete preview — files no backup could restore once this content is gone:
 
-  C:\Users\me\Photos\raw-footage    312 files   48.1GB
-                                  ─────────────────────
-  total                             312 files   48.1GB   (297 stored objects)
+  path                            files    size
+  C:\Users\me\Photos\raw-footage    312  48.1GB
+                                  ─────────────
+  total                             312  48.1GB   (297 stored objects)
 
 Sets losing these files: photos (312 files)
 
@@ -190,7 +193,10 @@ Full list:
 
 This permanently removes the content above from every backup in 'my-backups'.
 Type the bucket name to proceed: my-backups
-Deleted 297 object(s). Snapshots were not modified.
+Deleted 297 objects. Snapshots were not modified — verify and restore read the deletion record to tell deliberate removal from damage.
+Record of this removal:
+  s3://my-backups/deletions/2026-07-19T1422.tsv
+my-backups: deleted 297 objects (48.1GB across 312 files). Snapshots were not modified.
 ```
 
 This is the most destructive thing s3cab can do — it removes content that your snapshots
@@ -254,18 +260,19 @@ them:
 
 ```console
 > s3cab cleanup my-backups
-my-backups: 48,210 objects stored, 312 orphaned (1.4 GB reclaimable)
-Delete 312 orphaned object(s) (1.4 GB) from bucket 'my-backups'? This cannot be undone. [y/N]
+Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
+my-backups: deleted 312 orphaned objects, reclaimed 1.4GB.
 ```
 
-**It asks before it acts.** At a terminal, `cleanup` reports what's orphaned and then asks
-to reclaim it — a plain `y/N`, because everything it removes is content nothing references
-any more. To look without touching anything, `-n` (`--dry-run`) reports and stops:
+**It asks before it acts.** At a terminal the question itself carries the count and the
+space it holds, so there is nothing to scroll back for — a plain `y/N`, because everything
+it removes is content nothing references any more. The run's own report lands after it. To
+look without touching anything, `-n` (`--dry-run`) reports and stops:
 
 ```console
 > s3cab cleanup my-backups --dry-run
-my-backups: 48,210 objects stored, 312 orphaned (1.4 GB reclaimable)
-Dry run — nothing deleted. Re-run without --dry-run to reclaim.
+Dry run — nothing deleted. Re-run without --dry-run to reclaim (add --force when there's no terminal).
+my-backups: 48,210 objects stored, 312 orphaned (1.4GB reclaimable)
 ```
 
 In a script — no terminal to answer the prompt — state the intent with `--force`, which
