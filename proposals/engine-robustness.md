@@ -2,15 +2,6 @@
 
 Epic: make the S3/remote engine sturdy, narrow, and operationally tunable.
 
-- **Frame-completeness check on a decompressed snapshot read** (defence-in-depth; the correctness
-  hole underneath it is **fixed**). Node's zstd-decompress stream does not error when its input
-  ends mid-frame (verified empirically, Node 24 — unlike zlib's "unexpected end of file"), so a
-  torn `.tsv.zst` used to read as a shorter valid snapshot when the cut landed on a line boundary.
-  [ADR-0082](../docs/adr/0082-snapshot-end-trailer.md)'s `#END` trailer closed that on 2026-08-14 —
-  a prefix cut now either loses the trailer or tears a row, and both reject. The remaining idea is
-  to catch it a layer lower: track whether the decompressor consumed a complete frame (or check the
-  content size in the frame header) and fail the read when it didn't. Cheap belt-and-braces, no
-  longer a loss path. Noticed 2026-08-11 while building the mid-stream-error tests.
 - **Bucket versioning is load-bearing everywhere and verified nowhere.** The whole soft-delete
   and ransomware-recovery story rests on it —
   [ADR-0033](../docs/adr/0033-bucket-onboarding-security-model.md), [guide/maintenance.md](../guide/maintenance.md)

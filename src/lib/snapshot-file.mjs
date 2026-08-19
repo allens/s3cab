@@ -809,7 +809,12 @@ export async function parseSnapshotStream(input) {
   // cut-short stream — a truncated `.tsv.zst` decompresses to a byte *prefix*
   // without error, which parses as a valid smaller (or empty) snapshot. The
   // `#END` trailer is what makes truncation loud: any cut that loses content
-  // loses it. An AssertionError on purpose, matching the malformed-line assert
+  // loses it. A zstd frame-completeness check *below* this was considered and
+  // rejected — truncation only ever removes a suffix, so the sole cut a frame
+  // check would add is one taking just the frame epilogue, which leaves every
+  // row intact: it would reject a fully restorable manifest. Whole-object
+  // integrity is the store's ETag, not the TSV's job (ADR-0082).
+  // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.
   assert(
