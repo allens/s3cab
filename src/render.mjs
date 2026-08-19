@@ -256,7 +256,7 @@ function addedSection(added, since, shorten, paint) {
     const note = notes.length ? `  (${notes.join("; ")})` : "";
     return `  ${shorten(entry.path)}${note}`;
   });
-  return `${paint(green)(`Added (${added.length})`)}\n${lines.join("\n")}`;
+  return `${paint(green)(`Added (${formatCount(added.length)})`)}\n${lines.join("\n")}`;
 }
 
 /**
@@ -273,7 +273,7 @@ function fromToSection(label, entries, colour, shorten, paint) {
   const lines = entries.map(
     (entry) => `  ${shorten(entry.path)} → ${shorten(entry.to)}`,
   );
-  return `${paint(colour)(`${label} (${entries.length})`)}\n${lines.join("\n")}`;
+  return `${paint(colour)(`${label} (${formatCount(entries.length)})`)}\n${lines.join("\n")}`;
 }
 
 /**
@@ -286,7 +286,7 @@ function fromToSection(label, entries, colour, shorten, paint) {
  */
 function pathSection(label, entries, colour, shorten, paint) {
   const lines = entries.map((entry) => `  ${shorten(entry.path)}`);
-  return `${paint(colour)(`${label} (${entries.length})`)}\n${lines.join("\n")}`;
+  return `${paint(colour)(`${label} (${formatCount(entries.length)})`)}\n${lines.join("\n")}`;
 }
 
 /**
@@ -298,7 +298,9 @@ function errorSection(errors, shorten, paint) {
   const lines = errors.map(
     (entry) => `  ${shorten(entry.path)}  (${entry.reason})`,
   );
-  const heading = paint((text) => bold(red(text)))(`Errors (${errors.length})`);
+  const heading = paint((text) => bold(red(text)))(
+    `Errors (${formatCount(errors.length)})`,
+  );
   return `${heading}\n${lines.join("\n")}`;
 }
 
@@ -328,7 +330,7 @@ function skippedSection(skipped, shorten, paint) {
   const lines = skipped.map(
     (entry) => `  ${shorten(entry.path)}  (${entry.fileType})`,
   );
-  const heading = paint(yellow)(`Skipped (${skipped.length})`);
+  const heading = paint(yellow)(`Skipped (${formatCount(skipped.length)})`);
   return `${heading}\n${lines.join("\n")}`;
 }
 
@@ -370,14 +372,15 @@ function summaryLine(result, renamedCount, movedCount) {
   }
   const bytes = sumSize(added) + sumSize(modified) + sumSize(deleted);
   let line =
-    `${added.length} added, ${renamedCount} renamed, ${movedCount} moved, ` +
-    `${modified.length} modified, ${deleted.length} deleted` +
+    `${formatCount(added.length)} added, ${formatCount(renamedCount)} renamed, ` +
+    `${formatCount(movedCount)} moved, ${formatCount(modified.length)} modified, ` +
+    `${formatCount(deleted.length)} deleted` +
     ` · ${formatByteValue(bytes)} changed`;
   if (skipped.length) {
-    line += `, ${skipped.length} skipped`;
+    line += `, ${formatCount(skipped.length)} skipped`;
   }
   if (errors.length) {
-    line += `, ${errors.length} ${plural(errors.length, "error")}`;
+    line += `, ${formatCount(errors.length)} ${plural(errors.length, "error")}`;
   }
   return line;
 }
@@ -592,7 +595,7 @@ export function renderVerify(result, { color = false } = {}) {
 
   const verdict = findingSets.length
     ? paint((t) => bold(red(t)))(
-        `${findingSets.length} ${plural(findingSets.length, "set")} with findings ✗`,
+        `${formatCount(findingSets.length)} ${plural(findingSets.length, "set")} with findings ✗`,
       )
     : paint((t) => bold(green(t)))("all verified ✓");
 
@@ -616,7 +619,7 @@ export function renderVerify(result, { color = false } = {}) {
       const when =
         dates.length <= 2
           ? `deleted ${dates.join(", ")}`
-          : `${dates.length} deletions, latest ${dates.at(-1)}`;
+          : `${formatCount(dates.length)} deletions, latest ${dates.at(-1)}`;
       return (
         `  ${set.set}   ${formatCount(set.expectedMissing.length)} ` +
         `${plural(set.expectedMissing.length, "file")} deleted from backups ` +
@@ -648,7 +651,7 @@ function setFindings(report, paint) {
   const phrase = [];
   if (problems.length) {
     phrase.push(
-      `${problems.length} ${plural(problems.length, "file")} with problems`,
+      `${formatCount(problems.length)} ${plural(problems.length, "file")} with problems`,
     );
   }
   if (unreadableSnapshots.length) {
@@ -1122,7 +1125,7 @@ export function renderForget({ set, snapshots, forgotten }) {
   const what =
     snapshots.length === 1
       ? `Snapshot '${snapshots[0]}'`
-      : `${snapshots.length} snapshots`;
+      : `${formatCount(snapshots.length)} snapshots`;
   return forgotten
     ? `${what} forgotten from set '${set}'.`
     : `${what} kept — nothing was removed.`;

@@ -185,6 +185,19 @@ describe("renderCompareResult", () => {
     );
   });
 
+  it("groups the counts, in a section heading and the summary alike", () => {
+    // A real photo library's compare runs to four and five figures, and `1204`
+    // run together is the one thing a printed count exists to avoid.
+    const text = renderCompareResult(
+      result({
+        added: Array.from({ length: 1204 }, () => added(under("a.jpg"))),
+      }),
+    );
+
+    assert.match(text, /\nAdded \(1,204\)\n/);
+    assert.match(text, /\n1,204 added, 0 renamed, /);
+  });
+
   it("marks an added file the older snapshot couldn't read, naming that snapshot", () => {
     // The line has to say what "added" alone would get wrong: X.doc is not a new
     // file, it is a file that finally made it into the backup (ADR-0079). The
