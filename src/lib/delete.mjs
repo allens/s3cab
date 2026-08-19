@@ -3,7 +3,6 @@ import {
   countOf,
   formatByteValue,
   formatCount,
-  plural,
 } from "./format.mjs";
 import {
   safeSize,
@@ -359,8 +358,7 @@ export function formatDeleteSummary(plan, { everywhere, reportPath, bucket }) {
       ...alignTotalTable(
         ["path", "files", "size"],
         rows,
-        `   (${formatCount(plan.deletable.length)} ` +
-          `${plural(plan.deletable.length, "stored object")})`,
+        `   (${countOf(plan.deletable.length, "stored object")})`,
       ),
     );
 
