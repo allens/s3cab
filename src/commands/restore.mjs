@@ -5,6 +5,7 @@ import { stderr } from "node:process";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
+import { countOf, formatCount } from "../lib/format.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
@@ -131,7 +132,8 @@ export async function restore(paths = [], options = {}) {
     const notAbsolute = targets.filter((path) => !isAbsolute(path));
     if (notAbsolute.length) {
       throw new Error(
-        `Snapshot '${name}' has ${notAbsolute.length} path(s) that aren't absolute ` +
+        `Snapshot '${name}' has ${countOf(notAbsolute.length, "path")} that ` +
+          `${notAbsolute.length === 1 ? "isn't" : "aren't"} absolute ` +
           `on this system (e.g. ${notAbsolute.slice(0, 3).join(", ")}). The backup ` +
           `was likely made on a different OS; restore it here with --output <dir> ` +
           `to re-root under a directory you choose.`,
@@ -206,6 +208,11 @@ export async function restore(paths = [], options = {}) {
   // teardown on any scope exit, so an error mid-loop still leaves the cursor on
   // a fresh line before its message prints.
   using progress = createProgress(stderr, { logLines: true });
+  // Grouped, and the running count padded to the total's width — the same shape
+  // the backup pass's `progressLine` draws, and for the same reason: a counter
+  // left to grow shuffles the line sideways every time it gains a digit, which
+  // on a six-figure restore happens five times mid-run.
+  const total = formatCount(plan.length);
   let done = 0;
   for (const step of plan) {
     const hash = /** @type {string} */ (step.hash);
@@ -256,7 +263,9 @@ export async function restore(paths = [], options = {}) {
     // last file has to be *offered*, whether or not a redraw is due, or the
     // counter closes reading one short of the total.
     if (progress.due() || done === plan.length) {
-      progress.update(`Restoring ${done}/${plan.length}…`);
+      progress.update(
+        `Restoring ${formatCount(done).padStart(total.length)}/${total}…`,
+      );
     }
   }
 
