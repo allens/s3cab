@@ -146,7 +146,7 @@ Added (1)
 Moved (1)
   2024\IMG_001.jpg → 2024\sorted\IMG_001.jpg
 
-1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812 KB changed
+1 added, 0 renamed, 1 moved, 0 modified, 0 deleted · 812.0kB changed
 ```
 
 `list` shows your sets and their snapshots; `compare` diffs any two (`--since` picks an
@@ -224,14 +224,16 @@ the set's own directory under your home directory — never inside your backed-u
 
 Each snapshot file is a tab-separated table of `hash`, `size`, `modified-time`, and `path` —
 fixed-width leading columns so it stays readable, with the variable-length (and
-platform-native, absolute) path last. It opens with a header naming the set and each member
-directory, so a snapshot file is self-describing even found on its own:
+platform-native, absolute) path last. It opens with a header naming the set, when the
+snapshot was taken and each member directory — so a snapshot file is self-describing even
+found on its own — and closes with `#END`, so a truncated one can be told from a whole one:
 
 ```
-#SNAPSHOT                                                            2025-11-11T08:30          photos
-#DIR                                                                                           C:\Users\me\Photos
-3b8e...c0a1                                                  4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
+#SNAPSHOT                                                             photos  2025-11-11T08:30:12.418Z  2025-11-11T0830 Europe/London
+#DIR                                                                                                    C:\Users\me\Photos
+3b8e...c0a1                                                          4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855           0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
+#END
 ```
 
 To inspect a compressed snapshot by hand, decompress it with any zstd tool

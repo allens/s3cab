@@ -39,7 +39,7 @@ Modified (1)
 Deleted (1)
   old notes.txt
 
-2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 5.3 MB changed
+2 added, 1 renamed, 1 moved, 1 modified, 1 deleted · 5.3MB changed
 ```
 
 The header names the set and, after it, the common parent directory the listed
@@ -49,7 +49,7 @@ form — the same report as a JSON structure with absolute paths — pass `--jso
 
 A first snapshot has nothing to compare against, so instead of listing your whole
 tree as "added" it collapses to a one-line count: `First snapshot: 1,234 files
-(4.2 GB)`.
+(4.2GB)`.
 
 ## The sections
 
