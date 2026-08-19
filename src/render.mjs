@@ -702,7 +702,7 @@ function problemDetail(p) {
 }
 
 /**
- * Report a finished `backup` ([ADR-0078](../../docs/adr/0078-backup-run-report.md)) —
+ * Report a finished `backup` ([ADR-0078](../docs/adr/0078-backup-run-report.md)) —
  * a line per question, in that order because they are different questions:
  *
  * ```

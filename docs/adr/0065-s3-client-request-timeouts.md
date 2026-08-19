@@ -17,8 +17,8 @@ half-open TCP connection with nothing to break the wait, the progress bar stoppe
 completed part, and no error was ever raised. The only recovery was to kill the process by hand.
 
 Expiring credentials, by contrast, are already handled (the `credentialErrorRelay`,
-[ADR-0037](0037-request-time-credential-error-translation.md)) — this is the *other* silent
-failure mode on the S3 path, and the one with no feedback at all.
+[ADR-0037](0037-aws-auth-error-categorization.md)) — this is the *other* silent failure mode
+on the S3 path, and the one with no feedback at all.
 
 ## Decision
 
