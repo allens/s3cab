@@ -81,16 +81,20 @@ Unrestorable preview — what you could no longer restore once these are gone:
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
-Forget snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
+Forget snapshot '2026-05-01T0800' from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forgot snapshot '2026-05-01T0800' from set 'photos'.
+Objects they referenced are still stored; reclaim unreferenced ones with: s3cab cleanup my-backups
+Record of this removal:
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-01T080213.txt
 Snapshot '2026-05-01T0800' forgotten from set 'photos'.
 ```
 
 Before it asks, `forget` works out **what you'd be the last to hold** — files that, once
 these snapshots are gone, no surviving snapshot anywhere in the bucket holds, so `restore`
 could never produce them again. That's what **unrestorable** means here. The counts go on
-screen and the full list of files goes in a file, always, whose path is the last thing
-printed. It's written before the question, so answering **no** still leaves you the list to
-read — fix your selection and run again without waiting for the check twice.
+screen and the full list of files goes in a file, always, whose path is the last line before
+the question. It's written first, so answering **no** still leaves you the list to read — fix
+your selection and run again without waiting for the check twice.
 
 Careful with what that list is, though: it's what you could no longer *restore* — and so
 what becomes **reclaimable** — not what's about to be deleted. `forget` removes snapshots and nothing else, so every file on it stays
@@ -113,7 +117,11 @@ Unrestorable preview — what you could no longer restore once these are gone:
 
 Full list:
   C:\Users\me\.s3cab\forget-unrestorable-preview.txt
-Forget 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N]
+Forget 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos' (bucket my-backups)? This cannot be undone. [y/N] y
+Forgot 3 snapshots ('2026-05-01T0800', '2026-05-08T0800', '2026-05-15T0800') from set 'photos'.
+Objects they referenced are still stored; reclaim unreferenced ones with: s3cab cleanup my-backups
+Record of this removal:
+  C:\Users\me\.s3cab\sets\photos\forget-unrestorable-2026-05-20T141807.txt
 3 snapshots forgotten from set 'photos'.
 ```
 
@@ -261,13 +269,15 @@ them:
 ```console
 > s3cab cleanup my-backups
 Delete 312 orphaned objects (1.4GB) from bucket 'my-backups'? This cannot be undone. [y/N] y
+Don't run cleanup while a backup is running.
 my-backups: deleted 312 orphaned objects, reclaimed 1.4GB.
 ```
 
 **It asks before it acts.** At a terminal the question itself carries the count and the
 space it holds, so there is nothing to scroll back for — a plain `y/N`, because everything
-it removes is content nothing references any more. The run's own report lands after it. To
-look without touching anything, `-n` (`--dry-run`) reports and stops:
+it removes is content nothing references any more. Afterwards it names the one race the
+counts can't show you (the grace window, below), and its own report lands last. To look
+without touching anything, `-n` (`--dry-run`) reports and stops:
 
 ```console
 > s3cab cleanup my-backups --dry-run
