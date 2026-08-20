@@ -21,6 +21,139 @@ python scripts/pyrestore.py --bucket <bucket> list-sets
 python scripts/pyrestore.py --bucket <bucket> restore <set> <snapshot> --output <dir>
 ```
 
+## create-cleanroom.mjs
+
+Stages a directory for the *next* clean-room restorer: a byte copy of
+[guide/format.md](../guide/format.md), a brief naming the language, and nothing
+else. `--lang` is a plain string because what makes a rerun worth doing is a
+fresh reader rather than a new language, and the brief is language-neutral apart
+from one sentence — which names no version and no toolchain, leaving the session
+to find "the most modern version that comes as standard" on the machine it's on.
+
+The directory has to be **outside the repo**, and the script refuses otherwise:
+a session opened inside is handed [../CLAUDE.md](../CLAUDE.md) before it reads
+anything, and that file discusses the `#SNAPSHOT` header's UTC instant, the
+`#DIR` headers, the drive-letter normalisation and the TSV encoding. Those are
+restore-correctness facts the exercise exists to make someone derive, and the
+contamination is invisible in the result — the ambiguity list simply comes back
+shorter, which reads as a spec that has been fixed. Keep the previous run's
+report ([docs/format-spec-audit.md](../docs/format-spec-audit.md)) out of the
+directory too: diffing the two lists afterwards is the reader's job, and an item
+that reappears is a fix that didn't land.
+
+The brief is written as the clean room's own `CLAUDE.md`, so the run starts from
+a bare "go" instead of a pasted wall of text — and, because that file is
+re-injected as the context compacts, the rule that matters survives a run long
+enough to write a program, where an opening-turn instruction would scroll away.
+
+`ENVIRONMENT.md` names **one** bucket. Copying `.env.test` across would be
+handier and is the wrong shape: it also names the crash and conformance buckets,
+whose suites assert whole-bucket state and which hold deliberately torn
+repositories — snapshots published over swept objects, written on purpose by
+`test/crash`. That is the exact signature this exercise hunts, so a session that
+wandered into one would report a real observation as a spec defect. Pass
+`--bucket`, or let `--env-file=.env.test` supply `S3CAB_TEST_BUCKET` and the
+`AWS_*` settings without the file itself travelling.
+
+Libraries come from the platform's packages, and the brief bars **any AWS SDK or
+S3 client library, packaged or not** — the restorer signs its own requests, and
+may not drive the `aws` CLI to do its work either. That rule has to name the SDK
+rather than say "platform packages only", because the archive's coverage is
+uneven: Ubuntu packages an SDK for Go, Ruby and Perl but none for C++, so the
+looser wording would hand one language the thing it denies another and leave two
+runs incomparable. Consulting the CLI while getting SigV4 right stays allowed
+and is disclosed in the report — a development aid is not a dependency, and
+whether signing is derivable from public docs alone is itself worth knowing.
+
+The point is a second result beside the ambiguity list: s3cab depends on the AWS
+SDK completely, so nothing has ever established what *reading* the format needs.
+A restorer that talks to S3 with an HTTP client and nothing else is evidence for
+[ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md)'s no-lock-in promise
+of a kind a documented format can't be — and it is why the earlier Python run
+doesn't answer this, having used boto3.
+
+Credentials go over as static keys in `credentials.env`, resolved through the
+SDK chain at staging time — `AWS_PROFILE` would be useless to a restorer with no
+SDK to read `~/.aws/config` with. They are session credentials, so the run must
+sign `x-amz-security-token` too, and they expire: `ENVIRONMENT.md` states the
+deadline and tells the session that a 403 following requests that worked means
+the window closed rather than a signing bug. Re-running with `--force` mints a
+fresh window, so outliving the permission set's session duration (8 hours here,
+12 being the IAM Identity Center maximum) costs a re-run, not an afternoon.
+
+It warns about files it didn't write, rather than deleting them. A clean room
+that gets moved or renamed can carry an older brief along beside the new one,
+and the session reads both as readily.
+
+```sh
+node scripts/create-cleanroom.mjs --lang <language> [--bucket <name>] [--force] <dir>
+node --env-file=.env.test scripts/create-cleanroom.mjs --lang "C++" ~/cleanroom
+```
+
+## cleanroom-fixtures.mjs
+
+Builds the corpus a clean-room restorer is measured against: six backup sets in
+the bucket, plus the `reference/` trees inside the clean room, which are what its
+output is compared to. Run it after `create-cleanroom.mjs`, before handing the
+room over.
+
+It is a committed script rather than a chat because run 1's corpus is **gone** —
+staged by hand, and its harness "was a session artifact and is not preserved"
+([format-spec audit](../docs/format-spec-audit.md)). The value of a re-run is
+diffing its ambiguity list against the last one, where a reappearing item is a
+fix that didn't land, and that comparison needs the same data underneath. Every
+run that stages fixtures by hand throws the comparison away again.
+
+Which fixtures, and why each one, is the coverage matrix in the script's own
+header: one line per audit finding F1–F16, naming the fixture that would catch a
+regression — and naming the two findings a corpus *cannot* provoke (F4, F15)
+rather than quietly dropping them so the table looks complete.
+
+`reference/` holds what **s3cab itself restored**, not the source trees. A
+correct restore legitimately differs from its source — no empty directories, no
+symlinks, no permissions, mtimes rounded to the millisecond
+([guide/format.md](../guide/format.md)) — so comparing against the sources would
+fail a restorer for being right. The script drives the real CLI as a subprocess
+to produce them, with `S3CAB_HOME` pointed at a working directory so your own
+`~/.s3cab` is untouched while `~/.aws` keeps working.
+
+Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
+in names, strips trailing spaces, and folds case. They are skipped with a loud
+notice naming each one, because a partial corpus that reads as a complete one is
+the same silent-shortening failure the exercise exists to hunt. Keep them in the
+corpus permanently anyway — for a future Windows clean-room run they *become*
+the point, where a restorer that refuses them is behaving correctly and one that
+silently strips the trailing space and reports success is not. A symlink, by
+contrast, is attempted everywhere and skipped only on the error: Windows has
+them, it just wants Developer Mode.
+
+A re-stage needs the bucket **cleared** first: snapshots are immutable and a set
+name is claimed by whoever sets it up first, so `setup` would refuse. It already
+would — the point of the preflight is that it asks the bucket before building
+anything, and answers with the fix that applies here (empty the repository)
+rather than the one `setup`'s collision error was written for (`reattach`, which
+is right for a user and wrong for a fixture corpus).
+
+`--trees-only` builds the trees, prints what this platform managed, and stops
+before anything reaches S3 — worth it because staging writes well over a
+thousand objects and claims six set names, and on Windows it would claim them
+for a corpus missing every POSIX fixture. It takes the same arguments as the
+real run plus the flag, so what you rehearse is the command you then run.
+
+`faults` is deliberately broken: an object is torn out of the store through the
+SDK, leaving **no** deletion record, because the unexplained-damage case the spec
+legislates for ("report it, carry on, exit nonzero") has never been staged. Its
+restore therefore exits nonzero, and the script reports that as expected rather
+than failing.
+
+```sh
+node scripts/cleanroom-fixtures.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>]
+node --env-file=.env.test scripts/cleanroom-fixtures.mjs --out ~/cleanroom --trees-only
+```
+
+The bucket wants a raised expiry first, or the corpus sweeps out from under the
+next run: `node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>`.
+
 ## zstd-bench.mjs
 
 Benchmarks zstd compression levels (with and without long-distance matching) on
@@ -105,9 +238,24 @@ and needs no AWS CLI — credentials come from the standard AWS chain (ambient
 `AWS_*`, an SSO session, etc.). Region is `AWS_REGION` / `AWS_DEFAULT_REGION`,
 default `us-east-1`. The reference `aws s3api` form is in the file header.
 
+`--days` raises the expiry clock, for a bucket holding data meant to outlive a
+run — clean-room fixtures today. Leave the two buckets that assert whole-bucket
+state alone: `test/crash` asserts exact object counts and
+`test/model/conformance` resets the whole bucket, so for them the short sweep is
+what makes the next run start clean after a crashed one, and neither holds
+anything worth keeping. Re-running the script restores the default, which is
+right for a test bucket and a trap for one holding fixtures — pass `--days`
+again when you do.
+
+Creating the bucket is best-effort: a scoped test identity usually has the data
+plane but not `s3:CreateBucket`, so a denial there is taken as "it already
+exists" and the run continues. If it doesn't exist, the calls after it say so.
+
 ```sh
-node scripts/setup-test-bucket.mjs [--conformance] [--force] <bucket>
+node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>
 # or: S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
+# raise an existing bucket's expiry (credentials from .env.test):
+#   node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 ```
 
 ## sqlite-hash-cache.mjs

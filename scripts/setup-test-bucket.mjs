@@ -16,7 +16,7 @@
  * `aws sso login` session, an instance role, etc.) — the same chain the app uses.
  *
  * Usage:
- *   node scripts/setup-test-bucket.mjs [--conformance] [--force] <bucket>
+ *   node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>
  *   S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
  *
  * The default is an integration bucket: unversioned, flat 1-day expiry, shareable
@@ -24,6 +24,10 @@
  * conformance harness, whose assertions cover whole-bucket state: versioning
  * enabled, plus a versioned-aware expiry baseline (noncurrent versions and
  * orphaned delete markers are reclaimed too).
+ *
+ * --days raises the expiry clock for a bucket holding data meant to outlive a run.
+ * Re-running this script restores the default, which is a feature for a test bucket
+ * and a trap for one holding staged fixtures — pass --days again when you do.
  *
  * Region is read from AWS_REGION / AWS_DEFAULT_REGION, defaulting to us-east-1 (the
  * CI reference region). See docs/design/testing.md "Provisioning" for the why.
@@ -48,28 +52,54 @@ import {
 const args = process.argv.slice(2);
 const conformance = args.includes("--conformance");
 const force = args.includes("--force");
+const daysIndex = args.indexOf("--days");
+/** @param {number} index */
+const isDaysValue = (index) => index === daysIndex + 1;
 const unknown = args.find(
-  (arg) => arg.startsWith("-") && arg !== "--conformance" && arg !== "--force",
+  (arg, index) =>
+    arg.startsWith("-") &&
+    arg !== "--conformance" &&
+    arg !== "--force" &&
+    arg !== "--days" &&
+    !isDaysValue(index),
 );
-const positionals = args.filter((arg) => !arg.startsWith("-"));
+const positionals = args.filter(
+  (arg, index) => !arg.startsWith("-") && !isDaysValue(index),
+);
 const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET;
-if (unknown !== undefined || positionals.length > 1 || !bucket) {
+
+// A day by default: long enough for any suite, short enough that a crashed run's
+// residue is swept before the next one starts. For the tiers that assert whole-bucket
+// state that sweep is correctness, not housekeeping — test/crash asserts exact object
+// counts and test/model/conformance resets the whole bucket, so both want the short
+// clock and neither holds anything worth keeping. Raise it only for a bucket holding
+// data meant to outlive a run, which today means fixtures staged for a clean-room
+// restorer (see create-cleanroom.mjs).
+const days = daysIndex === -1 ? 1 : Number(args[daysIndex + 1]);
+if (
+  unknown !== undefined ||
+  positionals.length > 1 ||
+  !bucket ||
+  !Number.isInteger(days) ||
+  days < 1
+) {
   console.error(
-    "usage: node scripts/setup-test-bucket.mjs [--conformance] [--force] <bucket>  (or set S3CAB_TEST_BUCKET)",
+    "usage: node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>  (or set S3CAB_TEST_BUCKET)",
   );
   process.exit(2);
 }
 
-// The lifecycle below auto-deletes EVERY object after a day, and is applied even to
+// The lifecycle below auto-deletes EVERY object on that clock, and is applied even to
 // a bucket that already exists — so refuse a name outside the test-bucket naming
 // convention, where a slip could point it at a bucket holding real backups.
+const flags = `${conformance ? "--conformance " : ""}${daysIndex === -1 ? "" : `--days ${days} `}`;
 if (!bucket.startsWith("test-s3cab-") && !force) {
   console.error(
     `'${bucket}' doesn't look like a test bucket (they're named\n` +
       "test-s3cab-<owner>-<testType>), so refusing to give it the test lifecycle,\n" +
-      "which auto-deletes every object after 1 day. If the name is deliberate:\n" +
+      `which auto-deletes every object after ${days} day${days === 1 ? "" : "s"}. If the name is deliberate:\n` +
       "\n" +
-      `    node scripts/setup-test-bucket.mjs --force ${conformance ? "--conformance " : ""}${bucket}\n`,
+      `    node scripts/setup-test-bucket.mjs --force ${flags}${bucket}\n`,
   );
   process.exit(2);
 }
@@ -98,6 +128,15 @@ try {
   // Re-running setup is fine: a bucket you already own is success, not failure.
   if (error instanceof Error && error.name === "BucketAlreadyOwnedByYou") {
     console.log(`bucket ${bucket} already exists and is yours — continuing`);
+  } else if (error instanceof Error && error.name === "AccessDenied") {
+    // A scoped test identity is typically granted the data plane and the bucket's
+    // own settings, but not s3:CreateBucket — which made re-running this script to
+    // adjust an existing bucket (the whole point of --days) impossible. Assume the
+    // bucket is there and carry on: if it isn't, the calls below fail by name, and
+    // that error describes the real problem better than this one does.
+    console.log(
+      `no permission to create ${bucket} — assuming it already exists and continuing`,
+    );
   } else {
     throw error;
   }
@@ -118,9 +157,12 @@ if (conformance) {
 }
 
 // Auto-expiry is both the cost cap and the self-heal: a test that crashes before its
-// `finally` teardown leaves orphan objects, which this sweeps within ~a day (1 is
-// S3's minimum). AbortIncompleteMultipartUpload also clears crashed multipart uploads,
-// which never appear in ListObjects and would otherwise accrue cost invisibly.
+// `finally` teardown leaves orphan objects, which this sweeps on the --days clock (1
+// is S3's minimum, and the default). AbortIncompleteMultipartUpload also clears
+// crashed multipart uploads, which never appear in ListObjects and would otherwise
+// accrue cost invisibly — it stays at a day whatever --days says, because nothing
+// worth keeping is ever a half-finished upload, and that is the one form of residue
+// you cannot see to clean up by hand.
 //
 // On a versioned (conformance) bucket the flat Days rule only lays delete markers,
 // so noncurrent versions need their own expiry — and the markers theirs, in a
@@ -133,8 +175,8 @@ const rules = conformance
         ID: "expire-test-objects",
         Status: "Enabled",
         Filter: {},
-        Expiration: { Days: 1 },
-        NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+        Expiration: { Days: days },
+        NoncurrentVersionExpiration: { NoncurrentDays: days },
         AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
       },
       {
@@ -149,7 +191,7 @@ const rules = conformance
         ID: "expire-test-objects",
         Status: "Enabled",
         Filter: {},
-        Expiration: { Days: 1 },
+        Expiration: { Days: days },
         AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
       },
     ];
@@ -160,10 +202,11 @@ await client.send(
     LifecycleConfiguration: { Rules: rules },
   }),
 );
+const clock = `${days} day${days === 1 ? "" : "s"}`;
 console.log(
   conformance
-    ? "applied lifecycle rules: expire objects, noncurrent versions and delete markers after 1 day"
-    : "applied lifecycle rule: expire objects after 1 day",
+    ? `applied lifecycle rules: expire objects, noncurrent versions and delete markers after ${clock}`
+    : `applied lifecycle rule: expire objects after ${clock}`,
 );
 
 console.log(
