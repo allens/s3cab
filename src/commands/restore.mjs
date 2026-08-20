@@ -249,6 +249,15 @@ export async function restore(paths = [], options = {}) {
       }
       if (found) {
         writtenCanonical.add(realpathSync.native(step.dest));
+        // Lossy below the millisecond, and not fixable here — don't try. `utimes`
+        // takes seconds as a binary64 however it is spelled (a `Date` becomes
+        // `getTime() / 1000`), and one ULP of that near a 2026 epoch is ~238ns, so
+        // a stored `.674` lands as …674000024 where the filesystem keeps
+        // nanoseconds. No arithmetic at this call site closes a gap smaller than
+        // the representation, and `fs` exposes no nanosecond setter. NTFS hides it
+        // (the error falls below its 100ns tick), which is why it went unseen until
+        // clean-room run 2 compared `st_mtime_ns` on ext4. guide/format.md promises
+        // the *millisecond* for exactly this reason.
         const when = new Date(/** @type {string} */ (step.mtime));
         await utimes(step.dest, when, when);
         restored.push(step.dest);
