@@ -43,11 +43,28 @@
  *                            a header, a trailer and zero file rows
  *
  * And two things run 1 never met, because it ran against a local moto server rather
- * than real S3: the `#END` trailer (new since the audit — free, every snapshot has
- * one) and `bulk`, which pushes `objects/` past 1000 keys. That last is not required
- * by the spec's recovery recipe, which only ever lists `snapshots/<set>/` — but
- * materialising the store listing is a natural implementation choice (s3cab itself
- * does it, ADR-0069) and `ListObjectsV2` truncates at 1000 without saying so.
+ * than real S3: the `#END` trailer (new since the audit) and `bulk`, which pushes
+ * `objects/` past 1000 keys. That last is not required by the spec's recovery recipe,
+ * which only ever lists `snapshots/<set>/` — but materialising the store listing is a
+ * natural implementation choice (s3cab itself does it, ADR-0069) and `ListObjectsV2`
+ * truncates at 1000 without saying so.
+ *
+ * WHAT RUN 2 ADDED. Four fixtures, each for a rule the corpus stated but never made a
+ * run *obey* — run 2 reported its handling of all four as written and never executed:
+ *
+ *   `spread`   the only set with more than one member directory. With one member dir
+ *              per set, and its basename equal to the set name, `<out>/<basename>/…`
+ *              and `<out>/<set>/…` produce identical trees — so the corpus made its
+ *              own Tier 1 question unanswerable.
+ *   `deleted`  a `delete` with no re-backup, so a file is absent *and* recorded. F5's
+ *              fixture re-backs its file up (that is the presence-wins trap), which
+ *              left nothing for the recorded-deletion skip path to skip.
+ *   `corrupt`  an object present under the right key with the wrong bytes — the case
+ *              where the spec neither requires re-hashing a download nor says what to
+ *              do when it fails. Its files are ordered so the divergence is visible.
+ *   damaged    a snapshot with its `#END` trailer removed and the frame recompressed,
+ *              published under `faults`. The trailer's whole purpose is detecting a
+ *              backup killed mid-write, and no corpus had ever staged one missing.
  *
  * [POSIX] fixtures cannot exist on Windows: NTFS forbids control characters in names,
  * strips trailing spaces, and is case-insensitive. They are skipped with a loud notice
@@ -73,7 +90,9 @@
  */
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
@@ -86,6 +105,7 @@ import {
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
+import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
@@ -109,10 +129,19 @@ if (!bucket || !out) {
   process.exit(2);
 }
 
-// The six sets, in staging order. Each one's tree is `trees/<name>`, and each claims
-// that name in the bucket — which is why the preflight below can ask about them before
-// a single tree exists.
-const setNames = ["edge", "docs", "bulk", "media", "hollow", "faults"];
+// The sets, in staging order. Each one's tree is `trees/<name>`, and each claims that
+// name in the bucket — which is why the preflight below can ask about them before a
+// single tree exists.
+const setNames = [
+  "edge",
+  "docs",
+  "bulk",
+  "media",
+  "hollow",
+  "spread",
+  "faults",
+  "corrupt",
+];
 const posix = process.platform !== "win32";
 /** @type {string[]} */
 const skipped = [];
@@ -223,6 +252,24 @@ const waitForNextMinute = async () => {
     process.stdout.write(".");
   }
   process.stdout.write("\n");
+};
+
+/**
+ * The snapshot name one minute before this one. Used once, to name the damaged copy
+ * staged below: a snapshot name is a timestamp, so a *later* one would make the damaged
+ * snapshot `faults`'s newest and a bare `restore --set faults` would stop there — hiding
+ * F7, which is the same set's point. Backdating leaves the intact snapshot as the latest
+ * and the damaged one reachable only by asking for it by name.
+ *
+ * Snapshot names are *local* time, so this parses and prints as UTC throughout: both
+ * ends of the arithmetic use the same zone, so the answer is the local name one minute
+ * back, and no offset is ever applied.
+ * @param {string} name e.g. `2026-08-20T1432`
+ */
+const oneMinuteBefore = (name) => {
+  const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
+  stamp.setUTCMinutes(stamp.getUTCMinutes() - 1);
+  return stamp.toISOString().slice(0, 16).replace(":", "");
 };
 
 // ── Is the bucket clear? ────────────────────────────────────────────────────
@@ -354,25 +401,79 @@ file(join(media, "poster.bin"), randomBytes(512 * 1024));
 const hollow = join(trees, "hollow");
 mkdirSync(hollow, { recursive: true });
 
+/**
+ * `spread`: the only set with more than one member directory, which is what makes the
+ * restore layout decidable. Run 2 could not tell `<out>/<basename of #DIR>/<relative>`
+ * from `<out>/<set>/<relative>` apart, because every set here had a single member
+ * directory whose basename *was* the set name — the corpus made its own Tier 1 finding
+ * unanswerable. Two differently-named directories separate them: the first rule
+ * restores two directories side by side, the second merges them into one.
+ *
+ * Two member dirs sharing a *basename* — the follow-up question — are deliberately not
+ * here. s3cab refuses that combination outright under `--output` (`reroot` in
+ * src/lib/restore.mjs), so staging it would leave the set with no reference tree at
+ * all, and the spec already says where a file lands is the tool's decision, not the
+ * format's. The refusal is the answer; a fixture would only produce an unrestorable set.
+ */
+const spread = join(trees, "spread");
+const spreadDirs = ["alpha", "beta"].map((leaf) => join(spread, leaf));
+file(join(spread, "alpha", "from-alpha.txt"), "member directory alpha\n");
+file(join(spread, "beta", "from-beta.txt"), "member directory beta\n");
+
 /** `faults`: content unique to this set, so tearing its object breaks nothing else. */
 const faults = join(trees, "faults");
 const tornContent = `torn ${randomBytes(16).toString("hex")}\n`;
 const tornHash = createHash("sha256").update(tornContent).digest("hex");
 file(join(faults, "recoverable.txt"), "this one survives\n");
 file(join(faults, "torn.txt"), tornContent);
+// The *explained* absence, which run 2 never got to exercise: its report notes the
+// recorded-deletion skip "never fired in a real run", because F5's fixture deletes a
+// file's content and then re-backs it up — the presence-wins trap — leaving nothing in
+// the corpus that is absent *and* recorded. This one is deleted and stays deleted, so
+// the spec's "skips them gracefully with their date" has something to skip.
+file(join(faults, "deleted.txt"), `gone ${randomBytes(16).toString("hex")}\n`);
 
+/**
+ * `corrupt`: an object with the right key and the wrong bytes — run 2's finding 4, where
+ * the spec never says to re-hash a download nor what to do when it doesn't match, and
+ * its own policy "ran zero times against real data". Three files in known order, because
+ * the two tools diverge here and the tree is what shows it: s3cab's restore aborts on
+ * the mismatch (writeFileAtomic throws before the rename, and restore.mjs re-throws
+ * anything that isn't a missing object), so its reference tree holds `a-` alone, while a
+ * restorer that reports the fault and carries on ends with `a-` and `c-`. That
+ * difference is the fixture working, not the corpus being wrong.
+ */
+const corrupt = join(trees, "corrupt");
+const corruptContent = `will be replaced ${randomBytes(16).toString("hex")}\n`;
+const corruptHash = createHash("sha256").update(corruptContent).digest("hex");
+file(join(corrupt, "a-intact.txt"), "restored before the bad one\n");
+file(join(corrupt, "b-corrupt.txt"), corruptContent);
+file(
+  join(corrupt, "c-intact.txt"),
+  "only reached by a restorer that carries on\n",
+);
+
+// Every set's member directories. `spread` is the only one with more than one, and the
+// reason the pair is a pair: a single-directory set cannot distinguish the two layout
+// rules run 2 was left guessing between.
 const sets = setNames.map(
-  (name) => /** @type {[string, string]} */ ([name, join(trees, name)]),
+  (name) =>
+    /** @type {[string, string[]]} */ ([
+      name,
+      name === "spread" ? spreadDirs : [join(trees, name)],
+    ]),
 );
 
 // --trees-only stops here, before anything reaches S3. Staging the corpus writes well
-// over a thousand objects and claims six set names in the repository, and on Windows it
+// over a thousand objects and claims every set name in the repository, and on Windows it
 // would claim them for a corpus missing every [POSIX] fixture — so seeing what this
 // platform actually built, before any of that, is worth a flag.
 if (treesOnly) {
   console.log(`\nbuilt the trees under ${trees}, and stopped before S3:`);
-  for (const [name, dir] of sets) {
-    console.log(`  ${name.padEnd(8)} ${count(dir)} files`);
+  for (const [name, dirs] of sets) {
+    const files = dirs.reduce((total, dir) => total + count(dir), 0);
+    const spread = dirs.length > 1 ? `  (${dirs.length} member dirs)` : "";
+    console.log(`  ${name.padEnd(8)} ${files} files${spread}`);
   }
   reportSkipped();
   process.exit(0);
@@ -380,9 +481,9 @@ if (treesOnly) {
 
 // ── Back them up ────────────────────────────────────────────────────────────
 
-for (const [name, dir] of sets) {
+for (const [name, dirs] of sets) {
   console.log(`setup ${name}`);
-  mustRun(["setup", "--set", name, "--bucket", bucket, dir]);
+  mustRun(["setup", "--set", name, "--bucket", bucket, ...dirs]);
 }
 
 // The exclude pattern has to be in place before the first backup, or the #EXCLUDED
@@ -422,40 +523,109 @@ await client.send(
   new DeleteObjectCommand({ Bucket: bucket, Key: `objects/${tornHash}` }),
 );
 
+// The explained absence, and the counterpart to F5 above: the same `delete`, with no
+// re-backup after it. The snapshot still names the file, the object is gone, and a
+// record says so — which is the case the spec answers with "skips them gracefully with
+// their date" and the one run 2 reported it had never been able to run.
+console.log("delete without re-backup (the recorded-deletion skip)");
+mustRun(["delete", "--bucket", bucket, "--force", join(faults, "deleted.txt")]);
+
+// Right key, wrong bytes. Not `s3cab delete` and not a tear: the object is *present* and
+// hashes to something else, so a restorer that trusts the key restores corrupt content
+// under a clean exit. s3cab catches it in writeFileAtomic (ADR-0001) and aborts; whether
+// a reader should carry on is exactly what run 2 found the spec silent about.
+console.log(`replacing objects/${corruptHash.slice(0, 12)}… with wrong bytes`);
+await client.send(
+  new PutObjectCommand({
+    Bucket: bucket,
+    Key: `objects/${corruptHash}`,
+    Body: "not the bytes this key promises\n",
+  }),
+);
+
+// A snapshot with its `#END` trailer cut off. The trailer is the format's answer to a
+// backup killed mid-write (ADR-0082), and it has only ever been staged *present* — so
+// nothing has tested the one thing it exists for, and run 2 could only note that its
+// own completeness check went unexercised. Truncating the *compressed* bytes would test
+// zstd's leniency instead, so this decompresses, drops the trailer line, and
+// recompresses: a well-formed frame missing its last line, which is precisely what a
+// reader has to notice. It is published under `faults` as a second snapshot, backdated
+// so the intact one stays the set's latest.
+const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
+  .filter((entry) => entry.endsWith(".tsv.zst"))
+  .sort()
+  .at(-1);
+const damagedName = oneMinuteBefore(
+  /** @type {string} */ (wholeName).replace(/\.tsv\.zst$/, ""),
+);
+console.log(`publishing snapshots/faults/${damagedName} with no #END trailer`);
+const whole = await client.send(
+  new GetObjectCommand({
+    Bucket: bucket,
+    Key: `snapshots/faults/${wholeName}`,
+  }),
+);
+const wholeBytes = await /** @type {NonNullable<typeof whole.Body>} */ (
+  whole.Body
+).transformToByteArray();
+const text = zstdDecompressSync(wholeBytes).toString("utf8");
+await client.send(
+  new PutObjectCommand({
+    Bucket: bucket,
+    Key: `snapshots/faults/${damagedName}.tsv.zst`,
+    Body: zstdCompressSync(
+      Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"),
+    ),
+  }),
+);
+
 // ── The reference restores ──────────────────────────────────────────────────
 
 rmSync(reference, { recursive: true, force: true });
 mkdirSync(reference, { recursive: true });
 
+// Every snapshot in the bucket gets a reference tree beside it, so a clean-room run can
+// tell "I found nothing" from "I never looked". The damaged snapshot is named explicitly
+// because it exists only in S3 — it was never written locally, so the directory listing
+// that finds every other snapshot cannot find it.
+const restores = sets.flatMap(([name]) =>
+  readdirSync(join(home, "sets", name, "snapshots"))
+    .filter((entry) => entry.endsWith(".tsv.zst") && !entry.startsWith("."))
+    .map(
+      (entry) =>
+        /** @type {[string, string]} */ ([
+          name,
+          entry.replace(/\.tsv\.zst$/, ""),
+        ]),
+    ),
+);
+restores.push(["faults", damagedName]);
+
 /** @type {string[]} */
 const faultExits = [];
-for (const [name] of sets) {
-  const snapshotDir = join(home, "sets", name, "snapshots");
-  const snapshots = readdirSync(snapshotDir)
-    .filter((entry) => entry.endsWith(".tsv.zst") && !entry.startsWith("."))
-    .map((entry) => entry.replace(/\.tsv\.zst$/, ""));
-  for (const snapshot of snapshots) {
-    const target = join(reference, `${name}-${snapshot}`);
-    console.log(`restore ${name} ${snapshot}`);
-    const result = run([
-      "restore",
-      "--set",
-      name,
-      "--snapshot",
-      snapshot,
-      "--output",
-      target,
-    ]);
-    if (result.code !== 0) {
-      faultExits.push(`${name}/${snapshot} → ${result.code}`);
-    }
-    // `hollow` restores nothing, so s3cab prints "Nothing to restore" and creates no
-    // output directory at all — correct, and it would leave the F16 snapshot as the one
-    // in the bucket with no reference tree beside it. The empty directory here is the
-    // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
-    // missing file, so a restorer that finds the set can tell it was meant to find it.
-    mkdirSync(target, { recursive: true });
+for (const [name, snapshot] of restores) {
+  const target = join(reference, `${name}-${snapshot}`);
+  console.log(`restore ${name} ${snapshot}`);
+  const result = run([
+    "restore",
+    "--set",
+    name,
+    "--snapshot",
+    snapshot,
+    "--output",
+    target,
+  ]);
+  if (result.code !== 0) {
+    faultExits.push(`${name}/${snapshot} → ${result.code}`);
   }
+  // `hollow` restores nothing, so s3cab prints "Nothing to restore" and creates no
+  // output directory at all — correct, and it would leave the F16 snapshot as the one
+  // in the bucket with no reference tree beside it. The empty directory here is the
+  // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
+  // missing file, so a restorer that finds the set can tell it was meant to find it.
+  // The damaged and corrupt snapshots land here too, with whatever s3cab wrote before
+  // it gave up — a partial tree is the honest reference for a partial restore.
+  mkdirSync(target, { recursive: true });
 }
 
 // ── What the corpus actually came out as ────────────────────────────────────

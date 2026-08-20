@@ -141,7 +141,7 @@ node --env-file=.env.test scripts/create-cleanroom.mjs --lang "C++" ~/cleanroom
 
 ## cleanroom-fixtures.mjs
 
-Builds the corpus a clean-room restorer is measured against: six backup sets in
+Builds the corpus a clean-room restorer is measured against: eight backup sets in
 the bucket, plus the `reference/` trees inside the clean room, which are what its
 output is compared to. Run it after `create-cleanroom.mjs`, before handing the
 room over.
@@ -157,6 +157,22 @@ Which fixtures, and why each one, is the coverage matrix in the script's own
 header: one line per audit finding F1–F16, naming the fixture that would catch a
 regression — and naming the two findings a corpus *cannot* provoke (F4, F15)
 rather than quietly dropping them so the table looks complete.
+
+Run 2 added four more, each for a rule the corpus asserted but never made a run
+*obey* — its report described its handling of all four as written and never
+executed. `spread` is the only set with more than one member directory, without
+which the two candidate restore layouts produce identical trees and the corpus
+makes its own Tier 1 question unanswerable. (Two member dirs sharing a
+*basename* are deliberately absent: s3cab refuses that under `--output`, so the
+set would have no reference tree, and the refusal is already the answer.)
+`faults/deleted.txt` is deleted and left deleted, so a file is absent *and*
+recorded — F5's fixture re-backs its file up, which is the presence-wins trap
+and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
+right key, the case where the spec neither requires re-hashing a download nor
+says what to do when it fails. And `faults` gets a second snapshot with its
+`#END` trailer removed and the frame recompressed: truncating the compressed
+bytes would test zstd's leniency instead, and the trailer's whole purpose is
+catching a backup killed mid-write.
 
 `reference/` holds what **s3cab itself restored**, not the source trees. A
 correct restore legitimately differs from its source — no empty directories, no
@@ -185,15 +201,21 @@ is right for a user and wrong for a fixture corpus).
 
 `--trees-only` builds the trees, prints what this platform managed, and stops
 before anything reaches S3 — worth it because staging writes well over a
-thousand objects and claims six set names, and on Windows it would claim them
+thousand objects and claims every set name, and on Windows it would claim them
 for a corpus missing every POSIX fixture. It takes the same arguments as the
 real run plus the flag, so what you rehearse is the command you then run.
 
-`faults` is deliberately broken: an object is torn out of the store through the
-SDK, leaving **no** deletion record, because the unexplained-damage case the spec
-legislates for ("report it, carry on, exit nonzero") has never been staged. Its
-restore therefore exits nonzero, and the script reports that as expected rather
-than failing.
+Two sets are deliberately broken, in four different ways, because s3cab's own
+damage handling is the part a corpus most easily leaves untested. `faults` has
+an object torn out of the store through the SDK with **no** deletion record (the
+unexplained-damage case: report it, carry on, exit nonzero), one file deleted
+*with* a record (the explained one, skipped with its date), and a snapshot
+missing its trailer. `corrupt` has an object whose bytes don't hash to its key.
+Their restores therefore exit nonzero, and the script reports that as expected
+rather than failing — and their reference trees are whatever s3cab wrote before
+it gave up, since a partial tree is the honest reference for a partial restore.
+The damaged snapshot is backdated a minute so the intact one stays `faults`'s
+latest; it exists only in S3, so the script restores it by name.
 
 ```sh
 node scripts/cleanroom-fixtures.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>]
