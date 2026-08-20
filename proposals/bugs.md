@@ -85,5 +85,32 @@ set is a **settled** discouraged-but-tolerated state, never locked out
 ([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md)), which is precisely why the
 loser's message — not a lock — was the thing to fix.</sub>
 
-**No known bugs** — the state this file has to be in at release, and the point at which it should
-be deleted rather than kept empty. Anything found before Issues open goes back in the list here.
+- **A restore cannot reproduce a stored `mtime` exactly on a nanosecond filesystem, and
+  [guide/format.md](../guide/format.md) promises it does.** Found by clean-room run 2 (finding 2,
+  [docs/format-spec-audit-2.md](../docs/format-spec-audit-2.md)); **not fixed**, and the fix is
+  probably the wording rather than the code.
+  - **What happens.** [restore.mjs](../src/commands/restore.mjs) turns the row's `mtime` into a
+    `Date` and hands it to `utimes`. Node's `fs.utimes` takes **seconds as a binary64** in every
+    spelling — a `Date` is converted to `getTime() / 1000` — and near a 2026 epoch one ULP of that
+    double is 2⁻²² s ≈ **238ns**. A whole millisecond is therefore not representable: measured
+    under node 26 on ext4, both `new Date(iso)` and `ms / 1000` set `…674000024`, where the stored
+    value is `.674`. The 24ns error is *inside* one ULP, so no arithmetic in userland closes it and
+    `fs` exposes no nanosecond setter — there is no fix within builtins
+    ([ADR-0005](../docs/adr/0005-builtins-over-dependencies.md)).
+  - **Windows is exact**, which is why this survived so long: the error is smaller than NTFS's
+    100ns tick and larger than ext4's resolution, so the same probe on this machine's Windows side
+    gives `…674000000`. A defect invisible on the platform the work is done on.
+  - **Two clean-room runs agreed to the nanosecond and neither flagged it as a difference.** That
+    agreement was never corroboration — run 1's Python restorer went through the same float
+    seconds. Only comparing against the *stored* value, rather than against the other
+    implementation, could show it, which is the argument for `compare.py` reading `st_mtime_ns`.
+  - **The promise costs less than it looks.** [guide/format.md](../guide/format.md) says a restore
+    "reproduces the *stored* value exactly", and the two consequences it draws from that both still
+    hold: `fileProps` formats from `stat.mtime.toISOString()`, and 674.000024ms renders `.674Z`, so
+    a restored tree still compares clean against its snapshot and re-backing it up re-uploads
+    nothing. What is false is the literal sentence.
+  - **The decision, before the 1.0 format freeze:** soften "exactly" to the guarantee that is
+    actually deliverable — the stored millisecond, to within the filesystem's own tick — or keep
+    the wording and accept that it is untrue by 24ns on Linux and macOS. It is a change to the
+    user-facing format promise ([ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md)), which
+    is why it is a decision and not an edit.
