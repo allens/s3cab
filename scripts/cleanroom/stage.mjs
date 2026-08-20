@@ -100,25 +100,44 @@ import {
 import {
   mkdirSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
 
 const args = process.argv.slice(2);
 const valueOf = (/** @type {string} */ flag) => {
   const index = args.indexOf(flag);
   return index === -1 ? undefined : args[index + 1];
 };
+
+/**
+ * Expand a leading `~`. Every usage line here writes `~/s3cab-cleanroom-cpp` because
+ * that is what you type in the shell this exercise is run from — but PowerShell does not
+ * expand it, so node is handed the literal `~` and `resolve` makes it a directory named
+ * `~` under the cwd. That cwd is the repo, so a documented command quietly wrote a
+ * 1255-file corpus into the working tree. Expanding it here is the fix; the repo check
+ * below is the backstop for the typo this one didn't come from.
+ * @param {string} path
+ */
+const expandHome = (path) =>
+  path === "~" || path.startsWith("~/") || path.startsWith("~\\")
+    ? join(homedir(), path.slice(1))
+    : path;
+
 const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET;
 const out = valueOf("--out");
-const work = valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage");
+const work = expandHome(
+  valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage"),
+);
 // Same arguments as the real thing, plus one flag — so what you rehearse is the command
 // you then run, rather than a second spelling of it that could drift.
 const treesOnly = args.includes("--trees-only");
@@ -127,6 +146,28 @@ if (!bucket || !out) {
     "usage: node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>\n" +
       "                                        [--work <dir>] [--trees-only]\n" +
       "\ne.g. node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp",
+  );
+  process.exit(2);
+}
+
+// The same directory `create.mjs` already refuses to put inside the repo, so the two
+// commands have to agree about it — a clean room outside the tree whose reference trees
+// land inside it is the worst of both. The reason differs, though: there it is
+// contamination, here it is a four-figure file count dumped in the working copy.
+// Compared case-blind for the same reason create.mjs gives: `realpathSync.native`
+// canonicalizes the drive letter (`D:\src\s3cab`) while `resolve` keeps whatever the
+// operator typed (`d:\src\s3cab`), so a literal comparison misses the exact case this
+// guard exists for. On a case-sensitive filesystem it can only over-refuse.
+const reference = join(resolve(expandHome(out)), "reference");
+const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
+if (reference.toLowerCase().startsWith(repoRoot.toLowerCase() + sep)) {
+  console.error(
+    `--out ${out} puts the reference trees inside the repository, at\n` +
+      `${reference}. That is thousands of files in your working copy, and the\n` +
+      "clean room they belong to is required to live outside it. Stage it beside\n" +
+      "the room instead:\n" +
+      "\n" +
+      "    node scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp\n",
   );
   process.exit(2);
 }
@@ -150,7 +191,6 @@ const skipped = [];
 const s3cab = join(import.meta.dirname, "..", "..", "src", "s3cab.mjs");
 const home = join(work, ".s3cab");
 const trees = join(work, "trees");
-const reference = join(resolve(out), "reference");
 
 /**
  * Run the real CLI, with s3cab's home pointed at the working directory. Returns the
@@ -495,9 +535,11 @@ file(join(faults, "deleted.txt"), `gone ${randomBytes(16).toString("hex")}\n`);
  * its own policy "ran zero times against real data". Three files in known order, because
  * the two tools diverge here and the tree is what shows it: s3cab's restore aborts on
  * the mismatch (writeFileAtomic throws before the rename, and restore.mjs re-throws
- * anything that isn't a missing object), so its reference tree holds `a-` alone, while a
- * restorer that reports the fault and carries on ends with `a-` and `c-`. That
- * difference is the fixture working, not the corpus being wrong.
+ * anything that isn't a missing object), so its reference tree holds `a-intact.txt`
+ * alone and never reaches `c-`, while a restorer that reports the fault and carries on
+ * ends with both. That difference is the fixture working, not the corpus being wrong.
+ * (The abort also leaves a `.s3cab-tmp` sibling, which the reference pass strips — see
+ * the note there for why residue must not reach a comparison target.)
  */
 const corrupt = join(trees, "corrupt");
 const corruptContent = `will be replaced ${randomBytes(16).toString("hex")}\n`;
@@ -682,6 +724,22 @@ for (const [name, snapshot] of restores) {
   // The damaged and corrupt snapshots land here too, with whatever s3cab wrote before
   // it gave up — a partial tree is the honest reference for a partial restore.
   mkdirSync(target, { recursive: true });
+  // …minus s3cab's own failure-path residue. `writeFileAtomic` writes to a sibling temp
+  // and only renames once the digest matches, so aborting on `corrupt` deliberately
+  // leaves `.b-corrupt.txt.s3cab-tmp` behind (harmless to s3cab, which overwrites it on
+  // retry). In a *reference* tree it is a trap: a restorer that correctly writes no such
+  // file would be reported as missing one, which is the false finding this whole exercise
+  // exists to avoid. The reference is the comparison target, not a transcript of the
+  // tool's internals, so tool residue comes out — the same reasoning as the empty
+  // directory above.
+  for (const entry of readdirSync(target, {
+    withFileTypes: true,
+    recursive: true,
+  })) {
+    if (entry.isFile() && entry.name.endsWith(".s3cab-tmp")) {
+      unlinkSync(join(entry.parentPath, entry.name));
+    }
+  }
 }
 
 // ── What the corpus actually came out as ────────────────────────────────────

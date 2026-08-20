@@ -54,6 +54,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 
 const args = process.argv.slice(2);
 const valueOf = (/** @type {string} */ flag) => {
@@ -88,7 +89,15 @@ if (unknown !== undefined || positionals.length !== 1 || !language || !dir) {
 }
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
-const target = resolve(dir);
+// Expand a leading `~` before resolving. The usage line above writes one and PowerShell
+// does not expand it, so node would take it literally and `resolve` would make a
+// directory named `~` under the cwd — which is the repo, and so exactly the placement
+// the guard below exists to refuse, reported as a path the operator never typed.
+const target = resolve(
+  dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")
+    ? join(homedir(), dir.slice(1))
+    : dir,
+);
 
 // The one guard that matters: a clean room inside the repo is not a clean room, since
 // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
