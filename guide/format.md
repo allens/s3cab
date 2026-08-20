@@ -115,9 +115,19 @@ the backing objects and writes a **deletion record**, one per run, at
 `deletions/<timestamp>.tsv` (the same minute-precision local timestamp as snapshot names).
 A record is never overwritten. Unlike a snapshot, though, a second run in the same minute is
 not an error: it takes the next free name — `2026-06-12T0915-2.tsv`, then `-3` — because two
-deletes are two real events and both have to be recorded. Read every file under `deletions/`
-matching `<timestamp>[-<n>].tsv`; a record's own `generated:` header carries the full UTC
-instant, so same-minute records can still be told apart and ordered.
+deletes are two real events and both have to be recorded. So in `<timestamp>[-<n>].tsv` the
+suffix **starts at 2**, and `-1` never appears: the unsuffixed name *is* the first record of
+its minute. The suffix tells two *files* apart and is not a time component — same-minute
+records carry the same timestamp, because that is what they have.
+
+**Read every file under `deletions/`, and treat them as one set.** Nothing depends on their
+order: a hash is deliberately gone if *any* record lists it, so a reader never has to
+sequence records within a minute and shouldn't reach into the `#` block for a way to. The
+only thing order decides is cosmetic — if two records list the same hash, which date you show
+for it, and s3cab shows the newest by filename. And when there *is* a date to show, it is the
+record's **filename** timestamp; that is what s3cab prints beside a file it skips for this
+reason.
+
 The record is what lets any tool — s3cab or a future reader of the bare files — tell
 *deliberately gone* from *corrupted*: an object a snapshot references but the store lacks is
 **expected** if a record lists its hash, and an integrity fault if none does.
@@ -229,6 +239,15 @@ matched against paths case-insensitively — so hand-editing a snapshot's header
 drive letter are matched exactly, since a case-sensitive filesystem really can hold both
 `Photos` and `photos`.
 
+**How a `#DIR` matches a path**, since anything re-rooting a tree depends on getting this
+right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
+claim `…\trees\edgeX\file.txt`. Split both the header and the path on `/` *and* `\` and drop
+empty segments, which is what makes a trailing separator or a doubled one harmless, and what
+lets a Windows snapshot be read on a POSIX machine and the reverse. Where several headers
+match, the **longest wins**, so a member directory nested inside another takes precedence
+over its parent. A path under no header at all has nowhere to land: s3cab reports it rather
+than guessing, and a hand-edited snapshot is the only way to produce one.
+
 **A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
 filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
 build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
@@ -296,7 +315,9 @@ checking for the trailer first is what tells it the rows it read are all of them
 Match the marker and **ignore anything after it** on that line: no truncation can add
 fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
 and tolerating them leaves room to add a column later without breaking readers already
-written against this spec.
+written against this spec. The test, concretely, is the one every other marker gets: take the
+**first tab-separated field and trim it**, and the line is the trailer when that equals
+`#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers, and `#ENDX` is not one.
 
 Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —

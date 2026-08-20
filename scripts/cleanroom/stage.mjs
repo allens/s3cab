@@ -265,6 +265,13 @@ const count = (dir) => {
 };
 
 /**
+ * `3 files`, `1 file`. Inlined rather than imported from `src/lib/format.mjs`, because
+ * this script claims no privileged access to s3cab's internals (see the header).
+ * @param {number} n
+ */
+const files = (n) => `${n} file${n === 1 ? "" : "s"}`;
+
+/**
  * Name every fixture group this platform refused, rather than letting a partial corpus
  * read as a complete one — the same silent-shortening failure the clean room's own
  * firewall exists to prevent, arriving through the data instead of the reading.
@@ -569,9 +576,9 @@ const sets = setNames.map(
 if (treesOnly) {
   console.log(`\nbuilt the trees under ${trees}, and stopped before S3:`);
   for (const [name, dirs] of sets) {
-    const files = dirs.reduce((total, dir) => total + count(dir), 0);
+    const total = dirs.reduce((sum, dir) => sum + count(dir), 0);
     const spread = dirs.length > 1 ? `  (${dirs.length} member dirs)` : "";
-    console.log(`  ${name.padEnd(8)} ${files} files${spread}`);
+    console.log(`  ${name.padEnd(8)} ${files(total)}${spread}`);
   }
   reportSkipped();
   process.exit(0);
@@ -746,7 +753,7 @@ for (const [name, snapshot] of restores) {
 
 console.log(`\nreference trees in ${reference}`);
 for (const entry of readdirSync(reference)) {
-  console.log(`  ${entry}  (${count(join(reference, entry))} files)`);
+  console.log(`  ${entry}  (${files(count(join(reference, entry)))})`);
 }
 if (faultExits.length > 0) {
   console.log(
