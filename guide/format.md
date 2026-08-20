@@ -248,6 +248,21 @@ match, the **longest wins**, so a member directory nested inside another takes p
 over its parent. A path under no header at all has nowhere to land: s3cab reports it rather
 than guessing, and a hand-edited snapshot is the only way to produce one.
 
+**Where a restored file lands is the tool's decision, not the format's.** Nothing in a
+snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
+the recorded paths, to a chosen directory, or anywhere else. What s3cab itself does is
+written down here for one reason only: so that *"does my restore agree with s3cab's?"* is a
+question with an answer, rather than something you can settle only by running the tool and
+looking. Restoring to a chosen directory, it writes each file to
+`<output>/<basename of the #DIR that matched>/<the rest of the path below that #DIR>`. So
+under a `#DIR` header naming `C:\Users\me\Photos`, a row for
+`C:\Users\me\Photos\2024\beach.jpg` lands at
+`<output>\Photos\2024\beach.jpg` — the member directory's *name*, not a rebuilt
+`C\Users\me\…` chain. Two `#DIR` headers whose basenames collide (`C:\a\Photos` and
+`D:\b\Photos`) both want the same destination directory; s3cab refuses that snapshot rather
+than merging them. **None of this binds you.** A different layout is a different tool making
+a different decision, not a misreading of the format.
+
 **A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
 filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
 build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
