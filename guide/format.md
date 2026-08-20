@@ -231,10 +231,17 @@ drive letter are matched exactly, since a case-sensitive filesystem really can h
 
 **A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
 filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
-build against. A restore reproduces the *stored* value exactly, so a restored tree compares
-clean against the snapshot it came from and re-backing it up re-uploads nothing. But a
-restored file can sit up to half a millisecond either side of a *surviving original*, which
-any mtime-sensitive tool will report as a difference.
+build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
+tree compares clean against the snapshot it came from and re-backing it up re-uploads
+nothing — and compare at that resolution, not finer. A fraction of a second like `.674` has
+no exact representation in a floating-point count of seconds, which is how some platforms
+hand a timestamp to the operating system, so a restored file can land tens of nanoseconds off
+the row's value. s3cab's own restore does, where the filesystem keeps nanoseconds; it is
+exact on NTFS, where the error falls below one tick, and a restorer that sets the time
+through a nanosecond interface is exact everywhere. Below the millisecond the two can
+disagree without either being wrong. But a restored file can also sit up to half a
+millisecond either side of a *surviving original*, which any mtime-sensitive tool will report
+as a difference.
 
 **The columns are space-padded, and the example above collapses that padding to stay
 readable.** In a real file the first field is padded to 64 characters (so `#SNAPSHOT` is
