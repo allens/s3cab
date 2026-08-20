@@ -21,6 +21,55 @@ python scripts/pyrestore.py --bucket <bucket> list-sets
 python scripts/pyrestore.py --bucket <bucket> restore <set> <snapshot> --output <dir>
 ```
 
+## cpprestore.cpp
+
+The **second** independent restorer, written in C++23 from
+[guide/format.md](../guide/format.md) alone — the experiment behind
+[run 2 of the clean-room audit](../docs/format-spec-audit-2.md). Where
+[pyrestore.py](#pyrestorepy) answered whether the format is readable without
+s3cab, this one answers what reading it *costs*: libcurl for HTTPS, OpenSSL for
+SHA-256/HMAC, libzstd for decompression, and **no AWS SDK, no S3 client library,
+and no shelling out** — SigV4 is signed by hand, in about 80 lines, and worked
+on the first attempt against the real endpoint. That reduces the vendor's whole
+SDK, for a reader, to an HTTP client, two hash primitives, one decompressor and
+a page of signing arithmetic, which is evidence for
+[ADR-0002](../docs/adr/0002-no-lock-in-hard-constraint.md)'s no-lock-in promise
+of a kind a documented format can't be.
+
+Deliberately **not** maintained in step with s3cab, for the same reason as
+`pyrestore.py`: its value is being an independent reading of the spec as written
+on 2026-08-20. Drift is a breaking format change to notice, not a bug to fix
+here.
+
+```sh
+g++ -std=c++23 -O2 -Wall -Wextra -o s3cab-restore scripts/cpprestore.cpp -lcurl -lcrypto -lzstd
+./s3cab-restore --bucket <bucket> --region <region> list
+./s3cab-restore --bucket <bucket> --region <region> restore <set> <snapshot> <outdir>
+```
+
+Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
+`AWS_SESSION_TOKEN` — it has no SDK to read `~/.aws` with, which is why
+`create-cleanroom.mjs` stages static keys. Exit 2 means integrity faults, which
+it enumerates after restoring everything restorable.
+
+## cleanroom-compare.py
+
+The differential verifier: walks two restored trees with **raw byte paths** and
+compares the path set, per-file SHA-256, and `st_mtime_ns`. Preserved because
+run 1's equivalent wasn't — that harness "was a session artifact and is not
+preserved", which is half the reason its findings could never be re-tested.
+
+Three details are the whole point. Byte paths, because a comparator that decodes
+to `str` can normalise NFC/NFD apart or choke on the `\v`, `\f` and U+0085
+fixtures. `st_mtime_ns`, because millisecond comparison would have hidden the
+sub-millisecond defect that is run 2's finding 2. And directory mtimes reported
+separately, since both tools create directories implicitly at restore time, so
+those reflect the run rather than the format.
+
+```sh
+python3 scripts/cleanroom-compare.py <my-restore-dir> <reference-dir>
+```
+
 ## create-cleanroom.mjs
 
 Stages a directory for the *next* clean-room restorer: a byte copy of

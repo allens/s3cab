@@ -1,5 +1,10 @@
 # The format-spec clean-room audit (2026-08-12)
 
+> **Run 2 is [format-spec-audit-2.md](format-spec-audit-2.md)** (2026-08-20, C++, no AWS SDK).
+> None of the F1–F16 below reappeared in it, and it confirms each of their fixes against real
+> data. It found one thing this run could not: both restorers here routed mtimes through a
+> binary64 count of seconds, so they agreed *because* they shared a flaw.
+
 A literal test of the no-lock-in promise: a minimal independent restorer was written in Python
 from [guide/format.md](../guide/format.md) **alone** — no `src/`, no other guides, no ADRs, no
 tests — then verified differentially against s3cab itself, restore against restore,
