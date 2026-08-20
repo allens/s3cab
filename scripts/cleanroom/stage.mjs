@@ -10,8 +10,9 @@
  * reappearing item is a fix that didn't land), the corpus has to be reproducible or
  * every future run restarts that loss. Re-running this script rebuilds the same
  * structure *into an empty repository* — snapshots are immutable and set names are
- * claimed by whoever stages them first, so a re-stage needs the bucket cleared. The
- * preflight below says so up front rather than letting `setup` say it three minutes in.
+ * claimed by whoever stages them first, so a re-stage needs the bucket cleared. It
+ * clears it itself when the bucket holds nothing but this script's own sets, and stops
+ * when it holds anything else; see the preflight below.
  *
  * WHAT "A GOOD SET" MEANS. Not taste. Every Tier 1/2 finding in the audit is a place
  * the spec was silent and a restorer could go wrong; each now has a fix in
@@ -79,8 +80,8 @@
  * rather than test it.
  *
  * Usage:
- *   node scripts/cleanroom-fixtures.mjs --bucket <name> --out <cleanroom-dir>
- *   node --env-file=.env.test scripts/cleanroom-fixtures.mjs --out ~/s3cab-cleanroom-cpp
+ *   node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>
+ *   node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp
  *   … --trees-only            build the trees, report what this platform managed, stop
  *
  * Runs the real CLI as a subprocess, so `reference/` is what the tool itself produces
@@ -90,6 +91,7 @@
  */
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -116,15 +118,15 @@ const valueOf = (/** @type {string} */ flag) => {
 };
 const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET;
 const out = valueOf("--out");
-const work = valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-fixtures");
+const work = valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage");
 // Same arguments as the real thing, plus one flag — so what you rehearse is the command
 // you then run, rather than a second spelling of it that could drift.
 const treesOnly = args.includes("--trees-only");
 if (!bucket || !out) {
   console.error(
-    "usage: node scripts/cleanroom-fixtures.mjs --bucket <name> --out <cleanroom-dir>\n" +
-      "                                          [--work <dir>] [--trees-only]\n" +
-      "\ne.g. node --env-file=.env.test scripts/cleanroom-fixtures.mjs --out ~/s3cab-cleanroom-cpp",
+    "usage: node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>\n" +
+      "                                        [--work <dir>] [--trees-only]\n" +
+      "\ne.g. node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp",
   );
   process.exit(2);
 }
@@ -145,7 +147,7 @@ const setNames = [
 const posix = process.platform !== "win32";
 /** @type {string[]} */
 const skipped = [];
-const s3cab = join(import.meta.dirname, "..", "src", "s3cab.mjs");
+const s3cab = join(import.meta.dirname, "..", "..", "src", "s3cab.mjs");
 const home = join(work, ".s3cab");
 const trees = join(work, "trees");
 const reference = join(resolve(out), "reference");
@@ -272,16 +274,50 @@ const oneMinuteBefore = (name) => {
   return stamp.toISOString().slice(0, 16).replace(":", "");
 };
 
-// ── Is the bucket clear? ────────────────────────────────────────────────────
+// ── Is the bucket ours to empty? ────────────────────────────────────────────
 
 const client = new S3Client({});
 
-// s3cab claims a set name in the bucket for whoever sets it up first, so re-staging
-// into a bucket that still holds the last corpus is already caught — by `setup`,
-// three minutes in, after the trees are built, with a collision error whose advice
-// (`reattach`) is right for the user it was written for and wrong here. Ask the bucket
-// first instead, and give the fix that applies. --trees-only never reaches this: it is
-// the one mode that touches no network at all.
+/**
+ * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —
+ * the very hazard `bulk` exists to expose in a restorer — so the one place this script
+ * reads a whole listing has to follow the continuation token itself.
+ * @param {string} [prefix]
+ */
+const listAll = async (prefix) => {
+  /** @type {string[]} */
+  const keys = [];
+  /** @type {string | undefined} */
+  let token;
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    );
+    keys.push(...(page.Contents ?? []).map(({ Key }) => Key ?? ""));
+    token = page.NextContinuationToken;
+  } while (token);
+  return keys;
+};
+
+// Re-staging needs an empty repository: snapshots are immutable and a set name belongs
+// to whoever claimed it first, so `setup` would refuse — three minutes in, after the
+// trees are built, with advice (`reattach`) written for a user rather than for a corpus.
+//
+// There is never a reason to keep the previous corpus, so the question worth asking is
+// not "may I clear this?" but "is this bucket mine to clear?" — the wrong `--bucket`, an
+// `.env.test` pointing somewhere forgotten, a live integration run. The set names answer
+// it: the suite names its sets for the clock (`rt1755…`), never one of ours. So a bucket
+// holding only our own names is this script's own leftovers and goes; anything else and
+// we stop and say what we found. A flag would have put that judgement on the operator at
+// the moment they are least likely to check.
+//
+// It is a check, not a lock: a suite that *starts* after this reads loses its in-flight
+// objects, which is why the notice below stays. --trees-only never reaches any of this —
+// it is the one mode that touches no network at all.
 if (!treesOnly) {
   const listing = await client.send(
     new ListObjectsV2Command({
@@ -290,25 +326,45 @@ if (!treesOnly) {
       Delimiter: "/",
     }),
   );
-  const claimed = (listing.CommonPrefixes ?? [])
-    .map((entry) =>
-      (entry.Prefix ?? "").slice("sets/".length).replace(/\/$/, ""),
-    )
-    .filter((name) => setNames.includes(name));
-  if (claimed.length > 0) {
+  const present = (listing.CommonPrefixes ?? []).map((entry) =>
+    (entry.Prefix ?? "").slice("sets/".length).replace(/\/$/, ""),
+  );
+  const foreign = present.filter((name) => !setNames.includes(name));
+  if (foreign.length > 0) {
     console.error(
-      `The bucket '${bucket}' already holds a staged corpus: ${claimed.join(", ")}.\n` +
-        "Snapshots are immutable and set names are claimed by the first machine to set\n" +
-        "them up, so this run would stop at the first 'setup' with the trees already\n" +
-        "built. Empty the repository and stage again — it is a test bucket, and nothing\n" +
-        "in it is meant to outlive a run except the corpus you are replacing:\n" +
+      `The bucket '${bucket}' holds ${foreign.length} backup ` +
+        `set${foreign.length === 1 ? "" : "s"} this script did not stage: ` +
+        `${foreign.join(", ")}.\n` +
+        "That is either an integration suite mid-run, another corpus, or not the bucket\n" +
+        "you meant — and emptying it would take all three with it, so nothing has been\n" +
+        "touched. Point --bucket somewhere expendable, or clear it yourself once you are\n" +
+        "sure what is in there:\n" +
         "\n" +
-        `    aws s3 rm s3://${bucket}/ --recursive\n` +
-        "\n" +
-        "Not while an integration suite is running against the same bucket, though —\n" +
-        "that takes its in-flight objects too. Staging into another bucket also works.",
+        `    aws s3 rm s3://${bucket}/ --recursive\n`,
     );
     process.exit(2);
+  }
+  if (present.length > 0) {
+    const keys = await listAll();
+    console.log(
+      `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
+        `all of it this script's own (${present.join(", ")})`,
+    );
+    console.log(
+      "  an integration suite running against this bucket right now loses its\n" +
+        "  in-flight objects; nothing else in here outlives a clean-room run",
+    );
+    // 1000 per request is the API's limit, not a batch size worth tuning.
+    for (let index = 0; index < keys.length; index += 1000) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: keys.slice(index, index + 1000).map((Key) => ({ Key })),
+          },
+        }),
+      );
+    }
   }
 }
 

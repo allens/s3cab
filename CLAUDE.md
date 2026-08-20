@@ -250,7 +250,11 @@ Three layout notes the README and code don't carry:
   self-contained — `sweep.mjs` beside the over-engineering skill is the one today. That
   placement needs `jsconfig.json` to name `.claude/skills/**/*`, because `tsc`'s default
   traversal skips dot-directories; without it such a script is linted and formatted but
-  never type-checked.
+  never type-checked. **A subdirectory is earned by a workflow whose files outlive one
+  run**, not by a shared topic — [scripts/cleanroom/](scripts/cleanroom/) is the only one,
+  because that exercise accumulates a preserved restorer per run and its own README says
+  which of its files are maintained and which are frozen. Three benchmarks sharing a
+  subject stay flat.
 - **Snapshots no longer land in the repo tree** — since backup-sets slice 2 they live in
   `~/.s3cab/sets/<set>/snapshots/`, outside any working copy, so `.gitignore` only keeps the
   `/.s3cab/env*` secret guards for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt)

@@ -11,7 +11,7 @@ import { useTempHome } from "./temp-home.mjs";
 // `S3CAB_TEST_BUCKET` (+ ambient AWS credentials).
 //
 // The bucket may hold a co-tenant: fixtures staged for a clean-room restorer
-// (scripts/create-cleanroom.mjs) live here because this is the one test bucket whose
+// (scripts/cleanroom/stage.mjs) live here because this is the one test bucket whose
 // suites scope everything they assert to a unique set name or a specific object hash.
 // Keep it that way — an assertion over the whole bucket (every object, every set,
 // "the listing is empty") would pass locally and fail against staged fixtures, and

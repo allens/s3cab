@@ -32,8 +32,8 @@
  * session that wandered into one would report a real observation as a spec defect.
  *
  * Usage:
- *   node scripts/create-cleanroom.mjs --lang <language> [--bucket <name>] [--force] <dir>
- *   node --env-file=.env.test scripts/create-cleanroom.mjs --lang "C++" ~/src/cleanroom
+ *   node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
+ *   node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/src/cleanroom
  *
  * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
@@ -81,13 +81,13 @@ const positionals = args.filter(
 const [dir] = positionals;
 if (unknown !== undefined || positionals.length !== 1 || !language || !dir) {
   console.error(
-    "usage: node scripts/create-cleanroom.mjs --lang <language> [--bucket <name>] [--force] <dir>\n" +
-      '\ne.g. node --env-file=.env.test scripts/create-cleanroom.mjs --lang "C++" ~/src/cleanroom',
+    "usage: node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>\n" +
+      '\ne.g. node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/src/cleanroom',
   );
   process.exit(2);
 }
 
-const repoRoot = realpathSync.native(join(import.meta.dirname, ".."));
+const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
 const target = resolve(dir);
 
 // The one guard that matters: a clean room inside the repo is not a clean room, since
@@ -104,7 +104,7 @@ if (contains(repoRoot, target)) {
       "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
       "has to prevent. Stage it somewhere outside the repo instead:\n" +
       "\n" +
-      `    node scripts/create-cleanroom.mjs --lang "${language}" ~/src/cleanroom\n`,
+      `    node scripts/cleanroom/create.mjs --lang "${language}" ~/src/cleanroom\n`,
   );
   process.exit(2);
 }
@@ -114,7 +114,7 @@ if (existsSync(target) && readdirSync(target).length > 0 && !force) {
     `${target} already has files in it, and a clean room is only meaningful when the\n` +
       "spec is the only thing in reach. Pick an empty directory, or overwrite this one:\n" +
       "\n" +
-      `    node scripts/create-cleanroom.mjs --lang "${language}" --force ${dir}\n`,
+      `    node scripts/cleanroom/create.mjs --lang "${language}" --force ${dir}\n`,
   );
   process.exit(2);
 }

@@ -15,13 +15,14 @@ verbatim and unedited — including its own top-level heading.
 - **A reproducible corpus.** Run 1's fixtures were staged by hand and its harness "was a
   session artifact and is not preserved", which is why its findings could not be re-tested on
   the same data. Run 2's corpus is built by
-  [scripts/cleanroom-fixtures.mjs](../scripts/cleanroom-fixtures.mjs), whose header carries a
+  [scripts/cleanroom/stage.mjs](../scripts/cleanroom/stage.mjs), whose header carries a
   fixture-per-finding matrix for F1–F16, and its differential verifier is preserved as
-  [scripts/cleanroom-compare.py](../scripts/cleanroom-compare.py).
+  [scripts/cleanroom/compare.py](../scripts/cleanroom/compare.py).
 
 The session read `guide/format.md` and nothing else — no `src/`, no ADRs, no other guides, and
 not run 1's report, so that diffing the two ambiguity lists afterwards would mean something.
-Its restorer is preserved as [scripts/cpprestore.cpp](../scripts/cpprestore.cpp).
+Its restorer is preserved as
+[scripts/cleanroom/restorers/cpprestore.cpp](../scripts/cleanroom/restorers/cpprestore.cpp).
 
 **None of run 1's F1–F16 reappeared**, and its finding 12 confirms each of those fixes against
 real data. Two things it found that run 1 could not: the sub-millisecond restore defect in

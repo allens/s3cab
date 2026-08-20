@@ -11,8 +11,8 @@ tests — then verified differentially against s3cab itself, restore against res
 byte-for-byte including paths and modification times. The point was never the restorer: it was
 to surface every place the spec is ambiguous, silent, or wrong, ranked by whether a wrong guess
 corrupts a restore or merely costs the implementer. The restorer is preserved as
-[scripts/pyrestore.py](../scripts/pyrestore.py); its inline `GUESS(n)` comments are the raw form
-of the findings below.
+[scripts/cleanroom/restorers/pyrestore.py](../scripts/cleanroom/restorers/pyrestore.py);
+its inline `GUESS(n)` comments are the raw form of the findings below.
 
 ## Verdict
 
@@ -47,7 +47,7 @@ artifact and is not preserved; the restorer's `--manifest` output is what it joi
 ## Findings
 
 Ranked by consequence. `GUESS(n)` references match the comments in
-[scripts/pyrestore.py](../scripts/pyrestore.py).
+[scripts/cleanroom/restorers/pyrestore.py](../scripts/cleanroom/restorers/pyrestore.py).
 
 ### Tier 1 — a wrong guess corrupts a restore, silently
 

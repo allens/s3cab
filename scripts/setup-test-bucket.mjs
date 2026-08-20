@@ -74,7 +74,7 @@ const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET;
 // counts and test/model/conformance resets the whole bucket, so both want the short
 // clock and neither holds anything worth keeping. Raise it only for a bucket holding
 // data meant to outlive a run, which today means fixtures staged for a clean-room
-// restorer (see create-cleanroom.mjs).
+// restorer (see cleanroom/stage.mjs).
 const days = daysIndex === -1 ? 1 : Number(args[daysIndex + 1]);
 if (
   unknown !== undefined ||
