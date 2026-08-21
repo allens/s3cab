@@ -388,8 +388,8 @@ export const isAccessDenied = (error) =>
 /**
  * The actionable "signed in, but not allowed" error. The credentials resolved
  * and authenticated fine — this is a *permissions* problem, so the remedy is
- * the bucket's access policy, not the credentials. On AWS that's the exact
- * least-privilege policy `s3cab aws <bucket>` prints; off AWS (a custom
+ * the bucket's access policy, not the credentials. On AWS that's the
+ * least-privilege identity `s3cab aws <bucket>` stands up; off AWS (a custom
  * endpoint) the IAM JSON is meaningless, so we point at the provider's own
  * bucket/token permissions instead. A plain-`Error` factory (nothing catches it
  * by type); keeps `cause` for the S3CAB_DEBUG path. ADR-0030 wording.
@@ -409,7 +409,7 @@ export const accessDeniedError = (cause, { bucket, endpoint } = {}) => {
     ? `Check that your provider's bucket and token permissions allow listing
 and read/write access to ${target}.`
     : `If the identity is right, then it is missing permission on the bucket. To
-see the exact least-privilege policy it needs, run:
+set up an identity with exactly the permissions it needs, run:
   s3cab aws ${bucket ?? "<bucket>"}`;
   const message = [
     `You're signed in, but you don't have permission to use ${target}.`,
@@ -567,7 +567,7 @@ export const refusedWithoutReasonError = (cause, { bucket, endpoint } = {}) => {
     ? `Check that your provider's bucket and token permissions allow listing
 and read/write access to ${target}.`
     : `If the identity is right, it may be missing permission on the bucket. To
-see the exact least-privilege policy it needs, run:
+set up an identity with exactly the permissions it needs, run:
   s3cab aws ${bucket ?? "<bucket>"}`;
   const message = [
     `The cloud refused to answer a question about ${target}, and didn't say why (${detail}).`,

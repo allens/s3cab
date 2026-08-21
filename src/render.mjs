@@ -1081,7 +1081,7 @@ export function renderRestore({
         "",
         "Keep both versions by restoring a colliding path into its own directory:",
         "",
-        `  s3cab restore ${set} <path> --output <directory>`,
+        `  s3cab restore --set ${set} <path> --output <directory>`,
       ].join("\n"),
     );
   }

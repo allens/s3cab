@@ -95,8 +95,9 @@ Then create a backup set in it:
 Full guide: https://s3cab.plantegral.com/guide/aws`;
 
 export const providerDetails = `Changes or shows how a set signs in to its storage provider — an AWS
-profile, a custom S3 endpoint (any S3-compatible provider), a region, and
-access keys. The initial setup is usually done when you create the set
+profile, a custom S3 endpoint (any S3-compatible provider), a region,
+access keys, or the keyless Roles Anywhere identity (AWS only). The
+initial setup is usually done when you create the set
 ('s3cab setup', same knobs); use this to change it later, or run it with no
 flags to see the current setup.
 
@@ -106,17 +107,22 @@ Wasabi, …):
 1. Create your bucket in the provider's console (or its CLI).
 2. Turn on object versioning if the provider supports it — your safety
    net, so a deleted or overwritten backup stays recoverable.
-3. Create an access key / token scoped to that bucket, with read, write,
+3. Add a lifecycle rule that aborts incomplete multipart uploads after a
+   day, if the provider supports one — a large upload that dies partway
+   leaves invisible, billed pieces behind otherwise.
+4. Create an access key / token scoped to that bucket, with read, write,
    delete, and list on its objects (R2: API Tokens; B2: Application Keys;
    Wasabi: sub-users).
-4. Create the backup set, pointed at the provider in one command:
+5. Create the backup set, pointed at the provider in one command:
      s3cab setup --set <name> --bucket <bucket> --endpoint https://<your-endpoint> --region auto --keys <dir>...
    (--keys asks for the key + secret; some providers need a real region,
    e.g. us-east-1. Change these later with 's3cab provider'. s3cab drops
    AWS-only request features automatically when a custom endpoint is set.)
 
 On AWS instead? 's3cab aws <bucket>' prints the full bucket + identity
-recipe, ending back here at --profile.
+recipe, ending back here at --profile — or add --roles-anywhere for the
+keyless certificate identity, then point the set at it:
+  s3cab provider --roles-anywhere <set>
 
 How s3cab resolves credentials:
 
@@ -128,7 +134,8 @@ How s3cab resolves credentials:
                               (written by 's3cab setup' and this command)
    There is no per-user s3cab file; your machine-wide default is your
    ordinary AWS setup (step 2). s3cab does NOT read a .env from the
-   current directory.
+   current directory. A set on Roles Anywhere signs in with the machine
+   certificate here and never reaches step 2.
 
 2. s3cab then uses the standard AWS SDK credential chain.
    This includes existing AWS_PROFILE, shared AWS profiles (including
@@ -142,8 +149,8 @@ Notes:
   - s3cab does not modify ~/.aws/config or ~/.aws/credentials.
   - Keys are never taken via flags (they'd leak into shell history) —
     --keys prompts at a terminal, or reads two lines from stdin.
-  - A set signs in one way: a profile OR keys, not both. Setting one
-    with this command clears the other on that set.
+  - A set signs in one way: a profile, keys, or Roles Anywhere — not
+    several. Setting one with this command clears the others on that set.
   - For AWS, temporary credentials from profile-based setups are preferred
     over long-lived keys.
   - To keep a long-lived key/secret out of plaintext env files, store it
@@ -176,7 +183,8 @@ s3cab names the cause and shows the raw error. By cause:
       Backblaze B2 trap
 
   Permission denied (signed in, but not allowed)
-    - on AWS, run 's3cab aws <bucket>' for the exact least-privilege policy
+    - on AWS, 's3cab aws <bucket>' sets up an identity with exactly the
+      permissions s3cab needs
     - on another provider, grant the token list + read/write on the bucket
 
   Clock out of sync
