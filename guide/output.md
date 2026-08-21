@@ -41,8 +41,17 @@ A few things worth knowing:
   reshaped between releases. Don't build anything load-bearing on it yet.
 - **Errors stay human-readable, always.** `--json` governs only a command's
   successful result on stdout. Errors are written to **stderr** in plain language
-  regardless of `--json`, so a script should branch on the **exit code** (0 =
-  success, non-zero = failure), not on parsing stderr.
+  regardless of `--json`, so a script should branch on the **exit code**, not on
+  parsing stderr. Zero is success and non-zero is failure; when a script wants to
+  tell failures apart, the convention is:
+
+  | Code | Means |
+  | ---- | ----- |
+  | `0`   | success — including a restore whose only gaps are deliberate deletions |
+  | `1`   | a runtime failure, or findings: `verify` found problems, `restore` couldn't produce a file |
+  | `2`   | bad input — a usage error, an unknown flag, an invalid name |
+  | `127` | unknown command |
+  | `130` | interrupted (Ctrl+C) |
 - **Neither format truncates.** s3cab prints the whole result either way; manage
   volume yourself with a pager (`s3cab verify my-bucket | less`) or a redirect.
 

@@ -135,7 +135,9 @@ Reach for it when:
 One case it can't handle: two backed-up directories with the **same name** (say `C:\a\Photos`
 and `D:\b\Photos`) would both want `<output>\Photos`. Restore rejects that up front rather
 than merging them — restore them one at a time with a path filter, or to their original
-locations.
+locations. The name comparison ignores letter case (`Photos` vs `photos` still collides),
+even for Linux-style paths — the restore target may be a case-insensitive disk regardless of
+where the backup came from, and refusing up front beats silently merging on arrival.
 
 ## Restoring onto a fresh machine
 

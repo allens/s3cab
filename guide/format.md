@@ -69,9 +69,11 @@ s3://my-backup-bucket/
   local timestamp (`2026-06-12T0915.tsv.zst`). A remote snapshot file is **byte-identical**
   to its local counterpart — uploaded as-is, one format everywhere.
 - **`sets/<set>/`** marks the set's existence (a set with no snapshots yet would otherwise
-  be invisible), records which machine holds it, and mirrors the set's
+  be invisible), records which machine holds it, and carries the set's
   `dirs.txt`/`exclude.txt` so a fresh machine can adopt it
-  (`s3cab reattach <set>`). The set's local `env` file is **never** uploaded — it
+  (`s3cab reattach <set>`). `exclude.txt` is a verbatim byte copy; `dirs.txt` is the
+  **parsed** directory list, one per line — comments and blank lines in your local file
+  aren't carried up. The set's local `env` file is **never** uploaded — it
   can hold credentials. `info` is two `KEY=value` lines, in this order:
 
   ```
@@ -300,7 +302,9 @@ Besides `#SNAPSHOT`/`#DIR`, a snapshot may carry `#EXCLUDED` (matched an exclude
 contents are [online only](compare.md#files-stored-online-not-on-this-computer)), and `#ERROR`
 (a file that could not be read)
 metadata rows recording what the snapshot does *not* include and why. A reader wanting only
-the file rows can simply skip every `#` line.
+the file rows can simply skip every `#` line. (One omission is silent by design: a directory
+named `.s3cab` is never walked and gets no row — it is s3cab's own, and a member directory
+containing one would otherwise back up the tool's working files.)
 
 What those rows carry, for anyone reading a snapshot by hand:
 
@@ -336,10 +340,13 @@ written against this spec. The test, concretely, is the one every other marker g
 **first tab-separated field and trim it**, and the line is the trailer when that equals
 `#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers, and `#ENDX` is not one.
 
-Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
+Three smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
-and the file is that name plus `.tsv.zst`. And a snapshot holding a header, a trailer and
-**no file rows at all** is perfectly legal: an empty backup set, not a damaged file.
+and the file is that name plus `.tsv.zst`. A snapshot holding a header, a trailer and
+**no file rows at all** is perfectly legal: an empty backup set, not a damaged file. And
+s3cab never writes the same path twice in one snapshot, but its own reader doesn't reject a
+hand-damaged file that does — it silently takes the **last** row for a path; a stricter
+reader is free to reject the duplicate instead.
 
 ## The local side (`~/.s3cab/`)
 
@@ -355,7 +362,22 @@ the API**, and some of them you are expected to edit directly in a text editor:
       exclude.txt        # optional exclude patterns — yours to edit
       snapshots/
         2026-06-12T0915.tsv.zst    # same format as the bucket's copy, byte for byte
+  roles-anywhere/        # only if the keyless identity is set up — see below
+  my-backup-bucket.yaml  # a CloudFormation template `s3cab aws` wrote, named per bucket
 ```
+
+`~/.s3cab` is the default home; setting the **`S3CAB_HOME`** environment variable relocates
+the whole tree (every path s3cab prints follows it). Two variables in a set's `env` are
+s3cab's own rather than standard `AWS_*` ones: `S3CAB_BUCKET` (the set's bucket) and, for a
+set in Roles Anywhere mode, the marker `S3CAB_RA=1` — a pointer to the machine identity
+below, never credential material itself.
+
+`roles-anywhere/` holds the machine's keyless identity, shared by every set in that mode:
+the self-signed CA (`ca.pem`/`ca.key`), the client certificate and its signing key
+(`client.pem`/`client.key` — the private keys never leave this directory), and an `env`
+file holding the three `S3CAB_RA_*_ARN` values plus `AWS_REGION`, captured from the deployed
+CloudFormation stack by `s3cab aws --roles-anywhere --save`. It is machine identity, not set
+config — leave it out of any backup you share.
 
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
 dot, neither is ever uploaded, and both are safe to delete when nothing is running:

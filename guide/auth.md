@@ -69,7 +69,9 @@ again — s3cab has no session of its own to refresh.
 Your machine authenticates with a certificate and receives credentials that last about an
 hour, so no long-lived AWS key sits on disk. Set it up with `s3cab aws <bucket>
 --roles-anywhere`, then point a set at it. It's AWS-only, so it can't be combined with a
-custom endpoint. [The cloud-bucket guide](aws.md#--roles-anywhere--keyless-certificate-based-access)
+custom endpoint. The certificate and its keys live in `~/.s3cab/roles-anywhere/`, shared by
+every set in this mode; a set opts in with the single marker `S3CAB_RA=1` in its `env` file —
+a pointer, never the key material. [The cloud-bucket guide](aws.md#--roles-anywhere--keyless-certificate-based-access)
 has the full model, including an honest account of what it does and doesn't protect against.
 
 ## Where s3cab looks
