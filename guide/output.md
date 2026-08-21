@@ -15,7 +15,9 @@ structured JSON value instead:
   "dirs": ["/home/me/Pictures"],
   "since": "2026-11-11T0830",
   "until": "2026-11-12T0915",
-  "added": [{ "path": "/home/me/Pictures/2025/new.jpg", "size": 812043, "duplicates": [] }],
+  "added": [
+    { "path": "/home/me/Pictures/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
+  ],
   "moved": [],
   "modified": [{ "path": "/home/me/Pictures/diary.txt", "size": 240 }],
   "deleted": [],
@@ -24,9 +26,10 @@ structured JSON value instead:
 }
 ```
 
-`--json` works on any command and is owned by s3cab itself (like `--help` and
-`--version`), so it can go anywhere on the line: `s3cab --json list` and
-`s3cab list --json` are the same.
+`--json` works on any command and is owned by s3cab itself (like `--help`), so
+no command needs its own support for it. It goes anywhere *after* the command
+name — `s3cab list --json` and `s3cab list photos --json` both work; the first
+word must be the command.
 
 A few things worth knowing:
 

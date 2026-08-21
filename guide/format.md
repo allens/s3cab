@@ -69,7 +69,7 @@ s3://my-backup-bucket/
   local timestamp (`2026-06-12T0915.tsv.zst`). A remote snapshot file is **byte-identical**
   to its local counterpart — uploaded as-is, one format everywhere.
 - **`sets/<set>/`** marks the set's existence (a set with no snapshots yet would otherwise
-  be invisible), records which machine created it, and mirrors the set's
+  be invisible), records which machine holds it, and mirrors the set's
   `dirs.txt`/`exclude.txt` so a fresh machine can adopt it
   (`s3cab reattach <set>`). The set's local `env` file is **never** uploaded — it
   can hold credentials. `info` is two `KEY=value` lines, in this order:
@@ -79,8 +79,10 @@ s3://my-backup-bucket/
   CREATED=2026-06-12T08:15:32.123Z
   ```
 
-  `OWNER` is the machine's raw hostname; `CREATED` is a UTC instant in the same form as a
-  snapshot row's `mtime`.
+  `OWNER` is the raw hostname of the machine the set is attached to — stamped at creation
+  and re-stamped by `s3cab reattach`, so it names the current holder, not necessarily the
+  creator; `CREATED` is a UTC instant in the same form as a snapshot row's `mtime`, and is
+  preserved across reattaches.
 - **`deletions/`** holds the repository's [deletion records](#the-deletion-record) — one
   small plain-text file per `s3cab delete` run, marking content as *deliberately* removed.
   A repository where `delete` has never run simply has no `deletions/` keys.

@@ -189,7 +189,7 @@ network, no bucket needed.
 
 | Command                  | What it does |
 | ------------------------ | ------------ |
-| `s3cab snapshot [<set>]` | Take a snapshot of the set, then show what changed since the previous one. `--rehash` re-hashes every file instead of reusing unchanged files' hashes; `--include-online-only` downloads cloud placeholders instead of skipping them. |
+| `s3cab snapshot [<set>]` | Take a snapshot of the set, then show what changed since the previous one. `--rehash` re-hashes every file instead of reusing unchanged files' hashes; `--include-online-only` downloads online-only files (OneDrive and the like) instead of skipping them. |
 | `s3cab list [<set>]`     | List your backup sets and their snapshots — name a set for its detail, `-r`/`--remote` for its cloud backups, `-l`/`--latest` for just the newest. |
 | `s3cab compare [<set>]`  | Show what changed between two snapshots — added / renamed / moved / modified / deleted; `--since` and `--until` choose which two ([guide](guide/compare.md)). |
 | `s3cab status [<set>]`   | Show what is backed up already, and what the next `backup` would upload. |
@@ -212,10 +212,10 @@ The cloud round trip, plus the maintenance that keeps a repository healthy
 
 | Command                                  | What it does |
 | ---------------------------------------- | ------------ |
-| `s3cab backup [<set>]`                   | Take a fresh snapshot and upload it — and the files it references — to the set's bucket. `--include-online-only` backs up cloud placeholders too, rather than skipping them. |
+| `s3cab backup [<set>]`                   | Take a fresh snapshot and upload it — and the files it references — to the set's bucket. `--include-online-only` backs up online-only files too, rather than skipping them. |
 | `s3cab restore --set <set> [<path>…]`    | Recover from the set's cloud backup: name paths for specific files, or none for the whole set. `--snapshot` pulls an older version, `--overwrite` replaces files that still exist, `-o`/`--output` restores under a directory you choose ([guide](guide/restore.md)). |
 | `s3cab verify <bucket>`                  | Check a repository's backups are complete and undamaged — every referenced file stored, at the right size (findings reported per set). |
-| `s3cab forget --set <set> <snapshot>…`   | Remove snapshots from a backup: previews what would be left unreferenced, then confirms once (`-f`/`--force` for scripts). The files themselves are left for `cleanup` to reclaim. |
+| `s3cab forget --set <set> <snapshot>…`   | Remove snapshots from a backup: previews what would become unrestorable, then confirms once (`-f`/`--force` for scripts). The files themselves are left for `cleanup` to reclaim. |
 | `s3cab delete --bucket <bucket> <path>…` | Permanently delete named paths' content from every backup — for things you no longer want stored at all. `-n`/`--dry-run` previews, `-f`/`--force` skips the typed confirmation, `--everywhere` reaches copies other machines' sets reference. |
 | `s3cab cleanup <bucket>`                 | Reclaim storage held by objects no snapshot references — confirms first (`-n`/`--dry-run` previews, `-f`/`--force` for scripts). |
 

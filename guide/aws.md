@@ -7,11 +7,12 @@ provider instead — Cloudflare R2, Backblaze B2, Wasabi, …? See
 [Non-AWS providers](#non-aws-providers) below: those have no IAM, so setup runs
 through the `provider` command, not this one.)
 
-It is **generative**: it _prints_ a CloudFormation template and the handful of
-`aws` commands to deploy it, and makes no AWS calls itself. So it needs **no
-credentials to run** — you can read the whole plan (and the exact template) before
-you have any — and you can see exactly what will touch your account before
-anything happens.
+It is **generative**: it _writes_ a CloudFormation template and _prints_ the
+handful of `aws` commands to deploy it, and makes no AWS calls itself (the one
+exception is `--save`, a read-only lookup of an already-deployed stack). So it
+needs **no credentials to run** — you can read the whole plan (and the exact
+template) before you have any — and you can see exactly what will touch your
+account before anything happens.
 
 ```console
 > s3cab aws my-backups --region eu-west-1 --profile admin
@@ -22,8 +23,8 @@ anything happens.
   `$AWS_DEFAULT_REGION`, then `us-east-1`. It is dropped into the `--region` of
   the printed deploy command; the bucket lands wherever the stack deploys.
 - `--profile <name>` — an **admin** AWS profile to drop into the printed `aws …`
-  commands (the identity that _deploys_ the stack and mints the key). It is output
-  sugar only — the command never uses it to authenticate.
+  commands (the identity that _deploys_ the stack and mints the key). Output
+  sugar, except with `--save`, which signs its read-only stack lookup with it.
 - `--roles-anywhere` — use the keyless, certificate-based Roles Anywhere identity
   instead of the default IAM-user one: generate the local CA + client certificate
   and write its CloudFormation template (see [Identity options](#identity-options)).
@@ -57,7 +58,7 @@ whose secret a later step consumes.
 | Lifecycle: current-object expiry      | **none**            | the cardinal sin — never auto-delete a live backup                       |
 
 The 90-day window is a deliberate cost/safety **dial**: longer is safer, shorter
-reclaims pruned space sooner. In a content-addressable store this costs almost
+reclaims freed space sooner. In a content-addressable store this costs almost
 nothing in steady state — stored objects are immutable, so noncurrent versions
 only ever arise from deletes.
 
@@ -84,7 +85,7 @@ it should be your informed choice:
   on Standard; only very small files cost fractionally more, and in absolute terms
   that is rounding error.
 - **A 90-day minimum storage duration.** An object deleted sooner than 90 days is
-  still billed for the full 90. This mostly matters if you back up and then prune
+  still billed for the full 90. This mostly matters if you back up and then remove
   the same content quickly — `s3cab forget` and `s3cab cleanup` on a bucket whose
   contents churn a lot. The bucket's 90-day noncurrent-version window (above) lines
   up with this, so the normal reclamation path pays no early-deletion penalty.

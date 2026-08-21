@@ -169,7 +169,7 @@ first, then restore:
   invariant is part of the [format spec](format.md) — and if something has removed content
   from the bucket behind s3cab's back, the next section is what you'll see.
 
-Progress prints to stderr (`Restoring 250/1240...`), so it stays out of piped or redirected
+Progress prints to stderr (`Restoring 250/1,240…`), so it stays out of piped or redirected
 output. For the machine-readable result, add `--json` — see [output formats](output.md).
 
 ## If some content is missing from the backup
@@ -200,6 +200,12 @@ worse outcome in exactly the situation you most need the backup.
 what's actually stored, so you learn whether two files or two thousand are affected. Note
 that an older snapshot won't help if it recorded the _same_ content — identical content is
 stored once ([format spec](format.md)) — but it will if the file changed since.
+
+Content you removed yourself with `s3cab delete` is a different case: the bucket holds a
+deletion record proving the gap is intended, so those files are listed under their own calm
+heading (`Skipped … whose contents were deliberately deleted from the backups`), with the
+deletion date beside each — and when they are the *only* gap, the run exits **0**: a scripted
+restore shouldn't alarm on a decision its owner already made.
 
 This graceful skip covers **absent** content only. A file whose content is there but
 **damaged** still fails the integrity check and stops the run, loudly: a corrupt object is a

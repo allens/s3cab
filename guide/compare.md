@@ -7,7 +7,7 @@ snapshot against the one taken just before it.
 - `--until <snapshot>` — the newer side (default: the latest snapshot)
 - `--since <snapshot>` — the older side (default: the snapshot immediately
   before `--until`; when `--until` is the oldest snapshot there is nothing
-  older, so the report simply lists everything as added)
+  older, so the report collapses to the one-line first-snapshot count below)
 
 Snapshot names are as `s3cab list` prints them; the `.tsv`/`.tsv.zst` filename
 extension may be included or left off. Naming a snapshot that doesn't exist is
@@ -119,8 +119,8 @@ appeared. Something that keeps reappearing here is its own argument for an
 
 ```console
 Skipped (2)
-  photos/link-to-nas      (Symbolic Link)
-  photos/IMG_0421.jpg     (Online-Only File)
+  photos/link-to-nas  (Symbolic Link)
+  photos/IMG_0421.jpg  (Online-Only File)
 ```
 
 Most entries are things a backup can't meaningfully store — a symlink, a socket,

@@ -36,7 +36,7 @@ is one listing of the whole store either way. Findings are still reported per se
 my-backups: 3 sets, 48,210 objects checked — 1 set with findings ✗
 
   photos   2 files with problems
-    C:\Users\me\Photos\beach.jpg    missing      (in 1 snapshot 2026-06-12T0915)
+    C:\Users\me\Photos\beach.jpg    missing      (in snapshot 2026-06-12T0915)
     C:\Users\me\Photos\report.pdf   wrong size   (recorded 245,760 bytes, stored 0)
 ```
 
@@ -224,7 +224,7 @@ Three things to understand about what it does:
 - **Anything still wanted elsewhere survives.** Content is only removed when *nothing
   outside the paths you named* references it — not another folder, not another backup set,
   not a set belonging to someone else sharing the bucket. The preview tells you what
-  survives and why ("still referenced by set `desktop-media`"). Your named paths reach
+  survives and why ("kept by set `desktop-media`"). Your named paths reach
   across all the sets *attached on this machine*; a set of yours that isn't attached here
   protects its content until you `reattach` it and run again.
 - **It frees space directly.** Unlike `forget`, there's nothing left for `cleanup` to sweep

@@ -5,10 +5,11 @@ Files and directories to skip are listed in a backup set's exclude file,
 `#` are comments; blank lines are ignored.
 
 A new set starts with a ready-made exclude file: it skips regenerable
-dependency trees (`node_modules`) and operating-system noise (`.DS_Store`,
-`Thumbs.db`, the Windows drive-root system folders), and carries a commented
-list of common suggestions (`.git`, build output, `*.tmp`, …) you can uncomment
-to taste. It's yours to edit — s3cab never rewrites it after creation.
+dependency trees (`node_modules`), `.git` directories, and operating-system
+noise (`.DS_Store`, `Thumbs.db`, the Windows drive-root system folders), and
+carries a commented list of further suggestions (build output, `*.tmp`, …) you
+can uncomment to taste. It's yours to edit — s3cab never rewrites it after
+creation, so delete the `.git` pattern if you *do* want repositories backed up.
 
 > For a quick reference in the terminal, run `s3cab help exclude` — it carries
 > the same rules as this page, no browser needed.

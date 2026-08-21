@@ -2,8 +2,8 @@
 
 s3cab needs permission to reach your bucket. It has **no sign-in of its own** and stores no
 credentials: it uses the AWS credentials your machine already has, or the ones you record
-against a backup set. It never reads or writes `~/.aws/config` or `~/.aws/credentials` — that
-file is yours, and s3cab only ever looks at it.
+against a backup set. It never writes `~/.aws/config` or `~/.aws/credentials` — that file is
+yours, and s3cab only ever reads it (to check a profile you named actually exists).
 
 > Mid-task in a terminal? `s3cab help provider` carries the same material without a browser.
 > This page is the fuller read.
@@ -126,7 +126,8 @@ To fix it:  aws configure --profile typo-profile
 ```text
 No credentials found for set 'photos'.
 
-Set 'photos' uses profile 's3cab-backup', but it isn't in your AWS config.
+Set 'photos' uses AWS profile 's3cab-backup', but it isn't in your AWS
+config — that's why there are no credentials.
 ...
 ```
 
@@ -165,7 +166,7 @@ s3cab names the cause and shows the raw error. By cause:
 | **Expired credentials**  | a session ran out                | `aws sso login` again, or refresh the temporary credentials           |
 | **Invalid credentials**  | wrong or stale key               | re-enter them: `s3cab provider --keys <set>`                          |
 | **Signature mismatch**   | wrong secret, region, or endpoint | check the secret is complete; confirm region/endpoint match the bucket |
-| **Permission denied**    | signed in, but not allowed       | on AWS, `s3cab aws <bucket>` prints the least-privilege policy        |
+| **Permission denied**    | signed in, but not allowed       | on AWS, `s3cab aws <bucket>` prints the recipe for a least-privilege identity |
 | **Clock out of sync**    | your clock drifted               | sync it — S3 rejects requests too far off                            |
 
 **Signature mismatch is the classic non-AWS trap**: a Cloudflare R2 or Backblaze B2 bucket
