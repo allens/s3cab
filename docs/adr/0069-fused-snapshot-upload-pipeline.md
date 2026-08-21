@@ -102,7 +102,8 @@ The two kinds of failure differ only in what happens next:
 > plus its path) rather than as a built error, because what a drifted file *means* depends on the
 > caller: fatal where a manifest is about to be published, a reportable skip where none is. So
 > `fileChangedError` is raised by the coordinator, not the transform — which also means
-> `uploadObjects` needs no set name and takes only `{ bucket, stored }`.
+> `uploadObjects` needs no set name and takes only `{ bucket, stored }` (later also
+`ownProgress`, from [0076](0076-one-progress-line-driven-by-a-clock.md)'s progress rework).
 >
 > The same change gave the transform its **third source**: `uploadDir` (`upload --dir`, the folder
 > seed) had its own PUT loop, predating this one, and therefore none of this guard — it hashed a file

@@ -4,7 +4,9 @@
 
 > **Command name superseded by [0035](0035-aws-profile-sets-command-rationalization.md)**
 > (accepted): the cloud-onboarding command described here is now **`s3cab aws`**. Its
-> separateness, generative posture, and flags below all stand unchanged — only the
+> separateness and generative posture stand unchanged; of the flags below, `--sso` was
+> retired by [0056](0056-onboarding-via-cloudformation.md) and the non-AWS auto-detect
+> moved by [0047](0047-provider-command-neutral-config-door.md) (`aws` is AWS-only) — the
 > "## The name `bucket`" section's naming argument is what 0035 replaces. The `bucket`
 > form throughout this ADR (and the then-current `s3cab aws`/`s3cab setup` in its compose
 > example, now `s3cab profile`/`s3cab setup` — 0035 renamed `setup`→`sets`, then

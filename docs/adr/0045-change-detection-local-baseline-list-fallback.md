@@ -75,8 +75,10 @@ the plumbing — that resolution is `backup`'s job ([ADR-0044](0044-upload-unifi
   *only* correctness backstop, its behaviour on multipart uploads off-AWS (R2/B2/MinIO/Wasabi)
   needs a per-provider check ([docs/design/s3-provider-compatibility.md](../design/s3-provider-compatibility.md))
   before we lean on it there. On AWS it is confirmed (`If-None-Match: *` on
-  `CompleteMultipartUpload`, forwarded by the SDK's `lib-storage` `Upload`); keep the ≥ 8 MB
-  HEAD preflight, which stops a large already-present object burning a whole transfer before
+  `CompleteMultipartUpload`, forwarded by the SDK's `lib-storage` `Upload`); keep the
+  HEAD preflight on multipart-sized bodies (originally ≥ 8 MB, retuned to the 16 MiB
+  multipart threshold by [0060](0060-multipart-tuning-in-flight-bytes.md)), which stops a
+  large already-present object burning a whole transfer before
   the completion-time check fires.
 - **`status` is unaffected** — its read-only estimate still diffs the latest *local* against
   the latest *remote* snapshot (a machine-independent property), distinct from the local

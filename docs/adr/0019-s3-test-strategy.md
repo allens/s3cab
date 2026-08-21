@@ -3,9 +3,13 @@
 **Status:** accepted
 
 Three tiers, settled deliberately. Full reasoning: [docs/design/testing.md](../design/testing.md).
+(The inventory has since grown beyond these three: `test/model/` — model-based conformance,
+with a real-bucket variant — and `test/crash/`, run by their own `test:*` scripts and the
+nightly workflow. The tiering *decision* here still governs where a mock is allowed.)
 
-1. **Pure diff/cache logic** (`uploadCandidates`, the objects cache) → ordinary **unit tests**,
-   no bucket.
+1. **Pure logic** (diffing, exclude matching, formatting) → ordinary **unit tests**,
+   no bucket. (The original examples, `uploadCandidates` and the objects cache, are gone —
+   the cache dropped by [0045](0045-change-detection-local-baseline-list-fallback.md).)
 2. **Command orchestration + deterministic error injection** → **mock the `s3.mjs` seam**
    (`node:test`'s `mock.module`/`mock.fn`, zero-dep), run everywhere incl. fork PRs.
 3. **Real round-trips** → **real AWS**, gated on `S3CAB_TEST_BUCKET` (+ ambient creds). Offline

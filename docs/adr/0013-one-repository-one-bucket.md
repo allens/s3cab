@@ -24,5 +24,6 @@ single `objects/` pool, while snapshots are namespaced as `snapshots/<set>/` (th
 the whole namespace, [0024](0024-set-name-is-the-whole-identity.md)). The object-store half is
 owned by [src/lib/objects.mjs](../../src/lib/objects.mjs); the `snapshots/<set>/` half by
 [src/lib/remote.mjs](../../src/lib/remote.mjs), and the `sets/<set>/` marker by
-[src/lib/set-marker.mjs](../../src/lib/set-marker.mjs). `s3.mjs` stays the generic SDK boundary
-and never learns the layout.
+[src/lib/set-marker.mjs](../../src/lib/set-marker.mjs). A later `deletions/` area holds
+deletion records ([0064](0064-path-scoped-delete-deletion-record.md)). `s3.mjs` stays the
+generic SDK boundary and never learns the layout.

@@ -2,7 +2,8 @@
 
 **Status:** accepted
 
-`writeSnapshot(snapshotDir, name, { identity, dirs, datetime, files, excluded, getProps, overwrite })`
+`writeSnapshot(snapshotDir, moment, { identity, dirs, files, excluded, skipped, getProps, through, overwrite })`
+(the parameter list has grown with later ADRs; the current signature is in the code)
 in [`src/lib/snapshot-file.mjs`](../../src/lib/snapshot-file.mjs) is the single deep seam for
 "files → snapshot file". It owns the whole write: the `#SNAPSHOT`/`#DIR` header, the
 `#EXCLUDED` rows, the props→TSV pipeline (and its `[path, Props | Error]` row type), the

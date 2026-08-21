@@ -5,7 +5,9 @@
 set **name** is the whole identity, the remote layout flattened to `snapshots/<set>/`, the
 `setup` collision check + `--inherit` succession + the `sets/<set>/` marker (`dirs.txt` /
 `exclude.txt` / `info`) all landed. The full design is in
-[docs/design/backup.md](../design/backup.md).
+[docs/design/backup.md](../design/backup.md). *(`setup --inherit` has since become its own
+command, `reattach` — [0053](0053-reattach-command.md); the succession semantics below are
+unchanged.)*
 
 A backup set's **name** (a user-chosen `[a-z0-9-]+` label, e.g. `work-laptop`) is its *entire*
 identity: it is at once the local handle, the local directory name, and the remote namespace.
@@ -49,6 +51,8 @@ default for the first set's name, nudging toward scoped names without *enforcing
   `user@machine/set` shape), `namespacePart` (the sha256 fallback), and the `S3CAB_NAMESPACE`
   pinning + the `namespace` field all go. `validateSetName` (`[a-z0-9-]+`) becomes the keystone
   guard — it is what keeps the single name clean as handle, path segment, and remote key with
-  zero escaping anywhere downstream. `validateBucketName` and `assertPathSegment` (kept alive
-  by the `objects.<bucket>` cache path) stay; `sanitizeNamePart` is demoted to cosmetic use
+  zero escaping anywhere downstream. `validateBucketName` and `assertPathSegment` stay (the
+  `objects.<bucket>` cache that then kept the latter alive was dropped by
+  [0045](0045-change-detection-local-baseline-list-fallback.md); it now guards names
+  interpolated into `~/.s3cab` paths, from `lib/home.mjs`); `sanitizeNamePart` is demoted to cosmetic use
   for the `$username` default suggestion.

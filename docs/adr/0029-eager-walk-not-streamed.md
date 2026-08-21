@@ -2,7 +2,8 @@
 
 **Status:** accepted
 
-`walkSet(set) → { files, excluded }` in [`src/lib/walk.mjs`](../../src/lib/walk.mjs) walks every
+`walkSet(set) → { files, excluded, skipped }` (the `skipped` list joined later) in
+[`src/lib/walk.mjs`](../../src/lib/walk.mjs) walks every
 member directory to completion and returns the **whole** kept-file list as a materialized array,
 which `snapshot` then feeds into the hashing pipeline. The walk is deliberately **eager**: it is
 not refactored into a streaming `walk → hash` pipeline that starts hashing before the walk

@@ -45,7 +45,7 @@ ADR as a live constraint.
 - [0004](0004-tsv-snapshot-manifests.md) — TSV snapshot files
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
-- [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(proposed/open)*
+- [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(accepted; the TS question closed 2026-07-18)*
 
 ### Licensing
 
@@ -63,7 +63,7 @@ ADR as a live constraint.
 
 - [0034](0034-bucket-command-shape.md) — The `bucket` command shape: a separate, generative cloud-onboarding command *(command name superseded by 0035 — now `aws`)*
 - [0035](0035-aws-profile-sets-command-rationalization.md) — Rationalize `bucket`/`aws`/`setup`: `bucket`→`aws`, `aws`→`profile`, `setup` folds into `sets` *(point 3 superseded by 0036; `profile` renamed again by 0041 and 0047 — now `provider`; point 1 amended by 0047 — `aws` is AWS-only; `--sso` fork dropped by 0056)*
-- [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command
+- [0036](0036-setup-mutates-list-shows-drop-sets.md) — `setup` mutates a set, `list` shows sets; drop the `sets` command *(point 4 — no provider knobs on `setup` — reversed by 0055's implementation)*
 - [0040](0040-restore-requires-set-name.md) — `restore` requires the set name; no sole-set default
 - [0042](0042-verify-bucket-operand.md) — `verify` takes a bucket operand (symmetric with `cleanup`); reports per set *(objects-cache rewrite dropped by 0045; the finding-model correction landed 2026-07-05 and is folded into the ADR)*
 - [0044](0044-upload-unified-command-surface.md) — Unify `upload` (`--file`/`--snapshot`/`--bucket`); `backup` = snapshot + upload; retire `backup --snapshot` *(implemented; companion to 0045; composition refined by 0069 — `backup` fuses the two into one pass rather than calling the commands in sequence)*
@@ -107,7 +107,7 @@ ADR as a live constraint.
 - [0050](0050-default-exclude-git-with-disclosure.md) — A new set defaults `.git` (and `._*`/`desktop.ini`) out; `setup` lists every skipped pattern so the default isn't silent
 - [0051](0051-native-separator-in-user-path-files.md) — User-facing path files (the starter `exclude.txt`) use the native separator; `/` stays an internal matching form
 - [0061](0061-debug-only-uncompressed-snapshot-sidecar.md) — The uncompressed `.snapshot.tsv` sidecar stays `S3CAB_DEBUG`-only; no-lock-in is already met by the standard `.tsv.zst` *(accepted; applies 0002/0006)*
-- [0062](0062-bulk-operands-positional-addressing-by-flag.md) — Bulk operands are positional, addressing moves to `--set`/`-S` (`delete`/`restore`/`setup`); `-s` stays `--snapshot` *(accepted, not yet implemented; answers 0040's deferred question; design in docs/design/snapshot-deletion.md)*
+- [0062](0062-bulk-operands-positional-addressing-by-flag.md) — Bulk operands are positional, addressing moves to `--set`/`-S` (`delete`/`restore`/`setup`); `-s` stays `--snapshot` *(accepted & implemented — PR #215; answers 0040's deferred question; design in docs/design/snapshot-deletion.md)*
 - [0060](0060-multipart-tuning-in-flight-bytes.md) — Multipart tuning: 16 MiB parts × 32 concurrent (512 MiB in flight); bytes in flight are the lever, more streams beat bigger parts, and the unset `queueSize` (lib-storage's 4) was the real culprit *(accepted & implemented; measured from three network distances — benchmark kept as an ad-hoc script)*
 - [0065](0065-s3-client-request-timeouts.md) — S3 client request + connection timeouts so a dropped connection fails (a retryable `TimeoutError`) instead of hanging forever; the default handler set none. Reasoned, not measured — the value only sets how long a dead link waits *(accepted & implemented; hardens 0059/0060)*
 - [0068](0068-network-retries-above-the-sdk.md) — Transport failures are retried *above* the SDK on a 120 s time window, because the SDK's retry budget is a client-wide token bucket that gives a ≥512 MB file only ~0.2 s of tolerance and makes `maxAttempts` inert; throttling/5xx keep stock SDK behaviour *(accepted & implemented; completes 0065's open items, extends 0037's relay)*
@@ -138,7 +138,7 @@ ADR as a live constraint.
 
 - [0032](0032-generative-onboarding-not-active-provisioning.md) — Cloud onboarding is generative, not active *(delivery form amended by 0056 — a CloudFormation template, still generative; an active `--run` is left open, not built)*
 - [0033](0033-bucket-onboarding-security-model.md) — Bucket onboarding security model: a soft-delete everyday identity, versioning as backstop *(refined by 0056 — managed policy, SSE-S3, DeletionPolicy Retain)*
-- [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(proposed; amends 0032/0033/0035)*
+- [0056](0056-onboarding-via-cloudformation.md) — Cloud onboarding emits CloudFormation templates (still generative); `--sso` retired *(accepted & built; amends 0032/0033/0035)*
 - [0057](0057-roles-anywhere-credential-mode.md) — Roles Anywhere: a fourth credential mode, set up generatively (CloudFormation) and signed natively (SigV4-X509) *(accepted & implemented — both setup and the runtime signer ship; beside 0055/0015; design in docs/design/roles-anywhere.md)*
 - [0058](0058-roles-anywhere-cert-generation.md) — Roles Anywhere certs: hand-rolled ASN.1 DER (zero-dep), client key stored as a 0600 PEM (pins the Phase B signer's key interface) *(accepted — cert generator validated by live spike; resolves 0057's open cert-gen/storage sub-decision)*
 - [0059](0059-aws-provisioning-boundary-static-imports.md) — AWS provisioning (CloudFormation/IAM) is quarantined to the `aws` command; data plane is S3-only, auth is the pluggable seam; placement (an aws-only module), not a lazy `import()`, keeps its heavy dep off the hot path — no blanket ban on dynamic imports *(accepted & implemented; extends 0015/0056/0057, applies 0006)*

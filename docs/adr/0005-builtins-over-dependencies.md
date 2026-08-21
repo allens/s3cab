@@ -23,7 +23,11 @@ Runtime dependencies are exactly two kinds:
    chain). This is *the* sanctioned exception; reimplementing it would be absurd.
 2. **Polyfills of actual standards**, accepted *temporarily*, removed when the native version
    ships ([0003](0003-modern-open-tech-only.md)). Currently **none** — `@js-temporal/polyfill`
-   was the worked example, since dropped. **The AWS SDK is therefore the only runtime dep.**
+   was the worked example, since dropped. **The AWS SDK family is therefore the only runtime
+   dep** — including its two direct `@smithy/*` packages (`shared-ini-file-loader`,
+   `signature-v4`, taken for Roles Anywhere per [0057](0057-roles-anywhere-credential-mode.md));
+   Smithy is the SDK's own substrate, the same sanctioned exception, not a second vendor
+   ([0018](0018-dependabot-not-renovate.md) already groups them).
 
 **Dev dependencies get a more relaxed bar** — they never ship to users and don't affect
 recoverability. The notable one is **esbuild** (see

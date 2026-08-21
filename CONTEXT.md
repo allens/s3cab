@@ -18,7 +18,8 @@ _Avoid_: CAS (unexplained), key-value store.
 **Dedup**:
 The deduplication that content-addressing produces. In s3cab it is **file-level only** — a
 whole file is the unit; there is no sub-file chunking, block packing, or delta encoding.
-_Avoid_: deduplication (spell it the short way), compression (a separate concept).
+_Avoid_: deduplication (spell it the short way — the full word is fine once, on a first
+user-facing mention that introduces the term), compression (a separate concept).
 
 **Hash**:
 The lowercase-hex SHA-256 of a whole file's contents. It is the file's identity and the
@@ -99,8 +100,12 @@ A named list of directories that is the unit of snapshot, backup, and restore. I
 `[a-z0-9-]+` label, e.g. `work-laptop`) is its whole identity — at once the local handle, the
 local directory under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
 (first-come).
-_Avoid_: profile, job, project, config; folder (the user-facing word is **directory** — `#DIR` in
-the snapshot file is just its abbreviation; "folder" collides with S3's pseudo-folders).
+_Avoid_: profile, job, project, config; folder as a word for the *set* or in format prose (the
+format word is **directory** — `#DIR` in the snapshot file is just its abbreviation; "folder"
+collides with S3's pseudo-folders). "Folder" *is* used, deliberately, in user-facing prose for
+an on-disk directory the reader browses (a OneDrive folder, `upload --dir`'s "a folder's
+objects") — the reader's Explorer word, earned only by something confirmed to be a real
+directory.
 
 **Identity**:
 What names a backup set: its **name**, and nothing more — there is no separate machine or user
@@ -113,7 +118,7 @@ A point-in-time record of every file in a backup set. Recorded on disk as a
 tab-separated (TSV) **snapshot file** — one row per file
 (`hash` → `size` → `mtime` → `path`).
 A snapshot name is unique only within its set, so anything spanning the whole bucket names one
-as **`set/snapshot`** (`work-laptop/2026-07-30-1400`) — matching its place in the bucket, so the
+as **`set/snapshot`** (`work-laptop/2026-07-30T1400`) — matching its place in the bucket, so the
 name pastes straight after `s3://<bucket>/snapshots/`. Used where several snapshots across
 several sets are listed together; a single one named in a sentence stays prose (`'work-laptop'
 (snapshot …)`).
@@ -122,7 +127,8 @@ _Avoid_: commit, version, generation; manifest (loses the point-in-time meaning)
 **Namespace**:
 The set name as the `snapshots/<set>/` path segment that isolates one set's snapshots from every
 other set sharing the repository. Equal to the set name; no `user@machine` prefix.
-_Avoid_: prefix, folder, scope.
+_Avoid_: prefix (for this concept — the literal S3 key-prefix sense in format prose is fine),
+folder, scope.
 
 **Online-Only File**:
 A file in the set whose contents live in the cloud and not on this computer — a dehydrated
@@ -132,6 +138,27 @@ means downloading it first, so s3cab leaves it online and records it as **skippe
 so it is capitalized like the other type names.
 _Avoid_: OneDrive file, cloud file (names one vendor, or every remote object); stub, dehydrated,
 placeholder, offline (implementer's words, and "offline" reads as the opposite of what it means).
+
+**Exclude pattern**:
+One glob line in a set's `exclude.txt`, matched against each file or directory's path relative
+to **every** member directory (ADR-0050; the grammar is in
+[guide/exclude.md](guide/exclude.md), also the one built-in help topic). A matched entry
+becomes an `#EXCLUDED` row; `tree --excluded` shows what the patterns are leaving out.
+_Avoid_: ignore rule/file (git's word), filter, blacklist.
+
+**s3cab home**:
+The local directory holding everything s3cab keeps on a machine — sets, their snapshots and
+env files, written CloudFormation templates. `~/.s3cab` by default; the **`S3CAB_HOME`**
+environment variable overrides it (printed in command output wherever a path under it is
+named).
+_Avoid_: config directory, app data, dotfolder.
+
+**Work file**:
+The fixed-name temp file a snapshot write builds under before its atomic rename into place
+(`.snapshot.tsv.zst` in the set's snapshots directory). It doubles as the in-progress lock: a
+leftover one means a run is
+live or was interrupted, and the interrupted case's hashes are parked and reused (ADR-0067).
+_Avoid_: lock file, temp file (each names only half its job).
 
 ### Cloud & commands
 
@@ -145,6 +172,15 @@ _Avoid_: cloud, server, target, destination.
 The porcelain verb for uploading a snapshot's new objects and its snapshot file to the remote.
 One-directional and archival.
 _Avoid_: push, upload (that is the plumbing verb), sync.
+
+**Drift**:
+A file whose contents changed between being hashed and being uploaded — the upload pipeline
+re-checks the props just before the PUT and reports the mismatch as data rather than storing
+the current bytes under the stale hash (ADR-0069). What a drifted file *means* is the
+caller's call: fatal where a snapshot is about to be published, a reportable skip where none
+is.
+_Avoid_: race, TOCTOU (implementer's words), change/modification (too generic — drift is
+specifically change *during* the run).
 
 **Restore**:
 The porcelain verb for downloading files from a remote snapshot back to disk.
@@ -177,7 +213,8 @@ until **cleanup** reclaims what nothing references any more. The repository forg
 *moment*; the stuff remains until swept. Previews what the removal would orphan, then confirms
 once for the whole run.
 _Avoid_: delete (its retired name — **delete** is now the path-scoped content-removal
-command), retire (**succession**'s word, see Reattach), prune, expire, drop.
+command), retire (**succession**'s word, see Reattach), prune, expire; drop (as a name for
+the command — fine as a plain-language gloss in prose, "drop a snapshot").
 
 **Delete** (the command):
 The porcelain verb that removes named *paths'* content from the whole backed-up history —

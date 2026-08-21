@@ -62,6 +62,16 @@ precedence within a scope becomes unrepresentable *through the front door*. Regi
 - **ambient** — the set writes no creds; a default profile / exported `AWS_*` / instance role
   supplies them via the chain.
 
+**2a. `setup` accepts the provider knobs, reversing [0036](0036-setup-mutates-list-shows-drop-sets.md)
+point 4.** With the user layer gone, credentials live only on the set — but the set doesn't exist
+until `setup`'s first claim succeeds, and that claim itself needs credentials. For a non-AWS
+provider (whose keys can't ride the ambient AWS chain) there is no way to configure the set's
+mode *before* the set exists, so `setup` takes the same knob set as `provider`
+(`--profile`/`--keys`/`--endpoint`/`--region`; `--roles-anywhere` joined with
+[0057](0057-roles-anywhere-credential-mode.md)), authenticates the claim with them, and saves them
+to the new set's env only on a win. `provider` remains the door for changing them afterwards.
+(Landed in PR #183; previously recorded only as a code comment in `commands/setup.mjs`.)
+
 **3. `provider` adopts the sole-set default.** With the user scope gone, a write with no set name
 targets the **only** set (erroring on ambiguity — *"which set?"*); bare `provider` show summarizes
 all sets. The old "explicit-scope-for-safety" exception was guarding the now-deleted *all-backups*

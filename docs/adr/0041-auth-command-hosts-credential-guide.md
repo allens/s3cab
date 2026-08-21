@@ -24,9 +24,11 @@ mechanism.
 2. **The auth topic folds into the command's registry `description`** (resolution order,
    supported options, the by-cause server-rejection guide). Topics shrink to `exclude`
    only, per the topics-are-cross-cutting-only rule.
-3. **`s3cab help auth` keeps working forever** — with the topic gone it routes to the
+3. **`s3cab help auth` keeps working** — with the topic gone it routes to the
    command's help via the `help <command>` routing, so the four error-message pointers
-   ("Run 's3cab help auth' for details.") needed no change.
+   ("Run 's3cab help auth' for details.") needed no change. *(Overtaken by 0047's rename:
+   with no `auth` command, `s3cab help auth` is now an unknown-name error; the pointers
+   were re-aimed at `provider`.)*
 4. The name does **not** re-open a login flow: [0015](0015-standard-aws-credential-chain.md)
    stands, and the description a user lands on *teaches* the no-login model — which is the
    answer to the "does `auth` overpromise?" concern: the command is also the front door for

@@ -43,8 +43,10 @@ predictable**; porcelain is allowed to be **smart**.
    - `upload <set> --file <path>` — one object (hash + one conditional PUT). No `LIST`, no baseline.
    - `upload <set> --snapshot <name>` — that snapshot's objects (name **required**), then the
      snapshot file **last** (objects-first/snapshot-last invariant).
-   - `upload <set>` with **neither** flag → a **usage error** ("specify `--file` or
-     `--snapshot`"). `upload` performs **no snapshot lookup** — not the "latest" target, nor the
+   - `upload <set> --dir <path>` — a folder's objects (added later, PR #227: walk the
+     subtree and upload what's missing; no snapshot involved).
+   - `upload <set>` with **none** of the flags → a **usage error** ("specify `--file`,
+     `--snapshot`, or `--dir`"). `upload` performs **no snapshot lookup** — not the "latest" target, nor the
      "previous" baseline. Which snapshot to upload (or diff against) is porcelain smarts that live
      in `backup` (point 6); plumbing is explicit by nature (cf. git's `hash-object` /
      `write-tree`). clig's "right defaults beat required flags" applies to the user-facing

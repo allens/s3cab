@@ -139,15 +139,14 @@ s3cab delete --bucket <bucket> <path>... [-n|--dry-run] [-f|--force] [--everywhe
 - **`cleanup`** subtracts record hashes from its missing-object interlock — without this,
   the first `delete` would make `cleanup --delete` refuse forever.
 
-### The destructive-command pattern (tool-wide; conversion follows)
+### The destructive-command pattern (tool-wide; conversions done)
 
 `delete` instantiates the pattern the tool standardizes on: **act by default with a
 tier-proportionate confirmation, `-n/--dry-run` to preview, non-interactive destructive
-runs require `--force`.** Consequence, deliberately **not** in `delete`'s PR: a follow-up
-converts `cleanup` (today preview-by-default + `--delete`) to act-by-default + `-n` with
-its y/N tier, and `forget`'s non-TTY runs to require `--force`. Two grammars for the tool's
-destructive commands is exactly the inconsistency clig warns against; pre-1.0 the brief
-window between the PRs costs nothing.
+runs require `--force`.** The follow-up conversions landed (PR #223): `cleanup` is
+act-by-default + `-n` with its y/N tier (`cleanup --delete` no longer exists), and
+`forget`'s non-TTY runs require `--force`. One grammar now covers all the tool's
+destructive commands.
 
 ## Consequences
 

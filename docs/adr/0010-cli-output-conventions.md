@@ -15,8 +15,9 @@ Three linked conventions for how commands emit output.
 `console.log` routes large structures through `util.inspect`, which **truncates**
 (`… N more items`) — fatal for a backup tool whose whole job is "show me everything that
 changed". One uniform serializer also means no bespoke per-command printer to maintain
-([0006](0006-minimal-code.md)). The one deliberate exception is `hashes` (bare
-hash-per-line output — see its doc comment).
+([0006](0006-minimal-code.md)). (`hashes` was once a deliberate exception; it now renders
+its bare hash-per-line output through the standard layer's `renderLines` — no exception
+remains.)
 
 ## Stream discipline: real output to stdout, everything else to stderr
 

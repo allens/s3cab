@@ -2,7 +2,9 @@
 
 **Status:** accepted (2026-06-21) — implemented (PR #89). Replaces the deferred
 `compare --remote` (a `notImplemented()` stub since slice 4); full design in
-[docs/design/backup.md](../design/backup.md).
+[docs/design/backup.md](../design/backup.md). *(The `setup --inherit` referred to below has
+since become its own command, `reattach` — [0053](0053-reattach-command.md); the
+manifest-sync behaviour is unchanged.)*
 
 `compare` has **no `--remote` mode**: the `--remote` flag and its `notImplemented()` stub are
 removed, and `compare` only ever diffs two *local* snapshots. To make a fresh / replacement

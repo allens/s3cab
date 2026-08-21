@@ -30,6 +30,6 @@ sets share one dedup pool without colliding.
   never-wired per-dir layer; cloud commands `loadEnv({ set })` ([0015](0015-standard-aws-credential-chain.md)).
   _(`loadEnv` has since been retired — the set layer is applied by `loadSet`. See
   [0022](0022-prepare-remote-set-front-door.md), as amended.)_
-- Implemented across slices 1–4 (2026-06); remaining scaffold (`verify`) tracked in the
-  "Known gaps" list in [CLAUDE.md](../../CLAUDE.md). (`compare --remote` was dropped, not
+- Implemented across slices 1–4 (2026-06); the last scaffold (`verify`) has since been
+  built. (`compare --remote` was dropped, not
   built — [0027](0027-compare-local-only-adoption-syncs-manifests.md).)

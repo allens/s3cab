@@ -2,8 +2,9 @@
 
 **Status:** accepted
 
-The `.snapshot.tsv` sidecar that `snapshot` writes beside the real snapshot
-([src/commands/snapshot.mjs](../../src/commands/snapshot.mjs)) is gated on `S3CAB_DEBUG` and
+The `.snapshot.tsv` sidecar written beside the real snapshot (now in the engine,
+[src/lib/snapshot.mjs](../../src/lib/snapshot.mjs), since the fused-pipeline extraction —
+[0069](0069-fused-snapshot-upload-pipeline.md)) is gated on `S3CAB_DEBUG` and
 **stays that way**. It is not promoted to an always-on transparency feature.
 
 ## Why

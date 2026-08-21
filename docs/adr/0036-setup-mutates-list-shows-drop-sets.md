@@ -58,6 +58,13 @@ message *wording*.
    thing you set first and the thing you fix offline when `setup` can't even authenticate — and
    `profile`'s user-wide scope (no set named) can't be expressed on a per-set `setup`.
 
+   > **Reversed by [0055](0055-per-set-credentials-one-mode.md)'s implementation (PR #183):**
+   > once 0055 removed the user env layer, credentials became per-set — and a set's creds can't
+   > be configured before the set exists, so "logically prior" stopped being expressible. `setup`
+   > now accepts the full provider knob set (`--profile`/`--keys`/`--endpoint`/`--region`, later
+   > `--roles-anywhere`), authenticates the first claim with them, and saves them to the set's
+   > env on a win; `provider` remains the door for changing them later. Rationale in 0055.
+
 5. **The three config commands form an onboarding order:** `aws` (provision the cloud side) →
    `profile` (point at credentials) → `setup` (define a backup set) → `backup`. Seen this way
    `profile` is not a missing piece of `setup` but the step before it, which is what makes the

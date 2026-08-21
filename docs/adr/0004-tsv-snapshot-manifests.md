@@ -6,8 +6,9 @@ _(The term "manifest" was retired in favour of "snapshot file"; the filename is 
 
 Snapshots are tab-separated values. Fixed-width fields first (`hash` → `size` → `mtime`),
 the variable-length `path` **last**, so the left edge stays aligned and the ragged part is
-pushed right. Hashes are lowercase hex. (Format spec lives at the top of
-[src/lib/snapshot-file.mjs](../../src/lib/snapshot-file.mjs); README shows the user layout.)
+pushed right. Hashes are lowercase hex. (The format spec is the user-facing
+[guide/format.md](../../guide/format.md); [src/lib/snapshot-file.mjs](../../src/lib/snapshot-file.mjs)
+implements it.)
 
 _(Foundational design principle #4 — flows directly from [0002](0002-no-lock-in-hard-constraint.md).)_
 
@@ -28,6 +29,5 @@ _(Foundational design principle #4 — flows directly from [0002](0002-no-lock-i
 
 ## Consequences
 
-**Open edge case** (handle before release): a path containing a literal tab or newline would
-break a snapshot file line. Needs a documented rule — reject / encode / comment. See the "Known
-gaps" list in [CLAUDE.md](../../CLAUDE.md).
+**Edge case, since closed**: a path containing a literal tab or newline would break a snapshot
+file line. Resolved by [0073](0073-refuse-tab-newline-paths.md) — such paths are rejected.

@@ -35,9 +35,10 @@ multi-bucket/multi-set-same-auth case ever shows up.
 ## Consequences
 
 - `bucketEnvPath` and the per-bucket branch of `loadEnv` go.
-- The bucket-name-in-path guard `assertPathSegment` is **not** retired by this — the
-  `objects.<bucket>` cache file ([objects.mjs](../../src/lib/objects.mjs)) still interpolates
-  the bucket name into a local path and keeps the guard earning its keep.
+- The bucket-name-in-path guard `assertPathSegment` is **not** retired by this. (Its
+  then-justification, the `objects.<bucket>` cache file, was later dropped by
+  [0045](0045-change-detection-local-baseline-list-fallback.md); the guard survives in
+  `lib/home.mjs`, protecting names interpolated into `~/.s3cab` paths.)
 - This refines, not reopens, [0015](0015-standard-aws-credential-chain.md) (the standard AWS
   credential chain) and [0022](0022-prepare-remote-set-front-door.md) (the env-load front
   door); the front door stays, with one fewer layer to load.

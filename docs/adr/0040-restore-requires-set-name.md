@@ -3,7 +3,10 @@
 **Status:** accepted (settled 2026-07-03, in a clig.dev conformance review) —
 **implemented** (2026-07-03). Sits in the command-shape lineage of
 [0035](0035-aws-profile-sets-command-rationalization.md)/[0036](0036-setup-mutates-list-shows-drop-sets.md),
-reasoned under clig.dev (the `cli-design` skill).
+reasoned under clig.dev (the `cli-design` skill). *(The mechanics below are since amended by
+[0062](0062-bulk-operands-positional-addressing-by-flag.md): the required set moved from the
+first positional to `--set`/`-S`, freeing the positionals for paths. The decision itself —
+`restore` never defaults the set — stands.)*
 
 ## Context
 
