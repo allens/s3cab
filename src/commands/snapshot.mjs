@@ -30,13 +30,13 @@ export async function snapshot(setName, options = {}) {
     name: previousName,
     previous,
     previousErrors,
-    lookup,
+    lookups,
     instant: previousInstant,
   } = await readBaseline(set, options);
   const { name } = await generateSnapshot(set, {
-    lookup,
+    lookups,
     // The same entries again, for their sizes: the progress line's byte total.
-    // Passed apart from `lookup` because `--rehash` suppresses that one and says
+    // Passed apart from `lookups` because `--rehash` suppresses those and says
     // nothing about how far along the pass is.
     sizes: previous,
     debug: options.debug,

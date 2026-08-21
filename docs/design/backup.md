@@ -219,12 +219,19 @@ retired (ADR-0044).
 **Snapshot and upload are one fused pass** ([ADR-0069](../adr/0069-fused-snapshot-upload-pipeline.md)):
 each file's object is PUT the moment its bytes have been hashed, and the same row goes straight
 on into the snapshot TSV. `backup` composes shared `lib` parts rather than calling the two
-commands in sequence — `readBaseline` (the previous local snapshot: the hash lookup *and* the
+commands in sequence — `readBaseline` (the previous local snapshot: the hash sources *and* the
 change-detection baseline) → `storedHashes` (what needs no upload, settled *before* any hashing,
 so a credentials or network problem surfaces in seconds) → `generateSnapshot` with
 `uploadObjects` spliced into its pipeline → `uploadSnapshotFile` (the manifest, last). The
-uploader is a pass-through transform, so the snapshot a backup writes is byte-identical to the one a
-plain `snapshot` would have written.
+uploader is a pass-through transform, so the snapshot a backup writes is row-for-row identical to
+the one a plain `snapshot` would have written. (Not byte-identical any more: the `#END` trailer
+records when its last row landed, so two runs differ in that one line —
+[ADR-0082](../adr/0082-snapshot-end-trailer.md).)
+
+**The hash sources are a list, in priority order** — an interrupted run's parked hashes first,
+then the previous snapshot — each carrying the completion instant its own file records. They are
+not merged into one map, because a single boundary judging both is the older one, and every parked
+row postdates it ([ADR-0085](../adr/0085-ctime-cross-check-on-hash-reuse.md)).
 
 Why fuse: the drift guard's window — between recording a file's size/mtime and PUTting its
 bytes — used to span the rest of the hash pass plus the whole upload phase, so editing a document

@@ -15,6 +15,7 @@ import { fileProps } from "./file-props.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
+/** @import { HashSource } from "./file-props.mjs" */
 /** @import { Drift } from "./upload.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
@@ -109,9 +110,9 @@ mock.module("./file-props.mjs", {
   exports: {
     fileProps: async (
       /** @type {string} */ path,
-      /** @type {SnapshotEntries} */ lookup,
+      /** @type {HashSource[]} */ lookups,
     ) => {
-      const props = await fileProps(path, lookup);
+      const props = await fileProps(path, lookups);
       callOrder.push(`hash:${basename(path)}`);
       if (driftAfterHash.has(path)) {
         writeFileSync(path, "rewritten the instant hashing finished");

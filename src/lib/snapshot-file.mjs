@@ -21,6 +21,7 @@ import { localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
+/** @import { RehashReason } from "./file-props.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
 /** @import { AssertionError } from "node:assert" */
@@ -36,7 +37,7 @@ import { tildeify } from "./home.mjs";
 //   #EXCLUDED<TAB>dirent_type<TAB>reason<TAB>path reason = the matching exclude pattern
 //   #SKIPPED<TAB>dirent_type<TAB>reason<TAB>path  reason = why (e.g. "Unsupported file type")
 //   #ERROR<TAB><TAB>reason<TAB>path               a file the walk couldn't hash
-//   #END                                          last line — the completeness trailer (ADR-0082)
+//   #END<TAB>status<TAB>instant<TAB>              last line — the completeness trailer (ADR-0082)
 // so a snapshot is self-describing even found alone (docs/design/backup.md).
 // `writeSnapshot` is the sole writer of all of it (header via `snapshotHeader`,
 // then the `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows via `excludedLine`/`skippedLine`/
@@ -58,6 +59,25 @@ const EXCLUDED = "#EXCLUDED";
 const SKIPPED = "#SKIPPED";
 const ERROR = "#ERROR";
 const END = "#END";
+
+/**
+ * The two values the `#END` trailer's status column takes: this file holds every
+ * file the walk found, or it stops part-way because the user pressed Ctrl+C and
+ * the run parked what it had (ADR-0067).
+ *
+ * The trailer's *presence* and its *status* answer different questions, and both
+ * are worth having. Presence says the run ended in a controlled way — a torn
+ * write leaves no trailer at all, so a reader can tell "you stopped it" from
+ * "the process died mid-row" and knows the last row is whole either way. The
+ * status then says whether the rows are all of them. A bare `#END` conflated the
+ * two: a parked file was intact *and* announced with the same marker a finished
+ * snapshot uses, which reads as "done" to anyone who hasn't read ADR-0082.
+ *
+ * Both fit the 10-column status field `formatLine` pads to; a longer word would
+ * push every trailer's instant out of the column the `#SNAPSHOT` instant sits in.
+ */
+const COMPLETE = "COMPLETE";
+const PARTIAL = "PARTIAL";
 
 /**
  * The `dirent_type` a dehydrated cloud-sync placeholder is recorded and reported
@@ -85,6 +105,12 @@ const ONLINE_ONLY_FILE = "Online-Only File";
  * @property {string} hash
  * @property {number} [hashDuration] - Seconds spent hashing (absent when the
  *   hash came from a snapshot lookup, and not stored in the snapshot file).
+ * @property {RehashReason} [rehashReason] - Why this file had to be read rather
+ *   than reusing a stored hash (absent on a reuse, and on a file no lookup knew
+ *   — that one is simply new). A fact about the run, like `hashDuration`, so it
+ *   is likewise never written to the file; `generateSnapshot` tallies it to tell
+ *   a pass that re-read genuinely changed files from one the ctime guard is
+ *   re-reading for nothing.
  */
 /** @typedef {[string, Props | Error]} SnapshotRow */
 /**
@@ -120,7 +146,15 @@ const ONLINE_ONLY_FILE = "Online-Only File";
  * All three are optional because a snapshot may carry no `#SNAPSHOT` line at all
  * — the row-only form the test fixture builder writes — not because any header
  * layout omits them.
- * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string }} Snapshot
+ *
+ * `status` and `completed` are the `#END` trailer's two columns: whether the
+ * rows are all of them (`COMPLETE`/`PARTIAL`), and when the last one was
+ * written. `completed` is the one the hash-reuse cross-check weighs a file's
+ * ctime against (ADR-0085) — `instant` is minted before the pass reads anything
+ * and so cannot serve. `status` has no branch behind it and is surfaced anyway:
+ * it is a documented column of the file (guide/format.md), and a parser that
+ * silently dropped it would be a trap for the next reader.
+ * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string, status?: string, completed?: string }} Snapshot
  */
 
 /**
@@ -354,8 +388,15 @@ export async function withSnapshotFile(
  * is also why the file's `#SNAPSHOT` identity is deliberately *not* checked
  * against the set: a path whose size and mtime still match is the same file
  * whichever set recorded it, so the check would reject nothing that could do harm.
+ * `completed` comes back with the entries because the two are only meaningful
+ * together: these hashes were computed *during* the run that was stopped, so the
+ * ctime of every file behind them was moved by that run's own read on any volume
+ * where reading moves it. Weighed against the previous snapshot's instant — a
+ * run that may have finished days earlier — every parked hash reads as touched
+ * and is thrown away, which is precisely the re-hashing the parking exists to
+ * avoid. The trailer's instant is the boundary that fits these rows (ADR-0085).
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
- * @returns {Promise<SnapshotEntries | undefined>} The parked entries, or undefined when none are parked
+ * @returns {Promise<{ entries: SnapshotEntries, completed?: string } | undefined>} The parked entries and when the parking was written, or undefined when none are parked
  */
 export async function readParkedLookup(snapshotDir) {
   const path = parkedLookupPath(snapshotDir);
@@ -363,8 +404,8 @@ export async function readParkedLookup(snapshotDir) {
     return undefined;
   }
   console.warn("Reusing the hashes parked by an interrupted snapshot");
-  const { entries } = await readSnapshotFile(path);
-  return entries;
+  const { entries, completed } = await readSnapshotFile(path);
+  return { entries, completed };
 }
 
 /**
@@ -462,7 +503,10 @@ export async function writeSnapshot(
         // variadic overloads type a fixed chain far more happily than a
         // conditionally-built array of transforms.
         through ? (paths) => through(rows(paths)) : rows,
-        stringifySnapshot,
+        // The signal reaches the trailer the same way it reaches `propsRows`:
+        // handed in, not read from a module global. It is what tells a finished
+        // file from one the user stopped, and only this scope holds it.
+        (produced) => stringifySnapshot(produced, signal),
         writeStream,
       );
     },
@@ -706,6 +750,10 @@ export async function parseSnapshotStream(input) {
   let instant;
   /** @type {string | undefined} */
   let zone;
+  /** @type {string | undefined} */
+  let status;
+  /** @type {string | undefined} */
+  let completed;
   let complete = false;
 
   const rl = createInterface({ input, crlfDelay: Infinity });
@@ -741,9 +789,10 @@ export async function parseSnapshotStream(input) {
     if (marker.startsWith("#")) {
       // Marker comments carry their payload in the trailing columns (see the
       // grammar header): `#DIR<TAB><TAB><TAB>dir`, `#SNAPSHOT<TAB>set<TAB>instant
-      // <TAB>name zone`, `#ERROR<TAB><TAB>reason<TAB>path` and
-      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path`. `#EXCLUDED` and any other
-      // comment line are ignored on read.
+      // <TAB>name zone`, `#ERROR<TAB><TAB>reason<TAB>path`,
+      // `#SKIPPED<TAB>fileType<TAB>reason<TAB>path` and
+      // `#END<TAB>status<TAB>instant<TAB>`. `#EXCLUDED` and any other comment
+      // line are ignored on read.
       if (marker === DIR && col4) {
         const dir = col4;
         dirs.push(dir);
@@ -768,6 +817,12 @@ export async function parseSnapshotStream(input) {
         skipped.set(path, { fileType, reason });
       } else if (marker === END) {
         complete = true;
+        // status | instant. Both are absent on a trailer written before they
+        // existed, and `undefined` is the honest reading of that — a caller
+        // that wants a trust boundary falls back to the `#SNAPSHOT` instant,
+        // which is earlier and so only ever more cautious (see `readBaseline`).
+        status = col2.trim() || undefined;
+        completed = col3.trim() || undefined;
       }
       continue;
     }
@@ -810,7 +865,17 @@ export async function parseSnapshotStream(input) {
     "Truncated snapshot: the closing #END marker is missing, so the file was cut short",
   );
 
-  return { entries, errors, skipped, dirs, identity, instant, zone };
+  return {
+    entries,
+    errors,
+    skipped,
+    dirs,
+    identity,
+    instant,
+    zone,
+    status,
+    completed,
+  };
 }
 
 /**
@@ -852,11 +917,26 @@ function propsRows(getProps, signal) {
  * short is emitted in exactly one place. The parked-on-interrupt file gets it
  * too: a graceful stop ends the row stream early, and this generator's own tail
  * still runs before the pipeline flushes.
+ *
+ * `signal` is the same park-on-interrupt signal `propsRows` reads, handed one
+ * link further down the pipeline so the trailer can say *which* of the two ways
+ * this file ended. It is the abort state at the moment the last row was written,
+ * which is exactly the fact the status column records.
+ *
+ * The trailer's instant is minted **here**, at the tail, not taken from the
+ * pass's opening moment: it is when the last row landed, and that is the whole
+ * reason it is worth writing. The `#SNAPSHOT` instant is minted at pass *start*,
+ * before a single file is read — so on a volume where reading a file moves its
+ * ctime (a OneDrive/Dropbox/Google Drive sync root), every file this pass hashes
+ * ends up with a ctime *after* the header's instant and the next run distrusts
+ * the lot, for ever. The completion instant is after every read this pass made,
+ * so it settles (ADR-0085).
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
+ * @param {AbortSignal} [signal] - The park-on-interrupt signal; aborted means this file stops part-way (`PARTIAL`)
  * @yields {string} TSV line
  * @returns {AsyncGenerator<string>} TSV lines
  */
-export async function* stringifySnapshot(snapshot) {
+export async function* stringifySnapshot(snapshot, signal) {
   for await (const [path, props] of snapshot) {
     // A cloud placeholder is the one throw out of `fileProps` that is a
     // *decision* rather than a fault, so it lands beside the symlinks and the
@@ -881,8 +961,29 @@ export async function* stringifySnapshot(snapshot) {
     }
     yield formatLine(props.hash, props.size, props.mtime, path);
   }
-  yield `${END}\n`;
+  yield endLine(signal?.aborted ? PARTIAL : COMPLETE);
 }
+
+/**
+ * The `#END` trailer: whether this file holds every row the walk found, and when
+ * its last row was written. Module-private, and emitted from the single tail in
+ * {@link stringifySnapshot} — so a snapshot cannot acquire a trailer any other
+ * way, which is what makes the marker's presence mean "ended in a controlled
+ * way".
+ *
+ * The instant goes in col3, the column `#SNAPSHOT` puts its own instant in, so
+ * the two timestamps in a file line up under each other. Col4 is left empty: it
+ * is the path column on every row that has a path, and a trailer has none.
+ * @param {typeof COMPLETE | typeof PARTIAL} status - Whether the rows are all of them
+ * @returns {string}
+ */
+const endLine = (status) =>
+  formatLine(
+    END,
+    status,
+    Temporal.Now.instant().toString({ smallestUnit: "millisecond" }),
+    "",
+  );
 
 /**
  * Format one TSV line at the fixed column widths — the private padder every

@@ -146,10 +146,9 @@ describe("fileProps on a cloud placeholder", () => {
       mtime: mtime.toISOString(),
     };
 
-    const props = await fileProps(
-      path,
-      new Map([[path, { ...stored, size: LOGICAL_SIZE }]]),
-    );
+    const props = await fileProps(path, [
+      { entries: new Map([[path, { ...stored, size: LOGICAL_SIZE }]]) },
+    ]);
 
     assert.equal(props.hash, stored.hash);
     // Reused, not re-derived: no `hashDuration` on a lookup hit.
@@ -170,15 +169,19 @@ describe("fileProps on a cloud placeholder", () => {
       size: LOGICAL_SIZE,
       mtime: mtime.toISOString(),
     };
-    const lookup = new Map([[path, stored]]);
     // The file was just written, so its ctime is after this baseline instant.
-    const options = { baselineMs: Date.parse("2020-01-01T00:00:00.000Z") };
+    const lookups = [
+      {
+        entries: new Map([[path, stored]]),
+        baselineMs: Date.parse("2020-01-01T00:00:00.000Z"),
+      },
+    ];
 
     if (platform === "win32") {
-      const props = await fileProps(path, lookup, options);
+      const props = await fileProps(path, lookups);
       assert.equal(props, stored);
     } else {
-      const props = await fileProps(path, lookup, options);
+      const props = await fileProps(path, lookups);
       assert.notEqual(props.hash, stored.hash);
       assert.notEqual(props.hashDuration, undefined);
     }

@@ -86,7 +86,7 @@ export async function backup(setName, options = {}) {
     name: since,
     previous,
     previousErrors,
-    lookup,
+    lookups,
     instant: previousInstant,
   } = await readBaseline(set);
   const stored = await storedHashes({
@@ -103,7 +103,7 @@ export async function backup(setName, options = {}) {
     ownProgress: true,
   });
   const pass = await generateSnapshot(set, {
-    lookup,
+    lookups,
     // Doubles as the progress line's byte total — it already records a size for
     // every file, so the figure costs no `stat` (lib/snapshot.mjs `withProgress`).
     sizes: previous,

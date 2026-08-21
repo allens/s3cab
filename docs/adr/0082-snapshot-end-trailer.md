@@ -1,8 +1,33 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
-**Status:** accepted — designed and implemented 2026-08-14. Extends
+**Status:** accepted, amended once (2026-08-21). Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
+
+> **Amendment 1 (2026-08-21) — the trailer is no longer bare: `#END<TAB>status<TAB>instant`.**
+> Point 4 below rejected an entry count and a checksum, and that reasoning stands: they are
+> *integrity* payloads, and whole-file integrity is the object store's job. What the trailer now
+> carries is neither — they are facts about the pass that wrote the file, and the trailer is the
+> only line in it written *after* the rows:
+>
+> - **status** — `COMPLETE`, or `PARTIAL` for the parked-on-interrupt file
+>   ([0067](0067-park-hashes-on-interrupt.md)). Presence and status answer different questions and
+>   both are worth having: presence says the run ended in a *controlled* way (a torn write leaves
+>   no trailer at all, so a reader can tell "you stopped it" from "the process died mid-row"),
+>   status says whether the rows are all of them. A bare `#END` conflated the two — a parked file
+>   was announced with the same marker a finished snapshot uses, which reads as "done".
+> - **instant** — when the last row was written, in `#SNAPSHOT`'s own instant column so the two
+>   line up. This is what [0085](0085-ctime-cross-check-on-hash-reuse.md) needed: a boundary later
+>   than every read the pass made. The header's instant is minted at pass start and cannot serve.
+>
+> The [format spec](../../guide/format.md) had already reserved the right to add trailer columns,
+> so this is the extension point being used rather than a break in the promise. A recovery reader
+> that skips `#` lines is unaffected, as is the truncation guard: absence still throws.
+>
+> One consequence worth naming: **two snapshots of an unchanged tree are no longer byte-identical**
+> — the trailer times itself. The fused pass's guarantee ([0069](0069-fused-snapshot-upload-pipeline.md))
+> is that inserting the uploader changes nothing about the *rows*, and that is what its test now
+> asserts.
 
 ## Context
 
