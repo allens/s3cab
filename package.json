@@ -1,6 +1,6 @@
 {
   "name": "s3cab",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "description": "Open, tool-independent S3 content-addressable backup — pre-release (WIP), not yet for production",
   "keywords": [
     "backup",
