@@ -120,8 +120,9 @@ Wasabi, …):
    AWS-only request features automatically when a custom endpoint is set.)
 
 On AWS instead? 's3cab aws <bucket>' prints the full bucket + identity
-recipe, ending back here at --profile — or add --roles-anywhere for the
-keyless certificate identity, then point the set at it:
+recipe, ending at 's3cab setup --keys' — or add --roles-anywhere for the
+keyless certificate identity; once its template is deployed and the ARNs
+captured (--save), point an existing set at it:
   s3cab provider --roles-anywhere <set>
 
 How s3cab resolves credentials:
@@ -183,8 +184,8 @@ s3cab names the cause and shows the raw error. By cause:
       Backblaze B2 trap
 
   Permission denied (signed in, but not allowed)
-    - on AWS, 's3cab aws <bucket>' sets up an identity with exactly the
-      permissions s3cab needs
+    - on AWS, 's3cab aws <bucket>' prints the recipe for an identity with
+      exactly the permissions s3cab needs
     - on another provider, grant the token list + read/write on the bucket
 
   Clock out of sync
