@@ -1376,7 +1376,7 @@ describe("renderRestore", () => {
     // The constructive fix (ADR-0030): a copy-pasteable way to keep both.
     assert.match(
       text,
-      /\n {2}s3cab restore photos <path> --output <directory>/,
+      /\n {2}s3cab restore --set photos <path> --output <directory>/,
     );
   });
 
