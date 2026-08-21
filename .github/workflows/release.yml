@@ -187,11 +187,11 @@ jobs:
           printf '%s' "$a" >"$src/file-a.txt"
           printf '%s' "$b" >"$src/nested/file-b.txt"
           setname="rt-$stamp" # [a-z0-9-]+: a valid set name
-          "$bin" setup "$setname" "$src" --bucket "$S3CAB_TEST_BUCKET"
+          "$bin" setup --set "$setname" "$src" --bucket "$S3CAB_TEST_BUCKET"
           "$bin" backup "$setname"
           # The content now lives only in S3: wipe the originals, then restore.
           rm -rf "$src"
-          "$bin" restore "$setname"
+          "$bin" restore --set "$setname"
           # Byte-identical recovery — the assertion this whole job exists for.
           got_a="$(cat "$src/file-a.txt")"
           got_b="$(cat "$src/nested/file-b.txt")"
