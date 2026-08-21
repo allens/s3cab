@@ -154,9 +154,13 @@ describe("snapshot on a volume where reading moves the change time", () => {
     // The count is of the files re-read for nothing, not of the whole set.
     assert.match(said, /Read 2 files again that had not changed/);
     // It states the cause rather than hedging — it measured it, one `lstat` per
-    // distrusted file — and every backup of this set will do the same again.
+    // distrusted file — and every run of this set will do the same again.
     assert.match(said, /reading them moves it again/);
-    assert.match(said, /every backup of 'photos' will re-read them/);
+    // Named for the command actually run, not "backup": a `snapshot` touches no
+    // cloud at all, so telling this user about their backups describes a thing
+    // they did not do. `backup` gets the same sentence with its own verb.
+    assert.match(said, /moved since the last snapshot/);
+    assert.match(said, /every snapshot of 'photos' will re-read them/);
     // ADR-0030's constructive fix: the exact line, and the file to put it in.
     assert.match(said, / {2}S3CAB_SKIP_CHANGE_TIME_CHECK=1$/m);
     assert.ok(

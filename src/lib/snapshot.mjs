@@ -392,9 +392,11 @@ export async function generateSnapshot(
 
   // `transfer` is what tells the two porcelains apart, the same discriminator the
   // opening line uses for `Backing up` vs `Snapshotting` — so the command the
-  // hint offers is the command the user actually ran.
-  warnAboutOnlineOnly(onlineOnly, set.name, transfer ? "backup" : "snapshot");
-  warnAboutCtimeChurn(rehashed, set);
+  // hint offers is the command the user actually ran. Both warnings talk about
+  // what the *next* run will do, so both have to name it.
+  const command = transfer ? "backup" : "snapshot";
+  warnAboutOnlineOnly(onlineOnly, set.name, command);
+  warnAboutCtimeChurn(rehashed, set, command);
 
   return {
     name,
@@ -723,28 +725,34 @@ function warnAboutOnlineOnly(count, setName, command) {
  * measured fact rather than on a guess about where the set lives — which is what
  * lets the wording state the cause instead of hedging about sync folders.
  *
- * ADR-0030 shape: the user's goal first (their backup re-read files that hadn't
+ * ADR-0030 shape: the user's goal first (their run re-read files that hadn't
  * changed), the mechanism in a parenthetical, the exact fix on its own line —
  * and then what it costs, because this is a safety guard and turning it off is
  * a trade rather than a tuning knob. The fix is a line in a file rather than a
  * command because the set's env file is where a per-set setting lives
  * (docs/design/auth.md); the path is named in full for pasting.
  *
+ * `command` is threaded for the same reason `warnAboutOnlineOnly` threads it:
+ * the sentence talks about what will happen *next time*, so it has to name the
+ * command the user actually ran. A `snapshot` run touches no cloud at all, and
+ * telling that user about "every backup" describes a thing they did not do.
+ *
  * Silent on every ordinary run: with nothing distrusted the counts are zero, and
  * a set that has already set `S3CAB_SKIP_CHANGE_TIME_CHECK` distrusts nothing by
  * construction, so it never nags about a decision the user has made.
  * @param {Record<RehashReason, number>} rehashed - Why this pass re-read what it re-read
  * @param {BackupSet} set - The set, so the fix names its own env file
+ * @param {"backup" | "snapshot"} command - The command being run, so the warning names it
  */
-function warnAboutCtimeChurn(rehashed, set) {
+function warnAboutCtimeChurn(rehashed, set, command) {
   if (!rehashed["ctime-on-read"]) {
     return;
   }
   const wasted = rehashed.ctime + rehashed["ctime-on-read"];
   console.warn(
     `Read ${countOf(wasted, "file")} again that had not changed: the change ` +
-      `time recorded against each had moved since the last backup — and ` +
-      `reading them moves it again, so every backup of '${set.name}' will ` +
+      `time recorded against each had moved since the last ${command} — and ` +
+      `reading them moves it again, so every ${command} of '${set.name}' will ` +
       `re-read them. Something is servicing the reads rather than editing the ` +
       `files (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
       `Google Drive).\n` +
