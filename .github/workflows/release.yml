@@ -140,12 +140,21 @@ jobs:
           ./dist/${{ matrix.bin }} --version
           ./dist/${{ matrix.bin }} prop package.json
 
-      # Assume the test role via OIDC for the gated round-trip below. Gated on the
-      # bucket var (mirrors ci.yml's s3-integration) — NOT the test-runner hard-fail
-      # — so a no-cred dispatch or fork still builds and ships artifacts; only the
-      # extra ship-gate assertion is skipped when there's no bucket.
+      # Assume the test role via OIDC for the gated round-trip below. Two conditions,
+      # each protecting the same promise — that a run which *can't* do the round trip
+      # still builds and ships its artifacts, skipping only the extra assertion:
+      #   - the bucket var (mirrors ci.yml's s3-integration), NOT the test-runner
+      #     hard-fail, so a fork or a no-cred dispatch is a skip rather than a failure.
+      #   - the ref, which must match what ci/aws/trust-policy.json actually trusts:
+      #     a dispatch from main, or a v* tag. Any other branch presents an OIDC
+      #     subject the role refuses, and assume-role failure is a *step* failure —
+      #     so without this the whole build matrix dies before it reaches the gate.
+      #     That is not hypothetical: it is what dry-running #319 from its own branch
+      #     did, which is a thing you'd want to do to any change to this file.
       - name: Configure AWS credentials (gated real-S3 round-trip)
-        if: vars.S3CAB_TEST_BUCKET != ''
+        if: >-
+          vars.S3CAB_TEST_BUCKET != '' && (github.ref == 'refs/heads/main' ||
+          startsWith(github.ref, 'refs/tags/v'))
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -160,10 +169,14 @@ jobs:
       # platform; #171 was a real per-platform stream-teardown bug the mocks all
       # passed). Content is unique per platform per run, so concurrent matrix legs never
       # collide in the shared objects/ store; the bucket's ~1-day lifecycle auto-expiry
-      # sweeps it (docs/design/testing.md). Runs on both v* tags and workflow_dispatch,
-      # so the whole matrix can be dry-run on demand and tagged only once green.
+      # sweeps it (docs/design/testing.md). Runs on a v* tag and on a workflow_dispatch
+      # **from main**, so the whole matrix can be dry-run on demand and tagged only once
+      # green. Same condition as the credentials step above — see its note for why the
+      # ref is part of it.
       - name: Real-S3 backup → restore round-trip (gated)
-        if: vars.S3CAB_TEST_BUCKET != ''
+        if: >-
+          vars.S3CAB_TEST_BUCKET != '' && (github.ref == 'refs/heads/main' ||
+          startsWith(github.ref, 'refs/tags/v'))
         shell: bash
         env:
           S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
