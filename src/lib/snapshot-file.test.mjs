@@ -665,6 +665,31 @@ describe("writeSnapshot", () => {
     );
   });
 
+  it("rounds the completion instant up, never back before the last row", async (t) => {
+    // The column holds milliseconds and the clock has more digits, so the write
+    // must round one way or the other — and truncating (the `toString` default)
+    // records a moment up to a millisecond *earlier* than the write really
+    // ended. A file whose ctime landed in that window then reads as touched
+    // after the snapshot and is distrusted for ever, which is the exact failure
+    // the trailer exists to end (ADR-0085). Caught by CI as a same-millisecond
+    // race on macOS; pinned here to an exact instant so it cannot come back.
+    await using dir = await mkTmpDir();
+    t.mock.method(Temporal.Now, "instant", () =>
+      Temporal.Instant.from("2026-06-23T10:30:00.123456789Z"),
+    );
+
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [resolve(dir.path, "a.txt")],
+      excluded: [],
+      getProps: props,
+    });
+
+    const { completed } = await readSnapshotFile(path);
+    assert.equal(completed, "2026-06-23T10:30:00.124Z");
+  });
+
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {
     await using dir = await mkTmpDir();
     /** @type {Parameters<typeof writeSnapshot>[2]} */

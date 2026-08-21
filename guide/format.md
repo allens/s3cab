@@ -342,8 +342,10 @@ Ctrl+C left behind (the `.snapshot.lookup.tsv.zst` file described below — the 
 s3cab writes `PARTIAL` into). The **instant** is when the last row was written, in the same
 UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other. It is
 recorded because `#SNAPSHOT`'s instant is stamped *before* the run reads anything, and
-s3cab needs to know when the reading finished. Two snapshots of an unchanged folder
-therefore differ in this one line, and nowhere else.
+s3cab needs to know when the reading finished. Read it as an upper bound: the column holds
+milliseconds and the clock is finer, so the figure is rounded **up** — everything in the
+file was written at or before the moment it names, never after. Two snapshots of an
+unchanged folder therefore differ in this one line, and nowhere else.
 
 Match the marker and **ignore anything after it** on that line: no truncation can add
 fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,

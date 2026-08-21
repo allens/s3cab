@@ -260,7 +260,10 @@ const SENTINEL_HASH = "f".repeat(64);
  * what the interrupted run would have written: its rows were hashed up to the
  * moment the user pressed Ctrl+C, not back when the snapshot this text was
  * copied from finished. The instant is the trust boundary those rows are judged
- * by (ADR-0085), so copying a stale one would test the wrong file.
+ * by (ADR-0085), so copying a stale one would test the wrong file. Rounded up
+ * for the same reason the writer rounds up: the ctimes this stands after were
+ * moved a fraction of a millisecond ago, and truncating would put the boundary
+ * back before them.
  * @param {string} snapshotsDir
  * @param {object} [options]
  * @param {boolean} [options.keepSnapshot] - Leave the snapshot in place: the *resume* state, where a completed run is followed by an interrupted one
@@ -275,7 +278,7 @@ function parkSentinelHashes(snapshotsDir, { keepSnapshot } = {}) {
     .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
     .replace(
       /^(#END\s+)\S+(\s+)\S+/m,
-      `$1PARTIAL$2${Temporal.Now.instant().toString({ smallestUnit: "millisecond" })}`,
+      `$1PARTIAL$2${Temporal.Now.instant().toString({ smallestUnit: "millisecond", roundingMode: "ceil" })}`,
     );
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.zst"),

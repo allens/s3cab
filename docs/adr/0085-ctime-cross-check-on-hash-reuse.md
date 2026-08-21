@@ -19,8 +19,11 @@ preserves [0081](0081-online-only-files-skipped.md)'s guarantee.
 > 1. **The `#END` trailer now carries a completion instant** and the reuse check weighs a file's
 >    ctime against *that* ([0082](0082-snapshot-end-trailer.md), amended the same day). It is
 >    stamped after the last row lands, so it is later than every read the pass made and the file
->    does settle. A trailer with no instant — one written before the column existed — falls back to
->    the `#SNAPSHOT` instant, which is earlier and so only ever more cautious.
+>    does settle — and **rounded up** to the millisecond the column holds, because truncating
+>    records a moment up to a millisecond before the write really ended and hands the last files
+>    a pass reads the very permanence this fixes. A trailer with no instant — one written before
+>    the column existed — falls back to the `#SNAPSHOT` instant, which is earlier and so only
+>    ever more cautious.
 > 2. **Each hash source carries its own boundary.** The parked-hash residual listed below ("may
 >    re-hash once on resume") was worse than it reads: the parked lookup and the previous snapshot
 >    were merged into one map, so one instant judged both, and it was the older one. Every parked

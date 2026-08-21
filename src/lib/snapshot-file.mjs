@@ -974,6 +974,18 @@ export async function* stringifySnapshot(snapshot, signal) {
  * The instant goes in col3, the column `#SNAPSHOT` puts its own instant in, so
  * the two timestamps in a file line up under each other. Col4 is left empty: it
  * is the path column on every row that has a path, and a trailer has none.
+ *
+ * **Rounded up, not truncated** — the column holds milliseconds and the clock
+ * has more digits than that, so one of the two directions has to be chosen and
+ * the default (`trunc`) is the wrong one. This instant's job is to vouch for
+ * everything that happened before it (ADR-0085), and a truncated value claims a
+ * moment up to a millisecond *earlier* than the write really ended — so a file
+ * whose ctime landed inside that last millisecond reads as touched afterwards
+ * and is distrusted for ever, which is the exact failure this trailer exists to
+ * end. Rounding up can over-vouch by under a millisecond instead: a rewrite
+ * completing inside the window between the true last row and the recorded
+ * instant. That is a far better trade, and `ctimeMs` carries sub-millisecond
+ * precision on every filesystem here, so the comparison stays meaningful.
  * @param {typeof COMPLETE | typeof PARTIAL} status - Whether the rows are all of them
  * @returns {string}
  */
@@ -981,7 +993,10 @@ const endLine = (status) =>
   formatLine(
     END,
     status,
-    Temporal.Now.instant().toString({ smallestUnit: "millisecond" }),
+    Temporal.Now.instant().toString({
+      smallestUnit: "millisecond",
+      roundingMode: "ceil",
+    }),
     "",
   );
 
