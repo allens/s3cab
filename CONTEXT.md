@@ -160,6 +160,16 @@ leftover one means a run is
 live or was interrupted, and the interrupted case's hashes are parked and reused (ADR-0067).
 _Avoid_: lock file, temp file (each names only half its job).
 
+**Partial snapshot**:
+A snapshot file holding only the rows a run got through before the user stopped it, closed with
+a `PARTIAL` `#END` trailer that says so (ADR-0082). The one s3cab writes is the parked lookup
+left by Ctrl+C (`.snapshot.lookup.tsv.zst`), which the next run reads for its hashes; a partial
+snapshot is never installed as a **snapshot** of the set and never uploaded. Its opposite in
+that column is `COMPLETE`, which every finished snapshot carries.
+_Avoid_: incomplete/truncated snapshot (truncation is *damage* — a partial snapshot is intact
+and deliberate, and the trailer is precisely what tells them apart), cancelled snapshot,
+half-snapshot.
+
 ### Cloud & commands
 
 **Remote**:

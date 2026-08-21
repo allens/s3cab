@@ -1,8 +1,47 @@
 # Distrust a size+mtime match whose ctime postdates the baseline
 
-**Status:** accepted — designed and implemented 2026-08-14. Tightens the change-detection reuse
+**Status:** accepted, amended once (2026-08-21). Tightens the change-detection reuse
 rule of [0045](0045-change-detection-local-baseline-list-fallback.md); the placeholder exemption
 preserves [0081](0081-online-only-files-skipped.md)'s guarantee.
+
+> **Amendment 1 (2026-08-21) — the boundary is each source's *completion* instant, not the
+> `#SNAPSHOT` header's.** "Self-healing, one pass" below is **false** on any volume where reading
+> a file moves its ctime. The Windows Cloud Files filter driver does exactly that when it services
+> a read — OneDrive Files On-Demand, and the same shape in Dropbox and Google Drive — so the pass
+> hashes a file, its own read pushes the ctime past the header instant it was weighed against, and
+> the next pass distrusts it again. For ever. Measured on a real 278,000-file OneDrive set: 97% of
+> files distrusted, **none of them changed**, 1.8 TB re-hashed every run. The decision was sound;
+> the instant it compared against was the wrong one, because the `#SNAPSHOT` instant is minted at
+> pass *start*, before a single file is read.
+>
+> Three changes, all inside this ADR's own decision:
+>
+> 1. **The `#END` trailer now carries a completion instant** and the reuse check weighs a file's
+>    ctime against *that* ([0082](0082-snapshot-end-trailer.md), amended the same day). It is
+>    stamped after the last row lands, so it is later than every read the pass made and the file
+>    does settle — and **rounded up** to the millisecond the column holds, because truncating
+>    records a moment up to a millisecond before the write really ended and hands the last files
+>    a pass reads the very permanence this fixes. A trailer with no instant — one written before
+>    the column existed — falls back to the `#SNAPSHOT` instant, which is earlier and so only
+>    ever more cautious.
+> 2. **Each hash source carries its own boundary.** The parked-hash residual listed below ("may
+>    re-hash once on resume") was worse than it reads: the parked lookup and the previous snapshot
+>    were merged into one map, so one instant judged both, and it was the older one. Every parked
+>    row's ctime postdates it, so a resume threw away precisely the work the parking had saved —
+>    not once, but every time. `readBaseline` now returns an ordered `HashSource[]`, parked first,
+>    each with the completion instant of the file it came from.
+> 3. **`S3CAB_SKIP_CHANGE_TIME_CHECK` is the escape hatch**, set in the set's env file, dropping
+>    every boundary so reuse goes on size and mtime alone. Off by default — this is a safety guard
+>    and turning it off is a trade — and a run that would benefit says so on screen, naming the
+>    file and the line. It fires on a *measured* fact rather than a guess about where the set
+>    lives: when the ctime guard vetoes a file, `fileProps` re-stats it after the read (one
+>    `lstat`, only for files already being re-hashed) and reports `ctime-on-read` when the read
+>    moved the ctime again. That is the signature of a filter driver rather than of anything
+>    editing the file.
+>
+> The `--rehash` recourse, the placeholder exemption, and the "no instant, no check" grant are all
+> unchanged. Everything from here down is the **original 2026-08-14 text**; read the
+> `previousInstant` threading and the "self-healing" consequence as history.
 
 ## Context
 

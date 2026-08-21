@@ -315,7 +315,7 @@ What those rows carry, for anyone reading a snapshot by hand:
 | `#EXCLUDED` | the entry's type | the exclude pattern that matched | the path |
 | `#SKIPPED` | the entry's type | why it was skipped | the path |
 | `#ERROR` | *(blank)* | the operating system's error text | the path |
-| `#END` | *(none — the whole line is `#END`)* | | |
+| `#END` | `COMPLETE` or `PARTIAL` | the instant the last row was written | *(blank)* |
 
 Those payloads are **context, not commitment**: new metadata kinds may appear and existing
 ones may change what they carry. The guarantee is the one above — skip every `#` line and
@@ -323,22 +323,38 @@ what remains is exactly the file rows. Two details matter before writing a parse
 are why the `#` test has to come first. `#ERROR`'s third column is a raw operating-system
 message and `#EXCLUDED`'s is a pattern copied from your `exclude.txt`, so neither carries a
 path's promise of being tab-free and either may push its line past four fields; and `#END`
-is a bare single-field line. Neither troubles a reader that tests for `#` before counting
-fields, and both break one that counts first.
+ends on an empty fourth column, so a reader trimming trailing whitespace sees three fields
+rather than four. Neither troubles a reader that tests for `#` before counting fields, and
+both break one that counts first.
 
-The last line of every snapshot is the trailer `#END`, which today carries no further
-fields. It exists to make truncation detectable: zstd happily decompresses a cut-short file
-to a byte *prefix* of the original, which would otherwise read as a valid, smaller
-snapshot. A snapshot without the `#END` trailer is damaged goods — treat it as truncated,
-not as complete. (A reader that only wants the file rows can still skip every `#` line;
-checking for the trailer first is what tells it the rows it read are all of them.)
+The last line of every snapshot is the trailer `#END`. It exists to make truncation
+detectable: zstd happily decompresses a cut-short file to a byte *prefix* of the original,
+which would otherwise read as a valid, smaller snapshot. A snapshot without the `#END`
+trailer is damaged goods — treat it as truncated, not as complete. (A reader that only
+wants the file rows can still skip every `#` line; checking for the trailer first is what
+tells it the rows it read are all of them.)
+
+Its two columns say how the run ended, and they answer different questions. The trailer
+being **there** means s3cab ended the file deliberately, so the last row is whole — a
+killed process leaves no trailer at all. The **status** then says whether the rows are all
+of them: `COMPLETE` for a finished snapshot, `PARTIAL` for the hashes a run stopped with
+Ctrl+C left behind (the `.snapshot.lookup.tsv.zst` file described below — the only file
+s3cab writes `PARTIAL` into). The **instant** is when the last row was written, in the same
+UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other. It is
+recorded because `#SNAPSHOT`'s instant is stamped *before* the run reads anything, and
+s3cab needs to know when the reading finished. Read it as an upper bound: the column holds
+milliseconds and the clock is finer, so the figure is rounded **up** — everything in the
+file was written at or before the moment it names, never after. Two snapshots of an
+unchanged folder therefore differ in this one line, and nowhere else.
 
 Match the marker and **ignore anything after it** on that line: no truncation can add
 fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
 and tolerating them leaves room to add a column later without breaking readers already
-written against this spec. The test, concretely, is the one every other marker gets: take the
-**first tab-separated field and trim it**, and the line is the trailer when that equals
-`#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers, and `#ENDX` is not one.
+written against this spec. (That room has been used once already: the trailer was a bare
+`#END` before the two columns above.) The test, concretely, is the one every other marker
+gets: take the **first tab-separated field and trim it**, and the line is the trailer when
+that equals `#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers, and
+`#ENDX` is not one.
 
 Three smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
@@ -372,6 +388,14 @@ s3cab's own rather than standard `AWS_*` ones: `S3CAB_BUCKET` (the set's bucket)
 set in Roles Anywhere mode, the marker `S3CAB_RA=1` — a pointer to the machine identity
 below, never credential material itself.
 
+A third is optional, and s3cab tells you about it only if your set is one that needs it:
+`S3CAB_SKIP_CHANGE_TIME_CHECK=1`. Before reusing a stored hash, s3cab checks the file's *change
+time* as well as its size and modification time, so that a file rewritten to exactly its old
+size with its old modification time put back afterwards is still noticed. On a folder your
+cloud client syncs, reading a file can move its change time all by itself, and then every
+backup re-reads the whole set for nothing. This line turns that check off for one set —
+s3cab prints it, with the cost spelled out, when it measures the problem happening.
+
 `roles-anywhere/` holds the machine's keyless identity, shared by every set in that mode:
 the self-signed CA (`ca.pem`/`ca.key`), the client certificate and its signing key
 (`client.pem`/`client.key` — the private keys never leave this directory), and an `env`
@@ -386,8 +410,9 @@ dot, neither is ever uploaded, and both are safe to delete when nothing is runni
   snapshot when the run completes. One left behind means a run was killed part-way; s3cab
   says so, and names it, the next time you snapshot that set.
 - `.snapshot.lookup.tsv.zst` — the file hashes from a snapshot you stopped with Ctrl+C,
-  kept so the next run doesn't have to work them out again. It is read as a lookup only —
-  every hash in it is re-checked against the file's current size and modification time
+  kept so the next run doesn't have to work them out again. Structurally it is a snapshot
+  like any other, closed with a `PARTIAL` trailer that says so. It is read as a lookup only
+  — every hash in it is re-checked against the file's current size and modification time
   before being trusted — and it is deleted as soon as a snapshot completes.
 
 Editing a set *is* editing these files; deleting the directory deletes the set. In both

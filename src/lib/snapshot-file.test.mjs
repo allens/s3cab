@@ -13,6 +13,7 @@ import {
   parseSnapshotStream,
   readParkedLookup,
   readSnapshot,
+  readSnapshotFile,
   snapshotFileName,
   snapshotMoment,
   snapshotNames,
@@ -131,6 +132,34 @@ describe("parseSnapshotStream", () => {
     });
   });
 
+  it("reads the trailer's status and completion instant", async () => {
+    const text = [
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      "#END\t   PARTIAL\t2026-06-12T08:20:44.500Z\t",
+    ].join("\n");
+
+    const { status, completed } = await parse(text);
+
+    assert.equal(status, "PARTIAL");
+    assert.equal(completed, "2026-06-12T08:20:44.500Z");
+  });
+
+  it("reads a bare trailer as a file that names neither", async () => {
+    // A trailer written before the columns existed. `undefined` is the honest
+    // reading: a caller wanting a trust boundary falls back to the `#SNAPSHOT`
+    // instant, which is earlier and so only ever more cautious (ADR-0085).
+    const text = [
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      "#END",
+    ].join("\n");
+
+    const { status, completed, entries } = await parse(text);
+
+    assert.equal(status, undefined);
+    assert.equal(completed, undefined);
+    assert.equal(entries.size, 1, "the rows still parse");
+  });
+
   it("skips blank lines without throwing", async () => {
     // A hand-edited snapshot file may have blank lines (e.g. trailing newline).
     // The parser must skip them gracefully rather than asserting.
@@ -221,6 +250,19 @@ const momentOf = (name) => ({
   instant: "2026-06-23T09:00:00.000Z",
   zone: "Europe/London",
 });
+
+/**
+ * A snapshot file's text with the one field a caller can't fix: the `#END`
+ * trailer's completion instant, minted from the clock as the last row lands. It
+ * is the only thing in the file `momentOf` above doesn't already pin, so this is
+ * what makes two runs comparable.
+ * @param {string} path - A written snapshot file
+ * @returns {string}
+ */
+const textWithoutEndInstant = (path) =>
+  zstdDecompressSync(readFileSync(path))
+    .toString("utf8")
+    .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z(\s*\t)$/m, "<instant>$1");
 
 // listSnapshotNames is the storage core behind the `list` command — a temp dir
 // stands in for a set's `~/.s3cab/sets/<set>/snapshots/`. The set resolution
@@ -524,7 +566,13 @@ describe("writeSnapshot", () => {
   it("passes rows through `through` and writes the identical file (the fusion seam)", async () => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the
-    // snapshot says — so the two files must be byte-identical.
+    // snapshot says — so the two files must be identical row for row.
+    //
+    // Every line but one, because the `#END` trailer times itself: it records
+    // when the last row landed, and these two runs land theirs milliseconds
+    // apart. That is the trailer doing its job (ADR-0085 — the boundary a later
+    // pass weighs a file's ctime against has to be a real instant), not the
+    // transform changing anything, so it is normalized out rather than asserted.
     await using dir = await mkTmpDir();
     const files = [resolve(dir.path, "a.txt"), resolve(dir.path, "b.txt")];
     const args = {
@@ -543,7 +591,7 @@ describe("writeSnapshot", () => {
       momentOf("2026-06-23T1000"),
       args,
     );
-    const withoutStage = readFileSync(plain);
+    const withoutStage = textWithoutEndInstant(plain);
     const fused = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       ...args,
       through: async function* (rows) {
@@ -557,7 +605,7 @@ describe("writeSnapshot", () => {
 
     // Every row reached the transform, in file order, before reaching the TSV.
     assert.deepEqual(seen, files);
-    assert.deepEqual(readFileSync(fused), withoutStage);
+    assert.equal(textWithoutEndInstant(fused), withoutStage);
   });
 
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
@@ -587,6 +635,59 @@ describe("writeSnapshot", () => {
     // The instant lands in `mtime`'s own column, which is why it fits: an ISO
     // instant at millisecond precision is exactly the 24 characters col3 pads to.
     assert.equal(instant.length, 24);
+  });
+
+  it("closes a finished snapshot COMPLETE, at an instant after its last row", async () => {
+    await using dir = await mkTmpDir();
+    const before = Temporal.Now.instant();
+
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [resolve(dir.path, "a.txt")],
+      excluded: [],
+      getProps: props,
+    });
+
+    const { status, completed } = await readSnapshotFile(path);
+    assert.equal(status, "COMPLETE");
+    assert.ok(completed, "a finished snapshot must record when it finished");
+    // The trailer times *itself*, which is the whole reason it is worth a
+    // column: the header's instant is minted before the pass reads anything, so
+    // it cannot vouch for a file whose ctime the reading moved (ADR-0085).
+    assert.ok(
+      Temporal.Instant.compare(completed, before) >= 0,
+      `the completion instant must be after the write began: ${completed}`,
+    );
+    assert.ok(
+      Temporal.Instant.compare(completed, "2026-06-23T09:00:00.000Z") > 0,
+      "and later than the #SNAPSHOT instant, which the caller pinned to 2026",
+    );
+  });
+
+  it("rounds the completion instant up, never back before the last row", async (t) => {
+    // The column holds milliseconds and the clock has more digits, so the write
+    // must round one way or the other — and truncating (the `toString` default)
+    // records a moment up to a millisecond *earlier* than the write really
+    // ended. A file whose ctime landed in that window then reads as touched
+    // after the snapshot and is distrusted for ever, which is the exact failure
+    // the trailer exists to end (ADR-0085). Caught by CI as a same-millisecond
+    // race on macOS; pinned here to an exact instant so it cannot come back.
+    await using dir = await mkTmpDir();
+    t.mock.method(Temporal.Now, "instant", () =>
+      Temporal.Instant.from("2026-06-23T10:30:00.123456789Z"),
+    );
+
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [resolve(dir.path, "a.txt")],
+      excluded: [],
+      getProps: props,
+    });
+
+    const { completed } = await readSnapshotFile(path);
+    assert.equal(completed, "2026-06-23T10:30:00.124Z");
   });
 
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {
@@ -777,10 +878,16 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // Exactly the rows hashed before the stop, and nothing half-written.
-    const entries = await readParkedLookup(dir.path);
-    assert.ok(entries);
-    assert.deepEqual([...entries.keys()], files.slice(0, 2));
-    assert.equal(entries.get(files[0] ?? "")?.hash, hashA);
+    const parked = await readParkedLookup(dir.path);
+    assert.ok(parked);
+    assert.deepEqual([...parked.entries.keys()], files.slice(0, 2));
+    assert.equal(parked.entries.get(files[0] ?? "")?.hash, hashA);
+    // The completion instant comes back with them — the boundary the resumed
+    // run judges these very hashes by (ADR-0085).
+    assert.ok(
+      parked.completed && Temporal.Instant.from(parked.completed),
+      `parked lookup must carry when it was written, got: ${parked.completed}`,
+    );
   });
 
   it("ends the parked file on a whole row, never a torn one", async () => {
@@ -792,13 +899,17 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // A clean `end()` flushes whole writes only, so the last byte is the
-    // newline of the last complete row — a truncated row would not parse.
+    // newline of the last complete row — a truncated row would not parse. The
+    // trailer says PARTIAL: it is there because the stop was controlled, and it
+    // must not read as a finished snapshot (ADR-0082).
     const text = zstdDecompressSync(
       readFileSync(parkedPath(dir.path)),
     ).toString("utf8");
-    assert.ok(
-      text.endsWith("#END\n"),
-      `parked file must close with the #END trailer, got: ${JSON.stringify(text.slice(-24))}`,
+    const trailer = text.split("\n").at(-2) ?? "";
+    assert.match(
+      trailer,
+      /^#END\s+PARTIAL\t\d{4}-\d\d-\d\dT[\d:.]+Z\s*\t$/,
+      `parked file must close with a PARTIAL #END trailer, got: ${JSON.stringify(trailer)}`,
     );
     for (const line of text.split("\n").filter(Boolean).slice(0, -1)) {
       assert.equal(line.split("\t").length, 4, `whole row expected: ${line}`);
@@ -849,7 +960,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       InterruptedError,
     );
     const first = await readParkedLookup(dir.path);
-    assert.equal(first?.size, 1);
+    assert.equal(first?.entries.size, 1);
 
     // The resumed run re-records the reused rows into its own work file, so its
     // parked file is a superset — and replacing must work on Windows too, where
@@ -859,7 +970,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       InterruptedError,
     );
     const second = await readParkedLookup(dir.path);
-    assert.deepEqual([...(second?.keys() ?? [])], files.slice(0, 3));
+    assert.deepEqual([...(second?.entries.keys() ?? [])], files.slice(0, 3));
   });
 
   it("leaves no signal listeners behind after the write", async () => {

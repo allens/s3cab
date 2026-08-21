@@ -20,7 +20,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
-/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookup?: Map<string, object> }} */
+/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookups?: object[] }} */
 let baseline;
 /** @type {Record<string, unknown>[]} the args each `storedHashes` call got */
 let storedCalls = [];
@@ -136,7 +136,7 @@ beforeEach(() => {
     name: "2026-01-01T0900",
     previous: new Map(),
     previousErrors: new Map(),
-    lookup: new Map(),
+    lookups: [{ entries: new Map() }],
   };
   storedCalls = [];
   generateCalls = [];
@@ -198,11 +198,11 @@ describe("backup (the fused pass)", () => {
       generateCalls[0]?.through,
       "expected the upload transform to be passed",
     );
-    assert.equal(generateCalls[0]?.lookup, baseline.lookup);
+    assert.equal(generateCalls[0]?.lookups, baseline.lookups);
     // And the baseline again as `sizes` — the progress line's byte denominator,
-    // which is the *previous* entries rather than the `lookup` they are overlaid
-    // into. Asserted because dropping it in a refactor costs nothing visible in
-    // a test but silently reverts the progress line to counts alone.
+    // which is the *previous* entries rather than one of the `lookups` they are
+    // a source in. Asserted because dropping it in a refactor costs nothing
+    // visible in a test but silently reverts the progress line to counts alone.
     assert.equal(generateCalls[0]?.sizes, baseline.previous);
     assert.deepEqual(manifestCalls, [
       {
