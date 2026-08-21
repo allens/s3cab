@@ -319,10 +319,9 @@ Exclude rules live in `~/.s3cab/sets/<set>/exclude.txt`, applied relative to eac
 set's directories; run `s3cab help exclude` for a quick reference, or see
 [guide/exclude.md](guide/exclude.md) for the full guide.
 
-> s3cab is developed primarily on **Windows**, but the test suite runs on Windows, Linux and
-> macOS on every change, and each release is smoke-tested with a real backup-and-restore
-> round trip per platform. Snapshot paths are absolute and use the native OS path style —
-> `restore --output` is what carries a backup across the divide.
+> The test suite runs on Windows, Linux and macOS on every change. Snapshot paths are
+> absolute and use the native OS path style — `restore --output` is what carries a backup
+> across the divide.
 
 ## Cloud repositories
 
