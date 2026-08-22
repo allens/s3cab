@@ -1554,7 +1554,10 @@ describe("renderFind", () => {
         }),
       )
         .split("\n")
-        .find((line) => line.includes("modified"));
+        // The size/mtime line by its shape, not by a word that a path or a
+        // future warning could also carry — a loose predicate would fail on the
+        // wrong line, or on `undefined`, and say nothing about the size.
+        .find((line) => /^# {3}[\d,]+ bytes/.test(line));
 
     // The case the gloss exists for: 11 raw digits say nothing at a glance.
     assert.equal(
