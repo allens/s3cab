@@ -37,6 +37,8 @@ mock.module("../lib/s3.mjs", {
     isObjectNotFound: (/** @type {unknown} */ error) =>
       Error.isError(error) && error.name === "NoSuchKey",
     deleteObject: async () => {},
+    // Imported by objects.mjs (storedObjectSize); no test here calls it.
+    objectSize: async () => undefined,
   },
 });
 

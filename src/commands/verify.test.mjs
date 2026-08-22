@@ -146,7 +146,7 @@ describe("verify command", () => {
   it("reports a recorded deletion as expected-missing and leaves the exit code untouched", async () => {
     referencedBySet.set("photos", ref({ gone: [10, ["s1"]] }));
     storedObjects = []; // absent — but the record explains it
-    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await verify("my-backups");
 
@@ -154,7 +154,11 @@ describe("verify command", () => {
     assert.ok(report);
     assert.deepEqual(report.problems, []);
     assert.deepEqual(report.expectedMissing, [
-      { path: "/data/gone", snapshots: ["s1"], deletedOn: "2026-07-19T1422" },
+      {
+        path: "/data/gone",
+        snapshots: ["s1"],
+        deletedOn: "2026-07-19T14:22:41.000Z",
+      },
     ]);
     // The whole point of the partition: `verify || alert` stays quiet after a
     // deliberate delete.
@@ -167,7 +171,7 @@ describe("verify command", () => {
       ref({ gone: [10, ["s1"]], lost: [20, ["s1"]] }),
     );
     storedObjects = [];
-    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await verify("my-backups");
 

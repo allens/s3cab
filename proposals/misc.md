@@ -39,21 +39,18 @@ seed of a future "platform / release" epic).
   which *calls* this one — so the rename needs a name that distinguishes the two, not one that
   collides them. Pure readability renames, no behaviour change; would sweep the callers and doc
   references.
-- **`delete`'s participating-set scope has a silent completeness gap** (watch in real usage;
-  ADR-0064). Because scope is *the sets attached on this machine*, a set of yours you haven't
-  `reattach`-ed here **silently protects** its content — `delete` reclaims nothing for it, and
-  the only signal is the survivor line naming a set you recognize. This is the deliberate price
-  of the "can't break anyone else's restorability by construction" guarantee (an unattached set
-  is treated exactly like a stranger's, the fail-safe direction), and the preview does name the
-  keeper. But in genuine multi-machine use it will read as "why didn't it delete?", answered
-  only by `reattach <set>` + re-run. Only real usage tells whether that loop is acceptable or
-  wants smoothing (e.g. the preview naming the *unattached* sets a fuller-scope run would also
-  clear, or a `--include-set` escape). Do **not** "fix" it by scoping off the remote set list —
-  that would let one machine delete content another still wants, which is exactly what the
-  local-attachment-as-consent model prevents.
 - **Show upload speed.** When showing upload progress show e.g. 2.3MB/s.
-- **Look into deletion record TSV format** Should it be more like the snapshot version?
-- **Column ordering and types in snapshot format** Should col1 just be # for non data records and col2 be size or lable (the #EXCLUDE directory/file thing is redundant due to trailing / in the exclude path)
+- **Column ordering and types in snapshot format** Should col1 just be # for non data records and col2 be size or lable (the #EXCLUDE directory/file thing is redundant due to trailing / in the exclude path). The deletion record ([ADR-0090](../docs/adr/0090-deletion-record-format-compaction.md)) now reuses the column grammar verbatim — a second format keyed on the same positional types raises the stakes of changing them.
+- **Should a set be usable from only one machine?** The multi-machine door is held open for one
+  edge case — two machines synced to the same OneDrive — which probably works fine with a set
+  each, since the dedup (the real value) is bucket-wide either way. Closing it would remove a
+  recurring thorn: it retires `list --remote`, makes `reattach`'s one-time pull complete by
+  construction, and narrows the cross-set race in
+  [concurrency-and-locking.md](concurrency-and-locking.md). **Needs its own session.**
+- **On-demand snapshot sync** — "any command that relies on snapshots should sync with the
+  remote". Today `reattach` pulls once, so a set backed up from two machines leaves each with
+  history the other never sees. It dissolves entirely if one-machine-per-set lands, which is why
+  it is not a `find` flag.
 - **Still consider second level snapshot file syntax** e.g. #SNAPSHOT:mysnapshotname. Frees up other columns. We use some of that nice 64 char column space (coincidently nearly set lenght max), reads well and as agreed nobody filters on the #SNAPSHOT row anyway. Keeping it in the bag rather than deciding it: the trigger would be wanting col2 for something else — hostname and user are the candidates that come to mind (but that's the same PII question [metadata-privacy.md](metadata-privacy.md) is open on, so settle it there). Recorded as not-taken-for-now in [ADR-0072](../docs/adr/0072-timestamps-utc-in-files-local-in-names.md).
 - **A `s3cab://bucket/set/snapshot` URI scheme, if an input site ever wants one.** Observed while
   settling ADR-0074's `set/snapshot` notation: the hierarchy `bucket → set → snapshot` is real, it

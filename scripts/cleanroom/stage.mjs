@@ -432,8 +432,11 @@ file(join(edge, "🎉 emoji 🎉.txt"), "astral plane\n");
 file(join(edge, "empty.txt"), "");
 // Same bytes under two names, in different directories: one object, two rows. Proves
 // the store is content-addressed and that a restorer keyed on path still gets both.
-file(join(edge, "dedup-a.txt"), "shared content\n");
-file(join(edge, "sub", "dedup-b.txt"), "shared content\n");
+// The hash is F5's delete operand below — one hash, because there is one object.
+const dedupContent = "shared content\n";
+const dedupHash = createHash("sha256").update(dedupContent).digest("hex");
+file(join(edge, "dedup-a.txt"), dedupContent);
+file(join(edge, "sub", "dedup-b.txt"), dedupContent);
 // F6: mtimes chosen to be awkward rather than merely old — a value that rounds up
 // across a second boundary, the 32-bit signed overflow, and a pre-1980 date.
 file(join(edge, "mtime-rounds-up.txt"), "x\n", 1_500_000_000.9996);
@@ -534,7 +537,9 @@ file(join(faults, "torn.txt"), tornContent);
 // file's content and then re-backs it up — the presence-wins trap — leaving nothing in
 // the corpus that is absent *and* recorded. This one is deleted and stays deleted, so
 // the spec's "skips them gracefully with their date" has something to skip.
-file(join(faults, "deleted.txt"), `gone ${randomBytes(16).toString("hex")}\n`);
+const deletedContent = `gone ${randomBytes(16).toString("hex")}\n`;
+const deletedHash = createHash("sha256").update(deletedContent).digest("hex");
+file(join(faults, "deleted.txt"), deletedContent);
 
 /**
  * `corrupt`: an object with the right key and the wrong bytes — run 2's finding 4, where
@@ -608,14 +613,7 @@ for (const [name] of sets) {
 // records as authoritative skips a file it could have restored — silently, reporting
 // success. The first snapshot is the one that exercises it, so it has to already exist.
 console.log("delete + re-backup (F5: presence wins)");
-mustRun([
-  "delete",
-  "--bucket",
-  bucket,
-  "--force",
-  join(edge, "dedup-a.txt"),
-  join(edge, "sub", "dedup-b.txt"),
-]);
+mustRun(["delete", "--bucket", bucket, "--force", dedupHash]);
 await waitForNextMinute();
 mustRun(["backup", "edge"]);
 
@@ -633,7 +631,7 @@ await client.send(
 // record says so — which is the case the spec answers with "skips them gracefully with
 // their date" and the one run 2 reported it had never been able to run.
 console.log("delete without re-backup (the recorded-deletion skip)");
-mustRun(["delete", "--bucket", bucket, "--force", join(faults, "deleted.txt")]);
+mustRun(["delete", "--bucket", bucket, "--force", deletedHash]);
 
 // Right key, wrong bytes. Not `s3cab delete` and not a tear: the object is *present* and
 // hashes to something else, so a restorer that trusts the key restores corrupt content

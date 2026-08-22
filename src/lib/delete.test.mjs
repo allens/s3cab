@@ -1,378 +1,157 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  deletionRows,
-  formatDeletePreviewFile,
-  formatDeleteSummary,
-  planDelete,
-  unreadableDeleteMessage,
-} from "./delete.mjs";
+import { renderFind } from "../render.mjs";
+import { collectHashes, EMPTY_FILE_HASH } from "./delete.mjs";
 
-/** @import { ReferencedResult } from "./referenced.mjs" */
+// The operand grammar of the hash-operand `delete` (ADR-0089): exactness is
+// the safety story — anything that is not a SHA-256 is rejected data for the
+// command's loud error, never a guess — while `find`'s comment garnish is the
+// one lenient direction. The `--from-file` cases therefore parse `renderFind`'s
+// *real* output (the actual producer's bytes, warnings and all), not a
+// hand-written imitation of it.
 
-// planDelete is the safety-critical arithmetic of the deletion rework
-// (ADR-0064): which stored objects the named paths doom, and — more important
-// — which references *protect* an object from going. Pure, so every edge is
-// pinned here with no mocks: the scope rule (participating sets only), the
-// whole-selection evaluation, the --everywhere override and its
-// resolve-in-scope-only constraint, and the no-match bookkeeping behind the
-// loud error. The command shell around it is covered in
-// commands/delete.test.mjs.
+const HASH_A = "a".repeat(64);
+const HASH_B = "b".repeat(64);
+const HASH_C = "c".repeat(64);
 
 /**
- * A ReferencedResult from `{ hash: [path, ...] }` — every path recorded at
- * `size` (default 10), from one snapshot `s1`.
- * @param {Record<string, string[]>} spec
- * @param {{ size?: number, unreadable?: { snapshot: string, reason: string }[] }} [options]
- * @returns {ReferencedResult}
+ * A realistic FindResult, shaped as `find` builds it (lib/find.mjs typedefs):
+ * two files in one set, one object shared with a path outside the search — the
+ * dedup warning case — plus an unreadable snapshot, so the file exercises every
+ * comment shape `renderFind` can emit around the hash lines.
  */
-const ref = (spec, { size = 10, unreadable = [] } = {}) => ({
-  referenced: new Map(
-    Object.entries(spec).map(([hash, paths]) => [
-      hash,
-      {
-        paths: new Map(
-          paths.map((path) => [
-            path,
-            { sizes: new Set([size]), snapshots: new Set(["s1"]) },
-          ]),
-        ),
-      },
-    ]),
-  ),
-  snapshotsChecked: 1,
-  unreadable,
-});
-
-/** @param {[string, ReferencedResult][]} sets */
-const bucket = (sets) => new Map(sets);
-
-describe("planDelete", () => {
-  it("deletes content referenced only under the named paths, with its references and totals", () => {
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/doomed.txt", "/data/doomed-copy.txt"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
-    assert.equal(plan.deletable.length, 1);
-    assert.equal(plan.deletable[0]?.hash, "aaa");
-    assert.equal(plan.totalFiles, 2); // two paths, one object
-    assert.equal(plan.totalBytes, 10); // bytes once per object, not per path
-    assert.deepEqual(plan.survivors, []);
-    assert.deepEqual(plan.unmatchedPaths, []);
-    assert.deepEqual(plan.bySet, [{ set: "mine", files: 2, inScope: true }]);
-  });
-
-  it("protects content referenced by a set not in scope — even under the same path string", () => {
-    // The cross-user guarantee: an unattached set's reference keeps the object,
-    // and an identical absolute path over there is a namesake, not consent.
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/file.txt"] })],
-        ["theirs", ref({ aaa: ["/data/file.txt"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
-    assert.deepEqual(plan.deletable, []);
-    assert.equal(plan.survivors.length, 1);
-    assert.deepEqual(plan.survivors[0], {
-      path: "/data/file.txt",
-      set: "mine",
-      keptBy: { set: "theirs", path: "/data/file.txt" },
-    });
-    // The named path *did* match something, so it must not read as a typo.
-    assert.deepEqual(plan.unmatchedPaths, []);
-  });
-
-  it("protects content the same set still references under a path outside the selection", () => {
-    const plan = planDelete(
-      bucket([["mine", ref({ aaa: ["/data/x.txt", "/keep/copy.txt"] })]]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
-    assert.deepEqual(plan.deletable, []);
-    assert.deepEqual(plan.survivors[0]?.keptBy, {
-      set: "mine",
-      path: "/keep/copy.txt",
-    });
-  });
-
-  it("deletes across participating sets in one run, counting a shared path once", () => {
-    // Two of *my* sets both hold /data/x.txt — the "same folder backed up from
-    // two of my machines" case bucket-wide matching exists for.
-    const plan = planDelete(
-      bucket([
-        ["desktop", ref({ aaa: ["/data/x.txt"] })],
-        ["laptop", ref({ aaa: ["/data/x.txt"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["desktop", "laptop"] },
-    );
-    assert.equal(plan.deletable.length, 1);
-    assert.equal(plan.totalFiles, 1); // same path in two sets = one file
-    assert.deepEqual(plan.bySet, [
-      { set: "desktop", files: 1, inScope: true },
-      { set: "laptop", files: 1, inScope: true },
-    ]);
-  });
-
-  it("evaluates the whole selection at once — content shared by two named paths goes", () => {
-    // Judged per path independently, each would see the other's reference as a
-    // protector; over the selection, both are going, so nothing protects it.
-    const plan = planDelete(
-      bucket([["mine", ref({ aaa: ["/a/x.txt", "/b/y.txt"] })]]),
-      { paths: ["/a", "/b"], scopeSets: ["mine"] },
-    );
-    assert.equal(plan.deletable.length, 1);
-    // Matched by both named paths → attributed to the shared row, not either path.
-    assert.deepEqual(
-      plan.byPath.map((p) => p.files),
-      [0, 0],
-    );
-    assert.equal(plan.sharedFiles, 2);
-    assert.equal(plan.sharedBytes, 10);
-  });
-
-  it("attributes objects matched by exactly one named path to that path", () => {
-    const plan = planDelete(
-      bucket([["mine", ref({ aaa: ["/a/x.txt"], bbb: ["/b/y.txt"] })]]),
-      { paths: ["/a", "/b"], scopeSets: ["mine"] },
-    );
-    assert.deepEqual(plan.byPath, [
-      { path: "/a", files: 1, bytes: 10 },
-      { path: "/b", files: 1, bytes: 10 },
-    ]);
-    assert.equal(plan.sharedFiles, 0);
-  });
-
-  it("--everywhere overrides protection, keeping every reference as a record row", () => {
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/secret.env"] })],
-        ["theirs", ref({ aaa: ["/other/copy.env"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"], everywhere: true },
-    );
-    assert.equal(plan.deletable.length, 1);
-    assert.deepEqual(plan.survivors, []);
-    // The collateral set is named — the summary's WARNING and the record's rows
-    // both come from here.
-    assert.deepEqual(plan.bySet, [
-      { set: "mine", files: 1, inScope: true },
-      { set: "theirs", files: 1, inScope: false },
-    ]);
-    assert.equal(plan.totalFiles, 2); // their path becomes unrestorable too
-    const refs = plan.deletable[0]?.refs ?? [];
-    assert.deepEqual(
-      refs.map((r) => [r.set, r.path, r.inSelection]),
-      [
-        ["mine", "/data/secret.env", true],
-        ["theirs", "/other/copy.env", false],
-      ],
-    );
-  });
-
-  it("--everywhere still resolves paths in the participating sets only — a stranger's namesake content is untouched", () => {
-    // theirs holds *different* content under the same path string; only the
-    // content MY sets recorded there may be nuked.
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/secret.env"] })],
-        ["theirs", ref({ bbb: ["/data/secret.env"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"], everywhere: true },
-    );
-    assert.deepEqual(
-      plan.deletable.map((o) => o.hash),
-      ["aaa"],
-    );
-  });
-
-  it("reports named paths that match nothing — including one that only a stranger's set has", () => {
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/x.txt"] })],
-        ["theirs", ref({ bbb: ["/elsewhere/y.txt"] })],
-      ]),
-      {
-        paths: ["/data", "/typo", "/elsewhere"],
-        scopeSets: ["mine"],
-      },
-    );
-    // /typo names nothing anywhere; /elsewhere exists only out of scope — both
-    // are "not backed up here" as far as this machine's delete is concerned.
-    assert.deepEqual(plan.unmatchedPaths, ["/typo", "/elsewhere"]);
-  });
-
-  it("a blank or separator-only path matches nothing (never everything)", () => {
-    const plan = planDelete(bucket([["mine", ref({ aaa: ["/data/x.txt"] })]]), {
-      paths: ["", "/"],
-      scopeSets: ["mine"],
-    });
-    assert.deepEqual(plan.deletable, []);
-    assert.deepEqual(plan.unmatchedPaths, ["", "/"]);
-  });
-
-  it("a snapshot-name operand (old forget muscle memory) matches nothing", () => {
-    const plan = planDelete(bucket([["mine", ref({ aaa: ["/data/x.txt"] })]]), {
-      paths: ["2026-07-19T1422"],
-      scopeSets: ["mine"],
-    });
-    assert.deepEqual(plan.unmatchedPaths, ["2026-07-19T1422"]);
-  });
-
-  it("reports the size as the largest any snapshot row records (never understate)", () => {
-    /** @type {ReferencedResult} */
-    const torn = {
-      referenced: new Map([
-        [
-          "aaa",
-          {
-            paths: new Map([
-              [
-                "/data/x.txt",
-                { sizes: new Set([10, 999]), snapshots: new Set(["s1", "s2"]) },
-              ],
-            ]),
-          },
-        ],
-      ]),
-      snapshotsChecked: 2,
-      unreadable: [],
-    };
-    const plan = planDelete(bucket([["mine", torn]]), {
-      paths: ["/data"],
-      scopeSets: ["mine"],
-    });
-    assert.equal(plan.totalBytes, 999);
-  });
-
-  it("passes unreadable snapshots through as data for the command's interlock", () => {
-    const plan = planDelete(
-      bucket([
-        [
-          "mine",
-          ref(
-            { aaa: ["/data/x.txt"] },
-            { unreadable: [{ snapshot: "s0", reason: "zstd" }] },
-          ),
-        ],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
-    assert.deepEqual(plan.unreadable, ["mine/s0"]);
-  });
-});
-
-describe("deletionRows", () => {
-  it("emits one row per (hash, path), de-duplicated across sets and sorted by path", () => {
-    const plan = planDelete(
-      bucket([
-        ["desktop", ref({ aaa: ["/data/b.txt", "/data/a.txt"] })],
-        ["laptop", ref({ aaa: ["/data/a.txt"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["desktop", "laptop"] },
-    );
-    assert.deepEqual(deletionRows(plan), [
-      { hash: "aaa", path: "/data/a.txt" },
-      { hash: "aaa", path: "/data/b.txt" },
-    ]);
-  });
-});
-
-describe("formatDeleteSummary", () => {
-  const context = {
-    everywhere: false,
-    reportPath: "/tmp/preview.txt",
-    bucket: "my-bucket",
-  };
-
-  it("caveats a dry run with the *same* text the acting run refuses with", () => {
-    const plan = planDelete(
-      bucket([
-        [
-          "mine",
-          ref(
-            { aaa: ["/data/x.txt"] },
+const findResult = {
+  patterns: ["secretsdir/"],
+  searched: [{ name: "media", bucket: "my-backups", snapshots: 12 }],
+  files: [
+    {
+      path: "D:\\Media\\secretsdir\\aws-keys.txt",
+      objects: [
+        {
+          hash: HASH_A,
+          size: 1204,
+          mtime: "2026-08-14T09:31:07.412Z",
+          spans: [
             {
-              unreadable: [{ snapshot: "s0", reason: "zstd" }],
+              set: "media",
+              first: "2026-08-14T0935",
+              last: "2026-08-20T0900",
+              count: 7,
             },
-          ),
-        ],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
+          ],
+          alsoBacks: [],
+        },
+      ],
+    },
+    {
+      path: "D:\\Media\\secretsdir\\backup.env",
+      objects: [
+        {
+          hash: HASH_B,
+          size: 892,
+          mtime: "2026-08-19T22:10:41.006Z",
+          spans: [
+            {
+              set: "media",
+              first: "2026-08-20T0900",
+              last: "2026-08-20T0900",
+              count: 1,
+            },
+          ],
+          alsoBacks: ["D:\\Media\\other\\copy.env"],
+        },
+      ],
+    },
+  ],
+  unreadable: [
+    { set: "media", snapshot: "2026-01-01T0000", reason: "truncated" },
+  ],
+};
 
-    // One command, one condition, one wording — the preview and the refusal
-    // are the same message, not two that have to be kept in step by hand.
-    assert.ok(
-      formatDeleteSummary(plan, context).includes(
-        unreadableDeleteMessage(["mine/s0"], "my-bucket"),
-      ),
-    );
+describe("collectHashes", () => {
+  it("accepts positional hashes, folding case and de-duplicating", () => {
+    const { hashes, rejected } = collectHashes([
+      HASH_A.toUpperCase(),
+      HASH_B,
+      HASH_A,
+    ]);
+    assert.deepEqual(hashes, [HASH_A, HASH_B]);
+    assert.deepEqual(rejected, []);
   });
 
-  it("says plainly when everything matched survives, and how to widen the scope", () => {
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/x.txt"] })],
-        ["theirs", ref({ aaa: ["/other/y.txt"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
-    );
-    const text = formatDeleteSummary(plan, context);
-    assert.match(text, /nothing to delete/);
-    assert.match(text, /kept by set 'theirs' \(1 file\)/);
-    assert.match(text, /s3cab reattach <set>/);
-    assert.match(text, /Full list:\n {2}\/tmp\/preview\.txt$/);
+  it("rejects anything that is not 64 hex characters, verbatim", () => {
+    // The stale-muscle-memory cases (ADR-0089): a path, a snapshot name, a
+    // truncated hash — each must surface for the loud error, never be guessed.
+    const { hashes, rejected } = collectHashes([
+      "D:\\Media\\secretsdir",
+      "2026-07-19T1422",
+      HASH_A.slice(0, 63),
+      HASH_A,
+    ]);
+    assert.deepEqual(hashes, [HASH_A]);
+    assert.deepEqual(rejected, [
+      "D:\\Media\\secretsdir",
+      "2026-07-19T1422",
+      HASH_A.slice(0, 63),
+    ]);
   });
 
-  it("tables the per-path breakdown with a total and names the sets losing files", () => {
-    const plan = planDelete(
-      bucket([["mine", ref({ aaa: ["/a/x.txt"], bbb: ["/b/y.txt"] })]]),
-      { paths: ["/a", "/b"], scopeSets: ["mine"] },
-    );
-    const text = formatDeleteSummary(plan, context);
-    assert.match(text, /files no backup could restore/);
-    assert.match(text, /^ {2}path +files +size$/m);
-    assert.match(text, /^ {2}\/a +1 +10B$/m);
-    assert.match(text, /total +2 +20B +\(2 stored objects\)/);
-    assert.match(text, /Sets losing these files: mine \(2 files\)/);
-    assert.doesNotMatch(text, /WARNING/);
+  it("parses find's real output: every hash, none of the comments", () => {
+    // The producing end of the contract (ADR-0088: one hash per line,
+    // everything else a `#` comment) — rendered by the real renderer, warnings
+    // included, exactly as `s3cab find secretsdir/ > hashes.txt` writes it.
+    const text = renderFind(findResult);
+    const { hashes, rejected } = collectHashes([], text);
+    assert.deepEqual(hashes, [HASH_A, HASH_B]);
+    assert.deepEqual(rejected, []);
   });
 
-  it("shouts the out-of-scope sets an --everywhere run breaks", () => {
-    const plan = planDelete(
-      bucket([
-        ["mine", ref({ aaa: ["/data/secret.env"] })],
-        ["theirs", ref({ aaa: ["/other/copy.env"] })],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"], everywhere: true },
-    );
-    const text = formatDeleteSummary(plan, { ...context, everywhere: true });
-    assert.match(
-      text,
-      /WARNING \(--everywhere\).*breaks restorability in sets not set up on this machine:\n {2}theirs {2}\(1 file\)/s,
-    );
+  it("still parses find's output when its warnings are coloured", () => {
+    // A user redirecting on a forced-colour terminal keeps the ANSI codes; the
+    // warning lines are still `#` comments underneath... but painted ones start
+    // with the escape, not `#`. Those lines must land in `rejected` (loud)
+    // rather than silently passing as hashes — asserting the actual behaviour
+    // here so a change to it is a decision, not an accident.
+    const text = renderFind(findResult, { color: true });
+    const { hashes, rejected } = collectHashes([], text);
+    assert.deepEqual(hashes, [HASH_A, HASH_B]);
+    // The two coloured warning lines (dedup + unreadable header) reject; the
+    // plain comment lines and hashes are unaffected.
+    assert.equal(rejected.length, 2);
+    for (const line of rejected) {
+      assert.ok(line.startsWith("\u001b["), `keeps its escape: ${line}`);
+    }
   });
-});
 
-describe("formatDeletePreviewFile", () => {
-  it("banners that nothing happened, embeds the would-be record, then the survivors", () => {
-    const plan = planDelete(
-      bucket([
-        [
-          "mine",
-          ref({ aaa: ["/data/x.txt"], bbb: ["/data/y.txt", "/keep/y.txt"] }),
-        ],
-      ]),
-      { paths: ["/data"], scopeSets: ["mine"] },
+  it("takes column one of a tab-separated file — 'anything with hashes in column one'", () => {
+    const text = `${HASH_A}\t1204\tD:\\a.mov\n` + `${HASH_B}\t892\tD:\\b.mov\n`;
+    const { hashes, rejected } = collectHashes([], text);
+    assert.deepEqual(hashes, [HASH_A, HASH_B]);
+    assert.deepEqual(rejected, []);
+  });
+
+  it("merges positional and file hashes, de-duplicated across sources", () => {
+    const { hashes } = collectHashes([HASH_C, HASH_A], renderFind(findResult));
+    assert.deepEqual(hashes, [HASH_C, HASH_A, HASH_B]);
+  });
+
+  it("skips blank lines and comments; an edited-down file of nothing yields nothing", () => {
+    const { hashes, rejected } = collectHashes(
+      [],
+      "# kept the comments\n\n#\n",
     );
-    const text = formatDeletePreviewFile(plan, "# the-record-body\n");
-    assert.match(text, /^# PREVIEW — nothing has been deleted/);
-    assert.ok(text.includes("# the-record-body"));
-    assert.match(
-      text,
-      /# kept-by\tpath\nset 'mine': \/keep\/y\.txt\t\/data\/y\.txt/,
+    assert.deepEqual(hashes, []);
+    assert.deepEqual(rejected, []);
+  });
+
+  it("knows the empty-file hash (the refusal is the command's, the constant lives here)", () => {
+    // Pin the value itself: it is the SHA-256 of zero bytes, not a made-up
+    // sentinel, and the refusal guards every zero-byte file in the repository.
+    assert.equal(
+      EMPTY_FILE_HASH,
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     );
+    const { hashes } = collectHashes([EMPTY_FILE_HASH]);
+    assert.deepEqual(hashes, [EMPTY_FILE_HASH]);
   });
 });

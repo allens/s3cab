@@ -216,7 +216,7 @@ The cloud round trip, plus the maintenance that keeps a repository healthy
 | `s3cab restore --set <set> [<path>…]`    | Recover from the set's cloud backup: name paths for specific files, or none for the whole set. `--snapshot` pulls an older version, `--overwrite` replaces files that still exist, `-o`/`--output` restores under a directory you choose ([guide](guide/restore.md)). |
 | `s3cab verify <bucket>`                  | Check a repository's backups are complete and undamaged — every referenced file stored, at the right size (findings reported per set). |
 | `s3cab forget --set <set> <snapshot>…`   | Remove snapshots from a backup: previews what would become unrestorable, then confirms once (`-f`/`--force` for scripts). The files themselves are left for `cleanup` to reclaim. |
-| `s3cab delete --bucket <bucket> <path>…` | Permanently delete named paths' content from every backup — for things you no longer want stored at all. `-n`/`--dry-run` previews, `-f`/`--force` skips the typed confirmation, `--everywhere` reaches copies other machines' sets reference. |
+| `s3cab delete --bucket <bucket> <hash>…` | Permanently delete content from every backup, named by hash — for things you no longer want stored at all. `s3cab find` produces the hashes; `--from-file` reads a saved list, `-n`/`--dry-run` previews, `-f`/`--force` skips the typed confirmation. |
 | `s3cab cleanup <bucket>`                 | Reclaim storage held by objects no snapshot references — confirms first (`-n`/`--dry-run` previews, `-f`/`--force` for scripts). |
 
 ### Advanced
@@ -338,7 +338,7 @@ s3://my-backup-bucket/
     info                             # the machine that created it, and when
     dirs.txt                         # its member directories
     exclude.txt                      # its exclude patterns, if it has any
-  deletions/<timestamp>.tsv        # what `s3cab delete` removed on purpose (absent until it runs)
+  objects.deleted-<n>.tsv          # what `s3cab delete` removed on purpose (absent until it runs)
 ```
 
 One bucket can hold **many backup sets** — your own, and other people's or machines' — all
@@ -350,8 +350,9 @@ rules back. The set's local `env` file is never uploaded: it can hold credential
 
 A snapshot file only ever appears in `snapshots/` after every file it references is safely in
 `objects/`, so any snapshot file you find is complete and restorable. Snapshots are never
-rewritten either — which is why `delete` records what it removed in `deletions/` instead of
-editing history, so a later `verify` reads a deliberate gap as intended rather than as damage.
+rewritten either — which is why `delete` records what it removed in `objects.deleted-<n>.tsv`
+instead of editing history, so a later `verify` reads a deliberate gap as intended rather than
+as damage.
 
 That fixed layout is the no-lock-in promise in practice: to recover a file by hand you
 look up its hash in a snapshot and download `objects/<that-hash>`. The full contract —

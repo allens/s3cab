@@ -162,8 +162,9 @@ export function parseManifest(key, bytes) {
 }
 
 /**
- * Parse a deletion record (`deletions/<ts>.tsv`): skip `#` lines, first field
- * of a row is the deleted hash.
+ * Parse a deletion record (root-level `objects.deleted-<n>.tsv`): skip `#`
+ * lines (the `#DELETED` header and `#END` trailer), first field of a row is
+ * the deleted hash.
  * @param {Buffer} bytes
  * @returns {Set<string>}
  */
@@ -295,7 +296,7 @@ export class RepoModel {
     /** @type {Set<string>} */
     const deleted = new Set();
     for (const { key } of await this.backend.listAll(this.bucket)) {
-      if (key.startsWith("deletions/")) {
+      if (/^objects\.deleted-[1-9][0-9]*\.tsv$/.test(key)) {
         const bytes = await this.backend.getBytes(this.bucket, key);
         if (bytes) {
           for (const hash of parseDeletionRecord(bytes)) {

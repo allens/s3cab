@@ -544,9 +544,9 @@ const shortMoment = (mtime) =>
  * result reads in a terminal without wrapping (a 64-char hash plus a size, an
  * mtime and a Windows path does not fit a line), redirects to a file, and
  * survives being edited down to the hashes you actually want — the form the
- * hash-operand `delete` in proposals/hash-operand-delete.md is designed to read
- * back. The columnar scan a table would give is what it trades away, and most
- * searches return one file or a few.
+ * hash-operand `delete` (ADR-0089) reads back via `--from-file`. The columnar
+ * scan a table would give is what it trades away, and most searches return one
+ * file or a few.
  *
  * Comments carry the context: what was searched (with each set's bucket, since
  * that is where a hash would be deleted from), then per file its size, when it
@@ -747,12 +747,13 @@ export function renderVerify(result, { color = false } = {}) {
   const deletedLines = sets
     .filter((set) => set.expectedMissing.length > 0)
     .map((set) => {
-      // Sort the distinct dates chronologically (lexicographic == chronological
-      // for `YYYY-MM-DDTHHMM`) — `expectedMissing` is path-ordered, so the raw
-      // encounter order would make `.at(-1)` the last file alphabetically, not
-      // the newest deletion.
+      // `deletedOn` is a full UTC instant; the calendar date is the "when" a
+      // human wants here. Sort the distinct dates chronologically
+      // (lexicographic == chronological for `YYYY-MM-DD`) — `expectedMissing`
+      // is path-ordered, so the raw encounter order would make `.at(-1)` the
+      // last file alphabetically, not the newest deletion.
       const dates = [
-        ...new Set(set.expectedMissing.map((e) => e.deletedOn)),
+        ...new Set(set.expectedMissing.map((e) => e.deletedOn.slice(0, 10))),
       ].sort();
       const when =
         dates.length <= 2
@@ -1197,8 +1198,10 @@ export function renderRestore({
     sections.push(
       [
         heading,
+        // `deletedOn` is a full UTC instant; the calendar date is enough here.
         ...deleted.map(
-          ({ path, deletedOn }) => `  ${path}  (deleted ${deletedOn})`,
+          ({ path, deletedOn }) =>
+            `  ${path}  (deleted ${deletedOn.slice(0, 10)})`,
         ),
       ].join("\n"),
     );
@@ -1279,7 +1282,6 @@ export function renderForget({ set, snapshots, forgotten }) {
 export function renderDelete({
   bucket,
   deletedObjects,
-  deletedFiles,
   deletedBytes,
   deleted,
 }) {
@@ -1288,7 +1290,7 @@ export function renderDelete({
   }
   return (
     `${bucket}: deleted ${countOf(deletedObjects, "object")} ` +
-    `(${formatByteValue(deletedBytes)} across ${countOf(deletedFiles, "file")}). ` +
+    `(${formatByteValue(deletedBytes)}). ` +
     `Snapshots were not modified.`
   );
 }

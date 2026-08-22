@@ -883,6 +883,36 @@ export async function objectExists(uri) {
 }
 
 /**
+ * An object's stored size in bytes, or `undefined` if it doesn't exist — the
+ * size-carrying twin of {@link objectExists}, for the caller that needs the
+ * one extra fact the same HEAD already returns (`delete`'s preflight reads
+ * `ContentLength` into the deletion record's size column). Absence maps
+ * through {@link isObjectNotFound}; anything else (network/auth) rethrows —
+ * as does a HEAD that succeeds without a `ContentLength`, because the size
+ * lands in a permanent record where a fabricated `0` would read as a
+ * zero-byte object.
+ * @param {string} uri - The `s3://bucket/key` URI.
+ * @returns {Promise<number | undefined>}
+ */
+export async function objectSize(uri) {
+  const { Bucket, Key } = parseS3Uri(uri);
+  try {
+    const { ContentLength } = await client().send(
+      new HeadObjectCommand({ Bucket, Key }),
+    );
+    if (ContentLength === undefined) {
+      throw new Error(`HeadObject returned no ContentLength for ${uri}`);
+    }
+    return ContentLength;
+  } catch (error) {
+    if (isObjectNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
  * Upload a small in-memory string as an S3 object — for the generated marker /
  * config files (a set's `info`, and the pushed `dirs.txt`/`exclude.txt`) that
  * have no local file to stream. The string twin of `putFile`: it returns whether

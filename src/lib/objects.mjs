@@ -1,5 +1,11 @@
 import { writeFileAtomic } from "./atomic-file.mjs";
-import { deleteObject, getStream, listObjects, putFile } from "./s3.mjs";
+import {
+  deleteObject,
+  getStream,
+  listObjects,
+  objectSize,
+  putFile,
+} from "./s3.mjs";
 
 /** @import { Transfer } from "./s3.mjs" */
 
@@ -115,6 +121,22 @@ export async function* listStoredObjects(bucket) {
       yield { hash, size: Size ?? 0, lastModified: LastModified };
     }
   }
+}
+
+/**
+ * One stored object's size in bytes, or `undefined` if it isn't stored — the
+ * per-hash HEAD behind `delete`'s preflight, which is how a hash the bucket
+ * doesn't hold gets reported-and-skipped before anything is destroyed, and
+ * where the deletion record's size column comes from. One HEAD per hash is the
+ * honest cost of an exact preflight over a handful of named objects; a
+ * whole-store LIST ({@link listStoredObjects}) wins only when the question is
+ * about *every* object.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {string} hash - The object's SHA-256, its key under `objects/`
+ * @returns {Promise<number | undefined>}
+ */
+export function storedObjectSize(bucket, hash) {
+  return objectSize(objectUri(bucket, hash));
 }
 
 /**

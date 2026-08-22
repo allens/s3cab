@@ -32,12 +32,3 @@ of files). Watch for per-file overhead — small costs mount up.
   moved. (The already-settled half — why the stream path takes Node's default `highWaterMark`
   rather than an explicit 8 MB buffer — is a comment at the code in `lib/file-props.mjs`,
   where anyone tempted to reintroduce one will actually see it.)
-- **The deletion record is re-read in full on every `verify`/`backup`/`cleanup` run**
-  (ADR-0064): `readDeletionRecords` does a `LIST deletions/` plus one `GET` per record file,
-  every run, and records accumulate unbounded (no cap, deliberately — they double as the audit
-  trail). Most repositories never run `delete`, so the common case is one empty LIST; but a
-  heavy-delete repository's routine backup slowly pays more and more just to re-read deletion
-  history it already knew. Latent, not yet felt. Fixes range in ambition: periodically
-  **compact** many records into one (keeping the audit content), or read only records **newer
-  than the baseline** the consumer already trusts. Revisit when a real repo's `deletions/`
-  grows into the hundreds, or the read shows up in a backup profile.

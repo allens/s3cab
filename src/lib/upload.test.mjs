@@ -42,6 +42,8 @@ let storeHashes = [];
 let listedPrefixes = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** How many times the deletion record was read — see the trust suite. */
+let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
 mock.module("./s3.mjs", {
@@ -77,13 +79,17 @@ mock.module("./s3.mjs", {
       }
     },
     // Imported by modules in upload.mjs's graph (objects.mjs, remote.mjs);
-    // no test here reaches it.
+    // no test here reaches them.
     deleteObject: async () => {},
+    objectSize: async () => undefined,
   },
 });
 mock.module("./deletion-record.mjs", {
   exports: {
-    readDeletionRecords: async () => deletionRecords,
+    readDeletionRecords: async () => {
+      recordReads++;
+      return deletionRecords;
+    },
   },
 });
 /** @type {Set<string>} paths rewritten the instant hashing finishes. */
@@ -140,6 +146,7 @@ beforeEach(() => {
   storeHashes = [];
   listedPrefixes = [];
   deletionRecords = new Map();
+  recordReads = 0;
   putError = undefined;
   driftAfterHash = new Set();
   rewrittenAfterHash = [];
@@ -566,17 +573,27 @@ describe("uploadSnapshot baseline trust", () => {
   });
 
   it("re-uploads content a delete removed, even under a trusted baseline (ADR-0064)", async () => {
-    // The PR-A interlock's second half: remote existence proves the baseline's
+    // The interlock's second half: remote existence proves the baseline's
     // objects were stored *then*; the deletion record says what a later
     // `delete` removed since. The file is still on disk and in the fresh
     // snapshot, so it re-uploads — objects first, snapshot last — with no LIST
     // fallback (the baseline itself is still trusted).
+    //
+    // This subtraction is also where record *trimming* (ADR-0090) has to be
+    // safe: the record row for `hash` may only be dropped once no snapshot
+    // anywhere references it. The byte-identical baseline IS such a snapshot —
+    // a live remote reference — so as long as this path can trust the
+    // baseline, cleanup's compaction is guaranteed to have kept the row it
+    // subtracts here. A trim keyed on *stored* objects instead would delete
+    // this row (the object is gone — that's the point), the subtraction would
+    // find nothing, and the baseline would silently vouch for deleted content.
     await using dir = await mkTmpDir();
     const { file, hash, args } = await oneFileFixture(dir.path);
-    deletionRecords.set(hash, { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set(hash, { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await uploadSnapshot(args);
 
+    assert.equal(recordReads, 1); // the record was consulted, not guessed at
     assert.deepEqual(listedPrefixes, []);
     assert.deepEqual(putFiles, [
       { path: file, uri: `s3://trust-bucket/objects/${hash}` },
@@ -594,6 +611,12 @@ describe("uploadSnapshot baseline trust", () => {
 
     remoteFiles.delete(baselineUri); // forgotten remotely (or never uploaded)
     const result = await uploadSnapshot(args);
+
+    // No record read on this path: the LIST reflects the store as it is, so a
+    // deleted object is simply absent and re-plans without the record's help.
+    // The record is consulted exactly when a live remote reference (the
+    // byte-identical baseline) guarantees compaction kept its rows (ADR-0090).
+    assert.equal(recordReads, 0);
 
     // Fallback ran: the store was LISTed, the stale baseline's skip was not
     // honoured, and the object was uploaded before the snapshot (objects

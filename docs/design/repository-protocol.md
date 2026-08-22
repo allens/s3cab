@@ -38,7 +38,7 @@ prose rots silently.
 | `snapshots/<set>/<name>.tsv.zst` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
 | `sets/<set>/info` | absent → claimed → re-stamped | `setup` claims it (conditional `putText`, first-writer-wins); `reattach` re-stamps OWNER with a plain PUT, preserving CREATED ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
 | `sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `reattach`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
-| `deletions/<timestamp>.tsv` | absent → present, then **immutable** | `delete` — conditional PUT ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | never |
+| `objects.deleted-<n>.tsv` | absent → present, then **immutable** (never overwritten — compaction writes a *new* index) | `delete` — conditional PUT at the lowest free index, walking upward on collision ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | `cleanup` — compaction removes absorbed files, only *after* their merge lands at a fresh index ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) |
 
 Two properties of `objects/` are worth stating precisely, because most of the durability surface
 rests on them:
@@ -143,24 +143,27 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 5. Interlocks: an unreadable snapshot aborts **both** modes; missing objects refuse the acting path.
 6. Prompt, then DELETE each orphan. **[multi-step]**, and the scan→prompt→delete window is the
    race surface.
+7. Compact the deletion record (acting runs only, and only past both interlocks): union every
+   record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
+   **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
+   deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
 
 **The ordering in 1–3 is itself a guard**, not incidental: reading snapshots before the object
 LIST means a concurrently-uploaded object appears unreferenced but *young*, where grace protects
 it; reading deletion records last means a record written during the scan can only ever add
 explanation, never remove it.
 
-### `delete` ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md))
+### `delete` ([ADR-0089](../adr/0089-hash-operand-delete.md))
 
-1. Scope = the sets attached on this machine that point at this bucket.
-2. One whole-bucket snapshot scan.
-3. Plan: an object is deletable only if **every** bucket-wide reference to it falls inside the
-   selection (`--everywhere` overrides this for the matched hashes).
-4. Interlock: an unreadable snapshot aborts, `--force` does not lift it.
-5. Preview file, then the strongest confirmation in the tool (type the bucket name).
-6. **Record first, then the deletes** — conditional PUT of `deletions/<timestamp>.tsv`, then each
-   `deleteStoredObject`. **[multi-step]**, deliberately ordered so a crash between them leaves an
-   *over-complete* record (objects recorded as deleted that still exist, which reads as simply
-   present) rather than unexplained absences.
+1. Operands are content hashes (positional or `--from-file`, typically `find` output) —
+   removal is repository-wide by construction, so there is no snapshot scan and no plan step.
+2. Preflight: one HeadObject per hash. **[multi-step]** across hashes; a missing object is
+   reported and skipped, and the ContentLength fills the record's size column.
+3. The strongest confirmation in the tool (type the bucket name).
+4. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
+   lowest free index, then each `deleteStoredObject`. **[multi-step]**, deliberately ordered so
+   a crash between them leaves an *over-complete* record (objects recorded as deleted that
+   still exist, which reads as simply present) rather than unexplained absences.
 
 ### `verify`
 

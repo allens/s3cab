@@ -82,12 +82,15 @@ export async function storedHashes({
   if (since && baseline) {
     const match = await matchRemoteSnapshot(bucket, set, since, snapshotDir);
     if (match === "identical") {
-      // The PR-A interlock's other half (ADR-0064): existing remotely proves the
+      // The PR-A interlock's other half (ADR-0090): existing remotely proves the
       // baseline's objects were stored *then*; the deletion record says which of
       // them a later `delete` removed since. Subtract those, or the baseline
       // wrongly vouches for deleted content and the published snapshot
-      // references missing objects. One LIST of `deletions/` — empty, and free,
-      // for the repositories that never ran `delete`.
+      // references missing objects. This byte-identical check is also what makes
+      // record *trimming* safe: while the baseline exists remotely it is itself a
+      // live snapshot referencing its hashes, so cleanup cannot drop the record
+      // rows this subtraction needs. One LIST of the record files — empty, and
+      // free, for the repositories that never ran `delete`.
       const deleted = await readDeletionRecords(bucket);
       return baselineHashes(baseline, deleted.keys());
     }

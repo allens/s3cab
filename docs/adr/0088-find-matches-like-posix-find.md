@@ -1,11 +1,10 @@
 # `find` matches like POSIX `find`, over local snapshots only
 
-**Status:** accepted — designed in a grilling session 2026-08-22
-([proposals/hash-operand-delete.md](../../proposals/hash-operand-delete.md)), built the same day. Joins
+**Status:** accepted — designed in a grilling session 2026-08-22, built the same day. Joins
 the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
 follows [0062](0062-bulk-operands-positional-addressing-by-flag.md)'s operand/addressing split.
-The hash-operand `delete` that consumes its output is settled but **not built**; only `find` is
-decided here.
+The hash-operand `delete` that consumes its output is [0089](0089-hash-operand-delete.md); only
+`find` is decided here.
 
 ## Context
 

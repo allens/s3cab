@@ -1,15 +1,23 @@
 # Path-scoped `delete`: participating-set scope, the deletion record, and the destructive-command pattern
 
-**Status:** accepted (settled 2026-07-20, the PR D grilling session; builds on
-[0063](0063-forget-snapshots-delete-paths.md), whose closing shape line it amends); the
-record-naming bullet partly superseded by
-[0087](0087-deletion-record-suffix-on-collision.md). Reasoned under clig.dev (the `cli-design`
-skill) and [0012](0012-consumer-vocabulary-naming.md).
+**Status:** mostly superseded by [0089](0089-hash-operand-delete.md) and
+[0090](0090-deletion-record-format-compaction.md) (2026-08-22). Originally accepted
+(settled 2026-07-20, the PR D grilling session; builds on
+[0063](0063-forget-snapshots-delete-paths.md), whose closing shape line it amends).
+Reasoned under clig.dev (the `cli-design` skill) and
+[0012](0012-consumer-vocabulary-naming.md).
 
-> **Partly superseded by [0087](0087-deletion-record-suffix-on-collision.md)** (accepted): a
-> same-minute record now takes the next free name (`-2`, `-3`) instead of failing, and the
-> `S3CAB_DEBUG` overwrite escape is removed. Everything else here — the prefix, the
-> record-first ordering, the row shape, the destructive-command pattern — stands.
+> **Mostly superseded (2026-08-22).** `delete` now takes content hashes
+> ([0089](0089-hash-operand-delete.md)): the participating-set scope, the protection
+> model, `--everywhere`, and the per-run `deletions/<timestamp>.tsv` records with their
+> `hash<TAB>path` rows are all gone, replaced by the root-level indexed record of
+> [0090](0090-deletion-record-format-compaction.md). **What stands from this ADR:** the
+> confirmation tier (type the bucket name), the record-first ordering, the
+> destructive-command pattern (act by default, `-n` previews, non-TTY needs `--force`),
+> and the consumer semantics (verify's partition, restore's dated skip, backup's baseline
+> subtraction, cleanup's interlock subtraction). The earlier partial supersession by
+> [0087](0087-deletion-record-suffix-on-collision.md) is itself superseded with the
+> naming it amended.
 
 ## Context
 

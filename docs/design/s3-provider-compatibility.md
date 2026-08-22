@@ -131,9 +131,10 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
    - the **set name claim** — `claimRemoteSet` ([../../src/lib/set-marker.mjs](../../src/lib/set-marker.mjs))
      is first-writer-wins solely by conditional `putText`, so two machines claiming one name
      would both believe they succeeded;
-   - **deletion records are never overwritten** ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)) —
-     a same-minute second `delete` run is meant to fail rather than replace the earlier record of
-     what was removed.
+   - **deletion records are never overwritten** ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) —
+     the conditional PUT is what makes `objects.deleted-<n>.tsv` slot allocation safe: a losing
+     concurrent writer is meant to get a 412 and walk to the next index, not silently replace
+     another run's record of what was removed.
 
    So the per-provider verification below is not a change-detection nicety; three of the four
    promises above are what makes the repository safe to share between machines.
@@ -184,7 +185,8 @@ Concrete code touch-points to provider-neutralize, recorded now so they aren't l
   single-PUT path and a **multipart** (≥ `partSize`, today 16 MB) object. A provider that
   silently overwrites would make the correctness backstop a no-op there. Extend the same probe to
   the other three promises that ride on the conditional write: a second snapshot in one minute, a
-  second claim of one set name, and a same-minute second deletion record must each **fail**.
+  second claim of one set name, and a second deletion-record write to an occupied index must each
+  **fail**.
 
 ## Out of scope
 

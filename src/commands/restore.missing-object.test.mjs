@@ -187,15 +187,15 @@ describe("restore with an object missing from the bucket", () => {
 describe("restore with deliberately deleted content (ADR-0064)", () => {
   it("reports a recorded absence as deleted-with-date, not missing, and exits 0", async () => {
     failures.set("bbb", named("NoSuchKey"));
-    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await restore([], { set: "photos", output });
 
     // Both paths of the deduped content are the same deliberate casualty —
     // including the `copy` twin that was never attempted.
     assert.deepEqual(result.deleted, [
-      { path: dest("gone.txt"), deletedOn: "2026-07-19T1422" },
-      { path: dest("gone-copy.txt"), deletedOn: "2026-07-19T1422" },
+      { path: dest("gone.txt"), deletedOn: "2026-07-19T14:22:41.000Z" },
+      { path: dest("gone-copy.txt"), deletedOn: "2026-07-19T14:22:41.000Z" },
     ]);
     assert.deepEqual(result.missing, []);
     // Deliberate ≠ fault: the record explains the gap, so the run is clean.
@@ -207,7 +207,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
   it("fetches the records once, however many objects are absent", async () => {
     failures.set("bbb", named("NoSuchKey"));
     failures.set("ccc", named("NoSuchKey"));
-    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     await restore([], { set: "photos", output });
 
@@ -217,7 +217,7 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
   it("an unrecorded absence beside a recorded one still exits 1", async () => {
     failures.set("bbb", named("NoSuchKey")); // recorded
     failures.set("ccc", named("NoSuchKey")); // unexplained
-    deletionRecords.set("bbb", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await restore([], { set: "photos", output });
 

@@ -55,7 +55,7 @@ s3://my-backup-bucket/
     info                            # owner machine + created date (the name-claim marker)
     dirs.txt                        # the set's member directories, one per line
     exclude.txt                     # the set's exclude patterns (if it has any)
-  deletions/<timestamp>.tsv         # deliberate-deletion records (only if `delete` has run)
+  objects.deleted-<n>.tsv           # deliberate-deletion records (only if `delete` has run)
 ```
 
 - **`objects/`** is the content-addressed store: one object per unique file content, keyed
@@ -85,9 +85,9 @@ s3://my-backup-bucket/
   and re-stamped by `s3cab reattach`, so it names the current holder, not necessarily the
   creator; `CREATED` is a UTC instant in the same form as a snapshot row's `mtime`, and is
   preserved across reattaches.
-- **`deletions/`** holds the repository's [deletion records](#the-deletion-record) — one
-  small plain-text file per `s3cab delete` run, marking content as *deliberately* removed.
-  A repository where `delete` has never run simply has no `deletions/` keys.
+- **`objects.deleted-<n>.tsv`** — the repository's only root-level keys — are its
+  [deletion records](#the-deletion-record): small plain-text files marking content as
+  *deliberately* removed. A repository where `delete` has never run simply has none.
 
 ### The invariant: objects first, snapshot last
 
@@ -113,67 +113,67 @@ double-run can never destroy history.
 
 ### The deletion record
 
-`s3cab delete` removes named paths' content from the whole backed-up history — and because
+`s3cab delete` removes content from the whole backed-up history by its hash — and because
 snapshots are immutable, it does so **without touching a single snapshot file**: it deletes
-the backing objects and writes a **deletion record**, one per run, at
-`deletions/<timestamp>.tsv` (the same minute-precision local timestamp as snapshot names).
-A record is never overwritten. Unlike a snapshot, though, a second run in the same minute is
-not an error: it takes the next free name — `2026-06-12T0915-2.tsv`, then `-3` — because two
-deletes are two real events and both have to be recorded. So in `<timestamp>[-<n>].tsv` the
-suffix **starts at 2**, and `-1` never appears: the unsuffixed name *is* the first record of
-its minute. The suffix tells two *files* apart and is not a time component — same-minute
-records carry the same timestamp, because that is what they have.
+the backing objects and writes a **deletion record** at the bucket root:
+`objects.deleted-1.tsv`, then `-2`, and so on. A record is never overwritten: each run
+takes the lowest index not already in use, so two runs — even at the same moment — simply
+land on different numbers. The index tells two *files* apart and makes no claim about
+time: gaps in the sequence are normal (see compaction below), and *when* and *who* live
+inside the rows.
 
-**Read every file under `deletions/`, and treat them as one set.** Nothing depends on their
-order: a hash is deliberately gone if *any* record lists it, so a reader never has to
-sequence records within a minute and shouldn't reach into the `#` block for a way to. The
-only thing order decides is cosmetic — if two records list the same hash, which date you show
-for it, and s3cab shows the newest by filename. And when there *is* a date to show, it is the
-record's **filename** timestamp; that is what s3cab prints beside a file it skips for this
-reason.
+**Read every `objects.deleted-<n>.tsv` key, and treat them as one set.** A hash is
+deliberately gone if *any* record row lists it. Nothing depends on which file a row sits
+in: when two rows list the same hash, the only thing at stake is cosmetic — which date to
+show for it — and s3cab shows the newest row's.
 
 The record is what lets any tool — s3cab or a future reader of the bare files — tell
 *deliberately gone* from *corrupted*: an object a snapshot references but the store lacks is
-**expected** if a record lists its hash, and an integrity fault if none does.
+**expected** if a record lists its hash, and an integrity fault if none does. A record
+carries **no paths** — whoever meets the absence is already holding a snapshot with the
+path in front of them; what the record adds is that the absence is deliberate, when, and by
+whom.
 
-A record is a plain, uncompressed TSV: `#` comment lines carry the context (when, which
-bucket, who ran it, which sets were in scope, the paths that were asked for, totals), then
-one tab-separated `hash → path` row for **every reference the deleted objects had**:
+A record is a plain, uncompressed TSV whose rows line up with a snapshot's column types: a
+hash where a snapshot row has one, then a size, a timestamp, and text at the ragged end —
+here *who* ran the delete, as `user@machine`:
 
 ```
-# s3cab delete — content deliberately removed from this repository
-# generated:  2026-07-19T13:22:04.881Z  (2026-07-19T1422 Europe/London)
-# bucket:     my-backup-bucket
-# by:         me@DESKTOP
-# sets:       photos
-# scope:      the sets above only
-# paths:      C:\Users\me\Photos\raw-footage
-#
-# 312 files, holding 48.1GB across 297 stored objects.
-#
-# hash\tpath
-3b8e…c0a1	C:\Users\me\Photos\raw-footage\clip-001.mov
+#DELETED		2026-08-22T11:04:55.120Z	These objects were removed on purpose. Absence here is not damage.
+a3f9c21e…60d	1204	2026-08-14T09:31:07.412Z	allen@DESKTOP
+5e21ab7f…c93	892	2026-08-19T22:10:41.006Z	allen@LAPTOP
+#END
 ```
 
-Rules for a reader: skip every `#` line; a row is `hash<TAB>path` — the deleted object's
-hash (its old key under `objects/`), then the path that referenced it; the file's timestamp
-name is *when*. Record rows are **not** column-padded the way a snapshot's are, and the `#`
-block is prose for a human — its wording and the fields it lists will change, so read the
-rows and never parse the header.
+Rules for a reader: a line is a row only if its first tab-separated field is **64 hex
+characters** — the deleted object's hash, its old key under `objects/`. The second field is
+the object's stored size in bytes, the third the UTC instant the delete ran, and everything
+after the third tab is who ran it. Skip every other line: the `#DELETED` header's third
+column repeats the record's instant and its last column is prose for a human, and the
+trailer is a bare `#END`, closing the file the way a snapshot's trailer does. It carries no
+status columns because a record lands in one atomic PUT — a partial record cannot exist.
+Record rows are **not** column-padded the way a snapshot's are.
 
-**Presence always wins.** A record explains an object's *absence*; it is not a tombstone. If
-a hash turns up in `objects/` again — content deleted, then later backed up afresh, which
-returns the object while the record stays forever — then the file is restorable and should
-be restored. Consult the records only when a fetch actually misses. A reader that treats
-records as authoritative skips restorable files indefinitely, and reports success while
-doing it.
+**Records are compacted, not kept forever.** `s3cab cleanup` merges every record file into
+one fresh file (at the next free index) and drops rows whose hash **no snapshot anywhere
+references** — once nothing references a hash, nothing can ever ask why it is absent, so
+the row has no reader left. The merge is written *before* the absorbed files are deleted,
+so a reader at any moment sees every live row at least once; a row duplicated across two
+files is harmless. This is why when and who live in the rows: filenames don't survive
+compaction.
+
+**Presence always wins.** A record explains an object's *absence*; it does not forbid its
+return. If a hash turns up in `objects/` again — content deleted, then later backed up
+afresh — then the file is restorable and should be restored. Consult the records only when
+a fetch actually misses. A reader that treats records as authoritative skips restorable
+files indefinitely, and reports success while doing it.
 
 The **write ordering is a commitment**: a record is always written *before* its objects are
 deleted, so a crash mid-delete can never leave a missing object the records don't explain.
 s3cab's own tools honour the record everywhere — `verify`
 reports recorded hashes as expected (not damage, exit 0), `restore` skips them gracefully
-with their date, and `backup` knows not to trust an older snapshot's word that the content
-is still stored.
+with their deletion date, and `backup` knows not to trust an older snapshot's word that the
+content is still stored.
 
 ### What is deliberately not stored
 

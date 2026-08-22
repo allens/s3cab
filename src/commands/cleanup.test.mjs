@@ -24,6 +24,10 @@ let promptCalls = 0;
 let promptMessage = "";
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** @type {{ referenced: Set<string>, deletesSoFar: number }[]} compaction calls, with how many object deletes preceded each */
+let compactCalls = [];
+/** What the mocked compaction reports back to the command. */
+let compactResult = { files: 0, rows: 0, trimmed: 0 };
 
 mock.module("../lib/remote.mjs", {
   exports: { referencedObjects: async () => referencedBySet },
@@ -55,6 +59,13 @@ mock.module("../lib/prompt.mjs", {
 mock.module("../lib/deletion-record.mjs", {
   exports: {
     readDeletionRecords: async () => deletionRecords,
+    compactDeletionRecords: async (
+      /** @type {string} */ _bucket,
+      /** @type {Set<string>} */ referenced,
+    ) => {
+      compactCalls.push({ referenced, deletesSoFar: deleteCalls.length });
+      return compactResult;
+    },
   },
 });
 
@@ -97,6 +108,8 @@ beforeEach(() => {
   promptCalls = 0;
   promptMessage = "";
   deletionRecords = new Map();
+  compactCalls = [];
+  compactResult = { files: 0, rows: 0, trimmed: 0 };
 });
 afterEach(() => {
   stdin.isTTY = savedTTY;
@@ -217,7 +230,7 @@ describe("cleanup command", () => {
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
       { hash: "orphan", size: 100, lastModified: daysAgo(9) },
     ];
-    deletionRecords.set("gone", { deletedOn: "2026-07-19T1422" });
+    deletionRecords.set("gone", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
     const result = await cleanup("b", { force: true });
 
@@ -253,5 +266,73 @@ describe("cleanup command", () => {
     assert.equal(promptCalls, 1);
     assert.deepEqual(deleteCalls, []);
     assert.equal(result.deleted, 0);
+    // A declined run acted on nothing — housekeeping doesn't sneak in behind
+    // the user's "no".
+    assert.deepEqual(compactCalls, []);
+  });
+
+  it("an acting run compacts the record after the deletes, trimming against the referenced union (ADR-0090)", async () => {
+    referencedBySet.set("photos", ref(["kept"]));
+    storedObjects = [
+      { hash: "kept", size: 10, lastModified: daysAgo(30) },
+      { hash: "old-orphan", size: 100, lastModified: daysAgo(8) },
+    ];
+    compactResult = { files: 2, rows: 3, trimmed: 1 };
+
+    const result = await cleanup("b", { force: true });
+
+    assert.equal(compactCalls.length, 1);
+    // Trimming keys on *referenced* hashes (a snapshot still names it), never
+    // on stored ones — the load-bearing direction: a row for a deleted object
+    // must survive as long as any snapshot references its hash.
+    assert.deepEqual(compactCalls[0]?.referenced, new Set(["kept"]));
+    // ...and only after the orphan deletes, so a crash mid-run never leaves
+    // the record trimmed against a state that didn't happen yet.
+    assert.equal(compactCalls[0]?.deletesSoFar, deleteCalls.length);
+    assert.equal(result.compactedRecordFiles, 2);
+    assert.equal(result.trimmedRecordRows, 1);
+  });
+
+  it("compacts even when there is nothing to reclaim — cleanup is the record's one collector", async () => {
+    stdin.isTTY = true; // and no prompt either: housekeeping needs no confirmation
+    referencedBySet.set("photos", ref(["kept"]));
+    storedObjects = [{ hash: "kept", size: 10, lastModified: daysAgo(30) }];
+    compactResult = { files: 1, rows: 0, trimmed: 2 };
+
+    const result = await cleanup("b");
+
+    assert.equal(promptCalls, 0);
+    assert.equal(compactCalls.length, 1);
+    assert.equal(result.compactedRecordFiles, 1);
+    assert.equal(result.trimmedRecordRows, 2);
+  });
+
+  it("a dry run never compacts", async () => {
+    referencedBySet.set("photos", ref([]));
+    storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
+
+    const result = await cleanup("b", { "dry-run": true });
+
+    assert.deepEqual(compactCalls, []);
+    assert.equal(result.compactedRecordFiles, 0);
+    assert.equal(result.trimmedRecordRows, 0);
+  });
+
+  it("interlocks abort before any compaction — a suspect union must not trim", async () => {
+    // Unreadable snapshot: the referenced union is incomplete, so trimming
+    // against it could drop a row a live snapshot still needs.
+    referencedBySet.set(
+      "photos",
+      ref(["kept"], [{ snapshot: "bad", reason: "boom" }]),
+    );
+    storedObjects = [{ hash: "kept", size: 1, lastModified: daysAgo(30) }];
+    await assert.rejects(() => cleanup("b", { force: true }));
+    assert.deepEqual(compactCalls, []);
+
+    // Missing referenced object: the repository is losing data — not the
+    // moment for housekeeping either.
+    referencedBySet.set("photos", ref(["kept", "gone"]));
+    await assert.rejects(() => cleanup("b", { force: true }));
+    assert.deepEqual(compactCalls, []);
   });
 });

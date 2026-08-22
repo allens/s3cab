@@ -30,6 +30,8 @@ let requestedUri;
 let download;
 /** @type {_Object[]} */
 let listedObjects = [];
+/** @type {number | undefined} */
+let headSize;
 mock.module("./atomic-file.mjs", {
   exports: {
     writeFileAtomic: async (
@@ -55,9 +57,13 @@ mock.module("./s3.mjs", {
     putFile: async () => true,
     // Imported by objects.mjs (deleteStoredObject); no test here calls it.
     deleteObject: async () => {},
+    objectSize: async (/** @type {string} */ uri) => {
+      requestedUri = uri;
+      return headSize;
+    },
   },
 });
-const { getObject, listObjectHashes, listStoredObjects } =
+const { getObject, listObjectHashes, listStoredObjects, storedObjectSize } =
   await import("./objects.mjs");
 
 /** @type {NodeJS.ProcessEnv} */
@@ -137,5 +143,18 @@ describe("getObject", () => {
       destPath: "/restore/out.bin",
       options: { hash: "abc123" },
     });
+  });
+});
+
+describe("storedObjectSize", () => {
+  it("HEADs objects/<hash> and returns the size", async () => {
+    headSize = 42;
+    assert.equal(await storedObjectSize("my-bucket", "abc123"), 42);
+    assert.equal(requestedUri, "s3://my-bucket/objects/abc123");
+  });
+
+  it("returns undefined for a hash the bucket doesn't hold", async () => {
+    headSize = undefined;
+    assert.equal(await storedObjectSize("my-bucket", "abc123"), undefined);
   });
 });

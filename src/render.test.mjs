@@ -809,12 +809,12 @@ describe("renderVerify", () => {
               {
                 path: "/data/x.mov",
                 snapshots: ["s1"],
-                deletedOn: "2026-07-19T1422",
+                deletedOn: "2026-07-19T14:22:41.000Z",
               },
               {
                 path: "/data/y.mov",
                 snapshots: ["s1"],
-                deletedOn: "2026-07-19T1422",
+                deletedOn: "2026-07-19T14:22:41.000Z",
               },
             ],
           }),
@@ -823,9 +823,10 @@ describe("renderVerify", () => {
       { color: false },
     );
     assert.match(text, /all verified ✓/);
+    // `deletedOn` is a full instant; the line shows the calendar date.
     assert.match(
       text,
-      /\n {2}media {3}2 files deleted from backups \(s3cab delete — deleted 2026-07-19T1422; expected, not damage\)/,
+      /\n {2}media {3}2 files deleted from backups \(s3cab delete — deleted 2026-07-19; expected, not damage\)/,
     );
   });
 
@@ -844,17 +845,17 @@ describe("renderVerify", () => {
               {
                 path: "/data/a.mov",
                 snapshots: ["s1"],
-                deletedOn: "2026-07-19T1422",
+                deletedOn: "2026-07-19T14:22:41.000Z",
               },
               {
                 path: "/data/b.mov",
                 snapshots: ["s1"],
-                deletedOn: "2026-05-01T0900",
+                deletedOn: "2026-05-01T09:00:12.310Z",
               },
               {
                 path: "/data/c.mov",
                 snapshots: ["s1"],
-                deletedOn: "2026-06-01T0900",
+                deletedOn: "2026-06-01T09:00:12.310Z",
               },
             ],
           }),
@@ -862,7 +863,7 @@ describe("renderVerify", () => {
       },
       { color: false },
     );
-    assert.match(text, /3 deletions, latest 2026-07-19T1422/);
+    assert.match(text, /3 deletions, latest 2026-07-19/);
   });
 });
 
@@ -1386,12 +1387,14 @@ describe("renderRestore", () => {
     const text = renderRestore(
       restoreResult({
         restored: ["/home/me/a.jpg"],
-        deleted: [{ path: "/home/me/x.env", deletedOn: "2026-07-19T1422" }],
+        deleted: [
+          { path: "/home/me/x.env", deletedOn: "2026-07-19T14:22:41.000Z" },
+        ],
       }),
     );
     assert.match(
       text,
-      /\nSkipped 1 file whose contents were deliberately deleted from the backups \(s3cab delete\):\n {2}\/home\/me\/x\.env {2}\(deleted 2026-07-19T1422\)/,
+      /\nSkipped 1 file whose contents were deliberately deleted from the backups \(s3cab delete\):\n {2}\/home\/me\/x\.env {2}\(deleted 2026-07-19\)/,
     );
     assert.doesNotMatch(text, /Could not restore/);
   });
@@ -1401,51 +1404,37 @@ describe("renderDelete", () => {
   it("confirms what a completed delete removed, and that snapshots stand", () => {
     const text = renderDelete({
       bucket: "my-backups",
-      paths: ["D:\\raw"],
-      sets: ["media"],
-      everywhere: false,
       deletedObjects: 297,
-      deletedFiles: 312,
       deletedBytes: 2_300_000,
-      survivors: 0,
+      missing: [],
       deleted: true,
     });
     assert.equal(
       text,
-      "my-backups: deleted 297 objects (2.3MB across 312 files). " +
-        "Snapshots were not modified.",
+      "my-backups: deleted 297 objects (2.3MB). Snapshots were not modified.",
     );
   });
 
   it("reads as English at one, rather than '1 object(s)'", () => {
     const text = renderDelete({
       bucket: "my-backups",
-      paths: ["D:\\raw\\clip.mov"],
-      sets: ["media"],
-      everywhere: false,
       deletedObjects: 1,
-      deletedFiles: 1,
       deletedBytes: 2_300_000,
-      survivors: 0,
+      missing: [],
       deleted: true,
     });
     assert.equal(
       text,
-      "my-backups: deleted 1 object (2.3MB across 1 file). " +
-        "Snapshots were not modified.",
+      "my-backups: deleted 1 object (2.3MB). Snapshots were not modified.",
     );
   });
 
   it("says nothing was deleted for a dry run / declined / nothing-to-do result", () => {
     const text = renderDelete({
       bucket: "my-backups",
-      paths: ["D:\\raw"],
-      sets: ["media"],
-      everywhere: false,
       deletedObjects: 297,
-      deletedFiles: 312,
       deletedBytes: 2_300_000,
-      survivors: 0,
+      missing: ["a".repeat(64)],
       deleted: false,
     });
     assert.equal(text, "Nothing was deleted.");
@@ -1725,6 +1714,8 @@ describe("renderCleanup", () => {
     withinGrace: 0,
     missingObjects: 0,
     deleted: 0,
+    compactedRecordFiles: 0,
+    trimmedRecordRows: 0,
     ...over,
   });
 
