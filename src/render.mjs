@@ -536,6 +536,24 @@ const shortMoment = (mtime) =>
     : mtime;
 
 /**
+ * An exact byte count, glossed with its SI magnitude once that reads faster:
+ * `892` → `"892 bytes"`, `14203847163` → `"14,203,847,163 bytes (14.2GB)"`.
+ *
+ * The exact figure leads because a `find` result is what someone reaches for
+ * when deciding whether *this* is the file they meant, and `prop` — the other
+ * command answering that question — spells it out the same way. The gloss is
+ * dropped below 1 kB, where `formatByteValue` returns the same digits again and
+ * the parenthetical is pure noise; the threshold is that function's own scaling
+ * point, not a second opinion about what counts as big.
+ * @param {number} size
+ * @returns {string}
+ */
+const byteSize = (size) =>
+  size < 1000
+    ? countOf(size, "byte")
+    : `${formatCount(size)} bytes (${formatByteValue(size)})`;
+
+/**
  * Render `find` — **one hash per line, every other thing a `#` comment**
  * ([ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)).
  *
@@ -639,7 +657,7 @@ export function renderFind(result, { color = false } = {}) {
     lines.push("#", `# ${path}`);
     for (const object of found) {
       lines.push(
-        `#   ${countOf(object.size, "byte")}   modified ${shortMoment(object.mtime)}`,
+        `#   ${byteSize(object.size)}   modified ${shortMoment(object.mtime)}`,
         ...object.spans.map(
           ({ set, first, last, count }) =>
             `#   ${set.padEnd(setColumn)}  ${count === 1 ? first : `${first} … ${last}   (${countOf(count, "snapshot")})`}`,
