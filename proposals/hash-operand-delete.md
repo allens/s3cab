@@ -1,13 +1,18 @@
-# `find`, and a hash-operand `delete`
+# A hash-operand `delete`
 
-Replace today's path-scoped `delete` with one that takes **hashes**, fed by a new **`find`**
-that searches snapshots for a path. **Settled in a grilling session 2026-08-22** — the design
+Replace today's path-scoped `delete` with one that takes **hashes**, fed by
+[`s3cab find`](../guide/find.md). **Settled in a grilling session 2026-08-22** — the design
 below is complete and argued, not a sketch. It stays here rather than in
-[docs/adr/](../docs/adr/) because nothing is built yet and two parked questions could still move
+[docs/adr/](../docs/adr/) because it isn't built yet and two parked questions could still move
 it; it becomes ADRs when it lands (superseding
 [0063](../docs/adr/0063-forget-snapshots-delete-paths.md)'s rationale,
 [0064](../docs/adr/0064-path-scoped-delete-deletion-record.md) and
 [0087](../docs/adr/0087-deletion-record-suffix-on-collision.md)).
+
+**`find` is built** — it shipped first and alone, as the build order below planned, and its
+half of the design is now [ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md) plus
+[guide/find.md](../guide/find.md). What it gives this command is the output contract: one hash
+per line, everything else a `#` comment.
 
 The operation's purpose is unchanged: **remove all remnants of a file from the repository** — the
 uploaded secret key is the classic case, but there are lots of other reasons. What changes is the
@@ -31,96 +36,43 @@ Dangling pointers are the accepted consequence: snapshots in any set, on any mac
 content that is deliberately gone. Deleting the file regardless of name — by contents — is the
 point, and the record (below) is what tells a reader the absence is deliberate.
 
-## `find`
-
-Its own command, and **useful on its own** — "which snapshot has my file, and what did it hash
-to" has no answer in the tool today. It ships first and independently of the delete rework.
-
-1. **Local snapshots only, no `--remote`.**
-   [ADR-0027](../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md) already settled
-   this shape: `reattach` pulls a set's *entire* snapshot history down, precisely so
-   `compare`/`list`/`restore` stay local-only "instead of growing a remote-reading variant of
-   every browse command". `find` joins them. It costs zero S3 calls.
-2. **Searches every attached set**, `--set` narrows. No `--bucket` flag: a set is bound to one
-   bucket, so the output names each result's bucket and says so when results span more than one —
-   the only case where feeding the file to a single `delete --bucket` would drop rows, and the
-   preflight (below) catches that at the other end too.
-3. **Matching follows POSIX `find`, not `exclude`.** A pattern with **no separator** matches the
-   **basename** (`junkfile.dat`, `*.jpg`); a pattern **with** one matches the full path, floating
-   (an implicit `**/` on the front; a trailing `/` means everything beneath). Same token compiler
-   as `compileExclude` (`*`, `?`, `**`), different anchoring — exclude patterns are root-relative
-   and anchored, which is right for pruning a subtree and wrong for finding a file. Under
-   exclude's rules `secretsdir/` would match nothing at all (snapshots have no directory rows)
-   and `*/junkfile.dat` would match only one level down. Case-sensitivity keys on `isWindowsPath`
-   (the path's shape), never `process.platform` — searching a Windows snapshot from Linux is real.
-4. **Two passes.** Pass 1 matches paths and collects their hashes (typically one to five). Pass 2
-   re-scans for exactly those hashes and collects every *other* path they back. That second pass
-   is the dedup warning, and it is why `delete` needs no scan of its own. One pass would mean a
-   ~27M-entry hash→paths map on a large set; two passes stay bounded by the tiny hash set.
-5. **Identical consecutive snapshots collapse to a range** — a file unchanged for five years is
-   one entry with a span, not 900 identical lines. `--all` prints every snapshot.
-6. **Output is one hash per line, all context in `#` comments** — readable in a terminal without
-   wrapping (a 64-char hash plus size, mtime and a Windows path does not fit), redirectable,
-   editable, and feedable straight back to `delete`. It *is* the flat hash-per-line stream
-   `hashes` already establishes as the composition medium, so `delete` reads the same thing from
-   either command and the comments are garnish a lenient parse skips.
-
-```
-# s3cab find · 2 patterns · 3 files · 4 objects
-# searched myset (943 snapshots), work (211) — local history
-#
-# C:\Users\me\secretsdir\secret1
-#   1,204 bytes   modified 2019-04-02 07:55Z
-#   myset  2019-04-02T0810 … 2021-11-30T2201   (612 snapshots)
-a3f9c21e8b04d5c7e2019f8ab34d6e57190c2f8ba4e31d05c8f7a2b93e14c60d
-#
-# C:\Users\me\secretsdir\aws-keys.txt
-#   892 bytes   modified 2019-03-28 14:02Z
-#   myset  2019-03-28T0812 … 2026-08-14T0930   (943 snapshots)
-#   ⚠ also backs 3 other paths — deleting this removes all of them
-5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93
-```
-
-The columnar scan across files is the thing this layout gives up; a table of TSV rows reads
-better side-by-side but wraps in any real terminal. Most searches return one file or a few, and
-an editor greys the comment lines, so editing the file down to the hashes you want is easy —
-not Excel-easy, but that is not a workflow worth designing for.
-
 ## `delete`
 
 ```
 s3cab delete --bucket <bucket> <hash>... [--from-file <file>] [-n|--dry-run] [-f|--force]
 ```
 
-7. **Hashes, positional or `--from-file`.** No piping: it is not cross-platform, and a pipe means
+1. **Hashes, positional or `--from-file`.** No piping: it is not cross-platform, and a pipe means
    nobody read the rows. `--from-file` takes `find`'s output (or anything with hashes in column
-   one) — the destructive command operating on a file a human has reviewed and edited.
-8. **Preflight `HeadObject` per hash**, before anything is deleted. Hashes the bucket does not
+   one) — the destructive command operating on a file a human has reviewed and edited. The
+   comments are garnish a lenient parse skips.
+2. **Preflight `HeadObject` per hash**, before anything is deleted. Hashes the bucket does not
    have are **reported and skipped**, not fatal — a hash pasted from the wrong bucket, a stale
    `find` file, or something already deleted is silent today. `ContentLength` comes back with it,
    which is what fills the record's size column and gives the prompt a real figure ("deleting 5
-   objects, 4.2 MB").
-9. **Hard refusal on the empty-file hash** (`e3b0c442…b855`). It backs every zero-byte file in
+   objects, 4.2 MB"). It is also the second catch for a hash-set spanning two buckets, which
+   `find` already warns about at the other end.
+3. **Hard refusal on the empty-file hash** (`e3b0c442…b855`). It backs every zero-byte file in
    the repository, so deleting it is never what anyone means. The general dedup hazard needs no
    special case — `find` already prints the path count, and the size column makes the pathological
    ones obvious.
-10. **Confirmation unchanged from ADR-0064**: type the bucket name, non-interactive runs refuse
-    without `--force`, `-n` previews, and the record is written **before** any object is deleted.
-    The operand got safer; the consequence did not.
+4. **Confirmation unchanged from ADR-0064**: type the bucket name, non-interactive runs refuse
+   without `--force`, `-n` previews, and the record is written **before** any object is deleted.
+   The operand got safer; the consequence did not.
 
 ## The deletion record
 
-11. **It is a tombstone, not a ledger.** Its only job is to tell a reader that an absence is
-    **deliberate** — someone restoring `photo123.jpg` from snapshot X hits a missing object and
-    needs to know it was deleted on purpose, not that the repository is damaged. That reader
-    already has the path in front of them, so **the record carries no paths**; after "this was
-    deliberate", the useful facts are *who* and *when*.
-12. Which is also why it can be trimmed, and why s3cab should not grow an audit trail: keeping a
-    note of every temp file that ever got caught in a backup, forever, is out of the tool's lane.
-13. **Rows are `hash / size / instant / user@machine`**, matching a snapshot row's column *types*
-    positionally (col1 hash-or-`#TAG`, col2 size, col3 timestamp, col4 the ragged textual end) —
-    the first real use of the column-grammar item in [misc.md](misc.md). When and who live in the
-    **rows**, not the filename, because compaction destroys filenames.
+5. **It is a tombstone, not a ledger.** Its only job is to tell a reader that an absence is
+   **deliberate** — someone restoring `photo123.jpg` from snapshot X hits a missing object and
+   needs to know it was deleted on purpose, not that the repository is damaged. That reader
+   already has the path in front of them, so **the record carries no paths**; after "this was
+   deliberate", the useful facts are *who* and *when*.
+6. Which is also why it can be trimmed, and why s3cab should not grow an audit trail: keeping a
+   note of every temp file that ever got caught in a backup, forever, is out of the tool's lane.
+7. **Rows are `hash / size / instant / user@machine`**, matching a snapshot row's column *types*
+   positionally (col1 hash-or-`#TAG`, col2 size, col3 timestamp, col4 the ragged textual end) —
+   the first real use of the column-grammar item in [misc.md](misc.md). When and who live in the
+   **rows**, not the filename, because compaction destroys filenames.
 
 ```
 #DELETED		2026-08-22T11:04:55.120Z	These objects were removed on purpose. Absence here is not damage.
@@ -129,26 +81,26 @@ a3f9c21e8b04…60d	1204	2026-08-14T09:31:07.412Z	allen@DESKTOP
 #END
 ```
 
-14. **`#END` is bare, deliberately.** [guide/format.md](../guide/format.md) already defines the
-    trailer as "first field, trimmed, equals `#END`" and states a bare one is valid (the snapshot
-    trailer was bare before ADR-0085). It carries no `COMPLETE`/`PARTIAL`: a snapshot needs that
-    because zstd decompresses a cut-short file into a plausible smaller snapshot and because it is
-    written incrementally to local disk, whereas a record is uncompressed and lands in one atomic
-    PUT — `PARTIAL` cannot occur, and a status column with one possible value implies a
-    distinction that does not exist. The marker stays for consistency; the columns do not carry
-    over.
-15. **Root-level, indexed, never overwritten**: `objects.deleted-1.tsv`, `-2.tsv`, … A run LISTs,
-    takes the next free index, conditional-PUTs (`IfNoneMatch: *`), and walks upward if it loses
-    a race — ADR-0087's mechanism, retained purely as a slot allocator with no timestamp
-    pretending to be information. Safe on `objects/`'s LIST because that prefix carries its
-    trailing slash.
-16. **`cleanup` compacts and trims in one operation** — union every row, drop those no snapshot
+8. **`#END` is bare, deliberately.** [guide/format.md](../guide/format.md) already defines the
+   trailer as "first field, trimmed, equals `#END`" and states a bare one is valid (the snapshot
+   trailer was bare before ADR-0085). It carries no `COMPLETE`/`PARTIAL`: a snapshot needs that
+   because zstd decompresses a cut-short file into a plausible smaller snapshot and because it is
+   written incrementally to local disk, whereas a record is uncompressed and lands in one atomic
+   PUT — `PARTIAL` cannot occur, and a status column with one possible value implies a
+   distinction that does not exist. The marker stays for consistency; the columns do not carry
+   over.
+9. **Root-level, indexed, never overwritten**: `objects.deleted-1.tsv`, `-2.tsv`, … A run LISTs,
+   takes the next free index, conditional-PUTs (`IfNoneMatch: *`), and walks upward if it loses
+   a race — ADR-0087's mechanism, retained purely as a slot allocator with no timestamp
+   pretending to be information. Safe on `objects/`'s LIST because that prefix carries its
+   trailing slash.
+10. **`cleanup` compacts and trims in one operation** — union every row, drop those no snapshot
     anywhere references, write the merge to a *fresh* index, then delete the ones it absorbed. The
     steady state after any cleanup is a single file, which is the "one record" this started as,
     reached without a read-modify-write. Writing before deleting makes every crashed intermediate
     state correct, since a duplicated row is still just "deliberately gone". Gated by `cleanup`'s
     existing unreadable-snapshot interlock: an unknown reference must protect a row.
-17. **Trimming is provably safe.** Every consumer reaches the record *through a snapshot that
+11. **Trimming is provably safe.** Every consumer reaches the record *through a snapshot that
     references the hash* — `verify` computes `referenced − stored`, `restore` is reading a
     snapshot when it hits the absence, `cleanup` subtracts from its missing-object interlock, and
     `backup`'s `storedHashes` trusts a baseline **only while `matchRemoteSnapshot` confirms it
@@ -166,9 +118,10 @@ ever proves universal across the providers we care about.
 
 ## Naming
 
-**`delete` keeps the verb**, working differently. POSIX pairs `find` with `-delete` and we are
-already borrowing `find`'s matching semantics wholesale, so taking the search rules but not the
-verb leaves the coherence on the table; [ADR-0012](../docs/adr/0012-consumer-vocabulary-naming.md)
+**`delete` keeps the verb**, working differently. POSIX pairs `find` with `-delete` and s3cab now
+borrows `find`'s matching semantics wholesale ([ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)),
+so taking the search rules but not the verb leaves the coherence on the table;
+[ADR-0012](../docs/adr/0012-consumer-vocabulary-naming.md)
 says the plainest word wins, and CONTEXT.md's Delete entry already reads `_Avoid_: purge,
 expunge, remove (say delete)`.
 
@@ -201,9 +154,10 @@ word for tearing down infrastructure, ambiguous about whether the *bucket* goes.
   match and its oldest-first name sort is replaced by comparing row instants. Scope the rest from
   a fresh grep at build time.
 - **Docs**: [guide/format.md](../guide/format.md)'s deletion-record section and its layout tree
-  (which gains its first root-level key); CONTEXT.md's **Delete** entry rewritten in place, plus
-  a **Find** entry — and while there, its Cleanup entry still says "deleting takes an explicit
-  flag", stale since `cleanup --delete` was removed in PR #223.
+  (which gains its first root-level key); CONTEXT.md's **Delete** entry rewritten in place — and
+  while there, its Cleanup entry still says "deleting takes an explicit flag", stale since
+  `cleanup --delete` was removed in PR #223. [guide/find.md](../guide/find.md) says nothing about
+  `delete` today and gains the hand-off once there is one.
 - **Pre-1.0, no compatibility code**: existing `deletions/<timestamp>.tsv` files get **no
   reader**. The old shape is deleted outright, not branched on.
 
@@ -223,6 +177,5 @@ word for tearing down infrastructure, ambiguous about whether the *bucket* goes.
 
 ## Build order
 
-`find` first and alone — it is fully settled, depends on nothing parked, and answers a question
-the tool cannot answer today. The `delete` rework and the record format follow together, since
-the record's shape is what a hash operand forces.
+`find` first and alone — **done**. The `delete` rework and the record format follow together,
+since the record's shape is what a hash operand forces.

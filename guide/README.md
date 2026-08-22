@@ -13,6 +13,8 @@ pages are the sit-down read.
   everything onto a fresh machine. The job the backup exists for.
 - **[Reading a compare report](compare.md)** — what added / renamed / moved / modified /
   deleted mean, and why a "rotated" file reads as modified.
+- **[Finding a file in your backups](find.md)** — which snapshots hold a file and what it
+  hashed to; how a `find` pattern differs from an exclude pattern, and what the warnings mean.
 - **[Exclude rules](exclude.md)** — the glob patterns that keep files out of a backup set.
   (Quick reference: `s3cab help exclude`.)
 - **[Looking after a backup](maintenance.md)** — checking backups are still restorable
