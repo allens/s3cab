@@ -64,6 +64,9 @@ mock.module("../../../src/lib/s3.mjs", {
       backendHolder.current.objectExists(uri),
     deleteObject: (/** @type {string} */ uri) =>
       backendHolder.current.deleteObject(uri),
+    // Imported by objects.mjs (delete's preflight); the model doesn't drive
+    // `delete`, so no sequence reaches it.
+    objectSize: async () => undefined,
     isObjectNotFound,
     isPreconditionFailed,
   },

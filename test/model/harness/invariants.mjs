@@ -22,7 +22,7 @@ const LEGAL_KEY = new RegExp(
   "^(objects/[0-9a-f]{64}" +
     "|snapshots/[^/]+/[^/]+\\.tsv\\.zst" +
     "|sets/[^/]+/(info|dirs\\.txt|exclude\\.txt)" +
-    "|deletions/[^/]+\\.tsv)$",
+    "|objects\\.deleted-[1-9][0-9]*\\.tsv)$",
 );
 
 /**

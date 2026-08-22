@@ -545,9 +545,13 @@ the [format spec](../../guide/format.md)), not implementation choice:
   interlocks (like `delete`'s).
   (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.
   Objects the **deletion record** explains — removed on purpose by `delete`
-  ([ADR-0064](../adr/0064-path-scoped-delete-deletion-record.md)) — are *not* missing:
-  without that subtraction the first path-scoped delete would trip this interlock
-  forever.)
+  ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) — are *not* missing:
+  without that subtraction the first `delete` would trip this interlock forever.)
+- **Acting runs also compact the deletion record** ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)):
+  union the `objects.deleted-<n>.tsv` files, trim rows no snapshot references, write the
+  merge to a fresh index *before* deleting the absorbed files. It sits behind the same
+  interlocks — an unreadable snapshot means the reference set is incomplete, and a trim
+  keyed on incomplete references would drop rows that still explain an absence.
 - **No local state to reconcile:** cleanup reclaims only orphans (`stored − referenced`
   across every set), so a valid snapshot's objects are never deleted — and with the
   per-bucket objects cache gone

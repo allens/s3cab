@@ -2,7 +2,7 @@ import { aws } from "./commands/aws.mjs";
 import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
-import { deletePaths } from "./commands/delete.mjs";
+import { deleteHashes } from "./commands/delete.mjs";
 import { find } from "./commands/find.mjs";
 import { forget } from "./commands/forget.mjs";
 import { hashes } from "./commands/hashes.mjs";
@@ -469,18 +469,18 @@ export const commands = {
     render: renderForget,
   },
   delete: {
-    summary: "Delete named paths' content from every backup, permanently",
+    summary: "Delete objects from every backup by content hash, permanently",
     examples: [
-      "s3cab delete --bucket my-backups D:\\Media\\raw-footage",
-      "s3cab delete --bucket my-backups --dry-run D:\\Media\\raw-footage",
-      "s3cab delete --bucket my-backups --everywhere C:\\proj\\secret.env",
+      "s3cab find secretsdir/ > hashes.txt",
+      "s3cab delete --bucket my-backups --from-file hashes.txt",
+      "s3cab delete --bucket my-backups 5e21ab7fc0b1e83d276af59104cc7e2b8d3610fa94e7b25c0d81f36ae9b40c93",
     ],
     details: deleteDetails,
     args: {
-      path: {
-        required: true,
+      hash: {
         variadic: true,
-        description: "The backed-up paths whose content to delete",
+        description:
+          "Content hashes of the objects to delete ('s3cab find' prints them; required unless --from-file)",
       },
     },
     options: {
@@ -489,11 +489,15 @@ export const commands = {
         short: "b",
         description: "The repository's S3 bucket (required)",
       },
+      "from-file": {
+        type: "string",
+        description:
+          "Read the hashes from a file — 's3cab find' output, or any file with hashes in column one",
+      },
       "dry-run": {
         type: "boolean",
         short: "n",
-        description:
-          "Preview what would be deleted (summary + full list file), delete nothing",
+        description: "Preview what would be deleted, delete nothing",
       },
       force: {
         type: "boolean",
@@ -501,13 +505,8 @@ export const commands = {
         description:
           "Skip the typed confirmation (required for non-interactive runs)",
       },
-      everywhere: {
-        type: "boolean",
-        description:
-          "Also delete matched content that sets not attached here still reference (exact copies, everywhere)",
-      },
     },
-    exec: (options, paths = []) => deletePaths(paths, options),
+    exec: (options, hashes = []) => deleteHashes(hashes, options),
     render: renderDelete,
   },
   cleanup: {

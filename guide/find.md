@@ -25,6 +25,12 @@ and can be edited down to the hashes you want:
 
 `s3cab find` only *reads*. Nothing it prints changes a backup.
 
+That file is the input the destructive half of the pair takes: review it, cut
+anything you want to keep, then hand it to
+[`s3cab delete --from-file`](maintenance.md#deleting-files-from-every-backup-delete)
+to remove that content from every backup for good. `find` is where the searching
+and the deciding happen — `delete` takes only exact hashes, never a pattern.
+
 ## What a pattern matches
 
 The rules are POSIX `find`'s, not [exclude](exclude.md)'s — a file you are

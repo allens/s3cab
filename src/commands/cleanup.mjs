@@ -1,5 +1,8 @@
 import { planCleanup } from "../lib/cleanup.mjs";
-import { readDeletionRecords } from "../lib/deletion-record.mjs";
+import {
+  compactDeletionRecords,
+  readDeletionRecords,
+} from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
@@ -41,6 +44,15 @@ import { isInteractive } from "../lib/style.mjs";
  * accepted race — see the design). It reclaims only orphans (`stored −
  * referenced` across every set), so a valid snapshot's objects are never touched.
  *
+ * An acting run (never a dry run or a declined one) also **compacts the
+ * deletion record** ([ADR-0090](../../docs/adr/0090-deletion-record-format-compaction.md)):
+ * the `objects.deleted-<n>.tsv` files are merged into one fresh file, dropping
+ * rows whose hash no snapshot anywhere references — safe *because* interlock #1
+ * held, so the referenced union is complete and an unknown reference protects
+ * every row. Trimming is housekeeping, not reclamation: it needs no
+ * confirmation of its own, since a dropped row is one nothing can ever ask
+ * about again.
+ *
  * @typedef {Object} CleanupResult
  * @property {string} bucket - The repository bucket cleaned up
  * @property {number} storedObjects - Objects present in the store
@@ -50,6 +62,8 @@ import { isInteractive } from "../lib/style.mjs";
  * @property {number} withinGrace - Orphan-looking objects too new to touch (7-day grace)
  * @property {number} missingObjects - Referenced objects absent from the store (an integrity fault)
  * @property {number} deleted - How many were actually removed (0 on a dry run or a declined confirmation)
+ * @property {number} compactedRecordFiles - Deletion-record files merged away (0 = the record was already compact, or the run didn't act)
+ * @property {number} trimmedRecordRows - Deletion-record rows dropped because no snapshot references their hash
  *
  * @param {string} [bucket] - The repository's S3 bucket to clean up (required)
  * @param {{ "dry-run"?: boolean, force?: boolean }} [options] - acts by default; `-n`/`--dry-run` previews, `-f`/`--force` skips the prompt (and is required non-interactively)
@@ -134,6 +148,34 @@ export async function cleanup(bucket, options = {}) {
     withinGrace: plan.withinGrace,
     missingObjects: missing,
     deleted: 0,
+    compactedRecordFiles: 0,
+    trimmedRecordRows: 0,
+  };
+
+  // The record compaction (ADR-0090), for every acting path — reclaiming or
+  // not, stale record rows accumulate (a deleted hash whose last referencing
+  // snapshot was since forgotten) and cleanup is their one collector. Safe to
+  // trim against `referencedHashes` because interlock #1 already held: every
+  // snapshot read, so the union is complete. Runs only after interlock #2 —
+  // a repository losing data is not the moment for housekeeping either.
+  const compactRecords = async () => {
+    const compaction = await compactDeletionRecords(
+      bucket,
+      plan.referencedHashes,
+    );
+    if (compaction.files > 0) {
+      console.warn(
+        compaction.rows > 0
+          ? `Compacted the deletion record` +
+              (compaction.trimmed > 0
+                ? ` — dropped ${countOf(compaction.trimmed, "row")} no snapshot references`
+                : ``) +
+              `.`
+          : `Removed the deletion record — no snapshot references anything it explained.`,
+      );
+    }
+    report.compactedRecordFiles = compaction.files;
+    report.trimmedRecordRows = compaction.trimmed;
   };
 
   // The counts report (stored/orphaned/reclaimable + the grace/missing tallies)
@@ -162,6 +204,7 @@ export async function cleanup(bucket, options = {}) {
   }
 
   if (orphanHashes.length === 0) {
+    await compactRecords();
     console.warn("Nothing to reclaim.");
     return report;
   }
@@ -184,6 +227,8 @@ export async function cleanup(bucket, options = {}) {
   for (const hash of orphanHashes) {
     await deleteStoredObject(bucket, hash);
   }
+
+  await compactRecords();
 
   // What was reclaimed is the result (→ renderCleanup on stdout); stderr keeps the
   // one race the counts can't convey (docs/design/backup.md).

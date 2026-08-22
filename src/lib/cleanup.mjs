@@ -38,6 +38,7 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * @typedef {Object} CleanupPlan
  * @property {number} storedObjects - Objects present in the store
  * @property {number} referencedObjects - Distinct objects any snapshot references
+ * @property {Set<string>} referencedHashes - Those objects themselves (`referencedObjects` is its size) — what deletion-record compaction trims against
  * @property {string[]} orphanHashes - Deletable orphans (unreferenced, past grace)
  * @property {number} reclaimableBytes - Bytes those orphans hold
  * @property {number} withinGrace - Orphan-looking objects too new to touch (7-day grace)
@@ -131,6 +132,7 @@ export function planCleanup(
   return {
     storedObjects: stored.size,
     referencedObjects: referencedAll.size,
+    referencedHashes: referencedAll,
     orphanHashes,
     reclaimableBytes,
     withinGrace,

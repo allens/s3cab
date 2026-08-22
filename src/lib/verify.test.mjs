@@ -30,7 +30,7 @@ function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
 }
 
 describe("verifySet with a deletion record", () => {
-  const RECORD = new Map([["gone", { deletedOn: "2026-07-19T1422" }]]);
+  const RECORD = new Map([["gone", { deletedOn: "2026-07-19T14:22:41.000Z" }]]);
 
   it("partitions missing into expected (recorded) vs unexplained", () => {
     const referenced = ref({
@@ -46,12 +46,12 @@ describe("verifySet with a deletion record", () => {
       {
         path: "/deleted-copy.txt",
         snapshots: ["s2"],
-        deletedOn: "2026-07-19T1422",
+        deletedOn: "2026-07-19T14:22:41.000Z",
       },
       {
         path: "/deleted-on-purpose.txt",
         snapshots: ["s1"],
-        deletedOn: "2026-07-19T1422",
+        deletedOn: "2026-07-19T14:22:41.000Z",
       },
     ]);
     // ...while the unrecorded absence stays the alarming problem it always was.

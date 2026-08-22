@@ -48,7 +48,8 @@ calls and costs nothing — but it only knows the sets attached here, and
 only as far back as their history goes.
 
 Output is one hash per line with everything else in # comments, so it can
-be redirected to a file and edited down to the objects you care about.
+be redirected to a file, edited down to the objects you care about, and
+handed to 's3cab delete --from-file' to remove them for good.
 Because backups store one copy of identical content, a hash can back more
 than one path — the report warns when it does, since anything done to that
 object affects every path it backs.
@@ -69,24 +70,23 @@ straight away.
 
 Full guide: https://s3cab.plantegral.com/guide/exclude`;
 
-export const deleteDetails = `Removes the objects backing the named paths from the repository, across
-the whole backed-up history — "I have no use for this, stop paying to
-back it up", applied to backups already taken. Snapshots are never
-rewritten: a deletion record in the bucket (deletions/) marks the content
-as deliberately gone, so 'verify' reports it as expected rather than as
-damage and 'restore' skips it gracefully.
+export const deleteDetails = `Removes stored objects from the repository by content hash — the
+destructive half of the pair with 'find': the read-only search decides
+WHAT (and writes a file you can review and edit down), this destroys it.
+Removal is repository-wide: backups store one copy of identical content
+for every path, set and machine that backed it up, so a deleted object is
+gone from all of them.
 
-Paths resolve through the sets attached on THIS machine that use the
-bucket. Content referenced outside the named paths — another path, or a
-set not attached here (another machine's, another user's) — always
-survives, and the preview names what kept it. --everywhere lifts that
-protection for the matched content (a leaked secret, a malware file):
-those exact objects are removed wherever they are referenced, and the
-summary names the affected sets.
+Snapshots are never rewritten: a deletion record in the bucket
+(objects.deleted-1.tsv, ...) marks the content as deliberately gone, so
+'verify' reports it as expected rather than as damage and 'restore'
+skips it gracefully.
 
-The full list is written to ~/.s3cab/delete-preview.txt before anything
-is decided. On a terminal you confirm by typing the bucket name; scripts
-must pass --force (the prompt is never required).
+Hashes the bucket doesn't hold are reported and skipped, not fatal. The
+empty file's hash is refused outright — it backs every zero-byte file.
+
+On a terminal you confirm by typing the bucket name; scripts must pass
+--force (the prompt is never required).
 
 Full guide: https://s3cab.plantegral.com/guide/maintenance`;
 

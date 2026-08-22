@@ -2,12 +2,14 @@
 
 **Status:** accepted (settled 2026-07-19 in a grilling session) — the `forget` rename is
 **implemented** (PR #218, with the prerequisite baseline-trust fix in #220 and `restore`'s
-graceful degrade in #219), and the path-scoped `delete` is now **built** under
+graceful degrade in #219), and the path-scoped `delete` was built under
 [0064](0064-path-scoped-delete-deletion-record.md), which also **amends this ADR's closing
-shape line**: `delete` addresses the *bucket* (`--bucket`), not a set — bucket-wide
-protection and multi-set scope made `--set` a false promise. Reasoned under the
-**Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the `cli-design` skill)
-and [0012](0012-consumer-vocabulary-naming.md).
+shape line**: `delete` addresses the *bucket* (`--bucket`), not a set. **The verb table
+below stands; the `delete` rationale is superseded by
+[0089](0089-hash-operand-delete.md)** (2026-08-22): "delete `foo` from my backups" was
+built on a path operand, and `delete` now takes content hashes fed by `find`. Reasoned
+under the **Command Line Interface Guidelines** ([clig.dev](https://clig.dev), the
+`cli-design` skill) and [0012](0012-consumer-vocabulary-naming.md).
 
 ## Context
 

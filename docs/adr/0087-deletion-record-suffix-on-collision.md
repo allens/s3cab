@@ -1,7 +1,13 @@
 # A same-minute deletion record takes the next free name, instead of refusing
 
-**Status:** accepted (2026-08-18). Amends the naming bullet of
-[0064](0064-path-scoped-delete-deletion-record.md); the rest of that ADR stands.
+**Status:** superseded by [0090](0090-deletion-record-format-compaction.md) (2026-08-22).
+Records are now root-level indexed files (`objects.deleted-<n>.tsv`) whose names make no
+time claim, so this ADR's whole subject — minute-precision naming, same-minute collisions,
+"one story for both timestamped artifacts" — evaporates. Its *mechanism* survives as
+0090's slot allocator (conditional PUT, walk upward on a taken name), and its core finding
+stands: refusing a collision buys a record nothing, so blocking concurrent runs is not an
+option. Originally accepted 2026-08-18, amending the naming bullet of
+[0064](0064-path-scoped-delete-deletion-record.md).
 
 ## Context
 

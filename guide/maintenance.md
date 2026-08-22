@@ -63,7 +63,7 @@ made on purpose shouldn't ring the alarm forever:
 > s3cab verify my-backups
 my-backups: 3 sets, 47,913 objects checked — all verified ✓
 
-  photos   312 files deleted from backups (s3cab delete — deleted 2026-07-19T1422; expected, not damage)
+  photos   312 files deleted from backups (s3cab delete — deleted 2026-07-19; expected, not damage)
 ```
 
 ## Removing snapshots (`forget`)
@@ -182,82 +182,72 @@ Local snapshots need no command at all — the files are the API. Delete the fil
 
 `forget` drops a *moment*; `delete` drops a *thing*. When a file or folder turns out to be
 something you'll never want back — raw footage you've finished with, a huge download that
-slipped into a backed-up folder — excluding it only stops *future* backups. `delete`
-removes its content from the backups you've already taken:
+slipped into a backed-up folder, a file with a leaked password in it — excluding it only
+stops *future* backups. `delete` removes its content from the backups you've already taken.
+
+It's a two-step job, on purpose: something this destructive deserves an exact list, not a
+pattern match. [`find`](find.md) is the search — it turns a name into the **content
+hashes** that back it, one per line, with everything it knows about them in comments. You
+review that file, cut anything you want to keep, and hand it back:
 
 ```console
-> s3cab delete --bucket my-backups C:\Users\me\Photos\raw-footage
-Delete preview — files no backup could restore once this content is gone:
-
-  path                            files    size
-  C:\Users\me\Photos\raw-footage    312  48.1GB
-                                  ─────────────
-  total                             312  48.1GB   (297 stored objects)
-
-Sets losing these files: photos (312 files)
-
-Full list:
-  C:\Users\me\.s3cab\delete-preview.txt
+> s3cab find raw-footage\ > footage.txt
+> s3cab delete --bucket my-backups --from-file footage.txt
+Deleting 297 objects (48.1GB) from every backup in 'my-backups'.
 
 This permanently removes the content above from every backup in 'my-backups'.
 Type the bucket name to proceed: my-backups
 Record of this removal — verify and restore read it to tell deliberate removal from damage:
-  s3://my-backups/deletions/2026-07-19T1422.tsv
-my-backups: deleted 297 objects (48.1GB across 312 files). Snapshots were not modified.
+  s3://my-backups/objects.deleted-1.tsv
+my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
 ```
 
+Hashes can also go straight on the command line (`s3cab delete --bucket my-backups
+<hash>...`) when there are only a few. Either way the operands must *be* hashes — a path or
+anything else is an error pointing you at `find`, never a guess.
+
 This is the most destructive thing s3cab can do — it removes content that your snapshots
-still reference — so it has the strongest confirmation in the tool: you type the bucket
-name back, not just `y`. Before asking, it shows exactly what would go, writes the full
-list to a file, and names every set that loses files. `--dry-run` (`-n`) shows all of that
-and stops; scripts must state their intent with `--force` (there's no prompt to answer
-without a terminal).
+still reference, from **every backup, every set, every machine sharing the bucket** — so it
+has the strongest confirmation in the tool: you type the bucket name back, not just `y`.
+`--dry-run` (`-n`) shows what would go and stops; scripts must state their intent with
+`--force` (there's no prompt to answer without a terminal).
 
 Three things to understand about what it does:
 
 - **Your snapshots are not rewritten.** Every snapshot file stays exactly as it was — an
-  accurate record of what the disk looked like that day. The *content* behind the named
-  paths is what's removed, and a **deletion record** is written into the bucket
-  (`deletions/`) saying so. That record is why the rest of the tool stays calm: `verify`
-  reports the gap as expected rather than as damage, and `restore` skips those files
-  gracefully, telling you when they were deleted.
-- **Anything still wanted elsewhere survives.** Content is only removed when *nothing
-  outside the paths you named* references it — not another folder, not another backup set,
-  not a set belonging to someone else sharing the bucket. The preview tells you what
-  survives and why ("kept by set `desktop-media`"). Your named paths reach
-  across all the sets *attached on this machine*; a set of yours that isn't attached here
-  protects its content until you `reattach` it and run again.
+  accurate record of what the disk looked like that day. The *content* behind the hashes is
+  what's removed, and a **deletion record** is written into the bucket
+  (`objects.deleted-1.tsv` at the root) saying so. That record is why the rest of the tool
+  stays calm: `verify` reports the gap as expected rather than as damage, and `restore`
+  skips those files gracefully, telling you when they were deleted.
+- **A hash is the content, wherever it lives.** Backups store one copy of identical
+  content however many names, sets and machines share it — so deleting a hash removes that
+  content from all of them. `find` warns when an object also backs files *outside* what you
+  searched for, and prints every path; the review is where you catch the copy you still
+  want. (One refusal is built in: the hash of the *empty file* backs every zero-byte file
+  in the repository, and `delete` won't take it.)
 - **It frees space directly.** Unlike `forget`, there's nothing left for `cleanup` to sweep
   — the objects themselves are deleted (softly: versioning keeps them recoverable for the
   usual window, below).
 
-One flag changes the rules, for one scenario: **`--everywhere`**. If you've backed up
-something that must be gone wherever it is — a file with a leaked password or key in it, a
-malware download — the normal "someone else still references it" protection is exactly what
-you don't want. `--everywhere` deletes the matched content even where other sets still
-reference it, and warns you loudly about which sets that breaks. It matches exact content
-only: an edited copy is different bytes and stays.
-
-If you back up the file again later, it simply re-uploads on the next `backup` — deleting
-is never a ban, just a removal.
+A hash the bucket doesn't hold — already deleted, or pasted from the wrong bucket — is
+reported and skipped, never a failure. And if you back the file up again later, it simply
+re-uploads on the next `backup`: deleting is never a ban, just a removal.
 
 ### Under the hood
 
 What a `delete` run actually does, in order:
 
-1. Works out which of this machine's sets use the bucket — the named paths are resolved
-   against *their* snapshots.
-2. Reads every snapshot of every set in the bucket (the same whole-repository read `forget`
-   and `cleanup` do — nothing is downloaded except the small snapshot files).
-3. For each piece of content under your named paths, checks every reference to it,
-   bucket-wide. Any reference outside your selection keeps it alive; only content
-   referenced *nowhere else* is marked for deletion (`--everywhere` skips this check for
-   the matched content).
-4. Prints the summary, writes the full list to `~/.s3cab/delete-preview.txt`, and asks for
-   the typed confirmation (`--dry-run` stops here).
-5. Writes the deletion record to `deletions/<timestamp>.tsv` in the bucket — *before*
-   deleting anything, so even a run that dies halfway leaves every gap explained.
-6. Deletes the objects. Snapshots, as ever, untouched.
+1. Checks the list: every operand (and every column-one entry of `--from-file`) must be a
+   64-character hash, and the empty file's hash is refused outright.
+2. Asks the store about each hash — one cheap HEAD per object, nothing downloaded. Hashes
+   it doesn't hold are reported and skipped; the sizes that come back are the real figure
+   in the summary.
+3. Prints the summary and asks for the typed confirmation (`--dry-run` stops here).
+4. Writes the deletion record — a new `objects.deleted-<n>.tsv`, never overwriting an
+   existing one — *before* deleting anything, so even a run that dies halfway leaves every
+   gap explained.
+5. Deletes the objects. Snapshots, as ever, untouched.
 
 ## Reclaiming storage (`cleanup`)
 
@@ -294,6 +284,12 @@ reclaims without asking:
 Orphans come from exactly two places: snapshots you forgot, and backups that crashed
 part-way (uploads that landed before the run stopped). Both are harmless — they only cost
 storage.
+
+An acting run (never a dry run) also does one piece of quiet housekeeping: it **compacts
+the deletion record** that `delete` writes (above), merging the `objects.deleted-*` files
+into one and dropping entries no snapshot references any more — once the last snapshot
+listing a deleted file is forgotten, nothing can ever ask why it's absent. It tells you on
+the way out when it did.
 
 ### The safety rules
 
@@ -345,7 +341,7 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
 | When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket>` | drop what you don't want, then reclaim it |
-| When one thing is the space | `s3cab delete --bucket <bucket> <path>` | drop that thing from every backup, keeping the snapshots |
+| When one thing is the space | `s3cab find <path> > list.txt`, review, then `s3cab delete --bucket <bucket> --from-file list.txt` | drop that thing from every backup, keeping the snapshots |
 
 Automatic retention rules — keep-last, daily/weekly/monthly — aren't built yet. They'll be
 built on top of `forget` and `cleanup` once real usage shows the shapes people actually want.
