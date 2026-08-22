@@ -1511,7 +1511,7 @@ describe("renderFind", () => {
         "# searched myset → s3://my-backups (943 snapshots), work → s3://my-backups (211) — local history",
         "#",
         "# C:\\Users\\me\\secretsdir\\secret1",
-        "#   1,204 bytes   modified 2019-04-02 07:55Z",
+        "#   1,204 bytes (1.2kB)   modified 2019-04-02 07:55Z",
         "#   myset  2019-04-02T0810 … 2021-11-30T2201   (612 snapshots)",
         "a3f9c21e",
         "#",
@@ -1521,6 +1521,51 @@ describe("renderFind", () => {
         "#   ⚠ also backs 3 other paths — deleting this removes all of them",
         "5e21ab7f",
       ].join("\n"),
+    );
+  });
+
+  it("glosses a big size with its magnitude, and a small one not at all", () => {
+    /** @param {number} size */
+    const sizeLine = (size) =>
+      renderFind(
+        findResult({
+          patterns: ["clip.mov"],
+          files: [
+            {
+              path: "/data/clip.mov",
+              objects: [
+                {
+                  hash: "a3f9c21e",
+                  size,
+                  mtime: "2019-04-02T07:55:12.345Z",
+                  spans: [
+                    {
+                      set: "myset",
+                      first: "2026-06-11T0915",
+                      last: "2026-06-11T0915",
+                      count: 1,
+                    },
+                  ],
+                  alsoBacks: [],
+                },
+              ],
+            },
+          ],
+        }),
+      )
+        .split("\n")
+        .find((line) => line.includes("modified"));
+
+    // The case the gloss exists for: 11 raw digits say nothing at a glance.
+    assert.equal(
+      sizeLine(14_203_847_163),
+      "#   14,203,847,163 bytes (14.2GB)   modified 2019-04-02 07:55Z",
+    );
+    // At 999 the SI form is the same digits over again, so it is left off.
+    assert.equal(sizeLine(999), "#   999 bytes   modified 2019-04-02 07:55Z");
+    assert.equal(
+      sizeLine(1000),
+      "#   1,000 bytes (1.0kB)   modified 2019-04-02 07:55Z",
     );
   });
 
