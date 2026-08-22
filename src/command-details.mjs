@@ -32,6 +32,29 @@ Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
 content already existed elsewhere is noted '(duplicate of ...)'.
 Full guide: https://s3cab.plantegral.com/guide/compare`;
 
+export const findDetails = `Patterns work like the Unix 'find' command, NOT like your exclude file:
+
+  aws-keys.txt      a file of that name, wherever it lived
+  *.mov             every file with that extension
+  secretsdir/       everything beneath a directory of that name
+  me/Documents/tax  any path with that fragment in it
+
+* matches one or more characters within a name (so '*keys.txt' finds
+'aws-keys.txt' but not 'keys.txt'), ** crosses directories, ? matches
+exactly one character. Quote patterns your shell would otherwise expand.
+
+This reads the snapshots already on this machine, so it makes no network
+calls and costs nothing — but it only knows the sets attached here, and
+only as far back as their history goes.
+
+Output is one hash per line with everything else in # comments, so it can
+be redirected to a file and edited down to the objects you care about.
+Because backups store one copy of identical content, a hash can back more
+than one path — the report warns when it does, since anything done to that
+object affects every path it backs.
+
+Full guide: https://s3cab.plantegral.com/guide/find`;
+
 export const treeDetails = `--excluded turns the listing around: instead of the files that would be
 backed up, it shows what the set's exclude file is leaving out, and which
 pattern left it out. One entry per line, the path and the pattern separated

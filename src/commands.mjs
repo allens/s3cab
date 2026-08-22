@@ -3,6 +3,7 @@ import { backup } from "./commands/backup.mjs";
 import { cleanup } from "./commands/cleanup.mjs";
 import { compare } from "./commands/compare.mjs";
 import { deletePaths } from "./commands/delete.mjs";
+import { find } from "./commands/find.mjs";
 import { forget } from "./commands/forget.mjs";
 import { hashes } from "./commands/hashes.mjs";
 import { list } from "./commands/list.mjs";
@@ -22,6 +23,7 @@ import {
   backupDetails,
   compareDetails,
   deleteDetails,
+  findDetails,
   providerDetails,
   snapshotDetails,
   treeDetails,
@@ -32,6 +34,7 @@ import {
   renderCleanup,
   renderCompareResult,
   renderDelete,
+  renderFind,
   renderForget,
   renderLines,
   renderList,
@@ -152,6 +155,39 @@ export const commands = {
     },
     exec: (options, [set] = []) => compare(set, options),
     render: renderCompareResult,
+  },
+  find: {
+    summary: "Search your backups for a file, and show what backs it",
+    examples: [
+      "s3cab find aws-keys.txt",
+      "s3cab find '*.mov' --set photos",
+      "s3cab find secretsdir/ > hashes.txt",
+    ],
+    details: findDetails,
+    args: {
+      pattern: {
+        required: true,
+        variadic: true,
+        description:
+          "File name, path fragment, or directory (with a trailing separator) to search for",
+      },
+    },
+    options: {
+      set: {
+        type: "string",
+        short: "S",
+        description:
+          "Search only this backup set (default: every attached set)",
+      },
+      all: {
+        type: "boolean",
+        short: "a",
+        description:
+          "List every snapshot holding each file, instead of collapsing unchanged runs into ranges",
+      },
+    },
+    exec: (options, patterns = []) => find(patterns, options),
+    render: renderFind,
   },
   status: {
     summary: "Show what is backed up and what a backup would upload",

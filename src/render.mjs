@@ -46,6 +46,7 @@ import { bold, cyan, green, isInteractive, red, yellow } from "./lib/style.mjs";
 /** @import { ForgetResult } from "./commands/forget.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { DeleteResult } from "./commands/delete.mjs" */
+/** @import { FindResult } from "./lib/find.mjs" */
 /**
  * @import {
  *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError, SkippedEntry,
@@ -518,6 +519,145 @@ export const renderTree = (entries) =>
  * @returns {string}
  */
 export const renderText = (text) => text;
+
+/**
+ * A stored `mtime` shortened for a comment line: `2019-04-02T07:55:12.345Z` →
+ * `2019-04-02 07:55Z`. The exact value is in the snapshot (and in `--json`);
+ * what a `find` result needs is enough to recognize a file by, in a line that
+ * already carries a size. Anything not shaped like the stored instant
+ * (ADR-0072) is passed through untouched — a snapshot is a text file a user may
+ * edit, and mangling what we don't recognize would be worse than showing it.
+ * @param {string} mtime
+ * @returns {string}
+ */
+const shortMoment = (mtime) =>
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(mtime)
+    ? `${mtime.slice(0, 16).replace("T", " ")}Z`
+    : mtime;
+
+/**
+ * Render `find` — **one hash per line, every other thing a `#` comment**
+ * ([ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)).
+ *
+ * That shape is the point rather than a style: it *is* the flat hash-per-line
+ * stream `hashes` already establishes as this tool's composition medium, so the
+ * result reads in a terminal without wrapping (a 64-char hash plus a size, an
+ * mtime and a Windows path does not fit a line), redirects to a file, and
+ * survives being edited down to the hashes you actually want — the form the
+ * hash-operand `delete` in proposals/hash-operand-delete.md is designed to read
+ * back. The columnar scan a table would give is what it trades away, and most
+ * searches return one file or a few.
+ *
+ * Comments carry the context: what was searched (with each set's bucket, since
+ * that is where a hash would be deleted from), then per file its size, when it
+ * was last modified, which snapshots hold it, and the dedup warning when the
+ * same content is stored under other paths too. Two warnings are coloured — the
+ * only lines here a reader must not skim past.
+ * @param {FindResult} result
+ * @param {RenderContext} [context]
+ * @returns {string}
+ */
+export function renderFind(result, { color = false } = {}) {
+  const warn = painter(color)(yellow);
+  const objects = result.files.reduce(
+    (total, file) => total + file.objects.length,
+    0,
+  );
+
+  // The unit is stated once and the later counts are bare, the way the sets read
+  // aloud: "myset, 943 snapshots; work, 211".
+  const searched = result.searched
+    .map(
+      ({ name, bucket, snapshots }, index) =>
+        `${name} → s3://${bucket} (${index === 0 ? countOf(snapshots, "snapshot") : formatCount(snapshots)})`,
+    )
+    .join(", ");
+
+  const lines = [
+    `# s3cab find · ${countOf(result.patterns.length, "pattern")} · ${countOf(result.files.length, "file")} · ${countOf(objects, "object")}`,
+    `# searched ${searched} — local history`,
+  ];
+
+  // A hash identifies content within one bucket, and `delete` takes one bucket,
+  // so a result drawn from two is the one case where feeding this file straight
+  // back would silently drop rows.
+  const bucketOf = new Map(
+    result.searched.map(({ name, bucket }) => [name, bucket]),
+  );
+  const spanned = new Set(
+    result.files.flatMap((file) =>
+      file.objects.flatMap((object) =>
+        object.spans.map((span) => bucketOf.get(span.set)),
+      ),
+    ),
+  );
+  if (spanned.size > 1) {
+    lines.push(
+      warn(
+        `# ⚠ results span ${countOf(spanned.size, "bucket")} — 's3cab delete' takes one bucket at a time`,
+      ),
+    );
+  }
+
+  // Named, not swallowed: an unsearched snapshot could be the one holding the
+  // file, so a short answer must say what it could not look at. Deliberately
+  // *not* `referenced.mjs`'s `unreadableMessage`: that one is worded for a
+  // destructive command it blocks and signs off with `s3cab verify <bucket>`,
+  // and `find` neither blocks nor has one bucket to name.
+  if (result.unreadable.length) {
+    lines.push(
+      warn(
+        `# ⚠ ${countOf(result.unreadable.length, "snapshot")} could not be read and went unsearched:`,
+      ),
+      ...result.unreadable.map(
+        ({ set, snapshot, reason }) => `#     ${set}/${snapshot} — ${reason}`,
+      ),
+    );
+  }
+
+  if (result.files.length === 0) {
+    lines.push(
+      "#",
+      "# nothing matched. A pattern with no separator matches the file name only;",
+      "# add a separator to match the path, or a trailing one to search beneath a",
+      "# directory — 's3cab find secrets/'.",
+    );
+    return lines.join("\n");
+  }
+
+  // One column width for the set names across the whole report, so the snapshot
+  // ranges line up between files rather than stepping in and out.
+  const setColumn = Math.max(
+    ...result.files.flatMap((file) =>
+      file.objects.flatMap((object) =>
+        object.spans.map((span) => span.set.length),
+      ),
+    ),
+  );
+
+  for (const { path, objects: found } of result.files) {
+    lines.push("#", `# ${path}`);
+    for (const object of found) {
+      lines.push(
+        `#   ${countOf(object.size, "byte")}   modified ${shortMoment(object.mtime)}`,
+        ...object.spans.map(
+          ({ set, first, last, count }) =>
+            `#   ${set.padEnd(setColumn)}  ${count === 1 ? first : `${first} … ${last}   (${countOf(count, "snapshot")})`}`,
+        ),
+      );
+      if (object.alsoBacks.length) {
+        lines.push(
+          warn(
+            `#   ⚠ also backs ${countOf(object.alsoBacks.length, "other path")} — deleting this removes ${object.alsoBacks.length === 1 ? "both" : "all of them"}`,
+          ),
+        );
+      }
+      lines.push(object.hash);
+    }
+  }
+
+  return lines.join("\n");
+}
 
 /**
  * Render `prop` — one file's content properties as an aligned label/value block.

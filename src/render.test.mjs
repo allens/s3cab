@@ -8,6 +8,7 @@ import {
   renderBackup,
   renderCleanup,
   renderCompareResult,
+  renderFind,
   renderForget,
   renderLines,
   renderList,
@@ -27,6 +28,7 @@ import {
 /** @import { SetReport } from "./lib/verify.mjs" */
 /** @import { CleanupResult } from "./commands/cleanup.mjs" */
 /** @import { RestoreResult } from "./commands/restore.mjs" */
+/** @import { FindResult } from "./lib/find.mjs" */
 
 // An absolute base for building snapshot-shaped paths — under the home dir so
 // the header's `~` shortening is exercised, platform-correct.
@@ -1447,6 +1449,231 @@ describe("renderDelete", () => {
       deleted: false,
     });
     assert.equal(text, "Nothing was deleted.");
+  });
+});
+
+describe("renderFind", () => {
+  /**
+   * A FindResult with sensible defaults, overlaid by `over`.
+   * @param {Partial<FindResult>} over
+   * @returns {FindResult}
+   */
+  const findResult = (over) => ({
+    patterns: ["secret1", "aws-keys.txt"],
+    searched: [
+      { name: "myset", bucket: "my-backups", snapshots: 943 },
+      { name: "work", bucket: "my-backups", snapshots: 211 },
+    ],
+    files: [],
+    unreadable: [],
+    ...over,
+  });
+
+  it("puts the hashes in column one and everything else in comments", () => {
+    const text = renderFind(
+      findResult({
+        files: [
+          {
+            path: "C:\\Users\\me\\secretsdir\\secret1",
+            objects: [
+              {
+                hash: "a3f9c21e",
+                size: 1204,
+                mtime: "2019-04-02T07:55:12.345Z",
+                spans: [
+                  {
+                    set: "myset",
+                    first: "2019-04-02T0810",
+                    last: "2021-11-30T2201",
+                    count: 612,
+                  },
+                ],
+                alsoBacks: [],
+              },
+            ],
+          },
+          {
+            path: "C:\\Users\\me\\secretsdir\\aws-keys.txt",
+            objects: [
+              {
+                hash: "5e21ab7f",
+                size: 892,
+                mtime: "2019-03-28T14:02:00.000Z",
+                spans: [
+                  {
+                    set: "myset",
+                    first: "2019-03-28T0812",
+                    last: "2026-08-14T0930",
+                    count: 943,
+                  },
+                ],
+                alsoBacks: ["C:\\a", "C:\\b", "C:\\c"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.equal(
+      text,
+      [
+        "# s3cab find · 2 patterns · 2 files · 2 objects",
+        "# searched myset → s3://my-backups (943 snapshots), work → s3://my-backups (211) — local history",
+        "#",
+        "# C:\\Users\\me\\secretsdir\\secret1",
+        "#   1,204 bytes   modified 2019-04-02 07:55Z",
+        "#   myset  2019-04-02T0810 … 2021-11-30T2201   (612 snapshots)",
+        "a3f9c21e",
+        "#",
+        "# C:\\Users\\me\\secretsdir\\aws-keys.txt",
+        "#   892 bytes   modified 2019-03-28 14:02Z",
+        "#   myset  2019-03-28T0812 … 2026-08-14T0930   (943 snapshots)",
+        "#   ⚠ also backs 3 other paths — deleting this removes all of them",
+        "5e21ab7f",
+      ].join("\n"),
+    );
+  });
+
+  it("says 'both' when the content backs exactly one other path", () => {
+    const text = renderFind(
+      findResult({
+        patterns: ["aws-keys.txt"],
+        files: [
+          {
+            path: "C:\\Users\\me\\secretsdir\\aws-keys.txt",
+            objects: [
+              {
+                hash: "5e21ab7f",
+                size: 892,
+                mtime: "2019-03-28T14:02:00.000Z",
+                spans: [
+                  {
+                    set: "myset",
+                    first: "2019-03-28T0812",
+                    last: "2026-08-14T0930",
+                    count: 943,
+                  },
+                ],
+                alsoBacks: ["C:\\a"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.match(
+      text,
+      /# {3}⚠ also backs 1 other path — deleting this removes both$/m,
+    );
+  });
+
+  it("names a lone snapshot rather than a range of one", () => {
+    const text = renderFind(
+      findResult({
+        patterns: ["secret1"],
+        files: [
+          {
+            path: "/data/secret1",
+            objects: [
+              {
+                hash: "a3f9c21e",
+                size: 12,
+                mtime: "2019-04-02T07:55:12.345Z",
+                spans: [
+                  {
+                    set: "myset",
+                    first: "2026-06-11T0915",
+                    last: "2026-06-11T0915",
+                    count: 1,
+                  },
+                ],
+                alsoBacks: [],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.match(text, /^# {3}myset {2}2026-06-11T0915$/m);
+  });
+
+  it("warns when the results span more than one bucket", () => {
+    const spanning = findResult({
+      searched: [
+        { name: "myset", bucket: "my-backups", snapshots: 1 },
+        { name: "work", bucket: "work-backups", snapshots: 1 },
+      ],
+      files: [
+        {
+          path: "/data/secret1",
+          objects: [
+            {
+              hash: "a3f9c21e",
+              size: 12,
+              mtime: "2019-04-02T07:55:12.345Z",
+              spans: [
+                {
+                  set: "myset",
+                  first: "2026-06-11T0915",
+                  last: "2026-06-11T0915",
+                  count: 1,
+                },
+                {
+                  set: "work",
+                  first: "2026-06-11T0915",
+                  last: "2026-06-11T0915",
+                  count: 1,
+                },
+              ],
+              alsoBacks: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.match(
+      renderFind(spanning),
+      /# ⚠ results span 2 buckets — 's3cab delete' takes one bucket at a time/,
+    );
+    // One bucket behind both sets: nothing to warn about.
+    assert.doesNotMatch(renderFind(findResult({})), /results span/);
+  });
+
+  it("says what it searched and how to search wider when nothing matched", () => {
+    const text = renderFind(findResult({ patterns: ["nope"] }));
+
+    assert.equal(
+      text,
+      [
+        "# s3cab find · 1 pattern · 0 files · 0 objects",
+        "# searched myset → s3://my-backups (943 snapshots), work → s3://my-backups (211) — local history",
+        "#",
+        "# nothing matched. A pattern with no separator matches the file name only;",
+        "# add a separator to match the path, or a trailing one to search beneath a",
+        "# directory — 's3cab find secrets/'.",
+      ].join("\n"),
+    );
+  });
+
+  it("names the snapshots it could not read, so a short answer says so", () => {
+    const text = renderFind(
+      findResult({
+        unreadable: [
+          {
+            set: "myset",
+            snapshot: "2026-06-12T0915",
+            reason: "Truncated snapshot",
+          },
+        ],
+      }),
+    );
+
+    assert.match(text, /# ⚠ 1 snapshot could not be read and went unsearched:/);
+    assert.match(text, /# {5}myset\/2026-06-12T0915 — Truncated snapshot/);
   });
 });
 

@@ -268,6 +268,16 @@ directories, exclude file) plus its snapshots. `--latest` narrows to the newest 
 shows one set's cloud backups. The read counterpart to **setup**.
 _Avoid_: ls, show; sets (the retired command name).
 
+**Find** (the command):
+The read-only verb that searches this machine's snapshots for a path and reports the **objects**
+backing it — size, modification time, the snapshots holding each version, and every *other* path
+the same object backs (`s3cab find <pattern>...`,
+[ADR-0088](docs/adr/0088-find-matches-like-posix-find.md)). Matching follows POSIX `find`, not
+**exclude**: no separator matches the file name, a separator matches the whole path floating, a
+trailing one searches beneath a directory. Local-only like **compare** and **list**, and it
+answers in **hashes** — one per line, everything else a `#` comment.
+_Avoid_: search, grep, locate, query, lookup.
+
 **Provider**:
 The storage service a backup talks to — AWS S3 or any S3-compatible service (Cloudflare R2,
 Backblaze B2, Wasabi, …). Off AWS, a provider reduces to three strings — endpoint,

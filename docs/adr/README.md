@@ -72,6 +72,7 @@ ADR as a live constraint.
 - [0054](0054-missing-member-dir-aborts.md) — A missing member directory aborts the run (fail, not skip); `dirs.txt` validated at walk time
 - [0063](0063-forget-snapshots-delete-paths.md) — `forget` removes snapshots (renaming the old `delete`); `delete` moves to path-scoped content removal *(implemented; the `--set` addressing line is amended by 0064 — `delete` addresses the bucket)*
 - [0064](0064-path-scoped-delete-deletion-record.md) — Path-scoped `delete`: participating-set scope, the `deletions/` record, `--everywhere`, and the tool-wide destructive-command pattern (act by default, `-n` previews, non-TTY needs `--force`) *(amends 0063's shape line; the cleanup/forget conversion to the pattern is follow-up work)*
+- [0088](0088-find-matches-like-posix-find.md) — `find` searches local snapshots for a path: POSIX `find`'s anchoring (no separator → basename, a separator → floating whole path, trailing → subtree) over `compileExclude`'s token grammar, both compilers sharing `lib/path-match.mjs`; case keys on the path's shape, two passes bound the dedup scan, output is one hash per line with the context in `#` comments *(accepted & implemented; joins 0027's local-only browse commands, follows 0062. `*` stays one-or-more, diverging from POSIX. The hash-operand `delete` it feeds is settled but unbuilt — proposals/hash-operand-delete.md)*
 
 ### Output, errors & rendering
 
