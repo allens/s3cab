@@ -2,7 +2,11 @@
 
 ## Status
 
-Design note describing **built behaviour**, read out of the code at `88fbc70` (2026-08-11).
+Design note describing **built behaviour**, first derived from the code at `88fbc70` (2026-08-11)
+and kept in step with it since — `git log` on this file is the record, most recently the `delete`
+and `cleanup` sections for [ADR-0089](../adr/0089-hash-operand-delete.md) and
+[ADR-0090](../adr/0090-deletion-record-format-compaction.md). Only the derivation point is pinned:
+a current-as-of hash in prose rots exactly like a line number.
 Nothing here is proposed or aspirational: where a claim is about intent rather than mechanism it
 says so. The known ways the model can be violated are **not** restated here — each is tracked in
 its own home and linked from [Where the model is violable](#where-the-model-is-violable).

@@ -4,6 +4,8 @@ Ordered by contribution to one goal: **reducing the risk that a backup reports s
 
 Everything here assumes Claude Code with `/effort` set per prompt. Run 1 and 2 before 3 and 4 — their findings become the target list for the test work. Run 1 before you freeze the format for 1.0, because a real durability flaw may want a change to the bucket layout, and that is cheap now and expensive later.
 
+A lettered prompt (1b, 2b) re-asks its parent's question after the subject moved — run one when the parent's findings have stopped being about current code.
+
 Where a prompt says "analysis only", keep it that way. The whole point of the first two is an independent opinion you can compare against your own; letting the same session fix what it finds contaminates that.
 
 Prompt 7 sits last because it contributes least to restore risk on AWS, which is where most people will run this. It is still a release blocker, for a different reason: you currently advertise compatibility with three object stores whose versioning and multipart behaviours differ, and nothing checks it. Treat its position as "last of the things you must do", not "optional".
@@ -23,6 +25,35 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 > Deliverable: the state model, plus a findings table. For each finding give a severity based solely on whether it can produce an unrestorable or silently incomplete backup, a concrete reproduction sequence, and the file and line the reasoning rests on. Separate the findings into confirmed (you traced the code path), suspected (plausible but not confirmed), and ruled out (you checked and the guard exists — name the guard). I need the ruled-out list as much as the others.
 >
 > Before reporting any finding, audit each claim against a tool result from this session. If you have not actually read the code path, say so and put it under suspected. Do not fix anything, do not refactor, and do not open a branch. The deliverable is your assessment.
+
+---
+
+## 1b. Adversarial audit of `delete` and the deletion record
+
+**Effort: xhigh. Analysis only, no code changes.** `find` and a rewritten hash-operand `delete` landed 2026-08-22 ([ADR-0088](../adr/0088-find-matches-like-posix-find.md)/[0089](../adr/0089-hash-operand-delete.md)/[0090](../adr/0090-deletion-record-format-compaction.md)), after prompt 1 ran. They replaced the path-scoped delete and the `deletions/<timestamp>.tsv` files with root-level `objects.deleted-<n>.tsv` records that `cleanup` now **compacts and trims** — the first transition in the tool that deliberately destroys the record of a destructive act. [docs/design/repository-protocol.md](../design/repository-protocol.md) was updated with it, so this run starts from a model instead of deriving one.
+
+One thing to know before you run it: the model suite does **not** exercise this. [runner.mjs](../../test/model/harness/runner.mjs) has no `delete` case and [sequence.mjs](../../test/model/harness/sequence.mjs) never emits one, while [invariants.mjs](../../test/model/harness/invariants.mjs) has grown an exception for recorded hashes — so Tier 1 green is not evidence about any of it.
+
+> s3cab is a content-addressable backup tool heading for a 1.0 format freeze. `delete` was rewritten on 2026-08-22 to take content hashes instead of paths, and the record of what it deleted was redesigned with it. That code is days old, it is the only irreversible bucket-wide operation in the tool, and no independent reader has looked at it. I want an adversarial assessment before the format freezes.
+>
+> Rank findings against three failures. Two are the usual ones: **a backup that reports success but cannot be restored**, and **content destroyed that the user did not name**. The third belongs to this subsystem — **an absence that can no longer be explained**, because the record is the only thing standing between a deliberate deletion and what a user reads as data loss.
+>
+> Start from `docs/design/repository-protocol.md`. It already models the legal states, every transition, and which are atomic, including `delete` and `cleanup`'s new compaction step — so check the code against it rather than re-deriving it, and treat any place they disagree as a finding in its own right. Then read `src/commands/delete.mjs`, `src/lib/delete.mjs`, `src/lib/deletion-record.mjs`, `src/lib/cleanup.mjs`, `src/commands/cleanup.mjs`, and the four consumers that read the record: `verify`, `restore`, `backup`'s baseline subtraction in `src/lib/upload.mjs`, and `cleanup`'s missing-object interlock. ADR-0089 and ADR-0090 give the reasoning; `guide/format.md` gives the promise made to users.
+>
+> Attack at least these:
+>
+> - **The trim rule.** Compaction drops any row no snapshot references, on the argument that every consumer reaches the record *through* a snapshot that references that hash, so an unreferenced row is unreachable. Find a reader that arrives another way, or a window where the referenced set is incomplete — a manifest mid-publish, a snapshot on a machine that has not uploaded yet, a set attached but not synced, an unreadable snapshot the interlock is meant to catch.
+> - **The empty merge.** A compaction whose surviving rows are empty writes no file at all, then deletes the files it absorbed. Unlike the crash-between-write-and-delete case, that one is unrecoverable. Establish whether it can ever run against an incomplete referenced set.
+> - **Record-first ordering under interruption.** Kill between the record PUT and each object delete, and between the merge PUT and each absorbed-file delete. The claim is that every intermediate state reads correctly — over-recording is safe, duplicated rows are safe. Check both, and check what a *second* run does to each state it leaves.
+> - **The index allocator.** LIST, conditional PUT, walk upward on a lost race. Two concurrent deletes; a delete concurrent with a compaction; two concurrent compactions; a paginated or truncated LIST. Whether an index can be reused, or skipped in a way that loses a file, or exhausted.
+> - **Hash handling end to end.** What `delete` accepts as an operand, what it writes into a row, and what the record parser will read back. In particular, whether any spelling of a hash can be accepted by the command but ignored by the parser — that combination deletes the object and leaves the absence unexplained. Check the `--from-file` path separately from the positional one; they are two entry points to the same destruction.
+> - **The dedup blast radius.** `delete` hard-refuses the empty-file hash because it backs every zero-byte file. Work out whether that is the only pathological case or merely the only one anyone thought of, and whether the refusal covers every entry point.
+> - **`restore`'s graceful skip.** A recorded hash makes restore skip the file and exit 0. Work out what a user actually sees when that happens to one file in ten thousand, and whether a silently incomplete restore is reachable through it.
+> - **`backup` against a concurrent delete.** Every delete is now bucket-wide by construction. Check whether the baseline subtraction can publish a *fresh* snapshot that references content already deliberately gone.
+>
+> Deliverable: a findings table. Per finding, a severity against the three failures above, a concrete reproduction sequence, and the file and symbol the reasoning rests on — not line numbers, they rot. Separate confirmed (you traced the code path) from suspected (plausible, not confirmed) from ruled out (you checked and the guard exists — name the guard). I need the ruled-out list as much as the others. Say specifically where `docs/design/repository-protocol.md` and `guide/format.md` are now wrong.
+>
+> Before reporting any finding, audit each claim against a tool result from this session. If you have not actually read the code path, say so and put it under suspected. Do not fix anything, do not refactor, do not open a branch. The deliverable is your assessment.
 
 ---
 
