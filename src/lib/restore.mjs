@@ -1,5 +1,7 @@
 import { join, posix, resolve, sep } from "node:path";
 
+import { isWindowsPath } from "./path-match.mjs";
+
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
 /**
@@ -14,22 +16,6 @@ const normalize = (p) => {
   const slashed = p.split(sep).join(posix.sep);
   return process.platform === "win32" ? slashed.toLowerCase() : slashed;
 };
-
-/**
- * Whether split path segments came from a Windows path — i.e. whether the first
- * segment is a drive (`C:`). Windows compares paths case-insensitively, so this
- * decides whether two spellings of one path are the same path.
- *
- * Asked of the *path*, not of `process.platform`: `--output` is the restore mode
- * for putting a backup somewhere other than where it came from, up to and
- * including another operating system, so a Windows snapshot is routinely read on
- * a machine where `platform` says otherwise. A UNC root (`\\server\share`) splits
- * to a leading server name and is left case-sensitive — the drive letter is the
- * shape we can recognize without guessing at a remote filesystem's rules.
- * @param {string[]} segments - Path segments, separators already stripped
- * @returns {boolean}
- */
-const isWindowsPath = (segments) => /^[A-Za-z]:$/.test(segments[0] ?? "");
 
 /**
  * @typedef {Object} RestoreStep
@@ -159,11 +145,10 @@ export function pathMatcher(filters) {
  *
  * `snapshot` writes canonical roots, so its own headers already agree with its
  * rows — the folding is for a snapshot a *user* has edited, which is a supported
- * thing to do to a file we promise is plain text (ADR-0002). Keyed on the path's
- * shape rather than `process.platform` because the mismatch outlives the machine
- * that made it: a Windows snapshot restored on Linux is exactly the case
- * `--output` exists for, and there `platform === "win32"` is false while the
- * paths are still Windows paths whose casing still doesn't matter.
+ * thing to do to a file we promise is plain text (ADR-0002). It keys on the
+ * path's shape rather than `process.platform` for the reason `isWindowsPath`
+ * documents: a Windows snapshot restored on Linux is exactly the case `--output`
+ * exists for.
  *
  * Two roots whose basename collides (e.g. `C:\a\Photos` and `D:\b\Photos`, both
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
@@ -182,12 +167,14 @@ export function reroot(dirs, output) {
   }
 
   const roots = dirs
-    .map((dir) => dir.split(/[\\/]/).filter(Boolean))
-    .map((segments) => ({
-      segments,
-      base: segments.at(-1) ?? "",
-      fold: isWindowsPath(segments),
-    }))
+    .map((dir) => {
+      const segments = dir.split(/[\\/]/).filter(Boolean);
+      return {
+        segments,
+        base: segments.at(-1) ?? "",
+        fold: isWindowsPath(dir),
+      };
+    })
     // Longest first: a nested root must win over a parent that also matches.
     .sort((a, b) => b.segments.length - a.segments.length);
 
