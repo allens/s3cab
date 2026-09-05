@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @import { Readable } from "node:stream" */
 
@@ -20,22 +21,18 @@ let onGetStream;
 /** @type {string[]} */
 let snapshotKeys;
 
+// The scan's two reads, and nothing else: the listing it walks and the bodies it
+// pulls. `isObjectNotFound` is left to the stencil's default — the real
+// name-based predicate, which the vanished-snapshot case below depends on.
 mock.module("./s3.mjs", {
-  exports: {
-    // Not AWS I/O, so not truly a seam — but mock.module replaces the whole
-    // module, so it must be supplied. Kept faithful to the real predicate (which
-    // is unit-tested in s3.test.mjs); remote's branch keys on its verdict.
-    isObjectNotFound: (/** @type {unknown} */ e) =>
-      Error.isError(e) && (e.name === "NoSuchKey" || e.name === "NotFound"),
+  exports: s3Seam({
     listObjects: async function* () {
       for (const Key of snapshotKeys) {
         yield { Key };
       }
     },
     getStream: (/** @type {string} */ uri) => onGetStream(uri),
-    // Imported by remote.mjs (deleteRemoteSnapshot); no test here calls it.
-    deleteObject: async () => {},
-  },
+  }),
 });
 const { referencedObjects } = await import("./remote.mjs");
 

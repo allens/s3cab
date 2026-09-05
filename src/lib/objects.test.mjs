@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @import { _Object } from "@aws-sdk/client-s3" */
 
@@ -21,9 +22,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // on the `test`/`test:coverage*` scripts).
 
 // The fakes record what getObject asks of the seams: the URI opened and the
-// writeFileAtomic destination/options. putFile is stubbed only because
-// objects.mjs imports it (a mock module exports exactly these) — no test in
-// this file calls it.
+// writeFileAtomic destination/options.
 /** @type {string | undefined} */
 let requestedUri;
 /** @type {{ destPath: string, options: object | undefined } | undefined} */
@@ -43,8 +42,12 @@ mock.module("./atomic-file.mjs", {
     },
   },
 });
+// The three reads objects.mjs makes on behalf of the functions under test. The
+// PUT is deliberately left unmodelled: `putObject` is exercised through
+// upload.mjs and against a real bucket, and a `putFile` stubbed to succeed here
+// would be a claim about ADR-0083's guard that this file cannot make good on.
 mock.module("./s3.mjs", {
-  exports: {
+  exports: s3Seam({
     getStream: async (/** @type {string} */ uri) => {
       requestedUri = uri;
       return Readable.from("");
@@ -54,14 +57,11 @@ mock.module("./s3.mjs", {
         yield object;
       }
     },
-    putFile: async () => true,
-    // Imported by objects.mjs (deleteStoredObject); no test here calls it.
-    deleteObject: async () => {},
     objectSize: async (/** @type {string} */ uri) => {
       requestedUri = uri;
       return headSize;
     },
-  },
+  }),
 });
 const { getObject, listObjectHashes, listStoredObjects, storedObjectSize } =
   await import("./objects.mjs");

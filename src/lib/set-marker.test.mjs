@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // The pure prefix builder plus the dirs.txt parse, with the s3.mjs seam mocked
 // (docs/design/testing.md: "mock at s3.mjs, not the AWS SDK"). The remote
@@ -10,14 +11,12 @@ import { describe, it, mock } from "node:test";
 
 /** @type {Record<string, string | undefined>} */
 let remoteText = {};
+// Only the read the parse tests need; the marker's writes are exercised against
+// a real bucket, not claimed here.
 mock.module("./s3.mjs", {
-  exports: {
+  exports: s3Seam({
     getText: async (/** @type {string} */ uri) => remoteText[uri],
-    // Imported by set-marker.mjs; no test here calls them.
-    putText: async () => true,
-    deleteObject: async () => {},
-    listObjects: async function* () {},
-  },
+  }),
 });
 const { readSetConfig, remoteSetPrefix } = await import("./set-marker.mjs");
 

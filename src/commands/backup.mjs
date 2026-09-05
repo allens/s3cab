@@ -82,13 +82,8 @@ export async function backup(setName, options = {}) {
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
 
-  const {
-    name: since,
-    previous,
-    previousErrors,
-    lookups,
-    instant: previousInstant,
-  } = await readBaseline(set);
+  const baseline = await readBaseline(set);
+  const { name: since, previous, previousErrors } = baseline;
   const stored = await storedHashes({
     bucket: set.bucket,
     set: set.name,
@@ -103,11 +98,7 @@ export async function backup(setName, options = {}) {
     ownProgress: true,
   });
   const pass = await generateSnapshot(set, {
-    lookups,
-    // Doubles as the progress line's byte total — it already records a size for
-    // every file, so the figure costs no `stat` (lib/snapshot.mjs `withProgress`).
-    sizes: previous,
-    previousInstant,
+    baseline,
     through: uploader.through,
     // Both halves of the fused pass report into one progress line: `through`
     // does the sending, `transfer` is how that sending is going.

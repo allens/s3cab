@@ -12,6 +12,7 @@ import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, it, mock } from "node:test";
 import { fileProps } from "./file-props.mjs";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
@@ -46,8 +47,13 @@ let deletionRecords = new Map();
 let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
+// The store this suite really models — a keyed body map on the read side, and a
+// PUT that reports whether the object was new. `isObjectNotFound` is left to the
+// stencil's default, the real name-based predicate, which the `getStream` below
+// throws to match. Everything the graph imports but no test here reaches
+// (`deleteObject`, `objectSize`) is unmodelled and stays that way.
 mock.module("./s3.mjs", {
-  exports: {
+  exports: s3Seam({
     getStream: async (/** @type {string} */ uri) => {
       gotUris.push(uri);
       const bytes = remoteFiles.get(uri);
@@ -58,12 +64,6 @@ mock.module("./s3.mjs", {
       }
       return Readable.from([bytes]);
     },
-    // Name-based, like the real one — the mocked getStream above throws with
-    // the SDK's NoSuchKey name, so absence round-trips through the same check
-    // production uses.
-    isObjectNotFound: (/** @type {unknown} */ error) =>
-      Error.isError(error) &&
-      (error.name === "NoSuchKey" || error.name === "NotFound"),
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
       callOrder.push(`put:${basename(path)}`);
@@ -78,11 +78,7 @@ mock.module("./s3.mjs", {
         yield { Key: `objects/${hash}` };
       }
     },
-    // Imported by modules in upload.mjs's graph (objects.mjs, remote.mjs);
-    // no test here reaches them.
-    deleteObject: async () => {},
-    objectSize: async () => undefined,
-  },
+  }),
 });
 mock.module("./deletion-record.mjs", {
   exports: {

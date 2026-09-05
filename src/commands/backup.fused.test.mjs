@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // The fused pass end to end, with only the S3 seam faked (docs/design/testing.md:
@@ -17,8 +18,15 @@ let putUris = [];
 /** @type {Error | undefined} Let every PUT fail, to drive the failure path. */
 let putError;
 
+// The store starts empty, which is the stencil's default (test/helpers/s3-seam.mjs):
+// nothing listed, and every remote snapshot absent, so no baseline is trusted.
+// The writes this suite models are the object PUT it measures, and the set's
+// cloud-config refresh backup does on the way out — `pushSetConfig`'s PUT of
+// dirs.txt plus the DELETE that clears a stale remote exclude.txt. That refresh
+// only *warns* when it fails, so leaving it unmodelled would quietly move every
+// test in this file onto the warning path.
 mock.module("../lib/s3.mjs", {
-  exports: {
+  exports: s3Seam({
     putFile: async (/** @type {string} */ _path, /** @type {string} */ uri) => {
       putUris.push(uri);
       if (putError) {
@@ -26,20 +34,9 @@ mock.module("../lib/s3.mjs", {
       }
       return true;
     },
-    listObjects: async function* () {}, // an empty store
-    putText: async () => {},
-    getText: async () => undefined,
-    // The baseline-identity probe (ADR-0084) finds every remote snapshot
-    // absent, so no baseline is ever trusted and each backup LISTs the store.
-    getStream: async () => {
-      throw Object.assign(new Error("NoSuchKey"), { name: "NoSuchKey" });
-    },
-    isObjectNotFound: (/** @type {unknown} */ error) =>
-      Error.isError(error) && error.name === "NoSuchKey",
+    putText: async () => true,
     deleteObject: async () => {},
-    // Imported by objects.mjs (storedObjectSize); no test here calls it.
-    objectSize: async () => undefined,
-  },
+  }),
 });
 
 const { backup } = await import("./backup.mjs");

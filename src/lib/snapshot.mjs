@@ -206,27 +206,18 @@ export async function readBaseline(set, { rehash } = {}) {
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
- * @param {HashSource[]} [options.lookups] - Where a stored hash may be reused from, in priority order: an unchanged file reuses its stored hash
- * @param {SnapshotEntries} [options.sizes] - The previous snapshot's entries, read for their `size` alone: the progress line's byte denominator (see `withProgress`). Omit on a first run, which has none
+ * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookups` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below (the ctime cross-check does **not** use it — its boundary is each source's own completion instant, carried on the `HashSource`)
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
- * @param {string} [options.previousInstant] - When the previous snapshot was taken (`readBaseline`), for the clock-went-backwards warning. The ctime cross-check does **not** use it: its boundary is each source's own completion instant, carried on the `HashSource`
  * @param {boolean} [options.includeOnlineOnly] - Hash cloud placeholders too, downloading each one (`--include-online-only`, ADR-0081). Off by default: a first pass over a synced folder otherwise pulls the whole cloud account onto the local disk
  * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
 export async function generateSnapshot(
   set,
-  {
-    lookups,
-    sizes,
-    through,
-    transfer,
-    debug,
-    previousInstant,
-    includeOnlineOnly,
-  } = {},
+  { baseline, through, transfer, debug, includeOnlineOnly } = {},
 ) {
+  const { lookups, previous: sizes, instant: previousInstant } = baseline ?? {};
   // From here, not from the first hashed row: the walk is part of what the
   // report calls scanning, and on a big set it is minutes of it.
   const startedAt = performance.now();

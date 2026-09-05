@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // Offline tests for the two counts `restore` puts in front of a user: the
 // progress line's running tally, and the refusal when a snapshot's paths aren't
@@ -63,7 +64,7 @@ mock.module("../lib/deletion-record.mjs", {
 mock.module("../lib/objects.mjs", {
   exports: { getObject: async () => assert.fail("a skip must not fetch") },
 });
-mock.module("../lib/s3.mjs", { exports: { isObjectNotFound: () => false } });
+mock.module("../lib/s3.mjs", { exports: s3Seam() });
 
 const { restore } = await import("./restore.mjs");
 

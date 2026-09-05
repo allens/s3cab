@@ -198,12 +198,9 @@ describe("backup (the fused pass)", () => {
       generateCalls[0]?.through,
       "expected the upload transform to be passed",
     );
-    assert.equal(generateCalls[0]?.lookups, baseline.lookups);
-    // And the baseline again as `sizes` — the progress line's byte denominator,
-    // which is the *previous* entries rather than one of the `lookups` they are
-    // a source in. Asserted because dropping it in a refactor costs nothing
-    // visible in a test but silently reverts the progress line to counts alone.
-    assert.equal(generateCalls[0]?.sizes, baseline.previous);
+    // The whole of `readBaseline`'s result, forwarded rather than picked apart:
+    // `generateSnapshot` derives `lookups`/`sizes`/`previousInstant` from it itself.
+    assert.equal(generateCalls[0]?.baseline, baseline);
     assert.deepEqual(manifestCalls, [
       {
         bucket: "b",
