@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // The deletion-record module against a mocked s3.mjs seam (docs/design/testing.md:
 // mock at s3.mjs, not the SDK): the slot allocator's write discipline
@@ -25,8 +26,11 @@ let taken = new Set();
 /** Whether *every* conditional PUT is refused, whatever the key. */
 let putConflict = false;
 
+// A store with just enough behaviour to hold the record: a listing, bodies, a
+// conditional PUT that can refuse, and a DELETE — the four operations the slot
+// allocator and compaction are made of. Everything else is the stencil's.
 mock.module("./s3.mjs", {
-  exports: {
+  exports: s3Seam({
     listObjects: async function* () {
       yield* listed;
     },
@@ -42,7 +46,7 @@ mock.module("./s3.mjs", {
     deleteObject: async (/** @type {string} */ uri) => {
       ops.push({ op: "delete", uri });
     },
-  },
+  }),
 });
 
 const {
