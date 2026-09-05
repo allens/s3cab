@@ -96,18 +96,6 @@ local and verifies with `npm test` alone (C was the exception, and has landed).
   ADR-0084 comment, both stubbing `putFile: async () => true` — the one method ADR-0083 gave a
   guard to. **Not one god-fake** (the tiers differ on purpose): a factory returning honest defaults
   that a test narrows by passing only what it varies. Ten adapters is past "two means a real seam".
-- **E — `generateSnapshot` takes the baseline whole.** _Worth exploring._ *(Was eleventh-pass C;
-  re-verify the anchors — `snapshot.mjs` moved this pass.)* Three of its seven options are
-  `readBaseline`'s own fields renamed and re-threaded by hand, identically at **2 of 2** call sites;
-  the typedef marks them independently optional but `readBaseline` sets them together, so one
-  ternary arm can only evaluate to `undefined` and a test exists solely to stop a refactor dropping
-  one — a test defending an interface against a mistake that interface invites. Take the baseline as
-  one optional record: same implementation, smaller interface, illegal state unrepresentable.
-  Does **not** reopen ADR-0069. *(Doc rot in the same file:
-  [commands/snapshot.mjs](../src/commands/snapshot.mjs):48–50's comment states the reverse of what
-  `readBaseline` does. And [commands/find.mjs](../src/commands/find.mjs):12–15 still calls ADR-0089
-  "a settled-but-unbuilt rework", pointing at a `proposals/hash-operand-delete.md` deleted when it
-  shipped. One-line fixes, not candidates.)*
 - **F — The bucket-scan ordering rule is prose, not code.** _Worth exploring._ *(Was an
   eleventh-pass smaller item, filed "Strong the moment a third bucket-scan command lands". That
   trigger did **not** fire — the phase count grew instead.)* The safety property — snapshots listed
@@ -733,3 +721,23 @@ least once; re-open only if the stated reason no longer holds.
     answer with `aws sso login`, so it is bypassed in RA mode. And the generated RA template
     creates the bucket, which fails against a bucket that exists — the test-bucket recipe in
     docs/integration-testing.md now says how to strip it.
+- **2026-09-05 — E landed** ([PR #330](https://github.com/allens/s3cab/pull/330), grilled
+  in-session before any code). *Take the snapshot baseline as one optional record, not three
+  options.* `generateSnapshot` now takes `baseline?: SnapshotBaseline` — `readBaseline`'s own
+  return type, reused as-is rather than narrowed — and destructures `lookups`/`sizes`/
+  `previousInstant` from it internally; both call sites (`backup.mjs`, `snapshot.mjs`) pass the
+  whole object through instead of picking it apart and renaming it by hand. The
+  `backup.test.mjs` assertions pinning the old three-field shape are replaced by one assertion
+  that the whole `baseline` object is forwarded. Also fixed: the reversed doc comment at
+  `commands/snapshot.mjs`, which claimed the previous snapshot's parse was handed to `compare`
+  only on a non-`--rehash` run — it is handed through unconditionally, since only the hash
+  *lookup* is rehash-gated. Does not reopen ADR-0069. The dead `since` ternary in
+  `commands/snapshot.mjs` was **not** simplified as the entry suggested: `previous && previousName`
+  is load-bearing for TypeScript's narrowing of `entries: SnapshotEntries | undefined`, so
+  dropping the `previous &&` half fails typecheck — confirmed by trying it. **Still open, not
+  part of this candidate's scope:** `commands/find.mjs`:12–15 still calls ADR-0089 "a
+  settled-but-unbuilt rework" pointing at a deleted `proposals/hash-operand-delete.md`; a
+  one-line fix, noted here so it isn't lost. CI's `test (windows-latest)` failed on the initial
+  run with the pre-existing `snapshot.test.mjs:391` ctime-cross-check flake (confirmed identical
+  on an unrelated dependabot PR with zero code changes); re-run went green. Filed as an open
+  entry in [bugs.md](bugs.md).
