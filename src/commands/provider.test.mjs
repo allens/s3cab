@@ -4,6 +4,10 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { parseEnvFile } from "../lib/env.mjs";
+import {
+  ensureMachineIdentity,
+  identityEnvPath,
+} from "../lib/roles-anywhere.mjs";
 import { readSet, writeSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -49,6 +53,21 @@ const setEnv = (name = "photos") => parseEnvFile(readSet(name).envPath);
 /** Append raw lines to a set's env file (to arrange a show-mode fixture). */
 const seedSetEnv = (/** @type {string} */ name, /** @type {string} */ body) =>
   writeFileSync(readSet(name).envPath, body, { flag: "a" });
+
+/**
+ * Stand up a *complete* machine Roles Anywhere identity under the temp home —
+ * the four cert/key files plus the captured ARNs — which `--roles-anywhere`
+ * requires before it will point a set at it (the readiness gate shared with
+ * `setup`, lib/provider.mjs).
+ */
+function makeIdentity() {
+  ensureMachineIdentity();
+  writeFileSync(
+    identityEnvPath(),
+    "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
+      "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+  );
+}
 
 // isInteractive() reads .isTTY off the stream; poke it directly to drive the gate.
 const stdin = /** @type {{ isTTY?: boolean }} */ (process.stdin);
@@ -404,6 +423,7 @@ describe("provider --roles-anywhere", () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
+    makeIdentity();
 
     const out = await provider(undefined, { "roles-anywhere": true });
 
@@ -412,10 +432,38 @@ describe("provider --roles-anywhere", () => {
     assert.match(out, /Set Roles Anywhere \(keyless\) for set 'photos'/);
   });
 
+  it("refuses to point a set at an identity this machine doesn't have yet", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    // No identity at all — the marker would send the next cloud op into the
+    // "identity missing" credential error; refuse up front with the recipe,
+    // spelled for the set's own bucket (the gate `setup` also runs).
+    await assert.rejects(
+      () => provider("photos", { "roles-anywhere": true }),
+      /no complete Roles Anywhere identity yet.*s3cab aws my-bucket --roles-anywhere.*--from-stack s3cab-my-bucket/s,
+    );
+    assert.equal(setEnv().S3CAB_RA, undefined); // nothing written
+  });
+
+  it("refuses an identity whose ARNs were never captured (certs alone are not enough)", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    makeSet();
+    ensureMachineIdentity(); // the four files, but no env → not signable
+
+    await assert.rejects(
+      () => provider("photos", { "roles-anywhere": true }),
+      /no complete Roles Anywhere identity yet/,
+    );
+    assert.equal(setEnv().S3CAB_RA, undefined);
+  });
+
   it("clears an existing profile and keys when switching to Roles Anywhere", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
     makeSet();
+    makeIdentity();
     seedSetEnv("photos", "AWS_PROFILE=work\n");
 
     const out = await provider("photos", { "roles-anywhere": true });

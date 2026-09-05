@@ -56,8 +56,9 @@ X509-specific lines are bespoke. It slots into
 `resolveCredentials` as a fourth source — the set marker routes RA → native signer, else → the
 standard chain — the pluggable seam [auth.md](../design/auth.md) already reserved. `provider
 --roles-anywhere <set>` is the fourth mutually-exclusive mode (sets the marker, clears
-profile/keys); `credentialCase` gains a fifth "RA identity missing/broken" case. s3cab never
-touches `~/.aws`.
+profile/keys); `credentialCase` gains a fifth "RA identity missing/broken" case (and, since
+[0075](0075-resolve-time-credential-expiry.md)'s amendment, a sixth for a refused session). s3cab
+never touches `~/.aws`.
 
 ## AWS-only, like `aws`
 

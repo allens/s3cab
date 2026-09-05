@@ -2,7 +2,12 @@ import { listProfiles } from "./auth.mjs";
 import { customEndpoint } from "./env.mjs";
 import { ParseArgsError } from "./error.mjs";
 import { promptHidden, promptLine, stdinLines } from "./prompt.mjs";
-import { RA_MARKER, isRolesAnywhereMode } from "./roles-anywhere.mjs";
+import {
+  RA_MARKER,
+  isRolesAnywhereMode,
+  readSigningIdentity,
+  setupSteps,
+} from "./roles-anywhere.mjs";
 import { isInteractive } from "./style.mjs";
 
 // Shared logic behind the provider *connection knobs* — the `--profile` /
@@ -96,17 +101,36 @@ async function readKeys() {
 }
 
 /**
+ * The error `--roles-anywhere` raises when this machine has no complete Roles
+ * Anywhere identity yet. RA is a *machine* identity stood up by `s3cab aws`
+ * (ADR-0057); `setup`/`provider --roles-anywhere` only point a set at it, so
+ * writing the marker with nothing behind it would make the very next cloud op
+ * fail on a half-built identity. Point at the recipe instead (ADR-0030).
+ * @param {string} [bucket] - The set's bucket, to spell the recipe for it.
+ */
+const rolesAnywhereNotReadyError = (bucket) =>
+  new Error(
+    `Set up the keyless Roles Anywhere identity before pointing a set at it.
+This machine has no complete Roles Anywhere identity yet. Generate it and emit its template:
+${setupSteps(bucket)}`,
+  );
+
+/**
  * Turn the provider connection options into validated `AWS_*` values plus a human
  * summary of what was set (for the confirmation line). Enforces the one-mode rule
  * at the option level — a profile, access keys, and Roles Anywhere are alternative
  * sign-ins (ADR-0055/0057), so passing more than one is rejected — validates the
  * endpoint, trims the profile/region, and prompts for the key pair (never via
  * argv). Roles Anywhere is AWS-only, so it can't combine with a custom `--endpoint`
- * (ADR-0057); it contributes the set's `S3CAB_RA` marker to `updates`, no material.
- * Callers apply the returned `updates`: `provider` writes them to a set's env file
- * (and clears the modes RA/profile/keys replace); `setup` populates the environment
- * for its remote claim, then persists them on a win.
- * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean, rolesAnywhere?: boolean }} options
+ * (ADR-0057), and it needs the machine identity to be complete *before* a set is
+ * pointed at it ({@link rolesAnywhereNotReadyError}); it contributes the set's
+ * `S3CAB_RA` marker to `updates`, no material. Callers apply the returned
+ * `updates`: `provider` writes them to a set's env file (and clears the modes
+ * RA/profile/keys replace); `setup` populates the environment for its remote
+ * claim, then persists them on a win.
+ * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean,
+ *   rolesAnywhere?: boolean, bucket?: string }} options - `bucket` is the set's,
+ *   used only to spell the Roles Anywhere recipe.
  * @returns {Promise<{ updates: Record<string, string>, summary: string[] }>}
  */
 export async function gatherProviderConfig({
@@ -115,6 +139,7 @@ export async function gatherProviderConfig({
   region,
   keys,
   rolesAnywhere,
+  bucket,
 }) {
   const modes = [
     profile !== undefined && "a profile",
@@ -130,6 +155,9 @@ export async function gatherProviderConfig({
     throw new ParseArgsError(
       "Roles Anywhere is AWS-only, so it can't be combined with a custom --endpoint (that's for non-AWS S3 providers).",
     );
+  }
+  if (rolesAnywhere && !readSigningIdentity()) {
+    throw rolesAnywhereNotReadyError(bucket);
   }
   /** @type {Record<string, string>} */
   const updates = {};

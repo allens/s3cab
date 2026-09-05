@@ -39,6 +39,10 @@ HEAD `a4e0c9d`. Verdict: the new subsystems are well-shaped, and the friction is
 that don't import each other, and the fourth is a seam with ten adapters and one contract.
 **A–D were re-verified against source by hand; E–L carry their sweep's anchors.**
 
+**C landed 2026-09-05** ([PR #331](https://github.com/allens/s3cab/pull/331)); its entry is
+retired to the run log below, its lasting knowledge now in
+[ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s amendment.
+
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
 (1) **Line anchors rot on every landing, and so do the file paths.** Two files of the same name
@@ -48,13 +52,9 @@ before trusting any anchor — this file's own opening rule. It paid this pass: 
 entries were dead and one had the wrong mechanism.
 (2) **Ordering constraints, by file overlap rather than theme.** **F → H** are sequential (both
 own the enumeration/scan shape). **A** and **B** each touch one seam nobody else on this list
-touches. **C** spans `auth.mjs`/`s3.mjs`/`lib/provider.mjs` and conflicts with nothing here.
-Everything else is independent.
-(3) **`.env.test` is gitignored and does not travel.** Every candidate except **C** is pure or
-local and verifies with `npm test` alone; C is the exception — it needs the gated suite *and* the
-Roles Anywhere prerequisites, both written up in
-[docs/integration-testing.md](../docs/integration-testing.md). Do that setup before starting C,
-not after.
+touches. Everything else is independent.
+(3) **`.env.test` is gitignored and does not travel.** Every remaining candidate is pure or
+local and verifies with `npm test` alone (C was the exception, and has landed).
 
 - **A — `path-match.mjs` owns half the path-spelling question, and `find` borrows the wrong
   half.** _Strong — live fault._ [path-match.mjs](../src/lib/path-match.mjs):9–28 documents
@@ -82,22 +82,6 @@ not after.
   by hand. `localMoment` already takes the unit as a parameter, so the fix is routing, not new
   interface. Deletes three test workarounds and makes a snapshot fully deterministic under the fake
   clock.
-- **C — The credential path carries two disjoint error families.** _Strong._ *(Was eleventh-pass B;
-  **holds, with its mechanism corrected** — the request-time relay **is** on the stack, so the old
-  entry's "it never passes `s3.mjs`" was wrong.)* [auth.mjs](../src/lib/auth.mjs):679–697 returns
-  from the RA branch at `:681`, **outside** the `try` that adds set / profile / endpoint context, so
-  only the absent-identity case gets `noCredentialsError` (:629–642). A *runtime* `createSession`
-  failure — expired cert, STS 403, non-JSON body, timeout — is a hand-written plain `Error`
-  ([roles-anywhere.mjs](../src/lib/roles-anywhere.mjs):774–821) that reaches
-  `requestErrorTable` ([s3.mjs](../src/lib/s3.mjs):322–347, :479–487) and matches **none** of its
-  seven rows, all keyed on `name`/errno. One user-facing concern, two implementations that share
-  nothing; a new failure mode added to either will not appear in the other. The readiness rule
-  splits the same way: [setup.mjs](../src/commands/setup.mjs):271 refuses
-  `--roles-anywhere` without an identity, [provider.mjs](../src/commands/provider.mjs):284–290 does
-  not — and the module both go through, `lib/provider.mjs`'s `gatherProviderConfig`, doesn't know
-  the rule. **`resolveCredentials` is imported by exactly one file in the repo — `src/lib/s3.mjs:29`,
-  production. No test imports it**, while the pure `parseSessionResponse` has five: the skill's
-  own warning, exactly.
 - **D — Ten adapters at the `s3.mjs` seam, one of them checked.** _Strong._ ADR-0019 designates
   `s3.mjs` as the fake point, and [test/model/CAPABILITIES.md](../test/model/CAPABILITIES.md)
   writes the rule down: *"declare only what you truly model. An optimistic fake that claims what
@@ -720,3 +704,32 @@ least once; re-open only if the stated reason no longer holds.
     preflight is a per-hash `HeadObject`.
   - `npm run test:integration` ran green (26 pass) though the change is off the S3 path — cheap,
     and `delete` is the one command where being wrong is unrecoverable.
+- **2026-09-05 — C landed** ([PR #331](https://github.com/allens/s3cab/pull/331), grilled
+  in-session before any code, one decision at a time; the record is
+  [ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s amendment). *The Roles
+  Anywhere exchange gets the set-scoped frame; the line to the relay is drawn by type.*
+  - **The corrected mechanism changed the shape.** The relay is on the stack —
+    `resolveCredentials` runs inside the SDK's `initialize` step, which the relay wraps — so a
+    socket error with an errno *already* got the network retry, and the naive fix (catch
+    everything in the RA branch) would have taken that away. Hence the three options grilled:
+    (A) move the RA branch inside the existing `try` (wraps the socket error too — rejected);
+    (B) give `requestErrorTable` RA rows (the relay is keyed on `name`, and the table is 0037's
+    request-time contract — rejected as the "mushy middle"); (C) translate at resolve time in
+    RA's own catch, keyed on a new `RolesAnywhereSessionError` thrown at the endpoint's own
+    boundary — chosen. The relay is untouched.
+  - **The readiness gate moved to the module both doors share.** `setup` refused a set without an
+    identity, `provider` did not; `gatherProviderConfig` now does, so a marker is never written
+    for an identity that fails the next cloud op. `provider`'s `Scope` gained the set's bucket so
+    the recipe is spelled for it. The three-command recipe was in three places and is now one
+    export, `setupSteps`; the stack name it prints mirrors `lib/aws.mjs`'s `stackName` rather
+    than importing it (aws → s3 → auth → roles-anywhere would be a cycle).
+  - **`resolveCredentials` now has a test file** — `auth.resolve.test.mjs` fakes `node:https`
+    (the timeout test's pattern) under a real temp identity and a `loadSet`-loaded set, so all
+    four paths are asserted through the real signer: absent identity, refused session,
+    credential-less 2xx, and a socket error rethrown *identical*. One live case in the RA
+    integration suite mis-regions the identity to provoke the real 403.
+  - **Two things the grilling surfaced that the candidate did not.** The expiry message-match
+    (0075's one prose test) would fire on a refusal mentioning an expired *certificate* and
+    answer with `aws sso login`, so it is bypassed in RA mode. And the generated RA template
+    creates the bucket, which fails against a bucket that exists — the test-bucket recipe in
+    docs/integration-testing.md now says how to strip it.

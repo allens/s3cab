@@ -15,7 +15,7 @@ import {
   getPayloadHash,
 } from "@smithy/signature-v4";
 import { parseEnvFile } from "./env.mjs";
-import { ValidationError } from "./error.mjs";
+import { RolesAnywhereSessionError, ValidationError } from "./error.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
 
 // The machine-level IAM Roles Anywhere identity (ADR-0057/0058): one self-signed
@@ -380,6 +380,31 @@ const identityPath = (file) => join(machineIdentityDir(), file);
 
 /** The identity's env file (the ARNs + region), an env-file.mjs KEY=value file. */
 export const identityEnvPath = () => identityPath("env");
+
+/**
+ * The three commands that stand a machine identity up for a bucket — generate,
+ * deploy, capture — as the indented fix block every "identity missing" message
+ * ends with (ADR-0030: the exact fix, copy-pasteable). One home for the recipe
+ * because three messages print it: the `provider`/`setup` readiness gate
+ * (lib/provider.mjs) and the two Roles Anywhere cases of `credentialCase`
+ * (lib/auth.mjs).
+ * @param {string} [bucket] - The set's bucket, or `<bucket>` when unknown.
+ */
+export const setupSteps = (bucket = "<bucket>") =>
+  `  s3cab aws ${bucket} --roles-anywhere
+then deploy the printed template, and capture its ARNs into the identity:
+  s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`;
+
+/**
+ * The name of the CloudFormation stack `s3cab aws <bucket> --roles-anywhere`
+ * deploys, for the `--from-stack` operand a fix prints. Spelled out here rather
+ * than taken from lib/aws.mjs's `stackName`: that module imports s3.mjs, which
+ * imports auth.mjs, which imports this one, so the import would be a cycle. The
+ * `s3cab-` de-dup it mirrors is ADR-0056's one naming rule.
+ * @param {string} [bucket] - The set's bucket, or `<bucket>` when unknown.
+ */
+export const identityStackName = (bucket = "<bucket>") =>
+  `s3cab-${bucket.replace(/^s3cab-/, "")}`;
 
 /** The four files that together make up a complete machine identity. */
 const IDENTITY_FILES = ["ca.pem", "ca.key", "client.pem", "client.key"];
@@ -764,16 +789,19 @@ export async function buildSignedRequest(input) {
 
 /**
  * Parse a `CreateSession` HTTP result into its session credentials, or throw a
- * legible error. A non-2xx (a disabled/mismatched trust anchor, a wrong region)
- * surfaces the server's own body; a 2xx without the credential block is treated as
- * a protocol surprise rather than silently yielding partial credentials. Pure, so
- * the mapping is unit-testable without a live endpoint.
+ * {@link RolesAnywhereSessionError}. A non-2xx (a disabled/mismatched trust
+ * anchor, a wrong region) surfaces the server's own body; a 2xx without the
+ * credential block is treated as a protocol surprise rather than silently
+ * yielding partial credentials. The message is the *reason* only — terse and
+ * factual — because `resolveCredentials` (lib/auth.mjs) catches the type and
+ * quotes it inside the set-scoped frame that carries the goal and the fix
+ * (ADR-0075). Pure, so the mapping is unit-testable without a live endpoint.
  * @param {{ status: number | undefined, body: string }} result
  * @returns {SessionCredentials}
  */
 export function parseSessionResponse({ status, body }) {
   if (status === undefined || status < 200 || status >= 300) {
-    throw new Error(
+    throw new RolesAnywhereSessionError(
       `Roles Anywhere CreateSession failed (HTTP ${status ?? "?"}): ${body || "(empty body)"}`,
     );
   }
@@ -782,7 +810,7 @@ export function parseSessionResponse({ status, body }) {
   try {
     parsed = JSON.parse(body);
   } catch {
-    throw new Error(
+    throw new RolesAnywhereSessionError(
       `Roles Anywhere CreateSession returned a non-JSON body: ${body}`,
     );
   }
@@ -793,7 +821,7 @@ export function parseSessionResponse({ status, body }) {
     !credentials?.sessionToken ||
     !credentials?.expiration
   ) {
-    throw new Error(
+    throw new RolesAnywhereSessionError(
       `Roles Anywhere CreateSession returned no credentials: ${body}`,
     );
   }
@@ -809,15 +837,16 @@ export function parseSessionResponse({ status, body }) {
 const SESSION_TIMEOUT_MS = 10_000;
 
 /**
- * The actionable timeout error (ADR-0030 — goal-framed, names the likely fix). A
- * plain `Error`: nothing catches it by type, it flows to the CLI's top-level catch.
+ * The timeout as a session failure: the endpoint accepted the connection and
+ * then said nothing, which is the same "this region has no working trust anchor"
+ * signal a refusal is. The reason only, like {@link parseSessionResponse}'s —
+ * the fix (check the network, check the region) is the session case's in
+ * `credentialCase` (lib/auth.mjs), where every session failure ends up.
  * @param {string} host
  */
 const sessionTimeoutError = (host) =>
-  new Error(
-    `Timed out reaching the Roles Anywhere endpoint (${host}) after ${SESSION_TIMEOUT_MS / 1000}s.
-Check your network connection, and that AWS_REGION in the identity's env file
-(${tildeify(machineIdentityDir())}/env) matches where the trust anchor was deployed.`,
+  new RolesAnywhereSessionError(
+    `Timed out reaching the Roles Anywhere endpoint (${host}) after ${SESSION_TIMEOUT_MS / 1000}s`,
   );
 
 /**

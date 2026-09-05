@@ -136,6 +136,16 @@ s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>   # captures the A
 export S3CAB_TEST_RA_HOME="$HOME/.s3cab"                        # the home holding roles-anywhere/
 ```
 
+**The template creates the bucket, and the test bucket already exists**, so the deploy above
+fails as written against it (`<bucket> already exists`). Before deploying, delete the
+`AWS::S3::Bucket` resource from the generated `~/.s3cab/<bucket>.yaml` and replace the two
+`!Ref`/`!GetAtt` references to it in the policy with the literal bucket ARN
+(`arn:aws:s3:::<bucket>` and `arn:aws:s3:::<bucket>/*`); `aws cloudformation validate-template`
+confirms the edit before `deploy` runs it. The stack then holds only the identity (trust anchor,
+profile, role, policy). Deploy it in the **test bucket's region** — the ARNs `--save` captures are
+regional, and the suite's refused-session case deliberately mis-regions a copy of the identity to
+provoke the 403.
+
 Skipping them is not a hole in the safety net: the signer itself is pinned by a byte-for-byte
 parity unit test against a live-validated spike ([ADR-0058](adr/0058-roles-anywhere-cert-generation.md)),
 so the live run is confirmation rather than the only proof. Stand it up when you are changing the
