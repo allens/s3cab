@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { fileProps } from "./file-props.mjs";
 
 /** @import { Props } from "./snapshot-file.mjs" */
-/** @import { HashSource } from "./file-props.mjs" */
+/** @import { HashProgress, HashSource } from "./file-props.mjs" */
 
 const FILE = "./test/fixtures/dir1/hello-world.txt";
 const MTIME = new Date("2025-01-15T10:30:00.000Z");
@@ -41,6 +41,40 @@ describe("fileProps", () => {
       props.hash,
       "eb6183addde05c2196ce25e6fa34a4baf20f9bf30d33892f452a9a1e88c9a472",
     );
+  });
+
+  it("reports onHashStart once, only on the streaming path", async () => {
+    const filePath = "./test/fixtures/dir1/10MB.txt";
+    await utimes(filePath, MTIME, MTIME);
+
+    /** @type {HashProgress[]} */
+    const started = [];
+    const before = performance.now();
+    const props = await fileProps(filePath, undefined, {
+      onHashStart: (hashing) => started.push(hashing),
+    });
+    const after = performance.now();
+
+    assert.equal(started.length, 1);
+    const [hashing] = started;
+    assert.equal(hashing?.path, filePath);
+    assert.equal(hashing?.size, 10 * 1024 * 1024);
+    assert.ok(
+      hashing && hashing.startedAt >= before && hashing.startedAt <= after,
+    );
+    // By the time fileProps resolves the stream is fully drained, so the
+    // caller's own poll of `read()` — the one thing this interface exists to
+    // report — must agree with the size just hashed.
+    assert.equal(hashing?.read(), props.size);
+
+    // The small fixture stays under the streaming threshold: no progress line
+    // is worth drawing for a read that never yields the event loop.
+    /** @type {HashProgress[]} */
+    const smallStarted = [];
+    await fileProps(FILE, undefined, {
+      onHashStart: (hashing) => smallStarted.push(hashing),
+    });
+    assert.equal(smallStarted.length, 0);
   });
 
   it("hashes an empty file to the empty-content hash", async () => {

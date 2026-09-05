@@ -139,29 +139,11 @@ not after.
   now pairs with F.)* "The set of hashes something references" is built five ways across the
   codebase and its tests, and three `ref`-shaped test helpers disagree on the shape, so every new
   test picks one by proximity. One constructor, taken by the tests rather than re-derived.
-- **I — `onHashStart` is a surface nothing tests.** _Worth exploring._ *(All that survives of
-  eleventh-pass F — see "Retired" below.)* `onHashStart` is a callback in the fused pipeline's
-  interface that no test drives, so the one thing it exists to coordinate — progress against
-  hashing — is unverified. Either test it or ask whether it earns its place in the interface.
-  Note the eleventh pass's own leave-alone entry says `onHashStart` *"earns its width by reporting
-  from inside and so avoiding a second stat"* — that justifies its existence, not its untestedness.
-- **J — Three unreachable interrupt policies, and no exit-130 test.** _Worth exploring._ *(All that
-  survives of eleventh-pass G.)* [s3cab.mjs](../src/s3cab.mjs)'s interrupt path defines more
-  policies than any code path can reach, and **no test anywhere asserts that s3cab exits 130** — the
-  one externally-visible promise the mechanism exists to keep. Small, and it closes a hole in
-  territory ADR-0030 cares about.
-- **K — `painter` is shallow; the section grammar is spelled five times.** _Worth exploring._
-  *(Carried from the eleventh pass's smaller items.)* [render.mjs](../src/render.mjs)'s `painter`
-  hands back primitives and each of five callers re-types the same section grammar — heading, rule,
-  indented body, blank line — so a change to ADR-0043's output conventions lands in five places.
-  Same move that worked for `progress.mjs` in pass 11: give the module the *concept*, not the
-  ingredients.
-- **L — `progress.mjs`'s cadence claim vs `withProgress`'s own timer.** _Speculative._ After pass
-  11's deepening, [progress.mjs](../src/lib/progress.mjs) documents itself as owning the redraw
-  cadence, and `withProgress` still runs a 250 ms interval of its own. May be deliberate (a bounded
-  and an unbounded pass wanting different cadences), in which case the doc is what's wrong. Listed
-  because a module claiming to own a thing a sibling also does is the drift a review should name —
-  not because the fix is obvious.
+- **L — `progress.mjs`'s cadence claim vs `withProgress`'s own timer.** _Answered, no change._ Not
+  drift: `progress.mjs` owns the redraw-rate *floor* (`update()` enforces `MIN_REDRAW_MS` — 100 ms —
+  regardless of caller), while `withProgress`'s 250 ms `setInterval` is only how often it *asks* to
+  redraw (matched to a byte percentage climbing visibly), and every one of those asks still funnels
+  through that same gated `update()` — the two cadences don't compete, they compose.
 
 **Examined & left alone (twelfth pass)** (not candidates — skip future runs):
 `src/lib/deletion-record.mjs` after ADR-0090 — the compaction and the record format sit behind a
@@ -685,6 +667,22 @@ least once; re-open only if the stated reason no longer holds.
     undeclared adapters in `src/` are measurably out of line rather than merely untidy; B is a
     finding solely because `localMoment`'s doc states the invariant the `#END` trailer breaks. A
     codebase that records its invariants in prose gets reviewed against them.
+- **2026-09-05 — I landed.** `onHashStart` now has a driving test:
+  `file-props.test.mjs`'s `"reports onHashStart once, only on the streaming path"` proves it fires
+  exactly once, with the right `path`/`size`/`startedAt`, only on the ≥5MB streaming path — and
+  never on the small-file slurp path. No interface change; the eleventh pass's own rationale for
+  `onHashStart`'s existence stands, so this closes the untested-surface gap rather than removing it.
+- **2026-09-05 — J landed.** `s3cab.mjs`'s exit-code decision is now a pure, directly-tested
+  function: `exitCodeFor` (`lib/error.mjs`) returns `EXIT_INTERRUPTED` (130) for an
+  `InterruptedError`, 2 for an input error, 1 otherwise, and `s3cab.mjs`'s top-level `catch` sets
+  `process.exitCode` from it once instead of branching it inline. `error.test.mjs` asserts all three
+  cases directly, closing the hole: no test anywhere previously asserted the exit-130 promise
+  ADR-0067 makes.
+- **2026-09-05 — K landed.** `render.mjs` gained a shared `section()` helper — label, entries,
+  colour, `paint`, per-entry formatter in; heading + joined body out — and `addedSection`,
+  `fromToSection`, `pathSection`, `errorSection` and `skippedSection` all delegate to it instead of
+  re-typing the heading/count/join grammar five times. Output is byte-identical (full
+  `render.test.mjs` suite unchanged and passing); same move pass 11 made for `progress.mjs`.
 - **2026-09-05 — G landed** (grilled in-session, both directions argued before any code).
   *Fold the delete operand grammar back into its one caller.* `lib/delete.mjs` and its test are
   deleted; `collectHashes` and `EMPTY_FILE_HASH` are private to
