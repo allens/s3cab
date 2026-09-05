@@ -4,7 +4,8 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { ValidationError } from "./error.mjs";
-import { compileFindPattern, findInSnapshots, prepare } from "./find.mjs";
+import { compileFindPattern, findInSnapshots } from "./find.mjs";
+import { preparePath } from "./path-match.mjs";
 import { writeSet } from "./sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -46,7 +47,7 @@ afterEach(() => {
  * @returns {boolean}
  */
 const matches = (pattern, path) =>
-  compileFindPattern(pattern).test(prepare(path));
+  compileFindPattern(pattern).test(preparePath(path));
 
 /** Where the scan fixtures' file paths live (resolved, so it works on any OS). */
 const BASE = resolve("/data");
@@ -112,6 +113,19 @@ describe("compileFindPattern", () => {
     assert.equal(matches("dir/secret1", path), false);
   });
 
+  it("finds a file on a network share by name and by path fragment", () => {
+    // A UNC root is what a mapped drive resolves to, so this is every NAS
+    // backup. It has no drive letter, and used to be unmatchable: its
+    // separators were left as `\` against a `/`-normalized pattern.
+    const path = "\\\\nas\\photos\\2019\\beach.jpg";
+    assert.equal(matches("beach.jpg", path), true);
+    assert.equal(matches("*.jpg", path), true);
+    assert.equal(matches("2019/beach.jpg", path), true);
+    assert.equal(matches("photos/", path), true);
+    assert.equal(matches("nas/photos/2019/beach.jpg", path), true);
+    assert.equal(matches("019/beach.jpg", path), false);
+  });
+
   it("keeps * inside one segment and lets ** cross segments", () => {
     assert.equal(matches("*/junkfile.dat", "/home/me/junkfile.dat"), true);
     assert.equal(matches("*/junkfile.dat", "/junkfile.dat"), false);
@@ -132,6 +146,9 @@ describe("compileFindPattern", () => {
     assert.equal(matches("SECRET1", "C:\\Users\\me\\secret1"), true);
     assert.equal(matches("secret1", "C:\\Users\\ME\\SECRET1"), true);
     assert.equal(matches("SECRETSDIR/", "C:\\me\\secretsdir\\a"), true);
+    // A network share is Windows-shaped too: the share never told the user
+    // which spelling it holds, so an exact-case miss would be a guess lost.
+    assert.equal(matches("BEACH.JPG", "\\\\nas\\photos\\beach.jpg"), true);
     assert.equal(matches("SECRET1", "/home/me/secret1"), false);
     assert.equal(matches("secret1", "/home/me/SECRET1"), false);
   });
@@ -139,24 +156,6 @@ describe("compileFindPattern", () => {
   it("rejects a pattern with nothing in it to match", () => {
     assert.throws(() => compileFindPattern(""), ValidationError);
     assert.throws(() => compileFindPattern("/"), ValidationError);
-  });
-});
-
-describe("prepare", () => {
-  it("normalizes a Windows path's separators and folds its case", () => {
-    assert.deepEqual(prepare("C:\\Users\\me\\a.txt"), {
-      path: "C:/Users/me/a.txt",
-      base: "a.txt",
-      windows: true,
-    });
-  });
-
-  it("treats a backslash in a POSIX path as an ordinary character", () => {
-    assert.deepEqual(prepare("/home/me/we\\ird"), {
-      path: "/home/me/we\\ird",
-      base: "we\\ird",
-      windows: false,
-    });
   });
 });
 

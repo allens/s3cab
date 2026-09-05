@@ -188,10 +188,10 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   canonical (`resolveWalkRoot`, so a snapshot's `#DIR` headers are spelled like the rows beneath
   them); every path s3cab *reads back* from a file a user may have edited — `dirs.txt`,
   `exclude.txt`, a snapshot — tolerates a case difference where the OS does, because on Windows
-  the two spellings are one file. Tolerance keys on the **path's shape** (`isWindowsPath`: is
-  segment 0 a drive letter?), never on `process.platform` — `restore --output` exists to put a
-  Windows backup on another machine, where `platform` says `linux` and the paths are still
-  Windows paths. What we promise users is in [guide/format.md](guide/format.md) ("Paths are
+  the two spellings are one file. Tolerance keys on the **path's shape** (`foldsCase`: is the
+  root a drive letter or a UNC share?), never on `process.platform` — `restore --output` exists
+  to put a Windows backup on another machine, where `platform` says `linux` and the paths are
+  still Windows paths. What we promise users is in [guide/format.md](guide/format.md) ("Paths are
   written with the casing the filesystem itself reports"); the drive letter is the one component
   we normalize, since it is a mount alias with no on-disk case.
 - **Memory/async stance: assume a modern user PC, not a headless VM.** Don't needlessly use

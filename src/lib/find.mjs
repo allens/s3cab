@@ -2,11 +2,12 @@ import { posix, sep } from "node:path";
 import { stderr } from "node:process";
 
 import { ValidationError, errorText } from "./error.mjs";
-import { globSource, isWindowsPath } from "./path-match.mjs";
+import { globSource, preparePath } from "./path-match.mjs";
 import { countedPass } from "./progress.mjs";
 import { isCorruptSnapshotError } from "./referenced.mjs";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
 
+/** @import { PreparedPath } from "./path-match.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
 /** @import { Snapshot } from "./snapshot-file.mjs" */
 
@@ -31,19 +32,11 @@ import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
 // found nothing.
 
 /**
- * One snapshot path, prepared once for matching against every pattern.
- * @typedef {Object} Candidate
- * @property {string} path - Separators normalized to `/` (Windows paths only)
- * @property {string} base - Its last segment
- * @property {boolean} windows - Windows-shaped, so matching folds case
- */
-
-/**
  * One compiled pattern: the text the user typed (kept for the report) and the
  * test it compiled to.
  * @typedef {Object} FindMatcher
  * @property {string} pattern
- * @property {(candidate: Candidate) => boolean} test
+ * @property {(candidate: PreparedPath) => boolean} test
  */
 
 /**
@@ -117,12 +110,12 @@ import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
  *   have no directory rows, so this is the only way to name a subtree, and it
  *   matches paths — never the directory itself.
  *
- * **Separators in the *pattern* key on `process.platform`; case in the *path*
- * keys on the path's shape.** They are different questions with different right
- * answers: the pattern was typed at this machine's shell, so a Windows user
- * typing `secretsdir\secret1` means a separator; the path came out of a snapshot
- * that may have been taken on another OS entirely, so only its own shape can say
- * whether its case matters (`isWindowsPath`). The consequence is a POSIX
+ * **Separators in the *pattern* key on `process.platform`; separators and case
+ * in the *path* key on the path's shape.** They are different questions with
+ * different right answers: the pattern was typed at this machine's shell, so a
+ * Windows user typing `secretsdir\secret1` means a separator; the path came out
+ * of a snapshot that may have been taken on another OS entirely, so only its own
+ * shape can say how it is spelled (`preparePath`). The consequence is a POSIX
  * filename containing a literal backslash can't be named by a pattern — a wart
  * worth the two rules being independently correct.
  * @param {string} pattern - As the user typed it
@@ -160,33 +153,9 @@ export function compileFindPattern(pattern) {
   return {
     pattern,
     test: (candidate) =>
-      (candidate.windows ? folded : sensitive).test(
+      (candidate.foldCase ? folded : sensitive).test(
         wholePath ? candidate.path : candidate.base,
       ),
-  };
-}
-
-/**
- * Derive the two forms a snapshot path is matched in. Called once per row of
- * every snapshot in history, so it does the least it can: the basename is cut
- * from the original string (no allocation), and the `/`-separated form is built
- * only for a Windows path, since a POSIX one already is one.
- *
- * Which separators count is again the path's own shape — on POSIX a backslash is
- * an ordinary character in a filename, and cutting the basename at one would
- * name a file that doesn't exist.
- * @param {string} path - An absolute path, as a snapshot records it
- * @returns {Candidate}
- */
-export function prepare(path) {
-  const windows = isWindowsPath(path);
-  const cut = windows
-    ? Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
-    : path.lastIndexOf("/");
-  return {
-    path: windows ? path.replaceAll("\\", posix.sep) : path,
-    base: path.slice(cut + 1),
-    windows,
   };
 }
 
@@ -306,7 +275,7 @@ export async function findInSnapshots(sets, patterns, { all = false } = {}) {
           continue;
         }
         for (const [path, props] of snapshot.entries) {
-          const candidate = prepare(path);
+          const candidate = preparePath(path);
           if (!matchers.some((matcher) => matcher.test(candidate))) {
             continue;
           }

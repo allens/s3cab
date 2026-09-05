@@ -1,6 +1,6 @@
 import { join, posix, resolve, sep } from "node:path";
 
-import { isWindowsPath } from "./path-match.mjs";
+import { foldsCase } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -136,8 +136,8 @@ export function pathMatcher(filters) {
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split on both `/` and `\`, and matched by exact
- * segments. Case-folded when — and only when — the root is a Windows path, since
- * there the two spellings name one file (`isWindowsPath`); the basename-collision
+ * segments. Case-folded when — and only when — the root is Windows-shaped, since
+ * there the two spellings name one file (`foldsCase`); the basename-collision
  * check below folds unconditionally, deliberately, to catch two roots that would
  * land in the same `<output>` directory. The destination is rebuilt with this
  * platform's separator under `output`. The longest matching root wins, so a
@@ -146,7 +146,7 @@ export function pathMatcher(filters) {
  * `snapshot` writes canonical roots, so its own headers already agree with its
  * rows — the folding is for a snapshot a *user* has edited, which is a supported
  * thing to do to a file we promise is plain text (ADR-0002). It keys on the
- * path's shape rather than `process.platform` for the reason `isWindowsPath`
+ * path's shape rather than `process.platform` for the reason `path-match.mjs`
  * documents: a Windows snapshot restored on Linux is exactly the case `--output`
  * exists for.
  *
@@ -172,7 +172,7 @@ export function reroot(dirs, output) {
       return {
         segments,
         base: segments.at(-1) ?? "",
-        fold: isWindowsPath(dir),
+        fold: foldsCase(dir),
       };
     })
     // Longest first: a nested root must win over a parent that also matches.
