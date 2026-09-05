@@ -61,7 +61,12 @@ A second test file for one module qualifies with a **dotted aspect**
     that need a snapshot point `S3CAB_HOME` at a scratch dir — see
     [helpers/temp-home.mjs](helpers/temp-home.mjs).)
   - [helpers/](helpers/) — shared, importable test helpers, not run as tests
-    (`temp-home.mjs`, `write-snapshot.mjs`, and `integration.mjs` — the gated-suite harness).
+    (`temp-home.mjs`, `write-snapshot.mjs`, `integration.mjs` — the gated-suite harness — and
+    [helpers/s3-seam.mjs](helpers/s3-seam.mjs), the stencil the unit tier's mocked `s3.mjs`
+    fakes are built from: reads default to an empty store, unmodelled *writes* throw, and
+    [ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendment says why the two sides differ).
+    Its own coverage check is [s3-seam.test.mjs](s3-seam.test.mjs), up here rather than beside it
+    because the `test/*.test.mjs` glob below is deliberately shallow.
 
 The `test` script points the runner at explicit globs —
 `"src/**/*.test.mjs" "test/*.test.mjs" "test/model/*.test.mjs"` — rather than default

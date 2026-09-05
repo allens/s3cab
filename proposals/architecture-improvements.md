@@ -39,9 +39,14 @@ HEAD `a4e0c9d`. Verdict: the new subsystems are well-shaped, and the friction is
 that don't import each other, and the fourth is a seam with ten adapters and one contract.
 **A–D were re-verified against source by hand; E–L carry their sweep's anchors.**
 
-**C landed 2026-09-05** ([PR #331](https://github.com/allens/s3cab/pull/331)); its entry is
-retired to the run log below, its lasting knowledge now in
-[ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s amendment.
+**A, C, D and E landed 2026-09-05** ([PR #334](https://github.com/allens/s3cab/pull/334),
+[PR #331](https://github.com/allens/s3cab/pull/331),
+[PR #335](https://github.com/allens/s3cab/pull/335),
+[PR #330](https://github.com/allens/s3cab/pull/330)); their entries are retired to the run log
+below, and A's, C's and D's lasting knowledge is now in
+[ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)'s,
+[ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s and
+[ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendments.
 
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
@@ -51,25 +56,11 @@ exist in `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mj
 before trusting any anchor — this file's own opening rule. It paid this pass: three carried-forward
 entries were dead and one had the wrong mechanism.
 (2) **Ordering constraints, by file overlap rather than theme.** **F → H** are sequential (both
-own the enumeration/scan shape). **A** and **B** each touch one seam nobody else on this list
-touches. Everything else is independent.
+own the enumeration/scan shape). **B** touches one seam nobody else on this list touches.
+Everything else is independent.
 (3) **`.env.test` is gitignored and does not travel.** Every remaining candidate is pure or
 local and verifies with `npm test` alone (C was the exception, and has landed).
 
-- **A — `path-match.mjs` owns half the path-spelling question, and `find` borrows the wrong
-  half.** _Strong — live fault._ [path-match.mjs](../src/lib/path-match.mjs):9–28 documents
-  `isWindowsPath` as the **case** predicate (*"True when comparisons against it should fold
-  case"*), and deliberately excludes a UNC root because a remote filesystem sets its own case
-  rules — correct for that question. [find.mjs](../src/lib/find.mjs):181–191's `prepare` then uses
-  it for the **separator** question. For `\\server\share\a.jpg` the answers diverge and every
-  consequence is wrong at once: `windows === false` ⇒ `cut === -1` ⇒ `base` is the whole path, and
-  `path` keeps its backslashes while `compileFindPattern` (find.mjs:133) already `/`-normalized the
-  pattern, so **no pattern can match**. Nothing in `setup` or the walk refuses a UNC root, so the
-  data is there; under ADR-0089 `find` is the only route to the hash `delete` takes as its operand,
-  so UNC-backed content cannot be removed by the documented workflow. **There is no
-  `src/lib/path-match.test.mjs` at all.** The deepening and the bugfix are the same edit: one entry
-  point returning `{ path, base, foldCase }` with the three root shapes handled inside. Consistent
-  with ADR-0088 (which put the shared grammar here on purpose); finishes that move.
 - **B — The `#END` completion instant is minted outside the clock seam.** _Strong._
   [snapshot-file.mjs](../src/lib/snapshot-file.mjs):992–1001's `endLine` calls
   `Temporal.Now.instant()` directly and re-spells ADR-0085's `roundingMode: "ceil"` inline, while
@@ -82,20 +73,6 @@ local and verifies with `npm test` alone (C was the exception, and has landed).
   by hand. `localMoment` already takes the unit as a parameter, so the fix is routing, not new
   interface. Deletes three test workarounds and makes a snapshot fully deterministic under the fake
   clock.
-- **D — Ten adapters at the `s3.mjs` seam, one of them checked.** _Strong._ ADR-0019 designates
-  `s3.mjs` as the fake point, and [test/model/CAPABILITIES.md](../test/model/CAPABILITIES.md)
-  writes the rule down: *"declare only what you truly model. An optimistic fake that claims what
-  it fakes poorly is how a suite passes against broken code."*
-  [fake-s3.mjs](../test/model/harness/fake-s3.mjs) obeys it — it re-implements ADR-0083's
-  hash-verification guard and documents what it does not model. The **nine** object-literal
-  adapters in `src/` declare nothing: `commands/backup.fused.test.mjs:20`,
-  `commands/backup.online-only.test.mjs:73`, `commands/restore.counts.test.mjs:66`,
-  `commands/restore.missing-object.test.mjs:60`, `lib/objects.test.mjs:46`, `lib/upload.test.mjs:49`,
-  `lib/set-marker.test.mjs:13`, `lib/deletion-record.test.mjs:28`,
-  `lib/remote.referenced-scan.test.mjs:23`. The first two are near-identical down to a copy-pasted
-  ADR-0084 comment, both stubbing `putFile: async () => true` — the one method ADR-0083 gave a
-  guard to. **Not one god-fake** (the tiers differ on purpose): a factory returning honest defaults
-  that a test narrows by passing only what it varies. Ten adapters is past "two means a real seam".
 - **F — The bucket-scan ordering rule is prose, not code.** _Worth exploring._ *(Was an
   eleventh-pass smaller item, filed "Strong the moment a third bucket-scan command lands". That
   trigger did **not** fire — the phase count grew instead.)* The safety property — snapshots listed
@@ -125,8 +102,8 @@ the two passes answer different questions and fusing them would put the store's 
 matcher; `uploadObjects` / `putFile` after ADR-0083 — the streamed-digest guard is *inside*
 `putFile` where a caller cannot skip it, which is the whole point (see **D**: the problem is nine
 fakes that skip it, not the real one); [path-match.mjs](../src/lib/path-match.mjs) **as a module** —
-co-locating `globSource` with the spelling question is right, and **A** deepens it rather than
-splitting it; `generateSnapshot` and `readBaseline` **as modules** — **E** is about one parameter
+co-locating `globSource` with the spelling question is right, and A (landed) deepened it rather
+than splitting it; `generateSnapshot` and `readBaseline` **as modules** — **E** is about one parameter
 group, not their placement; `writeFileAtomic` vs `withSnapshotFile` — they look like a duplicated
 landing mechanic but ADR-0001's hash check lives in one and the three release paths in the other,
 and CLAUDE.md already records why `writeFileAtomic` sits outside the `s3.mjs` seam; `fileProps`'s
@@ -741,3 +718,78 @@ least once; re-open only if the stated reason no longer holds.
   run with the pre-existing `snapshot.test.mjs:391` ctime-cross-check flake (confirmed identical
   on an unrelated dependabot PR with zero code changes); re-run went green. Filed as an open
   entry in [bugs.md](bugs.md).
+- **2026-09-05 — A landed** ([PR #334](https://github.com/allens/s3cab/pull/334), grilled
+  in-session, four decisions; the record is
+  [ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)'s amendment). *Answer the
+  path-spelling question once, in `path-match.mjs`.* `preparePath(path)` returns
+  `{ path, base, foldCase }` with the three root shapes decided inside; `isWindowsPath` is now
+  `foldsCase` and is true for a UNC root too. `find.mjs` lost its `prepare`; `restore.mjs` only
+  renamed its import. `path-match.mjs` has its first test file.
+  - **The interface question was really the UNC-case question.** Making one function answer both
+    spellings forced a decision the old split had let each caller dodge: does a UNC path fold
+    case? Yes — it only ever originates from a Windows client, and it is what a mapped drive
+    resolves to (libuv's realpath rewrites `\\?\UNC\…` to `\\server\share`), so it is every NAS
+    backup, and an exact-case miss there is a guess lost right before a `delete`. That reasoning
+    is in the ADR, not the code, on purpose.
+  - **The pattern side stayed keyed on `process.platform`**, unchanged: the pattern is typed at
+    this shell, the path came out of a snapshot possibly from another OS. A Windows-typed
+    `\\nas\photos\` pattern floats onto the `/`-normalized path through the implicit `**/`.
+  - **Follow-up, not taken.** `reroot` in [restore.mjs](../src/lib/restore.mjs) is the seam's
+    second caller and keeps its own separator rule — it splits roots and paths on both `/` and
+    `\` unconditionally, so a POSIX filename containing a literal backslash mis-splits under
+    `--output`. Left alone because it predates the seam and has its own tests; the honest fix is
+    to have it take `preparePath`'s answer too. Filed here rather than as a candidate: one known
+    input, no user report.
+  - **First CI run on the merge commit failed on `windows-latest`** in
+    `snapshot.test.mjs`'s *"keeps them when the interrupted run's own read moved every ctime"* —
+    the parked-hashes resume asserted the sentinel and got five real hashes — and passed on
+    re-run with no code change. Not this PR's files; it is the ctime/rounding area **B** already
+    names (`parkSentinelHashes` respells the rule by hand). One flake is a data point for B, not
+    a finding.
+- **2026-09-05 — D landed** ([PR #335](https://github.com/allens/s3cab/pull/335), grilled
+  in-session over three rounds before any code; the record is
+  [ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendment). *One stencil for the nine
+  unit-tier `s3.mjs` fakes, with defaults that stay honest.* Ten commits: the helper
+  ([test/helpers/s3-seam.mjs](../test/helpers/s3-seam.mjs)) and its coverage test first,
+  reviewable on their own terms, then one adapter each — the copy-pasted backup pair first,
+  thinnest-gain last. All nine anchors in the open entry were still exact at `49b66f2`.
+  - **The shape decision was the asymmetry, and it is what earned the ADR.** Reads default to an
+    empty store (falsifiable — a test expecting content gets none and fails); writes default to a
+    throw, because there is no truthful zero state for a PUT and a silent
+    `putFile: async () => true` is the one default that can make *broken production code* pass,
+    ADR-0083's guard being inside `putFile`. Three shapes were argued: throw for everything (the
+    purest reading, but it keeps the never-called stubs as explicit noise at every site, which is
+    most of what the candidate was about), benign no-ops throughout (the god-fake the entry ruled
+    out), and the split that won.
+  - **The throwing default paid for itself immediately, on the first file migrated.** `backup`
+    refreshes the set's cloud config on the way out — `pushSetConfig`'s PUT of `dirs.txt` plus the
+    DELETE clearing a stale remote `exclude.txt` — and only *warns* when that fails. Both backup
+    fakes stubbed those to succeed, so the suites had been silently exercising the success branch;
+    with the stub gone, all six `backup.fused` tests moved onto the warning path and said so. Now
+    modelled explicitly, with the reason at the site. A second, smaller find: `restore.counts`'
+    `isObjectNotFound: () => false` was the one deliberate divergence among the nine and had no
+    effect (that file mocks `getObject` to `assert.fail`, so nothing reaches restore's catch).
+  - **Staleness is answered by a check, not by breadth.** The stencil covers exactly the nine
+    exports production imports; [test/s3-seam.test.mjs](../test/s3-seam.test.mjs) asserts set
+    equality both directions, so it sheds a method nothing imports any more as readily as it
+    gains one, and a second case counts every mention of `s3.mjs` in `src/` against the ones its
+    regex could read — so a namespace, default or dynamic import fails loudly rather than leaving
+    the first check silently blind. It lives at `test/` rather than beside the helper because
+    `npm test`'s `test/*.test.mjs` glob is deliberately shallow, which is what lets `helpers/`
+    hold non-test `.mjs`; widening it would undo that to buy locality for one file.
+  - **Typed against the real module** (`Pick<typeof import("…/s3.mjs"), …>`), so a default whose
+    signature drifts from production's fails `typecheck` naming the method instead of at runtime
+    in whichever test happens to call it. A hand-written typedef would have been a tenth copy of
+    the thing being deleted.
+  - **Two narrowings were considered and declined**, both for the same reason — they would let the
+    god-fake back in by the side door. A named `acceptsWrites()` preset (one import away from
+    being the default again; `backup.online-only`'s `putFile: async () => true` instead survives
+    as a *visible local claim* by a file whose subject is the run report, not the transfer), and
+    a built-in call recorder (what each test records differs in shape and in what it proves —
+    `upload.test.mjs`' `callOrder` interleaves `hash:`/`put:` events to prove lazy row
+    production, which nothing generic produces).
+  - 75 lines of stencil deleted; the three hand-copied `isObjectNotFound` spellings and the
+    duplicated ADR-0084 comment collapse to one each. **Every test still asserts what it
+    asserted** — 1098/1087 pass against `main`'s 1096/1086, the deltas being the two new tests
+    plus the e2e `dist/s3cab.exe` case, which skips only because a fresh worktree has no build.
+    Integration suite not run: no production code changed.
