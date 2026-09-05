@@ -9,8 +9,8 @@
 //
 // **Why this is not in remote.mjs, which produces the shape**
 // ([ADR-0074](../../docs/adr/0074-referenced-enumeration-vocabulary-module.md)):
-// remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`delete.mjs`/
-// `unrestorable.mjs` are pure planners with no runtime imports at all. Putting
+// remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`unrestorable.mjs`/
+// `verify.mjs` are pure planners with no runtime imports at all. Putting
 // the vocabulary with its producer would drag the SDK into three pure modules
 // and their tests to flatten an array. So this module imports **nothing** and
 // every consumer — producer included — depends on it.
