@@ -33,6 +33,20 @@ command through that command's **deliberate interface**, not by importing whatev
 happens to co-reside in its file. An exported internal that two commands both pull on is not
 a plumbing interface — it is a `lib/` primitive that hasn't moved yet.
 
+**And the inverse, which this ADR was silent on for long enough to mislead: a pure helper with
+one production caller is not a `lib/` primitive either.** `lib/` is defined above as *shared*
+primitives; a module nothing shares has the layer's cost — a second file to open, an interface
+to keep honest, an import edge — and none of its benefit. Such a helper lives **private to its
+one caller**, and `lib/` earns a module at the *second* consumer, counted in call sites that
+already exist ([0006](0006-minimal-code.md)). The one-export rule makes this concrete: a
+private helper is unexported, so a *test* reaching for it is the signal that it has become
+shared and should move — the same test the outward half of this rule applies. (Worked example:
+`collectHashes` was extracted to `lib/delete.mjs` alongside the `delete` rewrite of
+[0089](0089-hash-operand-delete.md), where it sat with exactly one caller and one test until it
+was folded back into `commands/delete.mjs`. What *was* genuinely shared inside it — the
+`#`-comment-and-blank line filter — turned out to be `read-lines.mjs`'s `parseLines`, already
+in `lib/`, and had been re-implemented rather than imported.)
+
 ## Consequences
 
 - **Classification is per command, and now a deliberate call.** `upload`/`hashes`/`prop` are

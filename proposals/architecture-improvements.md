@@ -134,12 +134,6 @@ not after.
   don't import each other. A scan assembled in the wrong order is silent data loss with a green
   suite. Deepening: one module owns "scan the bucket safely" and returns a result whose
   construction order *is* the ordering.
-- **G — `lib/delete.mjs` went shallow when `find` took its job.** _Worth exploring._ ADR-0089 moved
-  *what to delete* into `find`, leaving [lib/delete.mjs](../src/lib/delete.mjs) with one production
-  caller and the interesting rules — referenced-check, record write, confirmation — in
-  [commands/delete.mjs](../src/commands/delete.mjs) above it. Deletion test: folding it up
-  concentrates the deletion story in one file; moving the rules down earns the module its keep.
-  Either beats the current split, which is the one shape that doesn't.
 - **H — Five enumeration shapes, ten construction points, three incompatible `ref` helpers.**
   _Worth exploring._ *(Carried from the eleventh pass's smaller items; it paired with D there, and
   now pairs with F.)* "The set of hashes something references" is built five ways across the
@@ -689,3 +683,40 @@ least once; re-open only if the stated reason no longer holds.
   `fromToSection`, `pathSection`, `errorSection` and `skippedSection` all delegate to it instead of
   re-typing the heading/count/join grammar five times. Output is byte-identical (full
   `render.test.mjs` suite unchanged and passing); same move pass 11 made for `progress.mjs`.
+- **2026-09-05 — G landed** (grilled in-session, both directions argued before any code).
+  *Fold the delete operand grammar back into its one caller.* `lib/delete.mjs` and its test are
+  deleted; `collectHashes` and `EMPTY_FILE_HASH` are private to
+  [commands/delete.mjs](../src/commands/delete.mjs). The rule earned an amendment to
+  [ADR-0023](../docs/adr/0023-porcelain-plumbing-lib-layers.md) rather than a new ADR: 0023
+  already carried the *outward* half (an exported internal two commands pull on is a `lib/`
+  primitive that hasn't moved), and this is its silent inverse — **a pure helper with one
+  production caller is not a `lib/` primitive either**, with the one-export rule making it
+  concrete (a *test* reaching for a private helper is the signal it has become shared).
+  - **Moving the rules down was argued and lost on the ADRs, not on taste.** The widest honest
+    version — a `planDeletion` owning operands → preflight → `{ found, missing, rejected }` —
+    doesn't close the split, it relocates it: the rejection wording, the empty-file refusal and
+    the no-hashes-at-all error are user-facing text ADR-0011/0030 keep in the command, so the
+    plan would still hand `rejected` back up for the command to re-decide on. A wider interface
+    around the same seam, wrapped over an 8-line loop calling an existing `lib/` primitive — and
+    it would drag `storedObjectSize` into a module that is currently I/O-free.
+  - **The deletion test found a duplication the candidate hadn't seen.** The one genuinely shared
+    rule inside `collectHashes` — trim, drop `#` comments (even indented), drop blanks — *is*
+    `read-lines.mjs`'s `parseLines`, three callers old and re-implemented by hand rather than
+    imported. So the fold is net −70 lines and the private helper is ~20, not 50. **The
+    lib-vs-command question was the wrong first question**: asking which *existing* primitive the
+    helper should have used answered it better than asking where the helper belonged.
+  - **The migration made one test stronger and one weaker, both on purpose.** Eight pure-function
+    cases became assertions on `deleteHashes`' observable outcome (four were already in that
+    form), which is CLAUDE.md's "assert about the result" — "a coloured `find` file errors
+    loudly" is a truer statement of ADR-0088's contract than "the `rejected` array has two
+    entries". The price, stated rather than glossed: those cases now run behind four module
+    mocks, so a grammar regression localizes less sharply. The empty-file-hash pin now *derives*
+    the digest (`createHash("sha256").update("")`) instead of comparing two hand-typed 64-char
+    strings in the same file, which proved only that someone copied it twice.
+  - **A stale claim fell out en route.** [referenced.mjs](../src/lib/referenced.mjs)'s header named
+    `delete.mjs` as one of three pure planners consuming the enumeration; ADR-0089 had removed
+    that consumption a pass earlier. It is `cleanup`/`unrestorable`/`verify`. Fixed as its own
+    commit. The entry's own "referenced-check" wording was the same stale fact — the command's
+    preflight is a per-hash `HeadObject`.
+  - `npm run test:integration` ran green (26 pass) though the change is off the S3 path — cheap,
+    and `delete` is the one command where being wrong is unrecoverable.

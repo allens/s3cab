@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
-import { collectHashes, EMPTY_FILE_HASH } from "../lib/delete.mjs";
 import {
   formatDeletionRecord,
   writeDeletionRecord,
@@ -9,8 +8,66 @@ import { isENOENT, requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject, storedObjectSize } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
+import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 import { isInteractive } from "../lib/style.mjs";
+
+/**
+ * The SHA-256 of zero bytes — the object backing every empty file in the
+ * repository, which `delete` refuses outright (ADR-0089): deleting it is never
+ * what anyone means.
+ */
+const EMPTY_FILE_HASH =
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/** Uppercase spellings are unambiguous, so they are accepted and folded. */
+const HASH = /^[0-9a-fA-F]{64}$/;
+
+/**
+ * Collect the hashes this run was given — positional operands plus the lines of
+ * a `--from-file` listing. Operands must each *be* a hash; file lines are read
+ * with the same active-line rule as every other s3cab file a user may edit
+ * (`parseLines` drops `#` comments and blanks), then take the first
+ * whitespace-separated field — `find`'s bare-hash lines, or any file with
+ * hashes in column one. Anything left that doesn't look like a SHA-256 lands in
+ * `rejected` verbatim for the loud error below. Hashes are folded to lowercase
+ * and de-duplicated (a hash listed twice is one object), keeping first-seen
+ * order.
+ *
+ * The grammar is the safety story's second half, which is why it is *here* and
+ * not a shared primitive: `find` moved the fuzzy step into a read-only command
+ * (ADR-0088), so what arrives must already be exact, and an irreversible
+ * bucket-wide delete must not take a fuzzy operand. The one lenient direction
+ * is `find`'s own output contract — comments and blanks are garnish, so a
+ * reviewed, edited-down `find` file feeds `--from-file` unchanged.
+ *
+ * @param {string[]} operands - The positional arguments
+ * @param {string} [fileText] - The `--from-file` file's content, if given
+ * @returns {{ hashes: string[], rejected: string[] }}
+ */
+function collectHashes(operands, fileText) {
+  /** @type {Set<string>} */
+  const hashes = new Set();
+  /** @type {string[]} */
+  const rejected = [];
+  const candidates =
+    fileText === undefined
+      ? operands
+      : [
+          ...operands,
+          ...parseLines(fileText).map(
+            (line) => /** @type {string} */ (line.split(/\s+/)[0]),
+          ),
+        ];
+  for (const candidate of candidates) {
+    if (HASH.test(candidate)) {
+      hashes.add(candidate.toLowerCase());
+    } else {
+      rejected.push(candidate);
+    }
+  }
+  return { hashes: [...hashes], rejected };
+}
 
 /**
  * Delete stored objects by content hash, from every backup, permanently —
