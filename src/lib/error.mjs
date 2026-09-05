@@ -249,6 +249,20 @@ export const isInputError = (error) =>
   isUsageError(error) || error instanceof ValidationError;
 
 /**
+ * The CLI's exit code for a caught error — {@link EXIT_INTERRUPTED} for a
+ * deliberate stop, 2 for bad input, 1 for anything else. `src/s3cab.mjs`'s
+ * top-level catch sets `process.exitCode` from this.
+ * @param {unknown} error
+ * @returns {number}
+ */
+export const exitCodeFor = (error) =>
+  error instanceof InterruptedError
+    ? EXIT_INTERRUPTED
+    : isInputError(error)
+      ? 2
+      : 1;
+
+/**
  * Whether an error is the filesystem "no such file or directory" error — the
  * common "treat a missing file as absent, rethrow everything else" guard.
  * Keeps the unknown→ErrnoException cast in one place.

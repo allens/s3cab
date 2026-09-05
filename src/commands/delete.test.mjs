@@ -1,18 +1,23 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { renderFind } from "../render.mjs";
 
-// Offline tests for the `delete` *command shell* — the policy wrapped around
-// the pure operand grammar (which lib/delete.test.mjs pins): the loud
-// non-hash error, the empty-file-hash refusal, the non-interactive gate, the
-// preflight's reported-and-skipped missing hashes, the typed-bucket-name
-// confirmation, and — most load-bearing — the record-FIRST-then-delete
-// ordering (ADR-0089/0090). Every S3/prompt seam is faked at the lib boundary
-// (docs/design/testing.md). Module-mock ordering (objects.test.mjs) applies:
-// mocks first, dynamic import.
+// Offline tests for the whole of `delete` — the operand grammar and the policy
+// wrapped around it, which live in one file because the grammar is private to
+// the command: the loud non-hash error, the empty-file-hash refusal, the
+// non-interactive gate, the preflight's reported-and-skipped missing hashes,
+// the typed-bucket-name confirmation, and — most load-bearing — the
+// record-FIRST-then-delete ordering (ADR-0089/0090). Every S3/prompt seam is
+// faked at the lib boundary (docs/design/testing.md). Module-mock ordering
+// (objects.test.mjs) applies: mocks first, dynamic import.
+//
+// The `--from-file` cases parse `renderFind`'s *real* output — the actual
+// producer's bytes, warnings and all — rather than a hand-written imitation of
+// ADR-0088's contract.
 
 /** @type {Map<string, number>} hash → stored size for the mocked preflight HEAD */
 let storedSizes = new Map();
@@ -90,6 +95,60 @@ const EMPTY =
 // A real directory for --from-file's real file reads.
 /** @type {string} */
 let dir;
+
+/**
+ * A realistic FindResult, shaped as `find` builds it (lib/find.mjs typedefs):
+ * two files in one set, one object also backing a path outside the search — the
+ * dedup warning — plus an unreadable snapshot, so `renderFind` emits every
+ * comment shape it can around the hash lines, warnings included.
+ */
+const findResult = {
+  patterns: ["raw/"],
+  searched: [{ name: "media", bucket: "b", snapshots: 3 }],
+  files: [
+    {
+      path: "D:\\Media\\raw\\one.mov",
+      objects: [
+        {
+          hash: HASH_A,
+          size: 1204,
+          mtime: "2026-08-14T09:31:07.412Z",
+          spans: [
+            {
+              set: "media",
+              first: "2026-08-14T0935",
+              last: "2026-08-20T0900",
+              count: 3,
+            },
+          ],
+          alsoBacks: [],
+        },
+      ],
+    },
+    {
+      path: "D:\\Media\\raw\\two.mov",
+      objects: [
+        {
+          hash: HASH_B,
+          size: 892,
+          mtime: "2026-08-19T22:10:41.006Z",
+          spans: [
+            {
+              set: "media",
+              first: "2026-08-20T0900",
+              last: "2026-08-20T0900",
+              count: 1,
+            },
+          ],
+          alsoBacks: ["D:\\Media\\other\\copy.mov"],
+        },
+      ],
+    },
+  ],
+  unreadable: [
+    { set: "media", snapshot: "2026-01-01T0000", reason: "truncated" },
+  ],
+};
 
 /** @type {boolean | undefined} */
 let savedTTY;
@@ -291,56 +350,10 @@ describe("delete command", () => {
 
   it("--from-file reads find's real output and deletes exactly its hashes", async () => {
     // The producer's actual bytes (ADR-0088's contract), written the way
-    // `s3cab find raw/ > hashes.txt` writes them — not an imitation.
+    // `s3cab find raw/ > hashes.txt` writes them — not an imitation. Every
+    // comment shape, the warning lines included, is garnish the parse skips.
     const file = join(dir, "hashes.txt");
-    writeFileSync(
-      file,
-      renderFind({
-        patterns: ["raw/"],
-        searched: [{ name: "media", bucket: "b", snapshots: 3 }],
-        files: [
-          {
-            path: "D:\\Media\\raw\\one.mov",
-            objects: [
-              {
-                hash: HASH_A,
-                size: 1204,
-                mtime: "2026-08-14T09:31:07.412Z",
-                spans: [
-                  {
-                    set: "media",
-                    first: "2026-08-14T0935",
-                    last: "2026-08-20T0900",
-                    count: 3,
-                  },
-                ],
-                alsoBacks: [],
-              },
-            ],
-          },
-          {
-            path: "D:\\Media\\raw\\two.mov",
-            objects: [
-              {
-                hash: HASH_B,
-                size: 892,
-                mtime: "2026-08-19T22:10:41.006Z",
-                spans: [
-                  {
-                    set: "media",
-                    first: "2026-08-20T0900",
-                    last: "2026-08-20T0900",
-                    count: 1,
-                  },
-                ],
-                alsoBacks: [],
-              },
-            ],
-          },
-        ],
-        unreadable: [],
-      }),
-    );
+    writeFileSync(file, renderFind(findResult));
     const result = await deleteHashes([], {
       bucket: "b",
       force: true,
@@ -352,5 +365,74 @@ describe("delete command", () => {
       `delete:${HASH_A}`,
       `delete:${HASH_B}`,
     ]);
+  });
+
+  it("errors loudly on a find file whose warnings are coloured", async () => {
+    // A user redirecting on a forced-colour terminal keeps the ANSI codes, and
+    // a painted warning line starts with the escape, not `#` — so it is no
+    // longer a comment the parse skips. That must be loud rather than silently
+    // passing as a hash: asserting the behaviour here so a change to it is a
+    // decision, not an accident.
+    const file = join(dir, "coloured.txt");
+    writeFileSync(file, renderFind(findResult, { color: true }));
+    await assert.rejects(
+      () => deleteHashes([], { bucket: "b", force: true, "from-file": file }),
+      (/** @type {Error} */ error) => {
+        assert.match(error.message, /takes content hashes/);
+        // Named verbatim, escapes and all, so the user sees what the file
+        // actually holds rather than a sanitized guess at it.
+        assert.ok(error.message.includes("\u001b["), error.message);
+        return true;
+      },
+    );
+    assert.equal(heads, 0);
+    assert.deepEqual(effects, []);
+  });
+
+  it("takes column one of a tab-separated file — 'anything with hashes in column one'", async () => {
+    const file = join(dir, "columns.tsv");
+    writeFileSync(
+      file,
+      `${HASH_A}\t1204\tD:\\a.mov\n${HASH_B}\t892\tD:\\b.mov\n`,
+    );
+    const result = await deleteHashes([], {
+      bucket: "b",
+      force: true,
+      "from-file": file,
+    });
+    assert.deepEqual(effects, [
+      "record",
+      `delete:${HASH_A}`,
+      `delete:${HASH_B}`,
+    ]);
+    assert.equal(result.deletedObjects, 2);
+  });
+
+  it("merges positional and file hashes, de-duplicated across the two sources", async () => {
+    // HASH_A arrives twice, once from each source, and is one object.
+    const file = join(dir, "hashes.txt");
+    writeFileSync(file, renderFind(findResult));
+    const result = await deleteHashes([HASH_A], {
+      bucket: "b",
+      force: true,
+      "from-file": file,
+    });
+    assert.equal(result.deletedObjects, 2);
+    assert.equal(heads, 2);
+    assert.deepEqual(effects, [
+      "record",
+      `delete:${HASH_A}`,
+      `delete:${HASH_B}`,
+    ]);
+  });
+
+  it("refuses the SHA-256 of zero bytes, derived rather than transcribed", async () => {
+    // The refusal guards every zero-byte file in the repository, so what it
+    // must match is the real digest of no bytes — not a sentinel someone typed.
+    assert.equal(EMPTY, createHash("sha256").update("").digest("hex"));
+    await assert.rejects(
+      () => deleteHashes([EMPTY], { bucket: "b", force: true }),
+      /empty file's hash/,
+    );
   });
 });

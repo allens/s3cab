@@ -229,6 +229,23 @@ function commonAncestor(dirs) {
 }
 
 /**
+ * A diff/report section: a coloured `<Label> (<count>)` heading followed by one
+ * line per entry — the shape every section below shares (heading, count, an
+ * indented body). Callers differ only in the label, the colour, and how one
+ * entry becomes its line, so that is all they pass in.
+ * @param {string} label
+ * @param {unknown[]} entries
+ * @param {(text: string) => string} colour
+ * @param {(colourise: (t: string) => string) => (t: string) => string} paint
+ * @param {(entry: any) => string} formatEntry
+ * @returns {string}
+ */
+function section(label, entries, colour, paint, formatEntry) {
+  const heading = paint(colour)(`${label} (${formatCount(entries.length)})`);
+  return `${heading}\n${entries.map(formatEntry).join("\n")}`;
+}
+
+/**
  * The added files, each with the notes that stop a reader drawing a wrong
  * inference from the bare word "added" (ADR-0043's human-first reading):
  * `(duplicate of …)` says the content is not new, and `(was unreadable in …)`
@@ -246,7 +263,7 @@ function commonAncestor(dirs) {
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
 function addedSection(added, since, shorten, paint) {
-  const lines = added.map((entry) => {
+  return section("Added", added, green, paint, (entry) => {
     const notes = [];
     if (entry.wasUnreadable) {
       notes.push(`was unreadable in ${since}`);
@@ -257,7 +274,6 @@ function addedSection(added, since, shorten, paint) {
     const note = notes.length ? `  (${notes.join("; ")})` : "";
     return `  ${shorten(entry.path)}${note}`;
   });
-  return `${paint(green)(`Added (${formatCount(added.length)})`)}\n${lines.join("\n")}`;
 }
 
 /**
@@ -271,10 +287,13 @@ function addedSection(added, since, shorten, paint) {
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
 function fromToSection(label, entries, colour, shorten, paint) {
-  const lines = entries.map(
+  return section(
+    label,
+    entries,
+    colour,
+    paint,
     (entry) => `  ${shorten(entry.path)} → ${shorten(entry.to)}`,
   );
-  return `${paint(colour)(`${label} (${formatCount(entries.length)})`)}\n${lines.join("\n")}`;
 }
 
 /**
@@ -286,8 +305,13 @@ function fromToSection(label, entries, colour, shorten, paint) {
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
 function pathSection(label, entries, colour, shorten, paint) {
-  const lines = entries.map((entry) => `  ${shorten(entry.path)}`);
-  return `${paint(colour)(`${label} (${formatCount(entries.length)})`)}\n${lines.join("\n")}`;
+  return section(
+    label,
+    entries,
+    colour,
+    paint,
+    (entry) => `  ${shorten(entry.path)}`,
+  );
 }
 
 /**
@@ -296,13 +320,13 @@ function pathSection(label, entries, colour, shorten, paint) {
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
 function errorSection(errors, shorten, paint) {
-  const lines = errors.map(
+  return section(
+    "Errors",
+    errors,
+    (text) => bold(red(text)),
+    paint,
     (entry) => `  ${shorten(entry.path)}  (${entry.reason})`,
   );
-  const heading = paint((text) => bold(red(text)))(
-    `Errors (${formatCount(errors.length)})`,
-  );
-  return `${heading}\n${lines.join("\n")}`;
 }
 
 /**
@@ -328,11 +352,13 @@ function errorSection(errors, shorten, paint) {
  * @param {(colourise: (t: string) => string) => (t: string) => string} paint
  */
 function skippedSection(skipped, shorten, paint) {
-  const lines = skipped.map(
+  return section(
+    "Skipped",
+    skipped,
+    yellow,
+    paint,
     (entry) => `  ${shorten(entry.path)}  (${entry.fileType})`,
   );
-  const heading = paint(yellow)(`Skipped (${formatCount(skipped.length)})`);
-  return `${heading}\n${lines.join("\n")}`;
 }
 
 /**
