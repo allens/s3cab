@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  EXIT_INTERRUPTED,
+  InterruptedError,
   ParseArgsError,
   ValidationError,
   errorText,
+  exitCodeFor,
   isInputError,
   isUsageError,
   requireArg,
@@ -91,6 +94,27 @@ describe("isInputError", () => {
   it("is false for a runtime error and non-errors", () => {
     assert.equal(isInputError(new Error("network down")), false);
     assert.equal(isInputError(null), false);
+  });
+});
+
+describe("exitCodeFor", () => {
+  // The externally-visible promise ADR-0067 makes: a run the user stopped
+  // exits 130 (128 + SIGINT), not the generic runtime-failure 1.
+  it("is EXIT_INTERRUPTED (130) for a run the user stopped", () => {
+    assert.equal(
+      exitCodeFor(new InterruptedError("stopped")),
+      EXIT_INTERRUPTED,
+    );
+    assert.equal(EXIT_INTERRUPTED, 130);
+  });
+
+  it("is 2 for bad input", () => {
+    assert.equal(exitCodeFor(new ParseArgsError("bad arg")), 2);
+    assert.equal(exitCodeFor(new ValidationError("bad value")), 2);
+  });
+
+  it("is 1 for any other runtime failure", () => {
+    assert.equal(exitCodeFor(new Error("network down")), 1);
   });
 });
 
