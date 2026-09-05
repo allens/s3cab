@@ -6,7 +6,7 @@ Design agreed; both the runtime signer and the cert generator are **validated by
 (2026-07-14 — [scripts/roles-anywhere-signer.mjs](../../scripts/roles-anywhere-signer.mjs),
 [scripts/roles-anywhere-certgen.mjs](../../scripts/roles-anywhere-certgen.mjs)).
 **Both phases are implemented: setup (Phase A-2) and the runtime signer (Phase B) — the
-credential path, the `provider`/`setup --roles-anywhere` mode, and the fifth `credentialCase`
+credential path, the `provider`/`setup --roles-anywhere` mode, and its two `credentialCase`s
 all ship in [src/lib/roles-anywhere.mjs](../../src/lib/roles-anywhere.mjs) /
 [src/lib/auth.mjs](../../src/lib/auth.mjs).** Decisions:
 [ADR-0057](../adr/0057-roles-anywhere-credential-mode.md) (the credential mode + native signer),
@@ -75,7 +75,8 @@ So credentials come from a bespoke signer on Node builtins — **validated end-t
 (`201` + live session credentials). It slots into `resolveCredentials` as a fourth source: the set's
 RA marker routes to the signer, else the standard chain runs. `provider --roles-anywhere <set>` is
 the fourth mutually-exclusive mode (sets the marker, clears profile/keys), and `credentialCase` gains
-a fifth "RA identity missing/broken" case. s3cab never touches `~/.aws`.
+two Roles Anywhere cases — "identity missing/broken" and "session refused"
+([auth.md](auth.md), *Authentication error*). s3cab never touches `~/.aws`.
 
 ### The request
 

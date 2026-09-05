@@ -11,12 +11,16 @@ import {
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { resolveCredentials } from "../../src/lib/auth.mjs";
+import { loadSet } from "../../src/lib/env.mjs";
 import { remoteSnapshotsPrefix } from "../../src/lib/remote.mjs";
 import {
   createSession,
+  identityEnvPath,
   machineIdentityDir,
   readSigningIdentity,
 } from "../../src/lib/roles-anywhere.mjs";
+import { writeSet } from "../../src/lib/sets.mjs";
 import { deleteObject } from "../../src/lib/s3.mjs";
 import { readSnapshot } from "../../src/lib/snapshot-file.mjs";
 import { backup } from "../../src/commands/backup.mjs";
@@ -104,6 +108,44 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
       assert.ok(
         new Date(creds.expiration).getTime() > Date.now(),
         `expiration ${creds.expiration} should be in the future`,
+      );
+    },
+  );
+
+  it(
+    "frames a live refusal as the set's credential problem, quoting AWS's reason",
+    { skip },
+    async () => {
+      await using dir = await mkTmpDir();
+      useTempHomeWithRaIdentity(dir.path);
+      // Point the identity at a region its stack was never deployed in: the
+      // signature is valid, and AWS answers 403 for the unknown profile ARN —
+      // the failure a torn-down or moved stack produces (ADR-0075's session case).
+      const env = readFileSync(identityEnvPath(), "utf8");
+      const region = /AWS_REGION=(\S+)/.exec(env)?.[1];
+      assert.ok(region, "the identity's env must name its region");
+      const elsewhere = region === "us-east-1" ? "eu-west-1" : "us-east-1";
+      writeFileSync(
+        identityEnvPath(),
+        env.replace(/AWS_REGION=\S+/, `AWS_REGION=${elsewhere}`),
+      );
+      writeSet("photos", { dirs: [dir.path], bucket });
+      loadSet("photos");
+      process.env.S3CAB_RA = "1";
+
+      const error = await resolveCredentials({}).then(
+        () => {
+          throw new Error("expected the mis-regioned exchange to be refused");
+        },
+        (/** @type {Error} */ e) => e,
+      );
+
+      assert.match(error.message, /^No credentials found for set 'photos'\./);
+      assert.match(error.message, /AWS would not exchange it for a session/);
+      assert.match(error.message, /HTTP 403/);
+      assert.match(
+        error.message,
+        new RegExp(`--from-stack s3cab-${bucket.replace(/^s3cab-/, "")}`),
       );
     },
   );
