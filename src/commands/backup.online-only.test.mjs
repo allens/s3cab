@@ -6,6 +6,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { platform } from "node:process";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 // A backup over a folder holding a dehydrated cloud placeholder (ADR-0081) —
@@ -70,23 +71,19 @@ mock.module("node:fs/promises", {
   },
 });
 
+// Nothing here inspects the transfers — the subject is the *report*, and the
+// store is only in the way. So it starts empty (the stencil's default) and every
+// write is claimed to succeed, which is this file saying outright that it does
+// not model the upload: `putFile` returning a flat `true` skips the guard
+// ADR-0083 put inside the real one, and the cloud-config refresh at the end of a
+// backup only warns when it fails, so an unmodelled write would move all of the
+// assertions below onto the warning path.
 mock.module("../lib/s3.mjs", {
-  exports: {
+  exports: s3Seam({
     putFile: async () => true,
-    listObjects: async function* () {},
-    putText: async () => {},
-    getText: async () => undefined,
-    // The baseline-identity probe (ADR-0084) finds every remote snapshot
-    // absent, so no baseline is ever trusted and each backup LISTs the store.
-    getStream: async () => {
-      throw Object.assign(new Error("NoSuchKey"), { name: "NoSuchKey" });
-    },
-    isObjectNotFound: (/** @type {unknown} */ error) =>
-      Error.isError(error) && error.name === "NoSuchKey",
+    putText: async () => true,
     deleteObject: async () => {},
-    // Imported by objects.mjs (storedObjectSize); no test here calls it.
-    objectSize: async () => undefined,
-  },
+  }),
 });
 
 const { backup } = await import("./backup.mjs");
