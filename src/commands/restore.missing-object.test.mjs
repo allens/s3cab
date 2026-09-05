@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 // Offline tests for restore's degrade-on-a-missing-object behaviour: one object
 // absent from the bucket must not abort the run. The S3 reads are faked at the
@@ -57,15 +58,10 @@ mock.module("../lib/objects.mjs", {
     },
   },
 });
-mock.module("../lib/s3.mjs", {
-  exports: {
-    // Not the seam under test, but mock.module replaces the whole module. Kept
-    // faithful to the real predicate (unit-tested in s3.test.mjs); restore's
-    // branch keys on its verdict.
-    isObjectNotFound: (/** @type {unknown} */ e) =>
-      Error.isError(e) && (e.name === "NoSuchKey" || e.name === "NotFound"),
-  },
-});
+// The fetch is faked above at `objects.mjs`, so nothing here reaches the store
+// itself — but restore's degrade branch keys on `isObjectNotFound`'s verdict,
+// and the stencil's default is the real name-based predicate.
+mock.module("../lib/s3.mjs", { exports: s3Seam() });
 mock.module("../lib/deletion-record.mjs", {
   exports: {
     readDeletionRecords: async () => {
