@@ -116,5 +116,21 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**No known bugs** — the state this file has to be in at release, and the point at which it should
-be deleted rather than kept empty. Anything found before Issues open goes back in the list here.
+**Open:**
+
+- **`restore` stops dead at a corrupt object, abandoning files it could still recover.**
+  Clean-room run 3's finding A1 ([docs/format-spec-audit-3.md](../docs/format-spec-audit-3.md)),
+  observed live against the staged `corrupt` set — an object holding wrong bytes under the right
+  key. ADR-0001's hash check catches the mismatch (`writeFileAtomic` throws before the rename —
+  that guard is right), but `restore` rethrows anything that isn't a missing object: it restored
+  `a-intact.txt`, stopped, and never reached `c-intact.txt`, whose object is fine. That is the
+  exact behaviour [guide/format.md](../guide/format.md)'s restorer section brands materially
+  worse than recovering everything recoverable — and the spec now says a hash mismatch is an
+  integrity fault to treat like an unexplained missing object: report, carry on, exit nonzero
+  (run 3's spec fix, same commit as this entry). Fix shape: catch the mismatch per-file in
+  `restore`, count it with the unexplained faults, and continue. Withholding the corrupt bytes
+  can stand — the spec leaves that a stated tool choice, and the atomic write already discards
+  them; the stopping is the bug.
+
+The list must reach zero before release, at which point this file is deleted rather than kept
+empty. Anything found before Issues open goes back in the list here.
