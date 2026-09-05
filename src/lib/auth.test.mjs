@@ -397,13 +397,16 @@ describe("noCredentialsError (set-scoped guidance)", () => {
   });
 
   it("points at 's3cab aws --roles-anywhere' when the RA identity is missing/broken", () => {
-    // Fifth case (ADR-0057): the set is in Roles Anywhere mode but this machine's
-    // certificate identity is absent/incomplete — steer to setting it up, and name
-    // the identity (not ~/.aws) as the second place s3cab looked.
+    // The identity case (ADR-0057): the set is in Roles Anywhere mode but this
+    // machine's certificate identity is absent/incomplete — steer to setting it
+    // up, and name the identity (not ~/.aws) as the second place s3cab looked.
     const raCause = new Error(
       "No usable Roles Anywhere certificate identity at ~/.s3cab/roles-anywhere.",
     );
-    const error = noCredentialsError(raCause, { set, rolesAnywhere: true });
+    const error = noCredentialsError(raCause, {
+      set,
+      rolesAnywhere: "identity",
+    });
     assert.match(error.message, /^No credentials found for set 'photos'\./);
     assert.match(error.message, /uses Roles Anywhere \(keyless\)/);
     // Step 2 names the machine identity, not the AWS chain.
@@ -412,6 +415,60 @@ describe("noCredentialsError (set-scoped guidance)", () => {
     // The exact, copy-pasteable setup + ARN-capture commands.
     assert.match(error.message, /s3cab aws <bucket> --roles-anywhere/);
     assert.match(error.message, /--save --from-stack s3cab-<bucket>/);
+  });
+
+  it("spells the Roles Anywhere recipe for the set's bucket when it is known", () => {
+    const error = noCredentialsError(new Error("no identity"), {
+      set,
+      rolesAnywhere: "identity",
+      bucket: "s3cab-photos",
+    });
+    assert.match(error.message, /s3cab aws s3cab-photos --roles-anywhere/);
+    // The stack stem de-dupes the `s3cab-` prefix (ADR-0056's naming rule).
+    assert.match(error.message, /--from-stack s3cab-photos\b/);
+    assert.doesNotMatch(error.message, /s3cab-s3cab-/);
+  });
+
+  it("quotes the endpoint's refusal and steers to re-capturing the stack when a session is refused", () => {
+    // The session case (ADR-0075): the identity is whole, the request was signed,
+    // and AWS said no — the live 403 for a profile ARN the region doesn't know.
+    const refusal = new Error(
+      'Roles Anywhere CreateSession failed (HTTP 403): {"message":"Invalid or empty profile provided."}',
+    );
+    const error = noCredentialsError(refusal, {
+      set,
+      rolesAnywhere: "session",
+      bucket: "my-bucket",
+    });
+    assert.equal(error.cause, refusal);
+    assert.match(error.message, /^No credentials found for set 'photos'\./);
+    assert.match(error.message, /AWS would not exchange it for a session/);
+    // Step 2 is the endpoint, quoting its own words.
+    assert.match(error.message, /AWS Roles Anywhere/);
+    assert.match(error.message, /Invalid or empty profile provided/);
+    assert.doesNotMatch(error.message, /standard AWS setup/);
+    // The fix leads with the region check + re-capture, for the set's bucket.
+    assert.match(error.message, /AWS_REGION in .*roles-anywhere[\\/]env/);
+    assert.match(error.message, /--save --from-stack s3cab-my-bucket/);
+    // …and falls back to standing the identity up afresh.
+    assert.match(error.message, /s3cab aws my-bucket --roles-anywhere/);
+  });
+
+  it("never reads 'expired' in a Roles Anywhere refusal as an expired SSO sign-in", () => {
+    // AWS says "expired" about the certificate or the trust anchor; the expiry
+    // hand-off would answer with `aws sso login`, which has nothing to do with it.
+    const refusal = new Error(
+      "Roles Anywhere CreateSession failed (HTTP 403): certificate has expired",
+    );
+    for (const rolesAnywhere of /** @type {const} */ ([
+      "identity",
+      "session",
+    ])) {
+      const error = noCredentialsError(refusal, { set, rolesAnywhere });
+      assert.match(error.message, /^No credentials found for set 'photos'\./);
+      assert.doesNotMatch(error.message, /aws sso login/);
+      assert.doesNotMatch(error.message, /have expired\./);
+    }
   });
 
   it("diagnoses an expired sign-in instead of offering the pick-one menu", () => {

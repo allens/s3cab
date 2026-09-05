@@ -54,7 +54,7 @@ The machine-wide default is the **ambient AWS setup itself** (`~/.aws`, a defaul
 
 **One credential mode per set** ([ADR-0055](../adr/0055-per-set-credentials-one-mode.md)). A set signs in one of four ways — a **profile** (`AWS_PROFILE` → `~/.aws`), **keys** (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, long-lived), **Roles Anywhere** (the certificate identity below), or **ambient** (the set declares no credentials; the chain's default profile / instance role / exported `AWS_*` supplies them). Profile and keys are *alternatives*, not layers, so the **`provider` command enforces exactly one**: setting `--keys` clears any profile on that set and `--profile` clears any keys (endpoint and region are orthogonal connection knobs, untouched). This makes the old silent-precedence trap — a profile and static keys both handed to the chain, which prefers the keys — unrepresentable through the front door. Temporary credentials (a session token) belong to a profile (the SDK refreshes it) or the ambient shell, never written to a file where they would rot.
 
-> **A fourth mode, Roles Anywhere** — **built** ([ADR-0057](../adr/0057-roles-anywhere-credential-mode.md)/[0058](../adr/0058-roles-anywhere-cert-generation.md), full design in [roles-anywhere.md](roles-anywhere.md)). An X.509 client certificate mints short-lived STS credentials through a bespoke SigV4-X509 signer, so a set reaches AWS with no long-lived keys. It joins profile/keys/ambient as a mutually-exclusive `provider --roles-anywhere` mode, resolved *ahead of* the standard chain (`resolveRolesAnywhereCredentials` in `src/lib/auth.mjs`) and carrying its own `credentialCase` for a missing/broken identity; **AWS-only**, so it cannot combine with a custom endpoint. Its live `CreateSession` path is not yet verified end-to-end — see [proposals/cloud-onboarding.md](../../proposals/cloud-onboarding.md).
+> **A fourth mode, Roles Anywhere** — **built** ([ADR-0057](../adr/0057-roles-anywhere-credential-mode.md)/[0058](../adr/0058-roles-anywhere-cert-generation.md), full design in [roles-anywhere.md](roles-anywhere.md)). An X.509 client certificate mints short-lived STS credentials through a bespoke SigV4-X509 signer, so a set reaches AWS with no long-lived keys. It joins profile/keys/ambient as a mutually-exclusive `provider --roles-anywhere` mode, resolved *ahead of* the standard chain (`resolveRolesAnywhereCredentials` in `src/lib/auth.mjs`) and carrying two `credentialCase`s of its own — a missing/broken identity, and an identity AWS refused a session (see the classifier table below); **AWS-only**, so it cannot combine with a custom endpoint. Its live `CreateSession` path is exercised by the gated [test/integration/roles-anywhere.test.mjs](../../test/integration/roles-anywhere.test.mjs) ([docs/integration-testing.md](../integration-testing.md)).
 
 The **`provider` command** (né `auth`, né `profile` — [ADR-0047](../adr/0047-provider-command-neutral-config-door.md)/0041) is the discoverable door for populating a set's env file — every connection knob, not just the profile: `--profile <name>` writes `AWS_PROFILE` (validated read-only against the shared config — see [ADR-0031](../adr/0031-aws-profile-config-door.md)), `--endpoint <url>` writes `AWS_ENDPOINT_URL_S3` (any S3-compatible provider), `--region <r>` writes `AWS_REGION`, and `--keys` writes the key pair — read from a terminal prompt (secret hidden) or two stdin lines, never flags. Omitting the set name takes the sole-set default for a write (erroring, listing the sets, if several exist) and summarizes every set for a bare show; `--unset <knob>` removes one; a `provider <set>` show prints legible `noun: value` lines (key *presence* only, never the secret) and runs the same `~/.aws` cross-check the write path does, flagging a profile that isn't in the config. It writes only the set's *own* env file, never `~/.aws`.
 
@@ -138,14 +138,30 @@ and quoting the chain, rather than classifying a set that is configured correctl
 unconfigured one. Expiry is matched on the *message*, not `error.name` — at resolve time the
 name is the SDK layer that threw (`TokenProviderError`), which is the same for a missing profile
 — and it is the only chain failure read that way; every other one takes the frame below.
+(The expiry test is skipped outright in Roles Anywhere mode: "expired" in a `CreateSession`
+refusal is AWS talking about the certificate, and `aws sso login` would be the wrong fix.)
 
-The classifier picks one of four cases from what the *set* declares (wording per
+**Roles Anywhere takes the same frame** (ADR-0075's
+[amendment](../adr/0075-resolve-time-credential-expiry.md#amendment-2026-09-05-the-roles-anywhere-exchange-joins-the-resolve-time-frame)):
+both ways the exchange can fail to *produce* credentials — no complete machine identity, or an
+identity AWS refused a session (a 403, a non-JSON or credential-less body, a timeout) — are a
+credential failure of the set and get the "looked in" frame, with step 2 naming the identity or
+the endpoint instead of the ambient chain. The two are told apart by **type**: `createSession`
+throws a `RolesAnywhereSessionError` (`src/lib/error.mjs`) for a refusal, and
+`resolveRolesAnywhereCredentials` catches only that. A *transport* error from the socket —
+`ENOTFOUND`, `ECONNRESET`, a happy-eyeballs `AggregateError` — is rethrown raw, because the
+request-time relay below keys its network retry on the errno
+([ADR-0037](../adr/0037-aws-auth-error-categorization.md)), and a wrapper would hide it.
+
+The classifier picks one of six cases from what the *set* declares (wording per
 [ADR-0030](../adr/0030-error-message-guidelines.md)); when a profile is set,
 `resolveCredentials` runs the same read-only `~/.aws` cross-check the `provider`
 command uses (`listProfiles`, [ADR-0031](../adr/0031-aws-profile-config-door.md)):
 
 | Case | Diagnosis + fix |
 | --- | --- |
+| Roles Anywhere, **no complete identity** on this machine | *set 'photos' uses Roles Anywhere, but this machine's certificate identity is missing, incomplete, or its ARNs were never captured.* The three-step recipe (`s3cab aws <bucket> --roles-anywhere`, deploy, `--save --from-stack`), spelled for the set's bucket. |
+| Roles Anywhere, identity present, **session refused** | *…and this machine's certificate identity is in place, but AWS would not exchange it for a session*, quoting the endpoint. Check the stack is deployed in the region the identity's env names and re-capture its ARNs; failing that, the recipe. |
 | Profile set, **absent** from `~/.aws` | The "aha": *set 'photos' uses profile 'x', but it isn't in your AWS config.* Create it (`aws configure --profile x`, or `aws configure sso`) or point the set elsewhere. |
 | Profile set, **present** (or `~/.aws` unreadable) | It produced nothing: sign in if SSO (`aws sso login --profile x`), else check the profile's keys. |
 | Custom **endpoint** (non-AWS), no keys | Save the provider's key pair: `s3cab provider --keys <set>`. |

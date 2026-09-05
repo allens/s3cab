@@ -3,7 +3,6 @@ import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
-import { readSigningIdentity } from "../lib/roles-anywhere.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import {
   claimRemoteSet,
@@ -106,23 +105,6 @@ const existsError = (name) => {
       `  s3cab setup --set <new-name> --bucket ${set.bucket} <directory>...`,
   );
 };
-
-/**
- * The error `setup --roles-anywhere` raises when this machine has no complete
- * Roles Anywhere identity yet: RA is a machine-level identity stood up by
- * `s3cab aws` (ADR-0057), so point at that recipe rather than let the claim fail
- * obscurely on a half-built identity (ADR-0030).
- * @param {string} bucket
- */
-const rolesAnywhereNotReadyError = (bucket) =>
-  new Error(
-    `Set up the keyless Roles Anywhere identity before creating a set that uses it.\n` +
-      `This machine has no complete Roles Anywhere identity yet. Run:\n` +
-      `  s3cab aws ${bucket} --roles-anywhere\n` +
-      `then deploy the printed template and capture its ARNs (use the stack name\n` +
-      `you deployed it under):\n` +
-      `  s3cab aws --roles-anywhere --save --from-stack <stack>`,
-  );
 
 /**
  * "Not a directory", the answer to two different questions — the path resolved and
@@ -262,25 +244,16 @@ async function create(name, directories, options) {
   requireArg(options.bucket, "bucket");
   const bucket = options.bucket;
 
-  // Roles Anywhere is a *machine* identity generated up front by
-  // `s3cab aws <bucket> --roles-anywhere` (+ `--save`); `setup --roles-anywhere`
-  // only points a new set at it. So it must already be complete — otherwise the
-  // claim below would authenticate through a half-built identity and fail
-  // obscurely. Fail fast with the exact setup commands instead (ADR-0030).
-  const rolesAnywhere = options["roles-anywhere"];
-  if (rolesAnywhere && !readSigningIdentity()) {
-    throw rolesAnywhereNotReadyError(bucket);
-  }
-
   // Gather the provider knobs (validate, prompt for keys, reject two credential
-  // modes at once — shared with `provider`, lib/provider.mjs) and merge them into
-  // the environment so the remote claim below can authenticate. A set's
-  // credentials can't be configured before the set exists (ADR-0055), so `setup`
-  // carries them here for that first S3 touch; with no knobs, the claim runs on the
-  // ambient AWS chain (or, in RA mode, the machine's certificate identity).
+  // modes at once, refuse Roles Anywhere until the machine identity is complete —
+  // shared with `provider`, lib/provider.mjs) and merge them into the environment
+  // so the remote claim below can authenticate. A set's credentials can't be
+  // configured before the set exists (ADR-0055), so `setup` carries them here for
+  // that first S3 touch; with no knobs, the claim runs on the ambient AWS chain
+  // (or, in RA mode, the machine's certificate identity).
   const { updates } = await gatherProviderConfig({
     ...options,
-    rolesAnywhere,
+    rolesAnywhere: options["roles-anywhere"],
   });
   Object.assign(process.env, updates);
 

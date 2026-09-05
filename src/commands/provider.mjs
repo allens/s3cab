@@ -55,7 +55,8 @@ const knobs = {
  * the user scope) — plus how to name that scope in messages: `phrase` fills both
  * the status nouns ("AWS endpoint for set 'photos'") and the action sentences
  * ("Cleared the access keys for set 'photos'").
- * @typedef {{ path: string, phrase: string, name: string }} Scope
+ * `bucket` is the set's, carried for the Roles Anywhere recipe a refusal prints.
+ * @typedef {{ path: string, phrase: string, name: string, bucket: string }} Scope
  */
 
 /**
@@ -68,7 +69,12 @@ const knobs = {
  */
 function resolveScope(setName) {
   const set = resolveSet(setName);
-  return { path: set.envPath, phrase: `set '${set.name}'`, name: set.name };
+  return {
+    path: set.envPath,
+    phrase: `set '${set.name}'`,
+    name: set.name,
+    bucket: set.bucket,
+  };
 }
 
 /**
@@ -279,14 +285,16 @@ export async function provider(setName, options = {}) {
   }
 
   // The knob-gathering (validate, prompt for keys, reject two credential modes at
-  // once) is shared with `setup` — see lib/provider.mjs. `provider` then applies
-  // the one-mode clearing below, which `setup` doesn't need (its set is brand new).
+  // once, refuse Roles Anywhere until the machine identity is complete) is shared
+  // with `setup` — see lib/provider.mjs. `provider` then applies the one-mode
+  // clearing below, which `setup` doesn't need (its set is brand new).
   const { updates, summary } = await gatherProviderConfig({
     profile,
     endpoint,
     region,
     keys,
     rolesAnywhere,
+    bucket: scope.bucket,
   });
 
   // Enforce the one-mode rule against what's already on disk: a set holds exactly

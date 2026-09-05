@@ -1,12 +1,15 @@
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { parseKnownFiles } from "@smithy/shared-ini-file-loader";
 import { customEndpoint, envSource, loadedSet } from "./env.mjs";
+import { RolesAnywhereSessionError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
 import {
   createSession,
+  identityStackName,
   isRolesAnywhereMode,
   machineIdentityDir,
   readSigningIdentity,
+  setupSteps,
 } from "./roles-anywhere.mjs";
 
 /** @import { AwsCredentialIdentity, AwsCredentialIdentityProvider, MetadataBearer } from "@aws-sdk/types" */
@@ -65,12 +68,32 @@ const isExpiredSignIn = (error) =>
   Error.isError(error) && /\bexpired\b/i.test(error.message);
 
 /**
+ * What {@link noCredentialsError} knows about the failure: what the set declares
+ * (ADR-0055) and what the chain or the identity reported, gathered by the async
+ * caller (`resolveCredentials`) so the factory stays sync.
+ * @typedef {object} CredentialContext
+ * @property {{ name: string, envPath: string }} [set] - The set in play; absent for
+ *   the ambient commands.
+ * @property {string} [profile] - The effective `AWS_PROFILE`, if any.
+ * @property {string[]} [knownProfiles] - Profiles in `~/.aws`; `undefined` when the
+ *   config couldn't be read, so we don't claim a profile is absent.
+ * @property {string} [endpoint] - The custom S3 endpoint, if any (its presence means "not AWS").
+ * @property {"identity" | "session"} [rolesAnywhere] - The set is in Roles Anywhere
+ *   mode, and which half failed: this machine's certificate identity is absent or
+ *   incomplete (`identity`), or it is whole and AWS refused it a session (`session`).
+ * @property {string} [bucket] - The set's bucket, so a Roles Anywhere fix can name
+ *   the stack (`S3CAB_BUCKET` from the loaded set's env).
+ */
+
+/**
  * Classify a set's credential situation into the parts that vary per case — the
  * line-1 annotation, an optional leading diagnosis (the "aha"), an optional
  * `source` (what {@link noCredentialsError}'s "looked in" step 2 names, defaulting
  * to the ambient AWS chain), and the fix block — which drops into a constant frame.
  * The cases are decided by what the *set* declares (ADR-0055), wording per ADR-0030:
  *   - Roles Anywhere marker but the machine identity is missing/broken → set it up / repair it;
+ *   - Roles Anywhere identity present but AWS refused it a session → the stack
+ *     behind the identity is gone, elsewhere, or out of date: re-capture / redeploy;
  *   - a profile absent from `~/.aws` → the missing "aha": create it / point elsewhere;
  *   - a profile present (or `~/.aws` unreadable) → it produced nothing: SSO sign-in / check keys;
  *   - a custom endpoint (non-AWS) but no keys → save the provider's key pair;
@@ -78,22 +101,13 @@ const isExpiredSignIn = (error) =>
  * There is no keys-present case: keys present means the chain resolves *something*,
  * so a wrong key surfaces later as a request-time rejection, never here.
  * @param {{ name: string }} set - The set in play (for set-scoped fixes).
- * @param {string} [profile] - The effective `AWS_PROFILE`, if any.
- * @param {string[]} [knownProfiles] - Profiles in `~/.aws`; `undefined` when the
- *   config couldn't be read, so we don't claim a profile is absent.
- * @param {string} [endpoint] - The custom S3 endpoint, if any (its presence means "not AWS").
- * @param {boolean} [rolesAnywhere] - The set is in Roles Anywhere mode (the marker
- *   is set) but this machine's certificate identity is absent or incomplete.
+ * @param {CredentialContext} ctx - What the set declares and what the chain / the
+ *   identity reported; see {@link noCredentialsError}.
  * @returns {{ annotation: string, diagnosis?: string, source?: string, fix: string }}
  */
-const credentialCase = (
-  set,
-  profile,
-  knownProfiles,
-  endpoint,
-  rolesAnywhere,
-) => {
-  if (rolesAnywhere) {
+const credentialCase = (set, ctx) => {
+  const { profile, knownProfiles, endpoint, rolesAnywhere, bucket } = ctx;
+  if (rolesAnywhere === "identity") {
     return {
       annotation: "Roles Anywhere",
       diagnosis: `Set '${set.name}' uses Roles Anywhere (keyless), but this machine's
@@ -101,9 +115,28 @@ certificate identity is missing, incomplete, or its ARNs were never captured.`,
       source: `your machine's Roles Anywhere identity
      (${tildeify(machineIdentityDir())})`,
       fix: `To set it up (or repair it), generate the identity and emit its template:
-  s3cab aws <bucket> --roles-anywhere
-then deploy the printed template and capture the stack's ARNs:
-  s3cab aws --roles-anywhere --save --from-stack s3cab-<bucket>`,
+${setupSteps(bucket)}`,
+    };
+  }
+  if (rolesAnywhere === "session") {
+    // The identity is whole and the request was signed; AWS is what said no. The
+    // usual reasons are all on the cloud side — the stack was torn down, was
+    // deployed in a region other than the one the identity's env names, or the
+    // ARNs captured are from an earlier deploy — so the fix leads with capturing
+    // the live stack again and falls back to standing the identity up afresh.
+    return {
+      annotation: "Roles Anywhere",
+      diagnosis: `Set '${set.name}' uses Roles Anywhere (keyless), and this machine's
+certificate identity is in place, but AWS would not exchange it for a session.`,
+      source: `AWS Roles Anywhere, using the identity at
+     ${tildeify(machineIdentityDir())}`,
+      fix: `To fix it, check that the identity's stack is still deployed in the region its
+env file names (AWS_REGION in ${tildeify(machineIdentityDir())}/env), then capture
+its ARNs again:
+  s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}
+If the stack is gone, or the certificate no longer matches its trust anchor, set the
+identity up afresh:
+${setupSteps(bucket)}`,
     };
   }
   if (profile) {
@@ -188,27 +221,25 @@ Run 's3cab help provider' for details.`,
  * S3CAB_DEBUG (`cause` kept for that path). The set and the `~/.aws` cross-check
  * are gathered by the async caller (`resolveCredentials`) and passed in, so this
  * factory stays sync.
+ *
+ * The expired-sign-in hand-off is skipped in Roles Anywhere mode: the word
+ * "expired" in a `CreateSession` refusal is AWS talking about the *certificate*
+ * (or the trust anchor), and `aws sso login` would be exactly the wrong fix.
  * @param {unknown} cause - The error thrown by the standard chain (or, in RA mode,
- *   the "identity missing/broken" error {@link resolveCredentials} raises).
- * @param {{ set?: { name: string, envPath: string }, profile?: string,
- *   knownProfiles?: string[], endpoint?: string, rolesAnywhere?: boolean }} [ctx]
+ *   the "identity missing/broken" error {@link resolveCredentials} raises, or the
+ *   `RolesAnywhereSessionError` the exchange threw).
+ * @param {CredentialContext} [ctx]
  */
 export const noCredentialsError = (cause, ctx = {}) => {
   const reason = reasonFrom(cause);
-  const { set, profile, knownProfiles, endpoint, rolesAnywhere } = ctx;
-  if (isExpiredSignIn(cause)) {
+  const { set, profile } = ctx;
+  if (!ctx.rolesAnywhere && isExpiredSignIn(cause)) {
     return expiredCredentialsError(cause, { set, profile, reason });
   }
   if (!set) {
     return ambientCredentialsError(cause, reason);
   }
-  const { annotation, diagnosis, source, fix } = credentialCase(
-    set,
-    profile,
-    knownProfiles,
-    endpoint,
-    rolesAnywhere,
-  );
+  const { annotation, diagnosis, source, fix } = credentialCase(set, ctx);
   // Step 2 of "looked in" is the second place s3cab consulted — the ambient AWS
   // chain by default, or (RA mode) the machine's certificate identity.
   const lookedIn =
@@ -620,25 +651,47 @@ export const isCredentialProviderError = (error) =>
 /**
  * The Roles Anywhere credential source (ADR-0057): read the machine's certificate
  * identity, sign a `CreateSession`, and return the short-lived STS credentials with
- * their `expiration` so the SDK refreshes them before expiry. When the set is in RA
- * mode but the identity is absent or incomplete, raise the actionable
- * "RA identity missing/broken" error (the fifth `credentialCase`) rather than a
- * raw read failure.
+ * their `expiration` so the SDK refreshes them before expiry.
+ *
+ * Both ways it can fail to *produce* credentials get the set-scoped
+ * {@link noCredentialsError} frame, the same treatment the standard chain's
+ * failure gets ([ADR-0075](../../docs/adr/0075-resolve-time-credential-expiry.md)):
+ * an absent or incomplete identity (the `identity` case, raised here), and an
+ * exchange AWS refused or that timed out (the `session` case, a
+ * `RolesAnywhereSessionError` from `createSession`). What is deliberately **not**
+ * caught is a transport error from the socket itself — `ENOTFOUND`, `ECONNRESET`,
+ * a happy-eyeballs `AggregateError` — which is rethrown raw so the request-time
+ * relay (lib/s3.mjs) sees its errno and retries it as the network blip it is
+ * (ADR-0037). The line between the two is the error's *type*, decided at the
+ * throw site, so this catch never inspects a message.
  * @returns {Promise<AwsCredentialIdentity>}
  */
 const resolveRolesAnywhereCredentials = async () => {
+  const set = loadedSet();
+  const bucket = process.env.S3CAB_BUCKET;
   const identity = readSigningIdentity();
   if (!identity) {
     throw noCredentialsError(
       new Error(
         `No usable Roles Anywhere certificate identity at ${tildeify(machineIdentityDir())}.`,
       ),
-      { set: loadedSet(), rolesAnywhere: true },
+      { set, rolesAnywhere: "identity", bucket },
     );
   }
-  const credentials = await createSession(identity);
-  // Field names already match AwsCredentialIdentity; only expiration needs a Date.
-  return { ...credentials, expiration: new Date(credentials.expiration) };
+  try {
+    const credentials = await createSession(identity);
+    // Field names already match AwsCredentialIdentity; only expiration needs a Date.
+    return { ...credentials, expiration: new Date(credentials.expiration) };
+  } catch (error) {
+    if (error instanceof RolesAnywhereSessionError) {
+      throw noCredentialsError(error, {
+        set,
+        rolesAnywhere: "session",
+        bucket,
+      });
+    }
+    throw error;
+  }
 };
 
 /**

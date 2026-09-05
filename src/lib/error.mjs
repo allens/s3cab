@@ -63,6 +63,32 @@ export class ValidationError extends Error {
 }
 
 /**
+ * Roles Anywhere's `CreateSession` endpoint answered, and the answer was not a
+ * session: a rejection (a 403 for a profile or trust anchor the region doesn't
+ * know, a 400 for a certificate the trust anchor doesn't vouch for), a body that
+ * wasn't the session JSON, or a connected socket that went silent past the
+ * timeout — raised by `createSession` / `sessionTimeoutError` (lib/roles-anywhere.mjs).
+ *
+ * A subclass because `resolveCredentials` (lib/auth.mjs) catches it *by type* to
+ * branch behaviour: these are a **credential** failure and get the same set-scoped
+ * "no credentials for set X, looked in …" frame the standard chain's failures get
+ * ([ADR-0075](../../docs/adr/0075-resolve-time-credential-expiry.md)). Anything
+ * else the request throws — an `ENOTFOUND`/`ECONNRESET` from the socket — is a
+ * transport failure that must reach the request-time relay (lib/s3.mjs) untouched,
+ * so its errno still drives the network retry.
+ */
+export class RolesAnywhereSessionError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "RolesAnywhereSessionError";
+  }
+}
+
+/**
  * The exit code for a run the user interrupted: 128 + SIGINT(2), the shell's
  * convention for a signal-terminated process. One constant rather than a
  * signal→code table — Ctrl+C is the documented interrupt, and on the

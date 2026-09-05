@@ -4,6 +4,10 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { parseEnvFile } from "../lib/env.mjs";
+import {
+  ensureMachineIdentity,
+  identityEnvPath,
+} from "../lib/roles-anywhere.mjs";
 import { listSets, readSet } from "../lib/sets.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -124,6 +128,29 @@ describe("setup provider knobs", () => {
 
     assert.equal(envAtClaim?.AWS_PROFILE, "work");
     assert.equal(parseEnvFile(readSet("photos").envPath).AWS_PROFILE, "work");
+  });
+
+  it("runs the claim in Roles Anywhere mode and persists the marker once the identity is complete", async () => {
+    await using dir = await mkTmpDir();
+    const { photos } = withMemberDir(dir.path);
+    // The positive twin of setup.test.mjs's "refuses --roles-anywhere … no
+    // identity": with the four files *and* the captured ARNs in place, the
+    // readiness gate (shared with `provider`, lib/provider.mjs) lets it through.
+    ensureMachineIdentity();
+    writeFileSync(
+      identityEnvPath(),
+      "S3CAB_RA_TRUST_ANCHOR_ARN=arn:ta\nS3CAB_RA_PROFILE_ARN=arn:profile\n" +
+        "S3CAB_RA_ROLE_ARN=arn:role\nAWS_REGION=eu-west-1\n",
+    );
+
+    await setup([photos], {
+      set: "photos",
+      bucket: "my-bucket",
+      "roles-anywhere": true,
+    });
+
+    assert.equal(envAtClaim?.S3CAB_RA, "1"); // the claim authenticated as RA
+    assert.equal(parseEnvFile(readSet("photos").envPath).S3CAB_RA, "1");
   });
 
   it("persists nothing on a lost claim — no set is created locally", async () => {
