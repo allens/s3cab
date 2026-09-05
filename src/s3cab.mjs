@@ -8,10 +8,9 @@ import { commands } from "./commands.mjs";
 import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
 import { isCredentialProviderError } from "./lib/auth.mjs";
 import {
-  EXIT_INTERRUPTED,
   InterruptedError,
   errorText,
-  isInputError,
+  exitCodeFor,
   isUsageError,
 } from "./lib/error.mjs";
 import { formatByteValue, secondsSince } from "./lib/format.mjs";
@@ -168,15 +167,12 @@ try {
   // exit on the shell's signal convention (ADR-0067) — no `ERROR:`, no usage.
   if (error instanceof InterruptedError) {
     console.error(error.message);
-    process.exitCode = EXIT_INTERRUPTED;
   } else {
-    // Two independent axes (see lib/error.mjs): print the usage help only for a
-    // structural usage error, and pick the exit code by input-vs-runtime. Exit-code
-    // convention: 2 for bad input (args/options/values — the argparse/getopt
-    // convention), 1 for any other runtime failure. (Success is 0; an unknown
-    // command exits 127 above, the shell's "command not found".) `errorMessage`
-    // owns the text — a missing argument is spelled from the registry (ADR-0038);
-    // debug prints the error object whole instead, stack and all.
+    // print the usage help only for a structural usage error (see lib/error.mjs
+    // for the exit-code axis). (Success is 0; an unknown command exits 127
+    // above, the shell's "command not found".) `errorMessage` owns the text —
+    // a missing argument is spelled from the registry (ADR-0038); debug prints
+    // the error object whole instead, stack and all.
     console.error("ERROR:", debug ? error : errorMessage(command, error));
     // A usage error prints the one-line synopsis + a --help pointer, not the full
     // arg/option tables (those live behind --help) — ADR-0038.
@@ -185,8 +181,8 @@ try {
       console.error(synopsis(commands, commandName));
       console.error(`Run 's3cab ${commandName} --help' for details.`);
     }
-    process.exitCode = isInputError(error) ? 2 : 1;
   }
+  process.exitCode = exitCodeFor(error);
 } finally {
   if (debug) {
     console.warn(
