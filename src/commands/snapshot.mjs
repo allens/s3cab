@@ -26,27 +26,17 @@ import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
 export async function snapshot(setName, options = {}) {
   const set = loadSet(setName);
 
-  const {
-    name: previousName,
-    previous,
-    previousErrors,
-    lookups,
-    instant: previousInstant,
-  } = await readBaseline(set, options);
+  const baseline = await readBaseline(set, options);
+  const { name: previousName, previous, previousErrors } = baseline;
   const { name } = await generateSnapshot(set, {
-    lookups,
-    // The same entries again, for their sizes: the progress line's byte total.
-    // Passed apart from `lookups` because `--rehash` suppresses those and says
-    // nothing about how far along the pass is.
-    sizes: previous,
+    baseline,
     debug: options.debug,
-    previousInstant,
     includeOnlineOnly: options["include-online-only"],
   });
 
-  // Compare with the previous snapshot. When it was already read for the hash
-  // lookup above, hand the parse through so the baseline isn't decompressed and
-  // parsed a second time; under --rehash it wasn't read, so the compare reads it.
+  // Compare with the previous snapshot. `readBaseline` above already read it —
+  // regardless of `--rehash`, which only suppresses the hash *lookup* — so hand
+  // that parse through rather than paying to decompress and parse it again.
   // Both halves go through — its entries *and* the paths it couldn't hash, which
   // is what stops a file that was merely locked last time reading as new
   // (ADR-0079).
