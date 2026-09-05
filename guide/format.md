@@ -145,8 +145,8 @@ a3f9c21e…60d	1204	2026-08-14T09:31:07.412Z	allen@DESKTOP
 #END
 ```
 
-Rules for a reader: a line is a row only if its first tab-separated field is **64 hex
-characters** — the deleted object's hash, its old key under `objects/`. The second field is
+Rules for a reader: a line is a row only if its first tab-separated field is **64 lowercase
+hex characters** — the deleted object's hash, its old key under `objects/`. The second field is
 the object's stored size in bytes, the third the UTC instant the delete ran, and everything
 after the third tab is who ran it. Skip every other line: the `#DELETED` header's third
 column repeats the record's instant and its last column is prose for a human, and the
@@ -330,7 +330,10 @@ both break one that counts first.
 The last line of every snapshot is the trailer `#END`. It exists to make truncation
 detectable: zstd happily decompresses a cut-short file to a byte *prefix* of the original,
 which would otherwise read as a valid, smaller snapshot. A snapshot without the `#END`
-trailer is damaged goods — treat it as truncated, not as complete. (A reader that only
+trailer is damaged goods — treat it as truncated, not as complete. Concretely: **don't
+restore from it**. The rows that survive a cut are a valid-looking prefix, so restoring
+them produces a tree that looks finished and silently isn't; refuse the snapshot, say why,
+and let the reader reach for an intact one. (A reader that only
 wants the file rows can still skip every `#` line; checking for the trailer first is what
 tells it the rows it read are all of them.)
 
@@ -345,7 +348,8 @@ recorded because `#SNAPSHOT`'s instant is stamped *before* the run reads anythin
 s3cab needs to know when the reading finished. Read it as an upper bound: the column holds
 milliseconds and the clock is finer, so the figure is rounded **up** — everything in the
 file was written at or before the moment it names, never after. Two snapshots of an
-unchanged folder therefore differ in this one line, and nowhere else.
+unchanged folder therefore differ in this line and the `#SNAPSHOT` header — which carries
+its own instant and the snapshot's name — and nowhere else: every file row is identical.
 
 Match the marker and **ignore anything after it** on that line: no truncation can add
 fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
@@ -444,6 +448,18 @@ once you try to restore from it.
   fault: report it, **carry on with the rest**, and exit nonzero at the end. A recovery tool
   that stops dead at file 3 of 400 is materially worse than one that recovers 397 and tells
   you which three it couldn't — so the graceful path is not a nicety, it is the requirement.
+- **Hash what you download, and treat a mismatch like unexplained damage.** The key *is* the
+  content's SHA-256, so verifying costs one hash per file and catches the worst failure a
+  restorer can have: an object whose bytes were corrupted in the bucket restores under a
+  clean exit, and nothing ever looks wrong again. A download that doesn't hash to its key is
+  an integrity fault exactly like a missing object nothing explains — report it, carry on
+  with the rest, exit nonzero. Whether the mismatched bytes are still worth writing (clearly
+  flagged) or better withheld is a choice your tool makes and states.
+- **Refuse `.` and `..` path segments.** Snapshots are editable text, and this spec tells
+  people so — a hand-added row whose path holds a `..` segment would walk a naive restorer
+  out of its output directory and overwrite whatever it lands on. s3cab never writes such a
+  path (walked paths are resolved), so one in a snapshot is malformed: refuse the row and
+  report it.
 - **On Windows, go through the `\\?\` prefix.** Snapshot paths are absolute, so re-rooting
   them under an output directory makes an already-deep tree deeper, and the 260-character
   `MAX_PATH` limit arrives sooner than you would guess. It fails loudly rather than
