@@ -9,14 +9,15 @@ ambiguous, silent, or wrong, ranked by whether a wrong guess corrupts a restore
 or merely costs the implementer an afternoon.
 
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
-boto3) and [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
-SDK). Diffing a new run's list against the last one is what makes a re-run worth
+boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
+SDK) and [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK).
+Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
 
 **Two kinds of file live here, with opposite lifecycles.** `create.mjs`,
 `stage.mjs` and `compare.py` are the harness: ours, maintained, and improved
 every run as findings come in. [restorers/](restorers/) is append-only and
-frozen — one file per run, never updated, because each one's value is being a
+frozen — one program per run, never updated, because each one's value is being a
 fixed reading of the spec on a given date.
 
 A run, end to end:
@@ -249,3 +250,22 @@ Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
 `AWS_SESSION_TOKEN` — it has no SDK to read `~/.aws` with, which is why
 `create.mjs` stages static keys. Exit 2 means integrity faults, which it
 enumerates after restoring everything restorable.
+
+### gorestore/ — run 3
+
+Go 1.22, behind [run 3](../../docs/format-spec-audit-3.md): the same no-SDK
+rules as run 2, read against the spec as revised after it — the first run to
+exercise run 2's four added fixtures live, and the first measured against a
+corpus with every POSIX fixture present (staging ran on Linux). Stdlib plus
+Ubuntu's packaged pure-Go zstd (`golang-github-klauspost-compress-dev`); SigV4
+hand-rolled over `net/http`, first signed request succeeded. A directory rather
+than a file only because Go insists on a module; it is still one frozen program,
+`compare.py` beside it being the run's own comparator, written blind to ours.
+An independent reading of the spec as written on 2026-08-22.
+
+```sh
+cd scripts/cleanroom/restorers/gorestore
+GOFLAGS=-mod=mod GOPROXY=off go build -o s3cab-restore . && go test ./...
+./s3cab-restore -bucket <bucket> list
+./s3cab-restore -bucket <bucket> restore-all -out <dir>
+```

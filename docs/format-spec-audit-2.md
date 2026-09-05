@@ -1,5 +1,7 @@
 # The format-spec clean-room audit, run 2 (2026-08-20)
 
+> **Run 3 is [format-spec-audit-3.md](format-spec-audit-3.md)** (2026-08-23, Go, no AWS SDK).
+
 The second literal test of the no-lock-in promise, and the first that also tested what
 *reading* the format costs. Everything below the rule is the clean-room session's own report,
 verbatim and unedited — including its own top-level heading.
