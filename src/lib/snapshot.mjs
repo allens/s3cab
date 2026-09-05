@@ -206,7 +206,7 @@ export async function readBaseline(set, { rehash } = {}) {
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
- * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookups` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; empty on a first run), and `instant` for the clock-went-backwards warning below (the ctime cross-check does **not** use it — its boundary is each source's own completion instant, carried on the `HashSource`)
+ * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookups` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below (the ctime cross-check does **not** use it — its boundary is each source's own completion instant, carried on the `HashSource`)
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
