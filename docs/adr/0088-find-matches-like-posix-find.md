@@ -1,6 +1,8 @@
 # `find` matches like POSIX `find`, over local snapshots only
 
-**Status:** accepted — designed in a grilling session 2026-08-22, built the same day. Joins
+**Status:** accepted — designed in a grilling session 2026-08-22, built the same day; amended
+2026-09-05 (the path-shape rule below now answers separators as well as case, and a UNC path
+is Windows-shaped). Joins
 the local-only browse commands of [0027](0027-compare-local-only-adoption-syncs-manifests.md) and
 follows [0062](0062-bulk-operands-positional-addressing-by-flag.md)'s operand/addressing split.
 The hash-operand `delete` that consumes its output is [0089](0089-hash-operand-delete.md); only
@@ -28,18 +30,29 @@ for it), so a path out of a snapshot may be Windows-shaped while `process.platfo
 
 **`find` borrows POSIX `find`'s anchoring and `compileExclude`'s token grammar**, with the two
 kept in one place: `lib/path-match.mjs` exports `globSource` (the token compiler: `*`, `?`,
-`**`, `**/`) and `isWindowsPath`, and `exclude.mjs` and `find.mjs` each apply their own
-anchoring, normalization and case rule on top. Neither imports the other — importing the
-compiler *from exclude* would invite exactly the confusion this ADR exists to prevent.
+`**`, `**/`) and the path-spelling question (`preparePath`, `foldsCase`), and `exclude.mjs` and
+`find.mjs` each apply their own anchoring and normalization on top. Neither imports the other —
+importing the compiler *from exclude* would invite exactly the confusion this ADR exists to
+prevent.
 
 - **No separator in the pattern → match the basename** (`aws-keys.txt`, `*.mov`). **A separator →
   match the whole path, floating** — an implicit `**/` on the front, so `me/Documents/tax`
   matches at any depth but keeps its segment alignment. **A trailing separator → everything
   beneath that directory** (`secretsdir/`).
-- **Case-sensitivity keys on `isWindowsPath` — the shape of the path being tested**, never
-  `process.platform`. Separators in the *pattern* key on `process.platform`, because the pattern
-  was typed at this machine's shell while the path came out of a snapshot possibly taken on
-  another OS.
+- **How the path is spelled keys on the shape of the path being tested**, never
+  `process.platform`. That is two questions — which characters separate its segments, and
+  whether its case matters — and both are answered from one read of the path (`preparePath`),
+  because answering one from the other's predicate is how a UNC path was once unfindable: it has
+  no drive letter, so the drive-letter test left its backslashes in place against a
+  `/`-normalized pattern, and no pattern could match. Three shapes: a **drive-letter** root and a
+  **UNC** root are Windows-shaped (both separators, case folds); anything else is POSIX (`/`
+  only, a backslash is an ordinary character, case is significant). A UNC path folds because it
+  only ever originates from a Windows client, whose lookup is case-insensitive against every
+  Windows server and the usual NAS defaults, and because it is what a mapped drive resolves to
+  — so it is every backup of a NAS, and an exact-case miss there is a guess lost right before a
+  `delete`. Separators in the *pattern* still key on `process.platform`, because the pattern was
+  typed at this machine's shell while the path came out of a snapshot possibly taken on another
+  OS.
 - **Local snapshots only, no `--remote`, no `--bucket`.** ADR-0027 settled that `reattach` pulls
   a set's entire history precisely so browse commands stay local; `find` joins them and costs
   zero S3 calls. It searches every attached set, `--set` narrows.

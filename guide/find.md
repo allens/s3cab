@@ -69,8 +69,9 @@ both; `find` takes as many as you like:
 ```
 
 Case is judged by the path being searched, not by the computer doing the
-searching: a Windows path in a snapshot matches case-insensitively even when you
-run `find` on Linux.
+searching: a Windows path in a snapshot — a drive letter or a network share
+(`\\nas\photos`) — matches case-insensitively even when you run `find` on
+Linux.
 
 ## Reading the output
 
