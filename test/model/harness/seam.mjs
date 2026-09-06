@@ -6,8 +6,9 @@ import { clockHolder } from "./clock.mjs";
 import { backendHolder } from "./fake-s3.mjs";
 
 // The Tier 1 seam: mocks `s3.mjs` (ADR-0019's designated fake point) and
-// `format.mjs` (to route the minute-precision snapshot clock to the virtual
-// one), then imports the commands *through* those mocks and re-exports them.
+// `format.mjs` (to route its clock reads — names, instants, `#END` trailers —
+// to the virtual clock), then imports the commands *through* those mocks and
+// re-exports them.
 // Everything the harness drives or inspects must come from here — a static
 // import of a command anywhere else in the process binds the real modules
 // first, and mock.module cannot rebind it.
@@ -40,6 +41,8 @@ mock.module("../../../src/lib/format.mjs", {
     /** @type {typeof format.localMoment} */
     localMoment: (smallestUnit) =>
       clockHolder.current.localMoment(smallestUnit),
+    /** @type {typeof format.completionInstant} */
+    completionInstant: () => clockHolder.current.completionInstant(),
   },
 });
 

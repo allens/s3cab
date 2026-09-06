@@ -54,10 +54,13 @@ the object landed — the input to `cleanup`'s 7-day grace window.
 
 ### `virtual-clock`
 
-Object ages and snapshot names can be steered by the harness clock
-(`clockHolder`). **Fake-only by construction** — it exists so Tier 1 can cross
-the grace window in microseconds. Any test that advances time past minutes
-requires this capability; on a real backend it must skip (or live in Tier 3).
+Object ages and every instant an artifact records — snapshot names, `#SNAPSHOT`
+and `#END` instants, a set marker's CREATED, audit stamps — can be steered by
+the harness clock (`clockHolder`), because they are all read through the one
+module the seam mocks (`format.mjs`); `model.clock.test.mjs` pins that. **Fake-only
+by construction** — it exists so Tier 1 can cross the grace window in
+microseconds. Any test that advances time past minutes requires this capability;
+on a real backend it must skip (or live in Tier 3).
 
 ### `fault-injection`
 

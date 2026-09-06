@@ -17,7 +17,11 @@ import { join, normalize, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { writeSet } from "../lib/sets.mjs";
-import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
+import {
+  listSnapshotNames,
+  readSnapshot,
+  snapshotFileName,
+} from "../lib/snapshot-file.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -252,41 +256,31 @@ describe("snapshot", () => {
 const SENTINEL_HASH = "f".repeat(64);
 
 /**
- * Turn the set's newest snapshot into a parked lookup holding sentinel hashes —
- * by default removing it, which is the interrupted-first-seed state: work
- * parked, no snapshot yet.
+ * Turn the set's newest snapshot into a parked lookup holding sentinel hashes,
+ * removing the snapshot: the run that wrote it is now the interrupted one, and
+ * whatever came before it is the previous snapshot (none, for the
+ * interrupted-first-seed state).
  *
- * The `#END` trailer is re-stamped with the clock as it is now, because that is
- * what the interrupted run would have written: its rows were hashed up to the
- * moment the user pressed Ctrl+C, not back when the snapshot this text was
- * copied from finished. The instant is the trust boundary those rows are judged
- * by (ADR-0085), so copying a stale one would test the wrong file. Rounded up
- * for the same reason the writer rounds up: the ctimes this stands after were
- * moved a fraction of a millisecond ago, and truncating would put the boundary
- * back before them.
+ * Only the hashes and the status are rewritten. The `#END` instant is kept as
+ * the run minted it, because it is the trust boundary those rows are judged by
+ * (ADR-0085) and the run's own clock is the honest source of it — a test that
+ * needs the boundary somewhere in particular puts the *clock* there (`setUp`'s
+ * `tick`) rather than re-stamping the file.
  * @param {string} snapshotsDir
- * @param {object} [options]
- * @param {boolean} [options.keepSnapshot] - Leave the snapshot in place: the *resume* state, where a completed run is followed by an interrupted one
  */
-function parkSentinelHashes(snapshotsDir, { keepSnapshot } = {}) {
-  const [name] = readdirSync(snapshotsDir);
+function parkSentinelHashes(snapshotsDir) {
+  const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
-  const text = zstdDecompressSync(
-    readFileSync(join(snapshotsDir, name)),
-  ).toString("utf8");
+  const path = join(snapshotsDir, snapshotFileName(name));
+  const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
   const parked = text
     .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
-    .replace(
-      /^(#END\s+)\S+(\s+)\S+/m,
-      `$1PARTIAL$2${Temporal.Now.instant().toString({ smallestUnit: "millisecond", roundingMode: "ceil" })}`,
-    );
+    .replace(/^(#END\s+)COMPLETE/m, "$1PARTIAL");
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.zst"),
     zstdCompressSync(Buffer.from(parked, "utf8")),
   );
-  if (!keepSnapshot) {
-    unlinkSync(join(snapshotsDir, name));
-  }
+  unlinkSync(path);
 }
 
 /**
@@ -297,9 +291,9 @@ function parkSentinelHashes(snapshotsDir, { keepSnapshot } = {}) {
  * @param {string} snapshotsDir
  */
 function plantSentinelSnapshot(snapshotsDir) {
-  const [name] = readdirSync(snapshotsDir);
+  const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
-  const path = join(snapshotsDir, name);
+  const path = join(snapshotsDir, snapshotFileName(name));
   const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
   writeFileSync(
     path,
@@ -347,13 +341,23 @@ async function hashesIn(snapshotsDir) {
 
 describe("snapshot (hashes parked by an interrupted run)", () => {
   /**
+   * A fixture set and a clock pinned *relative to real time*, in whole minutes.
+   *
+   * The ctimes these tests are about are real — the filesystem stamps them when
+   * the fixture is copied and when `bumpCtimes` touches it — and a run's `#END`
+   * trailer is the boundary they are judged against (ADR-0085). So the clock
+   * has to be able to sit on either side of them: a run ticked to `-1` cannot
+   * vouch for a file touched now, a run ticked to `+1` can. A minute of margin
+   * either way keeps the two clocks involved (the kernel's, stamping ctimes,
+   * and the process's) from ever being asked to agree to the millisecond,
+   * which is the race a fixed 2025 pin plus a real-clock re-stamp used to run.
    * @param {TestContext} t
-   * @param {string} isoDateTime
    */
-  function setUp(t, isoDateTime) {
-    let clock = isoDateTime;
+  function setUp(t) {
+    const origin = Temporal.Now.zonedDateTimeISO("Europe/London");
+    let minutes = 0;
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
-      Temporal.PlainDateTime.from(clock).toZonedDateTime("Europe/London"),
+      origin.add({ minutes }),
     );
     const workDir = copyFixtureToWorkDir("before", t.fullName);
     const home = useTempHome(workDir());
@@ -361,18 +365,21 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     return {
       snapshotsDir: join(home, ".s3cab", "sets", "photos", "snapshots"),
       workDir,
-      /** @param {string} next */
-      tick: (next) => (clock = next),
+      /** @param {number} next - Minutes from real time the clock now reads */
+      tick: (next) => (minutes = next),
     };
   }
 
   it("reuses them, then deletes the parked file once the snapshot lands", async (t) => {
-    const { snapshotsDir, tick } = setUp(t, "2025-04-01T09:00:00");
+    const { snapshotsDir, tick } = setUp(t);
 
+    // Ahead of real time, so the parked trailer vouches for the fixture just
+    // copied; the interrupted run read those files after they were written.
+    tick(1);
     await snapshot("photos", { rehash: true });
     parkSentinelHashes(snapshotsDir);
 
-    tick("2025-04-01T09:01:00");
+    tick(2);
     await snapshot("photos", {});
 
     // Every unchanged file took its hash from the parked lookup rather than
@@ -398,15 +405,19 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     // resume threw away precisely the work the parking had saved. Each source
     // judged against its own completion instant, run 2's parking vouches for
     // rows run 2 hashed, and the sentinels survive.
-    const { snapshotsDir, workDir, tick } = setUp(t, "2025-06-01T09:00:00");
+    const { snapshotsDir, workDir, tick } = setUp(t);
 
+    // Run 1 finishes before the ctimes move, so its trailer cannot vouch for
+    // them — which is what makes the parked source the only thing that can.
+    tick(-1);
     await snapshot("photos", { rehash: true });
 
-    tick("2025-06-01T09:01:00");
     bumpCtimes(workDir());
-    parkSentinelHashes(snapshotsDir, { keepSnapshot: true });
+    tick(1);
+    await snapshot("photos", {});
+    parkSentinelHashes(snapshotsDir);
 
-    tick("2025-06-01T09:02:00");
+    tick(2);
     await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
@@ -423,14 +434,15 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     // simply being off: with *no* parked file, the same moved ctimes are judged
     // against run 1's completion instant — which cannot vouch for a file touched
     // after it — and every one is read again (ADR-0085).
-    const { snapshotsDir, workDir, tick } = setUp(t, "2025-06-01T10:00:00");
+    const { snapshotsDir, workDir, tick } = setUp(t);
 
+    tick(-1);
     await snapshot("photos", { rehash: true });
     const before = await hashesIn(snapshotsDir);
     plantSentinelSnapshot(snapshotsDir);
 
-    tick("2025-06-01T10:01:00");
     bumpCtimes(workDir());
+    tick(1);
     await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
@@ -446,13 +458,14 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     // volume where reading a file moves its ctime the guard can never settle, so
     // the previous snapshot's hashes are trusted on size and mtime alone — what
     // the reuse test did before ADR-0085.
-    const { snapshotsDir, workDir, tick } = setUp(t, "2025-06-01T11:00:00");
+    const { snapshotsDir, workDir, tick } = setUp(t);
 
+    tick(-1);
     await snapshot("photos", { rehash: true });
     plantSentinelSnapshot(snapshotsDir);
 
-    tick("2025-06-01T11:01:00");
     bumpCtimes(workDir());
+    tick(1);
     process.env.S3CAB_SKIP_CHANGE_TIME_CHECK = "1";
     await snapshot("photos", {});
 
@@ -462,12 +475,13 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
   });
 
   it("ignores them under --rehash, which means re-hash everything", async (t) => {
-    const { snapshotsDir, tick } = setUp(t, "2025-05-01T09:00:00");
+    const { snapshotsDir, tick } = setUp(t);
 
+    tick(1);
     await snapshot("photos", { rehash: true });
     parkSentinelHashes(snapshotsDir);
 
-    tick("2025-05-01T09:01:00");
+    tick(2);
     await snapshot("photos", { rehash: true });
 
     const hashes = await hashesIn(snapshotsDir);
