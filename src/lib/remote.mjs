@@ -207,10 +207,13 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * sizes across snapshots — leaves `verifySet` to flag the exact file(s) against
  * storage, with no recorded size able to hide.
  *
- * The caller must invoke this **before** LISTing `objects/` (the ordering
- * invariant): in that order a backup finishing mid-run only adds unreferenced
- * objects (a benign orphan bump), where the reverse would report its
- * freshly-uploaded objects as missing (docs/design/backup.md).
+ * Any caller that will also LIST `objects/` must read this **first** (the
+ * ordering invariant): in that order a backup finishing mid-run only adds
+ * unreferenced objects (a benign orphan bump), where the reverse would report
+ * its freshly-uploaded objects as missing (docs/design/backup.md). The
+ * whole-bucket commands don't call this directly — `scanBucket`
+ * (bucket-scan.mjs) does, and fixes that order in its body; it stays exported
+ * for `forget`, whose unrestorable check needs the snapshot half alone.
  * @param {string} bucket - The repository's S3 bucket
  * @returns {Promise<Map<string, ReferencedResult>>} referenced enumeration per set name
  */

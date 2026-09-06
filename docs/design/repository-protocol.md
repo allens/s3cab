@@ -140,7 +140,8 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 
 1. Read every snapshot in the bucket (`referencedObjects`).
 2. LIST `objects/`.
-3. Read deletion records **last**.
+3. Read deletion records **last**. (1–3 are one call, `scanBucket` in
+   [bucket-scan.mjs](../../src/lib/bucket-scan.mjs); `verify` reads through the same one.)
 4. Plan: orphan = stored − referenced, minus anything younger than `GRACE_MS`
    (7 days, [cleanup.mjs](../../src/lib/cleanup.mjs)); an object with no `LastModified` is treated
    as brand new and therefore protected.
@@ -155,7 +156,9 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 **The ordering in 1–3 is itself a guard**, not incidental: reading snapshots before the object
 LIST means a concurrently-uploaded object appears unreferenced but *young*, where grace protects
 it; reading deletion records last means a record written during the scan can only ever add
-explanation, never remove it.
+explanation, never remove it. That is why the three reads are one function rather than three
+calls a command makes in sequence: a caller cannot get the object listing without the
+snapshots having been read first, and `bucket-scan.test.mjs` asserts the order at the S3 seam.
 
 ### `delete` ([ADR-0089](../adr/0089-hash-operand-delete.md))
 
@@ -172,7 +175,7 @@ explanation, never remove it.
 ### `verify`
 
 Read-only; no transition. Reads manifests → LIST → deletion records, in that order, for the same
-reason `cleanup` does. **Checks presence and size only — it never re-hashes object content**, so
+reason `cleanup` does — through the same `scanBucket`. **Checks presence and size only — it never re-hashes object content**, so
 a wrong-bytes-under-a-right-key object is outside what `verify` can see by construction. Sets
 `process.exitCode = 1` on unexplained findings.
 

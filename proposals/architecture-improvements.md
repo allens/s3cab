@@ -42,8 +42,9 @@ that don't import each other, and the fourth is a seam with ten adapters and one
 **A, C, D and E landed 2026-09-05** ([PR #334](https://github.com/allens/s3cab/pull/334),
 [PR #331](https://github.com/allens/s3cab/pull/331),
 [PR #335](https://github.com/allens/s3cab/pull/335),
-[PR #330](https://github.com/allens/s3cab/pull/330)); their entries are retired to the run log
-below, and A's, C's and D's lasting knowledge is now in
+[PR #330](https://github.com/allens/s3cab/pull/330)); **F landed 2026-09-06** (see the run log,
+whose entry records that two of its four named files were dead anchors). Their entries are retired
+to the run log below, and A's, C's and D's lasting knowledge is now in
 [ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)'s,
 [ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s and
 [ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendments.
@@ -55,9 +56,9 @@ exist in `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mj
 `provider.mjs`, `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify
 before trusting any anchor — this file's own opening rule. It paid this pass: three carried-forward
 entries were dead and one had the wrong mechanism.
-(2) **Ordering constraints, by file overlap rather than theme.** **F → H** are sequential (both
-own the enumeration/scan shape). **B** touches one seam nobody else on this list touches.
-Everything else is independent.
+(2) **Ordering constraints, by file overlap rather than theme.** **H** follows F (both own the
+enumeration/scan shape), and F has landed, so H is unblocked. **B** touches one seam nobody else
+on this list touches. Everything else is independent.
 (3) **`.env.test` is gitignored and does not travel.** Every remaining candidate is pure or
 local and verifies with `npm test` alone (C was the exception, and has landed).
 
@@ -73,19 +74,9 @@ local and verifies with `npm test` alone (C was the exception, and has landed).
   by hand. `localMoment` already takes the unit as a parameter, so the fix is routing, not new
   interface. Deletes three test workarounds and makes a snapshot fully deterministic under the fake
   clock.
-- **F — The bucket-scan ordering rule is prose, not code.** _Worth exploring._ *(Was an
-  eleventh-pass smaller item, filed "Strong the moment a third bucket-scan command lands". That
-  trigger did **not** fire — the phase count grew instead.)* The safety property — snapshots listed
-  before objects, so a concurrent backup can only make the scan **over**-estimate what is
-  referenced — is stated in nine doc comments across `src/lib/remote.mjs`, `src/lib/referenced.mjs`,
-  `src/commands/cleanup.mjs` and `src/commands/delete.mjs`, and enforced by none of them. ADR-0090's
-  compaction added a third phase and a cross-command writer, so the rule now spans modules that
-  don't import each other. A scan assembled in the wrong order is silent data loss with a green
-  suite. Deepening: one module owns "scan the bucket safely" and returns a result whose
-  construction order *is* the ordering.
 - **H — Five enumeration shapes, ten construction points, three incompatible `ref` helpers.**
   _Worth exploring._ *(Carried from the eleventh pass's smaller items; it paired with D there, and
-  now pairs with F.)* "The set of hashes something references" is built five ways across the
+  then with F, which has landed.)* "The set of hashes something references" is built five ways across the
   codebase and its tests, and three `ref`-shaped test helpers disagree on the shape, so every new
   test picks one by proximity. One constructor, taken by the tests rather than re-derived.
 - **L — `progress.mjs`'s cadence claim vs `withProgress`'s own timer.** _Answered, no change._ Not
@@ -793,3 +784,40 @@ least once; re-open only if the stated reason no longer holds.
     asserted** — 1098/1087 pass against `main`'s 1096/1086, the deltas being the two new tests
     plus the e2e `dist/s3cab.exe` case, which skips only because a fresh worktree has no build.
     Integration suite not run: no production code changed.
+- **2026-09-06 — F landed** (grilled in-session, seven decisions in one round; no ADR — the
+  ordering was already decided in ADR-0064/0090 and docs/design/repository-protocol.md, this only
+  moves it from prose into a function). *One module owns "scan the bucket safely".*
+  `scanBucket(bucket)` in [bucket-scan.mjs](../src/lib/bucket-scan.mjs) reads every snapshot,
+  LISTs `objects/`, then reads the deletion records, and returns
+  `{ referencedBySet, stored, deleted }`; `verify` and `cleanup` each replace three reads with one
+  destructure. `stored` carries `{ size, lastModified }` for both consumers, so `verifySet`'s
+  parameter widened to match rather than have the command reshape a map for it. The read-side
+  twin of `upload.mjs`, and named so in both headers.
+  - **The entry's anchors were half dead, and the live half was smaller than "four modules".**
+    `src/lib/referenced.mjs` carries no ordering prose at all, and `src/commands/delete.mjs` has
+    had no bucket scan since ADR-0089 — its "record-first" is the *write-side* rule the read-side
+    ordering relies on, not a copy of it. What was real: two scan sites (`verify.mjs`,
+    `cleanup.mjs`), one caller-obligation paragraph on `referencedObjects`, and the design docs.
+    `forget` reads snapshots alone, with no objects LIST, so it stays a direct `referencedObjects`
+    caller and the export stays.
+  - **One half of the rule was already enforced, and the entry did not know.**
+    [test/crash/concurrency.test.mjs](../test/crash/concurrency.test.mjs)'s *"cleanup vs forget is
+    safe"* parks the real binary between reads 1 and 2 against a live bucket. It pins
+    cleanup's snapshots-before-objects half only; nothing pinned verify, or the records-last
+    third step, or that the *next* command would inherit the order.
+  - **The test is at the `s3.mjs` seam, not at the three lib modules.** Faking
+    `remote`/`objects`/`deletion-record` would prove the module calls three functions in a row;
+    faking `s3.mjs` (D's stencil, first use outside its migration) proves the LIST requests the
+    bucket sees arrive `snapshots/` → `objects/` → `objects.deleted-`. A held snapshot GET proves
+    the objects LIST has not *begun* while a snapshot read is in flight — the half a call-order
+    assertion cannot see, since two awaits started back to back would list in order and still
+    race. Verified red by mutation: moving the snapshot read last fails three of the four cases.
+    The two command suites now mock `bucket-scan.mjs` alone, which deleted their per-module
+    `referencedObjects`/`listStoredObjects`/`readDeletionRecords` stubs.
+  - **`upload.mjs`'s `storedHashes` reads deletion records too, and was left alone on purpose.**
+    It is the write side's own baseline (records only on the trusted-baseline branch, ADR-0090)
+    and a different question; folding it in would have given the scan a caller with a third
+    shape and no ordering need.
+  - Prose shrank to pointers: `referencedObjects`' obligation paragraph, `listStoredObjects`'
+    consumer list and both design docs now name `scanBucket` and its test as where the order is
+    held, instead of restating the three steps.
