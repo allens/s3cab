@@ -1,5 +1,15 @@
 import assert from "node:assert";
 
+// Besides the formatters, this module is the **clock seam**: every instant an
+// artifact *records* — a snapshot's name, header and `#END` trailer, a
+// deletion record's or forget audit's stamp, a set marker's CREATED — is read
+// here, by `localMoment` or `completionInstant`, and nowhere else. The model
+// harness mocks this module to run every command on a virtual clock
+// (test/model/harness/seam.mjs), so a `Temporal.Now` read anywhere else in
+// `src/` is real time under the fake and makes the artifact it lands in
+// non-deterministic there. Elapsed-time subtractions (progress, durations) are
+// not records and read the clock directly.
+
 // Decimal SI (base 1000). One cached Intl formatter per unit: this runs on the
 // hot S3 upload-progress path, so we don't construct a formatter per call.
 const byteUnits = [
@@ -237,6 +247,12 @@ export const formatDuration = (milliseconds) =>
   );
 
 /**
+ * The one clock read behind both seam exports, so a test that pins
+ * `Temporal.Now.zonedDateTimeISO` has pinned the whole seam.
+ */
+const readClock = () => Temporal.Now.zonedDateTimeISO();
+
+/**
  * One moment, in the two spellings every timestamped artifact records
  * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)),
  * from a **single clock read**:
@@ -258,13 +274,36 @@ export const formatDuration = (milliseconds) =>
  * @returns {{ name: string, instant: string, zone: string }}
  */
 export function localMoment(smallestUnit) {
-  const now = Temporal.Now.zonedDateTimeISO();
+  const now = readClock();
   return {
     name: now.toPlainDateTime().toString({ smallestUnit }).replaceAll(":", ""),
     instant: now.toInstant().toString({ smallestUnit: "millisecond" }),
     zone: now.timeZoneId,
   };
 }
+
+/**
+ * The instant that vouches for everything written before it — a snapshot's
+ * `#END` trailer ([ADR-0082](../../docs/adr/0082-snapshot-end-trailer.md)),
+ * which the ctime cross-check weighs a file against on the next pass
+ * ([ADR-0085](../../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)). UTC at
+ * millisecond precision like `localMoment`'s `instant`, but **rounded up, not
+ * truncated**: the column holds milliseconds and the clock has more digits, so
+ * one direction has to be chosen and the default (`trunc`) is the wrong one. A
+ * truncated value claims a moment up to a millisecond *earlier* than the write
+ * really ended, so a file whose ctime landed inside that last millisecond reads
+ * as touched afterwards and is distrusted for ever — the exact failure the
+ * trailer exists to end. Rounding up can over-vouch by under a millisecond
+ * instead: a rewrite completing between the true last row and the recorded
+ * instant. A far better trade, and `ctimeMs` carries sub-millisecond precision
+ * on every filesystem here, so the comparison stays meaningful.
+ * @returns {string}
+ */
+export const completionInstant = () =>
+  readClock().toInstant().toString({
+    smallestUnit: "millisecond",
+    roundingMode: "ceil",
+  });
 
 /**
  * A moment as a record file's `# generated:` value — the machine-readable
