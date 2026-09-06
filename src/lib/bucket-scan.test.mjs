@@ -131,7 +131,11 @@ describe("scanBucket", () => {
       name: "AccessDenied",
     });
 
-    await assert.rejects(scanBucket("b"), /AccessDenied/);
+    // The seam's error surfaces as itself — not wrapped, not swallowed.
+    await assert.rejects(
+      scanBucket("b"),
+      (error) => error === objectsListFailure,
+    );
     // ...and the record was never read: no phase runs on a broken predecessor.
     assert.deepEqual(listed, ["snapshots/", "objects/"]);
   });
