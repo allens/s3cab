@@ -2,6 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
+import { localMoment } from "../lib/format.mjs";
 import { gatherProviderConfig } from "../lib/provider.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import {
@@ -195,9 +196,9 @@ function resolveDirectories(directories, name, bucket) {
  * ([ADR-0072](../../docs/adr/0072-timestamps-utc-in-files-local-in-names.md)).
  * It is a record, never typed and never sorted, so a fully-qualified form costs
  * no UX. What a *user* sees is rendered down to a date by `collisionError`.
+ * Read through the clock seam, like every recorded instant (lib/format.mjs).
  */
-const nowStamp = () =>
-  Temporal.Now.instant().toString({ smallestUnit: "millisecond" });
+const nowStamp = () => localMoment("seconds").instant;
 
 /**
  * The collision error a losing claim raises: name the owner and point at
