@@ -118,18 +118,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **The ctime cross-check's interrupted-run test flakes on `windows-latest` CI.**
-  `snapshot.test.mjs`'s "keeps them when the interrupted run's own read moved every ctime"
-  (ADR-0085) fails intermittently with "the resume must reuse the parked hashes, not re-read
-  the files" — observed on PR #330's initial run
-  ([33994993407](https://github.com/allens/s3cab/actions/runs/33994993407)) and identically on
-  an unrelated dependabot PR with zero application-code changes
-  ([33991756664](https://github.com/allens/s3cab/actions/runs/33991756664)), and passes 12/12
-  locally on Windows every time it's been tried. Points at CI-runner timing (likely a ctime
-  granularity or clock-resolution race specific to `windows-latest`'s filesystem), not a defect
-  in either PR's diff. Re-running the failed job clears it. Not yet root-caused — needs someone
-  to reproduce under load or with a tightened clock to find the actual race before it can be
-  fixed rather than re-run around.
 - **`restore` stops dead at a corrupt object, abandoning files it could still recover.**
   Clean-room run 3's finding A1 ([docs/format-spec-audit-3.md](../docs/format-spec-audit-3.md)),
   observed live against the staged `corrupt` set — an object holding wrong bytes under the right

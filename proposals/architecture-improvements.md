@@ -42,12 +42,14 @@ that don't import each other, and the fourth is a seam with ten adapters and one
 **A, C, D and E landed 2026-09-05** ([PR #334](https://github.com/allens/s3cab/pull/334),
 [PR #331](https://github.com/allens/s3cab/pull/331),
 [PR #335](https://github.com/allens/s3cab/pull/335),
-[PR #330](https://github.com/allens/s3cab/pull/330)); **F landed 2026-09-06** (see the run log,
-whose entry records that two of its four named files were dead anchors). Their entries are retired
-to the run log below, and A's, C's and D's lasting knowledge is now in
+[PR #330](https://github.com/allens/s3cab/pull/330)); **B and F landed 2026-09-06**
+([PR #338](https://github.com/allens/s3cab/pull/338), and for F see the run log, whose entry
+records that two of its four named files were dead anchors). Their entries are retired to the run
+log below, and A's, C's and D's lasting knowledge is now in
 [ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)'s,
 [ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s and
-[ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendments.
+[ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendments; B's is the module doc at the top
+of [format.mjs](../src/lib/format.mjs).
 
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
@@ -57,23 +59,10 @@ exist in `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mj
 before trusting any anchor — this file's own opening rule. It paid this pass: three carried-forward
 entries were dead and one had the wrong mechanism.
 (2) **Ordering constraints, by file overlap rather than theme.** **H** follows F (both own the
-enumeration/scan shape), and F has landed, so H is unblocked. **B** touches one seam nobody else
-on this list touches. Everything else is independent.
+enumeration/scan shape), and F has landed, so H is unblocked. Everything else is independent.
 (3) **`.env.test` is gitignored and does not travel.** Every remaining candidate is pure or
 local and verifies with `npm test` alone (C was the exception, and has landed).
 
-- **B — The `#END` completion instant is minted outside the clock seam.** _Strong._
-  [snapshot-file.mjs](../src/lib/snapshot-file.mjs):992–1001's `endLine` calls
-  `Temporal.Now.instant()` directly and re-spells ADR-0085's `roundingMode: "ceil"` inline, while
-  [format.mjs](../src/lib/format.mjs):254–265's `localMoment` — the door the model harness mocks
-  ([test/model/harness/seam.mjs](../test/model/harness/seam.mjs):37–44) — documents the very
-  invariant the trailer breaks: *"taking the instant separately would let an `await` slip a
-  boundary between the two, and an artifact whose name and contents disagree is exactly what a
-  record must never be."* The rounding rule now lives in two places, one of them a test:
-  [snapshot.test.mjs](../src/commands/snapshot.test.mjs):271–289's `parkSentinelHashes` respells it
-  by hand. `localMoment` already takes the unit as a parameter, so the fix is routing, not new
-  interface. Deletes three test workarounds and makes a snapshot fully deterministic under the fake
-  clock.
 - **H — Five enumeration shapes, ten construction points, three incompatible `ref` helpers.**
   _Worth exploring._ *(Carried from the eleventh pass's smaller items; it paired with D there, and
   then with F, which has landed.)* "The set of hashes something references" is built five ways across the
@@ -821,3 +810,38 @@ least once; re-open only if the stated reason no longer holds.
   - Prose shrank to pointers: `referencedObjects`' obligation paragraph, `listStoredObjects`'
     consumer list and both design docs now name `scanBucket` and its test as where the order is
     held, instead of restating the three steps.
+- **2026-09-06 — B landed** ([PR #338](https://github.com/allens/s3cab/pull/338), grilled
+  in-session over five rounds before any code, one decision per round; the record is the module
+  doc at the top of [format.mjs](../src/lib/format.mjs), which now names itself the clock seam).
+  *Mint the `#END` completion instant inside the clock seam.* `format.mjs` gained a private
+  `readClock` behind both recorded-instant reads and a new `completionInstant` export (the
+  trailer's rounded-up spelling, with ADR-0085's argument moved from `endLine`); `endLine` calls
+  it; the harness `VirtualClock` gained the twin and `seam.mjs` routes it; a new
+  [test/model/model.clock.test.mjs](../test/model/model.clock.test.mjs) pins CREATED, `#SNAPSHOT`
+  and `#END` to the virtual clock.
+  - **Re-verification corrected the entry twice.** Not "routing, not new interface":
+    `localMoment` returns a *name* and truncates, and the trailer needs an instant rounded *up*,
+    so a second export was the honest shape (Q1). And not three workarounds but four — plus a
+    fifth off-seam read the entry missed, `setup.mjs`'s `nowStamp`, which made a set marker's
+    CREATED real time under the harness. It rode along in its own commit (Q4).
+  - **The windows-latest flake is root-caused and gone, and it was the entry's own evidence.**
+    Run [33995666567](https://github.com/allens/s3cab/actions/runs/33995666567) on the merge
+    commit of A: all five parked hashes distrusted. `parkSentinelHashes` re-stamped the parked
+    trailer with a real-clock read microseconds after `utimes` had moved real ctimes, and the
+    kernel's clock and V8's do not agree at the millisecond — a ctime stamped by one read as
+    later than an instant read by the other, even after the round-up. The re-stamp existed only
+    because the trailer could not be pinned. Now the parked-hash tests pin the clock *relative to
+    real time* in whole minutes and tick it to either side of the real ctimes, so the two clocks
+    are never asked to agree to the millisecond; the resume-state test parks a real second run
+    instead of copying a stale one (Q3). The `bugs.md` entry filed by E is closed.
+  - **Accepted consequence in the model tier, no ADR edit (Q2).** Virtual `#END` instants
+    (2026-01-05 plus minutes) sit years before the fixtures' real ctimes, so the ctime guard now
+    distrusts every reuse there. Harmless — the hashes are identical — and it makes ADR-0085's
+    Consequences sentence true again instead of needing amendment.
+  - **The rule lives in one place (Q5):** `format.mjs`'s module doc, not an ADR, not a CLAUDE.md
+    bullet, not a lint — the seam trap it warns of (the mock spreads the real module, so a new
+    clock export without a twin falls through to real time *silently*) is also in
+    `harness/clock.mjs`'s header. `CAPABILITIES.md`'s `virtual-clock` now lists every recorded
+    instant as steerable.
+  - Red first on all four driving tests; 1118/1107 pass against `main`'s 1096/1086. The
+    fusion-seam test now asserts byte-identical files rather than normalising the instant out.
