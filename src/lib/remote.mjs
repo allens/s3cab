@@ -12,7 +12,10 @@ import {
   snapshotFileName,
   snapshotNames,
 } from "./snapshot-file.mjs";
-import { isCorruptSnapshotError } from "./referenced.mjs";
+import {
+  addSnapshotReferences,
+  isCorruptSnapshotError,
+} from "./referenced.mjs";
 
 /** @import { SnapshotEntries, Snapshot } from "./snapshot-file.mjs" */
 /** @import { ReferencedResult } from "./referenced.mjs" */
@@ -304,18 +307,7 @@ async function readSetReferenced(bucket, set, names) {
       continue;
     }
     snapshotsChecked++;
-
-    for (const [path, { hash, size }] of snapshot.entries) {
-      const entry = referenced.getOrInsertComputed(hash, () => ({
-        paths: new Map(),
-      }));
-      const ref = entry.paths.getOrInsertComputed(path, () => ({
-        sizes: new Set(),
-        snapshots: new Set(),
-      }));
-      ref.sizes.add(size);
-      ref.snapshots.add(name);
-    }
+    addSnapshotReferences(referenced, name, snapshot.entries);
   }
 
   return { referenced, snapshotsChecked, unreadable };
