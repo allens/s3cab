@@ -1,6 +1,6 @@
 import { join, posix, resolve, sep } from "node:path";
 
-import { foldsCase } from "./path-match.mjs";
+import { preparePath } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -135,13 +135,15 @@ export function pathMatcher(filters) {
  * taken (docs/design/backup.md). The member roots are the snapshot's `#DIR` headers.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
- * versa: roots and paths are split on both `/` and `\`, and matched by exact
- * segments. Case-folded when — and only when — the root is Windows-shaped, since
- * there the two spellings name one file (`foldsCase`); the basename-collision
- * check below folds unconditionally, deliberately, to catch two roots that would
- * land in the same `<output>` directory. The destination is rebuilt with this
- * platform's separator under `output`. The longest matching root wins, so a
- * nested member dir takes precedence over a parent.
+ * versa: roots and paths are split by `path-match.mjs`'s `preparePath` — both
+ * separators where a root or path is Windows-shaped, `/` alone otherwise, so a
+ * literal backslash in a POSIX filename stays one segment instead of being read
+ * as a separator. Case-folded when — and only when — the root is Windows-shaped,
+ * since there the two spellings name one file (`preparePath`'s `foldCase`); the
+ * basename-collision check below folds unconditionally, deliberately, to catch
+ * two roots that would land in the same `<output>` directory. The destination is
+ * rebuilt with this platform's separator under `output`. The longest matching
+ * root wins, so a nested member dir takes precedence over a parent.
  *
  * `snapshot` writes canonical roots, so its own headers already agree with its
  * rows — the folding is for a snapshot a *user* has edited, which is a supported
@@ -168,11 +170,15 @@ export function reroot(dirs, output) {
 
   const roots = dirs
     .map((dir) => {
-      const segments = dir.split(/[\\/]/).filter(Boolean);
+      const { path, foldCase } = preparePath(dir);
+      // Not `preparePath`'s own `base`: that answers "what follows the last
+      // separator", which is empty for a `#DIR` header carrying a trailing
+      // one (a hand-edited snapshot). `segments` already trims those.
+      const segments = path.split(posix.sep).filter(Boolean);
       return {
         segments,
         base: segments.at(-1) ?? "",
-        fold: foldsCase(dir),
+        fold: foldCase,
       };
     })
     // Longest first: a nested root must win over a parent that also matches.
@@ -191,9 +197,9 @@ export function reroot(dirs, output) {
     seen.add(key);
   }
 
-  const base = resolve(output);
+  const outDir = resolve(output);
   return (path) => {
-    const segments = path.split(/[\\/]/).filter(Boolean);
+    const segments = preparePath(path).path.split(posix.sep).filter(Boolean);
     const root = roots.find(
       (r) =>
         r.segments.length <= segments.length &&
@@ -219,6 +225,6 @@ export function reroot(dirs, output) {
     // to the snapshot's absolute paths, so it already trusts the snapshot to
     // direct writes anywhere. (Reviewers re-flag this as path traversal; it is a
     // deliberate non-guard, not an oversight — see PR #55.)
-    return join(base, root.base, ...segments.slice(root.segments.length));
+    return join(outDir, root.base, ...segments.slice(root.segments.length));
   };
 }

@@ -103,20 +103,21 @@ rewrite (ADR-0077), the progress rework (ADR-0076), resolve-time credential expi
 re-verified the rest: **B, C and G carried forward** as this pass's **C**, **E** and **J**,
 **F survives only as I**, and **I is dead**.
 
-- **E — `compileExclude` owns only half the matching convention.** _Strong — **not re-verified in
-  the twelfth pass**, whose scope was the ADR-0077–0090 work; `walk.mjs` and `exclude.mjs` both
-  changed since, so treat every anchor below as stale until checked._
+- **E — `compileExclude` owns only half the matching convention.** _Strong — re-verified
+  2026-09-06 against HEAD `f7db3ed`; anchors below current._
   [exclude.mjs](../src/lib/exclude.mjs) normalizes the *pattern* side and returns a bare `RegExp`,
   then documents in prose three obligations the caller must honour on the *subject* side — all
-  implemented in [walk.mjs](../src/lib/walk.mjs) (as of `4221fad`, 312–343): separator
+  implemented in [walk.mjs](../src/lib/walk.mjs) (`createWalkCallbackFn`, 374–405): separator
   normalization, the trailing-`/` **directory rule**, and `matchers.find` to recover which pattern
   hit. So the directory rule is reachable only through the filesystem.
   `exclude.test.mjs`'s helper re-implements the first obligation and **cannot express the second** —
-  there was no directory-exclusion case in it at all, and the only coverage was one `walk.test.mjs`
-  case building a real temp tree. Four of the six active starter patterns are directory form, so the
-  least-tested half of the grammar is the most-used half. One production caller. **Note ADR-0080
-  (`tree --excluded`) landed since this was written and may have added a second caller — check
-  before assuming the "one production caller" premise still holds.**
+  there is still no directory-exclusion case testing the walk's trailing-separator append, and the
+  only coverage is one `walk.test.mjs` case building a real temp tree. Four of the six active
+  starter patterns are directory form, so the least-tested half of the grammar is the most-used
+  half. **Still one production caller** — ADR-0080's `tree --excluded` ([tree.mjs](../src/commands/tree.mjs))
+  reads the `excluded` array `walkSet` already produces rather than calling `compileExclude`
+  itself, so it added a consumer of the walk's *output*, not a second caller of the matcher. The
+  premise holds unchanged.
 
 **Smaller items (eleventh pass), as the twelfth pass left them.** `snapshotName` — **dead**, the
 alias was deleted in `0060b61`. The bucket-scan **ordering invariant**, the **enumeration
