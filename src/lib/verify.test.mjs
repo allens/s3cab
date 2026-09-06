@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 import { setHasFindings, verifySet } from "./verify.mjs";
+
+/** @import { ReferencedResult } from "./referenced.mjs" */
+/** @import { SnapshotRows } from "../../test/helpers/enumeration.mjs" */
 
 // Pure unit tests for verify's diff core — the per-path `problems` model — with
 // no S3 (the S3 reads are integration-tested via test/integration/remote.test.mjs
@@ -8,25 +12,19 @@ import { setHasFindings, verifySet } from "./verify.mjs";
 // vocabulary, including the damage classifier, is pinned in referenced.test.mjs.
 
 /**
- * Build a ReferencedResult from a compact spec: each hash maps to its list of
- * referencing paths `{ path, size, snapshots }`. `size` may be an array to record
- * a single path at several sizes (a torn snapshot file).
- * @param {Record<string, { path: string, size: number | number[], snapshots: string[] }[]>} spec
- * @param {{ snapshotsChecked?: number, unreadable?: { snapshot: string, reason: string }[] }} [meta]
+ * One set's enumeration from its snapshots — `verifySet` takes a single set, so
+ * the bucket-wide Map the shared builder returns is unwrapped here.
+ * @param {Record<string, SnapshotRows>} snapshots - snapshot name → its rows
+ * @param {{ snapshot: string, reason: string }[]} [unreadable]
+ * @returns {ReferencedResult}
  */
-function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
-  const referenced = new Map();
-  for (const [hash, paths] of Object.entries(spec)) {
-    const pathMap = new Map();
-    for (const { path, size, snapshots } of paths) {
-      pathMap.set(path, {
-        sizes: new Set(Array.isArray(size) ? size : [size]),
-        snapshots: new Set(snapshots),
-      });
-    }
-    referenced.set(hash, { paths: pathMap });
-  }
-  return { referenced, snapshotsChecked, unreadable };
+function enumerated(snapshots, unreadable) {
+  const set = enumeration(
+    { photos: snapshots },
+    unreadable && { photos: unreadable },
+  ).get("photos");
+  assert.ok(set);
+  return set;
 }
 
 /**
@@ -41,12 +39,12 @@ describe("verifySet with a deletion record", () => {
   const RECORD = new Map([["gone", { deletedOn: "2026-07-19T14:22:41.000Z" }]]);
 
   it("partitions missing into expected (recorded) vs unexplained", () => {
-    const referenced = ref({
-      gone: [
-        { path: "/deleted-on-purpose.txt", size: 10, snapshots: ["s1"] },
-        { path: "/deleted-copy.txt", size: 10, snapshots: ["s2"] },
-      ],
-      lost: [{ path: "/vanished.txt", size: 20, snapshots: ["s1"] }],
+    const referenced = enumerated({
+      s1: {
+        "/deleted-on-purpose.txt": ["gone", 10],
+        "/vanished.txt": ["lost", 20],
+      },
+      s2: { "/deleted-copy.txt": ["gone", 10] },
     });
     const report = verifySet("photos", referenced, new Map(), RECORD);
     // The recorded hash's paths are context, with the record's date...
@@ -69,9 +67,7 @@ describe("verifySet with a deletion record", () => {
   });
 
   it("expected-missing alone is not a finding — the cron alarm stays quiet", () => {
-    const referenced = ref({
-      gone: [{ path: "/deleted.txt", size: 10, snapshots: ["s1"] }],
-    });
+    const referenced = enumerated({ s1: { "/deleted.txt": ["gone", 10] } });
     const report = verifySet("photos", referenced, new Map(), RECORD);
     assert.equal(setHasFindings(report), false);
   });
@@ -80,9 +76,7 @@ describe("verifySet with a deletion record", () => {
     // Content re-backed-up after a delete: the record entry is moot. The
     // stored object still gets the size cross-check — a wrong size must not
     // hide behind a stale record entry.
-    const referenced = ref({
-      gone: [{ path: "/back-again.txt", size: 10, snapshots: ["s9"] }],
-    });
+    const referenced = enumerated({ s9: { "/back-again.txt": ["gone", 10] } });
     const stored = store({ gone: 7 });
     const report = verifySet("photos", referenced, stored, RECORD);
     assert.deepEqual(report.expectedMissing, []);
@@ -92,9 +86,8 @@ describe("verifySet with a deletion record", () => {
 
 describe("verifySet", () => {
   it("reports no problems when every referenced path is stored at its size", () => {
-    const referenced = ref({
-      aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
-      bbb: [{ path: "/b.txt", size: 20, snapshots: ["s1", "s0"] }],
+    const referenced = enumerated({
+      s1: { "/a.txt": ["aaa", 10], "/b.txt": ["bbb", 20] },
     });
     const stored = store({
       aaa: 10,
@@ -115,11 +108,9 @@ describe("verifySet", () => {
   it("reports every path of a hash absent from the store as missing", () => {
     // A missing object referenced by two files yields two `missing` rows — all
     // affected files, no object grouping.
-    const referenced = ref({
-      aaa: [
-        { path: "/a.txt", size: 10, snapshots: ["s1"] },
-        { path: "/copy/a.txt", size: 10, snapshots: ["s1", "s2"] },
-      ],
+    const referenced = enumerated({
+      s1: { "/a.txt": ["aaa", 10], "/copy/a.txt": ["aaa", 10] },
+      s2: { "/copy/a.txt": ["aaa", 10] },
     });
     const report = verifySet("photos", referenced, new Map());
 
@@ -131,9 +122,7 @@ describe("verifySet", () => {
   });
 
   it("flags a stored object whose size differs from the recorded size as wrong-size", () => {
-    const referenced = ref({
-      aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
-    });
+    const referenced = enumerated({ s1: { "/a.txt": ["aaa", 10] } });
     const stored = store({ aaa: 7 });
     const report = verifySet("photos", referenced, stored);
 
@@ -152,11 +141,9 @@ describe("verifySet", () => {
     // Same content under two paths, recorded at different sizes — a torn
     // snapshot file (the old "conflicting rows" case). The stored object has one real
     // size; only the file whose recorded size differs is a wrong-size problem.
-    const referenced = ref({
-      aaa: [
-        { path: "/right.txt", size: 10, snapshots: ["s1"] },
-        { path: "/wrong.txt", size: 20, snapshots: ["s2"] },
-      ],
+    const referenced = enumerated({
+      s1: { "/right.txt": ["aaa", 10] },
+      s2: { "/wrong.txt": ["aaa", 20] },
     });
     const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
@@ -174,11 +161,9 @@ describe("verifySet", () => {
 
   it("reports every path as missing when a size-conflicting hash's object is absent", () => {
     // Object gone → the size conflict is moot; both files are simply missing.
-    const referenced = ref({
-      aaa: [
-        { path: "/right.txt", size: 10, snapshots: ["s1"] },
-        { path: "/wrong.txt", size: 20, snapshots: ["s2"] },
-      ],
+    const referenced = enumerated({
+      s1: { "/right.txt": ["aaa", 10] },
+      s2: { "/wrong.txt": ["aaa", 20] },
     });
     const report = verifySet("photos", referenced, new Map());
 
@@ -195,8 +180,9 @@ describe("verifySet", () => {
     // The same path recorded at two sizes across snapshots (content fixes size,
     // so this is a torn snapshot file). Only the recorded size that disagrees with the
     // one stored object is a problem; the matching one is not.
-    const referenced = ref({
-      aaa: [{ path: "/a.txt", size: [10, 20], snapshots: ["s1", "s2"] }],
+    const referenced = enumerated({
+      s1: { "/a.txt": ["aaa", 10] },
+      s2: { "/a.txt": ["aaa", 20] },
     });
     const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
@@ -215,10 +201,11 @@ describe("verifySet", () => {
   it("orders two problems for the same path deterministically (a file that changed hash)", () => {
     // One path under two content hashes across snapshots, both missing — two rows
     // share (path, problem), so the sort must tie-break (here on snapshots) rather
-    // than fall back to hash-encounter order.
-    const referenced = ref({
-      h2: [{ path: "/a", size: 5, snapshots: ["s2"] }],
-      h1: [{ path: "/a", size: 5, snapshots: ["s1"] }],
+    // than fall back to hash-encounter order. s2 is listed first so that h2 is
+    // encountered before h1 and encounter order alone would come out wrong.
+    const referenced = enumerated({
+      s2: { "/a": ["h2", 5] },
+      s1: { "/a": ["h1", 5] },
     });
     const report = verifySet("photos", referenced, new Map());
 
@@ -229,10 +216,9 @@ describe("verifySet", () => {
   });
 
   it("passes unreadable snapshots through and counts them as findings", () => {
-    const referenced = ref(
-      { aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }] },
-      { snapshotsChecked: 1, unreadable: [{ snapshot: "s0", reason: "boom" }] },
-    );
+    const referenced = enumerated({ s1: { "/a.txt": ["aaa", 10] } }, [
+      { snapshot: "s0", reason: "boom" },
+    ]);
     const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
 
@@ -244,10 +230,8 @@ describe("verifySet", () => {
   });
 
   it("sorts problems by path for deterministic output", () => {
-    const referenced = ref({
-      h1: [{ path: "/c", size: 1, snapshots: ["s1"] }],
-      h2: [{ path: "/a", size: 1, snapshots: ["s1"] }],
-      h3: [{ path: "/b", size: 1, snapshots: ["s1"] }],
+    const referenced = enumerated({
+      s1: { "/c": ["h1", 1], "/a": ["h2", 1], "/b": ["h3", 1] },
     });
     const report = verifySet("photos", referenced, new Map());
     assert.deepEqual(

@@ -28,6 +28,7 @@ import {
 } from "../../src/lib/remote.mjs";
 import { isCorruptSnapshotError } from "../../src/lib/referenced.mjs";
 import { uploadSnapshot, uploadSnapshotFile } from "../../src/lib/upload.mjs";
+import { enumeration } from "../helpers/enumeration.mjs";
 import { writeSnapshot } from "../helpers/write-snapshot.mjs";
 import { bucket } from "../helpers/integration.mjs";
 
@@ -136,9 +137,9 @@ describe("referencedObjects (real bucket)", () => {
     mkdirSync(snapshotDir, { recursive: true });
     await writeSnapshot(snapshotDir, name, [fileA]);
     const { entries } = await readSnapshot(snapshotDir, name);
-    const [props] = [...entries.values()];
-    assert.ok(props, "the seeded snapshot has one entry");
-    const { hash, size } = props;
+    const [row] = [...entries];
+    assert.ok(row, "the seeded snapshot has one entry");
+    const [path, { hash, size }] = row;
     const hashes = [...new Set([...entries.values()].map((p) => p.hash))];
 
     // A second, garbage snapshot object under a valid-looking name: it lists but
@@ -162,14 +163,14 @@ describe("referencedObjects (real bucket)", () => {
         unreadable.map((u) => u.snapshot),
         [badName],
       );
-      const entry = referenced.get(hash);
-      assert.ok(entry, "the referenced hash is present");
-      const [first] = [...entry.paths]; // one path backs this content
-      assert.ok(first, "the content has a referencing path");
-      const [path, pathRef] = first;
-      assert.ok(path.endsWith("a.txt"));
-      assert.deepEqual([...pathRef.sizes], [size]);
-      assert.deepEqual([...pathRef.snapshots], [name]);
+      // The whole `referenced` map, against the unit tier's fixture builder
+      // for the same one snapshot: this is the pin that what the builder
+      // says a read produces is what a real read produces.
+      const expected = enumeration({
+        [set]: { [name]: { [path]: [hash, size] } },
+      }).get(set);
+      assert.ok(expected);
+      assert.deepEqual(referenced, expected.referenced);
     } finally {
       for (const h of hashes) {
         await deleteObject(`s3://${bucket}/objects/${h}`);

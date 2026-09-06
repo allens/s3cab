@@ -1,5 +1,6 @@
 // The vocabulary of the *referenced-object enumeration* — the shape
-// `referencedObjects` (remote.mjs) produces, the classifier that decides which
+// `referencedObjects` (remote.mjs) produces and the one fold that builds it
+// (`addSnapshotReferences`), the classifier that decides which
 // read failures become findings, and the derivations every consumer of a
 // bucket-wide scan re-asks of that shape: the set-qualified list of snapshots
 // that would not read and the one message the commands report it with, plus the
@@ -48,6 +49,34 @@
  * @property {number} snapshotsChecked
  * @property {{ snapshot: string, reason: string }[]} unreadable
  */
+
+/**
+ * Fold one snapshot's rows into a `referenced` map — the constructor of the
+ * shape above, and the only code that builds it. `referencedObjects`
+ * (remote.mjs) calls it once per snapshot it reads; the test builder
+ * (test/helpers/enumeration.mjs) calls it once per snapshot in a fixture, so a
+ * fixture can only ever hold a shape a real read would produce. Content fixes
+ * size, so a path seen again from a later snapshot at the same size adds only
+ * the snapshot name; a torn snapshot file recording another size adds that
+ * size too, and `sizes` is a Set for exactly that (see {@link PathReference}).
+ * @param {Map<string, ReferencedObject>} referenced - The map under construction; mutated
+ * @param {string} name - The snapshot's name
+ * @param {Iterable<[string, { hash: string, size: number }]>} entries - Its rows: path → recorded hash and size
+ * @returns {void}
+ */
+export function addSnapshotReferences(referenced, name, entries) {
+  for (const [path, { hash, size }] of entries) {
+    const entry = referenced.getOrInsertComputed(hash, () => ({
+      paths: new Map(),
+    }));
+    const ref = entry.paths.getOrInsertComputed(path, () => ({
+      sizes: new Set(),
+      snapshots: new Set(),
+    }));
+    ref.sizes.add(size);
+    ref.snapshots.add(name);
+  }
+}
 
 /**
  * Whether an error reading a remote snapshot means the *snapshot itself* is

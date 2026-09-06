@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 import { GRACE_MS, planCleanup } from "./cleanup.mjs";
 
 // Pure unit tests for cleanup's diff core — the orphan set-difference, the grace
@@ -7,36 +8,6 @@ import { GRACE_MS, planCleanup } from "./cleanup.mjs";
 // clock (the S3 reads are integration-tested via test/integration/remote.test.mjs; the
 // command shell's aborts/prompt/deletes are covered in commands/cleanup.test.mjs).
 // See docs/design/backup.md.
-
-/**
- * Build a per-set referenced map from a compact spec: `{ set: { hash: [{ path,
- * size, snapshots }] } }`. `size` may be an array to record one path at several
- * sizes (a torn snapshot file). `unreadable` staged per set via a second arg.
- * @param {Record<string, Record<string, { path: string, size: number | number[], snapshots: string[] }[]>>} spec
- * @param {Record<string, { snapshot: string, reason: string }[]>} [unreadableBySet]
- */
-function refs(spec, unreadableBySet = {}) {
-  const bySet = new Map();
-  for (const [set, hashes] of Object.entries(spec)) {
-    const referenced = new Map();
-    for (const [hash, paths] of Object.entries(hashes)) {
-      const pathMap = new Map();
-      for (const { path, size, snapshots } of paths) {
-        pathMap.set(path, {
-          sizes: new Set(Array.isArray(size) ? size : [size]),
-          snapshots: new Set(snapshots),
-        });
-      }
-      referenced.set(hash, { paths: pathMap });
-    }
-    bySet.set(set, {
-      referenced,
-      snapshotsChecked: 1,
-      unreadable: unreadableBySet[set] ?? [],
-    });
-  }
-  return bySet;
-}
 
 const NOW = 1_700_000_000_000; // fixed clock so the grace window is deterministic
 const DAY = 24 * 60 * 60 * 1000;
@@ -50,8 +21,8 @@ const store = (rows) =>
 
 describe("planCleanup", () => {
   it("returns orphans past the grace window and protects those within it", () => {
-    const referenced = refs({
-      photos: { kept: [{ path: "/k", size: 10, snapshots: ["s1"] }] },
+    const referenced = enumeration({
+      photos: { s1: { "/k": ["kept", 10] } },
     });
     const stored = store([
       ["kept", 10, daysAgo(30)], // referenced — never an orphan
@@ -76,7 +47,7 @@ describe("planCleanup", () => {
       ["just-inside", 1, new Date(NOW - GRACE_MS + 1)], // ageMs < GRACE_MS → protected
     ]);
 
-    const plan = planCleanup(refs({}), stored, { now: NOW });
+    const plan = planCleanup(enumeration({}), stored, { now: NOW });
 
     assert.deepEqual(plan.orphanHashes, ["exactly-grace"]);
     assert.equal(plan.withinGrace, 1);
@@ -85,7 +56,7 @@ describe("planCleanup", () => {
   it("protects an object with no lastModified (treated as brand new)", () => {
     const stored = store([["ageless", 5, undefined]]);
 
-    const plan = planCleanup(refs({}), stored, { now: NOW });
+    const plan = planCleanup(enumeration({}), stored, { now: NOW });
 
     assert.deepEqual(plan.orphanHashes, []);
     assert.equal(plan.withinGrace, 1);
@@ -93,11 +64,9 @@ describe("planCleanup", () => {
 
   it("counts a missing hash referenced by several sets once", () => {
     // The same referenced-but-absent object in two sets is one lost object.
-    const referenced = refs({
-      photos: {
-        "shared-missing": [{ path: "/p", size: 1, snapshots: ["s1"] }],
-      },
-      docs: { "shared-missing": [{ path: "/d", size: 1, snapshots: ["s1"] }] },
+    const referenced = enumeration({
+      photos: { s1: { "/p": ["shared-missing", 1] } },
+      docs: { s1: { "/d": ["shared-missing", 1] } },
     });
 
     const plan = planCleanup(referenced, store([]), { now: NOW });
@@ -109,11 +78,8 @@ describe("planCleanup", () => {
   it("does not count a recorded deletion as missing — deliberately absent (ADR-0064)", () => {
     // Without this, the first path-scoped `delete` would trip interlock #2
     // ("repository is losing data") on every cleanup reclaim forever.
-    const referenced = refs({
-      photos: {
-        gone: [{ path: "/deleted", size: 1, snapshots: ["s1"] }],
-        lost: [{ path: "/vanished", size: 1, snapshots: ["s1"] }],
-      },
+    const referenced = enumeration({
+      photos: { s1: { "/deleted": ["gone", 1], "/vanished": ["lost", 1] } },
     });
 
     const plan = planCleanup(referenced, store([]), {
@@ -125,8 +91,8 @@ describe("planCleanup", () => {
   });
 
   it("flags a stored object at the wrong size as damaged, not missing or orphaned", () => {
-    const referenced = refs({
-      photos: { kept: [{ path: "/k", size: 1, snapshots: ["s1"] }] },
+    const referenced = enumeration({
+      photos: { s1: { "/k": ["kept", 1] } },
     });
     const stored = store([["kept", 999, daysAgo(30)]]); // recorded 1, stored 999
 
@@ -139,13 +105,8 @@ describe("planCleanup", () => {
 
   it("flags a hash damaged when any of its paths disagrees on size (torn snapshot file)", () => {
     // One hash under two paths recorded at different sizes; stored matches only /a.
-    const referenced = refs({
-      photos: {
-        h: [
-          { path: "/a", size: 1, snapshots: ["s1"] },
-          { path: "/b", size: 2, snapshots: ["s1"] },
-        ],
-      },
+    const referenced = enumeration({
+      photos: { s1: { "/a": ["h", 1], "/b": ["h", 2] } },
     });
     const stored = store([["h", 1, daysAgo(30)]]);
 
@@ -158,9 +119,9 @@ describe("planCleanup", () => {
   it("counts a hash damaged when a LATER set records the wrong size (cross-set)", () => {
     // Same content in two sets; set 'a' records the right size, set 'b' a torn one.
     // The first-set-wins short-circuit must not hide the later disagreement.
-    const referenced = refs({
-      a: { h: [{ path: "/a", size: 10, snapshots: ["s1"] }] },
-      b: { h: [{ path: "/b", size: 999, snapshots: ["s1"] }] },
+    const referenced = enumeration({
+      a: { s1: { "/a": ["h", 10] } },
+      b: { s1: { "/b": ["h", 999] } },
     });
     const stored = store([["h", 10, daysAgo(30)]]); // stored matches only /a
 
@@ -171,8 +132,8 @@ describe("planCleanup", () => {
   });
 
   it("surfaces unreadable snapshots structurally (the command decides to abort)", () => {
-    const referenced = refs(
-      { photos: { kept: [{ path: "/k", size: 1, snapshots: ["s1"] }] } },
+    const referenced = enumeration(
+      { photos: { s1: { "/k": ["kept", 1] } } },
       { photos: [{ snapshot: "bad", reason: "boom" }] },
     );
     const stored = store([["orphan", 1, daysAgo(9)]]);
@@ -188,7 +149,7 @@ describe("planCleanup", () => {
     // A very old orphan is past grace under any real clock — proves the default fires.
     const stored = store([["ancient", 1, new Date(0)]]);
 
-    const plan = planCleanup(refs({}), stored);
+    const plan = planCleanup(enumeration({}), stored);
 
     assert.deepEqual(plan.orphanHashes, ["ancient"]);
   });

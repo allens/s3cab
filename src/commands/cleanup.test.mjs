@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
@@ -8,10 +9,11 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // the prompt are faked at the lib seam, so these cover what the command adds
 // around the pure plan — the two abort interlocks, the act-by-default / `-n`
 // split, the non-interactive `--force` gate, the TTY prompt, and the delete
-// loop (ADR-0064's destructive-command pattern). The orphan/grace/missing/
-// damaged *arithmetic* is unit-tested without mocks in lib/cleanup.test.mjs
-// (planCleanup); the scan's read order in lib/bucket-scan.test.mjs. Mocks
-// first, then a dynamic import.
+// loop (ADR-0064's destructive-command pattern). The scan's referenced
+// enumeration is built by the shared `enumeration` fixture (paths spelled
+// `/<hash>`). The orphan/grace/missing/damaged *arithmetic* is unit-tested
+// without mocks in lib/cleanup.test.mjs (planCleanup); the scan's read order
+// in lib/bucket-scan.test.mjs. Mocks first, then a dynamic import.
 
 /** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
@@ -74,27 +76,6 @@ mock.module("../lib/deletion-record.mjs", {
 
 const { cleanup } = await import("./cleanup.mjs");
 
-/**
- * A ReferencedResult referencing exactly `hashes` (each recorded at size 1),
- * from one snapshot.
- * @param {string[]} hashes
- * @param {{ snapshot: string, reason: string }[]} [unreadable]
- */
-const ref = (hashes, unreadable = []) => ({
-  referenced: new Map(
-    hashes.map((hash) => [
-      hash,
-      {
-        paths: new Map([
-          [`/${hash}`, { sizes: new Set([1]), snapshots: new Set(["s1"]) }],
-        ]),
-      },
-    ]),
-  ),
-  snapshotsChecked: 1,
-  unreadable,
-});
-
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (/** @type {number} */ d) => new Date(Date.now() - d * DAY);
 
@@ -126,7 +107,7 @@ describe("cleanup command", () => {
   it("refuses a non-interactive run without --force", async () => {
     // Acting deletes objects; with no terminal to confirm on, the intent must be
     // explicit. The refusal is up front, before any scan.
-    referencedBySet.set("photos", ref([]));
+    referencedBySet = enumeration({ photos: { s1: {} } });
     storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
 
     await assert.rejects(
@@ -137,7 +118,7 @@ describe("cleanup command", () => {
   });
 
   it("-n reports orphans past the grace window without deleting", async () => {
-    referencedBySet.set("photos", ref(["kept"]));
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) }, // referenced
       { hash: "old-orphan", size: 100, lastModified: daysAgo(8) }, // past grace
@@ -154,7 +135,7 @@ describe("cleanup command", () => {
   });
 
   it("--force removes past-grace orphans, leaving referenced and grace-protected objects", async () => {
-    referencedBySet.set("photos", ref(["kept"]));
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
       { hash: "old-orphan", size: 100, lastModified: daysAgo(8) },
@@ -173,7 +154,7 @@ describe("cleanup command", () => {
   it("a bare run on a TTY deletes past-grace orphans once the user confirms", async () => {
     stdin.isTTY = true;
     promptAnswer = true;
-    referencedBySet.set("photos", ref(["kept"]));
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
       { hash: "old-orphan", size: 100, lastModified: daysAgo(8) },
@@ -190,10 +171,10 @@ describe("cleanup command", () => {
   });
 
   it("warns about an object stored at the wrong size, but does not count it missing or orphaned", async () => {
-    // "kept" is recorded at size 1 (the ref helper) but stored at 999 — damaged,
-    // not missing (it exists) and not orphaned (it's referenced). Cleanup only
-    // flags it and points at verify for the per-file detail.
-    referencedBySet.set("photos", ref(["kept"]));
+    // "kept" is recorded at size 1 but stored at 999 — damaged, not missing (it
+    // exists) and not orphaned (it's referenced). Cleanup only flags it and
+    // points at verify for the per-file detail.
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept", 1] } } });
     storedObjects = [{ hash: "kept", size: 999, lastModified: daysAgo(30) }];
 
     /** @type {string[]} */
@@ -215,7 +196,9 @@ describe("cleanup command", () => {
   });
 
   it("the act path refuses when referenced objects are missing", async () => {
-    referencedBySet.set("photos", ref(["kept", "gone"]));
+    referencedBySet = enumeration({
+      photos: { s1: { "/kept": ["kept"], "/gone": ["gone"] } },
+    });
     storedObjects = [{ hash: "kept", size: 10, lastModified: daysAgo(30) }];
 
     await assert.rejects(
@@ -228,7 +211,9 @@ describe("cleanup command", () => {
   it("the act path proceeds when every missing object is a recorded deletion (ADR-0064)", async () => {
     // The absence is deliberate (s3cab delete wrote it into the record), so the
     // repository is not "losing data" and the interlock must not trip forever.
-    referencedBySet.set("photos", ref(["kept", "gone"]));
+    referencedBySet = enumeration({
+      photos: { s1: { "/kept": ["kept"], "/gone": ["gone"] } },
+    });
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
       { hash: "orphan", size: 100, lastModified: daysAgo(9) },
@@ -242,9 +227,9 @@ describe("cleanup command", () => {
   });
 
   it("aborts both modes on an unreadable snapshot", async () => {
-    referencedBySet.set(
-      "photos",
-      ref(["kept"], [{ snapshot: "bad", reason: "boom" }]),
+    referencedBySet = enumeration(
+      { photos: { s1: { "/kept": ["kept"] } } },
+      { photos: [{ snapshot: "bad", reason: "boom" }] },
     );
     storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
 
@@ -261,7 +246,7 @@ describe("cleanup command", () => {
   it("a bare run on a TTY deletes nothing when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;
-    referencedBySet.set("photos", ref([]));
+    referencedBySet = enumeration({ photos: { s1: {} } });
     storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
 
     const result = await cleanup("b");
@@ -275,7 +260,7 @@ describe("cleanup command", () => {
   });
 
   it("an acting run compacts the record after the deletes, trimming against the referenced union (ADR-0090)", async () => {
-    referencedBySet.set("photos", ref(["kept"]));
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
     storedObjects = [
       { hash: "kept", size: 10, lastModified: daysAgo(30) },
       { hash: "old-orphan", size: 100, lastModified: daysAgo(8) },
@@ -298,7 +283,7 @@ describe("cleanup command", () => {
 
   it("compacts even when there is nothing to reclaim — cleanup is the record's one collector", async () => {
     stdin.isTTY = true; // and no prompt either: housekeeping needs no confirmation
-    referencedBySet.set("photos", ref(["kept"]));
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
     storedObjects = [{ hash: "kept", size: 10, lastModified: daysAgo(30) }];
     compactResult = { files: 1, rows: 0, trimmed: 2 };
 
@@ -311,7 +296,7 @@ describe("cleanup command", () => {
   });
 
   it("a dry run never compacts", async () => {
-    referencedBySet.set("photos", ref([]));
+    referencedBySet = enumeration({ photos: { s1: {} } });
     storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
 
     const result = await cleanup("b", { "dry-run": true });
@@ -324,9 +309,9 @@ describe("cleanup command", () => {
   it("interlocks abort before any compaction — a suspect union must not trim", async () => {
     // Unreadable snapshot: the referenced union is incomplete, so trimming
     // against it could drop a row a live snapshot still needs.
-    referencedBySet.set(
-      "photos",
-      ref(["kept"], [{ snapshot: "bad", reason: "boom" }]),
+    referencedBySet = enumeration(
+      { photos: { s1: { "/kept": ["kept", 1] } } },
+      { photos: [{ snapshot: "bad", reason: "boom" }] },
     );
     storedObjects = [{ hash: "kept", size: 1, lastModified: daysAgo(30) }];
     await assert.rejects(() => cleanup("b", { force: true }));
@@ -334,7 +319,9 @@ describe("cleanup command", () => {
 
     // Missing referenced object: the repository is losing data — not the
     // moment for housekeeping either.
-    referencedBySet.set("photos", ref(["kept", "gone"]));
+    referencedBySet = enumeration({
+      photos: { s1: { "/kept": ["kept", 1], "/gone": ["gone"] } },
+    });
     await assert.rejects(() => cleanup("b", { force: true }));
     assert.deepEqual(compactCalls, []);
   });

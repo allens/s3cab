@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for verify's command orchestration — the glue on top of the pure
 // diff. The bucket scan (`scanBucket`) is faked at the lib seam so the per-set
 // report, the { bucket, sets } shape, and the exit-code side effect are locked
-// down without a bucket. The scan's own read order is pinned in
+// down without a bucket; its referenced enumeration is built by the shared
+// `enumeration` fixture (paths spelled `/data/<hash>` so the reported paths read
+// back to their hash). The scan's own read order is pinned in
 // lib/bucket-scan.test.mjs, the real S3 path by test/integration/remote.test.mjs's
 // gated `referencedObjects` test, and the pure diff by verify.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
@@ -31,30 +34,6 @@ mock.module("../lib/bucket-scan.mjs", {
 
 const { verify } = await import("./verify.mjs");
 
-/**
- * A ReferencedResult from `{ hash: [size, [snapshot(s)]] }` — one path per hash,
- * `/data/<hash>` — plus optional unreadable-snapshot findings.
- * @param {Record<string, [number, string[]]>} spec
- * @param {{ snapshot: string, reason: string }[]} [unreadable]
- */
-const ref = (spec, unreadable = []) => ({
-  referenced: new Map(
-    Object.entries(spec).map(([hash, [size, snapshots]]) => [
-      hash,
-      {
-        paths: new Map([
-          [
-            `/data/${hash}`,
-            { sizes: new Set([size]), snapshots: new Set(snapshots) },
-          ],
-        ]),
-      },
-    ]),
-  ),
-  snapshotsChecked: 1,
-  unreadable,
-});
-
 /** @type {number | string | null | undefined} */
 let savedExitCode;
 beforeEach(() => {
@@ -73,7 +52,9 @@ describe("verify command", () => {
   });
 
   it("reports a clean bucket and leaves the exit code untouched", async () => {
-    referencedBySet.set("photos", ref({ aaa: [10, ["s1"]] }));
+    referencedBySet = enumeration({
+      photos: { s1: { "/data/aaa": ["aaa", 10] } },
+    });
     storedObjects = [{ hash: "aaa", size: 10 }];
 
     const result = await verify("my-backups");
@@ -91,7 +72,9 @@ describe("verify command", () => {
     // `orphan` is stored but referenced by no snapshot. verify simply ignores it
     // (no orphan count, no exactness flag on the result); its result is just
     // { bucket, sets }, and a stored-but-unreferenced object is not a finding.
-    referencedBySet.set("photos", ref({ aaa: [10, ["s1"]] }));
+    referencedBySet = enumeration({
+      photos: { s1: { "/data/aaa": ["aaa", 10] } },
+    });
     storedObjects = [
       { hash: "aaa", size: 10 },
       { hash: "orphan", size: 5 },
@@ -104,9 +87,9 @@ describe("verify command", () => {
   });
 
   it("an unreadable snapshot is a finding (exit 1), surfaced on its set", async () => {
-    referencedBySet.set(
-      "photos",
-      ref({ aaa: [10, ["s1"]] }, [{ snapshot: "s0", reason: "boom" }]),
+    referencedBySet = enumeration(
+      { photos: { s1: { "/data/aaa": ["aaa", 10] } } },
+      { photos: [{ snapshot: "s0", reason: "boom" }] },
     );
     storedObjects = [{ hash: "aaa", size: 10 }];
 
@@ -121,7 +104,9 @@ describe("verify command", () => {
   });
 
   it("sets exit code 1 when any set has a missing object", async () => {
-    referencedBySet.set("photos", ref({ gone: [10, ["s1"]] }));
+    referencedBySet = enumeration({
+      photos: { s1: { "/data/gone": ["gone", 10] } },
+    });
     storedObjects = []; // the referenced object is not stored
 
     const result = await verify("my-backups");
@@ -135,7 +120,9 @@ describe("verify command", () => {
   });
 
   it("reports a recorded deletion as expected-missing and leaves the exit code untouched", async () => {
-    referencedBySet.set("photos", ref({ gone: [10, ["s1"]] }));
+    referencedBySet = enumeration({
+      photos: { s1: { "/data/gone": ["gone", 10] } },
+    });
     storedObjects = []; // absent — but the record explains it
     deletionRecords.set("gone", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
@@ -157,10 +144,11 @@ describe("verify command", () => {
   });
 
   it("still exits 1 when an unexplained absence sits beside a recorded one", async () => {
-    referencedBySet.set(
-      "photos",
-      ref({ gone: [10, ["s1"]], lost: [20, ["s1"]] }),
-    );
+    referencedBySet = enumeration({
+      photos: {
+        s1: { "/data/gone": ["gone", 10], "/data/lost": ["lost", 20] },
+      },
+    });
     storedObjects = [];
     deletionRecords.set("gone", { deletedOn: "2026-07-19T14:22:41.000Z" });
 
@@ -176,8 +164,10 @@ describe("verify command", () => {
   });
 
   it("reports per set, sorted by set name", async () => {
-    referencedBySet.set("photos", ref({ aaa: [10, ["s1"]] }));
-    referencedBySet.set("docs", ref({ bbb: [20, ["s2"]] }));
+    referencedBySet = enumeration({
+      photos: { s1: { "/data/aaa": ["aaa", 10] } },
+      docs: { s2: { "/data/bbb": ["bbb", 20] } },
+    });
     storedObjects = [
       { hash: "aaa", size: 10 },
       { hash: "bbb", size: 20 },

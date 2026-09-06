@@ -7,56 +7,47 @@ import {
   unreadableMessage,
   unreadableSnapshots,
 } from "./referenced.mjs";
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 
 // Pure unit tests for the referenced-object enumeration's shared vocabulary —
 // the bucket-wide unreadable list every consumer used to derive itself, the one
 // message the three commands build from it, the damage classifier that says
 // which read failures become findings at all, and the two questions the `sizes`
-// Set exists to answer.
+// Set exists to answer. Fixtures go through the shared builder, so every
+// object here is one `addSnapshotReferences` would fold from real rows.
 
 /**
- * A `ReferencedObject` from a compact spec: path → the sizes its rows record,
- * optionally with the snapshots referencing it. The torn case — one path at two
- * sizes — is the whole reason `sizes` is a Set, so the helper has to be able to
- * express it.
- * @param {Record<string, number[] | { sizes: number[], snapshots: string[] }>} spec
+ * One `ReferencedObject` — the content `h` — from which snapshots recorded each
+ * of its paths, and at what size: path → `[[snapshot, size], …]`. The torn case,
+ * one path at two sizes, is two snapshots recording it differently; that is
+ * the whole reason `sizes` is a Set, so the fixture has to be able to say it.
+ * @param {Record<string, [snapshot: string, size: number][]>} spec
  */
-const object = (spec) => ({
-  paths: new Map(
-    Object.entries(spec).map(([path, value]) => {
-      const { sizes, snapshots } = Array.isArray(value)
-        ? { sizes: value, snapshots: ["s1"] }
-        : value;
-      return [path, { sizes: new Set(sizes), snapshots: new Set(snapshots) }];
-    }),
-  ),
-});
-
-/**
- * A `Map<set, ReferencedResult>` carrying only the field under test: each set
- * maps to the snapshot names that failed to read. `referenced`/`snapshotsChecked`
- * are irrelevant here, so they stay empty rather than being faked.
- * @param {Record<string, string[]>} spec - set → unreadable snapshot names
- */
-const enumeration = (spec) =>
-  new Map(
-    Object.entries(spec).map(([set, names]) => [
-      set,
-      {
-        referenced: new Map(),
-        snapshotsChecked: 0,
-        unreadable: names.map((snapshot) => ({ snapshot, reason: "zstd" })),
-      },
-    ]),
-  );
+const object = (spec) => {
+  /** @type {Record<string, Record<string, [string, number]>>} */
+  const snapshots = {};
+  for (const [path, rows] of Object.entries(spec)) {
+    for (const [snapshot, size] of rows) {
+      (snapshots[snapshot] ??= {})[path] = ["h", size];
+    }
+  }
+  const built = enumeration({ set: snapshots }).get("set")?.referenced.get("h");
+  if (!built) {
+    throw new Error("the fixture records no path");
+  }
+  return built;
+};
 
 describe("unreadableSnapshots", () => {
   it("qualifies each snapshot with its set, bucket-wide", () => {
     const names = unreadableSnapshots(
-      enumeration({
-        "work-laptop": ["2026-07-30-1400", "2026-07-29-0900"],
-        photos: ["2026-07-28-0900"],
-      }),
+      enumeration(
+        { "work-laptop": {}, photos: {} },
+        {
+          "work-laptop": ["2026-07-30-1400", "2026-07-29-0900"],
+          photos: ["2026-07-28-0900"],
+        },
+      ),
     );
 
     assert.deepEqual(names, [
@@ -68,7 +59,7 @@ describe("unreadableSnapshots", () => {
 
   it("is empty when every snapshot read — the healthy case", () => {
     const names = unreadableSnapshots(
-      enumeration({ "work-laptop": [], photos: [] }),
+      enumeration({ "work-laptop": {}, photos: {} }),
     );
 
     assert.deepEqual(names, []);
@@ -76,7 +67,10 @@ describe("unreadableSnapshots", () => {
 
   it("skips the sets that read cleanly rather than emitting a hole", () => {
     const names = unreadableSnapshots(
-      enumeration({ "work-laptop": [], photos: ["2026-07-28-0900"] }),
+      enumeration(
+        { "work-laptop": {}, photos: {} },
+        { photos: ["2026-07-28-0900"] },
+      ),
     );
 
     assert.deepEqual(names, ["photos/2026-07-28-0900"]);
@@ -193,40 +187,48 @@ describe("isCorruptSnapshotError", () => {
 
 describe("safeSize", () => {
   it("is the recorded size for a healthy object", () => {
-    assert.equal(safeSize(object({ "photos/a.jpg": [4096] })), 4096);
+    assert.equal(safeSize(object({ "photos/a.jpg": [["s1", 4096]] })), 4096);
   });
 
   it("takes the largest when a torn snapshot recorded one path twice", () => {
     // Overstating what a deletion frees is harmless; understating it is not.
-    assert.equal(safeSize(object({ "photos/a.jpg": [4096, 9001] })), 9001);
+    const torn = object({
+      "photos/a.jpg": [
+        ["s1", 4096],
+        ["s2", 9001],
+      ],
+    });
+    assert.equal(safeSize(torn), 9001);
   });
 
   it("takes the largest across paths, not the first or the last", () => {
     const shared = object({
-      "photos/a.jpg": [4096],
-      "backup/a.jpg": [9001],
-      "archive/a.jpg": [2048],
+      "photos/a.jpg": [["s1", 4096]],
+      "backup/a.jpg": [["s1", 9001]],
+      "archive/a.jpg": [["s1", 2048]],
     });
     assert.equal(safeSize(shared), 9001);
   });
 
   it("is 0 for an object with no paths, rather than -Infinity or NaN", () => {
-    // A degenerate shape the enumeration never builds; asserted so a future
-    // `Math.max(...[])` rewrite can't quietly return -Infinity into a byte total.
-    assert.equal(safeSize(object({})), 0);
+    // A degenerate shape the enumeration never builds (so it is spelled here,
+    // not through the builder); asserted so a future `Math.max(...[])` rewrite
+    // can't quietly return -Infinity into a byte total.
+    assert.equal(safeSize({ paths: new Map() }), 0);
   });
 });
 
 describe("sizeDisagreements", () => {
   it("finds nothing when every recorded size matches storage", () => {
-    const healthy = object({ "photos/a.jpg": [4096], "b.jpg": [4096] });
+    const healthy = object({
+      "photos/a.jpg": [["s1", 4096]],
+      "b.jpg": [["s1", 4096]],
+    });
     assert.deepEqual(sizeDisagreements(healthy, 4096), []);
   });
 
   it("reports the path, the recorded size and the stored size it contradicts", () => {
-    const wrong = object({
-      "photos/a.jpg": { sizes: [512], snapshots: ["2026-08-01-0900"] },
-    });
+    const wrong = object({ "photos/a.jpg": [["2026-08-01-0900", 512]] });
 
     assert.deepEqual(sizeDisagreements(wrong, 4096), [
       {
@@ -240,7 +242,13 @@ describe("sizeDisagreements", () => {
   it("yields a row per bad size on a torn path, keeping the good one silent", () => {
     // The second size must not hide behind the first — each is checked against
     // the one stored object independently.
-    const torn = object({ "photos/a.jpg": [4096, 512, 99] });
+    const torn = object({
+      "photos/a.jpg": [
+        ["s1", 4096],
+        ["s2", 512],
+        ["s3", 99],
+      ],
+    });
     const found = sizeDisagreements(torn, 4096);
 
     assert.deepEqual(
@@ -250,7 +258,10 @@ describe("sizeDisagreements", () => {
   });
 
   it("checks every path, so a second file's bad size is its own row", () => {
-    const two = object({ "photos/a.jpg": [4096], "backup/a.jpg": [512] });
+    const two = object({
+      "photos/a.jpg": [["s1", 4096]],
+      "backup/a.jpg": [["s1", 512]],
+    });
     const found = sizeDisagreements(two, 4096);
 
     assert.deepEqual(
@@ -261,7 +272,10 @@ describe("sizeDisagreements", () => {
 
   it("sorts snapshots, so a report never varies with encounter order", () => {
     const wrong = object({
-      "photos/a.jpg": { sizes: [512], snapshots: ["2026-08-02", "2026-08-01"] },
+      "photos/a.jpg": [
+        ["2026-08-02", 512],
+        ["2026-08-01", 512],
+      ],
     });
 
     assert.deepEqual(sizeDisagreements(wrong, 4096)[0]?.snapshots, [
@@ -275,10 +289,10 @@ describe("sizeDisagreements", () => {
     // must still each read as sorted — a reader of row two is owed the same
     // order as row one.
     const torn = object({
-      "photos/a.jpg": {
-        sizes: [512, 99],
-        snapshots: ["2026-08-02", "2026-08-01"],
-      },
+      "photos/a.jpg": [
+        ["2026-08-02", 512],
+        ["2026-08-01", 99],
+      ],
     });
     const found = sizeDisagreements(torn, 4096);
 

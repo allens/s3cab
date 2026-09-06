@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
@@ -50,45 +51,12 @@ let referenced = new Map();
  * @returns {Map<string, ReferencedResult>}
  */
 const fakeReferenced = () =>
-  new Map([
-    [
-      "photos",
-      {
-        referenced: new Map([
-          [
-            "h1",
-            {
-              paths: new Map([
-                [
-                  "a.jpg",
-                  {
-                    sizes: new Set([500]),
-                    snapshots: new Set(["2026-06-11T0915"]),
-                  },
-                ],
-              ]),
-            },
-          ],
-          [
-            "h2",
-            {
-              paths: new Map([
-                [
-                  "b.jpg",
-                  {
-                    sizes: new Set([300]),
-                    snapshots: new Set(["2026-06-11T0915", "2026-06-12T0915"]),
-                  },
-                ],
-              ]),
-            },
-          ],
-        ]),
-        snapshotsChecked: 2,
-        unreadable: [],
-      },
-    ],
-  ]);
+  enumeration({
+    photos: {
+      "2026-06-11T0915": { "a.jpg": ["h1", 500], "b.jpg": ["h2", 300] },
+      "2026-06-12T0915": { "b.jpg": ["h2", 300] },
+    },
+  });
 
 mock.module("../lib/env.mjs", {
   exports: { loadSet: () => fakeSet },
@@ -305,23 +273,11 @@ describe("forget command", () => {
       // whole bucket rather than the target set's own snapshots (ADR-0013). A
       // second set references a.jpg's content, so deleting the only photos
       // snapshot that holds it orphans nothing.
-      referenced.set("docs", {
-        referenced: new Map([
-          [
-            "h1",
-            {
-              paths: new Map([
-                [
-                  "copy.jpg",
-                  { sizes: new Set([500]), snapshots: new Set(["d1"]) },
-                ],
-              ]),
-            },
-          ],
-        ]),
-        snapshotsChecked: 1,
-        unreadable: [],
-      });
+      for (const [set, result] of enumeration({
+        docs: { d1: { "copy.jpg": ["h1", 500] } },
+      })) {
+        referenced.set(set, result);
+      }
 
       stdin.isTTY = true;
       promptAnswer = true;

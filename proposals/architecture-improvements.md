@@ -42,14 +42,17 @@ that don't import each other, and the fourth is a seam with ten adapters and one
 **A, C, D and E landed 2026-09-05** ([PR #334](https://github.com/allens/s3cab/pull/334),
 [PR #331](https://github.com/allens/s3cab/pull/331),
 [PR #335](https://github.com/allens/s3cab/pull/335),
-[PR #330](https://github.com/allens/s3cab/pull/330)); **B and F landed 2026-09-06**
-([PR #338](https://github.com/allens/s3cab/pull/338), and for F see the run log, whose entry
-records that two of its four named files were dead anchors). Their entries are retired to the run
-log below, and A's, C's and D's lasting knowledge is now in
+[PR #330](https://github.com/allens/s3cab/pull/330)); **B, F and H landed 2026-09-06**
+([PR #338](https://github.com/allens/s3cab/pull/338),
+[PR #336](https://github.com/allens/s3cab/pull/336) — its run-log entry records that two of its
+four named files were dead anchors — and
+[PR #339](https://github.com/allens/s3cab/pull/339)). Their entries are retired to the run log
+below, and A's, C's, D's and H's lasting knowledge is now in
 [ADR-0088](../docs/adr/0088-find-matches-like-posix-find.md)'s,
-[ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s and
-[ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s amendments; B's is the module doc at the top
-of [format.mjs](../src/lib/format.mjs).
+[ADR-0075](../docs/adr/0075-resolve-time-credential-expiry.md)'s,
+[ADR-0019](../docs/adr/0019-s3-test-strategy.md)'s and
+[ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md)'s amendments; B's is
+the module doc at the top of [format.mjs](../src/lib/format.mjs).
 
 **Picking these up cold (a later session, or another machine).** Everything needed is in this
 file plus the ADRs — with three caveats worth stating rather than rediscovering.
@@ -58,16 +61,11 @@ exist in `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mj
 `provider.mjs`, `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify
 before trusting any anchor — this file's own opening rule. It paid this pass: three carried-forward
 entries were dead and one had the wrong mechanism.
-(2) **Ordering constraints, by file overlap rather than theme.** **H** follows F (both own the
-enumeration/scan shape), and F has landed, so H is unblocked. Everything else is independent.
+(2) **Ordering constraints, by file overlap rather than theme.** None remain: F → H were the
+one sequential pair and both have landed. Everything else is independent.
 (3) **`.env.test` is gitignored and does not travel.** Every remaining candidate is pure or
 local and verifies with `npm test` alone (C was the exception, and has landed).
 
-- **H — Five enumeration shapes, ten construction points, three incompatible `ref` helpers.**
-  _Worth exploring._ *(Carried from the eleventh pass's smaller items; it paired with D there, and
-  then with F, which has landed.)* "The set of hashes something references" is built five ways across the
-  codebase and its tests, and three `ref`-shaped test helpers disagree on the shape, so every new
-  test picks one by proximity. One constructor, taken by the tests rather than re-derived.
 - **L — `progress.mjs`'s cadence claim vs `withProgress`'s own timer.** _Answered, no change._ Not
   drift: `progress.mjs` owns the redraw-rate *floor* (`update()` enforces `MIN_REDRAW_MS` — 100 ms —
   regardless of caller), while `withProgress`'s 250 ms `setInterval` is only how often it *asks* to
@@ -847,3 +845,46 @@ least once; re-open only if the stated reason no longer holds.
     instant as steerable.
   - Red first on all four driving tests; 1118/1107 pass against `main`'s 1096/1086. The
     fusion-seam test now asserts byte-identical files rather than normalising the instant out.
+- **2026-09-06 — H landed** ([PR #339](https://github.com/allens/s3cab/pull/339); (grilled in-session, seven decisions in one round; the record is
+  [ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md)'s amendment). *One
+  constructor for the referenced enumeration, and one fixture builder that drives it.*
+  `addSnapshotReferences(referenced, name, entries)` in `referenced.mjs` is the fold
+  `remote.mjs` carried inline; `enumeration(spec, unreadable)` in
+  [test/helpers/enumeration.mjs](../test/helpers/enumeration.mjs) builds `Map<set,
+  ReferencedResult>` from a snapshot-shaped fixture (set → snapshot → path → `[hash, size]`)
+  by calling that fold once per snapshot. Seven test files, 76 call sites, migrated; seven local
+  helpers deleted.
+  - **The finding was re-verified and re-worded before anything was built.** "Five shapes, three
+    incompatible `ref` helpers" undercounted: ten construction points (production plus nine in
+    tests), three `ref`s and two `enumeration`s with five incompatible signatures, five hard-coding
+    `snapshotsChecked`, four unable to express the torn-file case `sizes` is a Set for, two
+    synthesizing the path so one hash under two paths was unsayable. But **every one was
+    shape-correct** — the cost was never a wrong fixture. The stronger reason to build it was that
+    the shape had no constructor in production either: ten builders, zero definitions as code.
+  - **The spec shape was the design decision.** Hash-first (mirroring the output, what most helpers
+    did) vs snapshot-first (mirroring the input). Snapshot-first won because it is the only spec
+    under which every case the seven helpers covered is expressible, and because the derived facts
+    then fall out of the data: `snapshotsChecked` is the number of snapshots named, the
+    `snapshots` Set is which snapshots recorded the path, a torn size is two snapshots disagreeing.
+    A test reads as the situation — "b.jpg in both snapshots" — rather than as the shape.
+  - **Three fixtures turned out to be saying something a real read cannot say.** lib/verify's
+    "no problems" case recorded a path from two snapshots while asserting one was checked;
+    lib/unrestorable hard-coded `snapshotsChecked: 0` under paths that referenced snapshots;
+    commands/cleanup recorded `kept` at size 1 against a store holding it at 10 in eight tests that
+    were not about size, so each carried a stray "wrong size" warning. The first was fixed in the
+    fixture (the assertion held); the second was inert (`planUnrestorable` never reads the count);
+    the third was left as it was — recording it at 10 would change what the fixtures say, and that
+    is a separate decision, noted here.
+  - **Two fixtures depended on encounter order, and the migration had to preserve it on purpose.**
+    lib/verify's "orders two problems deterministically" listed `h2` before `h1` so that only the
+    sort produces the asserted order; lib/unrestorable's report test relied on `s1` inserting before
+    `s2`. Both are now spelled by snapshot order with a comment saying why, since a builder that
+    inserts in fixture order makes the order a property of the fixture text.
+  - **A fixture held in a variable needs `@type {EnumerationSpec}`**, or TypeScript widens
+    `["h1", 500]` to `(string | number)[]`. Three sites; the typedef is exported for it and its
+    doc says so. Inline arguments are contextually typed and need nothing.
+  - **The pin is in the integration suite**, not a unit: `remote.test.mjs`'s real-bucket read
+    now `deepEqual`s its whole `referenced` map against the builder's for the same snapshot, so
+    the builder is held to what a real read produces. Green (26 pass) alongside `npm test`
+    (1111 pass). The migration was five files by parallel agents on one brief and two by hand;
+    every file's suite was run before and after with identical counts.
