@@ -1,7 +1,5 @@
-import { readDeletionRecords } from "../lib/deletion-record.mjs";
+import { scanBucket } from "../lib/bucket-scan.mjs";
 import { requireArg } from "../lib/error.mjs";
-import { listStoredObjects } from "../lib/objects.mjs";
-import { referencedObjects } from "../lib/remote.mjs";
 import { setHasFindings, verifySet } from "../lib/verify.mjs";
 
 /** @import { SetReport } from "../lib/verify.mjs" */
@@ -27,11 +25,11 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
  * record** (ADR-0064): a hash the record explains is reported as
  * `expectedMissing` with its deletion date — context, not a finding, so it
  * never affects the exit code and `verify || alert` stays meaningful after a
- * deliberate `delete`. Both are computed from two enumerations with
- * zero extra requests: the bucket's *referenced* objects (`referencedObjects`,
- * per set) and its *stored* objects (one `listStoredObjects` LIST). **Read the
- * snapshots before the LIST** (the ordering invariant): a backup landing mid-run
- * then only bumps the orphan count, never fakes a missing object.
+ * deliberate `delete`. Both are computed from one bucket scan (`scanBucket`)
+ * with zero extra requests: the bucket's *referenced* objects per set, its
+ * *stored* objects (one `objects/` LIST) and the deletion record — read in
+ * that order, which is the scan's safety property, not this command's
+ * (lib/bucket-scan.mjs).
  *
  * **No side effects — read-only:** verify runs on List+Get credentials alone; it
  * never writes to the bucket and keeps no local state. **Exit 1** when any set
@@ -54,24 +52,10 @@ import { setHasFindings, verifySet } from "../lib/verify.mjs";
 export async function verify(bucket) {
   requireArg(bucket, "bucket");
 
-  // Ordering invariant: read every snapshot (across all sets) BEFORE the objects
-  // LIST, so a backup finishing mid-run only adds unreferenced objects, never
-  // fakes a missing one.
-  const referencedBySet = await referencedObjects(bucket);
-
-  // One bucket-wide LIST → stored hash → size, the complete hash set feeding the
-  // per-set diff.
-  /** @type {Map<string, number>} */
-  const stored = new Map();
-  for await (const { hash, size } of listStoredObjects(bucket)) {
-    stored.set(hash, size);
-  }
-
-  // The deletion records, read LAST (ADR-0064): a `delete` writes its record
-  // before removing objects, so reading records after the objects LIST means
-  // any deletion that made an object vanish mid-run has its explanation on
-  // hand — the ordering that can't turn a deliberate removal into a false alarm.
-  const deleted = await readDeletionRecords(bucket);
+  // Snapshots, then the objects LIST, then the deletion record — the scan owns
+  // that order (lib/bucket-scan.mjs), so a backup or a `delete` landing mid-run
+  // can only bump the orphan count, never fake a missing object.
+  const { referencedBySet, stored, deleted } = await scanBucket(bucket);
 
   const reports = [...referencedBySet]
     .map(([set, referenced]) => verifySet(set, referenced, stored, deleted))

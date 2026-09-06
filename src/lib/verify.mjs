@@ -41,7 +41,7 @@ import { sizeDisagreements } from "./referenced.mjs";
  *    skip. When both apply the object is missing, so wrong-size is moot.
  * @param {string} name - The set's name
  * @param {ReferencedResult} referencedResult - This set's referenced enumeration
- * @param {Map<string, number>} stored - Bucket's stored objects (hash → LIST size)
+ * @param {Map<string, { size: number }>} stored - Bucket's stored objects (hash → LIST size; `scanBucket`'s map, whose age this diff ignores)
  * @param {Map<string, { deletedOn: string }>} [deleted] - The repository's
  *   deletion records (`readDeletionRecords`): hash → when it was deliberately deleted
  * @returns {SetReport}
@@ -55,7 +55,7 @@ export function verifySet(name, referencedResult, stored, deleted = new Map()) {
   const expectedMissing = [];
 
   for (const [hash, entry] of referenced) {
-    const storedSize = stored.get(hash);
+    const storedSize = stored.get(hash)?.size;
 
     // Missing is a property of the *hash*, so it is decided once per object
     // rather than re-tested at every path: nothing is stored, so every path
