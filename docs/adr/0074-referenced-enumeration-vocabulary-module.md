@@ -1,6 +1,6 @@
 # The referenced-enumeration vocabulary lives in a pure module, not with its producer
 
-**Status:** accepted & implemented. Applies
+**Status:** accepted & implemented; amended 2026-09-06 (the constructor moved in). Applies
 [0023](0023-porcelain-plumbing-lib-layers.md)'s lib layering and
 [0006](0006-minimal-code.md)'s minimal-code stance.
 
@@ -73,3 +73,26 @@ builds it. A vocabulary module earns its place when it lets the strictest consum
 - **The `unreadable` list is `string[]`, not records.** The per-set `reason` is dropped when the
   view goes bucket-wide: `cleanup`/`delete`/`forget` report *which* snapshots and send the user to
   `verify` for *why*, and `verify` reads the per-set list where the reason is still carried.
+
+## Amendment (2026-09-06): the shape's constructor lives with its vocabulary
+
+The typedefs above described a shape that no function built: `remote.mjs` folded snapshot rows
+into it inline, and the seven test files that plan over the shape each built it by hand — three
+helpers named `ref`, two named `enumeration`, five incompatible signatures, five of them
+hard-coding `snapshotsChecked`, and a new test picking one by proximity. Ten builders and no
+definition as code, for the shape that decides what `cleanup` deletes.
+
+**The per-snapshot fold is now `addSnapshotReferences(referenced, name, entries)` in
+`referenced.mjs`**, called once per snapshot read by `referencedObjects` and once per snapshot in
+a fixture by the one test builder, `enumeration(spec, unreadable)` in
+`test/helpers/enumeration.mjs`. The fixture is written the way the bucket is — set → snapshot →
+path → `[hash, size]` — so the derived facts (`snapshotsChecked`, which snapshots reference a
+path, a path recorded at two sizes) fall out of the data rather than being spelled, and a test
+cannot hold a shape a real read would not produce. `test/integration/remote.test.mjs` pins the
+two against each other: a real read's `referenced` map is `deepEqual` to the builder's for the
+same snapshot.
+
+The fold has one production caller, which [0023](0023-porcelain-plumbing-lib-layers.md)'s
+amendment says is not by itself a reason to export it. The reason here is the module's purpose:
+this is the vocabulary module, and a shape's constructor is part of its vocabulary. The test
+reaching for it is the intended second caller, not a symptom.
