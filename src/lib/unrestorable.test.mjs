@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { enumeration } from "../../test/helpers/enumeration.mjs";
 import {
   formatForcedReport,
   formatUnrestorableReport,
@@ -8,55 +9,20 @@ import {
   planUnrestorable,
 } from "./unrestorable.mjs";
 
-/** @import { ReferencedResult } from "./referenced.mjs" */
+/** @import { EnumerationSpec } from "../../test/helpers/enumeration.mjs" */
 
 // `planUnrestorable` is pure, so these assert on returned data with no mocked seams —
 // the point of keeping the computation out of the command (as planCleanup does).
 // The two properties under test are the ones the design calls load-bearing: the
 // check is bucket-wide, and it is computed over the whole selection at once.
 
-/**
- * Build a referenced enumeration the shape `referencedObjects` returns, from a
- * compact literal: set → path → { hash, size, snapshots }.
- * @param {Record<string, Record<string, { hash: string, size?: number, snapshots: string[] }>>} spec
- * @param {Record<string, { snapshot: string, reason: string }[]>} [unreadable]
- * @returns {Map<string, ReferencedResult>}
- */
-function enumeration(spec, unreadable = {}) {
-  /** @type {Map<string, ReferencedResult>} */
-  const bySet = new Map();
-  for (const [set, paths] of Object.entries(spec)) {
-    /** @type {ReferencedResult["referenced"]} */
-    const referenced = new Map();
-    for (const [path, { hash, size = 100, snapshots }] of Object.entries(
-      paths,
-    )) {
-      let entry = referenced.get(hash);
-      if (!entry) {
-        entry = { paths: new Map() };
-        referenced.set(hash, entry);
-      }
-      entry.paths.set(path, {
-        sizes: new Set([size]),
-        snapshots: new Set(snapshots),
-      });
-    }
-    bySet.set(set, {
-      referenced,
-      snapshotsChecked: 0,
-      unreadable: unreadable[set] ?? [],
-    });
-  }
-  return bySet;
-}
-
 describe("planUnrestorable", () => {
   it("reports content the surviving snapshots no longer reference", () => {
     const plan = planUnrestorable(
       enumeration({
         photos: {
-          "a.jpg": { hash: "h1", size: 500, snapshots: ["s1"] },
-          "b.jpg": { hash: "h2", size: 300, snapshots: ["s1", "s2"] },
+          s1: { "a.jpg": ["h1", 500], "b.jpg": ["h2", 300] },
+          s2: { "b.jpg": ["h2", 300] },
         },
       }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1", "s2"] },
@@ -77,8 +43,8 @@ describe("planUnrestorable", () => {
     // h1 orphaned while `docs` still needs it. This is the lie the design names.
     const plan = planUnrestorable(
       enumeration({
-        photos: { "a.jpg": { hash: "h1", snapshots: ["s1"] } },
-        docs: { "copy.jpg": { hash: "h1", snapshots: ["d1"] } },
+        photos: { s1: { "a.jpg": ["h1"] } },
+        docs: { d1: { "copy.jpg": ["h1"] } },
       }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
@@ -92,8 +58,9 @@ describe("planUnrestorable", () => {
     // Computed over the whole selection at once: h1 is referenced by both s1 and
     // s2, so it is orphaned by deleting the pair — while evaluating either alone
     // against the current state reports zero.
+    /** @type {EnumerationSpec} */
     const spec = {
-      photos: { "a.jpg": { hash: "h1", size: 700, snapshots: ["s1", "s2"] } },
+      photos: { s1: { "a.jpg": ["h1", 700] }, s2: { "a.jpg": ["h1", 700] } },
     };
 
     const one = planUnrestorable(enumeration(spec), {
@@ -119,11 +86,11 @@ describe("planUnrestorable", () => {
   });
 
   it("attributes single-snapshot content to that snapshot, and is order-independent", () => {
+    /** @type {EnumerationSpec} */
     const spec = {
       photos: {
-        "only-s1.jpg": { hash: "h1", size: 100, snapshots: ["s1"] },
-        "only-s2.jpg": { hash: "h2", size: 200, snapshots: ["s2"] },
-        "shared.jpg": { hash: "h3", size: 400, snapshots: ["s1", "s2"] },
+        s1: { "only-s1.jpg": ["h1", 100], "shared.jpg": ["h3", 400] },
+        s2: { "only-s2.jpg": ["h2", 200], "shared.jpg": ["h3", 400] },
       },
     };
     const forward = planUnrestorable(enumeration(spec), {
@@ -170,10 +137,7 @@ describe("planUnrestorable", () => {
     // deliberately do not scale together.
     const plan = planUnrestorable(
       enumeration({
-        photos: {
-          "a.jpg": { hash: "h1", size: 900, snapshots: ["s1"] },
-          "duplicate.jpg": { hash: "h1", size: 900, snapshots: ["s1"] },
-        },
+        photos: { s1: { "a.jpg": ["h1", 900], "duplicate.jpg": ["h1", 900] } },
       }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
@@ -184,11 +148,9 @@ describe("planUnrestorable", () => {
   });
 
   it("flags the deletion that takes out a set's last remote snapshot", () => {
+    /** @type {EnumerationSpec} */
     const spec = {
-      photos: {
-        "a.jpg": { hash: "h1", snapshots: ["s1"] },
-        "b.jpg": { hash: "h2", snapshots: ["s2"] },
-      },
+      photos: { s1: { "a.jpg": ["h1"] }, s2: { "b.jpg": ["h2"] } },
     };
     const all = planUnrestorable(enumeration(spec), {
       set: "photos",
@@ -209,10 +171,7 @@ describe("planUnrestorable", () => {
     // The command decides what to do about them — a warning here, not cleanup's
     // abort, because delete never acts on this set.
     const plan = planUnrestorable(
-      enumeration(
-        { photos: { "a.jpg": { hash: "h1", snapshots: ["s1"] } } },
-        { photos: [{ snapshot: "s9", reason: "zstd" }] },
-      ),
+      enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
 
@@ -234,7 +193,7 @@ describe("planUnrestorable", () => {
     // Never understate what is at stake before a deletion; the disagreement
     // itself is verify's finding, and must not derail the preview.
     const referenced = enumeration({
-      photos: { "a.jpg": { hash: "h1", size: 100, snapshots: ["s1"] } },
+      photos: { s1: { "a.jpg": ["h1", 100] } },
     });
     const entry = referenced.get("photos")?.referenced.get("h1");
     entry?.paths.get("a.jpg")?.sizes.add(4000);
@@ -254,12 +213,11 @@ describe("formatUnrestorableSummary", () => {
     planUnrestorable(
       enumeration({
         photos: {
-          "only-s1.jpg": { hash: "h1", size: 1_000_000, snapshots: ["s1"] },
-          "shared.jpg": {
-            hash: "h3",
-            size: 4_000_000,
-            snapshots: ["s1", "s2"],
+          s1: {
+            "only-s1.jpg": ["h1", 1_000_000],
+            "shared.jpg": ["h3", 4_000_000],
           },
+          s2: { "shared.jpg": ["h3", 4_000_000] },
         },
       }),
       { set: "photos", snapshots, remoteSnapshots: ["s1", "s2", "s3"] },
@@ -325,7 +283,7 @@ describe("formatUnrestorableSummary", () => {
   it("says so plainly when nothing would become unrestorable", () => {
     const plan = planUnrestorable(
       enumeration({
-        photos: { "a.jpg": { hash: "h1", snapshots: ["s1", "s2"] } },
+        photos: { s1: { "a.jpg": ["h1"] }, s2: { "a.jpg": ["h1"] } },
       }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1", "s2"] },
     );
@@ -341,10 +299,7 @@ describe("formatUnrestorableSummary", () => {
 
   it("caveats the numbers when a snapshot would not read", () => {
     const plan = planUnrestorable(
-      enumeration(
-        { photos: { "a.jpg": { hash: "h1", snapshots: ["s1"] } } },
-        { photos: [{ snapshot: "s9", reason: "zstd" }] },
-      ),
+      enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
     const summary = formatUnrestorableSummary(plan, {
@@ -367,8 +322,8 @@ describe("formatUnrestorableReport", () => {
     const plan = planUnrestorable(
       enumeration({
         photos: {
-          "b.jpg": { hash: "h2", size: 200, snapshots: ["s2"] },
-          "a.jpg": { hash: "h1", size: 100, snapshots: ["s1", "s2"] },
+          s1: { "a.jpg": ["h1", 100] },
+          s2: { "b.jpg": ["h2", 200], "a.jpg": ["h1", 100] },
         },
       }),
       { set: "photos", snapshots: ["s1", "s2"], remoteSnapshots: ["s1", "s2"] },
@@ -394,10 +349,7 @@ describe("formatUnrestorableReport", () => {
     // nobody reads the file count as a measure of space.
     const plan = planUnrestorable(
       enumeration({
-        photos: {
-          "a.jpg": { hash: "h1", size: 900, snapshots: ["s1"] },
-          "copy.jpg": { hash: "h1", size: 900, snapshots: ["s1"] },
-        },
+        photos: { s1: { "a.jpg": ["h1", 900], "copy.jpg": ["h1", 900] } },
       }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
     );
