@@ -3,14 +3,15 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
-// Offline tests for the `cleanup` *command shell*: the S3 reads/writes
-// (referencedObjects, listStoredObjects, deleteStoredObject) and the prompt are
-// faked at the lib seam, so these cover what the command adds around the pure
-// plan — the two abort interlocks, the act-by-default / `-n` split, the
-// non-interactive `--force` gate, the TTY prompt, and the delete loop
-// (ADR-0064's destructive-command pattern). The orphan/grace/missing/damaged
-// *arithmetic* is unit-tested without mocks in lib/cleanup.test.mjs
-// (planCleanup). Mocks first, then a dynamic import.
+// Offline tests for the `cleanup` *command shell*: the bucket scan
+// (scanBucket), the S3 writes (deleteStoredObject, compactDeletionRecords) and
+// the prompt are faked at the lib seam, so these cover what the command adds
+// around the pure plan — the two abort interlocks, the act-by-default / `-n`
+// split, the non-interactive `--force` gate, the TTY prompt, and the delete
+// loop (ADR-0064's destructive-command pattern). The orphan/grace/missing/
+// damaged *arithmetic* is unit-tested without mocks in lib/cleanup.test.mjs
+// (planCleanup); the scan's read order in lib/bucket-scan.test.mjs. Mocks
+// first, then a dynamic import.
 
 /** @type {Map<string, ReferencedResult>} */
 let referencedBySet = new Map();
@@ -29,16 +30,19 @@ let compactCalls = [];
 /** What the mocked compaction reports back to the command. */
 let compactResult = { files: 0, rows: 0, trimmed: 0 };
 
-mock.module("../lib/remote.mjs", {
-  exports: { referencedObjects: async () => referencedBySet },
+mock.module("../lib/bucket-scan.mjs", {
+  exports: {
+    scanBucket: async () => ({
+      referencedBySet,
+      stored: new Map(
+        storedObjects.map(({ hash, ...object }) => [hash, object]),
+      ),
+      deleted: deletionRecords,
+    }),
+  },
 });
 mock.module("../lib/objects.mjs", {
   exports: {
-    listStoredObjects: async function* () {
-      for (const object of storedObjects) {
-        yield object;
-      }
-    },
     deleteStoredObject: async (
       /** @type {string} */ _bucket,
       /** @type {string} */ hash,
@@ -58,7 +62,6 @@ mock.module("../lib/prompt.mjs", {
 });
 mock.module("../lib/deletion-record.mjs", {
   exports: {
-    readDeletionRecords: async () => deletionRecords,
     compactDeletionRecords: async (
       /** @type {string} */ _bucket,
       /** @type {Set<string>} */ referenced,

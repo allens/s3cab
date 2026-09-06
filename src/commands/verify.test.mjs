@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for verify's command orchestration — the glue on top of the pure
-// diff. The two S3 reads (`referencedObjects`, `listStoredObjects`) are faked at
-// the lib seam so the per-set report, the { bucket, sets } shape, and the
-// exit-code side effect are locked down without a bucket. The real S3 path is
-// covered by test/integration/remote.test.mjs's gated `referencedObjects` test; the pure diff by
-// verify.test.mjs. Module-mock ordering (objects.test.mjs) applies: mocks first,
-// then a dynamic import of the command.
+// diff. The bucket scan (`scanBucket`) is faked at the lib seam so the per-set
+// report, the { bucket, sets } shape, and the exit-code side effect are locked
+// down without a bucket. The scan's own read order is pinned in
+// lib/bucket-scan.test.mjs, the real S3 path by test/integration/remote.test.mjs's
+// gated `referencedObjects` test, and the pure diff by verify.test.mjs.
+// Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
+// import of the command.
 
 /** @type {Map<string, ReferencedResult>} referenced per set */
 let referencedBySet = new Map();
@@ -18,23 +19,13 @@ let storedObjects = [];
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
 
-mock.module("../lib/remote.mjs", {
+mock.module("../lib/bucket-scan.mjs", {
   exports: {
-    referencedObjects: async () => referencedBySet,
-  },
-});
-mock.module("../lib/objects.mjs", {
-  exports: {
-    listStoredObjects: async function* () {
-      for (const object of storedObjects) {
-        yield object;
-      }
-    },
-  },
-});
-mock.module("../lib/deletion-record.mjs", {
-  exports: {
-    readDeletionRecords: async () => deletionRecords,
+    scanBucket: async () => ({
+      referencedBySet,
+      stored: new Map(storedObjects.map(({ hash, size }) => [hash, { size }])),
+      deleted: deletionRecords,
+    }),
   },
 });
 

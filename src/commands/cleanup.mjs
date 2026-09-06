@@ -1,14 +1,11 @@
+import { scanBucket } from "../lib/bucket-scan.mjs";
 import { planCleanup } from "../lib/cleanup.mjs";
-import {
-  compactDeletionRecords,
-  readDeletionRecords,
-} from "../lib/deletion-record.mjs";
+import { compactDeletionRecords } from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue } from "../lib/format.mjs";
-import { deleteStoredObject, listStoredObjects } from "../lib/objects.mjs";
+import { deleteStoredObject } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { unreadableMessage } from "../lib/referenced.mjs";
-import { referencedObjects } from "../lib/remote.mjs";
 import { isInteractive } from "../lib/style.mjs";
 
 /**
@@ -16,10 +13,11 @@ import { isInteractive } from "../lib/style.mjs";
  * references any more, the residue of deleted snapshots and crashed backups
  * (docs/design/backup.md). `cleanup`'s the deliberately-heavy, deliberately-rare
  * orphan deleter; the everyday commands never delete. The **read-only twin of
- * `verify`**: both compose the same two enumerations (the bucket's *stored*
- * objects and its *referenced* union across every set), and orphans are simply
- * the opposite set-difference — `stored − referenced` where `verify` computes
- * `referenced − stored`.
+ * `verify`**: both start from the same bucket scan (`scanBucket` — the bucket's
+ * *referenced* union across every set, its *stored* objects, and the deletion
+ * record, read in the one order that is safe under a concurrent backup), and
+ * orphans are simply the opposite set-difference — `stored − referenced` where
+ * `verify` computes `referenced − stored`.
  *
  * **Operand is the bucket** (not a set): orphanhood is a repository-level fact
  * spanning every set/user/machine, and taking the bucket resolves credentials
@@ -89,24 +87,13 @@ export async function cleanup(bucket, options = {}) {
     );
   }
 
-  // Ordering invariant: read every snapshot BEFORE the objects LIST, so a backup
-  // finishing mid-run only adds unreferenced objects (protected by the grace
-  // window), never makes a referenced object look missing.
-  const referencedBySet = await referencedObjects(bucket);
-
-  // Stored objects with size + age. `cleanup` needs LastModified for the grace
-  // window; `verify` (which shares this enumeration) just ignores it.
-  /** @type {Map<string, { size: number, lastModified?: Date }>} */
-  const stored = new Map();
-  for await (const { hash, size, lastModified } of listStoredObjects(bucket)) {
-    stored.set(hash, { size, lastModified });
-  }
-
-  // The deletion records, read last (like verify): a referenced hash the
-  // record explains is deliberately absent (ADR-0064), not a missing-object
-  // integrity fault — without this, the first path-scoped `delete` would make
-  // interlock #2 refuse forever.
-  const deleted = await readDeletionRecords(bucket);
+  // Snapshots, then the objects LIST, then the deletion record — the scan owns
+  // that order (lib/bucket-scan.mjs), so a backup finishing mid-run only adds
+  // unreferenced objects (protected by the grace window), never makes a
+  // referenced object look missing. The record is what keeps a referenced hash
+  // a `delete` explained (ADR-0064) out of interlock #2 — without it, the first
+  // `delete` would make the act path refuse forever.
+  const { referencedBySet, stored, deleted } = await scanBucket(bucket);
 
   // The whole diff — orphans (with the grace window), the delete-list, and the
   // missing/damaged/unreadable tallies — is one pure computation over the two

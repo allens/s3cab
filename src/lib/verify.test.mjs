@@ -29,6 +29,14 @@ function ref(spec, { snapshotsChecked = 1, unreadable = [] } = {}) {
   return { referenced, snapshotsChecked, unreadable };
 }
 
+/**
+ * The bucket's stored objects as `scanBucket` hands them over, from `hash →
+ * LIST size` (the age the scan also carries is cleanup's, not this diff's).
+ * @param {Record<string, number>} sizes
+ */
+const store = (sizes) =>
+  new Map(Object.entries(sizes).map(([hash, size]) => [hash, { size }]));
+
 describe("verifySet with a deletion record", () => {
   const RECORD = new Map([["gone", { deletedOn: "2026-07-19T14:22:41.000Z" }]]);
 
@@ -75,7 +83,7 @@ describe("verifySet with a deletion record", () => {
     const referenced = ref({
       gone: [{ path: "/back-again.txt", size: 10, snapshots: ["s9"] }],
     });
-    const stored = new Map([["gone", 7]]);
+    const stored = store({ gone: 7 });
     const report = verifySet("photos", referenced, stored, RECORD);
     assert.deepEqual(report.expectedMissing, []);
     assert.equal(report.problems[0]?.problem, "wrong-size");
@@ -88,11 +96,11 @@ describe("verifySet", () => {
       aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
       bbb: [{ path: "/b.txt", size: 20, snapshots: ["s1", "s0"] }],
     });
-    const stored = new Map([
-      ["aaa", 10],
-      ["bbb", 20],
-      ["ccc", 99], // an orphan — not this set's concern
-    ]);
+    const stored = store({
+      aaa: 10,
+      bbb: 20,
+      ccc: 99, // an orphan — not this set's concern
+    });
 
     const report = verifySet("photos", referenced, stored);
 
@@ -126,7 +134,7 @@ describe("verifySet", () => {
     const referenced = ref({
       aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }],
     });
-    const stored = new Map([["aaa", 7]]);
+    const stored = store({ aaa: 7 });
     const report = verifySet("photos", referenced, stored);
 
     assert.deepEqual(report.problems, [
@@ -150,7 +158,7 @@ describe("verifySet", () => {
         { path: "/wrong.txt", size: 20, snapshots: ["s2"] },
       ],
     });
-    const stored = new Map([["aaa", 10]]);
+    const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
 
     assert.deepEqual(report.problems, [
@@ -190,7 +198,7 @@ describe("verifySet", () => {
     const referenced = ref({
       aaa: [{ path: "/a.txt", size: [10, 20], snapshots: ["s1", "s2"] }],
     });
-    const stored = new Map([["aaa", 10]]);
+    const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
 
     assert.deepEqual(report.problems, [
@@ -225,7 +233,7 @@ describe("verifySet", () => {
       { aaa: [{ path: "/a.txt", size: 10, snapshots: ["s1"] }] },
       { snapshotsChecked: 1, unreadable: [{ snapshot: "s0", reason: "boom" }] },
     );
-    const stored = new Map([["aaa", 10]]);
+    const stored = store({ aaa: 10 });
     const report = verifySet("photos", referenced, stored);
 
     assert.deepEqual(report.problems, []);

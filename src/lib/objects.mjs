@@ -99,10 +99,11 @@ export async function getObject(bucket, hash, destPath) {
  * Yield every stored object as `{ hash, size, lastModified }` — the bare SHA-256
  * of each key under `objects/` (prefix stripped) with its LIST `Size` and
  * `LastModified`. The one enumeration of the object store, from which the
- * hash-only listing (`listObjectHashes`), `verify`'s size cross-check, and
- * `cleanup`'s orphan sweep all draw: a LIST already returns each key with its size
- * *and* age, so `verify` gets sizes and `cleanup` gets the grace-window age for
- * free, with no per-object HEAD (docs/design/backup.md). `lastModified` is absent
+ * hash-only listing (`listObjectHashes`) and the whole-bucket scan
+ * (`scanBucket`, bucket-scan.mjs — `verify`'s size cross-check and `cleanup`'s
+ * orphan sweep) draw: a LIST already returns each key with its size *and* age,
+ * so `verify` gets sizes and `cleanup` gets the grace-window age for free, with
+ * no per-object HEAD (docs/design/backup.md). `lastModified` is absent
  * only if S3 omits it (it never does for a real object); `cleanup` treats absent
  * as too-new-to-delete.
  * @param {string} bucket - The repository's S3 bucket

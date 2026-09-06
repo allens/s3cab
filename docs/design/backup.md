@@ -649,7 +649,10 @@ result is the per-set findings report.
 **Ordering invariant:** read the snapshots **before** LISTing `objects/`. In that order
 a backup finishing mid-run only adds unreferenced objects (harmless — verify ignores
 unreferenced storage); the reverse order would report its freshly-uploaded objects as
-missing.
+missing. The order is fixed in one place — `scanBucket`
+([src/lib/bucket-scan.mjs](../../src/lib/bucket-scan.mjs)), which `verify` and `cleanup`
+both read through, and whose unit test pins the three reads (snapshots, objects, deletion
+records) in that sequence — rather than restated at each call site.
 
 ## Open items (deferred, recorded here so they aren't lost)
 
