@@ -190,6 +190,25 @@ describe("reroot", () => {
       join(resolve("out"), "photos", "x.jpg"),
     );
   });
+
+  // A POSIX path's backslash is an ordinary filename character, not a
+  // separator (path-match.mjs's shape rule) — `reroot` must not split on it
+  // just because the root happens to be POSIX-shaped too. Windows itself
+  // rejects a backslash in a filename, so this is POSIX-only.
+  it(
+    "keeps a literal backslash in a POSIX filename as one segment",
+    {
+      skip:
+        process.platform === "win32" ? "backslash is a win32 separator" : false,
+    },
+    () => {
+      const map = reroot(["/home/me/Photos"], "out");
+      assert.equal(
+        map("/home/me/Photos/weird\\name.jpg"),
+        join(resolve("out"), "Photos", "weird\\name.jpg"),
+      );
+    },
+  );
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
