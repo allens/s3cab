@@ -2,8 +2,11 @@
 // minute-precision wall clock read through `localMoment` (src/lib/format.mjs)
 // with no injection hook, and a same-minute snapshot is refused — so a sequence
 // that takes several snapshots needs a clock it can advance. The seam module
-// (seam.mjs) mocks `format.mjs` to route `localMoment` here; everything below
-// the seam then mints names, instants and audit timestamps from virtual time.
+// (seam.mjs) mocks `format.mjs` to route its two clock reads here; everything
+// below the seam then mints names, instants, `#END` trailers and audit
+// timestamps from virtual time. Every export format.mjs reads the clock for
+// needs a twin here *and* an entry in seam.mjs's mock — the mock spreads the
+// real module, so a missing twin falls through to real time silently.
 //
 // Zone is pinned to UTC so generated names are deterministic on any machine.
 // The clock only ever moves forward (the runner advances it ≥1 minute per op);
@@ -48,6 +51,17 @@ export class VirtualClock {
       instant: zdt.toInstant().toString({ smallestUnit: "millisecond" }),
       zone: zdt.timeZoneId,
     };
+  }
+
+  /**
+   * Drop-in for format.mjs's `completionInstant`. Virtual time is whole
+   * milliseconds, so the real one's round-up is the identity here.
+   * @returns {string}
+   */
+  completionInstant() {
+    return Temporal.Instant.fromEpochMilliseconds(this.ms).toString({
+      smallestUnit: "millisecond",
+    });
   }
 }
 

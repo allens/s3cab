@@ -2,9 +2,11 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
   alignTotalTable,
+  completionInstant,
   formatByteValue,
   formatCount,
   formatDuration,
+  localMoment,
   plural,
   shortDuration,
 } from "./format.mjs";
@@ -166,5 +168,41 @@ describe("shortDuration", () => {
 
   it("carries no padding, unlike the progress line's fixed-width twin", () => {
     assert.equal(shortDuration(45_000).length, "45s".length);
+  });
+});
+
+// The clock seam: every instant an artifact records is read here, and the
+// model harness mocks this module to steer them. Both exports read the clock
+// through the same primitive, so one pin in a test covers the whole seam.
+describe("completionInstant", () => {
+  it("rounds the clock up to the millisecond, never back before the last row", (t) => {
+    // Truncating (the toString default) records a moment up to a millisecond
+    // earlier than the write really ended; a file whose ctime landed in that
+    // window would then read as touched after the snapshot, for ever
+    // (ADR-0085). Up is the safe direction.
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from(
+        "2026-06-23T10:30:00.123456789Z",
+      ).toZonedDateTimeISO("Europe/London"),
+    );
+    assert.equal(completionInstant(), "2026-06-23T10:30:00.124Z");
+  });
+
+  it("leaves a whole millisecond alone, so a pinned clock reads back exactly", (t) => {
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from("2026-06-23T10:30:00.500Z").toZonedDateTimeISO(
+        "UTC",
+      ),
+    );
+    assert.equal(completionInstant(), "2026-06-23T10:30:00.500Z");
+  });
+
+  it("reads the same clock as localMoment, so one pin steers both", (t) => {
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from("2026-06-23T10:30:00.000Z").toZonedDateTimeISO(
+        "UTC",
+      ),
+    );
+    assert.equal(completionInstant(), localMoment("minutes").instant);
   });
 });

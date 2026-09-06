@@ -251,19 +251,6 @@ const momentOf = (name) => ({
   zone: "Europe/London",
 });
 
-/**
- * A snapshot file's text with the one field a caller can't fix: the `#END`
- * trailer's completion instant, minted from the clock as the last row lands. It
- * is the only thing in the file `momentOf` above doesn't already pin, so this is
- * what makes two runs comparable.
- * @param {string} path - A written snapshot file
- * @returns {string}
- */
-const textWithoutEndInstant = (path) =>
-  zstdDecompressSync(readFileSync(path))
-    .toString("utf8")
-    .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z(\s*\t)$/m, "<instant>$1");
-
 // listSnapshotNames is the storage core behind the `list` command — a temp dir
 // stands in for a set's `~/.s3cab/sets/<set>/snapshots/`. The set resolution
 // `list` wraps it in is covered in e2e.
@@ -563,16 +550,17 @@ describe("writeSnapshot", () => {
     assert.equal(snap.entries.get(regular)?.hash, hashA);
   });
 
-  it("passes rows through `through` and writes the identical file (the fusion seam)", async () => {
+  it("passes rows through `through` and writes the identical file (the fusion seam)", async (t) => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the
-    // snapshot says — so the two files must be identical row for row.
-    //
-    // Every line but one, because the `#END` trailer times itself: it records
-    // when the last row landed, and these two runs land theirs milliseconds
-    // apart. That is the trailer doing its job (ADR-0085 — the boundary a later
-    // pass weighs a file's ctime against has to be a real instant), not the
-    // transform changing anything, so it is normalized out rather than asserted.
+    // snapshot says — so the two files must be byte-identical. The `#END`
+    // trailer times itself, so the clock is pinned for both writes; nothing
+    // else in the file can differ.
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from("2026-06-23T10:30:00.000Z").toZonedDateTimeISO(
+        "Europe/London",
+      ),
+    );
     await using dir = await mkTmpDir();
     const files = [resolve(dir.path, "a.txt"), resolve(dir.path, "b.txt")];
     const args = {
@@ -591,7 +579,7 @@ describe("writeSnapshot", () => {
       momentOf("2026-06-23T1000"),
       args,
     );
-    const withoutStage = textWithoutEndInstant(plain);
+    const plainText = zstdDecompressSync(readFileSync(plain)).toString("utf8");
     const fused = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       ...args,
       through: async function* (rows) {
@@ -605,7 +593,10 @@ describe("writeSnapshot", () => {
 
     // Every row reached the transform, in file order, before reaching the TSV.
     assert.deepEqual(seen, files);
-    assert.equal(textWithoutEndInstant(fused), withoutStage);
+    assert.equal(
+      zstdDecompressSync(readFileSync(fused)).toString("utf8"),
+      plainText,
+    );
   });
 
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
@@ -637,9 +628,20 @@ describe("writeSnapshot", () => {
     assert.equal(instant.length, 24);
   });
 
-  it("closes a finished snapshot COMPLETE, at an instant after its last row", async () => {
+  it("closes a finished snapshot COMPLETE, timed by the clock seam as the last row lands", async (t) => {
+    // The trailer times *itself*, which is the whole reason it is worth a
+    // column: the header's instant is minted before the pass reads anything, so
+    // it cannot vouch for a file whose ctime the reading moved (ADR-0085). The
+    // read goes through format.mjs's clock seam — the one door the model
+    // harness mocks — so pinning that clock pins the trailer, rounded up to the
+    // millisecond (`completionInstant`'s rule, pinned in format.test.mjs). An
+    // earlier shape compared against a real clock read and raced on macOS.
     await using dir = await mkTmpDir();
-    const before = Temporal.Now.instant();
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from(
+        "2026-06-23T10:30:00.123456789Z",
+      ).toZonedDateTimeISO("Europe/London"),
+    );
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
@@ -651,42 +653,6 @@ describe("writeSnapshot", () => {
 
     const { status, completed } = await readSnapshotFile(path);
     assert.equal(status, "COMPLETE");
-    assert.ok(completed, "a finished snapshot must record when it finished");
-    // The trailer times *itself*, which is the whole reason it is worth a
-    // column: the header's instant is minted before the pass reads anything, so
-    // it cannot vouch for a file whose ctime the reading moved (ADR-0085).
-    assert.ok(
-      Temporal.Instant.compare(completed, before) >= 0,
-      `the completion instant must be after the write began: ${completed}`,
-    );
-    assert.ok(
-      Temporal.Instant.compare(completed, "2026-06-23T09:00:00.000Z") > 0,
-      "and later than the #SNAPSHOT instant, which the caller pinned to 2026",
-    );
-  });
-
-  it("rounds the completion instant up, never back before the last row", async (t) => {
-    // The column holds milliseconds and the clock has more digits, so the write
-    // must round one way or the other — and truncating (the `toString` default)
-    // records a moment up to a millisecond *earlier* than the write really
-    // ended. A file whose ctime landed in that window then reads as touched
-    // after the snapshot and is distrusted for ever, which is the exact failure
-    // the trailer exists to end (ADR-0085). Caught by CI as a same-millisecond
-    // race on macOS; pinned here to an exact instant so it cannot come back.
-    await using dir = await mkTmpDir();
-    t.mock.method(Temporal.Now, "instant", () =>
-      Temporal.Instant.from("2026-06-23T10:30:00.123456789Z"),
-    );
-
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
-      files: [resolve(dir.path, "a.txt")],
-      excluded: [],
-      getProps: props,
-    });
-
-    const { completed } = await readSnapshotFile(path);
     assert.equal(completed, "2026-06-23T10:30:00.124Z");
   });
 
