@@ -170,10 +170,14 @@ export function reroot(dirs, output) {
 
   const roots = dirs
     .map((dir) => {
-      const { path, base, foldCase } = preparePath(dir);
+      const { path, foldCase } = preparePath(dir);
+      // Not `preparePath`'s own `base`: that answers "what follows the last
+      // separator", which is empty for a `#DIR` header carrying a trailing
+      // one (a hand-edited snapshot). `segments` already trims those.
+      const segments = path.split(posix.sep).filter(Boolean);
       return {
-        segments: path.split(posix.sep).filter(Boolean),
-        base,
+        segments,
+        base: segments.at(-1) ?? "",
         fold: foldCase,
       };
     })

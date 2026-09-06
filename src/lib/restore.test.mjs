@@ -209,6 +209,18 @@ describe("reroot", () => {
       );
     },
   );
+
+  // A `#DIR` header can carry a trailing separator once someone edits the
+  // snapshot by hand. `preparePath`'s `base` answers "what comes after the
+  // last separator", which is empty there — `reroot` must derive the root's
+  // basename from its trimmed segments instead, the way it derives `path`'s.
+  it("re-roots correctly when a #DIR header has a trailing separator", () => {
+    const map = reroot(["/home/me/Photos/"], "out");
+    assert.equal(
+      map("/home/me/Photos/beach.jpg"),
+      join(resolve("out"), "Photos", "beach.jpg"),
+    );
+  });
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
