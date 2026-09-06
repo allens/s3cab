@@ -715,12 +715,13 @@ least once; re-open only if the stated reason no longer holds.
   - **The pattern side stayed keyed on `process.platform`**, unchanged: the pattern is typed at
     this shell, the path came out of a snapshot possibly from another OS. A Windows-typed
     `\\nas\photos\` pattern floats onto the `/`-normalized path through the implicit `**/`.
-  - **Follow-up, not taken.** `reroot` in [restore.mjs](../src/lib/restore.mjs) is the seam's
-    second caller and keeps its own separator rule — it splits roots and paths on both `/` and
-    `\` unconditionally, so a POSIX filename containing a literal backslash mis-splits under
-    `--output`. Left alone because it predates the seam and has its own tests; the honest fix is
-    to have it take `preparePath`'s answer too. Filed here rather than as a candidate: one known
-    input, no user report.
+  - **Follow-up, taken 2026-09-06** ([PR #337](https://github.com/allens/s3cab/pull/337)).
+    `reroot` in [restore.mjs](../src/lib/restore.mjs) now takes `preparePath`'s answer instead of
+    its own `dir.split(/[\\/]/)`, so a POSIX filename containing a literal backslash stays one
+    segment. Copilot's review caught a regression the fix introduced: `preparePath`'s own `base`
+    is empty for a `#DIR` header with a trailing separator, so `reroot`'s basename is derived from
+    the trimmed `segments` array instead (as it always was), not from `preparePath`'s `base`
+    field. Both cases are red-first tests in `restore.test.mjs`.
   - **First CI run on the merge commit failed on `windows-latest`** in
     `snapshot.test.mjs`'s *"keeps them when the interrupted run's own read moved every ctime"* —
     the parked-hashes resume asserted the sentinel and got five real hashes — and passed on
