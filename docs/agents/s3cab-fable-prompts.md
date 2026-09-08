@@ -1,4 +1,4 @@
-# s3cab pre-release prompts for Claude Fable 5
+# s3cab pre-release prompts for Claude Fable
 
 Ordered by contribution to one goal: **reducing the risk that a backup reports success and cannot be restored.**
 
@@ -14,7 +14,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## 1. Repository protocol model and durability audit
 
-**Effort: xhigh. Analysis only, no code changes. Expect a long single run.**
+**Effort: high; raise to xhigh only if a `high` run comes back shallow. Analysis only, no code changes. Expect a long single run.**
 
 > I'm preparing s3cab for a 1.0 release. It's a content-addressable backup tool, and the only failure that really matters is a backup that reports success but cannot be restored. Before I freeze the on-disk and in-bucket format, I want an independent, adversarial assessment of whether the durability invariants actually hold.
 >
@@ -30,7 +30,7 @@ Prompt 7 sits last because it contributes least to restore risk on AWS, which is
 
 ## 1b. Adversarial audit of `delete` and the deletion record
 
-**Effort: xhigh. Analysis only, no code changes.** `find` and a rewritten hash-operand `delete` landed 2026-08-22 ([ADR-0088](../adr/0088-find-matches-like-posix-find.md)/[0089](../adr/0089-hash-operand-delete.md)/[0090](../adr/0090-deletion-record-format-compaction.md)), after prompt 1 ran. They replaced the path-scoped delete and the `deletions/<timestamp>.tsv` files with root-level `objects.deleted-<n>.tsv` records that `cleanup` now **compacts and trims** — the first transition in the tool that deliberately destroys the record of a destructive act. [docs/design/repository-protocol.md](../design/repository-protocol.md) was updated with it, so this run starts from a model instead of deriving one.
+**Effort: high; raise to xhigh only if a `high` run comes back shallow. Analysis only, no code changes.** `find` and a rewritten hash-operand `delete` landed 2026-08-22 ([ADR-0088](../adr/0088-find-matches-like-posix-find.md)/[0089](../adr/0089-hash-operand-delete.md)/[0090](../adr/0090-deletion-record-format-compaction.md)), after prompt 1 ran. They replaced the path-scoped delete and the `deletions/<timestamp>.tsv` files with root-level `objects.deleted-<n>.tsv` records that `cleanup` now **compacts and trims** — the first transition in the tool that deliberately destroys the record of a destructive act. [docs/design/repository-protocol.md](../design/repository-protocol.md) was updated with it, so this run starts from a model instead of deriving one.
 
 One thing to know before you run it: the model suite does **not** exercise this. [runner.mjs](../../test/model/harness/runner.mjs) has no `delete` case and [sequence.mjs](../../test/model/harness/sequence.mjs) never emits one, while [invariants.mjs](../../test/model/harness/invariants.mjs) has grown an exception for recorded hashes — so Tier 1 green is not evidence about any of it.
 
@@ -59,7 +59,7 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## 2. Independent restorer built from the spec alone
 
-**Effort: xhigh. Start this in a fresh session with no prior context.**
+**Effort: high; raise to xhigh only if a `high` run comes back shallow. Start this in a fresh session with no prior context.**
 
 > s3cab's core promise is that its stored format is open enough that you could recover everything without the tool, or write a replacement in an afternoon. I want to test that claim literally rather than take my own word for it.
 >
@@ -73,7 +73,7 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## 2b. Second clean-room restorer, against the revised spec
 
-**Effort: xhigh. Start in a fresh session with no prior context — the run is void if the session has ever opened `docs/format-spec-audit.md`, anything under `scripts/cleanroom/`, or `docs/design/repository-protocol.md`.** Prompt 2's findings were folded back into `guide/format.md` (the sixteen pinned ambiguities, the hoisted reading rules, ADR-0082's `#END` trailer), so a second fresh reader now tests the fixes rather than the original text. When it reports, diff its ambiguity list against `docs/format-spec-audit.md` yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap. The session must see neither list beforehand — hand it this prompt and nothing else.
+**Effort: high; raise to xhigh only if a `high` run comes back shallow. Start in a fresh session with no prior context — the run is void if the session has ever opened `docs/format-spec-audit.md`, anything under `scripts/cleanroom/`, or `docs/design/repository-protocol.md`.** Prompt 2's findings were folded back into `guide/format.md` (the sixteen pinned ambiguities, the hoisted reading rules, ADR-0082's `#END` trailer), so a second fresh reader now tests the fixes rather than the original text. When it reports, diff its ambiguity list against `docs/format-spec-audit.md` yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap. The session must see neither list beforehand — hand it this prompt and nothing else.
 
 > s3cab's core promise is that its stored format is open enough that you could recover everything without the tool, or write a replacement in an afternoon. The spec has been revised since that claim was last tested, and I want it tested again by a fresh reader.
 >
@@ -177,4 +177,4 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 **Findings are hypotheses, not proof.** Prompt 1 will hand you a list containing real races, things you already guard against, and misreadings. Prompts 3 and 4 are how you sort them. Don't let a clean audit substitute for an executable check — false confidence is the exact failure mode you're trying to design out.
 
-**On the credential paths:** reviewing the auth chain and Roles Anywhere handling may trip Fable's safety classifiers and fall back to Opus 5 mid-run. Benign request, just don't be thrown by it.
+**On the credential paths:** reviewing the auth chain and Roles Anywhere handling may trip Fable's safety classifiers and fall back to an Opus model mid-run. Benign request, just don't be thrown by it.
