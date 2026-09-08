@@ -141,7 +141,7 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 **Effort: medium. Short run, useful before a release announcement.**
 
-> This repo has `docs/adr/`, `guide/format.md`, `CONTEXT.md`, and 465 commits of history. Tell me where the code no longer matches what those documents say.
+> This repo has `docs/adr/`, `guide/format.md`, `CONTEXT.md`, and a full commit history. Tell me where the code no longer matches what those documents say.
 >
 > Go through the ADRs and the format spec and check each documented decision against current behaviour. I want three lists: decisions the code has quietly diverged from; behaviour the code has that no document records; and documents describing things that no longer exist. Use the commit history to work out when a divergence happened where that's cheap to establish.
 >
