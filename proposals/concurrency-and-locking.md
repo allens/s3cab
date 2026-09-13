@@ -158,7 +158,61 @@ orphaned objects). When the lock *is* left, the rerun refuses with `inProgressEr
 ("A snapshot of this set is already in progress — or a previous one was interrupted…"), which
 names the exact file and the delete command — observed verbatim, and recovery after the delete
 was clean in every case. What the hard kill costs beyond the hand-delete is the interrupted hash
-pass (the work file dies mid-zstd-frame — §4's point 2, observed).
+pass.
+
+### A hard-killed work file turned out to be readable (2026-09-13)
+
+**Measured on the real 280,232-file OneDrive set**, after a backup died un-gracefully about 3h16m
+in (no handler ran, so nothing was parked): the leftover `.snapshot.tsv.zst` decompressed
+**cleanly** to 50,328,875 bytes holding **271,909 whole file rows of 280,232** — 97% of the pass.
+The only damage was the final TSV line, torn mid-hash. There is no `#END`, so `parseSnapshotStream`
+asserts and nothing will read it — but the rows themselves were all there.
+
+That replaces the parenthetical this paragraph used to carry ("the work file dies mid-zstd-frame"),
+and it qualifies **§4's point 2**: the failure mode attributed there to plain text — *"complete
+lines are readable, and the only new code is tolerating a partial final line"* — is what the
+**compressed** work file actually did. Node's zstd stream flushes blocks as it goes, so a hard kill
+loses the in-flight block, not the stream.
+
+_Not a refutation, and it must not be read as one — n=1._ The crash tier observed a mid-frame death
+on 2026-08-14, and the obvious reconciliation is **size**: a 10MB compressed stream has flushed
+hundreds of blocks, while a small or early-killed run may still sit entirely in the compressor's
+buffer. If that holds, the two observations agree and the rule is "a long run's work file survives,
+a short one's may not" — which is the right way round, since the long run is the one worth
+recovering. **Worth a crash-tier case that kills a large run**, because it decides how much of §4
+is still being bought.
+
+### Recovering it, rather than deleting it (user, 2026-09-13)
+
+*"Could we automate recovery? Seems like you can do it anyway, so why not make it a feature?"* —
+raised on seeing that the `del` in `inProgressError`'s remedy throws away 3h16m of hashing.
+
+What makes this smaller than item 2 proper: **it needs none of the auto-break heuristics ADR-0048
+rejected.** The user is already the liveness check — the error says *"If no snapshot or backup of
+this set is running now, delete the file and retry"*, and they act on it. Recovery changes only
+what happens *after* that call, from discard to reuse. ADR-0067 supplies the safety argument
+unchanged: reading is harmless, because every reused hash is re-validated against the live file's
+size+mtime, so a stale row simply fails to match and is re-hashed.
+
+_My analysis, not a decision:_ three pieces, none of them large.
+
+1. **A tolerant read, for this path only.** `parseSnapshotStream`'s missing-`#END` assert is right
+   for a snapshot (ADR-0082's truncation detection, which `isCorruptSnapshotError` depends on) and
+   wrong for a work file, where an absent trailer is the expected state. Recovery needs a mode that
+   keeps what it read and drops a torn final line — the same new code §4's point 2 already costs.
+2. **No synthesized trust boundary.** A recovered file has no completion instant, and
+   `trustBoundary` already reads absent as "trust size+mtime alone"
+   ([snapshot.mjs](../src/lib/snapshot.mjs)) — exactly what a pre-ADR-0085 parked file gets today.
+   Stamping the work file's mtime is the alternative; recording nothing is the more honest of the
+   two.
+3. **The remedy line** in `inProgressError`, offering recovery instead of `del`. Explicit, not a
+   prompt — a y/N offer in `backup` was declined in the 2026-08-21 drift audit.
+
+**Where this meets the rest of the file:** it shrinks §4's bonus (the tolerant parser is needed
+either way), and the **unique-temp-name-per-run** option above is what would make recovery
+*automatic* rather than user-invoked — an orphan that cannot collide with a live run can simply be
+swept and reused, with no liveness question left to answer. That remains the live starting point;
+this is the manual half that pays off before it arrives.
 
 ## 3. `delete` is a third destructive actor (added by the deletion rework)
 
@@ -221,7 +275,10 @@ and compress once at finalize.
    parser, no periodic flushing, no `--resume`". Plain text collects most of that robustness
    without the parser: complete lines are readable, and the only new code is tolerating a partial
    *final* line, where `parseSnapshotStream` currently asserts. On a multi-hour first seed that is
-   the difference between losing everything and losing one row.
+   the difference between losing everything and losing one row. _Qualified 2026-09-13:_ a real hard
+   kill on a multi-hour run left the **compressed** work file readable to within one torn line, so
+   the gap between the two forms may be far narrower than this point assumes — read §2's
+   measurement before leaning on it.
 3. **The write window is now longer and more eventful.** Since the fusion, uploads happen *inside*
    the write, so the work file is open across all the network work rather than local work alone.
 
