@@ -57,6 +57,13 @@ at the middleware stack's `initialize` step, *outside* the SDK's own retry middl
 
 - **Window: 120 s per request.** Time, not attempts, because the goal is time-shaped: leave a
   backup running unattended and let it survive the wifi dropping for a few seconds.
+  - **Amended 2026-09-13 ([0091](0091-idle-connection-bound-and-retry-window-origin.md)): it runs
+    from the first failure, not from the request.** Every measurement below was taken against
+    errnos that fail *instantly*, where the two origins are the same thing. They are not the same
+    thing when the failure is slow to discover: one pass through `next` is a whole SDK
+    attempt-and-retry cycle, so on a silent socket the first pass alone spent 60–90 s of the
+    window and the relay got one retry rather than hundreds. Same constant, same behaviour here;
+    what changed is what the 120 s is measured from.
   - **Why not 30 s** — a shorter window's best argument was that a long silent wait reads as a
     hang, and the status line under Consequences below removed it: the wait now announces itself
     and states its bound. A visible, explained two-minute wait is not the experience two minutes

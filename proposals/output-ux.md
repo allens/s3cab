@@ -74,6 +74,25 @@ niceties.
   decide whether it is worth drawing. Either way the 1s threshold itself wants to come down: the
   redraw floor is 100ms ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)), so
   there is room between the two.
+- **`Connection lost` is announced once per *outage* only while the outage's requests overlap**
+  (noticed 2026-09-13 while writing
+  [ADR-0091](../docs/adr/0091-idle-connection-bound-and-retry-window-origin.md); deliberately not
+  fixed there). [network-status.mjs](../src/lib/network-status.mjs) reference-counts the requests
+  waiting out a drop so that a message isn't printed once per part, which is right for the case it
+  was written against — [ADR-0060](../docs/adr/0060-multipart-tuning-in-flight-bytes.md)'s 32
+  parts in flight, all failing together, the count never touching zero. But
+  [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)'s fused pass is **strictly
+  sequential**: one request in flight, so the count falls to zero the moment that request gives up,
+  `announced` resets, and the next request announces the same outage again. The backup that
+  prompted ADR-0091 printed `Connection lost` twice with no `Back online` between them — which
+  reads as two outages that each silently ended, when it was one link misbehaving. Cosmetic, and
+  only visible where concurrency is 1, which is why it was left alone.
+  _Not obviously right, which is why it wasn't just done:_ the shapes are suppress-by-recency (keep
+  `announced` set for some period after the count hits zero) or suppress-until-recovery (only a
+  `Back online` clears it). The first needs a duration nothing else in the module has; the second
+  means a run whose link never comes back says `Connection lost` exactly once across an hour of
+  failures, which may be too quiet — a request that has been retrying for two minutes and failed is
+  arguably news each time it happens.
 - **The progress lines' *timing* is untested** — deliberately, for now. Two behaviours rest on
   real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing, and the 1-second `setInterval`
   that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
