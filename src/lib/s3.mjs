@@ -313,23 +313,32 @@ export const isNetworkError = (error) =>
  * user whose connection was working sees that headline, believes it, and hunts a
  * fault that isn't there; the stale-socket case behind ADR-0091 was diagnosed
  * *despite* this message rather than with it.
+ *
+ * The headline has to stay true of **every** row that reaches it, which is wider
+ * than a dropped link: `NETWORK_ERROR_CODES` also carries DNS failures
+ * (`ENOTFOUND`, `EAI_AGAIN`) and an outright refusal (`ECONNREFUSED`). "The
+ * connection stopped responding" is false for all three — a name that doesn't
+ * resolve opened no connection, and a refusal is a reply. So the headline says
+ * only that the request didn't arrive, the causes are offered as possibilities,
+ * and the errno underneath does the discriminating.
  * @param {unknown} cause - The transport error that triggered it.
  */
 const networkError = (cause) =>
   new Error(
-    `Couldn't reach the cloud — the connection stopped responding.
+    `Couldn't reach the cloud — the request didn't get through.
 
-The request never got a reply, so this is the link to the cloud rather
-than anything wrong with your bucket or your credentials. Your internet
-may well be fine: a VPN switching on, Wi-Fi dropping or a laptop waking
-from sleep will all do it, and so will a connection left idle long enough
-for something in between to quietly close it.
+No reply came back, so this is the link to the cloud or the address it
+points at, rather than anything wrong with your bucket or your
+credentials. Your internet may well be fine: a VPN switching on, Wi-Fi
+dropping or a laptop waking from sleep will all do it, and so will a
+connection left idle long enough for something in between to quietly
+close it. The exact failure is below.
 
 Everything already uploaded is safely stored. Run the same command again —
 s3cab skips whatever it has already uploaded, so it picks up close to
 where it stopped.
 
-The connection failed with:
+The request failed with:
      ${errorText(cause).replaceAll("\n", "\n     ")}`,
     { cause },
   );
@@ -525,7 +534,13 @@ export const requestErrorRelay =
               // on the first retry, so this waits for one failed retry first.
               if (attempt >= 1 && !waiting) {
                 waiting = true;
-                enterNetworkWait(process.stderr, windowMs);
+                // What is *left* of the window, not the whole of it. The clock
+                // started at the first failure and discovering the second can
+                // have eaten most of it, so naming the constant here would
+                // promise a ceiling this request will not honour. Still computed
+                // once and static (ADR-0068) — a tighter true bound, not a
+                // countdown.
+                enterNetworkWait(process.stderr, deadline - Date.now());
               }
               const delay = networkRetryDelay(attempt);
               await new Promise((resolve) => setTimeout(resolve, delay));

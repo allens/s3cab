@@ -110,6 +110,21 @@ class CountingAgent extends Agent {
   }
 }
 
+const USAGE =
+  "Usage: node scripts/idle-socket-probe.mjs <bucket> [--bound <ms>] [--gaps 5,30,120]";
+
+/**
+ * Refuse a malformed value rather than coercing it. `Number("nope")` is `NaN`,
+ * which is falsy for the bound and a zero-length sleep for a gap — so without
+ * this the probe runs happily and measures something other than what was asked
+ * for, which is the one failure a measuring instrument must not have.
+ * @param {string} message
+ */
+function refuse(message) {
+  stderr.write(`${message}\n${USAGE}\n`);
+  exit(2);
+}
+
 /**
  * @param {string[]} args
  * @returns {{ bucket: string | undefined, bound: number, gaps: number[] }}
@@ -120,11 +135,22 @@ function parseArgs(args) {
   let gaps = DEFAULT_GAPS;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--bound") {
-      bound = Number(args[++i]);
+      const value = Number(args[++i]);
+      if (!Number.isFinite(value) || value <= 0) {
+        refuse(
+          `--bound wants a positive number of milliseconds, got '${args[i]}'.`,
+        );
+      }
+      bound = value;
     } else if (args[i] === "--gaps") {
-      gaps = String(args[++i])
-        .split(",")
-        .map((g) => Number(g.trim()));
+      const raw = String(args[++i]);
+      const parsed = raw.split(",").map((g) => Number(g.trim()));
+      if (parsed.some((gap) => !Number.isFinite(gap) || gap <= 0)) {
+        refuse(
+          `--gaps wants a comma-separated list of positive seconds, got '${raw}'.`,
+        );
+      }
+      gaps = parsed;
     } else {
       bucket = args[i];
     }
@@ -146,7 +172,14 @@ async function probe(bucket, gapSeconds, bound) {
   const client = new S3Client({
     region: env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? "us-east-1",
     followRegionRedirects: true,
-    requestHandler: { httpsAgent: agent },
+    requestHandler: {
+      httpsAgent: agent,
+      // Production's bounds (ADR-0065), because the outcome this exists to catch
+      // is a *half-open* socket: without a socket timeout the second PUT would
+      // hang for ever, and the black-hole row would never be printed at all.
+      socketTimeout: 30_000,
+      connectionTimeout: 10_000,
+    },
     // The SDK's own retries would hide the very failure being measured.
     maxAttempts: 1,
   });

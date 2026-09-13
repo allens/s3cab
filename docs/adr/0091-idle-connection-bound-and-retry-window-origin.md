@@ -79,6 +79,10 @@ Against `eu-west-1`, no agent bound (the pre-ADR-0091 default):
 confirmation: 15, 30, 60, 120 and 300 s each reported nothing pooled, a fresh connection, and `ok`
 in about a fifth of a second.
 
+With `--bound 1000`, a 2 s gap reports nothing pooled and a fresh connection — the same gap the
+unbounded run reused. So the option does evict; what could not be reproduced is the *failure* it
+guards, not the mechanism.
+
 Two conclusions follow, and they pull in opposite directions. Reuse beyond ~5 s does not happen on
 a healthy link, so the stale-socket hypothesis is **not** the everyday event the first reading made
 it; and equally, a bound at 10 s gives up no reuse that this link was ever going to offer.
@@ -123,6 +127,12 @@ pass that could not finish inside it, so the relay effectively got a single retr
 clock at the failure gives the two minutes to the retrying rather than to the discovering — and it
 makes the outage announcement reachable, which on this path it was not.
 
+That announcement now names **what is left** of the window rather than the constant. Discovering
+the second failure can eat most of it, and a line reading `up to 2 minutes` above a request that
+will give up in thirty seconds states a ceiling it does not intend to honour. Still computed once
+and static, as [0068](0068-network-retries-above-the-sdk.md) chose — a tighter true bound, not a
+countdown.
+
 ### Why not shorten the socket timeout
 
 The obvious third change, and it is rejected. Cutting 30 s to 10 s would find a black hole three
@@ -141,6 +151,13 @@ this one was diagnosed *despite* the message. It now names the symptom, says the
 be fine, and lists an idle connection quietly closed in between among the causes
 ([0030](0030-error-message-guidelines.md): plain language, no claim the tool can't support).
 
+The headline has to hold for **every** errno routed here, which is wider than a dropped link:
+`NETWORK_ERROR_CODES` also carries DNS failures and an outright refusal, and a name that doesn't
+resolve opened no connection while a refusal is a reply. So it says only that the request didn't
+get through, and the errno printed below it does the discriminating. (A first cut read *the
+connection stopped responding* — true of the incident, false of three of the codes that reach it.
+Reviewer-caught, and the same over-claiming this section exists to remove.)
+
 ## Consequences
 
 - **The pool no longer depends on hearing the peer's close.** That dependency was invisible while
@@ -152,12 +169,15 @@ be fine, and lists an idle connection quietly closed in between among the causes
 - **0068's window is unchanged in value and in spirit.** Its measurements were taken against
   instant-failure errnos and remain correct for them; what was wrong was generalizing a window
   measured from request start to a failure mode whose discovery is not instant.
-- **Two tests, and the pair is the point.** A behavioural one (a loopback server counting TCP
-  connections: idle past the bound opens a new connection, the same gap with a long bound reuses
-  one — the control, without which a server-side close would pass just as well) and a value one
-  (both schemes carry a bound), because the behavioural test can only drive the http agent while
-  every real run uses https. This is 0065's lesson applied — *a value-shaped assertion cannot
-  notice that meaning changed* — and its converse.
+- **Two *kinds* of test, and the pair is the point.** Behavioural ones (a loopback server counting
+  TCP connections: idle past the bound opens a new connection; the same gap with a long bound
+  reuses one — the control, without which a server-side close would pass just as well; and a
+  deliberately slow reply, which must survive, since the bound governing a *live* socket would
+  abort any upload whose reads stall) and a value one (both schemes carry a bound, in the range
+  argued above rather than the exact number, which would only detect retuning), because the
+  behavioural tests can only drive the http agent while every real run uses https. This is 0065's
+  lesson applied — *a value-shaped assertion cannot notice that meaning changed* — and its
+  converse.
 - **The probe is kept.** `scripts/idle-socket-probe.mjs` re-runs the measurement when a link,
   region or provider changes, and `--bound <ms>` runs it against the fix.
 - **Still unfixed, and worth knowing.** `lib/network-status.mjs` promises one message per outage by

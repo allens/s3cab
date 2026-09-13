@@ -241,12 +241,25 @@ describe("clientConfig connection reuse", () => {
    * connection, both arms would pass and the test would prove nothing. */
   const GAP_MS = 600;
 
+  /** How long the server sits on a request for the slow key, comfortably past
+   * IDLE_MS so an agent bound that leaked onto a live request would fire. */
+  const SLOW_REPLY_MS = 600;
+
   before(async () => {
     server = createServer((request, response) => {
       request.resume();
       request.on("end", () => {
-        response.writeHead(200, { ETag: '"d41d8cd98f00b204e9800998ecf8427e"' });
-        response.end();
+        const reply = () => {
+          response.writeHead(200, {
+            ETag: '"d41d8cd98f00b204e9800998ecf8427e"',
+          });
+          response.end();
+        };
+        if (request.url?.includes("slow")) {
+          setTimeout(reply, SLOW_REPLY_MS);
+        } else {
+          reply();
+        }
       });
     });
     server.on("connection", () => {
@@ -333,20 +346,51 @@ describe("clientConfig connection reuse", () => {
     }
   });
 
-  it("ships a bound for both schemes", () => {
+  it("leaves a request in flight alone, however long it takes", async () => {
+    // The invariant the whole change rests on, and the one whose failure would be
+    // expensive: the bound must govern *idle* sockets only. Node applies the
+    // agent's timeout to the socket when it creates it, and the handler installs
+    // its own per-request one over the top — after a 3 s deferral, so for the
+    // first three seconds of every request the agent's value is the live one.
+    // Were a live socket destroyed on that timer, a 10 s bound would abort any
+    // upload whose reads stall longer than that — routine on the Cloud Files
+    // driver this work came from, and the reason ADR-0091 rejects shortening
+    // `socketTimeout` instead.
+    const client = clientIdlingFor(IDLE_MS);
+    try {
+      const slow = new PutObjectCommand({
+        Bucket: "bucket",
+        Key: "slow",
+        Body: "hello",
+      });
+      await client.send(slow);
+      assert.equal(connections, 1, "the request must survive its own duration");
+    } finally {
+      client.destroy();
+    }
+  });
+
+  it("ships a bound for both schemes, in the range ADR-0091 argues for", () => {
     // The value half, and not redundant: the behavioural tests can only drive the
     // http agent (loopback TLS would need a certificate), while the https one is
     // what every real run uses. A bound on one and not the other would leave
     // production exactly as exposed as it was.
+    //
+    // A range, not the shipped number. Pinning 10 s would fail on any retune —
+    // a change-detector, since nothing about 10 s versus 8 s is behaviour. The
+    // range is where the argument lives: below a second the bound would start
+    // discarding sockets between back-to-back parts, and past a minute it is
+    // inert, because S3 closes an idle connection long before that (measured at
+    // ~5 s, scripts/idle-socket-probe.mjs).
     const requestHandler =
       /** @type {{ httpAgent?: { timeout?: number }, httpsAgent?: { timeout?: number } }} */ (
         clientConfig().requestHandler
       );
     for (const scheme of /** @type {const} */ (["httpAgent", "httpsAgent"])) {
-      const timeout = requestHandler[scheme]?.timeout;
+      const timeout = Number(requestHandler[scheme]?.timeout);
       assert.ok(
-        Number.isFinite(timeout) && Number(timeout) > 0,
-        `${scheme} must bound how long a socket may idle, got ${timeout}`,
+        timeout >= 1_000 && timeout <= 60_000,
+        `${scheme} must bound idle sockets within 1–60 s, got ${timeout}`,
       );
     }
   });
@@ -685,7 +729,7 @@ describe("requestErrorRelay", () => {
       });
       await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
         assert.equal(error.cause, cause);
-        assert.match(error.message, /the connection stopped responding/);
+        assert.match(error.message, /the request didn't get through/);
         assert.match(
           error.message,
           /Everything already uploaded is safely stored/,
@@ -703,7 +747,7 @@ describe("requestErrorRelay", () => {
     await assert.rejects(
       rejectWith(named("TimeoutError")),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /the connection stopped responding/);
+        assert.match(error.message, /the request didn't get through/);
         return true;
       },
     );
@@ -725,7 +769,7 @@ describe("requestErrorRelay", () => {
     assert.equal(cause.message, ""); // the premise: nothing to print
     assert.ok(isNetworkError(cause));
     await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
-      assert.match(error.message, /the connection stopped responding/);
+      assert.match(error.message, /the request didn't get through/);
       assert.match(
         error.message,
         /52\.219\.72\.100:443; connect ENETUNREACH 52\.219\.98\.20:443/,
@@ -856,7 +900,7 @@ describe("requestErrorRelay network retries", () => {
     await assert.rejects(
       requestErrorRelay(50)(next)({ input: {} }),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /the connection stopped responding/);
+        assert.match(error.message, /the request didn't get through/);
         return true;
       },
     );
@@ -893,7 +937,7 @@ describe("requestErrorRelay network retries", () => {
     await assert.rejects(
       requestErrorRelay()(next)({ input: { Body: Readable.from(["chunk"]) } }),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /the connection stopped responding/);
+        assert.match(error.message, /the request didn't get through/);
         return true;
       },
     );
