@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   authNotice,
@@ -216,6 +217,138 @@ describe("clientConfig request timeouts", () => {
         Number(requestHandler.connectionTimeout) > 0,
       `connectionTimeout must be a positive number, got ${requestHandler?.connectionTimeout}`,
     );
+  });
+});
+
+// Connection *reuse*, and the bound on it (ADR-0091) — asserted by behaviour for
+// the same reason the timeouts above are. The fault it guards: S3 closes an idle
+// connection from its end, and when that close goes unheard (a firewall or NAT
+// dropping the flow) the socket sits in the pool looking usable, so writing to it
+// goes unanswered until the 30 s socket timeout. Only a connection count can see
+// whether an idle socket was handed out again, so only a connection count can
+// guard it.
+describe("clientConfig connection reuse", () => {
+  /** @type {Server} */
+  let server;
+  /** @type {number} TCP connections the server has accepted this test. */
+  let connections;
+
+  /** The bound under test. Short enough for a unit test; the production value is
+   * asserted separately below. */
+  const IDLE_MS = 200;
+  /** How long to leave a socket idle. Longer than IDLE_MS, and far under Node's
+   * own 5 s server-side `keepAliveTimeout` — were the gap itself what closed the
+   * connection, both arms would pass and the test would prove nothing. */
+  const GAP_MS = 600;
+
+  before(async () => {
+    server = createServer((request, response) => {
+      request.resume();
+      request.on("end", () => {
+        response.writeHead(200, { ETag: '"d41d8cd98f00b204e9800998ecf8427e"' });
+        response.end();
+      });
+    });
+    server.on("connection", () => {
+      connections += 1;
+    });
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+  });
+
+  beforeEach(() => {
+    connections = 0;
+  });
+
+  /**
+   * Production's own config with one duration replaced, so what runs is the
+   * option `clientConfig()` actually ships rather than a shape invented here.
+   * @param {number} idleMs
+   * @returns {S3Client}
+   */
+  const clientIdlingFor = (idleMs) => {
+    const { port } = /** @type {AddressInfo} */ (server.address());
+    const config = clientConfig();
+    return new S3Client({
+      ...config,
+      requestHandler: {
+        .../** @type {Record<string, unknown>} */ (config.requestHandler),
+        httpAgent: { timeout: idleMs },
+      },
+      endpoint: `http://127.0.0.1:${port}`,
+      forcePathStyle: true,
+      credentials: { accessKeyId: "test", secretAccessKey: "test" },
+      // One shot: this is about which socket carries the request, not retries.
+      maxAttempts: 1,
+    });
+  };
+
+  const put = () =>
+    new PutObjectCommand({ Bucket: "bucket", Key: "key", Body: "hello" });
+
+  it("reuses a pooled connection for back-to-back requests", async () => {
+    const client = clientIdlingFor(IDLE_MS);
+    try {
+      await client.send(put());
+      await client.send(put());
+      assert.equal(connections, 1, "keep-alive must still pool a warm socket");
+    } finally {
+      client.destroy();
+    }
+  });
+
+  it("discards a connection that has sat idle past the bound", async () => {
+    const client = clientIdlingFor(IDLE_MS);
+    try {
+      await client.send(put());
+      await delay(GAP_MS);
+      await client.send(put());
+      assert.equal(
+        connections,
+        2,
+        "an idle socket must be thrown away, not handed out again",
+      );
+    } finally {
+      client.destroy();
+    }
+  });
+
+  it("keeps it across the same gap when the bound is long", async () => {
+    // The control. Same server, same gap, only the bound changed — without it the
+    // test above would pass just as well if the *server* had done the closing,
+    // which would make the option under test inert and the suite none the wiser.
+    const client = clientIdlingFor(60_000);
+    try {
+      await client.send(put());
+      await delay(GAP_MS);
+      await client.send(put());
+      assert.equal(connections, 1, "only the bound should close a warm socket");
+    } finally {
+      client.destroy();
+    }
+  });
+
+  it("ships a bound for both schemes", () => {
+    // The value half, and not redundant: the behavioural tests can only drive the
+    // http agent (loopback TLS would need a certificate), while the https one is
+    // what every real run uses. A bound on one and not the other would leave
+    // production exactly as exposed as it was.
+    const requestHandler =
+      /** @type {{ httpAgent?: { timeout?: number }, httpsAgent?: { timeout?: number } }} */ (
+        clientConfig().requestHandler
+      );
+    for (const scheme of /** @type {const} */ (["httpAgent", "httpsAgent"])) {
+      const timeout = requestHandler[scheme]?.timeout;
+      assert.ok(
+        Number.isFinite(timeout) && Number(timeout) > 0,
+        `${scheme} must bound how long a socket may idle, got ${timeout}`,
+      );
+    }
   });
 });
 
@@ -552,7 +685,7 @@ describe("requestErrorRelay", () => {
       });
       await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
         assert.equal(error.cause, cause);
-        assert.match(error.message, /your network connection dropped/);
+        assert.match(error.message, /the connection stopped responding/);
         assert.match(
           error.message,
           /Everything already uploaded is safely stored/,
@@ -570,7 +703,7 @@ describe("requestErrorRelay", () => {
     await assert.rejects(
       rejectWith(named("TimeoutError")),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /your network connection dropped/);
+        assert.match(error.message, /the connection stopped responding/);
         return true;
       },
     );
@@ -592,7 +725,7 @@ describe("requestErrorRelay", () => {
     assert.equal(cause.message, ""); // the premise: nothing to print
     assert.ok(isNetworkError(cause));
     await assert.rejects(rejectWith(cause), (/** @type {any} */ error) => {
-      assert.match(error.message, /your network connection dropped/);
+      assert.match(error.message, /the connection stopped responding/);
       assert.match(
         error.message,
         /52\.219\.72\.100:443; connect ENETUNREACH 52\.219\.98\.20:443/,
@@ -723,11 +856,30 @@ describe("requestErrorRelay network retries", () => {
     await assert.rejects(
       requestErrorRelay(50)(next)({ input: {} }),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /your network connection dropped/);
+        assert.match(error.message, /the connection stopped responding/);
         return true;
       },
     );
     assert.ok(calls > 1, `should have retried before giving up (got ${calls})`);
+  });
+
+  it("starts the window at the first failure, not at the request", async () => {
+    // The silent-link shape (ADR-0091). One pass through `next` is a whole SDK
+    // attempt-and-retry cycle, and against a half-open socket that costs three
+    // socket timeouts — so measured from the request, the first pass spends the
+    // whole window and the relay gives up having retried once. Here the first
+    // pass outlasts the window on its own, and the retry must still happen.
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      if (calls === 1) {
+        await delay(80);
+        throw dropped();
+      }
+      return "ok";
+    };
+    assert.equal(await requestErrorRelay(50)(next)({ input: {} }), "ok");
+    assert.equal(calls, 2, "a slow first failure must not consume the window");
   });
 
   it("never retries a request whose body is a stream", async () => {
@@ -741,7 +893,7 @@ describe("requestErrorRelay network retries", () => {
     await assert.rejects(
       requestErrorRelay()(next)({ input: { Body: Readable.from(["chunk"]) } }),
       (/** @type {any} */ error) => {
-        assert.match(error.message, /your network connection dropped/);
+        assert.match(error.message, /the connection stopped responding/);
         return true;
       },
     );
