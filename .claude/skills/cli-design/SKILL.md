@@ -14,13 +14,13 @@ description: >-
 
 This is the **distilled essence** of the [Command Line Interface
 Guidelines](https://clig.dev) (clig.dev), the project's chosen authority for CLI
-*shape* (CLAUDE.md names it the bible; the companion authority for error
+*shape* (CLAUDE.md routes every command-shape decision here; the companion authority for error
 *wording* is [ADR-0030](../../../docs/adr/0030-error-message-guidelines.md)).
 s3cab is a **backup CLI for a casual but technical user** (someone who can stand up
 an S3-compatible service, not a git-native developer) — largely non-interactive, run both
 by hand and from scripts/cron — so the guidance below is filtered to that case
 and anchored to the ADRs where s3cab has already decided something. Apply it; a
-violation is a review finding (the `/review` Standards axis + Copilot).
+violation is a review finding (the `/code-review` Standards axis + Copilot).
 
 > **Deep dive when the distilled rule isn't enough.** The full source is one big
 > markdown file:
@@ -164,7 +164,7 @@ these rules live:
   warn (don't break) when a form is deprecated, suggesting the new way. Iterating
   on *human* output is fine — `--json`/`--plain` are the script-facing contract.
   How bold to be is **version-gated** (pre-1.0 free rein vs post-1.0 care) — see
-  CLAUDE.md convention #7.
+  CLAUDE.md's *Do not over-engineer* working convention.
 
 ## Naming
 
