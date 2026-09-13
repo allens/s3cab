@@ -142,6 +142,33 @@ export function authNotice({
 const SOCKET_TIMEOUT_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 10_000;
 
+// How long a pooled connection may sit unused before it is thrown away rather
+// than handed out again (ADR-0091).
+//
+// The handler pools sockets with keep-alive on and evicts none of them itself: a
+// free socket lives until the peer closes it. Measured against S3
+// (scripts/idle-socket-probe.mjs) the peer closes at about 5 s and Node reaps the
+// socket cleanly, so on a healthy link there is seldom anything old enough to go
+// stale. What that leaves us relying on is the close being *heard*: a stateful
+// firewall or NAT can drop the flow without either end hearing, and the socket
+// then sits in the pool looking perfectly usable. Writing to it draws silence
+// that nothing ends until `socketTimeout` above fires 30 s later.
+//
+// So this is a backstop rather than a competitor to the peer's own housekeeping
+// — deliberately set above that ~5 s close, it fires only when the close went
+// unheard. It costs no reuse s3cab actually uses: requests here are either
+// back-to-back (a run of files to upload, a multipart's parts) or minutes apart,
+// while `backup`'s strictly sequential fused pass hashes rows that dedup away
+// (lib/upload.mjs). Almost nothing falls in the seconds-wide band between.
+//
+// Passed as plain agent *options* rather than an `https.Agent` we build: the
+// handler spreads them into the agent it constructs, so this keeps
+// @smithy/node-http-handler unimported for the same reason the timeouts above do
+// (ADR-0005). In-flight requests are unaffected — the handler sets its own
+// per-request socket timeout, and Node restores the agent's only once the socket
+// is back in the pool.
+const IDLE_SOCKET_TIMEOUT_MS = 10_000;
+
 /**
  * The S3 client configuration. Split out from `client()` so the endpoint-driven
  * gating below (region, checksum mode, region-redirect) can be asserted directly
@@ -156,6 +183,9 @@ export function clientConfig() {
     requestHandler: {
       socketTimeout: SOCKET_TIMEOUT_MS,
       connectionTimeout: CONNECTION_TIMEOUT_MS,
+      // Both schemes: `endpoint` may be plain http for a local provider.
+      httpAgent: { timeout: IDLE_SOCKET_TIMEOUT_MS },
+      httpsAgent: { timeout: IDLE_SOCKET_TIMEOUT_MS },
     },
     // Bootstrap region only, so ordinary users needn't configure AWS: SigV4 needs
     // *a* region to sign the first request, so default to us-east-1 when none is
@@ -272,25 +302,43 @@ export const isNetworkError = (error) =>
  * The actionable "your connection dropped" error (ADR-0030 wording). Like the
  * credential rejections with no single-command fix, it leads with a
  * plain-language headline and embeds the raw failure for googling — but the
- * remedy here is only ever "get back online and run it again", so the reassuring
- * part is what earns its place: a backup dying half-way *looks* like lost work,
- * and content-addressed storage means it isn't. Nothing catches it by type, so a
+ * remedy here is only ever "run it again", so the reassuring part is what earns
+ * its place: a backup dying half-way *looks* like lost work, and
+ * content-addressed storage means it isn't. Nothing catches it by type, so a
  * plain `Error`; `cause` keeps the original for the S3CAB_DEBUG dump.
+ *
+ * **It names the symptom, not a cause.** It used to open "your network
+ * connection dropped" and tell the reader to get back online — an assertion
+ * s3cab cannot make, since all it knows is that one request went unanswered. A
+ * user whose connection was working sees that headline, believes it, and hunts a
+ * fault that isn't there; the stale-socket case behind ADR-0091 was diagnosed
+ * *despite* this message rather than with it.
+ *
+ * The headline has to stay true of **every** row that reaches it, which is wider
+ * than a dropped link: `NETWORK_ERROR_CODES` also carries DNS failures
+ * (`ENOTFOUND`, `EAI_AGAIN`) and an outright refusal (`ECONNREFUSED`). "The
+ * connection stopped responding" is false for all three — a name that doesn't
+ * resolve opened no connection, and a refusal is a reply. So the headline says
+ * only that the request didn't arrive, the causes are offered as possibilities,
+ * and the errno underneath does the discriminating.
  * @param {unknown} cause - The transport error that triggered it.
  */
 const networkError = (cause) =>
   new Error(
-    `Couldn't reach the cloud — your network connection dropped.
+    `Couldn't reach the cloud — the request didn't get through.
 
-The request never got a reply, so this is the connection rather than
-anything wrong with your bucket or your credentials. A VPN switching on,
-Wi-Fi dropping, or a laptop waking from sleep will all do it.
+No reply came back, so this is the link to the cloud or the address it
+points at, rather than anything wrong with your bucket or your
+credentials. Your internet may well be fine: a VPN switching on, Wi-Fi
+dropping or a laptop waking from sleep will all do it, and so will a
+connection left idle long enough for something in between to quietly
+close it. The exact failure is below.
 
-Everything already uploaded is safely stored. Once you're back online, run
-the same command again — s3cab skips whatever it has already uploaded, so
-it picks up close to where it stopped.
+Everything already uploaded is safely stored. Run the same command again —
+s3cab skips whatever it has already uploaded, so it picks up close to
+where it stopped.
 
-The connection failed with:
+The request failed with:
      ${errorText(cause).replaceAll("\n", "\n     ")}`,
     { cause },
   );
@@ -378,6 +426,16 @@ const requestErrorTable = [
 // minutes covers a wifi blip, a VPN coming up, or a laptop waking, and still
 // reports a genuinely dead link while someone might plausibly still be watching.
 //
+// **It runs from the first failure, not from the request** (ADR-0091). Measuring
+// from the request start silently spent the whole window on *discovering* the
+// failure whenever the link went silent rather than refusing outright: one pass
+// through `next` is a full SDK attempt-and-retry cycle, up to 3 × the 30s socket
+// timeout, so a 120s window bought one retry — against the hundreds the errno
+// flavours get, which is what ADR-0068 measured and generalized from. Same
+// constant, and on an instant-failure errno the same behaviour; the difference
+// only shows on the silent path, where it decides whether the relay gets a single
+// retry or the two minutes of them this says it gives.
+//
 // The delay cap is what bounds *recovery* latency: once the network returns, a
 // request already asleep can't notice until it wakes, so a high cap makes a 3s
 // outage take 12s to recover from (measured in the spike). 2s keeps the wasted
@@ -445,7 +503,10 @@ export const requestErrorRelay =
   (windowMs = NETWORK_RETRY_WINDOW_MS) =>
   (/** @type {(args: any) => Promise<any>} */ next) =>
   async (/** @type {any} */ args) => {
-    const deadline = Date.now() + windowMs;
+    // When to stop retrying, set by the *first* transport failure rather than by
+    // the request starting — see NETWORK_RETRY_WINDOW_MS.
+    /** @type {number | undefined} */
+    let deadline;
     // Whether this request has been counted into the shared outage, and whether
     // it got through — read by the `finally`, which is the only place that can
     // balance the count on every exit (return, give-up, and a throw from the
@@ -459,22 +520,32 @@ export const requestErrorRelay =
           recovered = true;
           return result;
         } catch (error) {
-          if (
-            isNetworkError(error) &&
-            Date.now() < deadline &&
-            !hasStreamBody(args)
-          ) {
-            // Announce from the *second* retry: a blip that clears inside one
-            // backoff resolves in well under a second, and saying so would put a
-            // line in the log every time a flaky link hiccups. `attempt` is 0 on
-            // the first retry, so this waits for one failed retry first.
-            if (attempt >= 1 && !waiting) {
-              waiting = true;
-              enterNetworkWait(process.stderr, windowMs);
+          if (isNetworkError(error) && !hasStreamBody(args)) {
+            // Starting the clock here is what makes the window mean "keep trying
+            // for two minutes" rather than "two minutes minus however long the
+            // failure took to discover". The comparison right below it is
+            // therefore always true on the first failure, deliberately: one
+            // retry is unconditional, and the window bounds the ones after it.
+            deadline ??= Date.now() + windowMs;
+            if (Date.now() < deadline) {
+              // Announce from the *second* retry: a blip that clears inside one
+              // backoff resolves in well under a second, and saying so would put
+              // a line in the log every time a flaky link hiccups. `attempt` is 0
+              // on the first retry, so this waits for one failed retry first.
+              if (attempt >= 1 && !waiting) {
+                waiting = true;
+                // What is *left* of the window, not the whole of it. The clock
+                // started at the first failure and discovering the second can
+                // have eaten most of it, so naming the constant here would
+                // promise a ceiling this request will not honour. Still computed
+                // once and static (ADR-0068) — a tighter true bound, not a
+                // countdown.
+                enterNetworkWait(process.stderr, deadline - Date.now());
+              }
+              const delay = networkRetryDelay(attempt);
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
             }
-            const delay = networkRetryDelay(attempt);
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            continue;
           }
           for (const { match, make } of requestErrorTable) {
             if (match(error)) {

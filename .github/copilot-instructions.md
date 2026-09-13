@@ -33,8 +33,8 @@ docs under `docs/design/` — read those for the _why_. This file is the short b
 
 ## Testing notes
 
-- Run tests with `node --test`; unit tests are co-located as `*.test.mjs`.
-- Real-AWS round-trip tests are gated on `S3CAB_TEST_BUCKET` and skipped (with a message)
-  when unset — so a low coverage number on `s3.mjs` / `remote.mjs` / `restore.mjs` in an
-  offline run is **expected**, not a missing test.
+- Unit tests are co-located as `*.test.mjs`; real-S3 round-trips live under `test/integration/`
+  and run only via `npm run test:integration`, which **hard-fails** without `S3CAB_TEST_BUCKET`
+  (it does not skip). A low coverage number on `s3.mjs` / `remote.mjs` / `restore.mjs` from
+  the unit run is **expected**, not a missing test.
 - Mock at the `s3.mjs` seam, **never** the AWS SDK directly (see `docs/design/testing.md`).

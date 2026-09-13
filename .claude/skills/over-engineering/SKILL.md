@@ -3,7 +3,7 @@ name: over-engineering
 description: >-
   s3cab's over-engineering sweep — a cold read of src/ hunting needless
   indirection, dead structure and cognitive complexity, judged against CLAUDE.md
-  working rule #5. Use ONLY when explicitly asked to run a complexity or
+  working convention *Do not over-engineer*. Use ONLY when explicitly asked to run a complexity or
   over-engineering sweep of the codebase, or of a named subsystem within it. It is
   a whole-codebase audit producing a ranked report — NOT a review tool. Do not
   invoke it to review a diff or a PR (that's /code-review or /simplify), for
@@ -14,14 +14,14 @@ description: >-
 # Over-engineering sweep
 
 A **cold, hostile read** of `src/` looking for solutions more complex than their
-problems warrant. The authority is CLAUDE.md working rule #5, *Do not
+problems warrant. The authority is CLAUDE.md's working convention *Do not
 over-engineer* — but read the whole rule, because half of it cuts the other way
 and that half is the one that gets forgotten.
 
 ## The metric: complexity, with lines as a proxy
 
-Rule #5 nominates "minimize lines of code" as a **proxy for complexity**, not as
-the goal. Three things it says explicitly, all of which bind this sweep:
+The rule measures the **solution's complexity**, with size only as a proxy, not
+as the goal. Three things it says explicitly, all of which bind this sweep:
 
 - **"'simpler' means _clearer_, not only smaller"** — better names and consistent
   interfaces are worth churn even with no new capability.
@@ -36,7 +36,7 @@ or interface surface. Report line deltas as a signal; never use them as the
 pass/fail bar. What you are actually measuring is how much a reader must hold in
 their head to follow one behaviour end to end.
 
-The failure mode to avoid: rule #5's restrictive half is the memorable one, so it
+The failure mode to avoid: the rule's restrictive half is the memorable one, so it
 gets misapplied to extractions its permissive half plainly authorizes. Structure
 with **real consumers today is not speculation.** Only speculative structure —
 built for a caller that does not exist — is in scope on that axis.
@@ -152,7 +152,7 @@ Rank by complexity removed, heaviest first. These are the veins worth working:
    point reaches, parameters that are the same literal at every call site, options
    objects where one field is ever set.
 4. **Structure that only tests use.** A test-only caller is **not** a real call
-   site — rule #5's "a caller that already exists" means a *production* caller.
+   site — the rule's "call sites that already exist" means *production* callers.
    Reportable: a parameter whose only non-default caller is a test, an `export`
    needed solely so a unit test can reach an otherwise-internal function, a seam
    that `mock.module` already makes redundant. **Because you are not reading the
@@ -323,9 +323,7 @@ worked example; its comment now says why removing it breaks the type check.
 **Primary rule: record it in the code, at the point a future reader would undo
 it.** The symbol's own doc comment, or the module header if the rejection is about
 the module. This is the most robust home there is — a cold reader cannot propose
-removing the thing without first reading why it stands — and CLAUDE.md already
-holds that a code comment is often the right home for a settled rationale, "the one
-place someone about to undo it will look." It needs no apparatus and cannot fall
+removing the thing without first reading why it stands. It needs no apparatus and cannot fall
 out of sync, because it travels with what it describes.
 
 The worked example is `formatSets` in `sets.mjs`: proposed for removal as a surplus

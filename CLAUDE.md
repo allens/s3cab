@@ -54,11 +54,9 @@ overlap that leaves is accepted over sync machinery
    → an ADR; vocabulary → CONTEXT.md; a coding rule → this file. **Once a rule has settled,
    distill it to {rule + why + at most one example}** and let `git blame` hold the story —
    appending every correction without compressing is what bloats this file. **But distillation
-   alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** Four
-   distillation passes (Jun 29, Jul 2, Jul 11, Jul 16) each cut 60–90 lines and the file regrew
-   past its starting point every time — 472 → 544 in nine days. What *did* work was enforcement:
-   the two `local/*` ESLint rules have never been re-argued, while the `git -C` rule took six
-   revisions as prose.
+   alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** Repeated
+   distillation passes never held the file's size; the two `local/*` ESLint rules have never
+   been re-argued, while the `git -C` rule took six revisions as prose.
 2. **Refactors and minor chores may ride along with a feature** — a small refactor, a
    settings.json tweak, a `proposals/` note, or a doc fix needn't be its own PR (still prefer a
    separate *commit* each). This includes notes already sitting uncommitted in `proposals/`: roll
