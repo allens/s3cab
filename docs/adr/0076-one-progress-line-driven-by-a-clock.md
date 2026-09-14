@@ -146,3 +146,64 @@ One consumer deliberately still reaches for `isInteractive` itself: `s3.mjs`'s p
 asks *"was a bar drawn, so should I log a line instead?"* — a different question, which
 `progress.mjs` answers internally (`drawn`) but does not expose. Left open by name rather than
 folded in, so the omission reads as known.
+
+## Amendment (2026-09-13) — §5 governs the measurement, not the name
+
+§5 said a row earns *its name* by taking a second. That gate is now two: a row still earns a
+**verb and a size** by taking a second, but the **path** is shown as soon as the pass has one,
+labelled or not.
+
+The case that broke it was a 280,220-file OneDrive set. `fileProps` publishes a `HashProgress`
+only on the streaming branch — anything under 5 MB is slurped in one call and reports nothing,
+however long the read takes — and `activity()` then suppressed whatever was in flight under a
+second. Both gates failed on every file for the whole run, so the detail column was empty from the
+first row to the last and the line read as hung. The inversion is exact: on a sync-filtered volume
+the slow population **is** the small files, so the file actually holding things up was the one
+structurally incapable of being named, while the fast ones §5 suppressed as noise were the
+reassurance that was wanted. *"I am happy to see files flashing past even if I can't read them. It
+gives a reassuring feel. The current behaviour is the opposite."*
+
+Three things follow.
+
+- **The pass holds a `currentFile` string, not a second progress object.** `getProps` already
+  receives the path, so naming it costs one assignment per file — where publishing a
+  `HashProgress` before the slurp would put one object per file on the walk/snapshot hot path,
+  the per-file cost CLAUDE.md's hot-path rule exists to refuse. It is set and cleared by the same
+  `getProps` that sets and clears `hashing`, because it answers the same question one gate lower.
+- **The unlabelled detail is an empty text with a path, not a path on its own.** It still pads to
+  `ACTIVITY_COLUMNS`, so a file that crosses the one-second mark mid-read gains its verb without
+  shunting its own path sideways — the column holds still across the transition, which is what §7's
+  fixed-width discipline is for.
+- **A bare path that will not fit sheds the line back to the figures.** §7 sheds the path first and
+  the whole detail last, which for a labelled detail leaves `Uploading 1.8GB (27%)` still saying
+  something. An unlabelled one *is* its path, so shedding it leaves nothing — and the line has to
+  end at the figures rather than at the two spaces that would have preceded the path.
+
+§5's threshold itself is untouched at one second. It now governs only how long a row must last
+before its size and percentage are worth reading, which is the question it was measured for.
+
+### The same amendment: a clock the pass has to let run
+
+Naming the file fixed nothing on its own, because the line was not redrawing either. §1 put the
+redraw on a timer so a slow row could not freeze it — but a timer is a macrotask, and it only fires
+when the event loop is given a turn. This pipeline never gives it one: every stage is an `async`
+function whose work is *synchronous* (`lstatSync`, `readFileSync`, `crypto.hash`), so each `await`
+queues a microtask, the microtask queue never drains, and the loop never turns. Measured at 1 ms a
+file: **zero** ticks in eight seconds. A real 8,060-file pass drew six frames in nine seconds, and
+only because some unrelated stream write happened to yield.
+
+That is §1's own failure mode arriving by another route. A clock was chosen over redrawing per row
+precisely so the line could not freeze; it froze anyway, and worse — per row would at least have
+drawn something.
+
+**So the pass concedes the event loop on a timer of its own**, shorter than the redraw's: every
+100 ms against the line's 250 ms tick, because at equal intervals every tick would be up to a full
+interval late. Time, not a file count — at 1 ms a file, yielding every 50 would do; at 10 ms a file
+it would starve again. The cost is one `performance.now()` per file (the same order as the
+`Temporal.Now.instant()` `fileProps` already takes per file) and one `setImmediate` per tenth of a
+second; across ten 8,060-file runs the difference between conceding and not was smaller than the
+run-to-run spread.
+
+The consequence worth stating plainly: **a progress line driven by a clock is only as live as the
+loop the clock runs on**, and a pipeline of synchronous work in async clothing owes it a turn. Any
+future pass that puts a timer on this pipeline inherits the same obligation.

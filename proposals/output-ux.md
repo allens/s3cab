@@ -50,30 +50,6 @@ niceties.
   error text doesn't carry a file count. So the choice is either clear unconditionally and accept
   that, or clear only on success — which means `withProgress` learning whether the pipeline
   finished, a fact it currently has no reason to know.
-- **The progress line goes blank on fast files, and a blank line reads as "stuck"** (user,
-  2026-09-13, watching a 280,220-file OneDrive backup tick over at 1–3 files/sec with no detail at
-  all): *"i am happy to see files flashing past even if i can't read them. it gives a reassuring
-  feel. the current behaviour is the opposite."* Two gates must **both** fail before a path is
-  named, and on that set both did. `onHashStart` is called only on the streaming branch,
-  `size >= 5_000_000` ([file-props.mjs](../src/lib/file-props.mjs)) — a file below the slurp
-  boundary is read with `readFileSync` and never publishes a `HashProgress` at all, however long it
-  takes. Then `activity()` suppresses anything in flight for under `WORTH_REPORTING_MS`, 1 second
-  ([snapshot.mjs](../src/lib/snapshot.mjs)). So the population that is *actually* slow here — small
-  files whose reads are being serviced by the Windows Cloud Files filter driver — is structurally
-  unnameable. That inverts what the threshold was written for: *"naming every one of tens of
-  thousands of fast files is noise that hides the one that is actually holding things up."* Here
-  the fast files are the noise that would have been reassuring, and the slow one is invisible. The
-  user's own calibration for what is readable: *"some of these hashes are maybe quarter of a second
-  which would actually be readable."*
-  _The tension to resolve, not a decided design:_ publishing a `HashProgress` before the slurp as
-  well would put one object per file on the walk/snapshot hot path — the per-file overhead
-  CLAUDE.md warns against, tens of thousands of allocations to serve a display. The cheaper shape
-  worth measuring first: `getProps` already receives the path
-  ([snapshot.mjs](../src/lib/snapshot.mjs)), so the pass can hold a plain `currentFile` string —
-  one assignment per file, no object, nothing for the type checker to lose — and let the renderer
-  decide whether it is worth drawing. Either way the 1s threshold itself wants to come down: the
-  redraw floor is 100ms ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)), so
-  there is room between the two.
 - **`Connection lost` is announced once per *outage* only while the outage's requests overlap**
   (noticed 2026-09-13 while writing
   [ADR-0091](../docs/adr/0091-idle-connection-bound-and-retry-window-origin.md); deliberately not
@@ -93,8 +69,11 @@ niceties.
   means a run whose link never comes back says `Connection lost` exactly once across an hour of
   failures, which may be too quiet — a request that has been retrying for two minutes and failed is
   arguably news each time it happens.
-- **The progress lines' *timing* is untested** — deliberately, for now. Two behaviours rest on
-  real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing, and the 1-second `setInterval`
+- **The progress lines' *timing* is untested** — deliberately, for now. Three behaviours rest on
+  real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing; the fused pass conceding the event
+  loop every 100ms so its own 250ms tick can fire at all ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md),
+  amended 2026-09-13 — the pipeline is synchronous work in async clothing, so without the
+  concession the timer never runs); and the 1-second `setInterval`
   that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
   page yields 1,000 keys at once, so gating on the redraw interval made the count appear only
   ever as a multiple of 1,000 *plus one*, then freeze until the next round trip). Both were
@@ -152,24 +131,21 @@ niceties.
 - **Exit-code doctrine**: document the codes (0/1/2/127 today); decide whether `compare`
   should signal "differences found" diff-style (probably not, for a consumer tool — but
   decide).
-- **Show more in the progress line's in-flight detail — needs experimentation, not a decision**
-  (user, 2026-08-08, while settling [ADR-0078](../docs/adr/0078-backup-run-report.md)). Today a
-  row earns its name only by taking a second
-  ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) §5), so a run of tens of
-  thousands of ordinary files names none of them and the detail column mostly sits empty.
-  _Why it matters, and why 0078 does not cover it:_ 0078 answers "what did it just do", **after**
-  the run. It cannot answer **"crikey, what is it uploading all that for?"** — the question you
-  ask at minute two, when the only useful response is Ctrl-C. That is the one thing an
-  rsync-style scroll genuinely bought and this design gives up. The suggestion is not to restore
-  the scroll but to lower the naming threshold: names flickering past far too fast to *read*
-  would still let the eye catch a steady root — a `node_modules` or a cache directory
+- **Does a name going by four times a second let the eye catch a repeated root?** (user,
+  2026-08-08, while settling [ADR-0078](../docs/adr/0078-backup-run-report.md); the naming half
+  built 2026-09-13, [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) amended.)
+  The line now names every file it has in hand, so the premise this was filed on — a detail column
+  that sits empty all run — is gone. What it was *for* is not yet shown to work.
+  _The question 0078 can't answer:_ 0078 says "what did it just do", **after** the run. It cannot
+  answer **"crikey, what is it uploading all that for?"** — the question you ask at minute two,
+  when the only useful response is Ctrl-C. The hope was that names flickering past far too fast to
+  *read* would still let the eye catch a steady root — a `node_modules` or a cache directory
   repeating — which is exactly the signal that sends you to the exclude file.
-  _Unresolved, and only settleable by trying it:_ whether a name changing 10×/sec reads as
-  information or as noise; whether the eye really does catch a repeated root at that rate;
-  what it costs in the hot path (0076 §5's threshold exists partly so naming tens of thousands
-  of fast files doesn't hide the one actually holding things up — the opposite worry to this
-  one); and whether a `--verbose`-style opt-in is the honest home for it. Try it on a real set
-  before writing anything down.
+  _What is now answerable by watching a real run, and only that way:_ whether the redraw samples
+  one file in every few hundred too sparsely for a repeated root to register at all (the line
+  redraws 4×/sec against a walk doing ~1,000 files/sec, so it shows well under 1% of them);
+  whether a `--verbose`-style opt-in or a different sampling rule would do better; and whether the
+  answer differs between a set that is mostly hashing and one that is mostly uploading.
   _Adjacent:_ a pre-flight "what would this back up" is the other answer to the same question
   and may be the better one — `status` already reports what a backup would upload without
-  transferring anything. Check whether it is enough before changing the live line.
+  transferring anything. Check whether it is enough before changing the live line again.
