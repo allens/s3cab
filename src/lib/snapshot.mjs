@@ -1,6 +1,7 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 import { OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
@@ -512,11 +513,32 @@ function withProgress({
     // calm enough for a line this wide. `unref` so a pending tick can never hold
     // the process open; the `finally` stops it if the pipeline throws.
     draw();
-    const ticking = setInterval(draw, 250);
+    const ticking = setInterval(draw, TICK_MS);
     ticking.unref();
+    // ...but a timer only fires when the event loop is given a turn, and on a
+    // set of small files this pipeline never gives it one. Every stage is an
+    // `async` function whose work is *synchronous* — `lstatSync`, `readFileSync`,
+    // `crypto.hash` — so awaiting each one queues a microtask and the queue
+    // never drains. Timers are macrotasks and simply do not run: measured at
+    // 1ms a file, **zero** ticks in eight seconds, the line frozen on its
+    // opening `0/8,060` until some unrelated stream write happened to yield.
+    //
+    // So the pass concedes the loop itself, often enough that the timer above
+    // can keep its cadence. It costs one clock read per file — the same order as
+    // the `Temporal.Now.instant()` `fileProps` already takes per file — and one
+    // `setImmediate` per tenth of a second: over ten 8,060-file runs the gap
+    // between conceding and not was smaller than the run-to-run spread. Time,
+    // not a file count: at 1ms a file every-50 would do, and at 10ms a file it
+    // would starve again.
+    let conceded = performance.now();
     try {
       for await (const path of paths) {
         current++;
+        const now = performance.now();
+        if (now - conceded >= CONCEDE_MS) {
+          conceded = now;
+          await yieldToLoop();
+        }
         yield path;
       }
     } finally {
@@ -632,6 +654,13 @@ function byteShare(done, total) {
   // `100%`, or `999.9MB` becoming `1.0GB`, must not shift the path column.
   return `  ${percent.padStart(4)} of ${formatByteValue(of).padStart(BYTES_COLUMNS)}`;
 }
+
+// How often the line redraws, and how often the pass hands the event loop back
+// so that it can. Conceding must be the *shorter* of the two: at equal intervals
+// every tick would be up to one whole interval late, which is the cadence being
+// halved to save nothing.
+const TICK_MS = 250;
+const CONCEDE_MS = 100;
 
 // A row has to be *worth* reporting before it gets a *labelled* detail —
 // `Hashing 1.8GB (27%)`, a verb and a measurement. Below this the figures are
