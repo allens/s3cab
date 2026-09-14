@@ -76,20 +76,31 @@ niceties.
   concession the timer never runs); and the 1-second `setInterval`
   that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
   page yields 1,000 keys at once, so gating on the redraw interval made the count appear only
-  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip). **The gap this
-  leaves is wider than pacing**, and Copilot was right to press on it in #343: the fused pass's
-  `currentFile` wiring — `getProps` assigning it, `withProgress` reading it — is only ever
-  *observable* through a timer-driven draw, so nothing asserts it end to end and a regression at
-  either point would leave the `progressLine` tests green while the real backup showed an empty
-  column again. That is not hypothetical; it is the bug the change shipped with and fixed by hand.
-  A deterministic test needs the fake clock below, because a real one needs either a pass long
-  enough to outlive a 250ms tick (slow, and flaky by construction) or a sleep.
+  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip).
   All three were verified by simulation rather than by a committed test: asserting them needs a
   test that actually sleeps across two pages, which is slow and timing-flaky for what is a display
   property. One such test exists already (`progress.test.mjs`'s "draws again once the redraw
   interval has passed", a 150ms sleep) and is the pattern we don't want to multiply. If the
   module ever gains a fake clock — `node:test`'s timer mocking, or taking `now` as a seam — that
   is the moment to come back and lock all of this down properly.
+  _The **wiring** underneath is covered now, and needed no clock seam after all_ —
+  [src/lib/snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs), written after
+  Copilot pressed on the gap in [#343](https://github.com/allens/s3cab/pull/343). The fused pass's
+  `currentFile` handling — `getProps` assigning it and deliberately never clearing it,
+  `withProgress` reading it back — is only ever *observable* through a timer-driven draw, which is
+  why it shipped broken once and was caught by watching a run rather than by a failing test. The
+  test drives `generateSnapshot` over three real files with `setInterval` faked, and ticks the
+  fake clock from inside the pass's own `through` transform — the fusion seam `backup` already
+  uses ([ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)), so the tick lands where a
+  real redraw lands rather than where the wall clock would put it. Re-adding the
+  `currentFile = null` fails it with precisely the symptom that started all this: `1/3 in 0s`, no
+  path.
+  _What is left for the fake clock proper:_ the three timing behaviours above, plus one more the
+  `through` tick cannot reach — the concession sitting **after** the row rather than before it.
+  Its only symptom is a draw landing in the gap between the count advancing and the file being
+  published, so catching it needs a timer that fires on its own. That one is a real regression
+  risk (it was a review finding, not a hypothetical) and is the strongest single argument for
+  doing the clock.
 - **Display formatting** — the byte/time humanizers the size and progress output above lean on
   (the bytes-hashed progress, the `4.2 GB` first-snapshot line, `list --stat` total size). Built
   from the JS standard library (`Intl`), no `pretty-bytes`-style dependency.
