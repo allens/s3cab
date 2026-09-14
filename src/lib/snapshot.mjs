@@ -441,7 +441,7 @@ export async function generateSnapshot(
  * ```
  *
  * The middle line is the ordinary case, and the common one: no verb, because
- * nothing in flight has taken long enough to be worth measuring, but the path
+ * nothing in flight has taken long enough to be worth measuring, but the path is
  * still there — going by several times a second on a set of small files, which
  * is what a working line looks like.
  *
@@ -530,16 +530,22 @@ function withProgress({
     // between conceding and not was smaller than the run-to-run spread. Time,
     // not a file count: at 1ms a file every-50 would do, and at 10ms a file it
     // would starve again.
+    // **After the row, not before it.** A pull pipeline resumes here only once
+    // the consumer has finished with the path it was handed, so by this point
+    // `current` and the pass's `currentFile` describe the same file. Conceding
+    // before the yield instead put the loop's one reliable redraw window in the
+    // gap between them, and the line would have named file N-1 beside a count of
+    // N for most of its frames.
     let conceded = performance.now();
     try {
       for await (const path of paths) {
         current++;
+        yield path;
         const now = performance.now();
         if (now - conceded >= CONCEDE_MS) {
           conceded = now;
           await yieldToLoop();
         }
-        yield path;
       }
     } finally {
       clearInterval(ticking);

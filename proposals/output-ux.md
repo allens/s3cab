@@ -76,9 +76,16 @@ niceties.
   concession the timer never runs); and the 1-second `setInterval`
   that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
   page yields 1,000 keys at once, so gating on the redraw interval made the count appear only
-  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip). Both were
-  verified by simulation rather than by a committed test: asserting them needs a test that
-  actually sleeps across two pages, which is slow and timing-flaky for what is a display
+  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip). **The gap this
+  leaves is wider than pacing**, and Copilot was right to press on it in #343: the fused pass's
+  `currentFile` wiring — `getProps` assigning it, `withProgress` reading it — is only ever
+  *observable* through a timer-driven draw, so nothing asserts it end to end and a regression at
+  either point would leave the `progressLine` tests green while the real backup showed an empty
+  column again. That is not hypothetical; it is the bug the change shipped with and fixed by hand.
+  A deterministic test needs the fake clock below, because a real one needs either a pass long
+  enough to outlive a 250ms tick (slow, and flaky by construction) or a sleep.
+  All three were verified by simulation rather than by a committed test: asserting them needs a
+  test that actually sleeps across two pages, which is slow and timing-flaky for what is a display
   property. One such test exists already (`progress.test.mjs`'s "draws again once the redraw
   interval has passed", a 150ms sleep) and is the pattern we don't want to multiply. If the
   module ever gains a fake clock — `node:test`'s timer mocking, or taking `now` as a seam — that

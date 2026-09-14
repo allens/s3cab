@@ -168,8 +168,13 @@ Three things follow.
 - **The pass holds a `currentFile` string, not a second progress object.** `getProps` already
   receives the path, so naming it costs one assignment per file — where publishing a
   `HashProgress` before the slurp would put one object per file on the walk/snapshot hot path,
-  the per-file cost CLAUDE.md's hot-path rule exists to refuse. It is set and cleared by the same
-  `getProps` that sets and clears `hashing`, because it answers the same question one gate lower.
+  the per-file cost CLAUDE.md's hot-path rule exists to refuse. It is set as `getProps` enters
+  `fileProps` and **deliberately never cleared**, which is what makes it work at all: `hashing` is
+  cleared the moment its file is done, because a stale *measurement* would be a lie — but a stale
+  *name* is not, and clearing this one put the empty column straight back. The redraw lands between
+  rows, which is precisely when no file is in hand. The pass is sequential, so the file it last
+  touched is either in flight or just finished: a truthful sample of where the walk has got to
+  either way.
 - **The unlabelled detail is an empty text with a path, not a path on its own.** It still pads to
   `ACTIVITY_COLUMNS`, so a file that crosses the one-second mark mid-read gains its verb without
   shunting its own path sideways — the column holds still across the transition, which is what §7's
@@ -203,6 +208,15 @@ it would starve again. The cost is one `performance.now()` per file (the same or
 `Temporal.Now.instant()` `fileProps` already takes per file) and one `setImmediate` per tenth of a
 second; across ten 8,060-file runs the difference between conceding and not was smaller than the
 run-to-run spread.
+
+**What this does not buy**, so §1's promise is not read wider than it holds: a concession between
+rows cannot preempt one long *synchronous* row. A single `readFileSync` + `crypto.hash` that takes
+longer than a tick blocks the line for its whole duration, and on a sync-filtered volume a small
+file can take a noticeable fraction of a second. So the clock rescues the line from a run of many
+fast rows, and from a slow row that is genuinely *asynchronous* — a multipart upload, a streamed
+hash over a 5MB-plus file, both of which yield on real I/O — but not from the slurp branch. Fixing
+that would mean chunking or awaiting the small-file read, which is per-file cost on the hot path
+for a display; it is not worth it while the stall is one row long and the line resumes by itself.
 
 The consequence worth stating plainly: **a progress line driven by a clock is only as live as the
 loop the clock runs on**, and a pipeline of synchronous work in async clothing owes it a turn. Any
