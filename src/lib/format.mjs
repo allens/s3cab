@@ -5,10 +5,13 @@ import assert from "node:assert";
 // deletion record's or forget audit's stamp, a set marker's CREATED — is read
 // here, by `localMoment` or `completionInstant`, and nowhere else. The model
 // harness mocks this module to run every command on a virtual clock
-// (test/model/harness/seam.mjs), so a `Temporal.Now` read anywhere else in
-// `src/` is real time under the fake and makes the artifact it lands in
-// non-deterministic there. Elapsed-time subtractions (progress, durations) are
-// not records and read the clock directly.
+// (test/model/harness/seam.mjs), so a clock read anywhere else in `src/` — in
+// any spelling: `new Date()`, `Date.now()`, `Temporal.Now` — is real time under
+// the fake and makes the artifact it lands in non-deterministic there.
+// Elapsed-time subtractions (progress, durations, deadlines) are not records
+// and read the clock directly. Only the `new Date()` spelling is linted
+// (eslint.config.js): the other two have those legitimate uses, so they are
+// held by this paragraph alone.
 
 // Decimal SI (base 1000). One cached Intl formatter per unit: this runs on the
 // hot S3 upload-progress path, so we don't construct a formatter per call.
@@ -258,9 +261,11 @@ const readClock = () => Temporal.Now.zonedDateTimeISO();
  * from a **single clock read**:
  *
  * - `name` — local wall clock with the colons dropped, at the precision the
- *   artifact names itself by (`minutes` for a snapshot and a deletion record,
- *   `seconds` for a forget audit). This is the *identity*: a filename, typed and
- *   read by people, so it stays the time the clock on the wall said.
+ *   artifact names itself by (`minutes` for a snapshot, `seconds` for a forget
+ *   audit). This is the *identity*: a filename, typed and read by people, so it
+ *   stays the time the clock on the wall said. An artifact named by something
+ *   else — a deletion record takes an index — reads `instant` alone, and the
+ *   precision it passes names nothing.
  * - `instant` — the same moment in UTC at millisecond precision, the
  *   machine-readable field of record. Exactly 24 characters, like an `mtime`.
  * - `zone` — the IANA zone the name was minted in, which is what makes a naive
