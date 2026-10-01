@@ -5,7 +5,7 @@ import {
   writeDeletionRecord,
 } from "../lib/deletion-record.mjs";
 import { isENOENT, requireArg } from "../lib/error.mjs";
-import { countOf, formatByteValue } from "../lib/format.mjs";
+import { countOf, formatByteValue, localMoment } from "../lib/format.mjs";
 import { deleteStoredObject, storedObjectSize } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
@@ -260,8 +260,9 @@ export async function deleteHashes(hashes = [], options = {}) {
   // between the two leaves an over-complete record — objects recorded deleted
   // that still exist, which verify reads as simply present — never missing
   // objects with no explanation. One clock read and one identity for the run,
-  // so every row agrees by construction.
-  const instant = new Date().toISOString();
+  // so every row agrees by construction. The record is named by index, not by
+  // a moment, so only the instant is wanted — the precision names nothing.
+  const { instant } = localMoment("seconds");
   const by = `${userInfo().username}@${hostname()}`;
   const recordUri = await writeDeletionRecord(
     bucket,

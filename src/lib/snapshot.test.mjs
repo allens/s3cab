@@ -158,9 +158,11 @@ describe("progressLine", () => {
     assert.match(line, /Hashing 1\.8GB \(48%\)\s+D:\\Scans\\big\.psd$/, line);
   });
 
-  it("reports nothing for work that has not been going a second", () => {
-    // The rule that keeps tens of thousands of fast files from flickering past:
-    // a row earns its name only by taking long enough to read.
+  it("measures nothing for work that has not been going a second", () => {
+    // The rule that keeps tens of thousands of fast files from flickering
+    // figures past: a row earns a *verb and a size* by taking long enough for
+    // them to be read. It no longer decides whether the file is named — the
+    // next test is the other half of that.
     const justStarted = {
       sent: 0,
       current: {
@@ -172,6 +174,60 @@ describe("progressLine", () => {
     };
     const line = progressLine({ ...run, state: justStarted });
     assert.equal(line, " 4,182/58,310  Uploaded      0B in      0s");
+  });
+
+  it("names the file in hand even when nothing has earned a measurement", () => {
+    // The case the whole line used to go blank on: a set of small files, none
+    // of them slow enough to be measured, so for hours the detail column said
+    // nothing at all and the line read as hung.
+    const line = progressLine({
+      ...run,
+      currentFile: "D:\\OneDrive\\Documents\\notes.txt",
+    });
+    assert.match(line, /notes\.txt$/, line);
+    assert.ok(!line.includes("Hashing"), `nothing was measured, got ${line}`);
+  });
+
+  it("holds the path column still whether or not a verb has joined it", () => {
+    // The reason the empty text still pads: a file that gets slow enough to be
+    // measured mid-read must not shunt its own path sideways as it does.
+    const bare = progressLine({
+      ...run,
+      currentFile: "D:\\Scans\\big.psd",
+      width: 200,
+    });
+    const measured = progressLine({
+      ...run,
+      currentFile: "D:\\Scans\\big.psd",
+      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
+      width: 200,
+    });
+    assert.equal(
+      bare.indexOf("D:\\Scans\\big.psd"),
+      measured.indexOf("D:\\Scans\\big.psd"),
+    );
+  });
+
+  it("prefers the measured detail to the bare path", () => {
+    const line = progressLine({
+      ...run,
+      currentFile: "D:\\Scans\\big.psd",
+      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
+    });
+    assert.match(line, /Hashing 1\.8GB \(48%\)\s+D:\\Scans\\big\.psd$/, line);
+  });
+
+  it("ends at the figures when a bare path will not fit, not at blank space", () => {
+    // A measured detail still says something with its path shed; a bare path is
+    // *only* the path, so there is nothing left to print — and the line has to
+    // end there rather than at the two spaces that would have preceded it.
+    const line = progressLine({
+      ...run,
+      currentFile: "D:\\OneDrive\\Documents\\notes.txt",
+      // Under `MIN_PATH_COLUMNS` of room, where even an elided tail is rubble.
+      width: 38,
+    });
+    assert.equal(line, " 4,182/58,310 in      0s");
   });
 
   it("prefers the upload when both are somehow in flight", () => {

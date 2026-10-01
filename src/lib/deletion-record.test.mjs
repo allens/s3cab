@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
+/** @import { TestContext } from "node:test" */
+
 // The deletion-record module against a mocked s3.mjs seam (docs/design/testing.md:
 // mock at s3.mjs, not the SDK): the slot allocator's write discipline
 // (conditional PUT at the next free index, walking upward past a lost race),
@@ -64,6 +66,19 @@ const HASH_C = "c".repeat(64);
 const T1 = "2026-08-14T09:31:07.412Z";
 const T2 = "2026-08-19T22:10:41.006Z";
 const T3 = "2026-08-22T11:04:55.120Z";
+
+/**
+ * Pins the clock seam's one read (format.mjs), so the instant a merge stamps on
+ * its header is `instant` — the only way to steer it, as for every recorded
+ * instant. Pinned in a zone that is not UTC, so a header that leaked local time
+ * would show.
+ * @param {TestContext} t
+ * @param {string} instant
+ */
+const pinClock = (t, instant) =>
+  t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+    Temporal.Instant.from(instant).toZonedDateTimeISO("Europe/London"),
+  );
 
 const puts = () => ops.filter((o) => o.op === "put");
 const deletes = () => ops.filter((o) => o.op === "delete");
@@ -277,7 +292,8 @@ describe("compactDeletionRecords", () => {
     assert.deepEqual(ops, [], "no churn: nothing written, nothing deleted");
   });
 
-  it("merges several files to a fresh index, then deletes the absorbed ones", async () => {
+  it("merges several files to a fresh index, then deletes the absorbed ones", async (t) => {
+    pinClock(t, T3);
     record(
       1,
       formatDeletionRecord(T1, [
@@ -290,11 +306,7 @@ describe("compactDeletionRecords", () => {
         { hash: HASH_B, size: 2, instant: T2, by: "y" },
       ]),
     );
-    const result = await compactDeletionRecords(
-      "b",
-      new Set([HASH_A, HASH_B]),
-      { instant: T3 },
-    );
+    const result = await compactDeletionRecords("b", new Set([HASH_A, HASH_B]));
     assert.deepEqual(result, { files: 2, rows: 2, trimmed: 0 });
 
     // The merge goes to the next free index — the absorbed files still exist
@@ -323,7 +335,8 @@ describe("compactDeletionRecords", () => {
     );
   });
 
-  it("drops rows whose hash no snapshot references — and keeps a referenced row even when its object is long gone", async () => {
+  it("drops rows whose hash no snapshot references — and keeps a referenced row even when its object is long gone", async (t) => {
+    pinClock(t, T3);
     // The trimming invariant (ADR-0090): `referenced` is snapshot references,
     // *not* stored objects. HASH_A is referenced (its row is what verify and
     // restore will read — a deleted object's row is load-bearing precisely
@@ -342,9 +355,7 @@ describe("compactDeletionRecords", () => {
         { hash: HASH_C, size: 3, instant: T2, by: "y" },
       ]),
     );
-    const result = await compactDeletionRecords("b", new Set([HASH_A]), {
-      instant: T3,
-    });
+    const result = await compactDeletionRecords("b", new Set([HASH_A]));
     assert.deepEqual(result, { files: 2, rows: 1, trimmed: 2 });
     assert.equal(
       puts()[0]?.content,
@@ -354,13 +365,12 @@ describe("compactDeletionRecords", () => {
     );
   });
 
-  it("collapses identical rows duplicated across files (a crashed earlier merge)", async () => {
+  it("collapses identical rows duplicated across files (a crashed earlier merge)", async (t) => {
+    pinClock(t, T3);
     const row = { hash: HASH_A, size: 1, instant: T1, by: "x" };
     record(1, formatDeletionRecord(T1, [row]));
     record(2, formatDeletionRecord(T2, [row]));
-    const result = await compactDeletionRecords("b", new Set([HASH_A]), {
-      instant: T3,
-    });
+    const result = await compactDeletionRecords("b", new Set([HASH_A]));
     // Collapsing a duplicate is dedup, not trimming — `trimmed` counts only
     // rows dropped because no snapshot references them.
     assert.deepEqual(result, { files: 2, rows: 1, trimmed: 0 });
@@ -375,9 +385,7 @@ describe("compactDeletionRecords", () => {
         { hash: HASH_B, size: 2, instant: T1, by: "x" },
       ]),
     );
-    const result = await compactDeletionRecords("b", new Set([HASH_A]), {
-      instant: T3,
-    });
+    const result = await compactDeletionRecords("b", new Set([HASH_A]));
     assert.deepEqual(result, { files: 1, rows: 1, trimmed: 1 });
     assert.deepEqual(
       puts().map((p) => p.uri),
@@ -402,9 +410,7 @@ describe("compactDeletionRecords", () => {
         { hash: HASH_B, size: 2, instant: T2, by: "y" },
       ]),
     );
-    const result = await compactDeletionRecords("b", new Set(), {
-      instant: T3,
-    });
+    const result = await compactDeletionRecords("b", new Set());
     assert.deepEqual(result, { files: 2, rows: 0, trimmed: 2 });
     assert.deepEqual(puts(), [], "a row nothing references needs no tombstone");
     assert.deepEqual(
@@ -433,11 +439,7 @@ describe("compactDeletionRecords", () => {
         { hash: HASH_B, size: 2, instant: T2, by: "y" },
       ]),
     );
-    const result = await compactDeletionRecords(
-      "b",
-      new Set([HASH_A, HASH_B]),
-      { instant: T3 },
-    );
+    const result = await compactDeletionRecords("b", new Set([HASH_A, HASH_B]));
     assert.deepEqual(result, { files: 2, rows: 2, trimmed: 0 });
     assert.deepEqual(
       puts().map((p) => p.uri),
