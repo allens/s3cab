@@ -1,3 +1,4 @@
+import { localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 
 // The repository's **deletion record** — the root-level `objects.deleted-<n>.tsv`
@@ -232,18 +233,11 @@ export async function readDeletionRecords(bucket) {
  * @param {string} bucket - The repository's S3 bucket
  * @param {Set<string>} referenced - Every hash any snapshot in the bucket
  *   references (`planCleanup`'s union) — rows outside it are dropped
- * @param {object} [options]
- * @param {string} [options.instant] - The merge file's header instant
- *   (defaults to now; injectable like `planCleanup`'s clock)
  * @returns {Promise<{ files: number, rows: number, trimmed: number }>} What
  *   compaction did: record `files` absorbed, `rows` kept, `trimmed` rows
  *   dropped. `files: 0` means the record was already compact (or absent).
  */
-export async function compactDeletionRecords(
-  bucket,
-  referenced,
-  { instant = new Date().toISOString() } = {},
-) {
+export async function compactDeletionRecords(bucket, referenced) {
   const files = await listDeletionRecordFiles(bucket);
   /** @type {Map<string, DeletionRow>} identical rows collapse (a crashed merge) */
   const rows = new Map();
@@ -280,6 +274,7 @@ export async function compactDeletionRecords(
   // no surviving rows writes nothing: a row nothing references needs no
   // tombstone, so the steady state there is no record file at all.
   if (kept.length > 0) {
+    const { instant } = localMoment("seconds");
     await writeDeletionRecord(bucket, formatDeletionRecord(instant, kept));
   }
   for (const { uri } of absorbed) {

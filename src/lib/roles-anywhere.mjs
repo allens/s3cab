@@ -251,6 +251,7 @@ function makeCertificate({
   years,
 }) {
   const spki = subjectPublicKey.export({ type: "spki", format: "der" });
+  // eslint-disable-next-line no-restricted-syntax -- an X.509 validity window for a cert AWS checks against its own clock, not an s3cab artifact's instant; the model harness never mints certificates
   const now = new Date();
   // Backdate notBefore 5 minutes so a client with mild clock skew doesn't reject
   // a freshly-minted cert as not-yet-valid.
@@ -702,6 +703,7 @@ export async function buildSignedRequest(input) {
 
   const host = `${RA_SERVICE}.${region}.amazonaws.com`;
   const path = "/sessions";
+  // eslint-disable-next-line no-restricted-syntax -- SigV4 must sign with the real wall clock (AWS rejects a skewed request date); nothing records it
   const amzDate = new Date()
     .toISOString()
     .replace(/[:-]/g, "")
