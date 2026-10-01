@@ -245,7 +245,15 @@ describe("delete command", () => {
     assert.equal(heads, 0); // fails in milliseconds, not after the preflight
   });
 
-  it("writes the record BEFORE deleting, with the preflight's sizes in the rows", async () => {
+  it("writes the record BEFORE deleting, with the preflight's sizes in the rows", async (t) => {
+    // The record's instant is read through the clock seam (format.mjs) like
+    // every recorded instant — pinned in a zone that is not UTC, so a record
+    // stamped with local time would show.
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from("2026-08-22T11:04:55.120Z").toZonedDateTimeISO(
+        "Europe/London",
+      ),
+    );
     const result = await deleteHashes([HASH_A, HASH_B], {
       bucket: "b",
       force: true,
@@ -264,6 +272,7 @@ describe("delete command", () => {
     // The rows carry what the record needs: the preflight's ContentLength, one
     // shared instant, and who ran it.
     assert.ok(formatted);
+    assert.equal(formatted.instant, "2026-08-22T11:04:55.120Z");
     assert.deepEqual(
       formatted.rows.map(({ hash, size }) => ({ hash, size })),
       [

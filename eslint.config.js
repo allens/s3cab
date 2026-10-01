@@ -125,6 +125,50 @@ const local = {
   },
 };
 
+// Path canonicalization goes through `realpathSync.native` and nothing else
+// (CLAUDE.md: "the one reliable path canonicalizer"). `no-restricted-syntax`
+// rather than a local rule because two selectors say it completely — the small
+// thing the need justifies (CLAUDE.md working rule #3).
+//
+// Why a linter and not a test: the difference is invisible on a canonical
+// machine, so a swap here stays green almost everywhere. Measured 2026-08-18 on
+// win32, `realpathSync("d:\\src")` returns the drive letter **as given** while
+// `realpathSync.native` returns `D:\src` — only the native binding goes through
+// `GetFinalPathNameByHandle`. Anything keyed on the path (snapshot entries, the
+// drift guard's re-stat, restore's collision map) then compares two spellings
+// of one file and silently finds no match. Tests are held to it too: they build
+// their expectations with the same call, so a test using the JS binding would
+// agree with a *broken* implementation. `walkDirs canonicalizes its root`
+// (src/lib/walk.test.mjs) pins the behaviour; this pins the spelling.
+const realpathMessage =
+  "Use realpathSync.native(): the JS realpathSync leaves a Windows drive letter as typed, so paths keyed on it stop matching (CLAUDE.md coding conventions).";
+const realpathSelectors = [
+  {
+    selector: 'CallExpression[callee.name="realpathSync"]',
+    message: realpathMessage,
+  },
+  {
+    selector:
+      'CallExpression[callee.type="MemberExpression"][callee.property.name="realpathSync"]',
+    message: realpathMessage,
+  },
+];
+
+// Every instant an artifact records is read through the clock seam in
+// src/lib/format.mjs, and nowhere else — the rule and its reason live in that
+// module's header. Why a linter: like the realpath swap, an escape is invisible
+// on a real run (a wall-clock instant is a perfectly good instant) and shows
+// only as non-determinism under the model harness's fake clock, which nothing
+// reports. Only the zero-argument `new Date()` spelling is banned, because it
+// is the one with no legitimate use in production code here; `Date.now()` and
+// `Temporal.Now` also serve elapsed time and deadlines, so those two stay held
+// by format.mjs's prose. Production code only — a test's clock is its own.
+const clockSeamSelector = {
+  selector: 'NewExpression[callee.name="Date"][arguments.length=0]',
+  message:
+    "Read a recorded instant through the clock seam (localMoment or completionInstant in src/lib/format.mjs): a bare new Date() is real time under the model harness's fake clock. If this instant is not recorded in an artifact, disable the rule here with the reason.",
+};
+
 export default defineConfig([
   // Not linted: generated build artifacts (esbuild bundle, coverage, dist) and
   // nested Claude Code worktrees (.claude/worktrees/ — see CLAUDE.md's worktree convention).
@@ -152,36 +196,19 @@ export default defineConfig([
   // adds or removes them. Placed *after* eslint-config-prettier, which disables
   // `curly` by default; in flat config the later block wins, so this re-asserts it.
   { rules: { curly: ["error", "all"] } },
-  // Path canonicalization goes through `realpathSync.native` and nothing else
-  // (CLAUDE.md: "the one reliable path canonicalizer"). `no-restricted-syntax`
-  // rather than a local rule because two selectors say it completely — the small
-  // thing the need justifies (CLAUDE.md working rule #3).
-  //
-  // Why a linter and not a test: the difference is invisible on a canonical
-  // machine, so a swap here stays green almost everywhere. Measured 2026-08-18 on
-  // win32, `realpathSync("d:\\src")` returns the drive letter **as given** while
-  // `realpathSync.native` returns `D:\src` — only the native binding goes through
-  // `GetFinalPathNameByHandle`. Anything keyed on the path (snapshot entries, the
-  // drift guard's re-stat, restore's collision map) then compares two spellings
-  // of one file and silently finds no match. Tests are held to it too: they build
-  // their expectations with the same call, so a test using the JS binding would
-  // agree with a *broken* implementation. `walkDirs canonicalizes its root`
-  // (src/lib/walk.test.mjs) pins the behaviour; this pins the spelling.
+  // Both `no-restricted-syntax` rules, declared above. A later block's options
+  // *replace* an earlier block's for the same rule rather than merging, so the
+  // production-code block repeats the realpath selectors — without them,
+  // src/ would silently lose that check.
+  { rules: { "no-restricted-syntax": ["error", ...realpathSelectors] } },
   {
+    files: ["src/**/*.mjs"],
+    ignores: ["src/**/*.test.mjs"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector: 'CallExpression[callee.name="realpathSync"]',
-          message:
-            "Use realpathSync.native(): the JS realpathSync leaves a Windows drive letter as typed, so paths keyed on it stop matching (CLAUDE.md coding conventions).",
-        },
-        {
-          selector:
-            'CallExpression[callee.type="MemberExpression"][callee.property.name="realpathSync"]',
-          message:
-            "Use realpathSync.native(): the JS realpathSync leaves a Windows drive letter as typed, so paths keyed on it stop matching (CLAUDE.md coding conventions).",
-        },
+        ...realpathSelectors,
+        clockSeamSelector,
       ],
     },
   },
