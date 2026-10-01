@@ -1,6 +1,7 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 import { OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
@@ -277,6 +278,24 @@ export async function generateSnapshot(
   // "what is happening now" belongs to the pass that is running.
   /** @type {HashProgress | null} */
   let hashing = null;
+  // The last file the pass had in its hands, named whether or not it was slow
+  // enough to earn the detail above. A string, not a second `HashProgress`: one
+  // assignment per file is affordable on the walk/snapshot hot path where one
+  // object per file is not, and `fileProps` publishes a `HashProgress` only on
+  // the streaming branch — so on a set of small files nothing else here ever
+  // knows a name at all.
+  //
+  // **Set but never cleared**, which is the difference between this working and
+  // not. `hashing` is cleared the moment its file is done because a stale
+  // *measurement* would be a lie; a stale *name* is not, and clearing it showed
+  // the empty column all over again. The redraw is on a 250ms timer and the
+  // pipeline only yields to the event loop between rows (see `withProgress`), so
+  // a draw lands almost exactly when no file is in hand — the same trap the
+  // clock was introduced to get the transfer suffix out of. The pass is
+  // sequential, so the file it last touched is always either in flight or just
+  // finished: a truthful sample of where the walk has got to either way.
+  /** @type {string | null} */
+  let currentFile = null;
   // Bytes this pass has got through, and the total it is heading for. The total
   // is the previous snapshot's size for each file the walk just found — costing
   // one Map lookup per file and not a single `stat`, which is what makes a byte
@@ -325,10 +344,12 @@ export async function generateSnapshot(
       bytes: () => bytesDone,
       transfer,
       hashing: () => hashing,
+      currentFile: () => currentFile,
     })(files),
     excluded,
     skipped,
     getProps: async (file) => {
+      currentFile = file;
       try {
         const props = await fileProps(file, lookups, {
           onHashStart: (started) => (hashing = started),
@@ -415,8 +436,14 @@ export async function generateSnapshot(
  *
  * ```
  * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min   Uploading 999.9MB (55%) …/ragged.jpg
+ * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min                            …/notes.txt
  * 4,182/58,310   38% of   2.4GB in 8 sec
  * ```
+ *
+ * The middle line is the ordinary case, and the common one: no verb, because
+ * nothing in flight has taken long enough to be worth measuring, but the path is
+ * still there — going by several times a second on a set of small files, which
+ * is what a working line looks like.
  *
  * **The percentage is of bytes, never of files.** A file percentage was tried
  * and dropped: the wait is dominated by bytes, and the sizes here span four
@@ -441,8 +468,17 @@ export async function generateSnapshot(
  * @param {() => number} args.bytes - Bytes it has got through so far
  * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
  * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
+ * @param {() => string | null} [args.currentFile] - The file in hand, named even when
+ *   it is too fast to earn the detail above
  */
-function withProgress({ total, bytesTotal, bytes, transfer, hashing }) {
+function withProgress({
+  total,
+  bytesTotal,
+  bytes,
+  transfer,
+  hashing,
+  currentFile,
+}) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     using progress = createProgress(process.stderr);
@@ -458,6 +494,7 @@ function withProgress({ total, bytesTotal, bytes, transfer, hashing }) {
           start,
           state: transfer?.(),
           hashing: hashing(),
+          currentFile: currentFile?.(),
           width: process.stderr.columns,
         }),
       );
@@ -476,12 +513,39 @@ function withProgress({ total, bytesTotal, bytes, transfer, hashing }) {
     // calm enough for a line this wide. `unref` so a pending tick can never hold
     // the process open; the `finally` stops it if the pipeline throws.
     draw();
-    const ticking = setInterval(draw, 250);
+    const ticking = setInterval(draw, TICK_MS);
     ticking.unref();
+    // ...but a timer only fires when the event loop is given a turn, and on a
+    // set of small files this pipeline never gives it one. Every stage is an
+    // `async` function whose work is *synchronous* — `lstatSync`, `readFileSync`,
+    // `crypto.hash` — so awaiting each one queues a microtask and the queue
+    // never drains. Timers are macrotasks and simply do not run: measured at
+    // 1ms a file, **zero** ticks in eight seconds, the line frozen on its
+    // opening `0/8,060` until some unrelated stream write happened to yield.
+    //
+    // So the pass concedes the loop itself, often enough that the timer above
+    // can keep its cadence. It costs one clock read per file — the same order as
+    // the `Temporal.Now.instant()` `fileProps` already takes per file — and one
+    // `setImmediate` per tenth of a second: over ten 8,060-file runs the gap
+    // between conceding and not was smaller than the run-to-run spread. Time,
+    // not a file count: at 1ms a file every-50 would do, and at 10ms a file it
+    // would starve again.
+    // **After the row, not before it.** A pull pipeline resumes here only once
+    // the consumer has finished with the path it was handed, so by this point
+    // `current` and the pass's `currentFile` describe the same file. Conceding
+    // before the yield instead put the loop's one reliable redraw window in the
+    // gap between them, and the line would have named file N-1 beside a count of
+    // N for most of its frames.
+    let conceded = performance.now();
     try {
       for await (const path of paths) {
         current++;
         yield path;
+        const now = performance.now();
+        if (now - conceded >= CONCEDE_MS) {
+          conceded = now;
+          await yieldToLoop();
+        }
       }
     } finally {
       clearInterval(ticking);
@@ -501,6 +565,7 @@ function withProgress({ total, bytesTotal, bytes, transfer, hashing }) {
  * @param {Temporal.Instant} args.start
  * @param {TransferState} [args.state] - Absent when the pass only hashes
  * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
+ * @param {string | null} [args.currentFile] - The file in hand, when nothing has earned a name
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
  */
@@ -512,6 +577,7 @@ export function progressLine({
   start,
   state,
   hashing,
+  currentFile,
   width,
 }) {
   // Every field before the path is fixed width, so the path starts at the same
@@ -526,7 +592,11 @@ export function progressLine({
     ? `${counts}${share}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
     : `${counts}${share} in ${elapsed}`;
 
-  const detail = activity(state?.current ?? null, hashing ?? null);
+  const detail = activity(
+    state?.current ?? null,
+    hashing ?? null,
+    currentFile ?? null,
+  );
   if (!detail) {
     return run;
   }
@@ -551,7 +621,16 @@ export function progressLine({
   const aligned = forBoth - padded.length >= MIN_PATH_COLUMNS;
   const text = aligned ? padded : detail.text;
   const shown = fitPath(detail.path, forBoth - text.length);
-  return shown ? `${run}  ${text} ${shown}` : `${run}  ${detail.text}`;
+  if (!shown) {
+    // No room for the path. A labelled detail still says something without one
+    // (`Uploading 1.8GB (27%)`); a bare current file is *only* the path, so
+    // there is nothing left to print and the line ends at the figures rather
+    // than at two trailing spaces.
+    return detail.text ? `${run}  ${detail.text}` : run;
+  }
+  // `text` is empty only when the detail is a bare path *and* the padding was
+  // shed — pad and path both gone, so the two-space gap is the whole separator.
+  return text ? `${run}  ${text} ${shown}` : `${run}  ${shown}`;
 }
 
 /**
@@ -582,9 +661,21 @@ function byteShare(done, total) {
   return `  ${percent.padStart(4)} of ${formatByteValue(of).padStart(BYTES_COLUMNS)}`;
 }
 
-// A row has to be *worth* reporting before its name goes on the line. Below this
-// it is over before it can be read, and naming every one of tens of thousands of
-// fast files is noise that hides the one that is actually holding things up.
+// How often the line redraws, and how often the pass hands the event loop back
+// so that it can. Conceding must be the *shorter* of the two: at equal intervals
+// every tick would be up to one whole interval late, which is the cadence being
+// halved to save nothing.
+const TICK_MS = 250;
+const CONCEDE_MS = 100;
+
+// A row has to be *worth* reporting before it gets a *labelled* detail —
+// `Hashing 1.8GB (27%)`, a verb and a measurement. Below this the figures are
+// over before they can be read, and tens of thousands of them flickering past
+// hide the one row that is actually holding things up.
+//
+// It no longer decides whether the file is *named*: that gate applied to the
+// path too, and on a set of small files nothing ever passed it, so the line ran
+// for hours with an empty detail column and read as hung (ADR-0076, amended).
 const WORTH_REPORTING_MS = 1000;
 
 // `999.9MB` is the widest `formatByteValue` gets, and `Uploading ` + that +
@@ -599,11 +690,20 @@ const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
  * because it is the fact we sometimes have. A single PUT reports its bytes once,
  * at the end, so a small upload never earns a percentage; a streamed hash and a
  * multipart upload both do.
+ *
+ * Failing that, the file in hand with no text at all. Nothing measurable is known
+ * about it — `fileProps` slurps anything under 5MB in one call and publishes no
+ * `HashProgress` — but *which* file is known, always, and a path going by four
+ * times a second is the difference between a line that is working and a line
+ * that has hung. The empty text still pads to `ACTIVITY_COLUMNS`, so the path
+ * sits in the same column whether or not a verb has joined it, and a row that
+ * grows slow enough to earn one doesn't shunt the path sideways as it does.
  * @param {Sending | null} sending
  * @param {HashProgress | null} hashing
+ * @param {string | null} [currentFile]
  * @returns {{ text: string, path: string } | null}
  */
-function activity(sending, hashing) {
+function activity(sending, hashing, currentFile) {
   const now = performance.now();
   // The text carries no separator of its own — `progressLine` owns the spacing,
   // so `ACTIVITY_COLUMNS` measures the same string that gets padded. Leading
@@ -621,6 +721,9 @@ function activity(sending, hashing) {
       text: `Hashing ${sized(hashing.size, hashing.read())}`,
       path: hashing.path,
     };
+  }
+  if (currentFile) {
+    return { text: "", path: currentFile };
   }
   return null;
 }
