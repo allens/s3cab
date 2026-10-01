@@ -282,7 +282,6 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       const compacted = await compactDeletionRecords(
         bucket,
         new Set([hashes[0] ?? ""]),
-        { instant: "2099-01-02T00:00:00.000Z" },
       );
       assert.equal(compacted.files, 3, "all three absorbed");
       assert.equal(compacted.trimmed, 2, "the two unreferenced rows dropped");
