@@ -21,8 +21,9 @@ The split is by **audience**: internal docs under [docs/](docs/) (sibling `adr/`
 "spec" is reserved** for the format spec, kept user-side because the stored format is a
 user-facing promise ([ADR-0002](docs/adr/0002-no-lock-in-hard-constraint.md)).
 
-The seven foundational design principles, once numbered `#1`–`#7` here, are now
-[ADR-0001](docs/adr/0001-file-level-content-addressable-dedup.md)–[ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md).
+The seven foundational design principles are
+[ADR-0001](docs/adr/0001-file-level-content-addressable-dedup.md)–[ADR-0007](docs/adr/0007-plain-js-via-jsdoc.md);
+a bare `#1`–`#7` citing a principle in a comment means the ADR of that number.
 
 ### Documentation discipline
 
@@ -253,10 +254,9 @@ Three layout notes the README and code don't carry:
   because that exercise accumulates a preserved restorer per run and its own README says
   which of its files are maintained and which are frozen. Three benchmarks sharing a
   subject stay flat.
-- **Snapshots no longer land in the repo tree** — since backup-sets slice 2 they live in
-  `~/.s3cab/sets/<set>/snapshots/`, outside any working copy, so `.gitignore` only keeps the
-  `/.s3cab/env*` secret guards for the committed [.s3cab/exclude.txt](.s3cab/exclude.txt)
-  template.
+- **Snapshots live outside any working copy**, in `~/.s3cab/sets/<set>/snapshots/`, so
+  `.gitignore` only keeps the `/.s3cab/env*` secret guards for the committed
+  [.s3cab/exclude.txt](.s3cab/exclude.txt) template.
 - **The repo dogfoods itself via a set** — [.s3cab/exclude.txt](.s3cab/exclude.txt) is a
   ready-made exclude template: `s3cab setup --set s3cab --bucket <bucket> .`, then copy those
   patterns into `~/.s3cab/sets/s3cab/exclude.txt`.
@@ -296,11 +296,9 @@ Module *ownership* (`objects/` → `objects.mjs`, `snapshots/` → `remote.mjs`,
 listed here:
 
 - **Stubs for unbuilt commands stay _inline_ in the registry** — a file is earned by logic, not
-  reserved ahead of it ([ADR-0006](docs/adr/0006-minimal-code.md)). The `planned: true` marker
-  that once rendered `(not yet available)` in help is **gone**: the last stub (`verify`) was
-  built, leaving the flag, its help branch and a `notImplemented` factory with zero instances —
-  structure for a caller that didn't exist. Reinstating it is a three-line change if a command
-  is ever scaffolded ahead of its body again.
+  reserved ahead of it ([ADR-0006](docs/adr/0006-minimal-code.md)). While every command is
+  built there is no `planned` marker or `(not yet available)` help branch; add one (about three
+  lines) only when a command is actually scaffolded ahead of its body.
 - **[src/commands/](src/commands/) and [src/lib/](src/lib/) are siblings on purpose** — `lib/` is
   depended on *by* commands, not a layer above them. Group by **subsystem/cohesion, not abstract
   layer**: no `lib/util/` junk-drawer. If `lib/` ever cleaves, extract a directory named for the
