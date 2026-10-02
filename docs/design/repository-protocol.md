@@ -184,9 +184,10 @@ a wrong-bytes-under-a-right-key object is outside what `verify` can see by const
 Per object: `getObject` → `writeFileAtomic` (digest check) → rename **[atomic]** per file. Two
 failure modes, deliberately different:
 
-- **absent object** → skip and continue; the deletion record partitions the outcome
-  (recorded → exit 0, unexplained → exit 1);
-- **anything else, including a digest mismatch** → propagates and **aborts the entire run**
+- **absent or corrupt object** → skip and continue. For an absence the deletion record
+  partitions the outcome (recorded → exit 0, unexplained → exit 1); a digest mismatch is always
+  exit 1, since no `delete` produces wrong bytes;
+- **anything else** (network, credentials) → propagates and **aborts the entire run**
   ([restore.mjs](../../src/commands/restore.mjs)).
 
 ### `reattach`
