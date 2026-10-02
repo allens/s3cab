@@ -51,9 +51,11 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * `corrupt`, nothing is written for it, the run continues, and it exits 1
  * (guide/format.md's restorer rule). So is a name this filesystem **refuses** —
  * a backup taken on Linux can hold a name Windows forbids, and one taken on
- * Windows a name too long for Linux — reported `refused`, exit 1. Only those
- * three degrade; any other failure (network, credentials, a full disk) still
- * aborts, since it is wrong about the *run*, not about one file.
+ * Windows a name too long for Linux — reported `refused`, exit 1. (A `:` is
+ * refused before anything is written, since NTFS would take it as a stream
+ * rather than refuse it — see `planRestore`.) Only those three degrade; any
+ * other failure (network, credentials, a full disk) still aborts, since it is
+ * wrong about the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -235,6 +237,8 @@ export async function restore(paths = [], options = {}) {
     const hash = /** @type {string} */ (step.hash);
     if (step.action === "skip") {
       skipped.push(step.dest);
+    } else if (step.action === "refuse") {
+      refused.push(step.dest);
     } else if (absentHashes.has(hash)) {
       reportAbsent(hash, step.dest);
     } else if (corruptHashes.has(hash)) {
@@ -351,9 +355,9 @@ export async function restore(paths = [], options = {}) {
 /**
  * Whether the filesystem refused to create a path by its **name**. Every code
  * was measured, not assumed: NTFS answers the names it forbids (a control
- * character, any of `?*|<>"`, a component past 255 characters) with `ENOENT`,
- * and a `:` — which it reads as a stream separator — with `EINVAL` at the
- * rename; ext4 answers a component past 255 bytes with `ENAMETOOLONG`. Only an
+ * character, any of `?*|<>"`, a component past 255 characters) with `ENOENT`;
+ * ext4 answers a component past 255 bytes with `ENAMETOOLONG`. (A `:` never
+ * gets this far — NTFS doesn't refuse one, so `planRestore` does.) Only an
  * error naming a `path` counts, which is what makes it the filesystem's answer
  * rather than a code some other layer happens to share.
  * @param {unknown} error
@@ -362,6 +366,6 @@ function isRefusedName(error) {
   const errno = /** @type {NodeJS.ErrnoException | undefined} */ (error);
   return (
     typeof errno?.path === "string" &&
-    ["ENOENT", "EINVAL", "ENAMETOOLONG"].includes(errno.code ?? "")
+    ["ENOENT", "ENAMETOOLONG"].includes(errno.code ?? "")
   );
 }

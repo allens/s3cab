@@ -316,6 +316,40 @@ describe("planRestore", () => {
     ]);
   });
 
+  it("refuses a `:` in a Windows name, and never copies from it — under either root", () => {
+    // NTFS would take `a:b.jpg` as a stream of a file `a`; the drive's own `:`
+    // and a UNC root are not names. `exists` isn't consulted for the refused
+    // one: a stream left by an earlier restore must not read as "already here".
+    for (const root of ["C:\\out\\", "\\\\nas\\share\\"]) {
+      const named = new Map([
+        [`${root}a:b.jpg`, { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
+        [`${root}b.jpg`, { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
+      ]);
+      const plan = planRestore(named, [...named.keys()], destFor, {
+        exists: (dest) => dest.includes("a:b"),
+      });
+      assert.deepEqual(plan, [
+        { dest: `${root}a:b.jpg`, action: "refuse" },
+        {
+          dest: `${root}b.jpg`,
+          action: "fetch",
+          hash: "h1",
+          mtime: "2026-01-01T00:00Z",
+        },
+      ]);
+    }
+  });
+
+  it("leaves a `:` alone in a POSIX name, where it is an ordinary character", () => {
+    const named = new Map([
+      ["/a:b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
+    ]);
+    const plan = planRestore(named, ["/a:b.jpg"], destFor, {
+      exists: () => false,
+    });
+    assert.equal(plan[0]?.action, "fetch");
+  });
+
   it("different hashes never dedupe against each other", () => {
     const plan = planRestore(entries, ["/a.jpg", "/c.jpg"], destFor, {
       exists: () => false,

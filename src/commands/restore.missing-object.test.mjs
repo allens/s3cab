@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -303,21 +303,46 @@ describe("restore with a name this disk refuses", () => {
     assert.equal(process.exitCode, savedExitCode);
   });
 
-  it("counts NTFS's EINVAL for a `:` in a name as refused too", async () => {
-    // Only Windows produces this one (the rename of a temp NTFS took for a
-    // stream), so it is the measured error rather than a real filesystem's.
-    snapshot = fourFiles;
-    failures.set(
-      "bbb",
-      Object.assign(new Error("EINVAL: invalid argument, rename"), {
-        code: "EINVAL",
-        path: dest("gone.txt"),
-      }),
-    );
-    const result = await restore([], { set: "photos", output });
-    assert.deepEqual(result.refused, [dest("gone.txt"), dest("gone-copy.txt")]);
-    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
-  });
+  it(
+    "refuses a `:` in a name before writing anything, rather than into a stream",
+    { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
+    async () => {
+      // NTFS takes `b:stream.txt` as stream `stream.txt` of a file `b`, so a
+      // write or a copy to it leaves a stray file in the listing and the
+      // content where no listing shows it. Only a Windows-shaped destination
+      // says so, hence only here; lib/restore.test.mjs pins the decision itself
+      // on every platform.
+      snapshot = {
+        entries: new Map([
+          ["/data/a-first.txt", { ...at, hash: "aaa" }],
+          ["/data/b:stream.txt", { ...at, hash: "bbb" }], // would be a fetch
+          ["/data/c-copy.txt", { ...at, hash: "bbb" }], // its content, fetched
+          ["/data/d-twin.txt", { ...at, hash: "ddd" }],
+          ["/data/e:twin.txt", { ...at, hash: "ddd" }], // would be a dedup copy
+        ]),
+        dirs: ["/data"],
+      };
+
+      const result = await restore([], { set: "photos", output });
+
+      assert.deepEqual(result.refused, [
+        dest("b:stream.txt"),
+        dest("e:twin.txt"),
+      ]);
+      assert.deepEqual(result.restored, [
+        dest("a-first.txt"),
+        dest("c-copy.txt"),
+        dest("d-twin.txt"),
+      ]);
+      assert.deepEqual(fetched, ["aaa", "bbb", "ddd"]);
+      assert.deepEqual(readdirSync(join(output, "data")).sort(), [
+        "a-first.txt",
+        "c-copy.txt",
+        "d-twin.txt",
+      ]);
+      assert.equal(process.exitCode, 1);
+    },
+  );
 });
 
 describe("restore with a local failure that isn't about one name", () => {

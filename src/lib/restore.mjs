@@ -1,6 +1,6 @@
-import { join, posix, resolve, sep } from "node:path";
+import { join, posix, resolve, sep, win32 } from "node:path";
 
-import { preparePath } from "./path-match.mjs";
+import { foldsCase, preparePath } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
@@ -18,9 +18,22 @@ const normalize = (p) => {
 };
 
 /**
+ * Whether `dest` puts a `:` in a name on Windows. NTFS doesn't refuse one, it
+ * reads `a:b.txt` as stream `b.txt` of a file `a`: a copy succeeds into that
+ * hidden stream, and a fetch fails only at the rename, leaving its temp's empty
+ * `.a` behind (both measured). So the name is caught here, before anything is
+ * written. Keyed on the path's shape, like `foldsCase`; a backup made on Linux
+ * reaches one only through `--output`.
+ * @param {string} dest
+ * @returns {boolean}
+ */
+const putsColonInName = (dest) =>
+  foldsCase(dest) && dest.slice(win32.parse(dest).root.length).includes(":");
+
+/**
  * @typedef {Object} RestoreStep
- * @property {string} dest - Where this entry is written (or left alone, for `skip`)
- * @property {"skip" | "fetch" | "copy"} action
+ * @property {string} dest - Where this entry is written (or left alone, for `skip` and `refuse`)
+ * @property {"skip" | "refuse" | "fetch" | "copy"} action
  * @property {string} [hash] - Content hash (`fetch`/`copy` only)
  * @property {string} [mtime] - Snapshot mtime, as stored (`fetch`/`copy` only)
  * @property {string} [from] - Local path to copy from (`copy` only)
@@ -34,6 +47,8 @@ const normalize = (p) => {
  * downloads once). A target whose destination already exists is `skip`ped
  * unless `overwrite` — and a skipped entry never seeds the dedupe, since a
  * pre-existing file's content is unverified and so untrusted as a copy source.
+ * A target whose name the destination can't hold as a file (`putsColonInName`)
+ * is `refuse`d, and doesn't seed it either: nothing will be there to copy.
  *
  * Pure and order-preserving, like `selectEntries`/`reroot`: `exists` is
  * injected so this is unit-testable without touching the filesystem.
@@ -58,6 +73,10 @@ export function planRestore(
 
   for (const source of targets) {
     const dest = destFor(source);
+    if (putsColonInName(dest)) {
+      plan.push({ dest, action: "refuse" });
+      continue;
+    }
     if (exists(dest) && !overwrite) {
       plan.push({ dest, action: "skip" });
       continue;
