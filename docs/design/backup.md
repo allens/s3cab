@@ -303,8 +303,11 @@ object — present, but failing `writeFileAtomic`'s digest check (`IntegrityErro
 the same way under its own `corrupt` heading: nothing is written for it, and the bad bytes are
 discarded rather than left in the temp. A name the destination filesystem **refuses** degrades
 too, under `refused` — NTFS answers a forbidden character with `ENOENT` (`EINVAL` for a `:`),
-ext4 a component past 255 bytes with `ENAMETOOLONG`, from the directory, the download or a
-dedup copy alike. Those three are the whole degrade; an operational error (network,
+ext4 a component past 255 bytes with `ENAMETOOLONG`, from the directory or the download. A
+dedup copy that fails that way is retried as a fetch instead: a failed `copyFile` names its
+*source* in `path` whichever side failed, so a refused name and a source deleted mid-run are the
+same `ENOENT`, and only the fetch, which can fail only on the destination, tells them apart.
+Those three are the whole degrade; an operational error (network,
 credentials, a full disk) is wrong about the run rather than one file, and still aborts.
 Because `planRestore` points repeats of a hash at wherever the first copy landed, a failed
 fetch also marks its dependent `copy` steps the same casualty rather than reading a file that

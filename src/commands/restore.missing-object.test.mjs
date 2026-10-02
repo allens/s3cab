@@ -30,6 +30,8 @@ let fetched = [];
 let deletionRecords = new Map();
 /** How many times the records were fetched — laziness evidence (0 on a clean run). */
 let recordReads = 0;
+/** @type {(hash: string) => void} Runs after each fake download that succeeds — a test's way to act mid-restore. */
+let afterFetch = () => {};
 
 mock.module("../lib/env.mjs", {
   exports: {
@@ -57,6 +59,7 @@ mock.module("../lib/objects.mjs", {
       // The real getObject lands the file; the restore loop then sets its mtime,
       // so a fake that wrote nothing would fail for the wrong reason.
       await writeFile(destPath, hash);
+      afterFetch(hash);
     },
   },
 });
@@ -118,6 +121,7 @@ beforeEach(() => {
   fetched = [];
   deletionRecords = new Map();
   recordReads = 0;
+  afterFetch = () => {};
   output = mkdtempSync(join(tmpdir(), "s3cab-restore-"));
 });
 afterEach(() => {
@@ -262,12 +266,41 @@ describe("restore with a name this disk refuses", () => {
   it("fetches a refused file's content again for the next path that shares it", async () => {
     // `c-copy.txt` is planned as a copy of `b-…`, which was never written; the
     // content is sound, so it comes from the store rather than going down with
-    // the name. The refused directory never reaches a fetch at all.
+    // the name. The refused directory never reaches a fetch at all. `f-…`'s
+    // copy fails and is retried as the second `ddd` fetch: only that one can
+    // say the name, not the source, was the problem.
     const result = await restore([], { set: "photos", output });
 
-    assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd"]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd", "ddd"]);
     assert.equal(readFileSync(dest("c-copy.txt"), "utf8"), "bbb");
     assert.ok(result.restored.includes(dest("c-copy.txt")));
+  });
+
+  it("restores a copy whose source vanished mid-run, rather than calling its name refused", async () => {
+    // A failed copy names its source in `path` whichever side failed, so a
+    // source deleted after it was restored looks exactly like a refused
+    // destination: ENOENT with a path.
+    snapshot = {
+      entries: new Map([
+        ["/data/a-source.txt", { ...at, hash: "aaa" }],
+        ["/data/b-other.txt", { ...at, hash: "bbb" }], // its fetch deletes a-source
+        ["/data/c-copy.txt", { ...at, hash: "aaa" }], // a copy of a-source
+      ]),
+      dirs: ["/data"],
+    };
+    afterFetch = (hash) => {
+      if (hash === "bbb") {
+        rmSync(dest("a-source.txt"));
+      }
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.refused, []);
+    assert.ok(result.restored.includes(dest("c-copy.txt")));
+    assert.equal(readFileSync(dest("c-copy.txt"), "utf8"), "aaa");
+    assert.deepEqual(fetched, ["aaa", "bbb", "aaa"]);
+    assert.equal(process.exitCode, savedExitCode);
   });
 
   it("counts NTFS's EINVAL for a `:` in a name as refused too", async () => {
