@@ -57,7 +57,6 @@ describe("fileProps", () => {
 
     assert.equal(started.length, 1);
     const [hashing] = started;
-    assert.equal(hashing?.path, filePath);
     assert.equal(hashing?.size, 10 * 1024 * 1024);
     assert.ok(
       hashing && hashing.startedAt >= before && hashing.startedAt <= after,

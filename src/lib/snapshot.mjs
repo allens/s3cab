@@ -284,10 +284,11 @@ export async function generateSnapshot(
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
   // The hash in flight, published by `fileProps` and cleared the moment it
-  // returns — so the progress line can name the file it is chewing on when one
-  // takes long enough to be worth naming. Held here, at the binding site, rather
-  // than inside `fileProps`: the function stays pure per call, and the mutable
-  // "what is happening now" belongs to the pass that is running.
+  // returns — so the progress line can measure a hash that has run long enough
+  // for its figures to be read. It does not name the file: `currentFile` below
+  // does that for every file, this one included. Held here, at the binding site,
+  // rather than inside `fileProps`: the function stays pure per call, and the
+  // mutable "what is happening now" belongs to the pass that is running.
   /** @type {HashProgress | null} */
   let hashing = null;
   // The last file the pass had in its hands, named whether or not it was slow
@@ -493,9 +494,9 @@ export async function generateSnapshot(
  * @param {number} args.bytesTotal - Bytes this pass expects to get through (0 = unknown)
  * @param {() => number} args.bytes - Bytes it has got through so far
  * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
- * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
+ * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is, of `currentFile`
  * @param {() => string | null} [args.currentFile] - The file in hand, named even when
- *   it is too fast to earn the detail above
+ *   it is too fast to be measured
  * @param {() => boolean} [args.stopping] - Whether the user has asked the pass to stop
  */
 function withProgress({
@@ -575,8 +576,8 @@ function withProgress({
  * @param {number} [args.bytesTotal] - Bytes expected in all (0/absent = unknown, e.g. a first run)
  * @param {Temporal.Instant} args.start
  * @param {TransferState} [args.state] - Absent when the pass only hashes
- * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
- * @param {string | null} [args.currentFile] - The file in hand, when nothing has earned a name
+ * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is, of `currentFile`
+ * @param {string | null} [args.currentFile] - The file in hand, which names a hash in flight too
  * @param {boolean} [args.stopping] - The user has asked the pass to stop and it is finishing the file in hand (ADR-0067)
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
@@ -744,16 +745,19 @@ function activity(sending, hashing, currentFile) {
       path: sending.path,
     };
   }
+  if (!currentFile) {
+    return null;
+  }
+  // A hash in flight is always `currentFile`'s: the pass sets that before it
+  // starts the hash, and hashes one file at a time. So the name comes from there
+  // and `HashProgress` carries none.
   if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
     return {
       text: `Hashing ${sized(hashing.size, hashing.read())}`,
-      path: hashing.path,
+      path: currentFile,
     };
   }
-  if (currentFile) {
-    return { text: "", path: currentFile };
-  }
-  return null;
+  return { text: "", path: currentFile };
 }
 
 /**

@@ -86,7 +86,7 @@ data cannot report on the data's own stalls.**
 
 - **Hashing is reportable, and better than uploading at it.** `fileProps` streams every file over
   5 MB, and an `fs.ReadStream` already maintains `bytesRead`, so it publishes
-  `{path, size, startedAt, read}` at no per-chunk cost and with no extra stat — the size comes
+  `{size, startedAt, read}` at no per-chunk cost and with no extra stat — the size comes
   from the `lstat` it already takes. Below that boundary a file is read in one call, with no
   intermediate count and no realistic way to spend a second; the display threshold and the hashing
   strategy are therefore the same constant and cannot drift apart.

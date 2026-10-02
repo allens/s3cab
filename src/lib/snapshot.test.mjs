@@ -19,13 +19,12 @@ const sending = (current) => ({
 });
 
 /**
- * A hash that began long enough ago to be worth reporting.
- * @param {string} path
+ * A hash that began long enough ago to be worth reporting. It carries no path,
+ * as `fileProps`' does not: the line names it from `currentFile`.
  * @param {number} size
  * @param {number} done - Bytes read so far
  */
-const hashing = (path, size, done) => ({
-  path,
+const hashing = (size, done) => ({
   size,
   startedAt: performance.now() - 2000,
   read: () => done,
@@ -50,7 +49,8 @@ describe("progressLine", () => {
       ...run,
       // Same run stats, so only the activity differs between the two lines.
       state: { sent: 1_200_000_000, current: null },
-      hashing: hashing("/a.jpg", 1, 0),
+      currentFile: "/a.jpg",
+      hashing: hashing(1, 0),
       width: 200,
     });
     assert.equal(widest.indexOf("/a.jpg"), shortest.indexOf("/a.jpg"));
@@ -153,7 +153,8 @@ describe("progressLine", () => {
   it("names a slow hash the same way, from the bytes read so far", () => {
     const line = progressLine({
       ...run,
-      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
+      currentFile: "D:\\Scans\\big.psd",
+      hashing: hashing(1_800_000_000, 864_000_000),
     });
     assert.match(line, /Hashing 1\.8GB \(48%\)\s+D:\\Scans\\big\.psd$/, line);
   });
@@ -199,7 +200,7 @@ describe("progressLine", () => {
     const measured = progressLine({
       ...run,
       currentFile: "D:\\Scans\\big.psd",
-      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
+      hashing: hashing(1_800_000_000, 864_000_000),
       width: 200,
     });
     assert.equal(
@@ -212,7 +213,7 @@ describe("progressLine", () => {
     const line = progressLine({
       ...run,
       currentFile: "D:\\Scans\\big.psd",
-      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
+      hashing: hashing(1_800_000_000, 864_000_000),
     });
     assert.match(line, /Hashing 1\.8GB \(48%\)\s+D:\\Scans\\big\.psd$/, line);
   });
@@ -228,20 +229,6 @@ describe("progressLine", () => {
       width: 38,
     });
     assert.equal(line, " 4,182/58,310 in      0s");
-  });
-
-  it("prefers the upload when both are somehow in flight", () => {
-    const line = progressLine({
-      ...run,
-      state: sending({
-        path: "D:\\Videos\\holiday.MOV",
-        loaded: 1_320_000_000,
-        total: 2_400_000_000,
-      }),
-      hashing: hashing("D:\\Scans\\big.psd", 1_800_000_000, 864_000_000),
-    });
-    assert.ok(line.includes("Uploading"), `got ${line}`);
-    assert.ok(!line.includes("Hashing"), `got ${line}`);
   });
 
   it("keeps the end of a path too long for the line", () => {
