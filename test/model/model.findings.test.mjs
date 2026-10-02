@@ -229,11 +229,12 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(whole.entries.size, 3, "the complete manifest must parse");
     assert.equal(whole.dirs.length, 1);
 
-    // ADR-0082: the #END trailer makes truncation loud. Zstd still decompresses
-    // a cut-short stream to a byte prefix without error, so the invariant is:
-    // every truncation either *rejects* (the trailer or a whole row is gone) or
-    // parses the complete manifest (the cut only shaved compression framing
-    // after the last content byte — nothing was lost). What no truncation may
+    // ADR-0082: the #END trailer makes truncation loud. At the engines floor
+    // zstd still decompresses a cut-short stream to a byte prefix without
+    // error, so the invariant is: every truncation either *rejects* (the
+    // trailer or a whole row is gone) or parses the complete manifest (the cut
+    // only shaved compression framing after the last content byte — nothing
+    // was lost; newer Node's zstd rejects even that). What no truncation may
     // do any more is parse as a valid smaller-or-empty snapshot.
     for (let length = 0; length < full.length; length++) {
       /** @type {Awaited<ReturnType<typeof parseCompressedSnapshotStream>>} */
