@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Architecture review — s3cab (thirteenth pass)</title>
+    <title>Architecture review — s3cab (fourteenth pass)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -51,11 +51,12 @@
   <body class="bg-stone-50 text-slate-900 font-sans">
     <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
       <header class="space-y-4">
-        <p class="label text-slate-500">Architecture review · thirteenth pass</p>
+        <p class="label text-slate-500">Architecture review · fourteenth pass</p>
         <h1 class="font-serif text-4xl tracking-tight">s3cab</h1>
         <p class="text-sm text-slate-600">
-          2026-09-18 · HEAD <code class="bg-white px-1 py-0.5 rounded border border-slate-200">3395305</code> ·
-          11 <code>src/</code> commits since the twelfth pass read the source (59 files, +2233/−1302)
+          2026-10-02 · HEAD <code class="bg-white px-1 py-0.5 rounded border border-slate-200">f9bba9a</code> ·
+          2 <code>src/</code> commits since the thirteenth pass read the source (9 files, +381/−55) — the
+          landings of its A (#348) and D (#343)
         </p>
         <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600 border-t border-slate-200 pt-4">
           <span class="inline-flex items-center gap-2"><span class="inline-block w-5 h-3 border border-slate-400 bg-white"></span> module</span>
@@ -66,128 +67,177 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700 leading-relaxed">
           <span class="label text-slate-500 block mb-2">Verdict</span>
-          Pass 12 emptied the open list — A–K landed, L was answered. The new code since is mostly
-          pass 12's own landings, and they hold up: <code>bucket-scan.mjs</code>,
-          <code>path-match.mjs</code>, the <code>s3.mjs</code> stencil and the enumeration builder
-          are all deep and all pin what they promise. The friction this pass is a
-          <strong>different recurring shape</strong> — four of the ten candidates are a module that
-          <em>states a rule in prose about itself</em> which the code does not keep: the clock seam
-          that says "and nowhere else", <code>provider.mjs</code>'s "one home of the mapping",
-          <code>backup.mjs</code>'s "every figure lands here", <code>exclude.mjs</code>'s
-          undocumented subject-side convention. A codebase that writes its invariants down gets
-          measured against them.
+          Two of pass 13's candidates landed: A (the deletion record's clock, #348) and D (the blank
+          progress line, #343). The rest were re-checked against the code and all still hold. Only the
+          line numbers for F, G, H and I have moved. The one new card comes from D's landing.
+          <strong>#343 found that the fused pass never gave the event loop a turn, so its redraw timer
+          never fired.</strong> It fixed that locally. The same fault has been in the
+          <strong>walk</strong> since #277, and nobody saw it, because the walk is synchronous from
+          start to finish and the test that pins its timer gives the loop turns that the walk never
+          does. <strong>O</strong> has the same shape as pass 13's findings: a module states a rule
+          about itself (<em>"A caller cannot forget a timer it does not own"</em>) that its code does
+          not keep. This time a user-visible fault comes with it. I verified it by running the code,
+          not by reading it.
+
         </div>
       </header>
 
       <section id="candidates" class="space-y-10">
         <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Candidates</h2>
 
-        <!-- ================= A ================= -->
-        <article id="a" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5 shadow-sm">
-          <div class="flex flex-wrap items-baseline gap-3">
-            <h3 class="font-serif text-xl">A · The deletion record's instants are minted outside the clock seam that names them</h3>
-          </div>
+        <!-- ================= O ================= -->
+        <article id="o" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5 shadow-sm">
+          <h3 class="font-serif text-xl">O · Two lines run on a clock, each has half of what keeps it live, and the walk's clock never ticks</h3>
           <div class="flex flex-wrap gap-2">
             <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-900">Strong</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">mock</span>
-            <span class="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-900">found independently by two sweeps</span>
+            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            <span class="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-900">live user-visible fault</span>
+            <span class="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-900">verified by experiment</span>
           </div>
           <p class="font-mono text-xs text-slate-600 leading-relaxed">
-            src/lib/format.mjs:4-11, :253, :261 · src/commands/delete.mjs:264 ·
-            src/lib/deletion-record.mjs:245 · src/commands/cleanup.mjs:149 ·
-            test/model/harness/seam.mjs:38-47, :87 · src/commands/delete.test.mjs:57-71
+            src/lib/walk.mjs:231 (<code>walkDirs</code>, synchronous), :265 (<code>countedPass</code>), :280, :305,
+            :519-520 (<code>readdirSync</code>) · src/lib/progress.mjs:199-206 (the claim), :245-250 (its timer),
+            :261-269 (<code>done</code>) · src/lib/snapshot.mjs:484, :498, :515-517, :539-548 (the concession),
+            :550-552 (no closing draw), :668-669 · src/lib/progress.test.mjs:187-208 ·
+            src/lib/snapshot.progress.test.mjs:40-50 · docs/adr/0076-one-progress-line-driven-by-a-clock.md:221-223
           </p>
 
           <div class="grid md:grid-cols-2 gap-4">
             <div class="rounded-lg border border-slate-200 p-4 bg-stone-50">
-              <p class="label text-slate-500 mb-3">Before — the seam has two doors and a hole</p>
-              <svg viewBox="0 0 320 210" class="w-full" style="height:210px">
-                <line class="seam" x1="150" y1="10" x2="150" y2="200" stroke="#94a3b8" stroke-width="2"/>
-                <text x="152" y="22" font-size="8" fill="#94a3b8" class="label">clock seam</text>
-                <rect x="180" y="30" width="125" height="52" fill="#0f172a" rx="3"/>
-                <text x="242" y="52" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">format.mjs</text>
-                <text x="242" y="66" font-size="8" fill="#94a3b8" text-anchor="middle">readClock · localMoment</text>
-                <rect x="8" y="24" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="38" font-size="8" fill="#334155" text-anchor="middle">snapshot name</text>
-                <rect x="8" y="50" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="64" font-size="8" fill="#334155" text-anchor="middle">#END trailer</text>
-                <rect x="8" y="76" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="90" font-size="8" fill="#334155" text-anchor="middle">forget audit</text>
-                <rect x="8" y="102" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="116" font-size="8" fill="#334155" text-anchor="middle">marker CREATED</text>
-                <line x1="128" y1="34" x2="180" y2="50" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="60" x2="180" y2="54" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="86" x2="180" y2="58" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="112" x2="180" y2="62" stroke="#64748b" stroke-width="1.5"/>
-                <rect x="8" y="140" width="120" height="22" fill="#fff" stroke="#dc2626" rx="2" class="hatch"/>
-                <text x="68" y="155" font-size="8" fill="#991b1b" text-anchor="middle">delete.mjs:264</text>
-                <rect x="8" y="168" width="120" height="22" fill="#fff" stroke="#dc2626" rx="2" class="hatch"/>
-                <text x="68" y="183" font-size="8" fill="#991b1b" text-anchor="middle">deletion-record:245</text>
-                <line x1="128" y1="151" x2="290" y2="151" stroke="#dc2626" stroke-width="2"/>
-                <line x1="128" y1="179" x2="290" y2="179" stroke="#dc2626" stroke-width="2"/>
-                <path d="M300 151 L290 147 L290 155 Z" fill="#dc2626"/>
-                <path d="M300 179 L290 175 L290 183 Z" fill="#dc2626"/>
-                <text x="215" y="145" font-size="8" fill="#991b1b" text-anchor="middle">new Date()</text>
-                <text x="215" y="199" font-size="8" fill="#991b1b" text-anchor="middle">→ real wall clock</text>
+              <p class="label text-slate-500 mb-3">Before — two clocks, each missing the piece the other has</p>
+              <svg viewBox="0 0 320 230" class="w-full" style="height:230px">
+                <text x="10" y="14" font-size="8" fill="#64748b" class="label">progress.mjs · countedPass</text>
+                <rect x="10" y="20" width="145" height="20" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="82" y="34" font-size="8" fill="#334155" text-anchor="middle">owns a timer ✓</text>
+                <rect x="10" y="44" width="145" height="20" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="82" y="58" font-size="8" fill="#334155" text-anchor="middle">closing draw · done() ✓</text>
+                <rect x="10" y="68" width="145" height="20" fill="#fff" stroke="#dc2626" rx="2" class="hatch"/>
+                <text x="82" y="82" font-size="8" fill="#991b1b" text-anchor="middle">gives the loop a turn ✗</text>
+
+                <text x="165" y="14" font-size="8" fill="#64748b" class="label">snapshot.mjs · withProgress</text>
+                <rect x="165" y="20" width="145" height="20" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="237" y="34" font-size="8" fill="#334155" text-anchor="middle">re-implements a timer ✓</text>
+                <rect x="165" y="44" width="145" height="20" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="237" y="58" font-size="8" fill="#334155" text-anchor="middle">concedes every 100 ms ✓</text>
+                <rect x="165" y="68" width="145" height="20" fill="#fff" stroke="#dc2626" rx="2" class="hatch"/>
+                <text x="237" y="82" font-size="8" fill="#991b1b" text-anchor="middle">closing draw ✗</text>
+
+                <rect x="10" y="112" width="145" height="26" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="82" y="124" font-size="8" fill="#334155" text-anchor="middle">walkDirs — readdirSync,</text>
+                <text x="82" y="134" font-size="8" fill="#334155" text-anchor="middle">lstatSync, a sync for…of</text>
+                <line x1="82" y1="112" x2="82" y2="92" stroke="#dc2626" stroke-width="2"/>
+                <path d="M82 88 L78 96 L86 96 Z" fill="#dc2626"/>
+                <text x="90" y="104" font-size="7.5" fill="#991b1b">no turn → the timer never fires</text>
+
+                <rect x="165" y="112" width="145" height="26" fill="#fff" stroke="#64748b" rx="2"/>
+                <text x="237" y="124" font-size="8" fill="#334155" text-anchor="middle">the fused pass — async</text>
+                <text x="237" y="134" font-size="8" fill="#334155" text-anchor="middle">clothing, synchronous work</text>
+                <line x1="237" y1="112" x2="237" y2="92" stroke="#64748b" stroke-width="1.5"/>
+
+                <rect x="10" y="152" width="300" height="66" fill="#0f172a" rx="3"/>
+                <text x="18" y="166" font-size="7.5" fill="#94a3b8" font-family="monospace">ADR-0076: "only as live as the loop … any future</text>
+                <text x="18" y="177" font-size="7.5" fill="#94a3b8" font-family="monospace">pass that puts a timer on this pipeline inherits</text>
+                <text x="18" y="188" font-size="7.5" fill="#94a3b8" font-family="monospace">the same obligation"</text>
+                <text x="18" y="206" font-size="8" fill="#fca5a5">the rule is held by a sentence, and the walk does not keep it</text>
               </svg>
             </div>
             <div class="rounded-lg border border-slate-200 p-4 bg-stone-50">
-              <p class="label text-slate-500 mb-3">After — one read, one mock, one guard</p>
-              <svg viewBox="0 0 320 210" class="w-full" style="height:210px">
-                <line class="seam" x1="150" y1="10" x2="150" y2="200" stroke="#94a3b8" stroke-width="2"/>
-                <text x="152" y="22" font-size="8" fill="#94a3b8" class="label">clock seam</text>
-                <rect x="180" y="30" width="125" height="150" fill="#0f172a" rx="3"/>
-                <text x="242" y="96" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">format.mjs</text>
-                <text x="242" y="110" font-size="8" fill="#94a3b8" text-anchor="middle">readClock</text>
-                <text x="242" y="122" font-size="8" fill="#10b981" text-anchor="middle">every recorded instant</text>
-                <rect x="8" y="24" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="38" font-size="8" fill="#334155" text-anchor="middle">snapshot name</text>
-                <rect x="8" y="50" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="64" font-size="8" fill="#334155" text-anchor="middle">#END trailer</text>
-                <rect x="8" y="76" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="90" font-size="8" fill="#334155" text-anchor="middle">forget audit</text>
-                <rect x="8" y="102" width="120" height="20" fill="#fff" stroke="#64748b" rx="2"/>
-                <text x="68" y="116" font-size="8" fill="#334155" text-anchor="middle">marker CREATED</text>
-                <rect x="8" y="128" width="120" height="20" fill="#ecfdf5" stroke="#10b981" rx="2"/>
-                <text x="68" y="142" font-size="8" fill="#065f46" text-anchor="middle">deletion record</text>
-                <rect x="8" y="154" width="120" height="20" fill="#ecfdf5" stroke="#10b981" rx="2"/>
-                <text x="68" y="168" font-size="8" fill="#065f46" text-anchor="middle">record compaction</text>
-                <line x1="128" y1="34" x2="180" y2="95" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="60" x2="180" y2="98" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="86" x2="180" y2="101" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="112" x2="180" y2="104" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="128" y1="138" x2="180" y2="107" stroke="#10b981" stroke-width="2"/>
-                <line x1="128" y1="164" x2="180" y2="110" stroke="#10b981" stroke-width="2"/>
-                <text x="242" y="196" font-size="8" fill="#334155" text-anchor="middle">no-restricted-syntax: no bare clock read in src/</text>
+              <p class="label text-slate-500 mb-3">After — one module owns everything that keeps a line live</p>
+              <svg viewBox="0 0 320 230" class="w-full" style="height:230px">
+                <rect x="30" y="16" width="260" height="96" fill="#0f172a" rx="4"/>
+                <text x="160" y="38" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">one clock-driven line · progress.mjs</text>
+                <text x="160" y="58" font-size="8" fill="#94a3b8" text-anchor="middle">the clock</text>
+                <text x="160" y="72" font-size="8" fill="#94a3b8" text-anchor="middle">turns for the loop, accounted for by the interface</text>
+                <text x="160" y="86" font-size="8" fill="#94a3b8" text-anchor="middle">the closing draw · the stream · the cadence</text>
+                <text x="160" y="102" font-size="8" fill="#10b981" text-anchor="middle">a caller cannot hold a timer its loop never turns</text>
+                <line class="seam" x1="20" y1="126" x2="300" y2="126" stroke="#94a3b8" stroke-width="2"/>
+                <text x="300" y="122" font-size="8" fill="#94a3b8" text-anchor="end" class="label">seam</text>
+                <line x1="95" y1="112" x2="95" y2="140" stroke="#10b981" stroke-width="2"/>
+                <line x1="225" y1="112" x2="225" y2="140" stroke="#10b981" stroke-width="2"/>
+                <rect x="30" y="140" width="130" height="30" fill="#ecfdf5" stroke="#10b981" rx="2"/>
+                <text x="95" y="153" font-size="8" fill="#065f46" text-anchor="middle">adapter: the walk</text>
+                <text x="95" y="164" font-size="7.5" fill="#065f46" text-anchor="middle">synchronous</text>
+                <rect x="160" y="140" width="130" height="30" fill="#ecfdf5" stroke="#10b981" rx="2"/>
+                <text x="225" y="153" font-size="8" fill="#065f46" text-anchor="middle">adapter: the fused pass</text>
+                <text x="225" y="164" font-size="7.5" fill="#065f46" text-anchor="middle">async, synchronous work</text>
+                <text x="160" y="194" font-size="8" fill="#334155" text-anchor="middle">two adapters with different loops: a real seam</text>
+                <text x="160" y="210" font-size="8" fill="#334155" text-anchor="middle">store LIST · find's two passes keep working unchanged</text>
               </svg>
             </div>
           </div>
 
+          <div class="rounded-lg border border-slate-200 p-4 bg-stone-50">
+            <p class="label text-slate-500 mb-3">Measured — <code>countedPass</code> on a fake terminal, 3 s of work</p>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="rounded border border-red-300 bg-white p-3 font-mono text-[11px] text-slate-700 leading-relaxed">
+                <span class="text-slate-400"># a synchronous caller, as walkDirs is</span><br />
+                Finding files…<br />
+                <span class="text-red-700">&nbsp;&nbsp;(nothing drawn for 3 seconds)</span><br />
+                Finding files… 53,055,785 in 3 sec<br />
+                <span class="text-red-700">2 frames: the label and the tally</span>
+              </div>
+              <div class="rounded border border-emerald-300 bg-white p-3 font-mono text-[11px] text-slate-700 leading-relaxed">
+                <span class="text-slate-400"># the same work, conceding every 100 ms</span><br />
+                Finding files…<br />
+                Finding files… 8,936,748 in 1 sec<br />
+                Finding files… 17,550,715 in 2 sec<br />
+                Finding files… 25,530,416 in 3 sec<br />
+                <span class="text-emerald-700">4 frames: the clock ticks</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-600 mt-2">
+              A scratch harness outside the repo, importing the real <code>progress.mjs</code>. On a big set
+              the walk takes minutes, and for all of it the user sees only <code>Finding files in '~/OneDrive'…</code>
+              with no count and no clock. That is the freeze #277 was built to end.
+            </p>
+          </div>
+
           <div class="grid md:grid-cols-2 gap-4 text-sm">
             <div><span class="label text-slate-500 block mb-1">Problem</span>
-              <code>format.mjs</code>'s header names "a deletion record's … stamp" among the instants read
-              "here … and nowhere else", but <code>delete.mjs</code> and <code>deletion-record.mjs</code>
-              each call <code>new&nbsp;Date()</code> directly, and neither imports the module that owns the rule.</div>
+              <code>countedPass</code>'s doc says the walk's line cannot freeze, because the clock pulls the
+              count. But <code>walkDirs</code> is synchronous all the way down, so the clock it owns never
+              fires while the walk runs. #343 found the same starvation in the fused pass and fixed it there
+              with a concession of its own. So the mechanism now exists in two halves:
+              <code>countedPass</code> has the closing draw but never gives the loop a turn, and
+              <code>withProgress</code> gives the loop a turn but has no closing draw. The rule that ties them
+              together is one sentence in an ADR.</div>
             <div><span class="label text-slate-500 block mb-1">Solution</span>
-              Route both through <code>localMoment</code> — the precision <code>format.mjs:261</code> already
-              names for a deletion record — and add the <code>no-restricted-syntax</code> guard scoped like the
-              existing <code>realpathSync</code> rule.</div>
+              One module in <code>progress.mjs</code> owns everything that makes a clock-driven line live: the
+              timer, giving the loop its turns, and the closing draw. Its interface takes the caller's loop into
+              account, so a caller cannot end up with a timer that never fires. The walk and the fused pass
+              become its two adapters. How the walk gives the loop a turn is the grilling's first question, not
+              something decided here.</div>
           </div>
           <div>
             <span class="label text-slate-500 block mb-2">Wins</span>
             <ul class="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm list-disc list-inside text-slate-700">
-              <li>locality: one clock read, one mock</li>
-              <li>the header stops being false</li>
-              <li><code>delete.test.mjs</code> drops a whole-module mock</li>
-              <li>the compaction default gets its first test</li>
-              <li>model tier stops leaking real time</li>
-              <li>a rule that keeps drifting becomes a lint</li>
+              <li>the walk's line moves for the first time since #277</li>
+              <li>locality: the liveness rule lives in a module, not an ADR sentence</li>
+              <li>the fused pass gains its closing draw</li>
+              <li><code>withProgress</code>'s hard-coded <code>process.stderr</code> and copied <code>TICK_MS</code> go</li>
+              <li>the concession becomes assertable at one interface</li>
+              <li><code>countedPass</code>'s doc becomes true</li>
             </ul>
           </div>
+          <div class="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+            <strong>Why it hid: the test yields the loop that the walk never yields.</strong>
+            <code>progress.test.mjs</code>'s "redraws on its own clock while the caller does nothing at all"
+            waits with <code>await setTimeout</code> (:198, :203), and that wait gives the loop a turn. Pass 11
+            verified #277 the same way: "a pass whose caller only sleeps advanced <code>0 in 1 sec</code>". The
+            402,000-file pty run that "showed the count jump straight from the bare label to 2,000" was a
+            starved timer, not the excluded descent yielding nothing. A test of a clock-driven line needs a
+            caller that does not yield. Otherwise it tests the clock and not the line.
+          </div>
           <div class="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <strong>Why the escape hid:</strong> the header's own diagnostic sentence says
-            "a <code>Temporal.Now</code> read anywhere else in <code>src/</code>" — and both escapes
-            spell it <code>new&nbsp;Date()</code>. Grepping the rule as written finds nothing.
+            <strong>Amends ADR-0076, does not contradict it.</strong> ADR-0076's decision, a line driven by a
+            clock, stands. This moves its own consequence ("any future pass … inherits the same obligation")
+            out of prose and into the module. #343's limit stays as written: a turn between rows cannot
+            preempt one long synchronous row, and the chunked-read fix was declined. Questions for the
+            grilling: should the walk go async, or should the line offer a per-item check gated on
+            <code>due()</code>? The excluded-subtree descents, which yield no file at all, have to reach it
+            too. And does the concession also keep the park handlers responsive
+            (<code>snapshot-file.mjs:184</code>, <code>:217</code>)? That would be a second job nobody has
+            written down. It is unverified.
           </div>
         </article>
 
@@ -346,92 +396,6 @@
           </div>
         </article>
 
-        <!-- ================= D ================= -->
-        <article id="d" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5 shadow-sm">
-          <h3 class="font-serif text-xl">D · The progress line goes blank on exactly the files that are slow</h3>
-          <div class="flex flex-wrap gap-2">
-            <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-900">Strong</span>
-            <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
-            <span class="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-900">live user-visible fault</span>
-          </div>
-          <p class="font-mono text-xs text-slate-600 leading-relaxed">
-            src/lib/file-props.mjs:283 (the 5MB gate), :291-296, :299 · src/lib/snapshot.mjs:278-279, :331-336, :368-370, :588, :606-626 ·
-            filed as friction in proposals/output-ux.md
-          </p>
-
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="rounded-lg border border-slate-200 p-4 bg-stone-50">
-              <p class="label text-slate-500 mb-3">Before — two gates in series, in two modules</p>
-              <svg viewBox="0 0 320 210" class="w-full" style="height:210px">
-                <text x="10" y="18" font-size="8" fill="#64748b" class="label">file-props.mjs</text>
-                <rect x="10" y="26" width="140" height="34" fill="#fff" stroke="#64748b" rx="3"/>
-                <text x="80" y="47" font-size="9" fill="#334155" text-anchor="middle">size &gt;= 5 MB ?</text>
-                <line x1="80" y1="60" x2="80" y2="80" stroke="#64748b" stroke-width="1.5"/>
-                <text x="118" y="74" font-size="8" fill="#16a34a">yes</text>
-                <rect x="10" y="80" width="140" height="28" fill="#fff" stroke="#64748b" rx="3"/>
-                <text x="80" y="98" font-size="8.5" fill="#334155" text-anchor="middle">onHashStart → hashing</text>
-                <line x1="150" y1="43" x2="230" y2="43" stroke="#dc2626" stroke-width="2"/>
-                <path d="M240 43 L230 39 L230 47 Z" fill="#dc2626"/>
-                <text x="196" y="37" font-size="8" fill="#991b1b" text-anchor="middle">no</text>
-                <rect x="240" y="30" width="70" height="28" fill="#fff" stroke="#dc2626" rx="3" class="hatch"/>
-                <text x="275" y="48" font-size="8" fill="#991b1b" text-anchor="middle">nothing</text>
-                <text x="10" y="132" font-size="8" fill="#64748b" class="label">snapshot.mjs · activity()</text>
-                <rect x="10" y="140" width="140" height="34" fill="#fff" stroke="#64748b" rx="3"/>
-                <text x="80" y="155" font-size="8.5" fill="#334155" text-anchor="middle">hashing != null</text>
-                <text x="80" y="167" font-size="8.5" fill="#334155" text-anchor="middle">&amp;&amp; elapsed &gt;= 1 s ?</text>
-                <line x1="80" y1="108" x2="80" y2="140" stroke="#64748b" stroke-width="1.5"/>
-                <line x1="150" y1="157" x2="230" y2="157" stroke="#64748b" stroke-width="1.5"/>
-                <path d="M240 157 L230 153 L230 161 Z" fill="#64748b"/>
-                <rect x="240" y="144" width="70" height="28" fill="#fff" stroke="#64748b" rx="3"/>
-                <text x="275" y="162" font-size="8" fill="#334155" text-anchor="middle">path shown</text>
-                <text x="160" y="196" font-size="8.5" fill="#991b1b" text-anchor="middle">280,220 files at 1–3/sec, no path ever named</text>
-              </svg>
-            </div>
-            <div class="rounded-lg border border-slate-200 p-4 bg-stone-50">
-              <p class="label text-slate-500 mb-3">After — the pass names the file; the callback carries bytes</p>
-              <svg viewBox="0 0 320 210" class="w-full" style="height:210px">
-                <text x="10" y="18" font-size="8" fill="#64748b" class="label">snapshot.mjs · getProps</text>
-                <rect x="10" y="26" width="300" height="30" fill="#0f172a" rx="3"/>
-                <text x="160" y="45" font-size="9" fill="#fff" text-anchor="middle">currentFile = file — every file, unconditionally</text>
-                <text x="10" y="76" font-size="8" fill="#64748b" class="label">file-props.mjs</text>
-                <rect x="10" y="84" width="300" height="28" fill="#fff" stroke="#64748b" rx="3"/>
-                <text x="160" y="102" font-size="8.5" fill="#334155" text-anchor="middle">onHashStart — the byte cursor only, still only on the stream</text>
-                <text x="10" y="132" font-size="8" fill="#64748b" class="label">snapshot.mjs · activity()</text>
-                <rect x="10" y="140" width="300" height="34" fill="#fff" stroke="#10b981" rx="3"/>
-                <text x="160" y="155" font-size="8.5" fill="#065f46" text-anchor="middle">one display decision, one module:</text>
-                <text x="160" y="167" font-size="8.5" fill="#065f46" text-anchor="middle">is this file worth naming yet?</text>
-                <text x="160" y="196" font-size="8.5" fill="#065f46" text-anchor="middle">reachable in a test over a tmpdir of small files</text>
-              </svg>
-            </div>
-          </div>
-
-          <div class="grid md:grid-cols-2 gap-4 text-sm">
-            <div><span class="label text-slate-500 block mb-1">Problem</span>
-              A file's identity is published by a memory-management threshold, so on a sync-filtered volume —
-              where the slow population <em>is</em> the small files — the one file holding the run up is the one
-              that cannot be named.</div>
-            <div><span class="label text-slate-500 block mb-1">Solution</span>
-              Let the pass set the current file from the path <code>getProps</code> already receives, and narrow
-              <code>onHashStart</code>'s contract to the bytes only it knows.</div>
-          </div>
-          <div>
-            <span class="label text-slate-500 block mb-2">Wins</span>
-            <ul class="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm list-disc list-inside text-slate-700">
-              <li>the display decision lives in the display module</li>
-              <li>no second stat, no per-file object</li>
-              <li>testable without a 5MB fixture</li>
-              <li>ADR-0076 §3's rule holds again</li>
-            </ul>
-          </div>
-          <div class="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <strong>Two standing rejections stay intact:</strong> <code>fileProps</code>'s
-            <code>Props | Error</code> return is untouched, and <code>onHashStart</code> keeps its
-            second-stat avoidance. This changes who publishes the <em>path</em>, not who measures the
-            <em>bytes</em>. The open design question the filed note leaves is real and belongs in the
-            grilling: reporting before the slurp too would put an object per file on the hot path.
-          </div>
-        </article>
-
         <!-- ================= E ================= -->
         <article id="e" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5 shadow-sm">
           <h3 class="font-serif text-xl">E · <code>compileExclude</code> owns the pattern side; the walk owns the convention</h3>
@@ -508,9 +472,8 @@ flowchart LR
             <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
           </div>
           <p class="font-mono text-xs text-slate-600 leading-relaxed">
-            src/lib/snapshot.mjs:211-215, :239, :250-252, :383-390, :687, :738 ·
-            src/commands/backup.mjs:100-108 · src/commands/snapshot.mjs:31-35 ·
-            src/commands/snapshot.ctime-churn.test.mjs:131-186
+            src/lib/snapshot.mjs:211-212, :219, :240, :251, :405-411 · src/commands/backup.mjs:95-108 ·
+            src/commands/snapshot.ctime-churn.test.mjs:131-186 · src/lib/snapshot.progress.test.mjs:109-121
           </p>
 
           <div class="grid md:grid-cols-2 gap-4">
@@ -526,7 +489,7 @@ flowchart LR
                 <path d="M206 49 L196 44 L195 52 Z" fill="#dc2626"/>
                 <rect x="206" y="34" width="100" height="26" fill="#fff" stroke="#dc2626" rx="2" class="hatch"/>
                 <text x="256" y="51" font-size="8" fill="#991b1b" text-anchor="middle">command name</text>
-                <text x="256" y="72" font-size="7.5" fill="#991b1b" text-anchor="middle">= through ? "backup" : "snapshot"</text>
+                <text x="256" y="72" font-size="7.5" fill="#991b1b" text-anchor="middle">= transfer ? "backup" : "snapshot"</text>
                 <rect x="180" y="96" width="126" height="22" fill="#fff" stroke="#64748b" rx="2"/>
                 <text x="243" y="111" font-size="7.5" fill="#334155" text-anchor="middle">"Backing up" / "Snapshotting"</text>
                 <rect x="180" y="122" width="126" height="22" fill="#fff" stroke="#64748b" rx="2"/>
@@ -577,8 +540,13 @@ flowchart LR
           </div>
           <div class="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <strong>The code argues for the current shape in a comment</strong> at
-            <code>snapshot.mjs:383-387</code> — it defends the derivation, not the invariant. No ADR is being
+            <code>snapshot.mjs:405-408</code> — it defends the derivation, not the invariant. No ADR is being
             reopened; this disagrees with a comment.
+            <br /><strong>New this pass:</strong> the combination this card says should be unrepresentable now
+            has a caller. <code>snapshot.progress.test.mjs:109-121</code> passes <code>through</code> without
+            <code>transfer</code>, as a test convenience, so the one run of it prints <code>Snapshotting</code>
+            while a transform the test owns does whatever it likes. Harmless there. But it is the first real
+            instance of the shape, and it shows what a caller can do without being stopped.
           </div>
         </article>
 
@@ -592,7 +560,7 @@ flowchart LR
           </div>
           <p class="font-mono text-xs text-slate-600 leading-relaxed">
             src/lib/s3.mjs:498-501 (the currying comment), :543, :563 · src/lib/network-status.mjs:50, :77 ·
-            src/lib/s3.test.mjs:812-828 (the monkeypatch), :860, :910-927 · src/lib/network-status.test.mjs:107, :112, :119
+            src/lib/s3.test.mjs:807 (the comment), :815-825 (the monkeypatch), :860, :910 · src/lib/network-status.test.mjs:107, :112, :119
           </p>
 
           <div class="rounded-lg border border-slate-200 bg-white p-4">
@@ -647,8 +615,8 @@ flowchart TB
             <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">local-substitutable</span>
           </div>
           <p class="font-mono text-xs text-slate-600 leading-relaxed">
-            src/lib/snapshot-file.mjs:824-825 (records status/completed), :863-866 (asserts and throws),
-            :288, :295-302 (the <code>wx</code> acquire), :348-356 (the park release), :401-409, :421-429 ·
+            src/lib/snapshot-file.mjs:818-826 (records status/completed), :863-866 (asserts and throws),
+            :296-299 (the <code>wx</code> acquire), :379-410 (the parked reader), :421 (<code>inProgressError</code>) ·
             src/lib/snapshot.mjs:83-86, :102-171 · src/commands/backup.mjs:85 · proposals/concurrency-and-locking.md §2
           </p>
 
@@ -716,7 +684,7 @@ flowchart TB
             <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
           </div>
           <p class="font-mono text-xs text-slate-600 leading-relaxed">
-            src/lib/snapshot.mjs:183-192, :302, :351-352, :390 (the <code>console.warn</code>), :394-405 (the return), :402 ·
+            src/lib/snapshot.mjs:191 (the <code>skipped</code> doc), :321, :373, :411 (the <code>console.warn</code>), :413-426 (the return), :423 ·
             src/commands/backup.mjs:50-51 (the stated rule), :56-68, :66
           </p>
 
@@ -729,7 +697,7 @@ flowchart TB
                   <div class="bg-white border border-slate-300 rounded px-3 py-2 text-xs">rehashed: <code>changed</code></div>
                   <div class="bg-white border border-slate-300 rounded px-3 py-2 text-xs">rehashed: <code>ctime</code></div>
                   <div class="bg-white border border-slate-300 rounded px-3 py-2 text-xs">rehashed: <code>ctime-on-read</code></div>
-                  <div class="bg-white border border-red-300 rounded px-3 py-2 text-xs text-red-800 hatch">skipped = walk skips <span class="font-bold">+</span> online-only</div>
+                  <div class="bg-white border border-slate-300 rounded px-3 py-2 text-xs">skipped = walk skips <span class="font-bold">+</span> online-only <span class="text-slate-500">(deliberate; backup.mjs:66's doc is stale)</span></div>
                 </div>
               </div>
               <div>
@@ -751,9 +719,12 @@ flowchart TB
           <div class="grid md:grid-cols-2 gap-4 text-sm">
             <div><span class="label text-slate-500 block mb-1">Problem</span>
               The per-reason rehash counts — the numbers that diagnosed the re-read-everything-every-run
-              incident — are printed by a module-private warning and returned to nobody, while
-              <code>skipped</code> merges walk skips with online-only skips under a name that documents only
-              the first.</div>
+              incident — are printed by a module-private warning and returned to nobody. Alongside it,
+              <code>backup.mjs:66</code> documents <code>skipped</code> as only "the walk's" skips, while the
+              number it receives also counts online-only placeholders.
+              <em>Corrected this pass:</em> that sum is deliberate (ADR-0078 §2) and documented where it is
+              made (<code>snapshot.mjs:191</code>, :420-422). The stale one is <code>backup.mjs:66</code>'s
+              description.</div>
             <div><span class="label text-slate-500 block mb-1">Solution</span>
               Return the breakdown on <code>SnapshotPass</code> and let the warning read it from the same
               place the report and <code>--json</code> do.</div>
@@ -844,10 +815,10 @@ flowchart LR
             <h3 class="font-semibold text-sm">L · Two spellings of "why this snapshot would not read"</h3>
             <p class="text-sm text-slate-700">
               <code>src/lib/remote.mjs:305</code> builds the finding's <code>reason</code> inline;
-              <code>src/lib/find.mjs:217</code> builds the same field with <code>errorText</code>, which also
+              <code>src/lib/find.mjs:218</code> builds the same field with <code>errorText</code>, which also
               unwraps a message-less <code>AggregateError</code> rather than rendering blank. No leverage today
               (both current error classes carry messages) — a consistency fix. Alongside it:
-              <code>src/lib/referenced.mjs:174-176</code> still names <code>delete</code> as a consumer of
+              <code>src/lib/referenced.mjs:173-176</code> and :186 still name <code>delete</code> as a consumer of
               <code>unreadableSnapshots</code>, which it stopped being at ADR-0089.
             </p>
           </div>
@@ -864,12 +835,38 @@ flowchart LR
           <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
             <h3 class="font-semibold text-sm">N · <code>preparePath</code>'s struct is paid for per row <span class="text-xs font-normal px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">Speculative</span></h3>
             <p class="text-sm text-slate-700">
-              It returns three fields; <code>find</code> reads <code>.base</code> always and <code>.path</code>
-              only for a whole-path matcher, and <code>reroot</code> reads only <code>.path</code> (documenting
+              It returns three fields; <code>find</code> (<code>src/lib/find.mjs:278-279</code>) reads
+              <code>.base</code> always and <code>.path</code> only for a whole-path matcher, and
+              <code>reroot</code> (<code>src/lib/restore.mjs:202</code>) reads only <code>.path</code> (documenting
               at <code>src/lib/restore.mjs:174-176</code> why <code>.base</code> is the wrong answer for its
               question). So a basename-only search pays a whole-path <code>replaceAll</code> per Windows row of
               every snapshot in history. <strong>Unmeasured</strong> — recorded as join residue at a new seam,
               not as a confident finding, and the memory/async stance argues against pre-emptive fuss.
+            </p>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
+            <h3 class="font-semibold text-sm">P · The file in hand is carried three ways <span class="text-xs font-normal px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900">new · pass 14</span></h3>
+            <p class="text-sm text-slate-700">
+              #343 made <code>currentFile</code> the source of the name. But <code>HashProgress</code> still has
+              its own <code>path</code> (<code>src/lib/file-props.mjs:21</code>), the upload state has another,
+              and <code>activity</code> reads <code>hashing.path</code> (<code>src/lib/snapshot.mjs:722</code>)
+              before it falls back to <code>currentFile</code> (:725-726). So <code>progressLine</code> accepts
+              states a sequential pass cannot produce, and its tests spell the path twice
+              (<code>snapshot.test.mjs:201-202</code>, :214-215) or exercise an impossible one ("both are
+              somehow in flight", :233-245). D's second half, narrowing <code>onHashStart</code> to the byte
+              cursor, was not done. It shares <code>snapshot.mjs</code> with O and F.
+            </p>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
+            <h3 class="font-semibold text-sm">Q · Three comments still describe the line before #343 <span class="text-xs font-normal px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900">new · pass 14</span></h3>
+            <p class="text-sm text-slate-700">
+              <code>src/lib/snapshot.mjs:274-278</code> says <code>hashing</code> exists to name a file "when one
+              takes long enough to be worth naming". <code>src/lib/file-props.mjs:17-19</code> calls a small file
+              "far too small to spend the second that would earn it a line". Both describe the gate #343
+              removed: that second now governs the measurement, not the name. And <code>countedPass</code>'s doc
+              (<code>src/lib/progress.mjs:195-197</code>) names its callers as "the two", where there are four:
+              the walk, the store scan and <code>find</code>'s two passes. Three sentences. The first two go away
+              with P.
             </p>
           </div>
         </div>
@@ -879,6 +876,13 @@ flowchart LR
       <section class="space-y-4">
         <h2 class="font-serif text-2xl border-b border-slate-300 pb-2">Examined and found deep — skip future runs</h2>
         <div class="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-700 space-y-3 leading-relaxed">
+          <p><strong>Pass 14: every other line on a clock or a push was checked, and they tick.</strong>
+            The store LIST's counted pass and both of <code>find</code>'s are fed by real async I/O (a network
+            page, a zstd/readline stream), so their timers get turns. <code>restore</code> pushes on
+            <code>due()</code> over real async writes and owns no timer. The per-file upload bar in
+            <code>s3.mjs</code> is driven by the SDK's progress events. <code>network-status.mjs</code> has no
+            timer at all. O is the walk and the fused pass only, which are the two places where synchronous
+            work runs in front of a timer.</p>
           <p><strong>Pass 12's own landings all hold up.</strong>
             <code>bucket-scan.mjs</code> — the ordering invariant is the body, not a comment at two call sites,
             and its test pins it at the <code>s3.mjs</code> seam including the half a call-order assertion
@@ -889,8 +893,8 @@ flowchart LR
             <code>test/helpers/enumeration.mjs</code> — fixtures go through the production fold, so a test
             cannot hold a shape a real read would not produce.
             <code>format.mjs</code>'s <code>localMoment</code>/<code>completionInstant</code>/<code>readClock</code>
-            — one clock read behind both doors, round-up rule argued and pinned (candidate A is about the two
-            callers that bypass it, not about the seam).
+            — one clock read behind both doors, round-up rule argued and pinned (pass 13's A, about the two
+            callers that bypassed it, landed in #348).
             <code>safeSize</code>/<code>sizeDisagreements</code> and <code>referenced.mjs</code>'s
             <code>unreadableMessage</code> — two real adapters each.
             <code>auth.mjs</code> + <code>roles-anywhere.mjs</code> after the <code>RolesAnywhereSessionError</code>
@@ -928,25 +932,24 @@ flowchart LR
         <div class="rounded-xl deep text-white p-7 space-y-4">
           <p class="label text-emerald-400">Take this one first</p>
           <h3 class="font-serif text-2xl">
-            <a href="#a" class="underline decoration-emerald-400 decoration-2 underline-offset-4">A — bring the deletion record's instants inside the clock seam</a>
+            <a href="#o" class="underline decoration-emerald-400 decoration-2 underline-offset-4">O — one clock-driven line that keeps its own loop turning</a>
           </h3>
           <p class="text-slate-300 leading-relaxed">
-            Two sweeps found it independently from opposite directions, and it was verified directly against
-            source before being written down: exactly two bare clock reads survive in <code>src/</code> on the
-            recorded-artifact path, and both are on the one artifact <code>format.mjs</code>'s header names by
-            name. The fix is byte-identical output, it deletes a whole-module mock that exists only to work
-            around the missing seam, it gives <code>compactDeletionRecords</code>' default its first test, and
-            it closes a latent hole in the model tier that <code>seam.mjs</code>'s own comment anticipates.
-            It is also the pass's clearest instance of the shape four candidates share — a module stating a
-            rule about itself that the code does not keep — which makes it the right one to set the precedent
-            on, including whether the rule becomes a lint.
+            It is the only candidate with a fault a user meets on every big run: the walk's line sits on its
+            bare label for the whole walk, which is minutes on the sets this tool is for. And the fault was
+            shown by running the real module, not inferred from reading it. The fix the walk was promised in
+            #277 never took effect, and #343 has just rediscovered the same cause from the other side. So the
+            knowledge is fresh, the two halves of the mechanism are both in view, and there are already two
+            adapters with genuinely different loops. That makes it a real seam, not a hypothetical one. It
+            should go first among the <code>snapshot.mjs</code> track, ahead of
+            <a href="#f" class="underline decoration-slate-500">F</a>, <a href="#i" class="underline decoration-slate-500">I</a>
+            and P, which all edit the same function.
           </p>
           <p class="text-slate-400 text-sm">
-            Runners-up: <a href="#b" class="underline decoration-slate-500">B</a> (the classifier that does not
-            classify) and <a href="#c" class="underline decoration-slate-500">C</a> (a wrong number on the
-            strongest confirmation prompt the tool has).
-            <a href="#d" class="underline decoration-slate-500">D</a> is the only candidate with a fault the
-            user has already felt — take it first if the 280,000-file runs are the priority.
+            Runners-up, unchanged from pass 13: <a href="#b" class="underline decoration-slate-500">B</a> (the
+            classifier that does not classify) and <a href="#c" class="underline decoration-slate-500">C</a> (a
+            wrong number on the strongest confirmation prompt the tool has). Both are independent of O and of
+            each other.
           </p>
         </div>
       </section>

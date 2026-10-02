@@ -28,6 +28,18 @@ only open trusted copies.
 Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry notes the run
 that surfaced it and when it was last verified against the source.
 
+Re-verified 2026-10-02 (fourteenth pass): **2 `src/` commits since `3395305`** (9 files, +381/−55),
+read at HEAD `f9bba9a`. Both are pass-13 landings: **A** in #348 and **D** in
+[#343](https://github.com/allens/s3cab/pull/343). **B, C and E–N were re-checked by hand and all
+hold.** Only anchors moved, for F, G, H and I, and those are corrected in place. I's second half is
+also narrowed (see the entry). **One new Strong candidate, O, came out of D's own landing.** #343 found
+that the fused pass never gave the event loop a turn, so its redraw timer never fired, and fixed that
+locally. The walk has the same fault, unseen since
+[#277](https://github.com/allens/s3cab/pull/277), and it was confirmed by experiment. There are also two
+new smaller items, P and Q. **O is the same shape as pass 13's verdict below:** `countedPass` says of
+itself "A caller cannot forget a timer it does not own", and the walk is a caller whose timer never
+fires. This time a user-visible fault comes with it.
+
 Surfaced 2026-10-01 (thirteenth pass) — the open list had been emptied by the twelfth pass, so this
 one read the **11 `src/` commits since `a4ed60c`'s HEAD `a4e0c9d`** (59 files, +2233/−1302) at HEAD
 `3395305`: nine of them are pass 12's own landings — `scanBucket`, `preparePath`, the clock-seam
@@ -52,10 +64,13 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** **B** is independent of everything. **D** and **F** and **I**
-all touch [src/lib/snapshot.mjs](../src/lib/snapshot.mjs) — do them in one track, **D** first (it is
-the one with a user-visible fault). **E** touches [walk.mjs](../src/lib/walk.mjs) and nothing else
-here does.
+(2) **Ordering constraints.** **B** is independent of everything. **O**, **F**, **I** and the
+smaller **P** all touch `withProgress`/`generateSnapshot` in
+[src/lib/snapshot.mjs](../src/lib/snapshot.mjs), so do them in one track with **O** first: it has the
+user-visible fault, and it decides what `withProgress` becomes. O's grilling settled P (and Q) into
+the same PR, as their own commit. **O** and **E** both touch
+[walk.mjs](../src/lib/walk.mjs) (O the loop in `walkDirs`, E the matcher `createWalkCallbackFn`
+calls), so whichever goes second must re-verify.
 (3) **`.env.test` is gitignored and does not travel.** Every candidate below is pure or local and
 verifies with `npm test` alone; none needs a real bucket.
 
@@ -108,29 +123,9 @@ verifies with `npm test` alone; none needs a real bucket.
   the other sets (unrestorable.mjs:131–136), with `forget` reading the record after the snapshot scan —
   the same relative order `scanBucket` enforces for its own reads 1 and 3. `planUnrestorable` is pure
   and non-throwing by design, so the case tests as a fixture: no S3, no new seam.
-- **D — The progress line goes blank on exactly the files that are slow.** _Strong — the only
-  candidate with a fault the user has already felt._ Filed as a product note in
-  [output-ux.md](output-ux.md) (commit `d7b5ec1`) after a 280,220-file OneDrive backup ticked over at
-  1–3 files/sec **showing no path at all**; what follows is the architectural half of it, which that
-  note deliberately left open. Two gates must both fail before a file is named, and they live in
-  different modules with no single file stating the conjunction:
-  [file-props.mjs](../src/lib/file-props.mjs):283 gates `onHashStart` on `size >= 5_000_000` (the
-  slurp branch at :299 reports nothing at all), so [snapshot.mjs](../src/lib/snapshot.mjs):278–279's
-  `hashing` — assigned only from that callback at :334, cleared at :369 — is `null` for every file
-  under 5 MB; and `activity()` (snapshot.mjs:606–626) then requires `hashing` non-null **and**
-  `now - startedAt >= WORTH_REPORTING_MS` (:588, 1000 ms). So `activity` cannot distinguish "nothing in
-  flight" from "in flight but never announced", and **a memory-management threshold is deciding a
-  display question**. On a sync-filtered volume the slow population *is* the small files, which inverts
-  what the 1 s threshold was written for: the file holding the run up is the one that cannot be named.
-  Fix: `getProps` (snapshot.mjs:331) is handed the path unconditionally, so one assignment there makes
-  every file nameable and narrows `onHashStart`'s contract to the byte cursor only it knows. **Two
-  standing rejections stay intact** and the entry must not be read as reopening them:
-  `fileProps`' `Props | Error` return is untouched, and `onHashStart` keeps its second-stat avoidance —
-  this changes who publishes the *path*, not who measures the *bytes*. **The open design question is
-  real and belongs in the grilling:** reporting before the slurp too would put an object per file on
-  the walk/snapshot hot path, which the coding conventions warn about at exactly this scale. Test
-  surface today: reachable only by writing a ≥5 MB file *and* making the hash take a second; after,
-  reachable through `generateSnapshot` over a tmpdir of small files.
+- **D — The progress line goes blank on exactly the files that are slow.**
+  _Landed 2026-10-01 as [PR #343](https://github.com/allens/s3cab/pull/343) — see the run log. Its
+  "narrow `onHashStart` to the byte cursor" half was not done, and survives as smaller item **P**._
 - **E — `compileExclude` owns the pattern side; the walk owns the convention.** _Worth exploring —
   carried from the eleventh pass, **downgraded from Strong and substantially rewritten** 2026-10-01._
   **Read the correction before the claim: the recorded entry was two-thirds wrong.** Dead: it said
@@ -164,34 +159,37 @@ verifies with `npm test` alone; none needs a real bucket.
   about the subject side, so this **completes 0088 rather than reopening it**. One production caller
   makes it a depth move, not a seam — which is why it is no longer Strong.
 - **F — `generateSnapshot` infers which porcelain called it from a progress-state getter.** _Worth
-  exploring._ [snapshot.mjs](../src/lib/snapshot.mjs):211–215, :239, :250–252 take `through` and
-  `transfer` as two independent optional parameters that in practice always arrive together off one
-  uploader, and :383–390 derives a *third* fact — the command's own name — from whether one of them is
-  truthy, feeding the opening `Backing up` vs `Snapshotting` line and two copy-pasteable remedies
-  (`warnAboutOnlineOnly` :687's `s3cab ${command} ${set} --include-online-only`,
-  `warnAboutCtimeChurn` :738's `every ${command} of '${set}'`). Nothing makes `through`-without-
-  `transfer` unrepresentable, and that combination uploads objects while announcing itself as a
-  snapshot and handing out `s3cab snapshot` advice. Fix: take one optional `uploader` carrying all
-  three, which [backup.mjs](../src/commands/backup.mjs):95–99 already builds as an object. Leverage is
-  small today (two callers) which is exactly why the invariant is invisible — and note that
-  snapshot.mjs:383–387's comment **defends the derivation, not the invariant**, so this disagrees with
-  a comment, not an ADR. Test surface: the `backup` spelling of the churn remedy is asserted nowhere;
+  exploring — anchors re-verified 2026-10-02._ [snapshot.mjs](../src/lib/snapshot.mjs):211–212 and :219
+  take `through` and `transfer` as two independent optional parameters that in practice always arrive
+  together off one uploader, and :409 derives a *third* fact, the command's own name, from whether
+  `transfer` is truthy. That name feeds the opening `Backing up` vs `Snapshotting` line (:240) and two
+  copy-pasteable remedies (`warnAboutOnlineOnly`'s `s3cab ${command} ${set} --include-online-only`,
+  `warnAboutCtimeChurn`'s `every ${command} of '${set}'`, both called at :410–411). Nothing makes
+  `through`-without-`transfer` unrepresentable, and that combination uploads objects while announcing
+  itself as a snapshot and handing out `s3cab snapshot` advice. **That combination now has a caller**
+  (pass 14): [snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs):109–121 passes
+  `through` alone as a test convenience. It is harmless there, but it is the first real instance of the
+  shape. Fix: take one optional `uploader` carrying all three, which
+  [backup.mjs](../src/commands/backup.mjs):95–108 already builds as an object. Leverage is small today
+  (two callers), which is exactly why the invariant is invisible. Note also that snapshot.mjs:405–408's
+  comment **defends the derivation, not the invariant**, so this disagrees with a comment, not an ADR. Test surface: the `backup` spelling of the churn remedy is asserted nowhere;
   [snapshot.ctime-churn.test.mjs](../src/commands/snapshot.ctime-churn.test.mjs):131–186 drives the
   `snapshot` porcelain and its own comment says "`backup` gets the same sentence with its own verb".
   (The online-only pair *is* covered on both sides.)
 - **G — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
-  is already curried.** _Worth exploring — against brand-new code._ The relay is curried on its options
-  precisely so "the give-up path is testable in milliseconds" ([s3.mjs](../src/lib/s3.mjs):498–501),
+  is already curried.** _Worth exploring — against brand-new code; anchors re-verified 2026-10-02._ The
+  relay is curried on its options precisely so "the give-up path is testable in milliseconds"
+  ([s3.mjs](../src/lib/s3.mjs):498–503),
   and [network-status.mjs](../src/lib/network-status.mjs):50 and :77 already take the stream as their
   first parameter — but both call sites hard-code it (s3.mjs:543 `enterNetworkWait(process.stderr, …)`,
   :563 `leaveNetworkWait(process.stderr, …)`), so the only way to observe an announcement is
-  monkeypatching `process.stderr.write` ([s3.test.mjs](../src/lib/s3.test.mjs):812–828, whose comment
-  claims "there is no stream to inject through SDK middleware" — the stream it means is the relay's own
-  option bag, which exists). **The concrete cost:** ADR-0091 decision 2 says the announcement "now names
+  monkeypatching `process.stderr.write` ([s3.test.mjs](../src/lib/s3.test.mjs):815–825, whose comment
+  at :807 claims "there is no stream to inject through SDK middleware". The place to inject it is the
+  relay's own option bag, which exists). **The concrete cost:** ADR-0091 decision 2 says the announcement "now names
   **what is left** of the window rather than the constant", and nothing asserts it — s3.test.mjs:860
   asserts the *constant* wording (`/up to 2 minutes/`), the three remaining-window assertions
   ([network-status.test.mjs](../src/lib/network-status.test.mjs):107, :112, :119) drive
-  `enterNetworkWait` directly and never go through the relay, and s3.test.mjs:910–927 ("starts the
+  `enterNetworkWait` directly and never go through the relay, and s3.test.mjs:910 ("starts the
   window at the first failure, not at the request") never reaches an announcement at all. Fix: carry
   the stream alongside `windowMs` in the already-curried options, defaulted to `process.stderr`.
   **Brushes the network-resilience-trio rejection and must say so:** that rejection is against
@@ -210,18 +208,20 @@ verifies with `npm test` alone; none needs a real bucket.
   real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
   so.
 - **I — The rehash diagnosis exists only as a printed sentence, and one returned count merges two
-  populations.** _Worth exploring._ [backup.mjs](../src/commands/backup.mjs):50–51 states the ADR-0078
-  rule — "Every figure lands here rather than in the renderer, so `--json` gains it deliberately" — and
-  the per-reason rehash counts break it: [snapshot.mjs](../src/lib/snapshot.mjs):302 builds `rehashed`,
-  :351–352 populates it (`changed` / `ctime` / `ctime-on-read`), :390 consumes it in a module-private
-  `console.warn`, and the return at :394–405 carries **no `rehashed` field at all** — so the numbers
-  that diagnosed the re-read-everything-every-run incident reach the warning and nobody else, and a
-  user diagnosing a churning volume must read prose rather than a field. Three consumers want them (the
-  warning, the run report, `--json`); one can have them. Alongside it, :402 returns
-  `skipped: skipped.length + onlineOnly`, merging walk skips with online-only skips, while backup.mjs:66
-  documents that merged number as "Entries the walk left out by design (a symlink, a socket)" — two
-  typedefs describing the same number differently, which is what happens when a value is aggregated
-  inside a `return`. Test surface: the churn condition is asserted only by matching warning prose
+  populations.** _Worth exploring — anchors re-verified and the second half **narrowed** 2026-10-02._
+  [backup.mjs](../src/commands/backup.mjs):50–51 states the ADR-0078 rule — "Every figure lands here
+  rather than in the renderer, so `--json` gains it deliberately" — and the per-reason rehash counts
+  break it: [snapshot.mjs](../src/lib/snapshot.mjs):321 builds `rehashed`, :373 populates it
+  (`changed` / `ctime` / `ctime-on-read`), :411 consumes it in a module-private `console.warn`, and the
+  return at :413–426 carries **no `rehashed` field at all** — so the numbers that diagnosed the
+  re-read-everything-every-run incident reach the warning and nobody else, and a user diagnosing a
+  churning volume must read prose rather than a field. Three consumers want them (the warning, the run
+  report, `--json`); one can have them. Alongside it, :423 returns `skipped: skipped.length +
+  onlineOnly`, while backup.mjs:66 documents that number as "Entries the walk left out by design (a
+  symlink, a socket)". **Corrected by pass 14:** the sum is *deliberate*. ADR-0078 §2 says so in the
+  comment at :420–422, and `SnapshotPass`'s own typedef (:191) documents both populations. So this is
+  not a value aggregated by accident inside a `return`, as filed. It is one stale typedef, at
+  backup.mjs:66. Test surface: the churn condition is asserted only by matching warning prose
   (snapshot.ctime-churn.test.mjs:157–186).
 - **J — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.** _Worth
   exploring._ [lib/provider.mjs](../src/lib/provider.mjs):21–23 claims to be "the one home of the knob ↔
@@ -237,6 +237,95 @@ verifies with `npm test` alone; none needs a real bucket.
   mode replaces, so the command applies a list rather than deriving one. **Deliberately not the
   standing-rejected `credentialMode(env)` classifier** — nothing is classified from an env bag; a table
   moves and a return value grows. Named because the two sit next to each other.
+- **O — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
+  ticks.** _Strong — surfaced 2026-10-02 (fourteenth pass), a live user-visible fault, verified by
+  experiment._ [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) moved the progress
+  lines onto a clock so that a slow stretch could not freeze them. #343 then found that a timer is a
+  macrotask: it fires only when the event loop turns. The fused pass never let it turn, so #343 added a
+  concession: `withProgress` ([snapshot.mjs](../src/lib/snapshot.mjs):539–548) awaits `setImmediate`
+  every `CONCEDE_MS` after each row. **The walk has the same fault and nothing fixes it.**
+  [walk.mjs](../src/lib/walk.mjs):231's `walkDirs` is synchronous end to end: `countedPass` at :265, a
+  plain `for…of` over the sync generator `walkFiles` at :280 (`readdirSync` at :520, `lstatSync` at
+  :503), and `done()` at :305. So the timer `countedPass` owns
+  ([progress.mjs](../src/lib/progress.mjs):245–250) never fires during the walk. The line draws its
+  bare label, then the tally, and nothing in between, for what is minutes on a large set. This is
+  exactly the freeze #277 was built to end, and `countedPass`'s doc (:199–206) still says it did: "The
+  count is pulled on a clock this owns … A caller cannot forget a timer it does not own." The walk's
+  three callers are `walkSet` (snapshot.mjs:255, so `snapshot` and `backup`), `commands/tree.mjs`:36
+  and `upload.mjs`:633.
+  **Verified, not inferred.** A scratch harness imported the real `countedPass` with a fake TTY
+  stream. Three seconds of synchronous work drew 2 frames (`Finding files…`, then `… 53,055,785 in 3
+  sec`). The same work conceding every 100 ms drew 4 frames, at 1, 2 and 3 seconds.
+  **The mechanism now exists twice, each copy missing what the other has.** `countedPass` has the
+  closing draw (`done()`, :261–269) but never gives the loop a turn. `withProgress` gives the loop a
+  turn but has no closing draw: its `finally` (:550–552) only clears the interval, so the last frame
+  is whatever the last tick happened to show. ADR-0076:221–223 states the tie between them as a caller
+  obligation in prose: "a progress line driven by a clock is only as live as the loop … any future pass
+  that puts a timer on this pipeline inherits the same obligation". `withProgress` also hard-codes
+  `process.stderr` (:484, :498), and its test copies `TICK_MS` (snapshot.progress.test.mjs:50), mocks
+  the whole of `progress.mjs` (:56–69), and says at :40–47 that the concession is unasserted.
+  **Why it hid** is in the run log (pass 14). In short, `progress.test.mjs`:187–208 waits with
+  `await setTimeout` (:198, :203), which gives the loop the turn the walk never gives.
+  **The concession has a second job, now verified.** The park handler
+  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):201, installed at :326 around the write) is JS,
+  so it too runs only on a loop turn, and so does the second, force-quit Ctrl-C. A WSL harness sent a
+  real SIGINT 1 s into a 4 s pass of the same shape (50 µs of synchronous work per item, 4 runs each).
+  Without the concession the handler never ran before the pass ended; with it, it ran 0–101 ms after
+  the signal. The other loop turns in the pass (a streamed hash ≥ 5 MB, an upload, the writer's buffer
+  filling) are irregular, and #343 measured six frames in nine seconds from them. **The walk is not
+  affected:** `walkSet` (snapshot.mjs:255) runs before `writeSnapshot` (:338) installs the handler,
+  so a Ctrl-C there is Node's default, an immediate exit. Nothing records the dependency:
+  [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md) never mentions the event loop, and the park
+  tests raise the signal with `process.emit` (snapshot-file.test.mjs:793–818), which calls the
+  listener synchronously and needs no turn.
+  **Settled in grilling (2026-10-02)** — the design to build; nothing is built yet.
+  - **The walk stays synchronous.** The line module gains a per-item clock check, `tick()`, on the
+    handle: it reads `performance.now()` and draws if due, at the same cadence as the timer. The count
+    stays pulled. The timer stays for callers waiting on I/O (the store LIST, both of `find`'s
+    passes), which never call `tick()`.
+  - **The walk ticks per entry *visited*, kept or not.** `walkDirs` wraps the callback it builds from
+    `createWalkCallbackFn` and ticks before delegating, because a subtree the walk keeps nothing from
+    is the stall `countedPass`'s doc names. That costs about 50 ns an entry, measured: some 20 ms over
+    400k. One huge directory's single `readdirSync` stays unpreemptable, accepted as #343 accepted the
+    long slurp.
+  - **The fused pass ticks the same way**, after each `yield`, so the count and `currentFile` agree.
+    The line no longer depends on a loop turn.
+  - **The loop turn moves to Ctrl-C.** The 100 ms `setImmediate` concession leaves `withProgress`
+    for `propsRows` (snapshot-file.mjs:899), beside the `signal.aborted` check it serves, documented
+    as the interrupt's. Dropping it outright was ruled out, because Ctrl-C would hang mid-pass.
+  - **A closing frame**, drawn after the loop rather than in the `finally`, so only on a pass that
+    ran to the end: true count and bytes, no detail column, since nothing is in hand. A Ctrl-C or a
+    throw keeps the last tick's frame as "where it stopped".
+  - **One new export, `clockedLine(stream, compose, { every })`** → `{ tick(), done(text), dispose }`.
+    It owns `createProgress`, the timer, the off-terminal gate, `tick()` and the closing draw.
+    `countedPass` is rebuilt on it (label, count and tally, at `COUNTED_TICK_MS`) and `withProgress`
+    uses it with `progressLine` at `TICK_MS`. `createProgress` is unchanged for `restore` and the
+    upload bar, which push their own text and need no clock. Rejected: folding the clock into
+    `createProgress` (two kinds of caller behind one interface) and generalising `countedPass` (its
+    name stops describing the fused line).
+  - **Tests.** (a) `tick()` at the module interface, with `setInterval` mocked dead and about 400 ms
+    of real synchronous spin, asserting at least two frames. There is no clock seam:
+    `mock.timers` does not move `performance.now()` (Node 26.10), and a `Date.now()` clock was
+    rejected as non-monotonic. progress.test.mjs:187 stays, renamed as the I/O-bound case. (b) A
+    real self-sent SIGINT at row 10 of a synchronous pass, asserting the pass parks well before its
+    last row. It holds a no-op listener of its own so a broken concession fails the assertion, not
+    the worker, and it is skipped on `win32`, where Node turns a self-sent SIGINT into immediate
+    termination (verified). (c) New `walk.progress.test.mjs`: a stubbed `countedPass`, 2 kept files
+    plus a folder of 5 files excluded by `*.log`, one tick per visited entry. (d) A reworked
+    snapshot.progress.test.mjs: tick-driven draws, the figures-only closing frame, none on a throw.
+  - **Docs: a new ADR-0093**, along the lines of "a clocked line ticks where its caller never yields;
+    the loop turn belongs to the interrupt". 0076 becomes partly superseded, with forward banners on
+    the 2026-08-06 "never pushed … cannot forget a timer it does not own" bullet and the 2026-09-13
+    concession section. 0067 gains a consequence. Rewritten in the same change: `countedPass`'s doc
+    and the `progress.mjs` header, `withProgress`'s comment and the `currentFile` comment's pointer
+    to it, snapshot.progress.test.mjs:40–47, and the timing-untested item in
+    [output-ux.md](output-ux.md). No CONTEXT.md term, since this is mechanics, not domain.
+  - **Scope: one PR**, with O first, then **P** plus **Q**'s first two comments as their own commit.
+    Q's third comment goes inside O's doc rewrite. Run `npm run test:integration` before pushing: the
+    turn moves into the pipeline that feeds the uploader.
+  #343's written limit stands: a tick between rows cannot preempt one long *synchronous* row, and the
+  chunked-read fix stays declined. Checked and fine: the store LIST, both of `find`'s passes,
+  `restore`, the per-file upload bar in `s3.mjs`, and `network-status.mjs` (leave-alone list below).
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
 **K — `foldsCase` is exported surface with no production caller.** Its only uses anywhere in `src/`
@@ -249,11 +338,11 @@ adapter is a hypothetical seam: make it module-private and assert the case decis
 `preparePath(…).foldCase` (path-match.test.mjs:32–47 already asserts that field).
 **L — Two spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
 builds the finding's `reason` inline (`Error.isError(error) ? error.message : String(error)`);
-[find.mjs](../src/lib/find.mjs):217 builds the same field with `errorText`
+[find.mjs](../src/lib/find.mjs):218 builds the same field with `errorText`
 ([error.mjs](../src/lib/error.mjs):319–330), which additionally unwraps a message-less
 `AggregateError` rather than rendering blank. No leverage today — both current error classes carry
 messages — offered as a consistency fix, not a defect. Alongside it,
-[referenced.mjs](../src/lib/referenced.mjs):174–176 and :186 still name `delete` as one of three
+[referenced.mjs](../src/lib/referenced.mjs):173–176 and :186 still name `delete` as one of three
 consumers of `unreadableSnapshots`/`unreadableMessage`; `commands/delete.mjs` has not imported
 `referenced.mjs` since ADR-0089, so the real two adapters are `commands/cleanup.mjs` and
 `lib/unrestorable.mjs`. (This is the *second* stale consumer list on that module's header — the first
@@ -266,12 +355,30 @@ file is deleted. Noted as a loose end when pass-12's E landed, still there. One 
 **N — `preparePath` returns three fields and neither caller reads all three.** _Speculative, and
 unmeasured — recorded as join residue at a new seam, not as a finding I am confident in._
 path-match.mjs:70–80's own doc says it is "called once per row of every snapshot in history, so it
-does the least it can"; `find.mjs`:277–279 reads `.base` always but `.path` only for a whole-path
+does the least it can"; `find.mjs`:278–279 reads `.base` always but `.path` only for a whole-path
 matcher, and `restore.mjs`:202 reads only `.path` while :174–176 documents why `.base` is the wrong
 answer for its question. So a basename-only search — the commonest — pays a whole-path
 `replaceAll("\\", "/")` per Windows row for a field it never reads. **I did not measure it against
 zstd decompression cost**, and the memory/async stance argues against pre-emptive fuss. Either a lazy
 getter or letting `compileFindPattern`'s already-computed `wholePath` decide what the caller asks for.
+
+**Smaller items (fourteenth pass)** — verified, too small for an entry of their own; both share
+`snapshot.mjs` with **O**, **F** and **I**.
+**P — The file in hand is carried three ways.** #343 made `currentFile` the source of the name, but
+`HashProgress` keeps its own `path` ([file-props.mjs](../src/lib/file-props.mjs):21), the upload state
+has another, and `activity` reads `hashing.path` ([snapshot.mjs](../src/lib/snapshot.mjs):722) before
+it falls back to `currentFile` (:725–726). So `progressLine` accepts states a sequential pass cannot
+produce. Its tests spell the path twice
+([snapshot.test.mjs](../src/lib/snapshot.test.mjs):201–202, :214–215) or exercise an impossible state
+("prefers the upload when both are somehow in flight", :233–245). D's second half, narrowing
+`onHashStart`'s contract to the byte cursor, was not done in #343. This is it.
+**Q — Three comments still describe the line before #343.** snapshot.mjs:274–278 says `hashing` exists
+so the line "can name the file it is chewing on when one takes long enough to be worth naming", and
+file-props.mjs:17–19 calls a small file "far too small to spend the second that would earn it a line".
+Both describe the gate #343 removed: that second now governs the *measurement*, not the name. And
+`countedPass`'s doc ([progress.mjs](../src/lib/progress.mjs):195–197) calls the walk and the store
+scan "the two" callers, where there are four: [find.mjs](../src/lib/find.mjs):259 and :379 are the
+other two. The first two comments go away with P. The third goes with O, or alone as one word.
 
 **Examined & left alone (thirteenth pass)** (not candidates — skip future runs). **Pass 12's own
 landings all hold up**, which is the most useful thing this pass can say about them:
@@ -307,6 +414,15 @@ syscall; the `find` → `delete --from-file` contract — **not** an untested pr
 IAM-name cap and is in fact a clean parameterized seam (`commands/aws.mjs` passes
 `maxLength: maxBucketNameLength(name)`); `network-status.mjs`'s refcount proxy mis-announcing under
 ADR-0069's one-in-flight pass — recorded deliberately in ADR-0091 and pinned as intended.
+**Examined & left alone (fourteenth pass).** Every other progress line, checked for **O**'s fault, and
+none has it. The store scan's counted pass ([upload.mjs](../src/lib/upload.mjs):138) and both of
+`find`'s (find.mjs:259, :379) are fed by real async I/O (a network page, a zstd/readline stream), so
+their timers get turns. `restore` pushes on `due()` over real async writes and owns no timer. The
+per-file upload bar in `s3.mjs` is driven by the SDK's progress events. `network-status.mjs` has no
+timer at all. **O** is the walk and the fused pass only, the two places where synchronous work runs in
+front of a timer. #343's own landing was otherwise re-read and holds: `currentFile` set and never
+cleared is argued at its declaration (snapshot.mjs:288–296), and the concession's placement after the
+yield is argued at :533–538.
 
 ---
 
@@ -348,7 +464,9 @@ Surfaced 2026-08-06 (eleventh pass) — the snapshot-format work (ADR-0071/0072/
 rewrite (ADR-0077), the progress rework (ADR-0076), resolve-time credential expiry (ADR-0075) and
 `lib/referenced.mjs` (ADR-0074), across 27 PRs (#249–#275). **A landed 2026-08-06**
 ([PR #277](https://github.com/allens/s3cab/pull/277), knowledge now in
-[ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment); **D landed
+[ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment). **Its walk half never
+took effect**: the walk is synchronous, so the clock it got never ticks. That is the fourteenth pass's
+**O**. **D landed
 2026-08-07**, and **H was rejected** the same day (see *Rejected & parked*). The twelfth pass
 re-verified the rest: **B, C and G carried forward** as the twelfth pass's **C**, **E** and **J**,
 **F survives only as I**, and **I is dead**. The thirteenth pass then took the last two: this
@@ -584,99 +702,11 @@ least once; re-open only if the stated reason no longer holds.
 ## Run log
 
 > **Capped to the last three passes.** Earlier entries (2026-06-23 first pass through the
-> 2026-07-29 tenth) recorded landings that are already of record in their ADRs, PRs and `git log`,
+> 2026-08-06 eleventh) recorded landings that are already of record in their ADRs, PRs and `git log`,
 > and re-verification notes superseded by every pass since. They live in this file's history:
 > `git log -p --follow -- proposals/architecture-improvements.md`. Keep this section bounded —
 > a pass that lands a candidate should retire the *open* entry, not append indefinitely here.
 
-- **2026-08-06 — eleventh pass.** The open list had sat empty since 2026-07-30, so this pass
-  explored the **27 PRs since** (#249–#275) at HEAD `4221fad` — the first architecture read of the
-  snapshot-format work (ADR-0071/0072/0073), the walk rewrite (ADR-0077), the progress rework
-  (ADR-0076), resolve-time credential expiry (ADR-0075) and `lib/referenced.mjs` (ADR-0074). Run
-  as **three background Explore sweeps** (snapshot engine / walk+progress+output /
-  credentials+upload+removal), each primed with the standing rejections below, plus an inline read
-  of the slice none of them covered (`s3cab.mjs`, restore, setup/reattach, `aws`, `set-marker`,
-  `error`, `prompt`, the test layout). **Every load-bearing claim was re-verified against source
-  before it was recorded** — which mattered: the sweeps' line anchors and counts were checked one
-  by one, and the two strongest findings were each confirmed by reading the code rather than the
-  report. **Nine candidates recorded above (A–I)** plus seven smaller verified items. The standout
-  — **A**, found *independently by two of the three sweeps* from different directions — is the
-  only one with a live behaviour fault behind it: the walk's progress line freezes on
-  `readdirSync`, on the `lstat` fallback, and while descending a subtree it keeps nothing from,
-  which is exactly what ADR-0076 §3 ruled against. Runner-up **B** (an aged-out Roles Anywhere
-  certificate prints an HTTP body where every sibling failure prints the fix). Two findings are
-  about **test surface rather than duplication** (F, G) — the pattern this pass kept hitting is a
-  pure function extracted for testability with the bug surface left on the other side. **The
-  rejected/parked list was re-checked and stands untouched**; H deliberately abuts the
-  "three shapes of the deletion-record lookup" rejection and the entry says so — they must not be
-  conflated. Planned as three tracks by file overlap: **track 1 sequential C → A → F**
-  (`snapshot.mjs`/`progress.mjs`/the two porcelain commands), **track 2 D → H** (they share
-  `src/lib/verify.mjs`), **track 3 singles** (B, E, G, I + the smalls). Noted en route: this machine has no
-  `.env.test`, so `npm run test:integration` can't reach a real bucket here — tracks 1 and 2 are
-  pure or local and verify fully, but **B leans on CI**. Overwrote the HTML report in place.
-- **2026-08-06 — A landed** ([PR #277](https://github.com/allens/s3cab/pull/277), grilled
-  in-session to an empty frontier before any code, then built in four commits). *A counted pass,
-  drawn on a clock `progress.mjs` owns.* `countedPass(stream, label, () => count)` now holds the
-  shape both callers were re-typing, and the walk's line can no longer freeze when the walk does.
-  The reasoning is in
-  [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment (amended, not
-  replaced — no new trade-off, a refined interface, the same call the tenth pass made on
-  ADR-0069), so it is not repeated here. **What is worth keeping is where the grilling and the
-  verification changed the shape.**
-  - **`done()` exists because of an abort path nobody had looked at.** The plan was an interface
-    the caller never touches again — construction paints, the timer redraws, disposal draws the
-    tally. Checking the throw paths killed it: the walk aborts mid-loop on a duplicate path and
-    the store LIST can fail, and neither writes a tally today, so a dispose-drawn tally would have
-    printed `… 1,204 in 3 secs` directly above the error saying the pass failed.
-    `Symbol.dispose` gets no signal that it is unwinding, so the caller has to say.
-  - **The `s3.mjs` "third leak" was not one, and counting it would have been the error.** The
-    pass's own report called `s3.mjs:720`'s `isInteractive` a third copy of the gate. Reading it
-    showed a *different* question — "was a bar drawn, so should I log a line instead?" — which
-    `progress.mjs` answers internally (`drawn`) but does not expose. Left out by name in both the
-    module header and the ADR, so the omission reads as known. Still open, still its own decision.
-  - **Copilot found a real defect, and it inverted a claim this file had made.** `update`'s
-    argument is built before `update` can decline it, so off a terminal the tick composed an
-    `Intl`+Temporal line once a second and threw it away for the whole pass. Gated on `due()` —
-    and note what that does to the entry's note that `due()` would drop to one production caller:
-    **false**. The gate moved *out* of the callers' per-item loops and *into* the tick, so it is
-    now asked once a second in one place rather than per file in two. `restore.mjs:222` is its
-    second caller, not its only one.
-  - **The freeze was hand-verified in two halves, and the entry should not pretend otherwise.** A
-    402,000-file tree under a pty (400,000 excluded) showed the count jump straight from the bare
-    label to 2,000, confirming the excluded descent yields nothing; separately, a pass whose
-    caller only sleeps advanced `0 in 1 sec` → `0 in 2 sec` → tally. No tree on this machine walks
-    slowly enough to show both at once — the Windows-drive mount takes 90 s to *create* 7,400
-    files but reads them fast. The durable assertions are at `countedPass`'s own interface
-    (`mock.timers` over `setInterval` alone, so a short real sleep still clears the pacing gate),
-    each verified red by mutation.
-  - **A visible behaviour change, accepted deliberately:** the walk's line redraws once a second
-    rather than up to ten times, and during a long yield-free stretch it now reads `… 0 in 12
-    secs`, where the bare-label rule avoids a zero at t=0. Judged not in conflict — a zero at t=0
-    is noise, a zero twelve seconds in is information — and confirmed with the user.
-  - **`npm run test:integration` did not run** (no `.env.test`; ADR-0049 hard-failed, as designed),
-    and the `upload` commit deletes a `try`/`finally` around a `for await` over the `objects/`
-    LIST. Stated in the PR body rather than passed over: CI was the authority on that one.
-- **2026-08-07 — D landed.** *`referenced.mjs` answers the two questions its `sizes` Set exists
-  to pose.* `safeSize(object)` and `sizeDisagreements(object, storedSize)` now hold the
-  derivations that four planners were walking by hand; the module stays zero-import, so
-  [ADR-0074](../docs/adr/0074-referenced-enumeration-vocabulary-module.md) is *applied*, not
-  strained, and no ADR was needed — 0074 already decided where this kind of thing lives.
-  - **The candidate said "four planners, the same two questions"; the code said two pairs.** Each
-    derivation had exactly two callers, and within a pair the two wanted *different shapes*:
-    `lib/unrestorable.mjs` takes the max over one object, `lib/delete.mjs` accumulates it across
-    sets (fine — max is associative); `lib/verify.mjs` needs every disagreeing *(path, size)* to
-    build a row, `lib/cleanup.mjs` needs only a boolean. So the honest interface was one function
-    per *question*, not one per call site, with the boolean caller testing `.length` — not a
-    predicate plus a lister, which would have been four exports for four callers and no
-    consolidation at all.
-  - **The refactor found a real (if harmless) inefficiency in `verify`.** `storedSize === undefined`
-    is a property of the *hash*, but the old loop re-tested it at every path of every object.
-    Extracting the disagreement walk hoisted the check up one level, where it reads as what it is:
-    nothing stored → every path is a finding and none has a size to disagree with.
-  - **Verified by mutation, not just by green.** The whole suite passes untouched before and
-    after — correct for a pure refactor, and exactly why it proves nothing about the new code.
-    `Math.max` → `Math.min` in `safeSize` was confirmed to fail the new "largest across paths"
-    case before the tests were trusted.
 - **2026-09-04 — twelfth pass.** Explored the **35 `src/` commits since `4221fad`** (81 files,
   +9677/−2298) at HEAD `a4e0c9d` — the first architecture read of ADR-0077–0090, chiefly the
   `find` → hash-operand `delete` pair (0088/0089/0090), the `#END` trailer (0082), the
@@ -1054,3 +1084,47 @@ least once; re-open only if the stated reason no longer holds.
   - Red first: four instant-asserting tests failed on wall-clock time under a pinned clock.
     `npm test` 1118 pass, integration 26 pass, Roles Anywhere live 3/3; CI green, Copilot raised
     nothing.
+- **2026-10-01 — D landed** ([PR #343](https://github.com/allens/s3cab/pull/343), built in its own
+  session from the [output-ux.md](output-ux.md) note; the record is
+  [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s two-part amendment). *Name the
+  file the pass has in hand, and let the clock tick.* `WORTH_REPORTING_MS` now governs the
+  measurement, not the name. `currentFile` is set in `getProps` and deliberately never cleared, and the
+  pass concedes the event loop every 100 ms after each row.
+  [snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs) drives the wiring through
+  `through` under a fake `setInterval`.
+  - **The entry's fix was right but not enough, and the gap became the fourteenth pass's O.** The
+    entry predicted that one assignment in `getProps` would name every file. It did, and the line
+    still didn't move, because its timer never fired: every stage is async in form but synchronous in
+    the work it does, so the microtask queue never drains. The entry had no way to see that from the
+    code. Measured in the PR at 1 ms a file: zero ticks in eight seconds.
+  - **Half the entry was not done:** narrowing `onHashStart` to the byte cursor. `HashProgress` still
+    carries `path`, so the name now travels three ways. That is smaller item **P**.
+- **2026-10-02 — fourteenth pass.** Read the **2 `src/` commits since `3395305`** (9 files,
+  +381/−55) at HEAD `f9bba9a`, both of them pass-13 landings (A in #348, D in #343). The steps:
+  - one background sweep of the progress subsystem, as the organic friction walk, since #343 was
+    where the code had moved;
+  - hand re-verification of B, C and E–N, all of which hold, with anchors corrected for F, G, H and I;
+  - a narrowing of I's second half (the `skipped` sum is deliberate, ADR-0078 §2);
+  - hand verification of every sweep claim before it was written down.
+
+  **New: O (Strong), plus smaller items P and Q.** Overwrote the HTML report in place.
+  - **O was found by asking where else #343's fault lives.** #343 found event-loop starvation in the
+    pass it was fixing and closed it there. The sweep then asked which other clock-driven line sits in
+    front of synchronous work. The walk does, and its `countedPass` has never ticked. This was
+    confirmed by running the real module under a scratch harness rather than by reading it, because
+    reading it was exactly how pass 11 got it wrong.
+  - **Pass 11's evidence for its A was misread, and the lesson outlives the entry.** That entry,
+    retired from this log by this pass, said two things. First, a pass "whose caller only sleeps"
+    advanced `0 in 1 sec` → `0 in 2 sec`. But sleeping is `await setTimeout`, which gives the loop
+    turns, and the walk never sleeps. Second, a 402,000-file pty run "showed the count jump straight
+    from the bare label to 2,000", read as the excluded descent yielding nothing. That jump is what a
+    starved timer looks like: label, then tally, then nothing. The durable test,
+    `progress.test.mjs`:187–208, has the same blind spot (:198, :203). **The general lesson: a test of
+    a clock-driven line needs a caller that does not yield, or it tests the clock and not the line.**
+  - **The sweep inferred one claim this pass did not run.** It said that deleting the concession
+    (snapshot.mjs:544–548) leaves the suite green. That rests on the test file's own header
+    (snapshot.progress.test.mjs:40–47, "the 100ms concession that lets it fire at all … still
+    unasserted"), not on a mutation. It is recorded as the test's admission, not as a measured result.
+  - **The rejected/parked list was re-checked and stands untouched.** O touches no rejection. It amends
+    ADR-0076's consequence rather than its decision, and it leaves #343's declined chunked-read fix
+    declined.
