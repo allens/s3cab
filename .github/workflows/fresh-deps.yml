@@ -48,7 +48,7 @@ env:
   # Same pin as ci.yml and release.yml — the engines floor we ship on. Duplicated
   # rather than shared because `env` cannot cross workflow files. The drift under
   # test here is the dependency tree, so Node is held still on purpose.
-  NODE_VERSION: "26.3.0"
+  NODE_VERSION: "26.10.0"
 
 jobs:
   fresh-deps:

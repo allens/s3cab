@@ -146,7 +146,10 @@ not for sweeping this stale lock, which it leaves untouched. That verdict above 
 > **ADR-0067 also shrank this item.** A *graceful* interrupt now parks the work file as
 > `.snapshot.lookup.tsv.zst` instead of leaving a stale lock, so Ctrl+C no longer wedges the
 > next run. What remains is only the **hard-kill / crash / power-loss** case — which ADR-0067
-> says outright it does not solve. Smaller, and rarer, but still hand-cleaned.
+> says outright it does not solve. Smaller, and rarer, but still hand-cleaned. _(Since
+> [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md): still hand-cleared, but the
+> clearing is now `--resume`, which keeps the dead run's hashes rather than binning them. The
+> lock itself is as unsolved as ever — the user is still the liveness check.)_
 
 **Confirmed live under real SIGKILL, and measured narrower than it reads** (2026-08-14, crash
 tier — [test/crash/crash.test.mjs](../test/crash/crash.test.mjs)): the residue exists only for a
@@ -182,37 +185,52 @@ a short one's may not" — which is the right way round, since the long run is t
 recovering. **Worth a crash-tier case that kills a large run**, because it decides how much of §4
 is still being bought.
 
-### Recovering it, rather than deleting it (user, 2026-09-13)
+**Second specimen, n=2 (2026-09-18).** Same set, a *double* Ctrl+C rather than a crash — the second
+press force-quits by design ([ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)), so no park
+ran and the file was still at the lock name. 10,467,989 compressed bytes → 50,462,720 decompressed,
+**272,692 file rows of 280,277 found** (plus 1 `#SNAPSHOT`, 1 `#DIR`, 32 `#EXCLUDED`, 1 `#ERROR`),
+ending in a 95-character prefix of a row torn mid-`mtime` while writing a 2.8 GB file. 97% again,
+and the size hypothesis survives: another long run, another survivable file. The crash-tier case
+that kills a *large* run is still unwritten and still the thing that would settle it.
+
+This specimen also moved the *reachability* of the case. The hard kill is not only SIGKILL and power
+loss: it is this ADR-0067 handler's own second interrupt, reached by a user who pressed Ctrl+C twice
+because the first press looked inert (the abort is observed between files, and since ADR-0069 that
+pull sits behind the uploader — on a 2.8 GB file, minutes).
+
+**Both halves of "looked inert" are now fixed, which makes this route rarer but not closed.** The
+press itself was *also* arriving late, because a signal handler needs the event loop as much as the
+redraw timer does and the pass was starving both — fixed by the concession in
+[#343](https://github.com/allens/s3cab/pull/343). And the line now says `Stopping…` from the first
+draw after the press ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md), amended
+2026-10-01), so the display no longer contradicts the handler's message. What remains is the honest
+part: the pass still cannot *stop* until the row it is on finishes, so a user who will not wait out a
+multi-gigabyte upload still has the force-quit, and still lands here.
+
+### Recovering it, rather than deleting it — **BUILT** (user, 2026-09-13; landed 2026-09-18)
 
 *"Could we automate recovery? Seems like you can do it anyway, so why not make it a feature?"* —
 raised on seeing that the `del` in `inProgressError`'s remedy throws away 3h16m of hashing.
 
-What makes this smaller than item 2 proper: **it needs none of the auto-break heuristics ADR-0048
-rejected.** The user is already the liveness check — the error says *"If no snapshot or backup of
-this set is running now, delete the file and retry"*, and they act on it. Recovery changes only
-what happens *after* that call, from discard to reuse. ADR-0067 supplies the safety argument
-unchanged: reading is harmless, because every reused hash is re-validated against the live file's
-size+mtime, so a stale row simply fails to match and is re-hashed.
+Built as [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md): `--resume` on `snapshot`
+and `backup`, a `tolerant` mode on `parseSnapshotStream`, and `inProgressError` offering the
+resumption first and the deletion second. The ADR is the record — read it rather than the sketch
+this section used to carry. Two corrections it made to that sketch, kept here because they are the
+kind of thing that gets re-proposed:
 
-_My analysis, not a decision:_ three pieces, none of them large.
+- **The trust boundary is the work file's mtime, not nothing.** "Recording nothing is the more
+  honest of the two" was wrong: `trustBoundary(undefined)` means *reuse on size+mtime alone*, so
+  recording nothing silently drops [ADR-0085](../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)'s
+  guard for precisely the rows being recovered. The mtime is the last write the killed run managed,
+  so it is later than every read it made — which is the property 0085 asks for.
+- **A torn row is forgivable only as the file's *last* line.** Tolerating any malformed row would
+  make the mode a corruption-swallower rather than a work-file reader.
 
-1. **A tolerant read, for this path only.** `parseSnapshotStream`'s missing-`#END` assert is right
-   for a snapshot (ADR-0082's truncation detection, which `isCorruptSnapshotError` depends on) and
-   wrong for a work file, where an absent trailer is the expected state. Recovery needs a mode that
-   keeps what it read and drops a torn final line — the same new code §4's point 2 already costs.
-2. **No synthesized trust boundary.** A recovered file has no completion instant, and
-   `trustBoundary` already reads absent as "trust size+mtime alone"
-   ([snapshot.mjs](../src/lib/snapshot.mjs)) — exactly what a pre-ADR-0085 parked file gets today.
-   Stamping the work file's mtime is the alternative; recording nothing is the more honest of the
-   two.
-3. **The remedy line** in `inProgressError`, offering recovery instead of `del`. Explicit, not a
-   prompt — a y/N offer in `backup` was declined in the 2026-08-21 drift audit.
-
-**Where this meets the rest of the file:** it shrinks §4's bonus (the tolerant parser is needed
-either way), and the **unique-temp-name-per-run** option above is what would make recovery
-*automatic* rather than user-invoked — an orphan that cannot collide with a live run can simply be
-swept and reused, with no liveness question left to answer. That remains the live starting point;
-this is the manual half that pays off before it arrives.
+**What it does _not_ close.** It needs none of the auto-break heuristics ADR-0048 rejected because
+the user remains the liveness check — which is also its ceiling. The **unique-temp-name-per-run**
+option above is still what would make recovery *automatic* rather than user-invoked: an orphan that
+cannot collide with a live run can be swept and reused with no liveness question left to answer.
+That remains the live starting point for item 2; this was the manual half, and it pays off now.
 
 ## 3. `delete` is a third destructive actor (added by the deletion rework)
 
@@ -275,10 +293,12 @@ and compress once at finalize.
    parser, no periodic flushing, no `--resume`". Plain text collects most of that robustness
    without the parser: complete lines are readable, and the only new code is tolerating a partial
    *final* line, where `parseSnapshotStream` currently asserts. On a multi-hour first seed that is
-   the difference between losing everything and losing one row. _Qualified 2026-09-13:_ a real hard
-   kill on a multi-hour run left the **compressed** work file readable to within one torn line, so
-   the gap between the two forms may be far narrower than this point assumes — read §2's
-   measurement before leaning on it.
+   the difference between losing everything and losing one row. **Overtaken 2026-09-18** — this
+   point is what [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) bought, and it
+   bought it *on the compressed file*, because the measurement in §2 says zstd's flushed blocks
+   already leave the same "whole lines plus one torn one" shape. The tolerating-a-partial-final-line
+   code exists and reads `.tsv.zst` today, so **plain text can no longer claim it.** §4's remaining
+   case is the *bonus* below and the design compromise in point 1, not robustness.
 3. **The write window is now longer and more eventful.** Since the fusion, uploads happen *inside*
    the write, so the work file is open across all the network work rather than local work alone.
 
@@ -304,9 +324,15 @@ work file at the lock name, still hand-deleted. What changes is what that leftov
 combined with the unique-temp-name-per-run option above, a dead run's hashes become something the
 successor can sweep up and reuse instead of bin.
 
-## State of play (2026-07-29)
+## State of play (2026-07-29; amended 2026-09-18)
 
-Nothing here is built. Three things changed around it without resolving it: the deletion rework
+> **One piece is built.** [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) makes a
+> hard-killed work file recoverable with `--resume` — §2's *"Recovering it, rather than deleting
+> it"*. It does not resolve item 2, which is still the stale lock itself; it makes what that lock is
+> sitting on worth keeping, and it retires §4's robustness argument (point 2). Everything below
+> stands otherwise.
+
+Nothing else here is built. Three things changed around it without resolving it: the deletion rework
 (ADR-0063/0064) **added a third customer** (§3), [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)
 **shrank item 2** to the hard-kill case while sharpening how to think about it, and the fused
 pipeline (ADR-0069) revived the **uncompressed work file** as a way to make what a dead run leaves

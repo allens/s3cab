@@ -150,4 +150,58 @@ describe("the fused pass's progress line", () => {
       );
     }
   });
+
+  it("says it is stopping from the draw after the interrupt, not when the pass ends", async (/** @type {TestContext} */ t) => {
+    // The complaint this answers: Ctrl+C on a 280,000-file backup looked like it
+    // had done nothing, so it was pressed again — and a second press force-quits
+    // (ADR-0067), which is how a run ends up hard-killed with its work file
+    // stranded. The handler's message alone was not enough, because the line
+    // under it carried on repainting exactly as before.
+    //
+    // The signal is raised from inside `through`, which is where the park
+    // handler is installed and listening: the pass is mid-row, as it is when a
+    // real Ctrl+C arrives.
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    lines = [];
+
+    mock.timers.enable({ apis: ["setInterval"] });
+    try {
+      await assert.rejects(
+        generateSnapshot(threeFileSet(dir.path), {
+          through: async function* (
+            /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
+          ) {
+            for await (const [path, props] of rows) {
+              // One press only: a second would force-quit the test runner.
+              process.emit("SIGINT");
+              mock.timers.tick(TICK_MS);
+              yield /** @type {SnapshotRow} */ ([path, props]);
+            }
+          },
+        }),
+        /[Ss]topped/,
+        "a parked pass reports the stop rather than succeeding",
+      );
+    } finally {
+      mock.timers.reset();
+    }
+
+    const [opening, ...drawn] = lines;
+    assert.ok(opening, "the pass should draw before pulling a path");
+    assert.ok(
+      !opening.includes("Stopping"),
+      `nothing was stopping when the pass opened: ${opening}`,
+    );
+    // Every draw after the press says so — and there is at least one, which is
+    // the point: the user sees the stop while the pass is still finishing the
+    // file it has in hand, not only once the run is over.
+    assert.ok(drawn.length >= 1, "expected a draw after the interrupt");
+    for (const [index, line] of drawn.entries()) {
+      assert.ok(
+        line.includes("Stopping…"),
+        `draw ${index + 1} after the interrupt should say so, got: ${line}`,
+      );
+    }
+  });
 });

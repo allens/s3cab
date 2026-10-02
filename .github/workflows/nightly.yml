@@ -34,7 +34,7 @@ permissions:
 
 env:
   # Match ci.yml: pin to the engines floor so the sweep runs the shipped version.
-  NODE_VERSION: "26.3.0"
+  NODE_VERSION: "26.10.0"
 
 jobs:
   model:

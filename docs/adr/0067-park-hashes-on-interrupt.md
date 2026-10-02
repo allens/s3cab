@@ -59,6 +59,14 @@ is no half-baked-parked-file outcome.
 truncated at the lock name and the next run re-hashes: no harm, only time. That is what buys us
 the right to skip periodic flushing, a defensive truncated-zstd parser, and a `--resume` flag.
 
+> **Reversed in part by [0092](0092-recover-the-interrupted-work-file.md) (2026-09-18).** The
+> truncated file is now read back and offered as `--resume`; "no harm, only time" turned out to be
+> false where a killed run's reads can never be banked (a volume whose ctimes move on read —
+> [0085](0085-ctime-cross-check-on-hash-reuse.md)), and the hard kill turned out to be this ADR's
+> own *second* interrupt rather than an exotic event. Periodic flushing and the format change stay
+> rejected; only the tolerant read was bought. Everything else here — the handler, the parking, the
+> untouched lock — is unchanged.
+
 Consequent choices:
 
 - **The handler is installed around the write** (`withSnapshotFile`), not at the top-level
@@ -69,6 +77,12 @@ Consequent choices:
   (`propsRows`), which simply *returns* between files; the pipeline then ends the ordinary way and
   flushes, so the file stops on a whole row. A second interrupt force-quits, so the user is never
   stuck behind a flush — at the cost of the ordinary hard-kill outcome.
+
+  **The stop has to be visible on the progress line, not only in this handler's message**
+  ([0076](0076-one-progress-line-driven-by-a-clock.md), amended 2026-10-01). The handler's two lines
+  are retained above a line that then repaints unchanged, so the one moving thing on screen said the
+  press had done nothing — and the reader pressed again, taking the force-quit above. The
+  second-press escape only reads as an escape if the first press is seen to have landed.
 - **Delete on success, not on read**, so a second interruption still preserves the earlier work:
   while a resumed run is in flight both files exist. Parking is therefore **cumulative** — a
   resumed run re-records the reused rows into its own work file, so each cycle parks a fuller

@@ -412,7 +412,11 @@ dot, neither is ever uploaded, and both are safe to delete when nothing is runni
 
 - `.snapshot.tsv.zst` — the snapshot being written right now. It becomes the finished
   snapshot when the run completes. One left behind means a run was killed part-way; s3cab
-  says so, and names it, the next time you snapshot that set.
+  says so, and names it, the next time you snapshot that set. It has no trailer, because the
+  run never reached one, and its last line stops wherever the kill landed — so once you know
+  nothing is running, `--resume` carries on from the rows before it instead of reading all
+  those files again. That last line is dropped unread: a row cut off part-way can still look
+  complete, so the one row s3cab cannot vouch for is one file it hashes again.
 - `.snapshot.lookup.tsv.zst` — the file hashes from a snapshot you stopped with Ctrl+C,
   kept so the next run doesn't have to work them out again. Structurally it is a snapshot
   like any other, closed with a `PARTIAL` trailer that says so. It is read as a lookup only

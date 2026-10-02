@@ -14,8 +14,9 @@ import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
  * the same two engine calls with an object uploader spliced into the write
  * (ADR-0069) — which is why the engine lives in `lib` rather than here.
  * @param {string} [setName] - Backup set to snapshot (default: the only set)
- * @param {{ rehash?: boolean, "include-online-only"?: boolean, debug?: boolean }} [options] -
+ * @param {{ rehash?: boolean, resume?: boolean, "include-online-only"?: boolean, debug?: boolean }} [options] -
  *   `--rehash` re-hashes every file instead of reusing previous hashes;
+ *   `--resume` adopts the work file an interrupted run left behind (ADR-0092);
  *   `--include-online-only` hashes cloud placeholders too, downloading each
  *   (ADR-0081); `--debug` leaves an uncompressed copy and allows a same-minute
  *   overwrite. The inline form (rather than a `@param options.x` list) because a

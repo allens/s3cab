@@ -32,7 +32,7 @@ concurrency:
 env:
   # Pin to the engines floor so release artifacts are reproducible. setup-node and
   # --build-sea use the same node, so host == target version automatically.
-  NODE_VERSION: "26.3.0"
+  NODE_VERSION: "26.10.0"
 
 jobs:
   # Re-gate the tagged commit (the one commit ci.yml never sees). Mirrors ci.yml's
