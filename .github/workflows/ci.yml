@@ -37,7 +37,7 @@ concurrency:
 
 env:
   # Match release.yml: pin to the engines floor so CI runs the version we ship on.
-  NODE_VERSION: "26.3.0"
+  NODE_VERSION: "26.10.0"
 
 jobs:
   lint:

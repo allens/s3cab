@@ -827,9 +827,10 @@ export async function parseCompressedSnapshotStream(
       parseSnapshotStream(decompressed, { tolerant }),
     );
   } catch (error) {
-    // Newer Node's zstd rejects a stream that ends mid-frame itself, before
-    // the parser can miss its `#END`; the engines floor yields the prefix and
-    // leaves it to the parser. Same damage, so the same AssertionError.
+    // zstd rejects a stream that ends mid-frame itself, before the parser can
+    // miss its `#END` — so for a *compressed* snapshot this is where truncation
+    // is caught, and the trailer covers what a frame check can't see
+    // (ADR-0082 amendment 3). Same damage, so the same AssertionError.
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "Z_BUF_ERROR") {
       assert.fail(
         "Truncated snapshot: the compressed data ends mid-stream, so the file was cut short",
@@ -1018,17 +1019,14 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     parseLine(held);
   }
 
-  // The completeness check (ADR-0082): zstd decompression at the engines floor
-  // is lenient about a cut-short stream — a truncated `.tsv.zst` decompresses
-  // to a byte *prefix* without error, which parses as a valid smaller (or
-  // empty) snapshot. The `#END` trailer is what makes truncation loud: any cut
-  // that loses content loses it. A zstd frame-completeness check *below* this
-  // was considered and rejected — truncation only ever removes a suffix, so the
-  // sole cut a frame check would add is one taking just the frame epilogue,
-  // which leaves every row intact: it would reject a fully restorable manifest.
-  // (Newer Node makes that check itself regardless, and
-  // parseCompressedSnapshotStream folds its error into this one.) Whole-object
-  // integrity is the store's ETag, not the TSV's job (ADR-0082).
+  // The completeness check (ADR-0082): the `#END` trailer is what makes
+  // truncation loud, because completeness is a property of the *content* — any
+  // cut that loses a row loses the trailer with it. zstd rejects a cut-short
+  // frame on its own now, and parseCompressedSnapshotStream folds that into
+  // this same AssertionError, but it can't stand in for this check: an
+  // uncompressed `.tsv` has no frame at all, and the `tolerant` read below is
+  // *allowed* to end mid-frame (ADR-0082 amendment 3). Whole-object integrity
+  // is the store's ETag, not the TSV's job.
   // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.

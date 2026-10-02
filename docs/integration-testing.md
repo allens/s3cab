@@ -339,7 +339,7 @@ s3-integration:
     - uses: actions/checkout@v7
     - uses: actions/setup-node@v7
       with:
-        node-version: 26.3.0
+        node-version: 26.10.0 # the `engines` floor, as every other job pins
     - run: npm ci
     - uses: aws-actions/configure-aws-credentials@v6
       with:
