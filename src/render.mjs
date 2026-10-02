@@ -1279,8 +1279,9 @@ export function renderRestore({
   if (corrupt.length) {
     // The bucket holds these, but not the bytes that were backed up — the
     // integrity check refused them, so nothing was written. `verify` checks
-    // presence and size only, so it can't help here; a surviving unchanged copy
-    // can, because `upload --force` overwrites the damaged object in place.
+    // presence and size only, so it misses same-size damage and repairs none of
+    // it; a surviving unchanged copy can, because `upload --force` overwrites
+    // the damaged object in place.
     const heading =
       `Could not restore ${formatCount(corrupt.length)} ` +
       `${plural(corrupt.length, "file")} — the backup's copy of ` +

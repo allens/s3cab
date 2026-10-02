@@ -215,9 +215,10 @@ nothing is written for it, the rest of the restore carries on, it is listed unde
 `Could not restore … the backup's copy of its contents is damaged`, and the run exits
 non-zero. Writing the wrong bytes quietly is exactly what s3cab refuses to do.
 
-`verify` can't find damage like this, because it checks that content is present and the right
-size without downloading it. If an unchanged copy of a damaged file survives anywhere —
-another machine, a USB stick — upload it again to repair the backup's copy:
+`verify` checks that content is present and the right size without downloading it, so it
+catches damage that changed a file's size but not damage that kept it — that only a restore
+reveals. If an unchanged copy of a damaged file survives anywhere — another machine, a USB
+stick — upload it again to repair the backup's copy:
 
 ```console
 > s3cab upload photos --file D:\old-laptop\Photos\2019\hike.jpg --force

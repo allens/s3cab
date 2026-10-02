@@ -1396,8 +1396,8 @@ describe("renderRestore", () => {
       text,
       /\nCould not restore 1 file — the backup's copy of its contents is damaged:\n {2}\/home\/me\/b\.jpg\n/,
     );
-    // The constructive fix (ADR-0030): `verify` can't see wrong bytes, but a
-    // surviving original overwrites the damaged object.
+    // The constructive fix (ADR-0030): `verify` misses same-size damage and
+    // repairs none, but a surviving unchanged copy overwrites the object.
     assert.match(text, /\n {2}s3cab upload photos --file <path> --force\n/);
     // Ahead of the missing block, which stays last on screen.
     assert.match(text, /\n {2}s3cab verify my-backups$/);
