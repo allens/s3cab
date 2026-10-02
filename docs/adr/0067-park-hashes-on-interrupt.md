@@ -111,6 +111,14 @@ stop, not that it happened to be done. Accepted rather than plumbed around ([000
 on a tree big enough to interrupt, that window is milliseconds against hours, and the cost when
 it does hit is a re-run that reuses every hash and finishes almost instantly.
 
+**The handler is heard only on an event-loop turn**, and the pass has to give it one
+([0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md)). The handler is JavaScript,
+so it runs only when the loop turns, and that includes the second, force-quitting press. On a set
+of small files the hash pass is synchronous work behind `await`s that never let the loop turn, so
+without help the signal would sit unhandled until the pass ended. `propsRows` therefore concedes the
+loop every 100 ms, just before the `signal.aborted` check, and a test sends a real SIGINT mid-pass
+to hold it there (skipped on Windows, where a process cannot send itself one and survive).
+
 One more transient local file to document ([guide/format.md](../../guide/format.md)), alongside
 the existing temp — both under the set's `snapshots/`, both leading-dot, neither ever uploaded.
 The user-facing promise ("Ctrl+C to pause a long first snapshot") is stated in `snapshot`/`backup`

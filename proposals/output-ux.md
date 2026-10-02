@@ -69,41 +69,21 @@ niceties.
   means a run whose link never comes back says `Connection lost` exactly once across an hour of
   failures, which may be too quiet — a request that has been retrying for two minutes and failed is
   arguably news each time it happens.
-- **The progress lines' *timing* is untested** — deliberately, for now. Three behaviours rest on
-  real elapsed time: `lib/progress.mjs`'s 100ms redraw pacing; the fused pass conceding the event
-  loop every 100ms so its own 250ms tick can fire at all ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md),
-  amended 2026-09-13 — the pipeline is synchronous work in async clothing, so without the
-  concession the timer never runs); and the 1-second `setInterval`
-  that drives the `Scanning existing objects` line in [upload.mjs](../src/lib/upload.mjs) (a LIST
-  page yields 1,000 keys at once, so gating on the redraw interval made the count appear only
-  ever as a multiple of 1,000 *plus one*, then freeze until the next round trip).
-  All three were verified by simulation rather than by a committed test: asserting them needs a
-  test that actually sleeps across two pages, which is slow and timing-flaky for what is a display
-  property. One such test exists already (`progress.test.mjs`'s "draws again once the redraw
-  interval has passed", a 150ms sleep) and is the pattern we don't want to multiply. If the
-  module ever gains a fake clock — `node:test`'s timer mocking, or taking `now` as a seam — that
-  is the moment to come back and lock all of this down properly.
-  _The **wiring** underneath is covered now, and needed no clock seam after all_ —
-  [src/lib/snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs), written after
-  Copilot pressed on the gap in [#343](https://github.com/allens/s3cab/pull/343). The fused pass's
-  `currentFile` handling — `getProps` assigning it and deliberately never clearing it,
-  `withProgress` reading it back — is only ever *observable* through a timer-driven draw, which is
-  why it shipped broken once and was caught by watching a run rather than by a failing test. The
-  test drives `generateSnapshot` over three real files with `setInterval` faked, and ticks the
-  fake clock from inside the pass's own `through` transform — the fusion seam `backup` already
-  uses ([ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md)), so the tick lands where a
-  real redraw lands rather than where the wall clock would put it. Re-adding the
-  `currentFile = null` fails it with precisely the symptom that started all this: `1/3 in 0s`, no
-  path.
-  The same file now covers the **stop** state the same way (ADR-0076, amended 2026-10-01): the
-  signal is raised from inside `through`, where the park handler is installed and listening, so the
-  assertion is that the draws after it carry `Stopping…` — not that some timer eventually noticed.
-  _What is left for the fake clock proper:_ the three timing behaviours above, plus one more the
-  `through` tick cannot reach — the concession sitting **after** the row rather than before it.
-  Its only symptom is a draw landing in the gap between the count advancing and the file being
-  published, so catching it needs a timer that fires on its own. That one is a real regression
-  risk (it was a review finding, not a hypothetical) and is the strongest single argument for
-  doing the clock.
+- **What is left of the progress lines' untested *timing*** — very little, since
+  [ADR-0093](../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md). The lines
+  that never let a timer fire (the walk, the fused pass) now redraw from a `tick()` on a real
+  clock read, which `progress.test.mjs` asserts with a short real spin and the timer mocked dead.
+  The counted pass's timer is asserted with `mock.timers`; the fused pass's wiring — one draw per
+  row, count and file agreeing, a figures-only closing frame, `Stopping…` after a press — with a
+  stubbed `clockedLine` in [snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs);
+  and the event-loop turn that lets Ctrl+C be heard at all, with a real self-sent SIGINT in
+  `snapshot-file.test.mjs`. None needed a clock seam: `mock.timers` does not move
+  `performance.now()`, and a `Date.now()` clock is not monotonic.
+  _Still only verified by hand:_ that real SIGINT test is **skipped on Windows**, where Node ends a
+  process that signals itself before any listener runs — a real console Ctrl+C reaches the same
+  handler, but nothing in the suite sends one. Faking it needs `GenerateConsoleCtrlEvent`, which
+  Node does not expose and which would hit the test runner too. Worth revisiting only if a
+  Windows-only interrupt fault ever turns up.
 - **Display formatting** — the byte/time humanizers the size and progress output above lean on
   (the bytes-hashed progress, the `4.2 GB` first-snapshot line, `list --stat` total size). Built
   from the JS standard library (`Intl`), no `pretty-bytes`-style dependency.

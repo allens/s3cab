@@ -11,6 +11,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
 import {
   EXIT_INTERRUPTED,
@@ -1052,6 +1053,11 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   };
 }
 
+// How long the row generator runs before handing the event loop a turn, so an
+// interrupt can be heard (see `propsRows`). Measured, the handler then runs
+// within 0–101ms of the signal; without it, not before the pass has ended.
+const CONCEDE_MS = 100;
+
 /**
  * Wrap a props-computing function into the snapshot row generator: yields
  * `[path, Props]` per file, or `[path, Error]` when hashing fails — the latter
@@ -1066,13 +1072,33 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
  * stops on a whole row rather than being torn down mid-write. The file being
  * hashed when the interrupt arrives is finished first (its hash would be thrown
  * away otherwise, and a second Ctrl+C force-quits if that wait is too long).
+ *
+ * **And this is where the interrupt is given the chance to arrive at all**
+ * ([ADR-0093](../../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md)).
+ * `parkOnInterrupt`'s handler is JavaScript, so it runs only when the event loop
+ * turns — the second, force-quitting press included — and on a set of small
+ * files this pipeline never turns it: every stage is an `async` function whose
+ * work is synchronous (`lstatSync`, `readFileSync`, `crypto.hash`), so each
+ * `await` queues a microtask and the queue never drains. Without a turn the
+ * signal sits unhandled until the pass ends, and `aborted` below is never true
+ * while there is anything left to stop. So the generator concedes the loop
+ * itself, every `CONCEDE_MS`, just before the check that reads the result. On
+ * time, not a file count: at 1ms a file every 50 would do, at 10ms a file it
+ * would starve again. One clock read per file and one `setImmediate` per tenth
+ * of a second — over ten 8,060-file runs, less than the run-to-run spread.
  * @param {(path: string) => Promise<Props>} getProps
  * @param {AbortSignal} signal - Stop cleanly when aborted (the park-on-interrupt request)
  * @returns {(paths: AsyncIterable<string>) => AsyncGenerator<SnapshotRow>}
  */
 function propsRows(getProps, signal) {
   return async function* (paths) {
+    let conceded = performance.now();
     for await (const path of paths) {
+      const now = performance.now();
+      if (now - conceded >= CONCEDE_MS) {
+        conceded = now;
+        await yieldToLoop();
+      }
       if (signal.aborted) {
         return;
       }

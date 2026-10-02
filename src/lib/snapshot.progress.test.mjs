@@ -15,56 +15,62 @@ import { describe, it, mock } from "node:test";
 // draw that reports the count.
 //
 // Its own file (ADR-0049's dotted aspect) because that wiring needs a running
-// pipeline and a fake clock, neither of which the pure-composition tests want.
+// pipeline and a stubbed line, neither of which the pure-composition tests want.
 // It is worth the scaffolding because the wiring is invisible from either end:
-// it is only ever observable through a timer-driven redraw, and it shipped
-// broken once for exactly that reason — `currentFile` was cleared in a
-// `finally`, and since a redraw lands *between* rows, every draw saw `null` and
-// the detail column stayed empty for a whole run (ADR-0076, amended 2026-09-13).
-// A `progressLine` test stays green through that; this one does not.
+// it shipped broken once — `currentFile` was cleared in a `finally`, and since a
+// redraw lands *between* rows, every draw saw `null` and the detail column
+// stayed empty for a whole run (ADR-0076, amended 2026-09-13). A `progressLine`
+// test stays green through that; this one does not.
 //
-// Two seams make it deterministic, and neither is a clock the production code
-// has to know about:
+// One seam makes it deterministic: a `clockedLine` stub that draws on *every*
+// `tick()` rather than once an interval, and keeps the text `done` was handed.
+// So each row is exactly one draw, and the closing frame is captured apart from
+// the running ones. `performance.now()` is left alone, which is what holds the
+// pass on its bare-path branch: these files hash in microseconds, so nothing
+// here earns the one-second labelled measurement and the path is all the detail
+// there is.
 //
-//   - `node:test`'s fake `setInterval`, ticked from inside the pass's own
-//     `through` transform — the fusion seam `backup` already uses (ADR-0069).
-//     A tick from there lands where a real redraw lands: a row hashed, its path
-//     published, the count advanced, nothing in flight.
-//   - a `createProgress` stub that records every line instead of pacing them,
-//     the same stub `commands/restore.counts.test.mjs` uses.
-//
-// `performance.now()` is left alone, which is what holds the pass on its
-// bare-path branch: these files hash in microseconds, so nothing here earns the
-// one-second labelled measurement and the path is all the detail there is.
-//
-// **What this does not reach**, so nobody reads it as covering more than it
-// does: the pass's *timing*. A tick driven from `through` lands where the row
-// puts it, never where the wall clock would, so the 250ms cadence, the 100ms
-// concession that lets it fire at all, and `lib/progress.mjs`'s own redraw
-// pacing are all still unasserted — and so is the concession's placement
-// *after* the row rather than before it, whose only symptom is a draw landing
-// in the gap between the count advancing and the file being published. Catching
-// that needs a timer that fires on its own, which is the real clock.
+// **What this does not reach**, and where it is reached instead: whether a tick
+// redraws only once its interval is due, and that it does so with no timer able
+// to fire, is `progress.test.mjs`'s (`clockedLine`); that a Ctrl+C is *heard*
+// mid-pass at all — the event-loop turn `propsRows` concedes — is
+// `snapshot-file.test.mjs`'s real-signal test (ADR-0093).
 
-/** `snapshot.mjs`'s redraw interval — one tick, one draw. */
-const TICK_MS = 250;
-
-/** Every line the pass handed the display, in order. */
+/** Every running frame the pass drew, in order, the opening one first. */
 /** @type {string[]} */
 let lines = [];
+/** The closing frame, if the pass drew one. */
+/** @type {string | undefined} */
+let closing;
+
+/**
+ * Clear the last pass's frames. A function rather than two assignments in each
+ * test, because the type checker would read `closing = undefined` there as
+ * holding for the rest of the test — it cannot see the pass setting it.
+ */
+function forgetFrames() {
+  lines = [];
+  closing = undefined;
+}
 
 mock.module("./progress.mjs", {
   exports: {
-    createProgress: () => ({
-      due: () => true,
-      update: (/** @type {string} */ line) => lines.push(line),
-      clear() {},
-      [Symbol.dispose]() {},
-    }),
+    clockedLine: (
+      /** @type {unknown} */ _stream,
+      /** @type {() => string} */ compose,
+    ) => {
+      // The real line's opening frame, when it is given no `opening` text.
+      lines.push(compose());
+      return {
+        tick: () => lines.push(compose()),
+        done: (/** @type {string} */ text) => (closing = text),
+        [Symbol.dispose]() {},
+      };
+    },
     // The *walk's* counted line, which is a different line and not under test.
     // Stubbed only because mocking a module replaces the whole of it, and
     // `walk.mjs` imports this from here.
-    countedPass: () => ({ done() {}, [Symbol.dispose]() {} }),
+    countedPass: () => ({ tick() {}, done() {}, [Symbol.dispose]() {} }),
   },
 });
 
@@ -96,43 +102,42 @@ function threeFileSet(root) {
   };
 }
 
+/**
+ * A `through` that records each row's path, in the order the pass produced them.
+ * @param {string[]} into
+ */
+const recording = (into) =>
+  async function* (
+    /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
+  ) {
+    for await (const row of rows) {
+      into.push(row[0]);
+      yield row;
+    }
+  };
+
 describe("the fused pass's progress line", () => {
-  it("names the file the count is pointing at, on every draw", async (/** @type {TestContext} */ t) => {
+  it("names the file the count is pointing at, on every tick", async (/** @type {TestContext} */ t) => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    lines = [];
-    /** @type {string[]} each row's path, in the order the pass produced them */
+    forgetFrames();
+    /** @type {string[]} */
     const rowPaths = [];
 
-    mock.timers.enable({ apis: ["setInterval"] });
-    try {
-      await generateSnapshot(threeFileSet(dir.path), {
-        through: async function* (
-          /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
-        ) {
-          for await (const [path, props] of rows) {
-            rowPaths.push(path);
-            // Where `backup` would be sending this object, the test advances the
-            // clock instead: one redraw, with this file just hashed.
-            mock.timers.tick(TICK_MS);
-            yield /** @type {SnapshotRow} */ ([path, props]);
-          }
-        },
-      });
-    } finally {
-      mock.timers.reset();
-    }
+    await generateSnapshot(threeFileSet(dir.path), {
+      through: recording(rowPaths),
+    });
 
     assert.equal(rowPaths.length, 3, "expected one row per walked file");
-    // The pass draws once before pulling a single path, so the rest are our
-    // ticks and the two lists line up index for index.
+    // The pass draws once before pulling a single path, then ticks once per
+    // row, so the two lists line up index for index.
     const [opening, ...drawn] = lines;
     assert.ok(opening, "the pass should draw before pulling a path");
     assert.ok(
       !opening.includes(dir.path),
       `the opening draw has no file in hand yet: ${opening}`,
     );
-    assert.equal(drawn.length, rowPaths.length, "one draw per row");
+    assert.equal(drawn.length, rowPaths.length, "one tick per row");
 
     for (const [index, path] of rowPaths.entries()) {
       const line = drawn[index];
@@ -141,14 +146,60 @@ describe("the fused pass's progress line", () => {
         line.startsWith(`${index + 1}/3`),
         `draw ${index + 1} reported the wrong count: ${line}`,
       );
-      // The whole point: the name and the number describe the same file, and
-      // the name is still there a row later — the pass keeps it rather than
-      // clearing it, which is what makes a draw between rows say anything.
+      // The whole point: the name and the number describe the same file — the
+      // tick comes *after* the row, so the count has not run ahead of the name
+      // — and the name is still there once the row is done, because the pass
+      // keeps it rather than clearing it.
       assert.ok(
         line.endsWith(path),
         `draw ${index + 1} should have named ${path}, got: ${line}`,
       );
     }
+  });
+
+  it("closes on the true figures alone, naming no file", async (/** @type {TestContext} */ t) => {
+    // The last tick shows the last file, which is the file the pass had *just*
+    // finished. The closing frame is drawn once nothing is in hand, so it has
+    // nothing to name — and the count it carries is the whole set, whatever
+    // the last tick showed.
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    forgetFrames();
+
+    await generateSnapshot(threeFileSet(dir.path));
+
+    assert.ok(closing, "a pass that ran to its end draws a closing frame");
+    assert.ok(closing.startsWith("3/3"), `expected every file: ${closing}`);
+    assert.ok(
+      !closing.includes(dir.path),
+      `the closing frame names no file: ${closing}`,
+    );
+  });
+
+  it("draws no closing frame for a pass that failed", async (/** @type {TestContext} */ t) => {
+    // A closing frame says the pass finished. Drawn over a failure it would read
+    // as a step that completed, directly above the error saying it did not; the
+    // last tick's frame — where it got to — is the honest thing to leave.
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    forgetFrames();
+
+    await assert.rejects(
+      generateSnapshot(threeFileSet(dir.path), {
+        // One row through, so the line is open and mid-pass when it fails.
+        through: async function* (
+          /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
+        ) {
+          for await (const row of rows) {
+            yield row;
+            throw new Error("the uploader fell over");
+          }
+        },
+      }),
+      /fell over/,
+    );
+    assert.ok(lines.length >= 1, "the line was open when the pass failed");
+    assert.equal(closing, undefined);
   });
 
   it("says it is stopping from the draw after the interrupt, not when the pass ends", async (/** @type {TestContext} */ t) => {
@@ -163,29 +214,24 @@ describe("the fused pass's progress line", () => {
     // real Ctrl+C arrives.
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    lines = [];
+    forgetFrames();
 
-    mock.timers.enable({ apis: ["setInterval"] });
-    try {
-      await assert.rejects(
-        generateSnapshot(threeFileSet(dir.path), {
-          through: async function* (
-            /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
-          ) {
-            for await (const [path, props] of rows) {
-              // One press only: a second would force-quit the test runner.
-              process.emit("SIGINT");
-              mock.timers.tick(TICK_MS);
-              yield /** @type {SnapshotRow} */ ([path, props]);
-            }
-          },
-        }),
-        /[Ss]topped/,
-        "a parked pass reports the stop rather than succeeding",
-      );
-    } finally {
-      mock.timers.reset();
-    }
+    await assert.rejects(
+      generateSnapshot(threeFileSet(dir.path), {
+        through: async function* (
+          /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
+        ) {
+          for await (const row of rows) {
+            // One press per row, and the pass stops after the first: a second
+            // would force-quit the test runner.
+            process.emit("SIGINT");
+            yield row;
+          }
+        },
+      }),
+      /[Ss]topped/,
+      "a parked pass reports the stop rather than succeeding",
+    );
 
     const [opening, ...drawn] = lines;
     assert.ok(opening, "the pass should draw before pulling a path");
@@ -203,5 +249,7 @@ describe("the fused pass's progress line", () => {
         `draw ${index + 1} after the interrupt should say so, got: ${line}`,
       );
     }
+    // A stopped pass did not finish, so it keeps the frame it stopped on.
+    assert.equal(closing, undefined);
   });
 });

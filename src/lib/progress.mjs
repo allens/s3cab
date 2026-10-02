@@ -23,13 +23,16 @@ import { isInteractive } from "./style.mjs";
 // and a strobe on a warm dircache (tens of thousands of paths a second). Rate is
 // what the eye reacts to, so it is one dial in one place.
 //
-// **And one whole line shape lives here: {@link countedPass}.** `createProgress`
-// hands back the bare mechanic, which left the *shape* of a counting pass — bare
-// label, then `<label> <count> in <elapsed>`, then a tally that survives off a
-// terminal — re-typed identically in walk.mjs and upload.mjs, each with its own
-// clock or (in the walk's case) none. A pass is the unit
-// [ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md) names,
-// so a pass is what this module offers.
+// **And the clock lives here: {@link clockedLine}.** `createProgress` hands back
+// the bare mechanic; a clocked line is that mechanic plus what keeps it live —
+// a timer for a caller waiting on I/O, and a `tick()` for one whose work is
+// synchronous and so never lets a timer fire
+// ([ADR-0093](../../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md)).
+// The walk's line and the fused pass's each used to carry half of that, a
+// different half each. {@link countedPass} is the one whole line *shape* built
+// on it — bare label, then `<label> <count> in <elapsed>`, then a tally that
+// survives off a terminal — because a pass is the unit
+// [ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md) names.
 //
 // One consumer deliberately still reaches for `isInteractive` itself:
 // `s3.mjs`'s per-file upload bar asks a *different* question — "was a bar drawn,
@@ -189,29 +192,129 @@ export function createProgress(stream, { logLines = false } = {}) {
 }
 
 /**
+ * A **clocked line**: an in-place line that redraws itself on a clock, composing
+ * its text afresh at each redraw rather than being handed it
+ * ([ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md) §3).
+ * The caller says what the line reads; this decides when it is read.
+ *
+ * **The clock has two hands, because a timer only fires when the event loop
+ * turns** ([ADR-0093](../../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md)).
+ * A caller waiting on I/O — a LIST page, a snapshot file `find` streams in —
+ * turns the loop on every read, so the timer alone keeps it live and it never
+ * calls `tick()`. A caller whose work is synchronous never turns it: the walk is a
+ * plain loop over `readdirSync`, and the fused pass is `async` functions whose
+ * work is `lstatSync`, `readFileSync` and `crypto.hash`, so every `await` is a
+ * microtask and a timer set beside them fires never. That caller calls `tick()`
+ * once per item, and the line redraws when the interval is due. One clock read
+ * and a compare per call (~50ns, measured), so it is affordable per directory
+ * entry. Both hands keep to one "last drawn" moment: a tick within an interval
+ * of the timer's draw does not draw, and a tick that draws restarts the timer,
+ * so neither hand draws within `every` of the other.
+ *
+ * `due` gates every redraw because `update`'s argument is evaluated before
+ * `update` can decline it: off a terminal (and without `logLines`) nothing is
+ * ever written, so composing the line would be `Intl` and Temporal work done
+ * every interval and thrown away for the length of the pass. This is the hot-path
+ * idiom `due` documents, asked in one place so no caller has to remember it.
+ *
+ * `done(text)` exists because disposal cannot tell it is unwinding from a throw.
+ * A pass that aborts — the walk on a duplicate path, a LIST that fails, a backup
+ * the user stopped — must not have a closing frame drawn over its last one,
+ * reading as a step that finished. So disposal only stops the clock and closes
+ * the line, and the caller states the one fact only it knows. The text is the
+ * caller's because a closing frame need not say what a running one does: the
+ * fused pass drops the file it had in hand, since at the end there is none.
+ *
+ * Use it with `using`, so an abort still stops the clock and leaves the cursor on
+ * a fresh line.
+ * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
+ * @param {() => string} compose - The line as it stands right now. Called only
+ *   when a redraw is due and can be written
+ * @param {object} options
+ * @param {number} options.every - Milliseconds between redraws, on either hand
+ * @param {string} [options.opening] - Drawn at once, before the first interval;
+ *   absent, the first frame is `compose()`'s
+ * @returns {{ tick: () => void, done: (text: string) => void } & Disposable}
+ */
+export function clockedLine(stream, compose, { every, opening }) {
+  const progress = createProgress(stream);
+  let live = true;
+  let drawnAt = performance.now();
+  const redraw = () => {
+    drawnAt = performance.now();
+    if (progress.due()) {
+      progress.update(compose());
+    }
+  };
+
+  if (progress.due()) {
+    progress.update(opening ?? compose());
+  }
+  // Unconditional on its interval, not gated on `drawnAt` like `tick`: a timer
+  // fires a little *early* as often as late, and gating it on a full interval
+  // would skip every such firing — halving the cadence of exactly the callers
+  // this hand exists for. `unref` so a pending tick can never hold the process
+  // open.
+  const start = () => {
+    const timer = setInterval(redraw, every);
+    timer.unref();
+    return timer;
+  };
+  let ticking = start();
+  const stop = () => {
+    live = false;
+    clearInterval(ticking);
+  };
+
+  return {
+    tick() {
+      if (live && performance.now() - drawnAt >= every) {
+        // Restart the timer from this draw. Left on its own schedule it would
+        // fire however much of an interval remained, and draw again that soon.
+        clearInterval(ticking);
+        ticking = start();
+        redraw();
+      }
+    },
+    /**
+     * The pass finished: stop the clock and draw `text` as the final frame. On a
+     * terminal it replaces the line in place, and an update the pacing holds is
+     * still drawn when the line closes, so it always lands. Off one it writes
+     * nothing, like every other frame — a caller whose closing frame is worth a
+     * log line writes that itself (see {@link countedPass}).
+     * @param {string} text
+     */
+    done(text) {
+      stop();
+      progress.update(text);
+    },
+    [Symbol.dispose]() {
+      stop();
+      progress[Symbol.dispose]();
+    },
+  };
+}
+
+/**
  * Run a **counted pass**: one line that names what is happening, then carries a
  * running count and the elapsed time, then stays on screen as that step's tally
- * ([ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md)). The
- * walk's per-directory `Finding files in '~/src'… 1,204 in 3 secs` and the
- * store scan's `Scanning existing objects in 's3://b'… 312,004 in 12 secs` are
- * the two.
+ * ([ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md)) — a
+ * {@link clockedLine} with that one shape. The walk's per-directory
+ * `Finding files in '~/src'… 1,204 in 3 secs`, the store scan's
+ * `Scanning existing objects in 's3://b'… 312,004 in 12 secs`, and `find`'s two
+ * passes over the local snapshots are its callers.
  *
- * **The count is pulled on a clock this owns, never pushed by the caller.** That
+ * **The count is pulled on the line's clock, never pushed by the caller.** That
  * is the whole point rather than a style choice: the walk used to redraw inside
  * its own `for (const path of walkFiles(…))` loop, so the line could only move
  * when the caller reached the next iteration — and `walkFiles` blocks on
  * `readdirSync` per directory, on `resolveFileType`'s `lstatSync` fallback, and
  * yields nothing at all while descending a subtree it keeps no file from. The
  * count *and its clock* froze in exactly the places a user most needs to see the
- * run is alive. A caller cannot forget a timer it does not own.
- *
- * `done()` is the one method, and it exists because disposal cannot tell it is
- * unwinding from a throw. The walk aborts mid-loop on a duplicate path and the
- * store scan's LIST can fail; drawing the tally from `[Symbol.dispose]` would
- * print `… 1,204 in 3 secs` directly above the error saying the pass failed,
- * reading as a step that finished. So disposal keeps `createProgress`'s job —
- * flush the held update, close the line — and the caller states the one fact
- * only it knows.
+ * run is alive. A synchronous caller still owes the clock its `tick()` — the
+ * walk calls it per entry visited, kept or not, which is what reaches into that
+ * subtree — but `tick()` only asks whether a redraw is due; what the line says,
+ * and the count it reads, stay here.
  *
  * Use it with `using`, so an abort still leaves the cursor on a fresh line.
  * @param {NodeJS.WriteStream} stream - Usually `process.stderr`
@@ -222,34 +325,19 @@ export function createProgress(stream, { logLines = false } = {}) {
  * @param {() => number} count - Read on every redraw for what has been got
  *   through so far. A thunk, not a number, so the pass samples whatever has
  *   really landed at the moment it draws.
- * @returns {{ done: () => void } & Disposable}
+ * @returns {{ tick: () => void, done: () => void } & Disposable}
  */
 export function countedPass(stream, label, count) {
   const start = Temporal.Now.instant();
-  const progress = createProgress(stream);
-  progress.update(label);
-
   const line = () =>
     `${label} ${formatCount(count())} in ${secondsSince(start)}`;
-
-  // `due` gates the tick because `update`'s argument is evaluated before
-  // `update` can decline it: off a terminal (and without `logLines`) nothing is
-  // ever written, so composing the line would be `Intl` and Temporal work done
-  // once a second and thrown away for the length of the pass. This is the hot-
-  // path idiom `due` documents, and the callers used to spell it per item —
-  // asked once per second in the one place, it costs nothing and no caller has
-  // to remember it.
-  //
-  // `unref` so a pending tick can never hold the process open; both `done` and
-  // disposal stop it, so a pass that throws past `done` still stops ticking.
-  const ticking = setInterval(() => {
-    if (progress.due()) {
-      progress.update(line());
-    }
-  }, COUNTED_TICK_MS);
-  ticking.unref();
+  const clocked = clockedLine(stream, line, {
+    every: COUNTED_TICK_MS,
+    opening: label,
+  });
 
   return {
+    tick: clocked.tick,
     /**
      * The pass finished: draw its true final tally, whatever the last redraw
      * happened to show. Always drawn, so a step too quick to trigger a single
@@ -259,17 +347,14 @@ export function countedPass(stream, label, count) {
      * own newline disposal would then follow with a second.
      */
     done() {
-      clearInterval(ticking);
       const summary = line();
-      if (isInteractive(stream)) {
-        progress.update(summary);
-      } else {
+      clocked.done(summary);
+      if (!isInteractive(stream)) {
         stream.write(`${summary}\n`);
       }
     },
     [Symbol.dispose]() {
-      clearInterval(ticking);
-      progress[Symbol.dispose]();
+      clocked[Symbol.dispose]();
     },
   };
 }
