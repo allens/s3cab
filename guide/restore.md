@@ -167,7 +167,7 @@ first, then restore:
   collision and the run exits non-zero, never silently overwritten. To keep both, restore a
   colliding path into its own `--output` directory.
 - **A name this disk refuses is listed, not fatal.** A backup made on Linux can hold names
-  Windows refuses — a control character, or any of `? * | < > "` — and one made on Windows
+  Windows refuses — a control character, or any of `: ? * | < > "` — and one made on Windows
   can hold a long name in a non-Latin script that is too long for Linux, which counts bytes.
   Each such file is skipped and listed, with any invisible character spelled out (`\x0c` for a
   form feed); the rest of the restore carries on, and the run exits non-zero. To get them

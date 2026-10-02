@@ -128,16 +128,6 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   length doesn't grow with the destination's (fixed-length, derived from it so a retry still
   overwrites it), so the atomic write never needs more room than the file does.
 
-- **On NTFS a `:` in a restored name reaches a data stream, not a file.** Windows reads
-  `a:b.txt` as the stream `b.txt` of a file `a`, so no call refuses it cleanly. Measured
-  2026-10-02: `writeFileAtomic`'s temp write succeeds — into a stream of a new, empty `.a` —
-  and only the rename fails, `EINVAL`, which `restore` reports as a refused name (right) while
-  leaving the empty `.a` in the restored tree (wrong). A dedup copy to such a name is worse:
-  `copyFile` to `a:b.txt` *succeeds*, so a copy step would put the content in a stream of `a`,
-  invisible in Explorer, and report the file restored. Fix shape: refuse a `:` in any name
-  component before writing whenever the destination is Windows-shaped (drive letter or UNC —
-  the `foldsCase` test), since asking NTFS is what goes wrong.
-
 - **`--resume` recovers nothing on Node ≥26.10: the rows are read and then thrown away.** A
   hard-killed run's work file is a zstd frame that was never closed, and on 26.10 (the pinned
   floor since 2026-10-02) the decompressor emits every byte of its prefix and *then* raises
