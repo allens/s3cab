@@ -15,10 +15,9 @@ import { OnlineOnlyFileError } from "./error.mjs";
  * not be set by how fast bytes happen to arrive.
  *
  * Only the *streaming* branch reports. A file below the slurp boundary is read
- * in one call with no intermediate count — and is far too small to spend the
- * second that would earn it a line anyway.
+ * in one call with no intermediate count, so there is nothing to poll. It
+ * carries no path: the caller passed that in, and already holds it.
  * @typedef {Object} HashProgress
- * @property {string} path - The file being hashed
  * @property {number} size - Its size in bytes, from the `lstat` already taken
  * @property {number} startedAt - `performance.now()` when the read began
  * @property {() => number} read - Bytes hashed so far
@@ -289,7 +288,6 @@ export async function fileProps(
     // in the caller's render path, which is the whole reason this is reported
     // from in here rather than derived outside.
     onHashStart?.({
-      path,
       size,
       startedAt: performance.now(),
       read: () => source.bytesRead,

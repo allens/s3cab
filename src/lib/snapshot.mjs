@@ -1,7 +1,6 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 import { OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
@@ -12,7 +11,7 @@ import {
   formatCount,
 } from "./format.mjs";
 import { tildeify } from "./home.mjs";
-import { createProgress } from "./progress.mjs";
+import { clockedLine } from "./progress.mjs";
 import {
   listSnapshotNames,
   readParkedLookup,
@@ -285,10 +284,11 @@ export async function generateSnapshot(
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
   // The hash in flight, published by `fileProps` and cleared the moment it
-  // returns — so the progress line can name the file it is chewing on when one
-  // takes long enough to be worth naming. Held here, at the binding site, rather
-  // than inside `fileProps`: the function stays pure per call, and the mutable
-  // "what is happening now" belongs to the pass that is running.
+  // returns — so the progress line can measure a hash that has run long enough
+  // for its figures to be read. It does not name the file: `currentFile` below
+  // does that for every file, this one included. Held here, at the binding site,
+  // rather than inside `fileProps`: the function stays pure per call, and the
+  // mutable "what is happening now" belongs to the pass that is running.
   /** @type {HashProgress | null} */
   let hashing = null;
   // The last file the pass had in its hands, named whether or not it was slow
@@ -301,10 +301,10 @@ export async function generateSnapshot(
   // **Set but never cleared**, which is the difference between this working and
   // not. `hashing` is cleared the moment its file is done because a stale
   // *measurement* would be a lie; a stale *name* is not, and clearing it showed
-  // the empty column all over again. The redraw is on a 250ms timer and the
-  // pipeline only yields to the event loop between rows (see `withProgress`), so
-  // a draw lands almost exactly when no file is in hand — the same trap the
-  // clock was introduced to get the transfer suffix out of. The pass is
+  // the empty column all over again. On a set of small files every redraw is
+  // the pass's tick *between* rows (see `withProgress`), so a draw lands almost
+  // exactly when no file is in hand — the same trap the clock was introduced to
+  // get the transfer suffix out of. The pass is
   // sequential, so the file it last touched is always either in flight or just
   // finished: a truthful sample of where the walk has got to either way.
   /** @type {string | null} */
@@ -494,9 +494,9 @@ export async function generateSnapshot(
  * @param {number} args.bytesTotal - Bytes this pass expects to get through (0 = unknown)
  * @param {() => number} args.bytes - Bytes it has got through so far
  * @param {() => TransferState} [args.transfer] - The sending's live state, when this pass sends
- * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
+ * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is, of `currentFile`
  * @param {() => string | null} [args.currentFile] - The file in hand, named even when
- *   it is too fast to earn the detail above
+ *   it is too fast to be measured
  * @param {() => boolean} [args.stopping] - Whether the user has asked the pass to stop
  */
 function withProgress({
@@ -510,24 +510,22 @@ function withProgress({
 }) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
-    using progress = createProgress(process.stderr);
     const start = Temporal.Now.instant();
     let current = 0;
-    const draw = () =>
-      progress.update(
-        progressLine({
-          current,
-          total,
-          bytesDone: bytes(),
-          bytesTotal,
-          start,
-          state: transfer?.(),
-          hashing: hashing(),
-          currentFile: currentFile?.(),
-          stopping: stopping?.(),
-          width: process.stderr.columns,
-        }),
-      );
+    /** @param {boolean} inHand - Whether a file is in hand to name */
+    const frame = (inHand) =>
+      progressLine({
+        current,
+        total,
+        bytesDone: bytes(),
+        bytesTotal,
+        start,
+        state: transfer?.(),
+        hashing: inHand ? hashing() : null,
+        currentFile: inHand ? currentFile?.() : null,
+        stopping: stopping?.(),
+        width: process.stderr.columns,
+      });
 
     // A clock drives this line, not the paths flowing through it. This is a
     // *pull* pipeline — paths → hash → upload → write — so redrawing as each
@@ -537,49 +535,33 @@ function withProgress({
     // while it had something to say. Worse, a row that takes minutes (a
     // multi-GB upload, a slow hash) blocks the pull, and the whole line — count,
     // bytes, clock — froze for the duration, exactly when it most needed to look
-    // alive. On a timer the line reports what is true at the moment it draws.
-    //
+    // alive. On a clock the line reports what is true at the moment it draws.
     // Four times a second: fast enough that a byte percentage climbs visibly,
-    // calm enough for a line this wide. `unref` so a pending tick can never hold
-    // the process open; the `finally` stops it if the pipeline throws.
-    draw();
-    const ticking = setInterval(draw, TICK_MS);
-    ticking.unref();
-    // ...but a timer only fires when the event loop is given a turn, and on a
-    // set of small files this pipeline never gives it one. Every stage is an
-    // `async` function whose work is *synchronous* — `lstatSync`, `readFileSync`,
-    // `crypto.hash` — so awaiting each one queues a microtask and the queue
-    // never drains. Timers are macrotasks and simply do not run: measured at
-    // 1ms a file, **zero** ticks in eight seconds, the line frozen on its
-    // opening `0/8,060` until some unrelated stream write happened to yield.
-    //
-    // So the pass concedes the loop itself, often enough that the timer above
-    // can keep its cadence. It costs one clock read per file — the same order as
-    // the `Temporal.Now.instant()` `fileProps` already takes per file — and one
-    // `setImmediate` per tenth of a second: over ten 8,060-file runs the gap
-    // between conceding and not was smaller than the run-to-run spread. Time,
-    // not a file count: at 1ms a file every-50 would do, and at 10ms a file it
-    // would starve again.
-    // **After the row, not before it.** A pull pipeline resumes here only once
-    // the consumer has finished with the path it was handed, so by this point
-    // `current` and the pass's `currentFile` describe the same file. Conceding
-    // before the yield instead put the loop's one reliable redraw window in the
-    // gap between them, and the line would have named file N-1 beside a count of
-    // N for most of its frames.
-    let conceded = performance.now();
-    try {
-      for await (const path of paths) {
-        current++;
-        yield path;
-        const now = performance.now();
-        if (now - conceded >= CONCEDE_MS) {
-          conceded = now;
-          await yieldToLoop();
-        }
-      }
-    } finally {
-      clearInterval(ticking);
+    // calm enough for a line this wide.
+    using line = clockedLine(process.stderr, () => frame(true), {
+      every: TICK_MS,
+    });
+    for await (const path of paths) {
+      current++;
+      yield path;
+      // The clock's other hand (ADR-0093). The line's timer fires only on an
+      // event-loop turn, and on a set of small files this pipeline gives it
+      // none: every stage is an `async` function whose work is synchronous, so
+      // each `await` is a microtask and the loop never turns. The timer still
+      // carries the slow *asynchronous* row (a multipart upload, a streamed
+      // hash), which turns the loop on real I/O; this carries everything else.
+      // **After the row, not before it.** A pull pipeline resumes here only
+      // once the consumer has finished with the path it was handed, so by this
+      // point `current` and the pass's `currentFile` describe the same file.
+      // Ticking before the yield would draw file N-1's name beside a count of N.
+      line.tick();
     }
+    // The pass ran to its end, so its last frame is the true one: every file,
+    // every byte, and no detail column, because nothing is in hand. Drawn here
+    // rather than from disposal, so a pass that throws or is stopped keeps the
+    // last frame it ticked — where it got to — instead of one claiming it
+    // finished.
+    line.done(frame(false));
   };
 }
 
@@ -594,8 +576,8 @@ function withProgress({
  * @param {number} [args.bytesTotal] - Bytes expected in all (0/absent = unknown, e.g. a first run)
  * @param {Temporal.Instant} args.start
  * @param {TransferState} [args.state] - Absent when the pass only hashes
- * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
- * @param {string | null} [args.currentFile] - The file in hand, when nothing has earned a name
+ * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is, of `currentFile`
+ * @param {string | null} [args.currentFile] - The file in hand, which names a hash in flight too
  * @param {boolean} [args.stopping] - The user has asked the pass to stop and it is finishing the file in hand (ADR-0067)
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
@@ -712,12 +694,8 @@ function byteShare(done, total) {
   return `  ${percent.padStart(4)} of ${formatByteValue(of).padStart(BYTES_COLUMNS)}`;
 }
 
-// How often the line redraws, and how often the pass hands the event loop back
-// so that it can. Conceding must be the *shorter* of the two: at equal intervals
-// every tick would be up to one whole interval late, which is the cadence being
-// halved to save nothing.
+// How often the line redraws.
 const TICK_MS = 250;
-const CONCEDE_MS = 100;
 
 // A row has to be *worth* reporting before it gets a *labelled* detail —
 // `Hashing 1.8GB (27%)`, a verb and a measurement. Below this the figures are
@@ -767,16 +745,19 @@ function activity(sending, hashing, currentFile) {
       path: sending.path,
     };
   }
+  if (!currentFile) {
+    return null;
+  }
+  // A hash in flight is always `currentFile`'s: the pass sets that before it
+  // starts the hash, and hashes one file at a time. So the name comes from there
+  // and `HashProgress` carries none.
   if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
     return {
       text: `Hashing ${sized(hashing.size, hashing.read())}`,
-      path: hashing.path,
+      path: currentFile,
     };
   }
-  if (currentFile) {
-    return { text: "", path: currentFile };
-  }
-  return null;
+  return { text: "", path: currentFile };
 }
 
 /**
