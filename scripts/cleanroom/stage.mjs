@@ -70,10 +70,12 @@
  * [POSIX] fixtures cannot exist on Windows: NTFS forbids control characters in names,
  * strips trailing spaces, and is case-insensitive. They are skipped with a loud notice
  * rather than silently, and a Windows-built corpus is a partial one. Keep them in the
- * corpus permanently even so — for a future Windows clean-room run they become the
- * point. A Windows restorer that refuses them, or skips them loudly, is behaving
- * correctly; one that silently strips the trailing space and reports success is the
- * exact failure this whole exercise hunts.
+ * corpus permanently even so — for a Windows clean-room run they become the point. A
+ * Windows restorer that refuses them, or skips them loudly, is behaving correctly; one
+ * that silently strips the trailing space and reports success is the exact failure this
+ * whole exercise hunts. Such a run is staged in two halves: the corpus from WSL, so every
+ * fixture exists, then `--reference-only` on Windows, so the comparison target is what s3cab
+ * itself restores *there*.
  *
  * Paths holding a tab, LF or CR are deliberately absent: guide/format.md refuses them
  * at backup time and the run stops, so a fixture with one would break the corpus
@@ -83,6 +85,7 @@
  *   node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>
  *   node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp
  *   … --trees-only            build the trees, report what this platform managed, stop
+ *   … --reference-only        rebuild only reference/, from the corpus already staged
  *
  * Runs the real CLI as a subprocess, so `reference/` is what the tool itself produces
  * and the script has no privileged access to s3cab's internals. S3CAB_HOME is pointed
@@ -140,10 +143,11 @@ const work = expandHome(
 // Same arguments as the real thing, plus one flag — so what you rehearse is the command
 // you then run, rather than a second spelling of it that could drift.
 const treesOnly = args.includes("--trees-only");
-if (!bucket || !out) {
+const referenceOnly = args.includes("--reference-only");
+if (!bucket || !out || (treesOnly && referenceOnly)) {
   console.error(
     "usage: node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>\n" +
-      "                                        [--work <dir>] [--trees-only]\n" +
+      "                                        [--work <dir>] [--trees-only | --reference-only]\n" +
       "\ne.g. node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp",
   );
   process.exit(2);
@@ -320,7 +324,7 @@ const oneMinuteBefore = (name) => {
   return stamp.toISOString().slice(0, 16).replace(":", "");
 };
 
-// ── Is the bucket ours to empty? ────────────────────────────────────────────
+// ── The bucket ──────────────────────────────────────────────────────────────
 
 const client = new S3Client({});
 
@@ -348,6 +352,32 @@ const listAll = async (prefix) => {
   } while (token);
   return keys;
 };
+
+// ── --reference-only: the Windows half of a run ─────────────────────────────
+
+// The corpus is already in the bucket, staged elsewhere, and only the comparison target
+// is built here. This is for Windows, which cannot build the [POSIX] fixtures but is
+// exactly where a restorer has to cope with them: stage from WSL, then run this on
+// Windows, because what a *correct* restore leaves behind differs by platform — names NTFS
+// refuses are absent, the case-colliding pair restores as one file, and mtimes land exact
+// to the millisecond where ext4 keeps a sub-microsecond float error. A reference built on
+// Linux would score a Windows restorer against a restore it could not have produced.
+//
+// It writes one thing to the bucket: `reattach` is how a second machine gets a set to
+// restore from, and it re-stamps each set's `info` with this machine as OWNER — the
+// value, never the syntax F12 measures. Nothing is emptied; that preflight is for a run
+// about to restage.
+if (referenceOnly) {
+  rmSync(home, { recursive: true, force: true });
+  for (const name of setNames) {
+    console.log(`reattach ${name}`);
+    mustRun(["reattach", name, "--bucket", bucket]);
+  }
+  await restoreReferences();
+  process.exit(0);
+}
+
+// ── Is the bucket ours to empty? ────────────────────────────────────────────
 
 // Re-staging needs an empty repository: snapshots are immutable and a set name belongs
 // to whoever claimed it first, so `setup` would refuse — three minutes in, after the
@@ -680,66 +710,80 @@ await client.send(
 
 // ── The reference restores ──────────────────────────────────────────────────
 
-rmSync(reference, { recursive: true, force: true });
-mkdirSync(reference, { recursive: true });
-
-// Every snapshot in the bucket gets a reference tree beside it, so a clean-room run can
-// tell "I found nothing" from "I never looked". The damaged snapshot is named explicitly
-// because it exists only in S3 — it was never written locally, so the directory listing
-// that finds every other snapshot cannot find it.
-const restores = sets.flatMap(([name]) =>
-  readdirSync(join(home, "sets", name, "snapshots"))
-    .filter((entry) => entry.endsWith(".tsv.zst") && !entry.startsWith("."))
-    .map(
-      (entry) =>
-        /** @type {[string, string]} */ ([
-          name,
-          entry.replace(/\.tsv\.zst$/, ""),
-        ]),
-    ),
-);
-restores.push(["faults", damagedName]);
-
-/** @type {string[]} */
-const faultExits = [];
-for (const [name, snapshot] of restores) {
-  const target = join(reference, `${name}-${snapshot}`);
-  console.log(`restore ${name} ${snapshot}`);
-  const result = run([
-    "restore",
-    "--set",
-    name,
-    "--snapshot",
-    snapshot,
-    "--output",
-    target,
-  ]);
-  if (result.code !== 0) {
-    faultExits.push(`${name}/${snapshot} → ${result.code}`);
-  }
-  // `hollow` restores nothing, so s3cab prints "Nothing to restore" and creates no
-  // output directory at all — correct, and it would leave the F16 snapshot as the one
-  // in the bucket with no reference tree beside it. The empty directory here is the
-  // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
-  // missing file, so a restorer that finds the set can tell it was meant to find it.
-  // The damaged snapshot lands here too, with whatever s3cab wrote before it gave up —
-  // a partial tree is the honest reference for a partial restore.
-  mkdirSync(target, { recursive: true });
-}
-
-// ── What the corpus actually came out as ────────────────────────────────────
-
-console.log(`\nreference trees in ${reference}`);
-for (const entry of readdirSync(reference)) {
-  console.log(`  ${entry}  (${files(count(join(reference, entry)))})`);
-}
-if (faultExits.length > 0) {
-  console.log(
-    `\nnonzero restore exits (expected for faults — that is the behaviour under test):\n  ${faultExits.join("\n  ")}`,
-  );
-}
+await restoreReferences();
 reportSkipped();
 console.log(
   `\nWorking tree kept at ${work} — it holds the sources the reference trees were\n` +
     `restored from, which is what a source-vs-restore check compares. Delete it when done.`,
 );
+
+/**
+ * Restore every snapshot in the bucket into `reference/`, one tree each, so a clean-room
+ * run can tell "I found nothing" from "I never looked". Enumerated from the bucket, not
+ * from s3cab's local history: the damaged `faults` snapshot was published straight to S3
+ * and exists nowhere else, and under --reference-only there is no local history at all.
+ */
+async function restoreReferences() {
+  rmSync(reference, { recursive: true, force: true });
+  mkdirSync(reference, { recursive: true });
+
+  /** @type {string[]} */
+  const exits = [];
+  for (const name of setNames) {
+    const prefix = `snapshots/${name}/`;
+    const keys = await listAll(prefix);
+    const snapshots = keys
+      .filter((key) => key.endsWith(".tsv.zst"))
+      .map((key) => key.slice(prefix.length, -".tsv.zst".length));
+    for (const snapshot of snapshots) {
+      const target = join(reference, `${name}-${snapshot}`);
+      console.log(`restore ${name} ${snapshot}`);
+      const result = run([
+        "restore",
+        "--set",
+        name,
+        "--snapshot",
+        snapshot,
+        "--output",
+        target,
+      ]);
+      if (result.code !== 0) {
+        // Its own report, minus the progress counter: a set that is not broken on
+        // purpose needs reading. Both streams, because restore lists the files it
+        // couldn't write on stdout and puts only an abort on stderr.
+        const said = `${result.out}\n${result.err}`
+          .split("\n")
+          .filter((line) => line.trim() && !line.startsWith("Restoring"))
+          .map((line) => `      ${line}`);
+        exits.push(
+          `${name}/${snapshot} → ${result.code}`,
+          ...(name === "faults" || name === "corrupt" ? [] : said),
+        );
+      }
+      // `hollow` restores nothing, so s3cab prints "Nothing to restore" and creates no
+      // output directory at all — correct, and it would leave the F16 snapshot as the one
+      // in the bucket with no reference tree beside it. The empty directory here is the
+      // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
+      // missing file, so a restorer that finds the set can tell it was meant to find it.
+      // The damaged snapshot lands here too, with whatever s3cab wrote before it gave up —
+      // a partial tree is the honest reference for a partial restore.
+      mkdirSync(target, { recursive: true });
+    }
+  }
+
+  console.log(`\nreference trees in ${reference}`);
+  for (const entry of readdirSync(reference)) {
+    console.log(`  ${entry}  (${files(count(join(reference, entry)))})`);
+  }
+  if (exits.length > 0) {
+    // `faults` and `corrupt` are broken on purpose, so a nonzero exit is theirs to give.
+    // Any other set here is one s3cab could not restore whole on this platform, and the
+    // difference matters: a refusal it reported and carried past is a valid reference,
+    // an abort that stopped the restore halfway is not.
+    console.log(
+      "\nnonzero restore exits (faults and corrupt are the behaviour under test; read\n" +
+        "any other before handing the room over):\n  " +
+        exits.join("\n  "),
+    );
+  }
+}

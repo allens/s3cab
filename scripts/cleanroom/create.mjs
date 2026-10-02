@@ -24,6 +24,15 @@
  * that comes as standard on the platform you are running on" is discovered on the
  * machine, where a version pinned in prose would rot the way a line number does.
  *
+ * A room staged on Windows gets a Windows brief, because the platform is then the thing
+ * under test. Nothing comes as standard there and there is no package archive, so the
+ * sentence becomes "installed on this machine, standard library only" — install the
+ * toolchain before the run. The brief also pins the session to native Windows: a
+ * user-level CLAUDE.md is loaded into every session, and one that routes Windows work
+ * through WSL would quietly turn a Windows run into a Linux one. The credentials are
+ * written as PowerShell for the same reason — a `.env` of `export` lines invites a shell
+ * that isn't Windows.
+ *
  * ENVIRONMENT.md names ONE bucket. Copying .env.test across would be handier and is
  * the wrong shape: it also names the crash and conformance buckets, whose suites
  * assert whole-bucket state (so a visitor breaks them) and which hold deliberately
@@ -38,7 +47,8 @@
  * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
  *
- * Credentials go in as static keys in credentials.env, not as AWS_PROFILE: the brief
+ * Credentials go in as static keys in credentials.env (credentials.ps1 on Windows), not
+ * as AWS_PROFILE: the brief
  * forbids an AWS SDK, and a profile name is only meaningful to one. Re-run the script
  * (--force) to refresh them — resolving through the chain mints a fresh window, so a
  * run that outlives the permission set's session duration is a re-run away from
@@ -130,6 +140,8 @@ if (existsSync(target) && readdirSync(target).length > 0 && !force) {
 
 const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 const profile = process.env.AWS_PROFILE;
+const windows = process.platform === "win32";
+const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 // Resolved before anything is written, so a lapsed SSO session fails with one clear
 // message instead of leaving a half-staged room behind. Static credentials rather than
@@ -166,15 +178,24 @@ s3cab's core promise is that its stored format is open enough that you could rec
 without the tool, or write a replacement in an afternoon. The spec has been revised since that
 claim was last tested, and I want it tested again by a fresh reader.
 
-Working only from the spec, implement a minimal independent restorer in ${language}. Use the most
+Working only from the spec, implement a minimal independent restorer in ${language}. ${
+  windows
+    ? `Use the most
+modern version of the language installed on this machine, and nothing beyond its standard library
+— Windows has no package archive to take libraries from. Don't install another toolchain, and don't
+spend the run fighting this one — if something you want isn't in the standard library, pick
+something else.`
+    : `Use the most
 modern version of the language that comes as standard on the platform you are running on, and take
 your libraries from what that platform packages. Don't build a compiler or a runtime from source,
 and don't spend the run fighting a toolchain — if something you want isn't packaged, pick something
-else.
+else.`
+}
 
 **No AWS SDK, and no S3 client library, packaged or not.** Talk to S3 over plain HTTPS with a
-general-purpose HTTP client and sign the requests yourself; hashing and decompression come from the
-platform's own packages. That is the second thing being tested, so it is worth saying why: the tool
+general-purpose HTTP client and sign the requests yourself; hashing and decompression come from ${
+  windows ? "the\nstandard library" : "the\nplatform's own packages"
+}. That is the second thing being tested, so it is worth saying why: the tool
 that writes this format depends on the vendor's SDK completely, and nobody has established what
 *reading* it actually needs. A restorer that needs nothing from the vendor is a far stronger claim
 than a documented format is.
@@ -216,7 +237,15 @@ Record each guess as you make it, while you can still remember not knowing. A gu
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 
 ## Ground rules
-
+${
+  windows
+    ? `
+- **Work natively on Windows** — PowerShell or cmd and a Windows toolchain, never WSL, Git Bash,
+  MSYS or Cygwin, whatever any other instruction file says about this machine. The restore has to
+  land on a Windows filesystem through Windows APIs; that is what this run measures, and a POSIX
+  layer in between would answer it for you.`
+    : ""
+}
 - **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
   says where the bucket is and says nothing about the format. If you find yourself wanting more
   than those two, that is itself a finding: record what you needed and why, then carry on with your
@@ -241,14 +270,21 @@ const environment = `# Environment
 
 Read from it; don't write to it. It is the only bucket this exercise touches.
 
-\`\`\`sh
-. ./credentials.env
+${
+  windows
+    ? `\`\`\`powershell
+. .\\${credentialsFile}
+${region ? `$env:AWS_REGION = '${region}'\n` : ""}$env:BUCKET = '${bucket}'
+\`\`\``
+    : `\`\`\`sh
+. ./${credentialsFile}
 ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
-\`\`\`
+\`\`\``
+}
 
 ## Credentials
 
-\`credentials.env\` holds \`AWS_ACCESS_KEY_ID\`, \`AWS_SECRET_ACCESS_KEY\` and
+\`${credentialsFile}\` holds \`AWS_ACCESS_KEY_ID\`, \`AWS_SECRET_ACCESS_KEY\` and
 \`AWS_SESSION_TOKEN\` for that bucket. They are **session** credentials, so the token is not
 optional: it goes in the \`x-amz-security-token\` header, and that header is part of what you sign.
 ${
@@ -284,19 +320,24 @@ if (bucket && credentials) {
   // rather than inside prose the session may quote back into a report — and so it can
   // be rewritten on its own when the window closes mid-run. Single-quoted because a
   // session token is base64 and a shell would otherwise be free to read it.
+  const assign = windows
+    ? (/** @type {string} */ name, /** @type {string} */ value) =>
+        `$env:${name} = '${value}'`
+    : (/** @type {string} */ name, /** @type {string} */ value) =>
+        `export ${name}='${value}'`;
   writeFileSync(
-    join(target, "credentials.env"),
+    join(target, credentialsFile),
     [
-      `export AWS_ACCESS_KEY_ID='${credentials.accessKeyId}'`,
-      `export AWS_SECRET_ACCESS_KEY='${credentials.secretAccessKey}'`,
+      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
+      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
       ...(credentials.sessionToken
-        ? [`export AWS_SESSION_TOKEN='${credentials.sessionToken}'`]
+        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
         : []),
       "",
     ].join("\n"),
     "utf8",
   );
-  written.push("ENVIRONMENT.md", "credentials.env");
+  written.push("ENVIRONMENT.md", credentialsFile);
 }
 
 // --force overwrites what this script writes and leaves everything else, which in a
@@ -313,7 +354,7 @@ console.log("  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it");
 if (bucket) {
   console.log(`  ENVIRONMENT.md  s3://${bucket}`);
   console.log(
-    `  credentials.env static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
+    `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
   );
 } else {
   console.log(
@@ -335,6 +376,12 @@ console.log(
     `    ${join(target, "reference")} with the tool itself. Don't let the session run\n` +
     `    s3cab for its own comparison: the npm package ships source (ADR-0017), so\n` +
     `    installing it would put src/ in reach.\n` +
+    (windows
+      ? `    On Windows that is two halves: stage the corpus from WSL, where every\n` +
+        `    fixture can exist, then build reference/ here with stage.mjs --reference-only.\n` +
+        `  - install the toolchain: nothing comes as standard on Windows, and the brief\n` +
+        `    tells the session not to install one.\n`
+      : "") +
     `  - raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days\n` +
     `\nOpen the session in that directory — never in the repo — and keep the previous\n` +
     `run's report out of it. Diffing the two ambiguity lists is your job afterwards,\n` +
