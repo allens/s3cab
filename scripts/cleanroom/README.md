@@ -30,6 +30,20 @@ node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
 ```
 
+A Windows run splits staging in two. The corpus is staged from WSL, because
+Windows can't create the POSIX fixtures; the reference trees are then rebuilt on
+Windows, because what a restorer there is measured against is what s3cab
+restores *there*:
+
+```powershell
+# in WSL: the bucket and the corpus (its reference/ is thrown away)
+node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
+node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom-wsl
+# in PowerShell: the room, and its references from that corpus
+node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C#" ~\cleanroom
+node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~\cleanroom --reference-only
+```
+
 ## create.mjs
 
 Stages a directory for the *next* clean-room restorer: a byte copy of
@@ -80,7 +94,8 @@ A restorer that talks to S3 with an HTTP client and nothing else is evidence for
 promise of a kind a documented format can't be — and it is why the earlier
 Python run doesn't answer this, having used boto3.
 
-Credentials go over as static keys in `credentials.env`, resolved through the
+Credentials go over as static keys in `credentials.env` (`credentials.ps1` on
+Windows), resolved through the
 SDK chain at staging time — `AWS_PROFILE` would be useless to a restorer with no
 SDK to read `~/.aws/config` with. They are session credentials, so the run must
 sign `x-amz-security-token` too, and they expire: `ENVIRONMENT.md` states the
@@ -88,6 +103,16 @@ deadline and tells the session that a 403 following requests that worked means
 the window closed rather than a signing bug. Re-running with `--force` mints a
 fresh window, so outliving the permission set's session duration (8 hours here,
 12 being the IAM Identity Center maximum) costs a re-run, not an afternoon.
+
+Staged on Windows, the room gets a Windows brief. Nothing comes as standard
+there and there is no package archive, so the toolchain sentence becomes
+"installed on this machine, standard library only" — install it before the run,
+and pick the language knowing its standard library has to decompress zstd
+(.NET 11's does, as does Python 3.14's). The brief also tells the session to
+work natively, never through WSL: a user-level `CLAUDE.md` loads into every
+session, and one that routes Windows work through WSL would turn a Windows run
+into a Linux one without saying so. The credentials go over as `credentials.ps1`
+for the same reason.
 
 That refresh is why this is a separate script from `stage.mjs` and not a mode of
 one: it runs 1..N times per exercise, mid-run, hours after the corpus is staged
@@ -149,11 +174,23 @@ Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
 in names, strips trailing spaces, and folds case. They are skipped with a loud
 notice naming each one, because a partial corpus that reads as a complete one is
 the same silent-shortening failure the exercise exists to hunt. Keep them in the
-corpus permanently anyway — for a future Windows clean-room run they *become*
-the point, where a restorer that refuses them is behaving correctly and one that
+corpus permanently anyway — for a Windows clean-room run they *become* the
+point, where a restorer that refuses them is behaving correctly and one that
 silently strips the trailing space and reports success is not. A symlink, by
 contrast, is attempted everywhere and skipped only on the error: Windows has
 them, it just wants Developer Mode.
+
+So a Windows run stages the corpus from WSL and then runs `--reference-only` on
+Windows, which reattaches each set and restores every snapshot in the bucket
+into `reference/`. Snapshots and objects are left as they are, but it is not
+read-only: `reattach` rewrites each set's `info`, naming this machine its owner,
+so it needs the same write credentials staging does. The Linux trees won't do as
+the reference there: s3cab's Windows restore refuses the case-colliding pair,
+can't create the control-character names, and sets mtimes exactly where Linux carries
+a sub-microsecond error — every one a difference `compare.py` would charge to the
+restorer. Restores that exit nonzero outside `faults` and `corrupt` are printed
+with what s3cab said, since on Windows a short reference tree is expected and
+has to be read before the room is handed over.
 
 **It empties the bucket for you**, when the bucket is its own to empty. A
 re-stage needs an empty repository — snapshots are immutable and a set name
@@ -185,7 +222,7 @@ The damaged snapshot is backdated a minute so the intact one stays `faults`'s
 latest; it exists only in S3, so the script restores it by name.
 
 ```sh
-node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>]
+node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>] [--trees-only | --reference-only]
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom --trees-only
 ```
 

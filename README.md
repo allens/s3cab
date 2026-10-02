@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/s3cab)](https://www.npmjs.com/package/s3cab)
 [![status: WIP · pre-release](https://img.shields.io/badge/status-WIP%20%C2%B7%20pre--release-orange)](#status)
 [![license: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
-[![node: ≥26.3.0](https://img.shields.io/badge/node-%E2%89%A526.3.0-brightgreen)](package.json)
+[![node: ≥26.10.0](https://img.shields.io/badge/node-%E2%89%A526.10.0-brightgreen)](package.json)
 
 **S3 Content Addressable Backup** — a command-line tool for backing up files to S3 (or
 any S3-compatible object storage), storing data by the **hash of its contents** so that
@@ -67,7 +67,7 @@ is never locked in**:
 Pick whichever suits you — all three run the same tool. Then head to the
 [Quick start](#quick-start).
 
-- **npm** (needs [Node.js](https://nodejs.org) ≥ 26.3.0):
+- **npm** (needs [Node.js](https://nodejs.org) ≥ 26.10.0):
 
   ```console
   > npm install -g s3cab
@@ -79,7 +79,7 @@ Pick whichever suits you — all three run the same tool. Then head to the
   [macOS note](#macos-note) below). Every release also carries `s3cab.js`, a portable
   single-file bundle that runs anywhere Node.js does.
 
-- **From source** (needs Node.js ≥ 26.3.0) — clone the repo and run the entry point
+- **From source** (needs Node.js ≥ 26.10.0) — clone the repo and run the entry point
   directly, substituting `node src/s3cab.mjs` for `s3cab` in any command:
 
   ```console

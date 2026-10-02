@@ -197,24 +197,18 @@ verifies with `npm test` alone; none needs a real bucket.
   **Brushes the network-resilience-trio rejection and must say so:** that rejection is against
   *restructuring*; the mechanic, `requestErrorTable` and `network-status.mjs` are untouched here — this
   is one parameter on an injection point that already exists.
-- **H — The parser knows how much of a torn work file it got, then throws it away.** _Worth exploring._
-  [snapshot-file.mjs](../src/lib/snapshot-file.mjs):824–825 already records `status` and `completed`
-  while parsing, then :863–866 asserts `complete` and throws — so the **271,909 whole rows of 280,232**
-  measured on a real hard-killed run ([concurrency-and-locking.md](concurrency-and-locking.md) §2,
-  commit `3395305`) are unreachable through the interface, even though the format, the parked-lookup
-  reader (:401–409, "Reading needs **no** liveness check") and the no-trust-boundary default
-  (snapshot.mjs:83–86) are all already in place to consume them. Fix in two halves, and **the second is
-  where the design is**: make completeness a *returned fact* rather than an assertion (an opt-in
-  tolerant read refusing only the torn final line), and do the recovery as a rename into the parked
-  lookup **at the moment `withSnapshotFile` wins the `wx` acquire** (:295–302), not at read time —
-  because `readBaseline` runs at [backup.mjs](../src/commands/backup.mjs):85, *before*
-  `generateSnapshot` enters `withSnapshotFile`, so recovering at baseline time reads a file another
-  live run may still own. Renaming on a successful acquire makes the exclusion proof and the recovery
-  the same event, which is what lets this be built with **none of ADR-0048's three rejected
-  heuristics** — no `.lock` file, no PID liveness, no age-based auto-break — because the user is
-  already the liveness check when they act on `inProgressError`'s remedy (:421–429). Test surface:
-  truncation is reachable today only by killing a process; as a returned fact it is a string fed to the
-  parser.
+- **H — The parser knows how much of a torn work file it got, then throws it away.** _Built
+  2026-10-01 as [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) — a tolerant
+  `parseSnapshotStream` whose completeness is a returned fact, with the work file's mtime standing in
+  for the `#END` instant it never wrote._ **One half was deliberately not taken, and the reason is
+  worth keeping:** the entry prescribed recovering *inside* `withSnapshotFile`, as a rename at the
+  moment the `wx` acquire is won, so that the exclusion proof and the recovery would be one event. The
+  adoption instead sits in `readBaseline` behind an explicit `--resume`, which the acquire cannot see.
+  Making it one event would make it *automatic*, and automatic is precisely what ADR-0048 refuses —
+  winning the acquire proves only that no run holds the file *now*, which is also true a moment after
+  a live run dies, and the user remains the liveness check. The ordering hazard the entry named is
+  real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
+  so.
 - **I — The rehash diagnosis exists only as a printed sentence, and one returned count merges two
   populations.** _Worth exploring._ [backup.mjs](../src/commands/backup.mjs):50–51 states the ADR-0078
   rule — "Every figure lands here rather than in the renderer, so `--json` gains it deliberately" — and

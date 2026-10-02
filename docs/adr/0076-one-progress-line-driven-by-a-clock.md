@@ -1,8 +1,9 @@
 # One progress line per pass, driven by a clock
 
 **Status:** accepted & implemented; amended 2026-08-06 (§3 now has an owner — see *A counted pass
-is a thing the module offers*) and 2026-08-09 (§4's announce gained the destination bucket, with
-[0078](0078-backup-run-report.md)). Extends
+is a thing the module offers*), 2026-08-09 (§4's announce gained the destination bucket, with
+[0078](0078-backup-run-report.md)), 2026-09-13 (§5 governs the measurement, not the name; and the
+clock needs the loop conceded to it) and 2026-10-01 (the line reports a stop). Extends
 [0010](0010-cli-output-conventions.md)'s output/stream discipline and
 [0043](0043-human-first-output.md)'s human-first rendering to *progress*, and settles the display
 [0069](0069-fused-snapshot-upload-pipeline.md) left behind when it fused two passes into one.
@@ -221,3 +222,43 @@ for a display; it is not worth it while the stall is one row long and the line r
 The consequence worth stating plainly: **a progress line driven by a clock is only as live as the
 loop the clock runs on**, and a pipeline of synchronous work in async clothing owes it a turn. Any
 future pass that puts a timer on this pipeline inherits the same obligation.
+
+## Amendment (2026-10-01) — the line reports a stop, because it is the only thing still moving
+
+A pass that has been asked to stop ([0067](0067-park-hashes-on-interrupt.md)) says so in its
+figures: `… in 3 min  Stopping…`, from the first redraw after the signal until the pass ends.
+
+The hole it closes is the same one §5's amendment closed, one state along. The interrupt handler
+prints two retained lines — what the stop will save, and that a second press quits now — and then
+the progress line underneath carries on repainting *exactly as before*. So the screen's one live
+element says nothing has changed, which is a stronger signal than the message above it, and the
+user presses Ctrl+C again. That second press force-quits by design, which is how a run ends up
+hard-killed with its work file stranded: the display gap and the data loss
+[0092](0092-recover-the-interrupted-work-file.md) exists for are the same event.
+
+Three choices inside it:
+
+- **In the figures, not the detail column.** §7 sheds the path first and the detail whole, so a
+  stop placed in the last-shed segment survives every width the figures themselves do — narrower
+  than that, the line is already over budget and `createProgress`'s backstop cuts it from the
+  right, stop included, which is accepted because buying the stop a width of its own would mean a
+  shed order the counts no longer win. And the detail column is
+  where `Uploading 1.2GB (55%)` lives, which during a stop is the answer to *"how long is this
+  wait"* and so exactly what a user deciding whether to press again needs. It costs one sideways
+  shift of the path column, once, on a deliberate state change rather than per frame.
+- **Pushed to the pass, not polled from it.** The park signal belongs to the scope that owns the
+  open stream (0067), which `generateSnapshot` has already left by the time it composes its line.
+  `writeSnapshot` takes an `onStop` and fires it from the signal's own `abort` event, so the line
+  learns of the stop when it is *asked for* — not when `propsRows` next looks between rows, which
+  behind a multi-gigabyte upload is minutes away ([0069](0069-fused-snapshot-upload-pipeline.md)).
+  A second handler installed next to the progress line would have been a second answer to one
+  question.
+- **The wording is a present participle with an ellipsis**, like every other pass label here: the
+  run is still working, finishing the file in hand. "Stopped" would be a lie told in the one place
+  a user is watching for the truth.
+
+And one thing that was *not* needed, recorded because it is the amendment above doing double duty:
+a signal handler is dispatched on the event loop too, so the starvation that froze the line also
+delayed the park itself. The concession bought both. Without it the first Ctrl+C on a set of small
+files could sit unhandled for seconds — which is the strongest version of "it did nothing", and no
+wording on the line could have answered it.

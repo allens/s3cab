@@ -1,6 +1,6 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
-**Status:** accepted, amended twice (2026-08-21, 2026-10-02). Extends
+**Status:** accepted, amended three times (2026-08-21, then twice on 2026-10-02). Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 
@@ -39,6 +39,27 @@
 > and point 2 still holds. The trailer stays, because the floor still needs it. The first
 > Consequence holds only at the floor: on newer Node, a cut that only shaves framing is rejected
 > too. That reports a manifest whose rows were all there as unreadable, which errs the safe way.
+
+> **Amendment 3 (2026-10-02) — the floor moved to 26.10, so the lenient reader is gone.**
+> `engines` now requires `>=26.10.0` and CI runs it, which empties amendment 2's "only at the
+> floor" clauses: no supported Node yields the prefix of a cut-short frame for the trailer to
+> catch, and the first Consequence below is simply false — a cut shaving only framing rejects.
+> Three reasons the trailer stays, none of which was ever about zstd:
+>
+> - **An uncompressed manifest has no frame to check.** `readSnapshotFile` branches on the
+>   extension, so a plain `.tsv` — which the [format spec](../../guide/format.md) invites a reader
+>   to hand-assemble — reaches `parseSnapshotStream` with the trailer as its only completeness
+>   signal.
+> - **A reader *allowed* to end mid-frame has nothing else.** The work-file read
+>   ([0092](0092-recover-the-interrupted-work-file.md)) is tolerant by design, and amendment 1's
+>   presence-vs-status distinction is what tells it "you stopped this" from "this died mid-row".
+> - **The trailer's payload is load-bearing elsewhere.** Its instant is the boundary
+>   [0085](0085-ctime-cross-check-on-hash-reuse.md) compares ctimes against, and no frame check
+>   supplies one.
+>
+> Point 1's "completeness is a property of the *content*, and only the content can state it" is the
+> durable half of this ADR. The decompressor's leniency was what made that urgent, not what made it
+> true — which is why the floor moving costs the decision nothing.
 
 ## Context
 
