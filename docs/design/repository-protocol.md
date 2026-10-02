@@ -186,8 +186,9 @@ failure modes, deliberately different:
 
 - **absent or corrupt object** → skip and continue. For an absence the deletion record
   partitions the outcome (recorded → exit 0, unexplained → exit 1); a digest mismatch is always
-  exit 1, since no `delete` produces wrong bytes;
-- **anything else** (network, credentials) → propagates and **aborts the entire run**
+  exit 1, since no `delete` produces wrong bytes. A name the destination filesystem refuses is
+  skipped the same way at exit 1 — a local outcome, not a repository one;
+- **anything else** (network, credentials, a full disk) → propagates and **aborts the entire run**
   ([restore.mjs](../../src/commands/restore.mjs)).
 
 ### `reattach`

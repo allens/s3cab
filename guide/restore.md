@@ -155,8 +155,8 @@ first, then restore:
 ## What restore guarantees
 
 - **Integrity is checked, always.** Every downloaded object's SHA-256 must match the hash the
-  snapshot recorded, or the restore fails — the file that lands is the file that was backed
-  up, byte for byte.
+  snapshot recorded, or nothing is written for that file — the file that lands is the file
+  that was backed up, byte for byte.
 - **Modification times come back.** Each restored file is stamped with the mtime the snapshot
   recorded, so a later `snapshot` sees it as unchanged rather than as new work.
 - **Duplicated content downloads once.** Content shared by several paths — a file you'd
@@ -166,6 +166,12 @@ first, then restore:
   default) treats those as the same file. The first is restored; each later one is listed as a
   collision and the run exits non-zero, never silently overwritten. To keep both, restore a
   colliding path into its own `--output` directory.
+- **A name this disk refuses is listed, not fatal.** A backup made on Linux can hold names
+  Windows refuses — a control character, or any of `? * | < > "` — and one made on Windows
+  can hold a long name in a non-Latin script that is too long for Linux, which counts bytes.
+  Each such file is skipped and listed, with any invisible character spelled out (`\x0c` for a
+  form feed); the rest of the restore carries on, and the run exits non-zero. To get them
+  back, restore them with `--output` onto a disk that allows the names.
 - **Everything referenced should be there.** A snapshot only ever reaches the bucket _after_
   every object it references, so any snapshot you can see is complete and restorable. That
   invariant is part of the [format spec](format.md) — and if something has removed content

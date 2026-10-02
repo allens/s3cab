@@ -49,9 +49,11 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * A **corrupt** object — present, but its bytes don't hash to its key — is the
  * same kind of casualty as an unexplained absence: the file is reported
  * `corrupt`, nothing is written for it, the run continues, and it exits 1
- * (guide/format.md's restorer rule). Only those two degrade; any other failure
- * (network, credentials) still aborts, since it is wrong about the *run*, not
- * about one file.
+ * (guide/format.md's restorer rule). So is a name this filesystem **refuses** —
+ * a backup taken on Linux can hold a name Windows forbids, and one taken on
+ * Windows a name too long for Linux — reported `refused`, exit 1. Only those
+ * three degrade; any other failure (network, credentials, a full disk) still
+ * aborts, since it is wrong about the *run*, not about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -81,6 +83,7 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * @property {string[]} collided - Paths not written because this filesystem treats them as the same file as a path already restored (letter case, Unicode normalization — ADR-0086)
  * @property {string[]} missing - Paths not restored because their content is absent with no explanation
  * @property {string[]} corrupt - Paths not restored because their stored content is damaged (it doesn't hash to its key)
+ * @property {string[]} refused - Paths not restored because this filesystem won't create a file by that name (a character it forbids, or longer than it accepts)
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
@@ -161,6 +164,8 @@ export async function restore(paths = [], options = {}) {
   const missing = [];
   /** @type {string[]} */
   const corrupt = [];
+  /** @type {string[]} */
+  const refused = [];
   // Collision detection keys on the filesystem's own equivalence, never on
   // string folding (ADR-0086): a manifest written elsewhere can list two paths
   // this volume cannot tell apart — letter case (Windows, macOS default), or
@@ -174,11 +179,12 @@ export async function restore(paths = [], options = {}) {
   // whether two names are one file — trusting strings is the bug this closes.
   /** @type {Set<string>} */
   const writtenCanonical = new Set();
-  // Dests a collision left unwritten: a later `copy` step pointing at one
-  // would read whatever survivor the name resolves to — the wrong bytes — so
-  // it re-fetches from the store instead.
+  // Dests left unwritten though their content is sound — a collision, or a
+  // refused name. A later `copy` step pointing at one would read whatever
+  // survivor a collided name resolves to (the wrong bytes) or nothing at all,
+  // so it re-fetches from the store instead.
   /** @type {Set<string>} */
-  const collidedDests = new Set();
+  const unwrittenDests = new Set();
   /** @type {{ path: string, deletedOn: string }[]} */
   const deleted = [];
   // Hashes whose fetch found nothing, with the deletion record's explanation if
@@ -238,31 +244,47 @@ export async function restore(paths = [], options = {}) {
       writtenCanonical.has(realpathSync.native(step.dest))
     ) {
       collided.push(step.dest);
-      collidedDests.add(step.dest);
+      unwrittenDests.add(step.dest);
     } else {
-      mkdirSync(dirname(step.dest), { recursive: true });
-      /** @type {"found" | "absent" | "corrupt"} */
+      /** @type {"found" | "absent" | "corrupt" | "refused"} */
       let outcome = "found";
       const from =
         step.action === "copy" ? /** @type {string} */ (step.from) : undefined;
-      if (from !== undefined && !collidedDests.has(from)) {
-        await copyFile(from, step.dest);
-      } else {
-        try {
-          await getObject(set.bucket, hash, step.dest);
-        } catch (error) {
-          // This one file's problem, and only that: absent content
-          // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there")
-          // or corrupt content (writeFileAtomic's digest check). Anything else —
-          // a network or credentials failure — is wrong about the whole run, so
-          // it propagates and aborts.
-          if (error instanceof IntegrityError) {
-            outcome = "corrupt";
-          } else if (isObjectNotFound(error)) {
-            outcome = "absent";
-          } else {
-            throw error;
+      try {
+        mkdirSync(dirname(step.dest), { recursive: true });
+        if (from !== undefined && !unwrittenDests.has(from)) {
+          try {
+            await copyFile(from, step.dest);
+          } catch (error) {
+            // A failed copy names its *source* in `path` whichever side
+            // failed, so a refused name and a source gone since it was written
+            // are the same ENOENT. A fetch can only fail on the destination:
+            // it restores the file if the source was the problem, and is
+            // refused in turn if the name was.
+            if (!isRefusedName(error)) {
+              throw error;
+            }
+            await getObject(set.bucket, hash, step.dest);
           }
+        } else {
+          await getObject(set.bucket, hash, step.dest);
+        }
+      } catch (error) {
+        // This one file's problem, and only that: absent content
+        // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there"),
+        // corrupt content (writeFileAtomic's digest check), or a name this
+        // filesystem won't create — which can surface from the directory or
+        // the download. Anything else — a network or credentials failure, a
+        // full disk — is wrong about the whole run, so it propagates and
+        // aborts.
+        if (error instanceof IntegrityError) {
+          outcome = "corrupt";
+        } else if (isObjectNotFound(error)) {
+          outcome = "absent";
+        } else if (isRefusedName(error)) {
+          outcome = "refused";
+        } else {
+          throw error;
         }
       }
       if (outcome === "found") {
@@ -282,9 +304,12 @@ export async function restore(paths = [], options = {}) {
       } else if (outcome === "absent") {
         absentHashes.set(hash, await recordFor(hash));
         reportAbsent(hash, step.dest);
-      } else {
+      } else if (outcome === "corrupt") {
         corruptHashes.add(hash);
         corrupt.push(step.dest);
+      } else {
+        refused.push(step.dest);
+        unwrittenDests.add(step.dest);
       }
     }
 
@@ -299,13 +324,13 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Unexplained absence, corrupt content or a name collision → exit 1, the
-  // same way `verify` reports findings: set process.exitCode rather than throw,
-  // so the run's report — including every file that *was* restored — still
-  // prints. Deliberately-deleted skips alone leave exit 0 (ADR-0064): the
-  // record proves the gap is intended, and a scripted restore should not alarm
-  // on a decision its owner already made.
-  if (missing.length || corrupt.length || collided.length) {
+  // Unexplained absence, corrupt content, a name collision or a refused name →
+  // exit 1, the same way `verify` reports findings: set process.exitCode rather
+  // than throw, so the run's report — including every file that *was* restored
+  // — still prints. Deliberately-deleted skips alone leave exit 0 (ADR-0064):
+  // the record proves the gap is intended, and a scripted restore should not
+  // alarm on a decision its owner already made.
+  if (missing.length || corrupt.length || collided.length || refused.length) {
     process.exitCode = 1;
   }
 
@@ -318,6 +343,25 @@ export async function restore(paths = [], options = {}) {
     collided,
     missing,
     corrupt,
+    refused,
     deleted,
   };
+}
+
+/**
+ * Whether the filesystem refused to create a path by its **name**. Every code
+ * was measured, not assumed: NTFS answers the names it forbids (a control
+ * character, any of `?*|<>"`, a component past 255 characters) with `ENOENT`,
+ * and a `:` — which it reads as a stream separator — with `EINVAL` at the
+ * rename; ext4 answers a component past 255 bytes with `ENAMETOOLONG`. Only an
+ * error naming a `path` counts, which is what makes it the filesystem's answer
+ * rather than a code some other layer happens to share.
+ * @param {unknown} error
+ */
+function isRefusedName(error) {
+  const errno = /** @type {NodeJS.ErrnoException | undefined} */ (error);
+  return (
+    typeof errno?.path === "string" &&
+    ["ENOENT", "EINVAL", "ENAMETOOLONG"].includes(errno.code ?? "")
+  );
 }
