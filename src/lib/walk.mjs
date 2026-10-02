@@ -270,12 +270,17 @@ export function walkDirs(dirs, patterns) {
       () => files.length - before,
     );
 
-    const walkCallbackFn = createWalkCallbackFn(
-      dir,
-      patterns,
-      excluded,
-      skipped,
-    );
+    const visit = createWalkCallbackFn(dir, patterns, excluded, skipped);
+    // The walk is synchronous end to end, so the line's timer never fires
+    // during it (ADR-0093): the clock is ticked from here instead. Per entry
+    // *visited*, not per file kept — the callback sees every entry, excluded and
+    // unsupported ones included, so a subtree the walk keeps nothing from still
+    // moves the line, and that subtree is the stall `countedPass` exists for.
+    /** @type {typeof visit} */
+    const walkCallbackFn = (path, fileType) => {
+      progress.tick();
+      return visit(path, fileType);
+    };
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
       if (seen.has(path)) {
@@ -299,9 +304,9 @@ export function walkDirs(dirs, patterns) {
     }
 
     // This directory finished, so its line settles on the true total rather than
-    // whatever the last redraw showed. Nothing is drawn from here: the loop no
-    // longer touches the line at all, which is the point — it used to redraw
-    // from inside this loop, and the count froze whenever the walk did.
+    // whatever the last redraw showed. Nothing is drawn from this loop: it used
+    // to redraw per kept file, and the count froze whenever the walk went a
+    // while without keeping one.
     progress.done();
   }
 

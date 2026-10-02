@@ -1,9 +1,12 @@
 # One progress line per pass, driven by a clock
 
-**Status:** accepted & implemented; amended 2026-08-06 (§3 now has an owner — see *A counted pass
-is a thing the module offers*), 2026-08-09 (§4's announce gained the destination bucket, with
-[0078](0078-backup-run-report.md)), 2026-09-13 (§5 governs the measurement, not the name; and the
-clock needs the loop conceded to it) and 2026-10-01 (the line reports a stop). Extends
+**Status:** partly superseded by [0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md)
+— the 2026-08-06 claim that a caller "cannot forget a timer it does not own", and the 2026-09-13
+concession's home in the progress line. Accepted & implemented; amended 2026-08-06 (§3 now has an
+owner — see *A counted pass is a thing the module offers*), 2026-08-09 (§4's announce gained the
+destination bucket, with [0078](0078-backup-run-report.md)), 2026-09-13 (§5 governs the
+measurement, not the name; and the clock needs the loop conceded to it) and 2026-10-01 (the line
+reports a stop). Extends
 [0010](0010-cli-output-conventions.md)'s output/stream discipline and
 [0043](0043-human-first-output.md)'s human-first rendering to *progress*, and settles the display
 [0069](0069-fused-snapshot-upload-pipeline.md) left behind when it fused two passes into one.
@@ -103,8 +106,9 @@ data cannot report on the data's own stalls.**
   Verified by simulation and by real runs; the reasoning and what would unblock it (a fake clock)
   are recorded in [proposals/output-ux.md](../../proposals/output-ux.md). The fake clock arrived
   for the counted pass (`mock.timers` over `setInterval` alone, so a short real sleep can still
-  clear the pacing gate), so *that* pass's clock is asserted. The fused pass's and the per-file
-  bar's are still not.
+  clear the pacing gate), so *that* pass's clock is asserted. The fused pass's is now asserted too,
+  through the one clock both share ([0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md));
+  the per-file bar's still is not.
 
 ## Amendment (2026-08-06) — a counted pass is a thing the module offers
 
@@ -127,6 +131,12 @@ Three things follow that are decisions, not detail.
   This is the same *reader, never a subscription* stance the consequence above records for
   `transfer()` and `read()`, applied one level up — to whether the redraw happens at all rather
   than only to what it says.
+
+  > **Superseded in part by [0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md).**
+  > The walk is synchronous end to end, so the timer this bullet relies on never fired during it:
+  > the line drew its label and its tally and nothing between. A caller whose work is synchronous
+  > now ticks the line once per item, and *can* forget to. The count is still pulled, and the
+  > cadence and the gate still live in the module.
 - **`done()` is the one method, because disposal cannot tell it is unwinding from a throw.** The
   walk aborts mid-loop on a duplicate path (ADR-0054/0073) and the store LIST can fail, and on
   those paths no tally is written today. Drawing it from `[Symbol.dispose]` would print
@@ -189,6 +199,12 @@ Three things follow.
 before its size and percentage are worth reading, which is the question it was measured for.
 
 ### The same amendment: a clock the pass has to let run
+
+> **Superseded in part by [0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md).**
+> The diagnosis below stands. The remedy moved: the line now ticks itself after each row, so it no
+> longer needs a loop turn, and the 100 ms concession lives in `propsRows`, where it serves the
+> interrupt handler that still does. "Only as live as the loop the clock runs on" now holds for the
+> timer alone.
 
 Naming the file fixed nothing on its own, because the line was not redrawing either. §1 put the
 redraw on a timer so a slow row could not freeze it — but a timer is a macrotask, and it only fires
@@ -261,4 +277,5 @@ And one thing that was *not* needed, recorded because it is the amendment above 
 a signal handler is dispatched on the event loop too, so the starvation that froze the line also
 delayed the park itself. The concession bought both. Without it the first Ctrl+C on a set of small
 files could sit unhandled for seconds — which is the strongest version of "it did nothing", and no
-wording on the line could have answered it.
+wording on the line could have answered it. ([0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md)
+has since given the concession to the interrupt alone, beside the check it serves.)

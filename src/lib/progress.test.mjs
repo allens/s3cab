@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { countedPass, createProgress, statusLine } from "./progress.mjs";
+import {
+  clockedLine,
+  countedPass,
+  createProgress,
+  statusLine,
+} from "./progress.mjs";
 
 /**
  * A stand-in for `process.stderr` that records every write, with a settable
@@ -184,11 +189,12 @@ describe("countedPass", () => {
     pass[Symbol.dispose]();
   });
 
-  it("redraws on its own clock while the caller does nothing at all", async (t) => {
-    // The freeze this exists to prevent: the walk used to redraw from inside its
-    // own yield loop, so a blocked `readdirSync` (or a subtree that yields no
-    // kept file) stopped the count *and* its clock. Here the caller never
-    // touches the pass again after creating it — only the count moves.
+  it("redraws on its timer for a caller waiting on I/O, which never ticks", async (t) => {
+    // The store LIST and `find`'s passes spend their time awaiting I/O — a LIST
+    // round trip, a snapshot file streamed in — which turns the event loop on
+    // every read, so the timer alone keeps their line moving, and they never
+    // call `tick()`. Here the caller never
+    // touches the pass again after creating it; the awaited sleeps are the turn.
     t.mock.timers.enable({ apis: ["setInterval"] });
     const { stream, output } = fakeStream(true);
     let found = 0;
@@ -295,6 +301,77 @@ describe("countedPass", () => {
     const pass = countedPass(stream, "Finding files…", () => 42);
     pass[Symbol.dispose]();
     assert.deepEqual(writes, []);
+  });
+});
+
+describe("clockedLine", () => {
+  it("keeps drawing on tick() while its caller never yields to the event loop", (t) => {
+    // The fault this hand exists for (ADR-0093): the walk is a synchronous loop
+    // and the fused pass is synchronous work in `async` clothing, so neither
+    // lets a timer fire. Mocking `setInterval` and never advancing it makes the
+    // timer dead here too — every frame after the opening one is the tick's.
+    // The spin is real time, because `mock.timers` does not move
+    // `performance.now()`; it is short because the interval is.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream, writes } = fakeStream(true);
+    let items = 0;
+    const line = clockedLine(stream, () => `item ${items}`, { every: 120 });
+
+    const until = performance.now() + 400;
+    while (performance.now() < until) {
+      items++;
+      line.tick();
+    }
+    line[Symbol.dispose]();
+
+    const frames = writes.filter((text) => text.startsWith("item "));
+    assert.ok(
+      frames.length >= 3,
+      `expected the opening frame and at least two ticked ones, got ${JSON.stringify(frames)}`,
+    );
+  });
+
+  it("a tick inside the interval composes nothing", (t) => {
+    // Called once per directory entry, so the common case has to be a clock
+    // read and a compare — never a line built and declined.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream } = fakeStream(true);
+    let composed = 0;
+    const line = clockedLine(stream, () => `${++composed}`, {
+      every: 60_000,
+      opening: "Starting…",
+    });
+    for (let i = 0; i < 1000; i++) {
+      line.tick();
+    }
+    line[Symbol.dispose]();
+    assert.equal(composed, 0);
+  });
+
+  it("off a terminal, a tick composes nothing", (t) => {
+    // The same gate the timer has: nothing would be written, so nothing is built.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream, writes } = fakeStream(false);
+    let composed = 0;
+    const line = clockedLine(stream, () => `${++composed}`, { every: 0 });
+    line.tick();
+    line[Symbol.dispose]();
+    assert.equal(composed, 0);
+    assert.deepEqual(writes, []);
+  });
+
+  it("done is the last frame: a tick after it draws nothing over it", (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream, output } = fakeStream(true);
+    const line = clockedLine(stream, () => "still running", {
+      every: 0,
+      opening: "Starting…",
+    });
+    line.done("finished");
+    line.tick();
+    line[Symbol.dispose]();
+    assert.ok(output().includes("finished"));
+    assert.ok(!output().includes("still running"));
   });
 });
 

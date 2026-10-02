@@ -10,6 +10,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { InterruptedError, OnlineOnlyFileError } from "./error.mjs";
 import {
@@ -1072,6 +1073,57 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
     assert.equal(process.listenerCount("SIGINT"), before);
   });
+
+  // Every test above raises the signal with `process.emit`, which calls the
+  // listener on the spot — so none of them can see that a *real* signal waits
+  // for an event-loop turn, which a pass of synchronous work never takes on its
+  // own (ADR-0093). This one sends the real thing. Not on Windows: there Node
+  // ends a process that sends itself SIGINT outright, before any listener runs,
+  // and a real Ctrl+C reaches the same loop-turn listener by the console instead.
+  it(
+    "hears a real Ctrl+C mid-pass, though every row's work is synchronous",
+    { skip: process.platform === "win32" },
+    async () => {
+      await using dir = await mkTmpDir();
+      const files = Array.from({ length: 200 }, (_, i) =>
+        resolve(dir.path, `${i}.txt`),
+      );
+      // ~5ms of blocking work per file, the shape of `readFileSync` +
+      // `crypto.hash` behind an `async` signature.
+      const blocked = new Int32Array(new SharedArrayBuffer(4));
+      let hashed = 0;
+      /** @type {(p: string) => Promise<Props>} */
+      const getProps = async (path) => {
+        if (++hashed === 10) {
+          process.kill(process.pid, "SIGINT");
+        }
+        Atomics.wait(blocked, 0, 0, 5);
+        return props(path);
+      };
+
+      // A listener of the test's own, so a signal heard only after the write has
+      // removed its handler is absorbed rather than ending the test worker: a
+      // pass that never conceded the loop fails the assertion below, not the run.
+      const absorb = () => {};
+      process.on("SIGINT", absorb);
+      try {
+        await assert.rejects(
+          write(dir.path, "2026-06-23T1000", files, getProps),
+          InterruptedError,
+        );
+      } finally {
+        await setTimeout(50);
+        process.off("SIGINT", absorb);
+      }
+      // Heard within a concession or two of the signal — not at the end of the
+      // pass, where an unheard signal would still park all 200 rows and throw
+      // the same InterruptedError.
+      assert.ok(
+        hashed < 100,
+        `expected the pass to stop soon after the signal, but it hashed ${hashed} of 200 files`,
+      );
+    },
+  );
 });
 
 describe("readParkedLookup", () => {
