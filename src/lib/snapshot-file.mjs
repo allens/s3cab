@@ -809,9 +809,9 @@ export async function readSnapshotFile(path) {
  * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
  * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Passed straight to {@link parseSnapshotStream} — the work-file read, and nothing else
+ * @param {boolean} [options.tolerant] - Accept a frame cut short, and pass the same tolerance on to {@link parseSnapshotStream} — the work-file read, and nothing else
  * @returns {Promise<Snapshot>}
- * @throws {AssertionError} When the bytes are cut short — whichever layer
+ * @throws {AssertionError} When the bytes are cut short, unless `tolerant` — whichever layer
  *   notices, so a truncated snapshot reads the same on every Node (ADR-0082
  *   amendment 2)
  */
@@ -819,7 +819,13 @@ export async function parseCompressedSnapshotStream(
   source,
   { tolerant = false } = {},
 ) {
-  const decompressed = createZstdDecompress();
+  // A killed run's work file is a frame never closed, and the default
+  // `finishFlush` rejects one with `Z_BUF_ERROR` after emitting every row it
+  // holds; `ZSTD_e_flush` ends cleanly with them. Tolerant reads only — for a
+  // snapshot, a cut frame must stay loud (ADR-0082 amendment 2).
+  const decompressed = createZstdDecompress(
+    tolerant ? { finishFlush: constants.ZSTD_e_flush } : {},
+  );
   try {
     // The sink closes over the zstd stream rather than taking pipeline's sink
     // argument — the same object at runtime, but typed as a bare

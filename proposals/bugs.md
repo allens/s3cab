@@ -128,21 +128,5 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   length doesn't grow with the destination's (fixed-length, derived from it so a retry still
   overwrites it), so the atomic write never needs more room than the file does.
 
-- **`--resume` recovers nothing on Node ≥26.10: the rows are read and then thrown away.** A
-  hard-killed run's work file is a zstd frame that was never closed, and on 26.10 (the pinned
-  floor since 2026-10-02) the decompressor emits every byte of its prefix and *then* raises
-  `Z_BUF_ERROR`. `readParkedLookup`'s `pipeline` rejects, so `recoverWorkFile`'s adoption succeeds
-  and the read behind it fails — the user is told the snapshot is truncated and re-hashes
-  everything, which is the entire cost [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md)
-  exists to avoid. Not caught by its tests: every fixture is a *complete* frame containing a torn
-  last line, which is the artifact after the tolerant parser's job starts, not the one on disk.
-  Measured on a 60,000-row file streamed through the real compressor settings and cut at 99.9%:
-  59,832 whole lines come out, and `finishFlush: constants.ZSTD_e_flush` on the decompressor is
-  what ends the stream cleanly with those lines in hand — so the fix is to pass it on the
-  **tolerant** read only, keeping the default for snapshots where a cut frame must stay loud
-  ([ADR-0082](../docs/adr/0082-snapshot-end-trailer.md) amendment 2). The fixture to add with it is
-  a genuinely frame-truncated work file; a small one cannot serve, because a single-block frame
-  yields nothing at all when cut.
-
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.
