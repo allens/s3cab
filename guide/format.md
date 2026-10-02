@@ -237,20 +237,22 @@ name on disk, it's an alias the operating system assigns to a volume, and Window
 canonical case for it. So `C:` is what you get, whichever way you wrote it.
 
 That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
-are yours to edit: on Windows paths, where two spellings name one file, `#DIR` headers are
-matched against paths case-insensitively — so hand-editing a snapshot's headers, or a set's
-`dirs.txt`, won't stop `restore --output` finding where a file belongs. Paths without a
-drive letter are matched exactly, since a case-sensitive filesystem really can hold both
-`Photos` and `photos`.
+are yours to edit: on Windows paths (a drive letter, or a network share starting `\\` or
+`//`), where two spellings name one file, `#DIR` headers are matched against paths
+case-insensitively — so hand-editing a snapshot's headers, or a set's `dirs.txt`, won't stop
+`restore --output` finding where a file belongs. Every other path is matched exactly, since a
+case-sensitive filesystem really can hold both `Photos` and `photos`.
 
 **How a `#DIR` matches a path**, since anything re-rooting a tree depends on getting this
 right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
-claim `…\trees\edgeX\file.txt`. Split both the header and the path on `/` *and* `\` and drop
-empty segments, which is what makes a trailing separator or a doubled one harmless, and what
-lets a Windows snapshot be read on a POSIX machine and the reverse. Where several headers
-match, the **longest wins**, so a member directory nested inside another takes precedence
-over its parent. A path under no header at all has nowhere to land: s3cab reports it rather
-than guessing, and a hand-edited snapshot is the only way to produce one.
+claim `…\trees\edgeX\file.txt`. Split both the header and the path into segments and drop
+empty ones, which is what makes a trailing separator or a doubled one harmless. Which
+separators count depends on the path, not the machine reading it: a Windows path splits on
+`/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary character in a
+filename — so a Windows snapshot reads correctly on a POSIX machine, and the reverse. Where
+several headers match, the **longest wins**, so a member directory nested inside another
+takes precedence over its parent. A path under no header at all has nowhere to land: s3cab
+reports it rather than guessing, and a hand-edited snapshot is the only way to produce one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to

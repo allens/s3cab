@@ -190,9 +190,11 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   the two spellings are one file. Tolerance keys on the **path's shape** (`foldsCase`: is the
   root a drive letter or a UNC share?), never on `process.platform` — `restore --output` exists
   to put a Windows backup on another machine, where `platform` says `linux` and the paths are
-  still Windows paths. What we promise users is in [guide/format.md](guide/format.md) ("Paths are
-  written with the casing the filesystem itself reports"); the drive letter is the one component
-  we normalize, since it is a mount alias with no on-disk case.
+  still Windows paths. The one deliberate exception is `compileExclude`: exclude patterns only
+  ever meet paths from this machine's own walk, so there the platform *is* the path's shape.
+  What we promise users is in [guide/format.md](guide/format.md) ("Paths are written with the
+  casing the filesystem itself reports"); the drive letter is the one component we normalize,
+  since it is a mount alias with no on-disk case.
 - **Memory/async stance: assume a modern user PC, not a headless VM.** Don't needlessly use
   memory, but don't be shy either. No sync-purity dogma — async engine interfaces are welcome,
   mainly because progress reporting can hook in later. Where a streamed and a materialized form

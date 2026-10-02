@@ -69,9 +69,10 @@ The "path-translation story" exists and is `--output`:
 - **A remap remains possible later, outside the format** (at `reattach`, or a `--moved-from`), if
   relocation is ever felt often enough to justify it. Nothing here forecloses that.
 - **Path normalization stays split by layer, and that split is correct.** Matching layers
-  normalize (`pathMatcher` folds separators and case on Windows; `reroot` splits on both
-  separators); keying layers use the exact stored string (`entries` is keyed by it, and `diff` is
-  plain `Map`/`Set` membership). Cross-platform, exact-string keying is *right* —
+  normalize by the path's shape (`preparePath`): for a Windows-shaped path `pathMatcher` folds
+  separators and case and `reroot` splits on both separators, while a POSIX path keeps `\` as a
+  character in its name. Keying layers use the exact stored string (`entries` is keyed by it,
+  and `diff` is plain `Map`/`Set` membership). Cross-platform, exact-string keying is *right* —
   `C:\Users\me\a.jpg` and `/Users/me/a.jpg` genuinely are different paths on different machines.
 - **`reattach` onto a different OS gets a misleading message.** A Windows `dirs.txt` pulled onto
   macOS hits `assertWalkableDirs`, which reports the directories as unavailable — "an unplugged
