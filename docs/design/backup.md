@@ -298,11 +298,13 @@ anyway (an out-of-band deletion, a lifecycle rule, a broken invariant), that fil
 the run continues, and every unproduced path is reported together at the end with **exit 1**
 (the `verify` pattern: `process.exitCode`, so the report still prints). Aborting mid-loop was
 the worse failure mode — a disaster recovery would stop dead partway through, leaving the
-intact majority unrestored until the user retried past each casualty in turn. The degrade is
-scoped to *absent* content (`isObjectNotFound`); an integrity mismatch or an operational
-error (network, credentials) is wrong about the run rather than one file, and still aborts.
-Because `planRestore` points repeats of a hash at wherever the first copy landed, a failed
-fetch also marks its dependent `copy` steps missing rather than reading a file that was never
+intact majority unrestored until the user retried past each casualty in turn. A **corrupt**
+object — present, but failing `writeFileAtomic`'s digest check (`IntegrityError`) — degrades
+the same way under its own `corrupt` heading: nothing is written for it, and the bad bytes are
+discarded rather than left in the temp. Those two are the whole degrade; an operational error
+(network, credentials) is wrong about the run rather than one file, and still aborts. Because
+`planRestore` points repeats of a hash at wherever the first copy landed, a failed fetch also
+marks its dependent `copy` steps the same casualty rather than reading a file that was never
 written.
 
 ### `forget` — remove remote snapshots (**built**)

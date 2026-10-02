@@ -162,6 +162,30 @@ export class ContentMismatchError extends Error {
 }
 
 /**
+ * A downloaded object whose bytes do not hash to its key — the stored copy is
+ * corrupt. Raised by `writeFileAtomic` (lib/atomic-file.mjs) after it has
+ * discarded the bad bytes, so nothing wrong lands on disk. The download-side
+ * twin of {@link ContentMismatchError}, kept a separate type because the two
+ * certify opposite things: that one says the store holds nothing wrong, this
+ * one says it does.
+ *
+ * A subclass because `restore` catches it *by type* to branch behaviour: a
+ * corrupt object is one file's casualty (report it, restore the rest, exit 1),
+ * while any other fetch failure — network, credentials — is wrong about the
+ * whole run and aborts it.
+ */
+export class IntegrityError extends Error {
+  /**
+   * @param {string} message
+   * @param {ErrorOptions} [options]
+   */
+  constructor(message, options) {
+    super(message, options);
+    this.name = "IntegrityError";
+  }
+}
+
+/**
  * A file whose bytes are not on this disk: a cloud-sync placeholder left by
  * Windows Files On-Demand (OneDrive, Dropbox, Google Drive), which reads back
  * with its full logical size but nothing allocated behind it, and downloads

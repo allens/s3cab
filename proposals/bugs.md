@@ -118,21 +118,8 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **`restore` stops dead at the first file it can't write, abandoning files it could still
-  recover.** Two triggers so far.
-
-  *A corrupt object* — clean-room run 3's finding A1
-  ([docs/format-spec-audit-3.md](../docs/format-spec-audit-3.md)), observed live against the
-  staged `corrupt` set — an object holding wrong bytes under the right key. ADR-0001's hash check
-  catches the mismatch (`writeFileAtomic` throws before the rename — that guard is right), but
-  `restore` rethrows anything that isn't a missing object: it restored `a-intact.txt`, stopped,
-  and never reached `c-intact.txt`, whose object is fine. That is the exact behaviour
-  [guide/format.md](../guide/format.md)'s restorer section brands materially worse than
-  recovering everything recoverable — and the spec now says a hash mismatch is an integrity fault
-  to treat like an unexplained missing object: report, carry on, exit nonzero (run 3's spec fix,
-  same commit as this entry).
-
-  *A name the destination filesystem refuses* — restoring the clean-room `edge` set on Windows
+- **`restore` stops dead at a name the destination filesystem refuses, abandoning files it
+  could still recover.** Found restoring the clean-room `edge` set on Windows
   (2026-10-02, corpus staged from WSL). NTFS forbids control characters in names, so
   `form\ffeed.txt` cannot be created, and the run died after 8 of 23 files with a raw
   `ERROR: ENOENT: no such file or directory, open '…\edge\.formfeed.txt.s3cab-tmp'` — no
@@ -143,15 +130,16 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   and leading/trailing spaces, U+0085, the NFC/NFD pair and the past-260-character path all
   exact.
 
-  Fix shape: catch per-file failures in `restore` — a hash mismatch and a destination the
-  filesystem won't create alike — report each under the user's path, count them with the
-  unexplained faults, and continue. The comment on the `getObject` catch in
-  [src/commands/restore.mjs](../src/commands/restore.mjs) already draws the right line — a
-  network or credentials failure is not one file's problem and should still abort — but files
-  the hash mismatch on the wrong side of it; and a refused name can also throw outside that
-  `try` (`mkdirSync` for a directory, `copyFile` for a dedup copy). Withholding the corrupt
-  bytes can stand — the spec leaves that a stated tool choice, and the atomic write already
-  discards them; the stopping is the bug.
+  This entry's other trigger, a corrupt object (clean-room run 3's finding A1), is fixed:
+  `restore` now catches `writeFileAtomic`'s `IntegrityError` per file, lists the file as
+  damaged, carries on and exits nonzero.
+
+  Fix shape: catch the refused write per file the same way — report it under the user's path,
+  count it with the unexplained faults, and continue. The `getObject` catch in
+  [src/commands/restore.mjs](../src/commands/restore.mjs) draws the right line — a network or
+  credentials failure is not one file's problem and should still abort — but the refused name
+  lands on the wrong side of it, as a plain `ENOENT` from the temp file's open; and it can also
+  throw outside that `try` (`mkdirSync` for a directory, `copyFile` for a dedup copy).
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

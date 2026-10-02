@@ -1273,6 +1273,7 @@ const restoreResult = (over) => ({
   skipped: [],
   collided: [],
   missing: [],
+  corrupt: [],
   deleted: [],
   ...over,
 });
@@ -1380,6 +1381,33 @@ describe("renderRestore", () => {
     assert.match(
       text,
       /\n {2}s3cab restore --set photos <path> --output <directory>/,
+    );
+  });
+
+  it("names every file whose stored copy is damaged, and how to repair it", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/a.jpg"],
+        corrupt: ["/home/me/b.jpg"],
+        missing: ["/home/me/c.jpg"],
+      }),
+    );
+    assert.match(
+      text,
+      /\nCould not restore 1 file — the backup's copy of its contents is damaged:\n {2}\/home\/me\/b\.jpg\n/,
+    );
+    // The constructive fix (ADR-0030): `verify` misses same-size damage and
+    // repairs none, but a surviving unchanged copy overwrites the object.
+    assert.match(text, /\n {2}s3cab upload photos --file <path> --force\n/);
+    // Ahead of the missing block, which stays last on screen.
+    assert.match(text, /\n {2}s3cab verify my-backups$/);
+  });
+
+  it("keeps the set/snapshot context when every requested file was damaged", () => {
+    const text = renderRestore(restoreResult({ corrupt: ["/home/me/b.jpg"] }));
+    assert.match(
+      text,
+      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
     );
   });
 

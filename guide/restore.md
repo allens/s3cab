@@ -209,10 +209,20 @@ heading (`Skipped … whose contents were deliberately deleted from the backups`
 deletion date beside each — and when they are the *only* gap, the run exits **0**: a scripted
 restore shouldn't alarm on a decision its owner already made.
 
-This graceful skip covers **absent** content only. A file whose content is there but
-**damaged** still fails the integrity check and stops the run, loudly: a corrupt object is a
-different problem from a missing one, and quietly writing a wrong file is exactly what s3cab
-refuses to do.
+A file whose content is there but **damaged** — the bytes in the bucket no longer match what
+was backed up — fails s3cab's integrity check. It gets the same treatment as a missing one:
+nothing is written for it, the rest of the restore carries on, it is listed under
+`Could not restore … the backup's copy of its contents is damaged`, and the run exits
+non-zero. Writing the wrong bytes quietly is exactly what s3cab refuses to do.
+
+`verify` checks that content is present and the right size without downloading it, so it
+catches damage that changed a file's size but not damage that kept it — that only a restore
+reveals. If an unchanged copy of a damaged file survives anywhere — another machine, a USB
+stick — upload it again to repair the backup's copy:
+
+```console
+> s3cab upload photos --file D:\old-laptop\Photos\2019\hike.jpg --force
+```
 
 ## If there's nothing to restore
 
