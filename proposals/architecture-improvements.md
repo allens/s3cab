@@ -64,13 +64,11 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** **B** is independent of everything. **O**, **F**, **I** and the
-smaller **P** all touch `withProgress`/`generateSnapshot` in
-[src/lib/snapshot.mjs](../src/lib/snapshot.mjs), so do them in one track with **O** first: it has the
-user-visible fault, and it decides what `withProgress` becomes. O's grilling settled P (and Q) into
-the same PR, as their own commit. **O** and **E** both touch
-[walk.mjs](../src/lib/walk.mjs) (O the loop in `walkDirs`, E the matcher `createWalkCallbackFn`
-calls), so whichever goes second must re-verify.
+(2) **Ordering constraints.** **B** is independent of everything. **F** and **I** both touch
+`withProgress`/`generateSnapshot` in [src/lib/snapshot.mjs](../src/lib/snapshot.mjs), which **O** and
+**P** reshaped when they landed (#355), so re-verify their anchors before building. **E** touches the
+matcher that [walk.mjs](../src/lib/walk.mjs)'s `createWalkCallbackFn` calls, and O now wraps that
+callback in `walkDirs` to tick, so E must re-verify there too.
 (3) **`.env.test` is gitignored and does not travel.** Every candidate below is pure or local and
 verifies with `npm test` alone; none needs a real bucket.
 
@@ -125,7 +123,8 @@ verifies with `npm test` alone; none needs a real bucket.
   and non-throwing by design, so the case tests as a fixture: no S3, no new seam.
 - **D — The progress line goes blank on exactly the files that are slow.**
   _Landed 2026-10-01 as [PR #343](https://github.com/allens/s3cab/pull/343) — see the run log. Its
-  "narrow `onHashStart` to the byte cursor" half was not done, and survives as smaller item **P**._
+  "narrow `onHashStart` to the byte cursor" half was not done there. It landed later as smaller item
+  **P**, in [PR #355](https://github.com/allens/s3cab/pull/355)._
 - **E — `compileExclude` owns the pattern side; the walk owns the convention.** _Worth exploring —
   carried from the eleventh pass, **downgraded from Strong and substantially rewritten** 2026-10-01._
   **Read the correction before the claim: the recorded entry was two-thirds wrong.** Dead: it said
@@ -238,94 +237,9 @@ verifies with `npm test` alone; none needs a real bucket.
   standing-rejected `credentialMode(env)` classifier** — nothing is classified from an env bag; a table
   moves and a return value grows. Named because the two sit next to each other.
 - **O — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
-  ticks.** _Strong — surfaced 2026-10-02 (fourteenth pass), a live user-visible fault, verified by
-  experiment._ [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) moved the progress
-  lines onto a clock so that a slow stretch could not freeze them. #343 then found that a timer is a
-  macrotask: it fires only when the event loop turns. The fused pass never let it turn, so #343 added a
-  concession: `withProgress` ([snapshot.mjs](../src/lib/snapshot.mjs):539–548) awaits `setImmediate`
-  every `CONCEDE_MS` after each row. **The walk has the same fault and nothing fixes it.**
-  [walk.mjs](../src/lib/walk.mjs):231's `walkDirs` is synchronous end to end: `countedPass` at :265, a
-  plain `for…of` over the sync generator `walkFiles` at :280 (`readdirSync` at :520, `lstatSync` at
-  :503), and `done()` at :305. So the timer `countedPass` owns
-  ([progress.mjs](../src/lib/progress.mjs):245–250) never fires during the walk. The line draws its
-  bare label, then the tally, and nothing in between, for what is minutes on a large set. This is
-  exactly the freeze #277 was built to end, and `countedPass`'s doc (:199–206) still says it did: "The
-  count is pulled on a clock this owns … A caller cannot forget a timer it does not own." The walk's
-  three callers are `walkSet` (snapshot.mjs:255, so `snapshot` and `backup`), `commands/tree.mjs`:36
-  and `upload.mjs`:633.
-  **Verified, not inferred.** A scratch harness imported the real `countedPass` with a fake TTY
-  stream. Three seconds of synchronous work drew 2 frames (`Finding files…`, then `… 53,055,785 in 3
-  sec`). The same work conceding every 100 ms drew 4 frames, at 1, 2 and 3 seconds.
-  **The mechanism now exists twice, each copy missing what the other has.** `countedPass` has the
-  closing draw (`done()`, :261–269) but never gives the loop a turn. `withProgress` gives the loop a
-  turn but has no closing draw: its `finally` (:550–552) only clears the interval, so the last frame
-  is whatever the last tick happened to show. ADR-0076:221–223 states the tie between them as a caller
-  obligation in prose: "a progress line driven by a clock is only as live as the loop … any future pass
-  that puts a timer on this pipeline inherits the same obligation". `withProgress` also hard-codes
-  `process.stderr` (:484, :498), and its test copies `TICK_MS` (snapshot.progress.test.mjs:50), mocks
-  the whole of `progress.mjs` (:56–69), and says at :40–47 that the concession is unasserted.
-  **Why it hid** is in the run log (pass 14). In short, `progress.test.mjs`:187–208 waits with
-  `await setTimeout` (:198, :203), which gives the loop the turn the walk never gives.
-  **The concession has a second job, now verified.** The park handler
-  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):201, installed at :326 around the write) is JS,
-  so it too runs only on a loop turn, and so does the second, force-quit Ctrl-C. A WSL harness sent a
-  real SIGINT 1 s into a 4 s pass of the same shape (50 µs of synchronous work per item, 4 runs each).
-  Without the concession the handler never ran before the pass ended; with it, it ran 0–101 ms after
-  the signal. The other loop turns in the pass (a streamed hash ≥ 5 MB, an upload, the writer's buffer
-  filling) are irregular, and #343 measured six frames in nine seconds from them. **The walk is not
-  affected:** `walkSet` (snapshot.mjs:255) runs before `writeSnapshot` (:338) installs the handler,
-  so a Ctrl-C there is Node's default, an immediate exit. Nothing records the dependency:
-  [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md) never mentions the event loop, and the park
-  tests raise the signal with `process.emit` (snapshot-file.test.mjs:793–818), which calls the
-  listener synchronously and needs no turn.
-  **Settled in grilling (2026-10-02)** — the design to build; nothing is built yet.
-  - **The walk stays synchronous.** The line module gains a per-item clock check, `tick()`, on the
-    handle: it reads `performance.now()` and draws if due, at the same cadence as the timer. The count
-    stays pulled. The timer stays for callers waiting on I/O (the store LIST, both of `find`'s
-    passes), which never call `tick()`.
-  - **The walk ticks per entry *visited*, kept or not.** `walkDirs` wraps the callback it builds from
-    `createWalkCallbackFn` and ticks before delegating, because a subtree the walk keeps nothing from
-    is the stall `countedPass`'s doc names. That costs about 50 ns an entry, measured: some 20 ms over
-    400k. One huge directory's single `readdirSync` stays unpreemptable, accepted as #343 accepted the
-    long slurp.
-  - **The fused pass ticks the same way**, after each `yield`, so the count and `currentFile` agree.
-    The line no longer depends on a loop turn.
-  - **The loop turn moves to Ctrl-C.** The 100 ms `setImmediate` concession leaves `withProgress`
-    for `propsRows` (snapshot-file.mjs:899), beside the `signal.aborted` check it serves, documented
-    as the interrupt's. Dropping it outright was ruled out, because Ctrl-C would hang mid-pass.
-  - **A closing frame**, drawn after the loop rather than in the `finally`, so only on a pass that
-    ran to the end: true count and bytes, no detail column, since nothing is in hand. A Ctrl-C or a
-    throw keeps the last tick's frame as "where it stopped".
-  - **One new export, `clockedLine(stream, compose, { every })`** → `{ tick(), done(text), dispose }`.
-    It owns `createProgress`, the timer, the off-terminal gate, `tick()` and the closing draw.
-    `countedPass` is rebuilt on it (label, count and tally, at `COUNTED_TICK_MS`) and `withProgress`
-    uses it with `progressLine` at `TICK_MS`. `createProgress` is unchanged for `restore` and the
-    upload bar, which push their own text and need no clock. Rejected: folding the clock into
-    `createProgress` (two kinds of caller behind one interface) and generalising `countedPass` (its
-    name stops describing the fused line).
-  - **Tests.** (a) `tick()` at the module interface, with `setInterval` mocked dead and about 400 ms
-    of real synchronous spin, asserting at least two frames. There is no clock seam:
-    `mock.timers` does not move `performance.now()` (Node 26.10), and a `Date.now()` clock was
-    rejected as non-monotonic. progress.test.mjs:187 stays, renamed as the I/O-bound case. (b) A
-    real self-sent SIGINT at row 10 of a synchronous pass, asserting the pass parks well before its
-    last row. It holds a no-op listener of its own so a broken concession fails the assertion, not
-    the worker, and it is skipped on `win32`, where Node turns a self-sent SIGINT into immediate
-    termination (verified). (c) New `walk.progress.test.mjs`: a stubbed `countedPass`, 2 kept files
-    plus a folder of 5 files excluded by `*.log`, one tick per visited entry. (d) A reworked
-    snapshot.progress.test.mjs: tick-driven draws, the figures-only closing frame, none on a throw.
-  - **Docs: a new ADR-0093**, along the lines of "a clocked line ticks where its caller never yields;
-    the loop turn belongs to the interrupt". 0076 becomes partly superseded, with forward banners on
-    the 2026-08-06 "never pushed … cannot forget a timer it does not own" bullet and the 2026-09-13
-    concession section. 0067 gains a consequence. Rewritten in the same change: `countedPass`'s doc
-    and the `progress.mjs` header, `withProgress`'s comment and the `currentFile` comment's pointer
-    to it, snapshot.progress.test.mjs:40–47, and the timing-untested item in
-    [output-ux.md](output-ux.md). No CONTEXT.md term, since this is mechanics, not domain.
-  - **Scope: one PR**, with O first, then **P** plus **Q**'s first two comments as their own commit.
-    Q's third comment goes inside O's doc rewrite. Run `npm run test:integration` before pushing: the
-    turn moves into the pipeline that feeds the uploader.
-  #343's written limit stands: a tick between rows cannot preempt one long *synchronous* row, and the
-  chunked-read fix stays declined. Checked and fine: the store LIST, both of `find`'s passes,
-  `restore`, the per-file upload bar in `s3.mjs`, and `network-status.mjs` (leave-alone list below).
+  ticks.** _Landed 2026-10-02 as [PR #355](https://github.com/allens/s3cab/pull/355). See the run
+  log; the record is
+  [ADR-0093](../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md)._
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
 **K — `foldsCase` is exported surface with no production caller.** Its only uses anywhere in `src/`
@@ -362,23 +276,9 @@ answer for its question. So a basename-only search — the commonest — pays a 
 zstd decompression cost**, and the memory/async stance argues against pre-emptive fuss. Either a lazy
 getter or letting `compileFindPattern`'s already-computed `wholePath` decide what the caller asks for.
 
-**Smaller items (fourteenth pass)** — verified, too small for an entry of their own; both share
-`snapshot.mjs` with **O**, **F** and **I**.
-**P — The file in hand is carried three ways.** #343 made `currentFile` the source of the name, but
-`HashProgress` keeps its own `path` ([file-props.mjs](../src/lib/file-props.mjs):21), the upload state
-has another, and `activity` reads `hashing.path` ([snapshot.mjs](../src/lib/snapshot.mjs):722) before
-it falls back to `currentFile` (:725–726). So `progressLine` accepts states a sequential pass cannot
-produce. Its tests spell the path twice
-([snapshot.test.mjs](../src/lib/snapshot.test.mjs):201–202, :214–215) or exercise an impossible state
-("prefers the upload when both are somehow in flight", :233–245). D's second half, narrowing
-`onHashStart`'s contract to the byte cursor, was not done in #343. This is it.
-**Q — Three comments still describe the line before #343.** snapshot.mjs:274–278 says `hashing` exists
-so the line "can name the file it is chewing on when one takes long enough to be worth naming", and
-file-props.mjs:17–19 calls a small file "far too small to spend the second that would earn it a line".
-Both describe the gate #343 removed: that second now governs the *measurement*, not the name. And
-`countedPass`'s doc ([progress.mjs](../src/lib/progress.mjs):195–197) calls the walk and the store
-scan "the two" callers, where there are four: [find.mjs](../src/lib/find.mjs):259 and :379 are the
-other two. The first two comments go away with P. The third goes with O, or alone as one word.
+**Smaller items (fourteenth pass).** **P** (the file in hand carried three ways) and **Q** (three
+comments still describing the line before #343): _landed 2026-10-02 with **O** in
+[PR #355](https://github.com/allens/s3cab/pull/355), as their own commit. See the run log._
 
 **Examined & left alone (thirteenth pass)** (not candidates — skip future runs). **Pass 12's own
 landings all hold up**, which is the most useful thing this pass can say about them:
@@ -1128,3 +1028,36 @@ least once; re-open only if the stated reason no longer holds.
   - **The rejected/parked list was re-checked and stands untouched.** O touches no rejection. It amends
     ADR-0076's consequence rather than its decision, and it leaves #343's declined chunked-read fix
     declined.
+- **2026-10-02 — O landed, with P and Q** ([PR #355](https://github.com/allens/s3cab/pull/355),
+  grilled in-session the same day). The record is
+  [ADR-0093](../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md); it partly
+  supersedes [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) and adds a consequence
+  to [ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md). *Let a progress line tick where its
+  caller never yields.*
+  - **The clock.** `clockedLine` in `progress.mjs` has two hands: the timer, for callers awaiting I/O,
+    and `tick()`, for synchronous ones. `countedPass` and `withProgress` are both built on it.
+  - **The two passes.** The walk ticks per entry visited. The fused pass ticks per row, and it draws a
+    figures-only closing frame when it runs to the end.
+  - **The concession** (100 ms) moved into `propsRows`, beside the `signal.aborted` check it serves.
+  - **P and Q went in as their own commit.** `HashProgress` lost `path`, and `activity` names a hash
+    from `currentFile`. The test of the impossible both-in-flight state was deleted with it.
+  - **Two additions the grilling did not settle, flagged in the PR:**
+    - an `opening` option, for `countedPass`'s bare label;
+    - `done(text)` writes nothing off a terminal, so the fused line stays silent there, as it always
+      was.
+  - **The settled "both hands stamp one last-drawn moment" covered one direction only.** Copilot
+    caught the other:
+    - **The gap.** A tick that drew left the interval on its own schedule. The timer could then draw
+      again after part of an interval, and `createProgress`' 100 ms floor let that through.
+    - **The fix.** Restart the interval whenever a tick draws (`841e6b7`). Its test failed before the
+      fix.
+    - **Why not `refresh()`** on a re-armed `setTimeout`: under `mock.timers` (Node 26.10),
+      `refresh()` reschedules nothing. And mocking `setTimeout` also mocks the ESM-imported
+      `node:timers/promises` sleep that the `countedPass` tests rely on.
+  - **The concession is asserted at last.** This closes the gap pass 14 could record only from the
+    test's own admission. The new real-SIGINT test in `snapshot-file.test.mjs` fails on its
+    assertion with the concession disabled. It is skipped on `win32`, and passed 3/3 under WSL.
+  - **Test results.**
+    - `npm test`: 1169 tests, 1156 passed, 13 skipped.
+    - Integration: 27 passed, 3 Roles Anywhere tests skipped.
+    - CI green on all three OSes.
