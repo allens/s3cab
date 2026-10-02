@@ -4,7 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
-import { requireArg } from "../lib/error.mjs";
+import { IntegrityError, requireArg } from "../lib/error.mjs";
 import { countOf, formatCount } from "../lib/format.mjs";
 import { createProgress } from "../lib/progress.mjs";
 import { getObject } from "../lib/objects.mjs";
@@ -44,10 +44,14 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * alone it leaves **exit 0** (deliberate ≠ fault, like `verify`) — while an
  * unexplained absence (an out-of-band deletion, a lifecycle rule, a broken
  * invariant) stays a loud `missing` with **exit 1**. The records are fetched
- * lazily, on the first absent object, so the happy path pays nothing. Only a
- * genuinely absent object degrades this way — an integrity mismatch or any
- * other failure (network, credentials) still aborts, since those are wrong about
- * the *run*, not about one file.
+ * lazily, on the first absent object, so the happy path pays nothing.
+ *
+ * A **corrupt** object — present, but its bytes don't hash to its key — is the
+ * same kind of casualty as an unexplained absence: the file is reported
+ * `corrupt`, nothing is written for it, the run continues, and it exits 1
+ * (guide/format.md's restorer rule). Only those two degrade; any other failure
+ * (network, credentials) still aborts, since it is wrong about the *run*, not
+ * about one file.
  *
  * A snapshot from a case-sensitive source can also list two paths **this**
  * volume folds into one file (letter case; APFS's Unicode normalization). The
@@ -76,6 +80,7 @@ import { isObjectNotFound } from "../lib/s3.mjs";
  * @property {string[]} skipped - Existing paths left untouched (rerun with --overwrite to replace)
  * @property {string[]} collided - Paths not written because this filesystem treats them as the same file as a path already restored (letter case, Unicode normalization — ADR-0086)
  * @property {string[]} missing - Paths not restored because their content is absent with no explanation
+ * @property {string[]} corrupt - Paths not restored because their stored content is damaged (it doesn't hash to its key)
  * @property {{ path: string, deletedOn: string }[]} deleted - Paths not restored because their content was deliberately deleted (the deletion record explains them)
  *
  * @param {string[]} [paths] - Positional path filters (empty = restore everything)
@@ -154,6 +159,8 @@ export async function restore(paths = [], options = {}) {
   const collided = [];
   /** @type {string[]} */
   const missing = [];
+  /** @type {string[]} */
+  const corrupt = [];
   // Collision detection keys on the filesystem's own equivalence, never on
   // string folding (ADR-0086): a manifest written elsewhere can list two paths
   // this volume cannot tell apart — letter case (Windows, macOS default), or
@@ -182,6 +189,10 @@ export async function restore(paths = [], options = {}) {
   // attempted.
   /** @type {Map<string, RecordedDeletion | undefined>} */
   const absentHashes = new Map();
+  // Hashes whose download failed the integrity check — the same dependent-copy
+  // reasoning as `absentHashes`: every path sharing one is the same casualty.
+  /** @type {Set<string>} */
+  const corruptHashes = new Set();
   // The deletion records, fetched once and only if an object turns up absent —
   // the happy path never pays for them.
   /** @type {Map<string, RecordedDeletion> | undefined} */
@@ -220,6 +231,8 @@ export async function restore(paths = [], options = {}) {
       skipped.push(step.dest);
     } else if (absentHashes.has(hash)) {
       reportAbsent(hash, step.dest);
+    } else if (corruptHashes.has(hash)) {
+      corrupt.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       writtenCanonical.has(realpathSync.native(step.dest))
@@ -228,7 +241,8 @@ export async function restore(paths = [], options = {}) {
       collidedDests.add(step.dest);
     } else {
       mkdirSync(dirname(step.dest), { recursive: true });
-      let found = true;
+      /** @type {"found" | "absent" | "corrupt"} */
+      let outcome = "found";
       const from =
         step.action === "copy" ? /** @type {string} */ (step.from) : undefined;
       if (from !== undefined && !collidedDests.has(from)) {
@@ -237,17 +251,21 @@ export async function restore(paths = [], options = {}) {
         try {
           await getObject(set.bucket, hash, step.dest);
         } catch (error) {
-          // Absent content, and only that: `isObjectNotFound` is the s3.mjs
-          // spelling of "the key isn't there". Anything else — a hash mismatch
-          // from writeFileAtomic, a network or credentials failure — is not
-          // this one file's problem, so it propagates and aborts the run.
-          if (!isObjectNotFound(error)) {
+          // This one file's problem, and only that: absent content
+          // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there")
+          // or corrupt content (writeFileAtomic's digest check). Anything else —
+          // a network or credentials failure — is wrong about the whole run, so
+          // it propagates and aborts.
+          if (error instanceof IntegrityError) {
+            outcome = "corrupt";
+          } else if (isObjectNotFound(error)) {
+            outcome = "absent";
+          } else {
             throw error;
           }
-          found = false;
         }
       }
-      if (found) {
+      if (outcome === "found") {
         writtenCanonical.add(realpathSync.native(step.dest));
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
@@ -261,9 +279,12 @@ export async function restore(paths = [], options = {}) {
         const when = new Date(/** @type {string} */ (step.mtime));
         await utimes(step.dest, when, when);
         restored.push(step.dest);
-      } else {
+      } else if (outcome === "absent") {
         absentHashes.set(hash, await recordFor(hash));
         reportAbsent(hash, step.dest);
+      } else {
+        corruptHashes.add(hash);
+        corrupt.push(step.dest);
       }
     }
 
@@ -278,13 +299,13 @@ export async function restore(paths = [], options = {}) {
     }
   }
 
-  // Unexplained absence or a name collision → exit 1, the same way `verify`
-  // reports findings: set process.exitCode rather than throw, so the run's
-  // report — including every file that *was* restored — still prints.
-  // Deliberately-deleted skips alone leave exit 0 (ADR-0064): the record
-  // proves the gap is intended, and a scripted restore should not alarm on a
-  // decision its owner already made.
-  if (missing.length || collided.length) {
+  // Unexplained absence, corrupt content or a name collision → exit 1, the
+  // same way `verify` reports findings: set process.exitCode rather than throw,
+  // so the run's report — including every file that *was* restored — still
+  // prints. Deliberately-deleted skips alone leave exit 0 (ADR-0064): the
+  // record proves the gap is intended, and a scripted restore should not alarm
+  // on a decision its owner already made.
+  if (missing.length || corrupt.length || collided.length) {
     process.exitCode = 1;
   }
 
@@ -296,6 +317,7 @@ export async function restore(paths = [], options = {}) {
     skipped,
     collided,
     missing,
+    corrupt,
     deleted,
   };
 }

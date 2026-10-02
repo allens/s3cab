@@ -1189,14 +1189,16 @@ export function renderUpload(result) {
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
  * snapshot, then the existing files left untouched, then the names this volume
- * folded into an already-restored file, then any file whose content the bucket
- * no longer holds. All lists are given in full, never truncated: each entry is
- * a file the user asked for and didn't get, so name them all and say what to
- * do about it (`--overwrite` for the skipped, a separate `--output` for the
- * collided, `verify` for the missing — ADR-0030's constructive fix). The
- * missing block comes last so it is what remains on screen after a long run,
- * and its exit code is set by the command. An empty selection that did nothing
- * at all says so plainly rather than emitting blank output.
+ * folded into an already-restored file, then any file whose stored content is
+ * damaged, then any file whose content the bucket no longer holds. All lists
+ * are given in full, never truncated: each entry is a file the user asked for
+ * and didn't get, so name them all and say what to do about it (`--overwrite`
+ * for the skipped, a separate `--output` for the collided, `upload --force` of
+ * a surviving copy for the corrupt, `verify` for the missing — ADR-0030's
+ * constructive fix). The missing block comes last so it is what remains on
+ * screen after a long run, and its exit code is set by the command. An empty
+ * selection that did nothing at all says so plainly rather than emitting blank
+ * output.
  * @param {RestoreResult} result
  * @returns {string}
  */
@@ -1208,6 +1210,7 @@ export function renderRestore({
   skipped,
   collided,
   missing,
+  corrupt,
   deleted,
 }) {
   const sections = [];
@@ -1220,6 +1223,7 @@ export function renderRestore({
     skipped.length ||
     collided.length ||
     missing.length ||
+    corrupt.length ||
     deleted.length
   ) {
     sections.push(
@@ -1269,6 +1273,26 @@ export function renderRestore({
         "Keep both versions by restoring a colliding path into its own directory:",
         "",
         `  s3cab restore --set ${set} <path> --output <directory>`,
+      ].join("\n"),
+    );
+  }
+  if (corrupt.length) {
+    // The bucket holds these, but not the bytes that were backed up — the
+    // integrity check refused them, so nothing was written. `verify` checks
+    // presence and size only, so it can't help here; a surviving unchanged copy
+    // can, because `upload --force` overwrites the damaged object in place.
+    const heading =
+      `Could not restore ${formatCount(corrupt.length)} ` +
+      `${plural(corrupt.length, "file")} — the backup's copy of ` +
+      `${corrupt.length === 1 ? "its" : "their"} contents is damaged:`;
+    sections.push(
+      [
+        heading,
+        ...corrupt.map((path) => `  ${path}`),
+        "",
+        "If an unchanged copy of one of these files survives elsewhere, upload it again to repair the backup:",
+        "",
+        `  s3cab upload ${set} --file <path> --force`,
       ].join("\n"),
     );
   }
