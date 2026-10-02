@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
+import { IntegrityError } from "../lib/error.mjs";
 
 // Offline tests for restore's degrade-on-a-missing-object behaviour: one object
-// absent from the bucket must not abort the run. The S3 reads are faked at the
+// absent from the bucket — or present but corrupt — must not abort the run. The
+// S3 reads are faked at the
 // lib seam (docs/design/testing.md), so the skip, the continue, the end report
 // and the exit-code side effect are pinned without a bucket — but the restore
 // *planning* (lib/restore.mjs) and the real filesystem writes are left alone, so
@@ -158,8 +160,8 @@ describe("restore with an object missing from the bucket", () => {
   });
 
   it("still aborts on a failure that isn't an absent object", async () => {
-    // A credentials or integrity failure is wrong about the run, not about one
-    // file — swallowing it would restore nothing and report success.
+    // A credentials failure is wrong about the run, not about one file —
+    // swallowing it would restore nothing and report success.
     failures.set("bbb", named("AccessDenied"));
     await assert.rejects(restore([], { set: "photos", output }), {
       name: "AccessDenied",
@@ -177,6 +179,37 @@ describe("restore with an object missing from the bucket", () => {
   it("never fetches the deletion records on a clean run — laziness is the happy path's price of zero", async () => {
     await restore([], { set: "photos", output });
     assert.equal(recordReads, 0);
+  });
+});
+
+describe("restore with a corrupt object in the bucket", () => {
+  it("skips the file, restores the rest, and reports every corrupt path", async () => {
+    // Clean-room run 3's finding A1: the old restore stopped at `bbb` and never
+    // reached `ccc`, whose object is fine.
+    failures.set("bbb", new IntegrityError("Integrity check failed"));
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
+    // The `copy` twin is the same casualty, recorded without a second fetch.
+    assert.deepEqual(result.corrupt, [dest("gone.txt"), dest("gone-copy.txt")]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.deepEqual(result.missing, []);
+    assert.equal(readFileSync(dest("last.txt"), "utf8"), "ccc");
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("is a fault even beside a deletion record for the same hash", async () => {
+    // The record explains an *absence*. Present-but-wrong bytes are damage no
+    // `delete` produces, so they never consult the records.
+    failures.set("bbb", new IntegrityError("Integrity check failed"));
+    deletionRecords.set("bbb", { deletedOn: "2026-07-19T14:22:41.000Z" });
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.deleted, []);
+    assert.equal(recordReads, 0);
+    assert.equal(process.exitCode, 1);
   });
 });
 

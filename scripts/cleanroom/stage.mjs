@@ -106,7 +106,6 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
-  unlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -574,14 +573,11 @@ file(join(faults, "deleted.txt"), deletedContent);
 /**
  * `corrupt`: an object with the right key and the wrong bytes — run 2's finding 4, where
  * the spec never says to re-hash a download nor what to do when it doesn't match, and
- * its own policy "ran zero times against real data". Three files in known order, because
- * the two tools diverge here and the tree is what shows it: s3cab's restore aborts on
- * the mismatch (writeFileAtomic throws before the rename, and restore.mjs re-throws
- * anything that isn't a missing object), so its reference tree holds `a-intact.txt`
- * alone and never reaches `c-`, while a restorer that reports the fault and carries on
- * ends with both. That difference is the fixture working, not the corpus being wrong.
- * (The abort also leaves a `.s3cab-tmp` sibling, which the reference pass strips — see
- * the note there for why residue must not reach a comparison target.)
+ * its own policy "ran zero times against real data". Three files in known order, so the
+ * tree shows whether a restorer carries on past the fault: s3cab's reference holds
+ * `a-intact.txt` and `c-intact.txt` and no `b-` at all (the digest check refuses it,
+ * reports it, and exits 1), and a restorer that stops at `b-` ends one file short. Run 3
+ * caught s3cab itself doing exactly that, before the fix.
  */
 const corrupt = join(trees, "corrupt");
 const corruptContent = `will be replaced ${randomBytes(16).toString("hex")}\n`;
@@ -665,8 +661,8 @@ mustRun(["delete", "--bucket", bucket, "--force", deletedHash]);
 
 // Right key, wrong bytes. Not `s3cab delete` and not a tear: the object is *present* and
 // hashes to something else, so a restorer that trusts the key restores corrupt content
-// under a clean exit. s3cab catches it in writeFileAtomic (ADR-0001) and aborts; whether
-// a reader should carry on is exactly what run 2 found the spec silent about.
+// under a clean exit. s3cab catches it in writeFileAtomic (ADR-0001), skips the file and
+// carries on — the answer the spec now gives, where run 2 found it silent.
 console.log(`replacing objects/${corruptHash.slice(0, 12)}… with wrong bytes`);
 await client.send(
   new PutObjectCommand({
@@ -769,25 +765,9 @@ async function restoreReferences() {
       // in the bucket with no reference tree beside it. The empty directory here is the
       // harness's, not the tool's: it makes "nothing" a comparable answer rather than a
       // missing file, so a restorer that finds the set can tell it was meant to find it.
-      // The damaged and corrupt snapshots land here too, with whatever s3cab wrote before
-      // it gave up — a partial tree is the honest reference for a partial restore.
+      // The damaged snapshot lands here too, with whatever s3cab wrote before it gave up —
+      // a partial tree is the honest reference for a partial restore.
       mkdirSync(target, { recursive: true });
-      // …minus s3cab's own failure-path residue. `writeFileAtomic` writes to a sibling
-      // temp and only renames once the digest matches, so aborting on `corrupt`
-      // deliberately leaves `.b-corrupt.txt.s3cab-tmp` behind (harmless to s3cab, which
-      // overwrites it on retry). In a *reference* tree it is a trap: a restorer that
-      // correctly writes no such file would be reported as missing one, which is the
-      // false finding this whole exercise exists to avoid. The reference is the
-      // comparison target, not a transcript of the tool's internals, so tool residue
-      // comes out — the same reasoning as the empty directory above.
-      for (const entry of readdirSync(target, {
-        withFileTypes: true,
-        recursive: true,
-      })) {
-        if (entry.isFile() && entry.name.endsWith(".s3cab-tmp")) {
-          unlinkSync(join(entry.parentPath, entry.name));
-        }
-      }
     }
   }
 

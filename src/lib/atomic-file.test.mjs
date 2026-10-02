@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { writeFileAtomic } from "./atomic-file.mjs";
+import { IntegrityError } from "./error.mjs";
 
 // writeFileAtomic takes its source stream as a parameter — that seam is what
 // lets the atomicity + integrity logic run here against an in-memory stream
@@ -29,12 +30,13 @@ describe("writeFileAtomic", () => {
     assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
   });
 
-  it("rejects a content/digest mismatch and places no file", async () => {
+  it("rejects a content/digest mismatch and leaves no file behind", async () => {
     await using dir = await mkTmpDir();
     const dest = join(dir.path, "out.bin");
 
     // The bytes don't hash to the expected digest — the silent-data-loss case
-    // design #1 exists to catch. The throw must come before the rename.
+    // design #1 exists to catch. The throw must come before the rename, and be
+    // the type `restore` catches to carry on past one corrupt object.
     await assert.rejects(
       () =>
         writeFileAtomic(
@@ -44,11 +46,14 @@ describe("writeFileAtomic", () => {
             hash,
           },
         ),
-      /Integrity check failed/,
+      (error) =>
+        error instanceof IntegrityError &&
+        /Integrity check failed/.test(error.message),
     );
-    // Atomicity is the only guarantee: nothing lands at destPath. The temp
-    // sibling may remain (harmless) — cleanup isn't the contract, `rename` is.
     assert.ok(!existsSync(dest), "a mismatched file must not be placed");
+    // Nor do the known-bad bytes survive in the temp: a restore that carries
+    // on would otherwise finish with one beside every corrupt file.
+    assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
   });
 
   it("copies verbatim (no digest check) when hash is not given", async () => {
