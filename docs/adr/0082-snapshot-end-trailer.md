@@ -1,6 +1,6 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
-**Status:** accepted, amended once (2026-08-21). Extends
+**Status:** accepted, amended twice (2026-08-21, 2026-10-02). Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 
@@ -28,6 +28,17 @@
 > — the trailer times itself. The fused pass's guarantee ([0069](0069-fused-snapshot-upload-pipeline.md))
 > is that inserting the uploader changes nothing about the *rows*, and that is what its test now
 > asserts.
+
+> **Amendment 2 (2026-10-02) — newer Node rejects a cut-short stream before the parser sees it.**
+> The Context below describes Node 26.3, the `engines` floor and what CI runs. Node 26.10's zstd
+> instead fails every cut-short stream with `Z_BUF_ERROR` ("unexpected end of file"), which
+> `isCorruptSnapshotError` did not recognise. On 26.10 a truncated or empty snapshot therefore
+> crashed `find` and `verify` instead of becoming an unreadable finding, and `restore` refused it
+> as "unexpected end of file". `parseCompressedSnapshotStream` now turns that error into the
+> parser's own `Truncated snapshot` AssertionError, so a truncation reads the same on every Node
+> and point 2 still holds. The trailer stays, because the floor still needs it. The first
+> Consequence holds only at the floor: on newer Node, a cut that only shaves framing is rejected
+> too. That reports a manifest whose rows were all there as unreadable, which errs the safe way.
 
 ## Context
 

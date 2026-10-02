@@ -117,11 +117,11 @@ describe("parseSnapshotStream", () => {
   });
 
   it("rejects a stream that ends without the #END trailer as truncated", async () => {
-    // ADR-0082: zstd decompresses a cut-short stream to a byte prefix without
-    // error, so the trailer is the only thing standing between a destroyed
-    // manifest and a clean parse. An AssertionError on purpose —
-    // isCorruptSnapshotError classifies it as snapshot damage, so verify
-    // records the finding instead of vouching for the wreck.
+    // ADR-0082: at the engines floor zstd decompresses a cut-short stream to a
+    // byte prefix without error, so the trailer is the only thing standing
+    // between a destroyed manifest and a clean parse. An AssertionError on
+    // purpose — isCorruptSnapshotError classifies it as snapshot damage, so
+    // verify records the finding instead of vouching for the wreck.
     const text = [
       "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
       `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
@@ -205,6 +205,27 @@ describe("parseCompressedSnapshotStream", () => {
       );
       assert.equal(identity, "photos");
       assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
+    },
+  );
+
+  it(
+    "rejects cut-short bytes as a truncated snapshot, whichever layer notices",
+    { timeout: 5000 },
+    async () => {
+      // At the engines floor zstd yields the prefix and the parser misses
+      // `#END`; newer Node's zstd rejects the stream itself (`Z_BUF_ERROR`).
+      // Both must surface as the same AssertionError, the one
+      // isCorruptSnapshotError files as damage (ADR-0082 amendment 2).
+      const compressed = zstdCompressSync(text);
+      for (const length of [0, Math.floor(compressed.length / 2)]) {
+        await assert.rejects(
+          parseCompressedSnapshotStream(
+            Readable.from([compressed.subarray(0, length)]),
+          ),
+          { name: "AssertionError", message: /^Truncated snapshot/ },
+          `a cut at byte ${length} of ${compressed.length}`,
+        );
+      }
     },
   );
 

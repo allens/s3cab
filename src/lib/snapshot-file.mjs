@@ -700,15 +700,30 @@ export async function readSnapshotFile(path) {
  * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
  * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
  * @returns {Promise<Snapshot>}
+ * @throws {AssertionError} When the bytes are cut short — whichever layer
+ *   notices, so a truncated snapshot reads the same on every Node (ADR-0082
+ *   amendment 2)
  */
 export async function parseCompressedSnapshotStream(source) {
   const decompressed = createZstdDecompress();
-  // The sink closes over the zstd stream rather than taking pipeline's sink
-  // argument — the same object at runtime, but typed as a bare AsyncIterable,
-  // which the parser's readline can't take.
-  return await pipeline(source, decompressed, () =>
-    parseSnapshotStream(decompressed),
-  );
+  try {
+    // The sink closes over the zstd stream rather than taking pipeline's sink
+    // argument — the same object at runtime, but typed as a bare
+    // AsyncIterable, which the parser's readline can't take.
+    return await pipeline(source, decompressed, () =>
+      parseSnapshotStream(decompressed),
+    );
+  } catch (error) {
+    // Newer Node's zstd rejects a stream that ends mid-frame itself, before
+    // the parser can miss its `#END`; the engines floor yields the prefix and
+    // leaves it to the parser. Same damage, so the same AssertionError.
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "Z_BUF_ERROR") {
+      assert.fail(
+        "Truncated snapshot: the compressed data ends mid-stream, so the file was cut short",
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -848,14 +863,16 @@ export async function parseSnapshotStream(input) {
     });
   }
 
-  // The completeness check (ADR-0082): zstd decompression is lenient about a
-  // cut-short stream — a truncated `.tsv.zst` decompresses to a byte *prefix*
-  // without error, which parses as a valid smaller (or empty) snapshot. The
-  // `#END` trailer is what makes truncation loud: any cut that loses content
-  // loses it. A zstd frame-completeness check *below* this was considered and
-  // rejected — truncation only ever removes a suffix, so the sole cut a frame
-  // check would add is one taking just the frame epilogue, which leaves every
-  // row intact: it would reject a fully restorable manifest. Whole-object
+  // The completeness check (ADR-0082): zstd decompression at the engines floor
+  // is lenient about a cut-short stream — a truncated `.tsv.zst` decompresses
+  // to a byte *prefix* without error, which parses as a valid smaller (or
+  // empty) snapshot. The `#END` trailer is what makes truncation loud: any cut
+  // that loses content loses it. A zstd frame-completeness check *below* this
+  // was considered and rejected — truncation only ever removes a suffix, so the
+  // sole cut a frame check would add is one taking just the frame epilogue,
+  // which leaves every row intact: it would reject a fully restorable manifest.
+  // (Newer Node makes that check itself regardless, and
+  // parseCompressedSnapshotStream folds its error into this one.) Whole-object
   // integrity is the store's ETag, not the TSV's job (ADR-0082).
   // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
