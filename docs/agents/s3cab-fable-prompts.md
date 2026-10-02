@@ -4,7 +4,7 @@ Ordered by contribution to one goal: **reducing the risk that a backup reports s
 
 Everything here assumes Claude Code with `/effort` set per prompt. Run 1 and 2 before 3 and 4 — their findings become the target list for the test work. Run 1 before you freeze the format for 1.0, because a real durability flaw may want a change to the bucket layout, and that is cheap now and expensive later.
 
-A lettered prompt (1b, 2b) re-asks its parent's question after the subject moved — run one when the parent's findings have stopped being about current code.
+A lettered prompt (1b) re-asks its parent's question after the subject moved — run one when the parent's findings have stopped being about current code.
 
 Where a prompt says "analysis only", keep it that way. The whole point of the first two is an independent opinion you can compare against your own; letting the same session fix what it finds contaminates that.
 
@@ -59,29 +59,7 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## 2. Independent restorer built from the spec alone
 
-**Effort: high; raise to xhigh only if a `high` run comes back shallow. Start this in a fresh session with no prior context.**
-
-> s3cab's core promise is that its stored format is open enough that you could recover everything without the tool, or write a replacement in an afternoon. I want to test that claim literally rather than take my own word for it.
->
-> Read `guide/format.md` and nothing else from this repository. Do not open `src/`, the other guides, the ADRs, or the tests at any point — if you find yourself wanting to, that is itself a finding: record what you needed and why. Working only from the spec, implement a minimal independent restorer in Python: given a bucket and a snapshot, reconstruct the files byte-for-byte.
->
-> Then verify it differentially. I'll give you credentials for a test bucket with several real repositories in it. For each snapshot, restore with your implementation and with s3cab, and compare the results byte-for-byte including paths and modification times. Investigate every difference.
->
-> Deliverable: the restorer, and a report on the spec itself. List every point where `format.md` was ambiguous, silent, or wrong — anywhere you had to guess, and what you guessed. Rank those by whether a wrong guess would corrupt a restore or merely inconvenience the implementer. That list is the real output; the code is the means of finding it.
-
----
-
-## 2b. Second clean-room restorer, against the revised spec
-
-**Effort: high; raise to xhigh only if a `high` run comes back shallow. Start in a fresh session with no prior context — the run is void if the session has ever opened `docs/format-spec-audit.md`, anything under `scripts/cleanroom/`, or `docs/design/repository-protocol.md`.** Prompt 2's findings were folded back into `guide/format.md` (the sixteen pinned ambiguities, the hoisted reading rules, ADR-0082's `#END` trailer), so a second fresh reader now tests the fixes rather than the original text. When it reports, diff its ambiguity list against `docs/format-spec-audit.md` yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap. The session must see neither list beforehand — hand it this prompt and nothing else.
-
-> s3cab's core promise is that its stored format is open enough that you could recover everything without the tool, or write a replacement in an afternoon. The spec has been revised since that claim was last tested, and I want it tested again by a fresh reader.
->
-> Read `guide/format.md` and nothing else from this repository. Do not open `src/`, the other guides, the ADRs, `docs/`, or the tests at any point — in particular not `docs/format-spec-audit.md`, anything under `scripts/cleanroom/`, or `docs/design/repository-protocol.md`, artifacts of earlier independent runs whose findings must not reach you. If you find yourself wanting any of them, that is itself a finding: record what you needed and why. Working only from the spec, implement a minimal independent restorer in modern C++ on Ubuntu LTS: the newest standard the distribution's own default compiler already supports, and only libraries it packages. Don't build a compiler or a library from source, and don't spend the run fighting a toolchain — if something you want isn't packaged, choose a different library. Given a bucket and a snapshot, reconstruct the files byte-for-byte. Libraries for transport, hashing and decompression are expected — the clean-room constraint is where the format knowledge comes from, not the dependency count.
->
-> Then verify it differentially. I'll give you credentials for a test bucket with several real repositories in it. For each snapshot, restore with your implementation and with s3cab, and compare the results byte-for-byte including paths and modification times. Investigate every difference.
->
-> Deliverable: the restorer, and a report on the revised spec. List every point where `format.md` was ambiguous, silent, or wrong — anywhere you had to guess, and what you guessed. Rank those by whether a wrong guess would corrupt a restore or merely inconvenience the implementer. That list is the real output; the code is the means of finding it.
+**Effort: high; raise to xhigh only if a `high` run comes back shallow. Not a pasted prompt.** A clean-room run is staged by [scripts/cleanroom/create.mjs](../../scripts/cleanroom/create.mjs), which writes the brief as the room's own `CLAUDE.md` in a directory outside the repo — open a fresh session there and say "go". [scripts/cleanroom/README.md](../../scripts/cleanroom/README.md) has the procedure, on Linux and on Windows, and links every run's report. When the run reports, diff its ambiguity list against the last report yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap.
 
 ---
 
