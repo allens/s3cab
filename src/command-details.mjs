@@ -12,10 +12,11 @@ way with Ctrl+C: the file hashes worked out so far are saved, and the next
 snapshot carries on from there instead of reading those files again. Stop
 and restart as often as you like — each run gets further.
 
-Only a graceful stop can be saved that way. If the machine loses power, or
-the run is killed outright, the work file left behind stops the next run
-until you delete it — s3cab prints the exact command — and those files are
-read again. Nothing is lost but the time.
+A graceful stop saves itself. If the machine loses power, or the run is
+killed outright, its work file is left where it lay and stops the next run,
+because from the outside that file looks exactly like a run still going.
+Once you know none is, '--resume' takes it over and keeps its hashes; s3cab
+prints both that and the command to throw it away instead.
 
 Full guide: https://s3cab.plantegral.com/guide/format`;
 
