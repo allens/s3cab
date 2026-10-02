@@ -182,9 +182,11 @@ them, it just wants Developer Mode.
 
 So a Windows run stages the corpus from WSL and then runs `--reference-only` on
 Windows, which reattaches each set and restores every snapshot in the bucket
-into `reference/` without touching the bucket. The Linux trees won't do as the
-reference there: s3cab's Windows restore refuses the case-colliding pair, can't
-create the control-character names, and sets mtimes exactly where Linux carries
+into `reference/`. Snapshots and objects are left as they are, but it is not
+read-only: `reattach` rewrites each set's `info`, naming this machine its owner,
+so it needs the same write credentials staging does. The Linux trees won't do as
+the reference there: s3cab's Windows restore refuses the case-colliding pair,
+can't create the control-character names, and sets mtimes exactly where Linux carries
 a sub-microsecond error — every one a difference `compare.py` would charge to the
 restorer. Restores that exit nonzero outside `faults` and `corrupt` are printed
 with what s3cab said, since on Windows a short reference tree is expected and

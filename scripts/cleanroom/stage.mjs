@@ -753,8 +753,9 @@ async function restoreReferences() {
       ]);
       if (result.code !== 0) {
         // Its own report, minus the progress counter: a set that is not broken on
-        // purpose needs reading, and `run` captured everything it said.
-        const said = result.err
+        // purpose needs reading. Both streams, because restore lists the files it
+        // couldn't write on stdout and puts only an abort on stderr.
+        const said = `${result.out}\n${result.err}`
           .split("\n")
           .filter((line) => line.trim() && !line.startsWith("Restoring"))
           .map((line) => `      ${line}`);
