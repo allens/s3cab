@@ -1,20 +1,20 @@
-import { join, posix, resolve, sep, win32 } from "node:path";
+import { join, posix, resolve, win32 } from "node:path";
 
 import { foldsCase, preparePath } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
 
 /**
- * Normalize a path for filter matching: separators to `/`, and case-folded on
- * Windows. Mirrors how the exclude matcher (lib/exclude.mjs) treats paths —
- * `split(sep)` so a backslash is a separator on Windows but a literal character
- * on POSIX, and the `win32` case-insensitivity of `compileExclude`'s `"i"` flag.
+ * Normalize a path for filter matching: separators to `/` and case folded for a
+ * Windows-shaped path, both left alone for a POSIX one. Judged by the path's
+ * shape (`preparePath`), not by `process.platform`, because `restore --output`
+ * puts a Windows backup on Linux, and its paths are still Windows paths there.
  * @param {string} p
  * @returns {string}
  */
 const normalize = (p) => {
-  const slashed = p.split(sep).join(posix.sep);
-  return process.platform === "win32" ? slashed.toLowerCase() : slashed;
+  const { path, foldCase } = preparePath(p);
+  return foldCase ? path.toLowerCase() : path;
 };
 
 /**
@@ -117,11 +117,11 @@ export function selectEntries(paths, filters) {
 /**
  * Build the "does this path fall under any of these filters?" predicate that
  * `selectEntries` applies — a filter matches a path that equals it or lies under
- * it (a `/`-boundary prefix), separators unified and case folded on Windows
- * (`normalize`), a trailing separator ignored. Exported on its own because
- * `delete` asks the same question of snapshot *references* (which paths fall
- * under the named paths) — one matcher, so `restore`'s filters and `delete`'s
- * scope can never drift apart in what "under" means.
+ * it (a `/`-boundary prefix), separators unified and case folded for a
+ * Windows-shaped path (`normalize`), a trailing separator ignored. Exported on
+ * its own because `delete` asks the same question of snapshot *references*
+ * (which paths fall under the named paths) — one matcher, so `restore`'s
+ * filters and `delete`'s scope can never drift apart in what "under" means.
  *
  * Returns `undefined` when no filter survives normalization (none given, or
  * all blank/separator-only) — "no effective filter" is a fact each caller must

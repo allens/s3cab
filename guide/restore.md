@@ -47,8 +47,10 @@ Three rules worth knowing:
 - **A filter matches that path, or anything beneath it** — on a directory boundary. So
   `…\Photos` selects `…\Photos\beach.jpg` but **not** `…\PhotosArchive\x.jpg`; a trailing
   separator makes no difference.
-- **Case follows the platform** — matching is case-insensitive on Windows, case-sensitive
-  elsewhere, exactly like [exclude rules](exclude.md).
+- **Case is judged by the path, not by the computer doing the restore** — a Windows path (a
+  drive letter, or a network share like `\\nas\photos`) matches case-insensitively and with
+  either `\` or `/`, even when you restore it on Linux with `--output`. A Linux or macOS path
+  is case-sensitive everywhere.
 
 If nothing matches, restore stops rather than silently doing nothing:
 

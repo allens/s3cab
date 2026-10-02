@@ -6,10 +6,8 @@ import { planRestore, reroot, selectEntries } from "./restore.mjs";
 /** @import { SnapshotEntries } from "./snapshot-file.mjs" */
 
 // `selectEntries` is the pure path-filter selector behind `restore [paths…]`.
-// Paths are written with forward slashes: on POSIX they are native, and on
-// Windows `normalize` converts both separators to `/`, so these cases exercise
-// the same matching on every OS (the win32-only case/separator behaviour gets
-// its own guarded tests below).
+// It reads a path's spelling rules from the path itself, so every case here runs
+// the same on every OS.
 const paths = [
   "/home/me/Photos/beach.jpg",
   "/home/me/Photos/2024/ski.jpg",
@@ -65,36 +63,57 @@ describe("selectEntries", () => {
     assert.deepEqual(selectEntries(paths, ["/home/me/Music"]), []);
   });
 
-  const onWin32 = process.platform === "win32";
+  // The spelling rules follow the path's shape, not the OS running the restore:
+  // `restore --output` puts a Windows backup on Linux, where the paths are still
+  // Windows paths. So none of these is platform-guarded.
 
-  it("is case-insensitive on Windows, case-sensitive elsewhere", () => {
-    const got = selectEntries(paths, ["/HOME/ME/photos"]);
-    if (onWin32) {
-      assert.deepEqual(got, [
-        "/home/me/Photos/beach.jpg",
-        "/home/me/Photos/2024/ski.jpg",
-      ]);
-    } else {
-      assert.deepEqual(got, []);
-    }
+  it("is case-sensitive for a POSIX path, on every OS", () => {
+    assert.deepEqual(selectEntries(paths, ["/HOME/ME/photos"]), []);
   });
 
-  it(
-    "accepts backslash paths and filters on Windows",
-    { skip: !onWin32 },
-    () => {
-      const winPaths = ["C:\\Users\\me\\Photos\\beach.jpg"];
-      assert.deepEqual(
-        selectEntries(winPaths, ["C:\\Users\\me\\Photos"]),
-        winPaths,
-      );
-      // A user who types forward slashes on Windows matches the same files.
-      assert.deepEqual(
-        selectEntries(winPaths, ["C:/Users/me/Photos"]),
-        winPaths,
-      );
-    },
-  );
+  it("treats a backslash in a POSIX path as part of the name, on every OS", () => {
+    const posixPaths = ["/home/me/a\\b.txt"];
+    assert.deepEqual(selectEntries(posixPaths, ["/home/me/a"]), []);
+  });
+
+  const winPaths = [
+    "C:\\Users\\Me\\Photos\\beach.jpg",
+    "C:\\Users\\Me\\Photos\\2024\\ski.jpg",
+    "C:\\Users\\Me\\PhotosArchive\\old.jpg",
+  ];
+  const winPhotos = winPaths.slice(0, 2);
+
+  it("matches under a drive-letter folder, in either separator, on every OS", () => {
+    assert.deepEqual(
+      selectEntries(winPaths, ["C:\\Users\\Me\\Photos"]),
+      winPhotos,
+    );
+    assert.deepEqual(
+      selectEntries(winPaths, ["C:/Users/Me/Photos"]),
+      winPhotos,
+    );
+    assert.deepEqual(
+      selectEntries(winPaths, ["C:\\Users\\Me\\Photos\\"]),
+      winPhotos,
+    );
+  });
+
+  it("folds case for a drive-letter path, on every OS", () => {
+    assert.deepEqual(
+      selectEntries(winPaths, ["c:\\users\\me\\photos"]),
+      winPhotos,
+    );
+  });
+
+  it("folds separators and case for a UNC path, on every OS", () => {
+    const uncPaths = [
+      "\\\\nas\\Share\\Photos\\beach.jpg",
+      "\\\\nas\\Share\\Docs\\cv.pdf",
+    ];
+    assert.deepEqual(selectEntries(uncPaths, ["//NAS/share/photos"]), [
+      uncPaths[0],
+    ]);
+  });
 });
 
 // `reroot` is the pure path re-rooter behind `restore --output <dir>`: each

@@ -7,7 +7,7 @@ import { posix } from "node:path";
 // They live together because they are two halves of one answer: `globSource`
 // produces the pattern, and the spelling question decides what the pattern is
 // compared against and whether the comparison folds case. `exclude` uses the
-// first, `restore --output` the second, `find` both.
+// first, `restore` the second (its path filters and `--output`), `find` both.
 //
 // The spelling question is really two — **which characters separate segments**,
 // and **whether case matters** — and both are answered from the path's own
