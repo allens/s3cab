@@ -1181,6 +1181,33 @@ describe("recoverWorkFile", () => {
     assert.deepEqual([...(parked?.entries.keys() ?? [])], files);
   });
 
+  it("recovers the rows of a frame its run never closed", async () => {
+    // What a kill leaves on disk is a cut-short *frame*: the compressor had
+    // written its finished blocks and not the one it was filling. `killedRun`
+    // alone is a whole frame around a torn row. A one-block frame yields
+    // nothing once cut, so this needs rows enough for several blocks.
+    await using dir = await mkTmpDir();
+    const files = Array.from({ length: 3000 }, (_, i) =>
+      resolve(dir.path, `photo-${i}.jpg`),
+    );
+    killedRun(dir.path, files);
+    const frame = readFileSync(lockPath(dir.path));
+    writeFileSync(
+      lockPath(dir.path),
+      frame.subarray(0, Math.floor(frame.length * 0.9)),
+    );
+
+    await recoverWorkFile(dir.path);
+    const parked = await readParkedLookup(dir.path);
+
+    const recovered = [...(parked?.entries.keys() ?? [])];
+    assert.ok(recovered.length > 0, "the flushed blocks' rows must survive");
+    assert.ok(recovered.length < files.length, "the fixture must cut rows");
+    // A prefix of the real paths, in order: a row torn at the cut is dropped,
+    // never filed under a prefix of its path.
+    assert.deepEqual(recovered, files.slice(0, recovered.length));
+  });
+
   it("stands the file's mtime in for the completion instant it never got", async () => {
     // Without one, `trustBoundary` reads undefined as "reuse on size and mtime
     // alone" and the ADR-0085 ctime guard silently lapses for every recovered
