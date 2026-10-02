@@ -207,8 +207,9 @@ export function createProgress(stream, { logLines = false } = {}) {
  * microtask and a timer set beside them fires never. That caller calls `tick()`
  * once per item, and the line redraws when the interval is due. One clock read
  * and a compare per call (~50ns, measured), so it is affordable per directory
- * entry. Both hands stamp one "last drawn" moment, so a tick that lands just
- * after the timer has drawn does not draw again.
+ * entry. Both hands keep to one "last drawn" moment: a tick within an interval
+ * of the timer's draw does not draw, and a tick that draws restarts the timer,
+ * so neither hand draws within `every` of the other.
  *
  * `due` gates every redraw because `update`'s argument is evaluated before
  * `update` can decline it: off a terminal (and without `logLines`) nothing is
@@ -254,8 +255,12 @@ export function clockedLine(stream, compose, { every, opening }) {
   // would skip every such firing — halving the cadence of exactly the callers
   // this hand exists for. `unref` so a pending tick can never hold the process
   // open.
-  const ticking = setInterval(redraw, every);
-  ticking.unref();
+  const start = () => {
+    const timer = setInterval(redraw, every);
+    timer.unref();
+    return timer;
+  };
+  let ticking = start();
   const stop = () => {
     live = false;
     clearInterval(ticking);
@@ -264,6 +269,10 @@ export function clockedLine(stream, compose, { every, opening }) {
   return {
     tick() {
       if (live && performance.now() - drawnAt >= every) {
+        // Restart the timer from this draw. Left on its own schedule it would
+        // fire however much of an interval remained, and draw again that soon.
+        clearInterval(ticking);
+        ticking = start();
         redraw();
       }
     },

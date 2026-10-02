@@ -45,8 +45,9 @@ an immediate exit.
    round trip, and both of `find`'s passes on every read of a snapshot file they stream in, so
    neither calls `tick()`. **`tick()`** serves callers
    whose work is synchronous. It reads `performance.now()` and redraws if the interval is due: one
-   clock read and a compare, about 50 ns a call (measured). Both hands stamp one "last drawn"
-   moment. `countedPass` is rebuilt on it (label, count and tally, at one second), and
+   clock read and a compare, about 50 ns a call (measured). Both hands keep to one "last drawn"
+   moment, and a tick that draws restarts the timer, so neither draws within an interval of the
+   other. `countedPass` is rebuilt on it (label, count and tally, at one second), and
    `withProgress` uses it with `progressLine` at 250 ms. `createProgress` is unchanged for
    `restore` and the per-file upload bar, which push their own text and need no clock.
 2. **The walk ticks per entry *visited*, kept or not.** `walkDirs` wraps the callback it builds and

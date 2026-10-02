@@ -331,6 +331,44 @@ describe("clockedLine", () => {
     );
   });
 
+  it("a tick that draws restarts the timer, so the timer never draws an interval early", async (t) => {
+    // The fused pass mixes the hands: rows tick, and an upload's awaited I/O
+    // lets the timer fire. Left on its own schedule, a timer firing after a
+    // tick's draw would redraw sooner than `every` — `createProgress` lets
+    // anything past its own 100ms floor through. The mocked clock and the real
+    // one are separate here: the tick's gate reads `performance.now()`, the
+    // timer only moves when the test moves it.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const { stream } = fakeStream(true);
+    let composed = 0;
+    const line = clockedLine(stream, () => `${++composed}`, {
+      every: 200,
+      opening: "Starting…",
+    });
+
+    // Most of an interval passes on the timer's clock…
+    t.mock.timers.tick(150);
+    // …while the caller, never yielding, ticks until one is due on the real one.
+    const until = performance.now() + 5000;
+    while (composed === 0 && performance.now() < until) {
+      line.tick();
+    }
+    assert.equal(composed, 1, "expected a tick to draw");
+
+    // Clear `createProgress`' floor, so a timer draw now would be let through.
+    await setTimeout(150);
+    t.mock.timers.tick(100);
+    assert.equal(
+      composed,
+      1,
+      "expected no timer draw within `every` of the tick's",
+    );
+
+    t.mock.timers.tick(100);
+    assert.equal(composed, 2, "expected the timer to draw a full interval on");
+    line[Symbol.dispose]();
+  });
+
   it("a tick inside the interval composes nothing", (t) => {
     // Called once per directory entry, so the common case has to be a clock
     // read and a compare — never a line built and declined.
