@@ -8,8 +8,8 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { IntegrityError } from "../lib/error.mjs";
 
 // Offline tests for restore's degrade-on-a-missing-object behaviour: one object
-// absent from the bucket — or present but corrupt — must not abort the run. The
-// S3 reads are faked at the
+// absent from the bucket — or present but corrupt, or under a name this disk
+// refuses — must not abort the run. The S3 reads are faked at the
 // lib seam (docs/design/testing.md), so the skip, the continue, the end report
 // and the exit-code side effect are pinned without a bucket — but the restore
 // *planning* (lib/restore.mjs) and the real filesystem writes are left alone, so
@@ -76,11 +76,11 @@ mock.module("../lib/deletion-record.mjs", {
 const { restore } = await import("./restore.mjs");
 
 /**
- * The snapshot every test restores: four files under one member root, two of
+ * The snapshot most tests restore: four files under one member root, two of
  * them (`gone.txt`, `gone-copy.txt`) sharing content — so `planRestore` makes
  * the second a `copy` from wherever the first landed.
  */
-const snapshot = {
+const fourFiles = {
   entries: new Map([
     [
       "/data/first.txt",
@@ -101,6 +101,8 @@ const snapshot = {
   ]),
   dirs: ["/data"],
 };
+/** What `readRemoteSnapshot` returns; `fourFiles` unless a test swaps it. */
+let snapshot = fourFiles;
 
 /** @param {string} name */
 const named = (name) => Object.assign(new Error(name), { name });
@@ -111,6 +113,7 @@ let savedExitCode;
 let output;
 beforeEach(() => {
   savedExitCode = process.exitCode;
+  snapshot = fourFiles;
   failures = new Map();
   fetched = [];
   deletionRecords = new Map();
@@ -210,6 +213,102 @@ describe("restore with a corrupt object in the bucket", () => {
     assert.deepEqual(result.deleted, []);
     assert.equal(recordReads, 0);
     assert.equal(process.exitCode, 1);
+  });
+});
+
+describe("restore with a name this disk refuses", () => {
+  // A name component past 255 characters is refused wherever the suite runs —
+  // ENOENT on NTFS, ENAMETOOLONG on ext4 and APFS — so these drive the real
+  // filesystem's refusal rather than a faked error. Windows forbidding a form
+  // feed is the case that found this; length is the one every platform shares.
+  const long = "x".repeat(300);
+  const at = { size: 3, mtime: "2026-07-01T10:00:00.000Z" };
+  beforeEach(() => {
+    // Named so the snapshot's order is also sorted order.
+    snapshot = {
+      entries: new Map([
+        ["/data/a-first.txt", { ...at, hash: "aaa" }],
+        [`/data/b-${long}`, { ...at, hash: "bbb" }], // refused at the download
+        ["/data/c-copy.txt", { ...at, hash: "bbb" }], // a copy of the refused one
+        [`/data/d-${long}/inner.txt`, { ...at, hash: "ccc" }], // refused directory
+        ["/data/e-last.txt", { ...at, hash: "ddd" }],
+        [`/data/f-${long}`, { ...at, hash: "ddd" }], // refused at a dedup copy
+      ]),
+      dirs: ["/data"],
+    };
+  });
+
+  it("skips each refused file, restores the rest, and exits 1", async () => {
+    // The Windows run of the clean-room `edge` set stopped dead at its first
+    // form feed, eight files in, with the rest of the set never attempted.
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.restored, [
+      dest("a-first.txt"),
+      dest("c-copy.txt"),
+      dest("e-last.txt"),
+    ]);
+    assert.deepEqual(result.refused, [
+      dest(`b-${long}`),
+      dest(join(`d-${long}`, "inner.txt")),
+      dest(`f-${long}`),
+    ]);
+    assert.deepEqual(result.missing, []);
+    assert.deepEqual(result.corrupt, []);
+    assert.equal(readFileSync(dest("e-last.txt"), "utf8"), "ddd");
+    assert.equal(process.exitCode, 1);
+  });
+
+  it("fetches a refused file's content again for the next path that shares it", async () => {
+    // `c-copy.txt` is planned as a copy of `b-…`, which was never written; the
+    // content is sound, so it comes from the store rather than going down with
+    // the name. The refused directory never reaches a fetch at all.
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd"]);
+    assert.equal(readFileSync(dest("c-copy.txt"), "utf8"), "bbb");
+    assert.ok(result.restored.includes(dest("c-copy.txt")));
+  });
+
+  it("counts NTFS's EINVAL for a `:` in a name as refused too", async () => {
+    // Only Windows produces this one (the rename of a temp NTFS took for a
+    // stream), so it is the measured error rather than a real filesystem's.
+    snapshot = fourFiles;
+    failures.set(
+      "bbb",
+      Object.assign(new Error("EINVAL: invalid argument, rename"), {
+        code: "EINVAL",
+        path: dest("gone.txt"),
+      }),
+    );
+    const result = await restore([], { set: "photos", output });
+    assert.deepEqual(result.refused, [dest("gone.txt"), dest("gone-copy.txt")]);
+    assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
+  });
+});
+
+describe("restore with a local failure that isn't about one name", () => {
+  it("still aborts on a full disk", async () => {
+    // Carrying on would fail every remaining file the same way and bury the
+    // one message that matters under a list of them.
+    failures.set(
+      "bbb",
+      Object.assign(new Error("ENOSPC: no space left on device"), {
+        code: "ENOSPC",
+        path: dest("gone.txt"),
+      }),
+    );
+    await assert.rejects(restore([], { set: "photos", output }), {
+      code: "ENOSPC",
+    });
+    assert.equal(process.exitCode, savedExitCode);
+  });
+
+  it("still aborts on an ENOENT that names no path", async () => {
+    failures.set("bbb", Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    await assert.rejects(restore([], { set: "photos", output }), {
+      code: "ENOENT",
+    });
   });
 });
 

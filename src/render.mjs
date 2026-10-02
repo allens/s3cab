@@ -1189,13 +1189,13 @@ export function renderUpload(result) {
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
  * snapshot, then the existing files left untouched, then the names this volume
- * folded into an already-restored file, then any file whose stored content is
- * damaged, then any file whose content the bucket no longer holds. All lists
- * are given in full, never truncated: each entry is a file the user asked for
- * and didn't get, so name them all and say what to do about it (`--overwrite`
- * for the skipped, a separate `--output` for the collided, `upload --force` of
- * a surviving copy for the corrupt, `verify` for the missing — ADR-0030's
- * constructive fix). The missing block comes last so it is what remains on
+ * folded into an already-restored file, then the names it refused outright,
+ * then any file whose stored content is damaged, then any file whose content
+ * the bucket no longer holds. All lists are given in full, never truncated:
+ * each entry is a file the user asked for and didn't get, so name them all and
+ * say what to do about it (`--overwrite` for the skipped, a separate `--output`
+ * for the collided and the refused, `upload --force` of a surviving copy for
+ * the corrupt, `verify` for the missing — ADR-0030's constructive fix). The missing block comes last so it is what remains on
  * screen after a long run, and its exit code is set by the command. An empty
  * selection that did nothing at all says so plainly rather than emitting blank
  * output.
@@ -1211,6 +1211,7 @@ export function renderRestore({
   collided,
   missing,
   corrupt,
+  refused,
   deleted,
 }) {
   const sections = [];
@@ -1224,6 +1225,7 @@ export function renderRestore({
     collided.length ||
     missing.length ||
     corrupt.length ||
+    refused.length ||
     deleted.length
   ) {
     sections.push(
@@ -1276,6 +1278,29 @@ export function renderRestore({
       ].join("\n"),
     );
   }
+  if (refused.length) {
+    // A fault like the collision above, with sound content: this disk won't
+    // create a file by these names at all — a backup from Linux can carry a
+    // character Windows forbids, one from Windows a name too long for Linux.
+    // The offending character is usually invisible (a form feed, a vertical
+    // tab), so control characters are spelled out: here the name *is* the
+    // diagnosis.
+    const heading =
+      `Could not restore ${formatCount(refused.length)} ` +
+      `${plural(refused.length, "file")} — this disk doesn't allow ` +
+      `${refused.length === 1 ? "its name" : "their names"} ` +
+      `(a character it forbids, or longer than it accepts):`;
+    sections.push(
+      [
+        heading,
+        ...refused.map((path) => `  ${withVisibleControls(path)}`),
+        "",
+        "Restore them onto a disk that allows the names:",
+        "",
+        `  s3cab restore --set ${set} <path> --output <directory>`,
+      ].join("\n"),
+    );
+  }
   if (corrupt.length) {
     // The bucket holds these, but not the bytes that were backed up — the
     // integrity check refused them, so nothing was written. `verify` checks
@@ -1317,6 +1342,23 @@ export function renderRestore({
     return `Nothing to restore from '${set}' (snapshot ${snapshot}).`;
   }
   return sections.join("\n\n");
+}
+
+/**
+ * `path` with each control character spelled out as `\xNN` — a form feed reads
+ * `\x0c`, U+0085 `\x85` — for the restore report's refused names, where an
+ * invisible character is the likely reason the disk said no.
+ * @param {string} path
+ */
+function withVisibleControls(path) {
+  return [...path]
+    .map((char) => {
+      const code = /** @type {number} */ (char.codePointAt(0));
+      return code < 0x20 || (code >= 0x7f && code <= 0x9f)
+        ? `\\x${code.toString(16).padStart(2, "0")}`
+        : char;
+    })
+    .join("");
 }
 
 /**

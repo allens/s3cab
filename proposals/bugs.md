@@ -118,28 +118,25 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
 
 **Open:**
 
-- **`restore` stops dead at a name the destination filesystem refuses, abandoning files it
-  could still recover.** Found restoring the clean-room `edge` set on Windows
-  (2026-10-02, corpus staged from WSL). NTFS forbids control characters in names, so
-  `form\ffeed.txt` cannot be created, and the run died after 8 of 23 files with a raw
-  `ERROR: ENOENT: no such file or directory, open '…\edge\.formfeed.txt.s3cab-tmp'` — no
-  ADR-0030 headline, the path named is s3cab's temp sibling rather than the user's file, and the
-  form feed is invisible in it. `vertical\vtab.txt` sits behind it in the same set. It is the one
-  gap: restored path by path, the rest of `edge` came back byte-identical — the case-colliding
-  pair correctly refused ([ADR-0086](../docs/adr/0086-restore-collision-filesystem-equivalence.md)),
-  and leading/trailing spaces, U+0085, the NFC/NFD pair and the past-260-character path all
-  exact.
+- **`restore` can't write a file whose name is within 11 characters of the filesystem's
+  limit.** `writeFileAtomic` lands each download through a sibling temp named
+  `.<name>.s3cab-tmp`, 11 characters longer than the name, so a legal name of 245–255
+  characters (NTFS) or bytes (ext4) gets a temp the filesystem refuses. Measured 2026-10-02 with
+  a 250-character name: `ENOENT` on NTFS and `ENAMETOOLONG` on ext4 at the temp's open, while a
+  plain write to the name itself succeeds on both. `restore` now reports such a file as a name
+  "this disk doesn't allow" — false — and carries on without it. Fix shape: a temp name whose
+  length doesn't grow with the destination's (fixed-length, derived from it so a retry still
+  overwrites it), so the atomic write never needs more room than the file does.
 
-  This entry's other trigger, a corrupt object (clean-room run 3's finding A1), is fixed:
-  `restore` now catches `writeFileAtomic`'s `IntegrityError` per file, lists the file as
-  damaged, carries on and exits nonzero.
-
-  Fix shape: catch the refused write per file the same way — report it under the user's path,
-  count it with the unexplained faults, and continue. The `getObject` catch in
-  [src/commands/restore.mjs](../src/commands/restore.mjs) draws the right line — a network or
-  credentials failure is not one file's problem and should still abort — but the refused name
-  lands on the wrong side of it, as a plain `ENOENT` from the temp file's open; and it can also
-  throw outside that `try` (`mkdirSync` for a directory, `copyFile` for a dedup copy).
+- **On NTFS a `:` in a restored name reaches a data stream, not a file.** Windows reads
+  `a:b.txt` as the stream `b.txt` of a file `a`, so no call refuses it cleanly. Measured
+  2026-10-02: `writeFileAtomic`'s temp write succeeds — into a stream of a new, empty `.a` —
+  and only the rename fails, `EINVAL`, which `restore` reports as a refused name (right) while
+  leaving the empty `.a` in the restored tree (wrong). A dedup copy to such a name is worse:
+  `copyFile` to `a:b.txt` *succeeds*, so a copy step would put the content in a stream of `a`,
+  invisible in Explorer, and report the file restored. Fix shape: refuse a `:` in any name
+  component before writing whenever the destination is Windows-shaped (drive letter or UNC —
+  the `foldsCase` test), since asking NTFS is what goes wrong.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

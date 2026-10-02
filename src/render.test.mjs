@@ -1274,6 +1274,7 @@ const restoreResult = (over) => ({
   collided: [],
   missing: [],
   corrupt: [],
+  refused: [],
   deleted: [],
   ...over,
 });
@@ -1381,6 +1382,52 @@ describe("renderRestore", () => {
     assert.match(
       text,
       /\n {2}s3cab restore --set photos <path> --output <directory>/,
+    );
+  });
+
+  it("names every file this disk refused by name, its control characters spelled out", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["C:\\out\\edge\\plain.txt"],
+        refused: [
+          "C:\\out\\edge\\form\ffeed.txt",
+          "C:\\out\\edge\\nel\u0085.txt",
+        ],
+      }),
+    );
+    assert.match(
+      text,
+      /^Restored 1 file from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    // The form feed itself would print as nothing (or a page break), hiding the
+    // one character that explains the refusal.
+    assert.ok(
+      text.includes(
+        "\nCould not restore 2 files — this disk doesn't allow their names " +
+          "(a character it forbids, or longer than it accepts):\n" +
+          "  C:\\out\\edge\\form\\x0cfeed.txt\n" +
+          "  C:\\out\\edge\\nel\\x85.txt\n",
+      ),
+    );
+    assert.doesNotMatch(text, /[\f\u0085]/);
+    // The constructive fix (ADR-0030): somewhere the names can exist.
+    assert.match(
+      text,
+      /\n {2}s3cab restore --set photos <path> --output <directory>$/,
+    );
+  });
+
+  it("keeps the set/snapshot context when every requested file was refused", () => {
+    const text = renderRestore(
+      restoreResult({ refused: ["/home/me/" + "x".repeat(300)] }),
+    );
+    assert.match(
+      text,
+      /^Restored 0 files from 'photos' \(snapshot 2026-07-04T1000\)\.\n/,
+    );
+    assert.match(
+      text,
+      /\nCould not restore 1 file — this disk doesn't allow its name /,
     );
   });
 
