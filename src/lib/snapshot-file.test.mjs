@@ -163,6 +163,47 @@ describe("parseSnapshotStream", () => {
     assert.equal(completed, undefined);
   });
 
+  it("drops a last row torn inside the path, which looks whole but isn't", async () => {
+    // The dangerous tear, and the reason the last line is taken on the
+    // trailer's word rather than on its own looks: cut after the fourth tab and
+    // all four columns are populated, so the row parses — filing a real hash
+    // under a *prefix* of the real path. A live file matching that prefix whose
+    // size and mtime agree with the row would then be stored under another
+    // file's content hash. The cost of the rule is visible here too: with no
+    // trailer, a final row that *was* whole is dropped as well.
+    const text = [
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      `${hashB}\t34\t2026-06-01T12:00:00.000Z\t/home/me/photo`,
+    ].join("\n");
+
+    const { entries } = await parseSnapshotStream(Readable.from([text]), {
+      tolerant: true,
+    });
+
+    assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
+  });
+
+  it("keeps a parked file's last row, which its trailer vouches for", async () => {
+    // So the lookbehind costs a *gracefully* parked file nothing (ADR-0067):
+    // its last line is the `#END` trailer, which is the one line nothing can
+    // follow and so the one line that vouches for itself. Only a hard-killed
+    // file pays a dropped row.
+    const text = [
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      `${hashB}\t34\t2026-06-01T12:00:00.000Z\t/home/me/b.txt`,
+      "#END\tPARTIAL\t2026-06-12T08:20:44.500Z\t",
+    ].join("\n");
+
+    const { entries, status, completed } = await parseSnapshotStream(
+      Readable.from([text]),
+      { tolerant: true },
+    );
+
+    assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
+    assert.equal(status, "PARTIAL");
+    assert.equal(completed, "2026-06-12T08:20:44.500Z");
+  });
+
   it("tolerates a torn row only as the file's last line", async () => {
     // The tear an interrupted write leaves is always the tail. Damage in the
     // *body* is something else entirely, and forgiving it would quietly drop
@@ -1144,6 +1185,24 @@ describe("recoverWorkFile", () => {
     // And the snapshot landing consumes the recovered lookup, exactly as it
     // consumes a gracefully parked one.
     assert.ok(!existsSync(parkedPath(dir.path)));
+  });
+
+  it("leaves a rival's adoption alone when it finds nothing to adopt", async () => {
+    // Two `--resume` runs started together both see the work file; the rename is
+    // what settles which owns it, and the loser must adopt nothing rather than
+    // destroy what the winner took. Sequential calls are the deterministic
+    // stand-in for that race — the second is the loser, running against exactly
+    // the state the winner left. Checking for the file and *then* replacing the
+    // parked one would delete the winner's hashes here and fail on the rename.
+    await using dir = await mkTmpDir();
+    const files = [resolve(dir.path, "a.txt")];
+    killedRun(dir.path, files);
+
+    assert.equal(await recoverWorkFile(dir.path), true);
+    assert.equal(await recoverWorkFile(dir.path), false);
+
+    const parked = await readParkedLookup(dir.path);
+    assert.deepEqual([...(parked?.entries.keys() ?? [])], files);
   });
 
   it("does nothing when there is no work file to adopt", async () => {

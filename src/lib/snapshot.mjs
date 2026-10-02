@@ -624,9 +624,13 @@ export function progressLine({
     ? `${counts}${share}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
     : `${counts}${share} in ${elapsed}`;
   // A stop goes with the figures, not in the detail column, and two reasons point
-  // the same way. The figures are never shed — the budget below drops the path
-  // first and then the detail whole — so on the narrowest terminal the one thing
-  // the user is looking for survives. And the detail column is where `Uploading
+  // the same way. The figures are the last thing shed — the budget below drops
+  // the path first and then the detail whole — so the stop survives every width
+  // the figures themselves do. (Narrower than that and this returns an
+  // over-width line, which `createProgress`'s backstop cuts from the right,
+  // taking the stop with it. Accepted: a terminal too narrow for the counts has
+  // already lost the line, and buying the stop a width of its own would mean a
+  // shed order the figures no longer win.) And the detail column is where `Uploading
   // 1.2GB (55%)` lives, which *during* a stop is the answer to "how long is this
   // wait", so it is the last thing worth taking away: the second Ctrl+C is the
   // way out of waiting, and a user deciding whether to press it needs that

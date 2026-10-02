@@ -39,12 +39,23 @@ double Ctrl+C: 10,467,989 compressed bytes decompressing to 272,727 whole lines 
 The work file is read back, and offered to the user as a resumption. Three parts, and the third is
 the one the user actually meets:
 
-1. **A tolerant read.** `parseSnapshotStream` takes `{ tolerant }`: no `#END` required, and a final
-   row that is a prefix of one is dropped rather than throwing. Held rather than dropped as it is
-   met, so a torn row *followed by another line* still throws — mid-file damage is corruption, and
-   only the next line proves the tear wasn't the end. Every other reader stays strict, which is what
+1. **A tolerant read.** `parseSnapshotStream` takes `{ tolerant }`: no `#END` required, and the
+   file's final line dropped unread rather than throwing. Dropped **whatever it looks like**, via a
+   one-line lookbehind that parses each line only once a further line has followed it, because a
+   tear is not detectable from the line it leaves: cut after the fourth tab and all four columns are
+   populated, so the row parses — filing a real hash under a *prefix* of the real path, which a live
+   file matching that prefix's size and mtime would then be stored under. Refusing only the lines
+   that *look* torn catches the specimen below and misses that one. A row reaching the parser is
+   therefore one the reader has already proved whole, so malformed lines throw unconditionally —
+   mid-file damage is corruption in a work file too. Every other reader stays strict, which is what
    keeps [0082](0082-snapshot-end-trailer.md)'s trailer the truncation detector it was built to be.
    The flag is module-private in effect: `readParkedLookup` is its only caller.
+
+   The rule costs a *gracefully* parked file nothing: its last line is the `PARTIAL` trailer
+   ([0067](0067-park-hashes-on-interrupt.md)), which is the last thing written and so the one line
+   nothing can follow to be cut — it vouches for itself and for the row above it. A hard-killed file
+   pays one file re-hashed out of hundreds of thousands, which is the price of never reusing a hash
+   under the wrong name.
 
 2. **The file's mtime is its trust boundary.** A recovered file has no `#END` instant, and the
    obvious reading — "no boundary, so reuse on size+mtime alone" — silently drops 0085's guard for
@@ -56,9 +67,15 @@ the one the user actually meets:
 3. **The lock error leads with recovery.** `inProgressError` now offers two commands, the
    resumption first and the deletion second, in the user's own terms: *carry on from the file hashes
    it had already worked out*, or *start the pass over, reading those files again*. Both `snapshot`
-   and `backup` take `--resume`, which adopts the file (unlink-then-rename onto the parked name,
-   Windows's rename rule, as 0067 already does) and then leaves the ordinary parked-lookup path to
-   read it, prefer it over the previous snapshot, and delete it when a snapshot lands.
+   and `backup` take `--resume`, which adopts the file — one `rename` onto the parked name, with no
+   `existsSync` ahead of it and no unlink of the destination — and then leaves the ordinary
+   parked-lookup path to read it, prefer it over the previous snapshot, and delete it when a
+   snapshot lands. The single rename is the whole concurrency story: it *is* the claim, so of two
+   `--resume` runs started together only one can adopt the file and the other's rename fails
+   `ENOENT`, where checking first and replacing the parked file second would have the loser delete
+   the hashes the winner had just taken. Node's `rename` replaces an existing destination on Windows
+   too (libuv's `MoveFileEx` with `MOVEFILE_REPLACE_EXISTING`), so the unlink 0067's park path does
+   first was never load-bearing; it is dropped there as well.
 
 **One reader, one mode.** `readParkedLookup` reads tolerantly *always*, rather than branching on
 whether this file arrived by parking or by recovery. The branch would exist to be stricter with a
@@ -109,3 +126,5 @@ The unlock is the half the user wanted; the hashes they explicitly asked to thro
 **A work file from a *different, still-running* s3cab can be adopted if the user says so.** That is
 the cost of making the user the liveness check, and it is the same cost 0048 already accepted for
 `del`. The outcome is no worse than deleting it: both runs then write, and the loser's rename fails.
+*Reading* a file another run owns is the accepted cost; **deleting** its hashes is not, which is why
+two `--resume` runs settle their race on the rename rather than on a check (decision 3).

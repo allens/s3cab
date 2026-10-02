@@ -16,6 +16,7 @@ import {
   EXIT_INTERRUPTED,
   InterruptedError,
   OnlineOnlyFileError,
+  isENOENT,
 } from "./error.mjs";
 import { completionInstant, localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
@@ -360,10 +361,10 @@ export async function withSnapshotFile(
 
     if (park.signal.aborted) {
       // Park rather than discard: the same atomic rename, to the other name.
-      // Unlink first because Windows will not rename onto an existing file —
-      // and replacing is always right, since a resumed run re-records every row
-      // the file it replaces held, making each parked file a superset.
-      await unlink(parkedPath).catch(() => {});
+      // Replacing an existing parked file needs no unlink first (`rename`
+      // replaces on Windows too — see `recoverWorkFile`), and replacing is
+      // always right, since a resumed run re-records every row the file it
+      // replaces held, making each parked file a superset.
       await rename(tmpPath, parkedPath);
       throw interruptedError();
     }
@@ -470,15 +471,26 @@ const lastWrittenInstant = (path) =>
  * @returns {Promise<boolean>} Whether there was a work file to adopt
  */
 export async function recoverWorkFile(snapshotDir) {
-  const workPath = workFilePath(snapshotDir);
-  if (!existsSync(workPath)) {
-    return false;
+  // One `rename`, and no `existsSync` ahead of it: the rename *is* the claim, so
+  // two `--resume` runs started together can't both adopt the file — the loser's
+  // rename fails `ENOENT` and it adopts nothing. Checking first and then
+  // replacing the parked file would lose that race destructively, the loser
+  // unlinking the file the winner had just adopted, and that is the one outcome
+  // ADR-0092 doesn't accept: *reading* a file another run owns is harmless,
+  // deleting the hashes is the whole loss this exists to prevent.
+  //
+  // Replacing the existing parked file needs no unlink first — Node's `rename`
+  // replaces atomically on Windows too (libuv's `MoveFileEx` with
+  // `MOVEFILE_REPLACE_EXISTING`), which is the only reason one call can do both
+  // jobs.
+  try {
+    await rename(workFilePath(snapshotDir), parkedLookupPath(snapshotDir));
+  } catch (error) {
+    if (isENOENT(error)) {
+      return false;
+    }
+    throw error;
   }
-  // Unlink first for the reason the park path does: Windows will not rename onto
-  // an existing file.
-  const parkedPath = parkedLookupPath(snapshotDir);
-  await unlink(parkedPath).catch(() => {});
-  await rename(workPath, parkedPath);
   return true;
 }
 
@@ -847,7 +859,7 @@ export async function parseCompressedSnapshotStream(
  * snapshot.
  * @param {Readable} input - A decompressed snapshot TSV stream
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the `#END` trailer, and drop a final row torn mid-write. Off everywhere else, because for a *snapshot* both are the damage ADR-0082's trailer exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the `#END` trailer, and drop the final line unless that trailer is it — a row torn mid-write can look perfectly well-formed, so nothing but the trailer vouches for the last one. Off everywhere else, because for a *snapshot* both are the damage ADR-0082's trailer exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
  * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
  * @throws {AssertionError} When the stream ends without
  *   the `#END` trailer — a truncated snapshot (ADR-0082), which
@@ -873,20 +885,13 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   /** @type {string | undefined} */
   let completed;
   let complete = false;
-  /** @type {string | undefined} */
-  let torn;
 
-  const rl = createInterface({ input, crlfDelay: Infinity });
-
-  for await (const line of rl) {
-    if (line.trim() === "") {
-      continue;
-    }
-    // A torn row is forgivable only as the file's *last* line, so reaching
-    // another line after one means the damage is mid-file — corruption, not a
-    // work file that stopped mid-write. Checked here rather than at the tear
-    // because only the next line proves it wasn't the end.
-    assert(torn === undefined, `Malformed snapshot line: ${torn}`);
+  /**
+   * Parse one line into the state above. Split from the read loop because
+   * `tolerant` feeds it the line *behind* the one just read (see the loop).
+   * @param {string} line
+   */
+  const parseLine = (line) => {
     // The four columns, named for their *position* only: what each one holds
     // depends on the marker in col1 and is knowable only inside the branch that
     // has read it. col4 in particular is a path on four of the five row kinds and
@@ -949,7 +954,7 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
         status = col2.trim() || undefined;
         completed = col3.trim() || undefined;
       }
-      continue;
+      return;
     }
 
     // A file row — the only shape where all four columns are what their familiar
@@ -964,22 +969,53 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     const size = col2.trim();
     const mtime = col3.trim();
     const path = col4;
-    if (!(hash && size && mtime && path)) {
-      // Under `tolerant`, hold it rather than throwing: a work file's last row
-      // is a prefix of one, because the run died between the compressor's last
-      // flushed block and the end of the row it was writing (ADR-0092). Held,
-      // not dropped, so the assert at the top of the loop can still refuse it
-      // if it turns out not to be the last line.
-      assert(tolerant, `Malformed snapshot line: ${line}`);
-      torn = line;
-      continue;
-    }
+    // Unconditional, `tolerant` or not: a line that reaches here is one the
+    // reader has already proved whole, because tolerance lives entirely in the
+    // loop's lookbehind below rather than in a judgement about this line.
+    assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
 
     entries.set(path, {
       size: Number(size),
       mtime,
       hash,
     });
+  };
+
+  const rl = createInterface({ input, crlfDelay: Infinity });
+
+  // Under `tolerant` the last line is held back and parsed only once a further
+  // line proves it whole, because a work file's final line is a *prefix* of a
+  // row: the run died between the compressor's last flushed block and the end
+  // of the row it was writing (ADR-0092). A tear is not detectable from the
+  // line itself — one inside the path column leaves four populated fields and a
+  // filename that stops short, which would file a real hash under a prefix of a
+  // real path, and a live file matching that prefix's size and mtime would then
+  // have the wrong content's hash reused for it. So the final line is taken on
+  // the trailer's word rather than on its own looks. It costs a *gracefully*
+  // parked file nothing: its last line is the `#END` trailer (ADR-0067), so
+  // every row is vouched for and the held line is the trailer itself.
+  /** @type {string | undefined} */
+  let held;
+
+  for await (const line of rl) {
+    if (line.trim() === "") {
+      continue;
+    }
+    if (!tolerant) {
+      parseLine(line);
+      continue;
+    }
+    if (held !== undefined) {
+      parseLine(held);
+    }
+    held = line;
+  }
+
+  // `#END` is the one line that vouches for itself: a torn write can leave a
+  // prefix of a *row*, but the trailer is the last thing written, so nothing
+  // follows it to be cut. Any other held line is dropped unread.
+  if (held?.startsWith(END)) {
+    parseLine(held);
   }
 
   // The completeness check (ADR-0082): zstd decompression at the engines floor

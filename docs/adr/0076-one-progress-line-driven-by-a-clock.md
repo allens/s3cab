@@ -239,7 +239,10 @@ hard-killed with its work file stranded: the display gap and the data loss
 Three choices inside it:
 
 - **In the figures, not the detail column.** §7 sheds the path first and the detail whole, so a
-  stop placed in the never-shed segment survives the narrowest terminal — and the detail column is
+  stop placed in the last-shed segment survives every width the figures themselves do — narrower
+  than that, the line is already over budget and `createProgress`'s backstop cuts it from the
+  right, stop included, which is accepted because buying the stop a width of its own would mean a
+  shed order the counts no longer win. And the detail column is
   where `Uploading 1.2GB (55%)` lives, which during a stop is the answer to *"how long is this
   wait"* and so exactly what a user deciding whether to press again needs. It costs one sideways
   shift of the path column, once, on a deliberate state change rather than per frame.
