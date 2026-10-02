@@ -314,4 +314,36 @@ describe("progressLine", () => {
     );
     assert.match(line, /in\s+0s$/, line);
   });
+
+  it("says it is stopping, and keeps measuring what the stop is waiting for", () => {
+    // Both halves matter. The stop has to be on the line the eye is already on,
+    // because the handler's own message is a line that scrolls; and the file in
+    // flight has to keep reporting, because that percentage is what tells the
+    // user whether to wait or press Ctrl+C again.
+    const state = sending({
+      path: "/some/video.mp4",
+      loaded: 550_000_000,
+      total: 1_000_000_000,
+    });
+    const line = progressLine({ ...run, state, stopping: true, width: 200 });
+    assert.ok(line.includes("Stopping…"), line);
+    assert.ok(line.includes("Uploading 1.0GB (55%)"), line);
+    assert.ok(line.endsWith("/some/video.mp4"), line);
+  });
+
+  it("keeps the stop when the width leaves room for nothing else", () => {
+    // The shed order, from the other end: a stop is in the figures precisely so
+    // the narrowest terminal keeps it, where the detail and the path are gone.
+    const state = sending({
+      path: "/some/very/long/path.jpg",
+      loaded: 0,
+      total: 1_500_000,
+    });
+    const line = progressLine({ ...run, state, stopping: true, width: 55 });
+    assert.ok(
+      line.length < 55,
+      `expected under 55 columns, got ${line.length}`,
+    );
+    assert.match(line, /Stopping…$/, line);
+  });
 });

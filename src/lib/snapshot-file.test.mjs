@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -14,6 +20,7 @@ import {
   readParkedLookup,
   readSnapshot,
   readSnapshotFile,
+  recoverWorkFile,
   snapshotFileName,
   snapshotMoment,
   snapshotNames,
@@ -130,6 +137,46 @@ describe("parseSnapshotStream", () => {
       name: "AssertionError",
       message: /Truncated snapshot/,
     });
+  });
+
+  it("reads a work file's whole rows, dropping the one it died mid-write", async () => {
+    // ADR-0092: a hard-killed run's file has no trailer — it never reached one
+    // — and its last row is a prefix, cut between the compressor's last flushed
+    // block and the end of the line. Both are the *expected* state here, where
+    // for a snapshot they are damage. The torn row is the shape measured on a
+    // real work file: hash and size intact, the mtime cut in half, no path.
+    const text = [
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      `${hashA}\t34\t2026-06-01T12:00:00.000Z\t/home/me/b.txt`,
+      `${hashA}\t2806546623\t2026-07-26T17:21:28`,
+    ].join("\n");
+
+    const { entries, completed } = await parseSnapshotStream(
+      Readable.from([text]),
+      { tolerant: true },
+    );
+
+    assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
+    // No trailer means no completion instant — `readParkedLookup` is what
+    // substitutes the file's mtime for it (ADR-0085's boundary).
+    assert.equal(completed, undefined);
+  });
+
+  it("tolerates a torn row only as the file's last line", async () => {
+    // The tear an interrupted write leaves is always the tail. Damage in the
+    // *body* is something else entirely, and forgiving it would quietly drop
+    // rows from the middle of a lookup, so the tolerance stops at the last line.
+    const text = [
+      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      `${hashA}\t34\t2026-06-01T12:00:00.000Z`,
+      `${hashA}\t56\t2026-06-01T12:00:00.000Z\t/home/me/c.txt`,
+    ].join("\n");
+
+    await assert.rejects(
+      parseSnapshotStream(Readable.from([text]), { tolerant: true }),
+      { name: "AssertionError", message: /Malformed snapshot line/ },
+    );
   });
 
   it("reads the trailer's status and completion instant", async () => {
@@ -747,10 +794,14 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     await assert.rejects(
       withSnapshotFile(dir.path, "2026-06-23T1000", async () => {}),
       (/** @type {Error} */ error) => {
-        // ADR-0030: goal-framed headline, then the copy-pasteable fix naming
-        // the actual file — gated on nothing else running.
+        // ADR-0030: goal-framed headline, then the copy-pasteable fixes, gated
+        // on nothing else running. Recovery leads (ADR-0092) — the file holds
+        // the hashes the dead run had already worked out — and the delete
+        // remains as the way to start the pass over.
         assert.match(error.message, /already in progress/);
-        assert.match(error.message, /delete the file and retry/);
+        assert.match(error.message, /carry on from the file hashes/);
+        assert.match(error.message, /s3cab backup --resume/);
+        assert.match(error.message, /start the pass over/);
         assert.ok(
           error.message.includes(tmpPath),
           "the fix must name the lock file's real path",
@@ -983,6 +1034,123 @@ describe("withSnapshotFile (park on interrupt)", () => {
 describe("readParkedLookup", () => {
   it("returns undefined when nothing is parked (the ordinary case)", async () => {
     await using dir = await mkTmpDir();
+    assert.equal(await readParkedLookup(dir.path), undefined);
+  });
+});
+
+// Recovering a hard-killed run's work file (ADR-0092). A second Ctrl+C, a power
+// cut or a kill runs no handler, so the file is left at the *lock* name with no
+// trailer and a torn last row — where a graceful park leaves a closed file under
+// the other name. `--resume` adopts it instead of throwing it away.
+describe("recoverWorkFile", () => {
+  const lockPath = (/** @type {string} */ dir) =>
+    resolve(dir, ".snapshot.tsv.zst");
+  const parkedPath = (/** @type {string} */ dir) =>
+    resolve(dir, ".snapshot.lookup.tsv.zst");
+
+  /**
+   * Leave a work file exactly as a hard kill leaves one: header, whole rows,
+   * then a row cut off mid-write. Built as bytes rather than by killing a real
+   * write, so the artifact under test is pinned to the shape measured on a real
+   * 280,277-file set — 272,692 whole rows, one torn line, no `#END`.
+   * @param {string} dir
+   * @param {string[]} files
+   */
+  const killedRun = (dir, files) => {
+    const text = [
+      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
+      ...files.map(
+        (path, i) => `${hashA}\t${i + 1}\t2026-06-01T12:00:00.000Z\t${path}`,
+      ),
+      `${hashA}\t2806546623\t2026-07-26T17:21:28`,
+    ].join("\n");
+    writeFileSync(lockPath(dir), zstdCompressSync(Buffer.from(text, "utf8")));
+  };
+
+  it("adopts the work file, so its hashes are there to reuse", async () => {
+    await using dir = await mkTmpDir();
+    const files = [resolve(dir.path, "a.txt"), resolve(dir.path, "b.txt")];
+    killedRun(dir.path, files);
+
+    assert.equal(await recoverWorkFile(dir.path), true);
+
+    // The rename *is* the recovery: the file moves from the name that means "a
+    // run is writing, keep out" to the one that means "here are hashes to
+    // reuse", which releases the lock and feeds the lookup in one motion.
+    assert.ok(
+      !existsSync(lockPath(dir.path)),
+      "recovery must release the lock it adopted",
+    );
+    assert.ok(existsSync(parkedPath(dir.path)));
+    const parked = await readParkedLookup(dir.path);
+    assert.deepEqual([...(parked?.entries.keys() ?? [])], files);
+  });
+
+  it("stands the file's mtime in for the completion instant it never got", async () => {
+    // Without one, `trustBoundary` reads undefined as "reuse on size and mtime
+    // alone" and the ADR-0085 ctime guard silently lapses for every recovered
+    // row. The mtime is later than every row that reached the disk and earlier
+    // than anything after the kill, so it vouches for exactly the right set.
+    await using dir = await mkTmpDir();
+    killedRun(dir.path, [resolve(dir.path, "a.txt")]);
+    await recoverWorkFile(dir.path);
+
+    const parked = await readParkedLookup(dir.path);
+
+    assert.ok(parked?.completed, "a recovered file must carry a boundary");
+    const boundary = Date.parse(parked.completed);
+    const { mtimeMs } = statSync(parkedPath(dir.path));
+    assert.equal(boundary, Math.ceil(mtimeMs));
+    // Rounded *up*, never truncated, for the reason `completionInstant` is: a
+    // boundary a fraction early distrusts the last rows written under it.
+    assert.ok(boundary >= mtimeMs);
+  });
+
+  it("unblocks the next run, which the leftover file was refusing", async () => {
+    await using dir = await mkTmpDir();
+    const files = [resolve(dir.path, "a.txt")];
+    killedRun(dir.path, files);
+
+    // Before: the lock is held by a run that no longer exists.
+    await assert.rejects(
+      writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+        identity: "photos",
+        dirs: [dir.path],
+        files,
+        excluded: [],
+        getProps: async () => ({
+          size: 3,
+          mtime: "2026-06-23T10:00:00.000Z",
+          hash: hashA,
+        }),
+      }),
+      /already in progress/,
+    );
+
+    await recoverWorkFile(dir.path);
+
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files,
+      excluded: [],
+      getProps: async () => ({
+        size: 3,
+        mtime: "2026-06-23T10:00:00.000Z",
+        hash: hashA,
+      }),
+    });
+    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    // And the snapshot landing consumes the recovered lookup, exactly as it
+    // consumes a gracefully parked one.
+    assert.ok(!existsSync(parkedPath(dir.path)));
+  });
+
+  it("does nothing when there is no work file to adopt", async () => {
+    // `--resume` on a clean set is not an error: the user cannot be expected to
+    // know whether the run they killed had got as far as opening the file.
+    await using dir = await mkTmpDir();
+    assert.equal(await recoverWorkFile(dir.path), false);
     assert.equal(await readParkedLookup(dir.path), undefined);
   });
 });

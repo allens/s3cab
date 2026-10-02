@@ -284,6 +284,32 @@ function parkSentinelHashes(snapshotsDir) {
 }
 
 /**
+ * Turn the set's newest snapshot into the *work file* a killed run leaves
+ * (ADR-0092) — `parkSentinelHashes`'s violent twin, and the difference is the
+ * whole point of `--resume`. A parked file was renamed aside on the way out by a
+ * run that got to say goodbye; this one is still sitting at the lock name,
+ * because nothing ran on the way out. So the trailer is cut off rather than
+ * restamped `PARTIAL`, and the last line is left a prefix of a row: the process
+ * died between the compressor's last flushed block and the end of the row it was
+ * writing.
+ * @param {string} snapshotsDir
+ */
+function killSentinelRun(snapshotsDir) {
+  const name = listSnapshotNames(snapshotsDir).at(0);
+  assert.ok(name, "expected the snapshot just taken");
+  const path = join(snapshotsDir, snapshotFileName(name));
+  const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
+  const rows = text
+    .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
+    .replace(/^#END.*\n?/m, "");
+  writeFileSync(
+    join(snapshotsDir, ".snapshot.tsv.zst"),
+    zstdCompressSync(Buffer.from(`${rows}${SENTINEL_HASH}\t12`, "utf8")),
+  );
+  unlinkSync(path);
+}
+
+/**
  * Rewrite the set's newest snapshot in place with sentinel hashes, leaving it as
  * the previous snapshot. The same trick as `parkSentinelHashes`, aimed at the
  * other hash source: a sentinel in the *next* snapshot can only have been reused
@@ -339,7 +365,7 @@ async function hashesIn(snapshotsDir) {
   return [...entries.values()].map((props) => props.hash);
 }
 
-describe("snapshot (hashes parked by an interrupted run)", () => {
+describe("snapshot (hashes an interrupted run left behind)", () => {
   /**
    * A fixture set and a clock pinned *relative to real time*, in whole minutes.
    *
@@ -493,6 +519,43 @@ describe("snapshot (hashes parked by an interrupted run)", () => {
     assert.ok(
       !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
       "a landed snapshot deletes the parked lookup however it was taken",
+    );
+  });
+
+  // The `--resume` plumbing end to end (ADR-0092). The lib tests pin what
+  // `recoverWorkFile` does to the files; this pins that the flag reaches it from
+  // the command, and that the adopted hashes are really reused by the pass that
+  // follows. Both halves in one test on purpose — the refusal is the whole reason
+  // the flag exists, and split apart either could pass while the pair was broken.
+  it("won't touch a killed run's work file, but --resume takes it over", async (t) => {
+    const { snapshotsDir, tick } = setUp(t);
+
+    tick(1);
+    await snapshot("photos", { rehash: true });
+    killSentinelRun(snapshotsDir);
+
+    // From the outside that file is exactly a run still going, so the next
+    // snapshot must refuse: ADR-0048 never breaks the lock on its own guess.
+    tick(2);
+    await assert.rejects(snapshot("photos", {}), /already in progress/);
+
+    await snapshot("photos", { resume: true });
+
+    // Every row came from the work file rather than being read again — and the
+    // sentinel is nowhere on disk, so it can have come from nothing else.
+    const hashes = await hashesIn(snapshotsDir);
+    assert.ok(hashes.length, "expected file rows in the new snapshot");
+    assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
+
+    // Adopted, then consumed like any other parked lookup: neither name is left
+    // behind to block the run after this one.
+    assert.ok(
+      !existsSync(join(snapshotsDir, ".snapshot.tsv.zst")),
+      "the work file must not survive the run that adopted it",
+    );
+    assert.ok(
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      "a landed snapshot deletes the lookup it was adopted into",
     );
   });
 });

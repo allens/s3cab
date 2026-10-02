@@ -99,6 +99,11 @@ export const commands = {
         description:
           "Re-hash every file instead of reusing unchanged files' hashes from the previous snapshot",
       },
+      resume: {
+        type: "boolean",
+        description:
+          "Carry on from the work file a killed run left behind, reusing the hashes it had already worked out",
+      },
       "include-online-only": {
         type: "boolean",
         description:
@@ -378,6 +383,11 @@ export const commands = {
       set: { description: "The backup set to back up (default: the only set)" },
     },
     options: {
+      resume: {
+        type: "boolean",
+        description:
+          "Carry on from the work file a killed run left behind, reusing the hashes it had already worked out",
+      },
       "include-online-only": {
         type: "boolean",
         description:

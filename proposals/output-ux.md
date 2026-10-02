@@ -95,6 +95,9 @@ niceties.
   real redraw lands rather than where the wall clock would put it. Re-adding the
   `currentFile = null` fails it with precisely the symptom that started all this: `1/3 in 0s`, no
   path.
+  The same file now covers the **stop** state the same way (ADR-0076, amended 2026-10-01): the
+  signal is raised from inside `through`, where the park handler is installed and listening, so the
+  assertion is that the draws after it carry `Stopping…` — not that some timer eventually noticed.
   _What is left for the fake clock proper:_ the three timing behaviours above, plus one more the
   `through` tick cannot reach — the concession sitting **after** the row rather than before it.
   Its only symptom is a draw landing in the gap between the count advancing and the file being

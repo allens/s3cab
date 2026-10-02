@@ -172,14 +172,26 @@ const parkedLookupPath = (snapshotDir) =>
   resolve(snapshotDir, ".snapshot.lookup.tsv.zst");
 
 /**
+ * The in-progress snapshot's own file — the temp the writer streams into, which
+ * doubles as the set's concurrency lock (ADR-0048; see {@link withSnapshotFile}
+ * for the two names' two meanings). Left behind by a run that died without its
+ * handler finishing, which is what {@link recoverWorkFile} adopts.
+ * @param {string} snapshotDir - The set's snapshots dir
+ */
+const workFilePath = (snapshotDir) => resolve(snapshotDir, ".snapshot.tsv.zst");
+
+/**
  * The interrupts a snapshot parks its work on. SIGINT (Ctrl+C) is the blessed,
  * documented path and works on every platform; SIGHUP/SIGTERM are best-effort —
  * closing the console window on Windows raises SIGHUP with a short grace period,
  * and a modest snapshot can finalise inside it. Best-effort is *safe* because
  * finalising ends in an atomic rename: either it completes (a valid parked file)
  * or it doesn't (the temp is left at the lock name, today's "delete and retry").
- * SIGKILL and power loss are out of scope by construction — no handler runs, so
- * the next run simply re-hashes: no harm, only time.
+ * SIGKILL and power loss see no handler at all, so nothing is parked — the work
+ * file is left at the lock name, and `--resume` is how the user takes it back
+ * ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md); it is
+ * not "no harm, only time", which is what 0067 assumed before the hashes turned
+ * out to be recoverable).
  */
 const PARK_SIGNALS = ["SIGINT", "SIGHUP", "SIGTERM"];
 
@@ -267,6 +279,7 @@ const interruptedError = () =>
  * @param {(stream: Writable, signal: AbortSignal) => Promise<void>} callbackFn - Callback receiving the write stream and the stop-cleanly signal
  * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
+ * @param {string} [options.resumeCommand] - The `--resume` command {@link inProgressError} offers when the lock is already held. Defaulted rather than required because the only production path in (`writeSnapshot` ← `generateSnapshot`) always passes the real one, while the test call sites that never hit the lock would otherwise all have to thread a string they don't care about
  * @returns {Promise<string>} Path to the created snapshot file
  * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
  */
@@ -274,7 +287,7 @@ export async function withSnapshotFile(
   snapshotDir,
   name,
   callbackFn,
-  { overwrite = false } = {},
+  { overwrite = false, resumeCommand = "s3cab backup --resume" } = {},
 ) {
   mkdirSync(snapshotDir, { recursive: true });
   const snapshotPath = resolve(snapshotDir, snapshotFileName(name));
@@ -285,7 +298,7 @@ export async function withSnapshotFile(
         `overwrite one. (Set S3CAB_DEBUG to overwrite while debugging.)`,
     );
   }
-  const tmpPath = resolve(snapshotDir, ".snapshot.tsv.zst");
+  const tmpPath = workFilePath(snapshotDir);
 
   // Acquire the lock: `wx` creates the temp file only if absent, atomically —
   // the kernel enforces mutual exclusion, not a check-then-write racing it
@@ -296,7 +309,7 @@ export async function withSnapshotFile(
     fd = await open(tmpPath, "wx");
   } catch (error) {
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
-      throw inProgressError(tmpPath);
+      throw inProgressError(tmpPath, resumeCommand);
     }
     throw error;
   }
@@ -395,6 +408,19 @@ export async function withSnapshotFile(
  * run that may have finished days earlier — every parked hash reads as touched
  * and is thrown away, which is precisely the re-hashing the parking exists to
  * avoid. The trailer's instant is the boundary that fits these rows (ADR-0085).
+ * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
+ * which a snapshot never is: a file parked by {@link recoverWorkFile} is a work
+ * file its run never closed, so it has no `#END` and its last row is torn. Always
+ * on, not only for a recovered file — a gracefully parked one simply has nothing
+ * for the tolerance to forgive, and one reader with one mode beats a "was this
+ * recovered?" branch to get wrong.
+ *
+ * That leaves a recovered file with no completion instant, and `undefined` there
+ * means "reuse on size and mtime alone" — dropping the ADR-0085 guard for every
+ * row it holds. So the file's own **mtime** stands in: later than every row that
+ * reached the disk, so it vouches for all of them, and earlier than anything that
+ * happened after the run died, so it vouches for nothing else. Rounded *up* to
+ * the millisecond for the reason `completionInstant` is.
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
  * @returns {Promise<{ entries: SnapshotEntries, completed?: string } | undefined>} The parked entries and when the parking was written, or undefined when none are parked
  */
@@ -404,26 +430,82 @@ export async function readParkedLookup(snapshotDir) {
     return undefined;
   }
   console.warn("Reusing the hashes parked by an interrupted snapshot");
-  const { entries, completed } = await readSnapshotFile(path);
-  return { entries, completed };
+  const { entries, completed } = await parseCompressedSnapshotStream(
+    createReadStream(path),
+    { tolerant: true },
+  );
+  return { entries, completed: completed ?? lastWrittenInstant(path) };
+}
+
+/**
+ * When a file was last written, as the UTC instant the `#END` column would have
+ * held — the stand-in trust boundary for a recovered work file, which carries no
+ * trailer of its own (see {@link readParkedLookup}).
+ * @param {string} path
+ */
+const lastWrittenInstant = (path) =>
+  new Date(Math.ceil(statSync(path).mtimeMs)).toISOString();
+
+/**
+ * Adopt the work file a killed run left behind, so the next pass reuses its
+ * hashes instead of re-reading those files
+ * ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)) — the
+ * `--resume` half of what {@link inProgressError} offers. The rename *is* the
+ * recovery: it moves the file from the name that means "a run is writing right
+ * now, keep out" to the name that means "nobody is writing; here are hashes to
+ * reuse", which releases the lock and feeds {@link readParkedLookup} in one
+ * motion.
+ *
+ * **The caller is the liveness check, and that is the whole safety argument** —
+ * none of the PID/age heuristics ADR-0048 rejected. `inProgressError` asks the
+ * user to confirm nothing is running before they pass `--resume`, exactly as it
+ * already does before they delete the file. Reading what is adopted stays
+ * harmless either way (ADR-0067): every hash is re-validated against the live
+ * file's size and mtime, so a stale row is re-hashed rather than trusted.
+ *
+ * Replaces an existing parked file rather than merging, on the same reasoning as
+ * the graceful park it mirrors: a run re-records every row the file it read held,
+ * so the newer file is normally a superset of the older.
+ * @param {string} snapshotDir - The set's snapshots dir
+ * @returns {Promise<boolean>} Whether there was a work file to adopt
+ */
+export async function recoverWorkFile(snapshotDir) {
+  const workPath = workFilePath(snapshotDir);
+  if (!existsSync(workPath)) {
+    return false;
+  }
+  // Unlink first for the reason the park path does: Windows will not rename onto
+  // an existing file.
+  const parkedPath = parkedLookupPath(snapshotDir);
+  await unlink(parkedPath).catch(() => {});
+  await rename(workPath, parkedPath);
+  return true;
 }
 
 /**
  * The lock-held error `withSnapshotFile` raises when the snapshot temp file
  * already exists (ADR-0048): either another snapshot/backup of this set is
- * running right now, or a crashed run left the file behind. Manual removal is
- * the only unlock — the message gives the exact command (ADR-0030), gated on
- * "if nothing is running": on POSIX, deleting a *live* run's file and
- * re-running can corrupt the store (Windows blocks the delete via the open
- * handle).
+ * running right now, or a crashed run left the file behind. Never auto-broken —
+ * the message gives the exact commands (ADR-0030), both gated on "if nothing is
+ * running": on POSIX, taking a *live* run's file and re-running can corrupt the
+ * store (Windows blocks it via the open handle).
+ *
+ * **Two remedies, recovery first** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)):
+ * the work file holds the hashes the dead run had already worked out, which on a
+ * long first pass is hours of reading, so offering only the delete threw that
+ * away by default. The delete stays as the way to start the pass over.
  * @param {string} tmpPath - The lock/temp file path (`.snapshot.tsv.zst`)
+ * @param {string} resumeCommand - The command that adopts the file instead, ready to paste
  */
-const inProgressError = (tmpPath) => {
+const inProgressError = (tmpPath, resumeCommand) => {
   const del = process.platform === "win32" ? "del" : "rm";
   return new Error(
     `A snapshot of this set is already in progress — or a previous one was ` +
       `interrupted and left its work file behind.\n` +
-      `If no snapshot or backup of this set is running now, delete the file and retry:\n` +
+      `If no snapshot or backup of this set is running now, carry on from the ` +
+      `file hashes it had already worked out:\n` +
+      `  ${resumeCommand}\n` +
+      `Or start the pass over, reading those files again:\n` +
       `  ${del} "${tmpPath}"`,
   );
 };
@@ -469,6 +551,8 @@ const inProgressError = (tmpPath) => {
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
  * @param {RowTransform} [args.through] - Pass-through applied to each hashed row before it reaches the TSV (`backup`'s object uploader)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
+ * @param {string} [args.resumeCommand] - Passed straight to {@link withSnapshotFile} for its lock-held error
+ * @param {() => void} [args.onStop] - Called once when the user asks the pass to stop (ADR-0067), so a caller's progress line can say so
  * @returns {Promise<string>} Path to the created snapshot file
  */
 export async function writeSnapshot(
@@ -483,12 +567,24 @@ export async function writeSnapshot(
     getProps,
     through,
     overwrite = false,
+    resumeCommand,
+    onStop,
   },
 ) {
   return withSnapshotFile(
     snapshotDir,
     moment.name,
     async (writeStream, signal) => {
+      // The park signal is created in here, under `withSnapshotFile`, because
+      // that is the scope holding the stream to finalise (ADR-0067) — so a
+      // caller that composed its progress line *before* this call has no way to
+      // learn of the stop. One listener hands it back out. On the abort itself,
+      // not between rows: the pass notices between files, and behind an upload
+      // that is minutes away on a multi-gigabyte one (ADR-0069), which is the
+      // whole interval the user spends wondering whether Ctrl+C did anything.
+      if (onStop) {
+        signal.addEventListener("abort", onStop, { once: true });
+      }
       writeStream.write(snapshotHeader({ moment, identity, dirs }));
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
@@ -510,7 +606,7 @@ export async function writeSnapshot(
         writeStream,
       );
     },
-    { overwrite },
+    { overwrite, resumeCommand },
   );
 }
 
@@ -699,19 +795,24 @@ export async function readSnapshotFile(path) {
  * first, so a live S3 request is never aborted on normal completion (the eager
  * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
  * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
+ * @param {object} [options]
+ * @param {boolean} [options.tolerant] - Passed straight to {@link parseSnapshotStream} — the work-file read, and nothing else
  * @returns {Promise<Snapshot>}
  * @throws {AssertionError} When the bytes are cut short — whichever layer
  *   notices, so a truncated snapshot reads the same on every Node (ADR-0082
  *   amendment 2)
  */
-export async function parseCompressedSnapshotStream(source) {
+export async function parseCompressedSnapshotStream(
+  source,
+  { tolerant = false } = {},
+) {
   const decompressed = createZstdDecompress();
   try {
     // The sink closes over the zstd stream rather than taking pipeline's sink
     // argument — the same object at runtime, but typed as a bare
     // AsyncIterable, which the parser's readline can't take.
     return await pipeline(source, decompressed, () =>
-      parseSnapshotStream(decompressed),
+      parseSnapshotStream(decompressed, { tolerant }),
     );
   } catch (error) {
     // Newer Node's zstd rejects a stream that ends mid-frame itself, before
@@ -745,12 +846,14 @@ export async function parseCompressedSnapshotStream(source) {
  * take `.entries` (`readSnapshotFile`); the remote reader surfaces the whole
  * snapshot.
  * @param {Readable} input - A decompressed snapshot TSV stream
+ * @param {object} [options]
+ * @param {boolean} [options.tolerant] - Read a **work file** rather than a snapshot ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)): accept a stream that ends without the `#END` trailer, and drop a final row torn mid-write. Off everywhere else, because for a *snapshot* both are the damage ADR-0082's trailer exists to make loud. Deliberately not a mode a caller outside this module reaches for: `readParkedLookup` is the only one that sets it
  * @returns {Promise<Snapshot>} The file entries, hashing errors, skipped entries, and parsed headers
  * @throws {AssertionError} When the stream ends without
  *   the `#END` trailer — a truncated snapshot (ADR-0082), which
  *   `isCorruptSnapshotError` classifies as damage rather than an S3 failure
  */
-export async function parseSnapshotStream(input) {
+export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   /** @type {SnapshotEntries} */
   const entries = new Map();
   /** @type {SnapshotErrors} */
@@ -770,6 +873,8 @@ export async function parseSnapshotStream(input) {
   /** @type {string | undefined} */
   let completed;
   let complete = false;
+  /** @type {string | undefined} */
+  let torn;
 
   const rl = createInterface({ input, crlfDelay: Infinity });
 
@@ -777,6 +882,11 @@ export async function parseSnapshotStream(input) {
     if (line.trim() === "") {
       continue;
     }
+    // A torn row is forgivable only as the file's *last* line, so reaching
+    // another line after one means the damage is mid-file — corruption, not a
+    // work file that stopped mid-write. Checked here rather than at the tear
+    // because only the next line proves it wasn't the end.
+    assert(torn === undefined, `Malformed snapshot line: ${torn}`);
     // The four columns, named for their *position* only: what each one holds
     // depends on the marker in col1 and is knowable only inside the branch that
     // has read it. col4 in particular is a path on four of the five row kinds and
@@ -854,7 +964,16 @@ export async function parseSnapshotStream(input) {
     const size = col2.trim();
     const mtime = col3.trim();
     const path = col4;
-    assert(hash && size && mtime && path, `Malformed snapshot line: ${line}`);
+    if (!(hash && size && mtime && path)) {
+      // Under `tolerant`, hold it rather than throwing: a work file's last row
+      // is a prefix of one, because the run died between the compressor's last
+      // flushed block and the end of the row it was writing (ADR-0092). Held,
+      // not dropped, so the assert at the top of the loop can still refuse it
+      // if it turns out not to be the last line.
+      assert(tolerant, `Malformed snapshot line: ${line}`);
+      torn = line;
+      continue;
+    }
 
     entries.set(path, {
       size: Number(size),
@@ -877,8 +996,12 @@ export async function parseSnapshotStream(input) {
   // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.
+  // `tolerant` exempts a work file, and only a work file: it is *expected* to
+  // have no trailer, because the run that was writing it never reached one
+  // (ADR-0092). Every other reader stays strict, which is what keeps this
+  // assert the truncation detector ADR-0082 built it to be.
   assert(
-    complete,
+    complete || tolerant,
     "Truncated snapshot: the closing #END marker is missing, so the file was cut short",
   );
 

@@ -17,6 +17,7 @@ import {
   listSnapshotNames,
   readParkedLookup,
   readSnapshotFile,
+  recoverWorkFile,
   snapshotFileName,
   snapshotMoment,
   writeSnapshot,
@@ -95,13 +96,25 @@ const trustBoundary = (at) =>
  * `rehash` means re-hash everything, so it suppresses the `lookup` — but the
  * previous snapshot is still *read*, because it is also the compare baseline and
  * (for `backup`) the upload baseline, which `--rehash` says nothing about.
+ *
+ * `resume` adopts the work file a killed run left behind
+ * ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)), which
+ * is why it happens *here*: adoption has to beat both the lock the write will
+ * take and the parked read just below. Before the `rehash` return too — under
+ * `--rehash` the hashes are unwanted but the unlock is the whole point, so the
+ * combination has to clear the file rather than trip over it.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
+ * @param {boolean} [options.resume] - Adopt the work file an interrupted run left behind, reusing the hashes it had already computed (`--resume`)
  * @returns {Promise<SnapshotBaseline>}
  */
-export async function readBaseline(set, { rehash } = {}) {
+export async function readBaseline(set, { rehash, resume } = {}) {
   const snapshotDir = set.snapshotsDir;
+
+  if (resume) {
+    await recoverWorkFile(snapshotDir);
+  }
 
   /** @type {SnapshotEntries | undefined} */
   let previous;
@@ -296,6 +309,12 @@ export async function generateSnapshot(
   // finished: a truthful sample of where the walk has got to either way.
   /** @type {string | null} */
   let currentFile = null;
+  // Whether the user has asked this pass to stop (ADR-0067's park). Read by the
+  // progress line, and set from `writeSnapshot`'s `onStop` below rather than from
+  // a handler of our own: the signal belongs to the scope that owns the open
+  // stream, and installing a second handler here would be a second answer to the
+  // same question. One-way — a park is never taken back.
+  let stopping = false;
   // Bytes this pass has got through, and the total it is heading for. The total
   // is the previous snapshot's size for each file the walk just found — costing
   // one Map lookup per file and not a single `stat`, which is what makes a byte
@@ -338,6 +357,12 @@ export async function generateSnapshot(
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: roots,
+    // What to offer if the lock turns out to be held (ADR-0092). Composed here
+    // because this is the one scope that knows both halves: the set's name, and
+    // which command is running — `transfer` already tells those apart for the
+    // announcement line above, so naming the wrong one is not possible.
+    resumeCommand: `s3cab ${transfer ? "backup" : "snapshot"} ${set.name} --resume`,
+    onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,
       bytesTotal,
@@ -345,6 +370,7 @@ export async function generateSnapshot(
       transfer,
       hashing: () => hashing,
       currentFile: () => currentFile,
+      stopping: () => stopping,
     })(files),
     excluded,
     skipped,
@@ -438,9 +464,10 @@ export async function generateSnapshot(
  * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min   Uploading 999.9MB (55%) …/ragged.jpg
  * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min                            …/notes.txt
  * 4,182/58,310   38% of   2.4GB in 8 sec
+ * 4,182/58,310   38% of   2.4GB in 8 sec  Stopping…  Uploading 999.9MB (55%) …/ragged.jpg
  * ```
  *
- * The middle line is the ordinary case, and the common one: no verb, because
+ * The second line is the ordinary case, and the common one: no verb, because
  * nothing in flight has taken long enough to be worth measuring, but the path is
  * still there — going by several times a second on a set of small files, which
  * is what a working line looks like.
@@ -470,6 +497,7 @@ export async function generateSnapshot(
  * @param {() => HashProgress | null} args.hashing - The hash in flight, if one is
  * @param {() => string | null} [args.currentFile] - The file in hand, named even when
  *   it is too fast to earn the detail above
+ * @param {() => boolean} [args.stopping] - Whether the user has asked the pass to stop
  */
 function withProgress({
   total,
@@ -478,6 +506,7 @@ function withProgress({
   transfer,
   hashing,
   currentFile,
+  stopping,
 }) {
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
@@ -495,6 +524,7 @@ function withProgress({
           state: transfer?.(),
           hashing: hashing(),
           currentFile: currentFile?.(),
+          stopping: stopping?.(),
           width: process.stderr.columns,
         }),
       );
@@ -566,6 +596,7 @@ function withProgress({
  * @param {TransferState} [args.state] - Absent when the pass only hashes
  * @param {HashProgress | null} [args.hashing] - The hash in flight, if one is
  * @param {string | null} [args.currentFile] - The file in hand, when nothing has earned a name
+ * @param {boolean} [args.stopping] - The user has asked the pass to stop and it is finishing the file in hand (ADR-0067)
  * @param {number} [args.width] - Columns available (absent = unbounded)
  * @returns {string}
  */
@@ -578,6 +609,7 @@ export function progressLine({
   state,
   hashing,
   currentFile,
+  stopping,
   width,
 }) {
   // Every field before the path is fixed width, so the path starts at the same
@@ -591,6 +623,21 @@ export function progressLine({
   const run = state
     ? `${counts}${share}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
     : `${counts}${share} in ${elapsed}`;
+  // A stop goes with the figures, not in the detail column, and two reasons point
+  // the same way. The figures are never shed — the budget below drops the path
+  // first and then the detail whole — so on the narrowest terminal the one thing
+  // the user is looking for survives. And the detail column is where `Uploading
+  // 1.2GB (55%)` lives, which *during* a stop is the answer to "how long is this
+  // wait", so it is the last thing worth taking away: the second Ctrl+C is the
+  // way out of waiting, and a user deciding whether to press it needs that
+  // percentage. The cost is the path column shifting right once, at the moment
+  // the state changes — a one-off on a deliberate event, not the per-frame
+  // shuffle the padding exists to prevent.
+  //
+  // The handler also prints a retained line saying what the stop will save
+  // (`parkOnInterrupt`). That line scrolls; this one is where the eye already is,
+  // and it is the only thing on screen still being repainted.
+  const head = stopping ? `${run}  Stopping…` : run;
 
   const detail = activity(
     state?.current ?? null,
@@ -598,7 +645,7 @@ export function progressLine({
     currentFile ?? null,
   );
   if (!detail) {
-    return run;
+    return head;
   }
   // Two budgets, because the two layouts spend different numbers of spaces:
   // `run + "  " + detail` when the path is dropped, and one more space before the
@@ -606,13 +653,13 @@ export function progressLine({
   // last cell makes some terminals wrap on their own. Budgeting the whole line
   // against the wider layout would shed the detail at the one width where it
   // fits exactly without a path.
-  const forDetail = (width ?? Infinity) - run.length - 3;
+  const forDetail = (width ?? Infinity) - head.length - 3;
   const forBoth = forDetail - 1;
   if (forDetail < detail.text.length) {
     // Not even the figures fit. The counts are the line's reason for existing,
     // so they win: shedding the detail whole beats letting the backstop in
     // lib/progress.mjs cut it mid-word.
-    return run;
+    return head;
   }
   // Pad the detail so the path column holds still — but only while that leaves
   // the path room to be worth printing. On a narrow terminal a fixed column the
@@ -626,11 +673,11 @@ export function progressLine({
     // (`Uploading 1.8GB (27%)`); a bare current file is *only* the path, so
     // there is nothing left to print and the line ends at the figures rather
     // than at two trailing spaces.
-    return detail.text ? `${run}  ${detail.text}` : run;
+    return detail.text ? `${head}  ${detail.text}` : head;
   }
   // `text` is empty only when the detail is a bare path *and* the padding was
   // shed — pad and path both gone, so the two-space gap is the whole separator.
-  return text ? `${run}  ${text} ${shown}` : `${run}  ${shown}`;
+  return text ? `${head}  ${text} ${shown}` : `${head}  ${shown}`;
 }
 
 /**
