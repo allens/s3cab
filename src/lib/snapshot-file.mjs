@@ -496,6 +496,22 @@ export async function recoverWorkFile(snapshotDir) {
 }
 
 /**
+/**
+ * Refuse up front when the set's work file is already there — the lock
+ * {@link withSnapshotFile} would fail to take — so the refusal comes before a
+ * store LIST and a walk rather than after them. A fail-fast only, never the
+ * guard: two runs started together both pass here, and the `wx` open still
+ * stops the second.
+ * @param {string} snapshotDir - The set's snapshots dir
+ * @param {string} resumeCommand - The `--resume` command {@link inProgressError} offers
+ */
+export function assertNoWorkFile(snapshotDir, resumeCommand) {
+  const tmpPath = workFilePath(snapshotDir);
+  if (existsSync(tmpPath)) {
+    throw inProgressError(tmpPath, resumeCommand);
+  }
+}
+
  * The lock-held error `withSnapshotFile` raises when the snapshot temp file
  * already exists (ADR-0048): either another snapshot/backup of this set is
  * running right now, or a crashed run left the file behind. Never auto-broken —

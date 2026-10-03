@@ -84,7 +84,10 @@ export async function backup(setName, options = {}) {
 
   // Named rather than passed whole: `backup` has no `--rehash`, and handing
   // `readBaseline` the raw options bag would quietly grant it one.
-  const baseline = await readBaseline(set, { resume: options.resume });
+  const baseline = await readBaseline(set, {
+    command: "backup",
+    resume: options.resume,
+  });
   const { name: since, previous, previousErrors } = baseline;
   const stored = await storedHashes({
     bucket: set.bucket,
