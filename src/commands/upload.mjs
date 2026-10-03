@@ -5,6 +5,7 @@ import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { tildeify } from "../lib/home.mjs";
 import { objectKey, putObject } from "../lib/objects.mjs";
 import { normalizeSnapshotName } from "../lib/snapshot-file.mjs";
+import { shellCommand } from "../lib/style.mjs";
 import { fileChange, uploadDir, uploadSnapshot } from "../lib/upload.mjs";
 import { prop } from "./prop.mjs";
 
@@ -263,7 +264,7 @@ const fileUnconfirmedError = (path, target, { reason, cause }) => {
       `s3cab stores a file only under a fingerprint it can confirm still ` +
       `matches, so nothing was uploaded. Try again once the file has stopped ` +
       `changing:\n` +
-      `  s3cab upload ${target} --file ${path}`,
+      `  ${shellCommand(`s3cab upload ${target} --file ${path}`)}`,
     { cause },
   );
 };

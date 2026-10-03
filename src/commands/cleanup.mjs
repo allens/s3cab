@@ -6,7 +6,7 @@ import { countOf, formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { unreadableMessage } from "../lib/referenced.mjs";
-import { isInteractive } from "../lib/style.mjs";
+import { isInteractive, shellCommand } from "../lib/style.mjs";
 
 /**
  * Reclaim storage held by orphaned objects — `objects/<hash>` entries no snapshot
@@ -79,11 +79,11 @@ export async function cleanup(bucket, options = {}) {
   if (!dryRun && !force && !isInteractive(process.stdin)) {
     throw new Error(
       `Reclaiming storage deletes objects, and there is no terminal to ` +
-        `confirm on.\n` +
+        `confirm on.\n\n` +
         `Preview what would be reclaimed:\n` +
-        `  s3cab cleanup ${bucket} --dry-run\n` +
+        `  ${shellCommand(`s3cab cleanup ${bucket} --dry-run`)}\n\n` +
         `Or reclaim without a prompt:\n` +
-        `  s3cab cleanup ${bucket} --force`,
+        `  ${shellCommand(`s3cab cleanup ${bucket} --force`)}`,
     );
   }
 
@@ -184,9 +184,9 @@ export async function cleanup(bucket, options = {}) {
     throw new Error(
       `Refusing to delete: the repository is missing ` +
         `${countOf(missing, "referenced object")} — it is already losing data, ` +
-        `so this is not the moment to reclaim.\n` +
+        `so this is not the moment to reclaim.\n\n` +
         `Check them with:\n` +
-        `  s3cab verify ${bucket}`,
+        `  ${shellCommand(`s3cab verify ${bucket}`)}`,
     );
   }
 

@@ -3,6 +3,7 @@ import { loadSet } from "../lib/env.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
+import { shellCommand } from "../lib/style.mjs";
 import {
   fileChangedError,
   storedHashes,
@@ -230,6 +231,6 @@ const uploadFailedError = (cause, set, name) =>
       `The snapshot of what's on this computer is saved, so nothing has to be ` +
       `read or hashed again. Once the problem is sorted, carry on from where it ` +
       `stopped:\n` +
-      `  s3cab upload ${set} --snapshot ${name}`,
+      `  ${shellCommand(`s3cab upload ${set} --snapshot ${name}`)}`,
     { cause },
   );

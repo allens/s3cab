@@ -13,8 +13,11 @@
 // remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`unrestorable.mjs`/
 // `verify.mjs` are pure planners with no runtime imports at all. Putting
 // the vocabulary with its producer would drag the SDK into three pure modules
-// and their tests to flatten an array. So this module imports **nothing** and
-// every consumer — producer included — depends on it.
+// and their tests to flatten an array. So this module imports nothing beyond the
+// builtin-only style gate, and every consumer — producer included — depends on
+// it.
+
+import { shellCommand } from "./style.mjs";
 
 /**
  * One referenced path within a set: the `sizes` its snapshot rows record and the
@@ -209,7 +212,8 @@ export const unreadableMessage = ({ names, bucket, consequence, lead }) => {
     `${lead ? `${lead} — ${subject}` : subject.charAt(0).toUpperCase() + subject.slice(1)} ` +
       `can't be read, so ${consequence}:`,
     ...names.map((name) => `  ${name}`),
+    ``,
     `Check ${one ? "it" : "them"} with:`,
-    `  s3cab verify ${bucket}`,
+    `  ${shellCommand(`s3cab verify ${bucket}`)}`,
   ].join("\n");
 };

@@ -21,6 +21,7 @@ import {
 } from "./error.mjs";
 import { completionInstant, localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
+import { shellCommand } from "./style.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { RehashReason } from "./file-props.mjs" */
@@ -496,7 +497,6 @@ export async function recoverWorkFile(snapshotDir) {
 }
 
 /**
-/**
  * Refuse up front when the set's work file is already there — the lock
  * {@link withSnapshotFile} would fail to take — so the refusal comes before a
  * store LIST and a walk rather than after them. A fail-fast only, never the
@@ -512,6 +512,7 @@ export function assertNoWorkFile(snapshotDir, resumeCommand) {
   }
 }
 
+/**
  * The lock-held error `withSnapshotFile` raises when the snapshot temp file
  * already exists (ADR-0048): either another snapshot/backup of this set is
  * running right now, or a crashed run left the file behind. Never auto-broken —
@@ -530,12 +531,12 @@ const inProgressError = (tmpPath, resumeCommand) => {
   const del = process.platform === "win32" ? "del" : "rm";
   return new Error(
     `A snapshot of this set is already in progress — or a previous one was ` +
-      `interrupted and left its work file behind.\n` +
+      `interrupted and left its work file behind.\n\n` +
       `If no snapshot or backup of this set is running now, carry on from the ` +
       `file hashes it had already worked out:\n` +
-      `  ${resumeCommand}\n` +
+      `  ${shellCommand(resumeCommand)}\n\n` +
       `Or start the pass over, reading those files again:\n` +
-      `  ${del} "${tmpPath}"`,
+      `  ${shellCommand(`${del} "${tmpPath}"`)}`,
   );
 };
 
@@ -696,7 +697,7 @@ function notFoundError(snapshotDir, name) {
     return new Error(
       `Snapshot '${name}' not found — there are no snapshots in ` +
         `'${tildeify(snapshotDir)}' yet.\n` +
-        `Take one with:\n  s3cab snapshot`,
+        `\nTake one with:\n  ${shellCommand("s3cab snapshot")}`,
     );
   }
   return new Error(

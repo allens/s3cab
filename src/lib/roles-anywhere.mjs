@@ -17,6 +17,7 @@ import {
 import { parseEnvFile } from "./env.mjs";
 import { RolesAnywhereSessionError, ValidationError } from "./error.mjs";
 import { s3cabDir, tildeify } from "./home.mjs";
+import { shellCommand } from "./style.mjs";
 
 // The machine-level IAM Roles Anywhere identity (ADR-0057/0058): one self-signed
 // CA + one client certificate, shared by every set in RA mode the way sets share
@@ -392,9 +393,9 @@ export const identityEnvPath = () => identityPath("env");
  * @param {string} [bucket] - The set's bucket, or `<bucket>` when unknown.
  */
 export const setupSteps = (bucket = "<bucket>") =>
-  `  s3cab aws ${bucket} --roles-anywhere
+  `  ${shellCommand(`s3cab aws ${bucket} --roles-anywhere`)}
 then deploy the printed template, and capture its ARNs into the identity:
-  s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`;
+  ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`)}`;
 
 /**
  * The name of the CloudFormation stack `s3cab aws <bucket> --roles-anywhere`

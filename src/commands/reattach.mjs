@@ -16,6 +16,7 @@ import {
   writeSet,
   writeSetExclude,
 } from "../lib/sets.mjs";
+import { shellCommand } from "../lib/style.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
@@ -72,7 +73,7 @@ export async function reattach(name, directories = [], options = {}) {
   if (!options.bucket) {
     throw new ParseArgsError(
       `Reattaching needs the bucket holding the set:\n` +
-        `  s3cab reattach ${name} --bucket <bucket>`,
+        `  ${shellCommand(`s3cab reattach ${name} --bucket <bucket>`)}`,
     );
   }
   const bucket = options.bucket;

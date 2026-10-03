@@ -31,7 +31,15 @@ import { promptYesNo } from "./lib/prompt.mjs";
 import { keyTail } from "./lib/provider.mjs";
 import { NO_SETS_MESSAGE } from "./lib/sets.mjs";
 import { setHasFindings } from "./lib/verify.mjs";
-import { bold, cyan, green, isInteractive, red, yellow } from "./lib/style.mjs";
+import {
+  bold,
+  cyan,
+  green,
+  isInteractive,
+  red,
+  shellCommand,
+  yellow,
+} from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { ListResult } from "./commands/list.mjs" */
@@ -917,9 +925,10 @@ function problemDetail(p) {
  * `skipped`/`errors`, which the *pass* counted rather than the diff, so a first
  * backup (which runs no diff) still reports them.
  * @param {BackupResult} result
+ * @param {RenderContext} [context]
  * @returns {string}
  */
-export function renderBackup(result) {
+export function renderBackup(result, { color = false } = {}) {
   const { set, snapshot, skipped, errors, comparison } = result;
   const lines = [
     `Backed up '${set}' → snapshot ${snapshot}`,
@@ -944,7 +953,9 @@ export function renderBackup(result) {
   // offering it would be busywork dressed as a next step.
   if (skipped || errors || (comparison && changed(comparison))) {
     const since = comparison?.since ? `--since ${comparison.since} ` : "";
-    lines.push(`  s3cab compare ${set} ${since}--until ${snapshot}`);
+    lines.push(
+      `  ${shellCommand(`s3cab compare ${set} ${since}--until ${snapshot}`, color)}`,
+    );
   }
 
   return lines.join("\n");
@@ -1125,9 +1136,10 @@ function objectUploadLine(head, candidates, uploaded) {
  * folder seeded into the store (objects only, no snapshot), sharing that same
  * content-uploaded line under a "Seeded …" headline.
  * @param {UploadResult} result
+ * @param {RenderContext} [context]
  * @returns {string}
  */
-export function renderUpload(result) {
+export function renderUpload(result, { color = false } = {}) {
   if (result.mode === "snapshot") {
     const { set, snapshot, candidates, uploaded } = result;
     return objectUploadLine(
@@ -1153,7 +1165,7 @@ export function renderUpload(result) {
         `\n\nLeft ${countOf(onlineOnly.length, "file")} online rather than ` +
         `downloading them: this computer holds a placeholder for each, not the ` +
         `contents.\nTo store them off-vendor, back the set up with room for ` +
-        `them on this disk:\n  s3cab backup ${set} --include-online-only`;
+        `them on this disk:\n  ${shellCommand(`s3cab backup ${set} --include-online-only`, color)}`;
     }
     if (skipped.length === 0) {
       return line;
@@ -1176,7 +1188,7 @@ export function renderUpload(result) {
       ``,
       `Nothing references them, so there is nothing to repair — a backup will ` +
         `store them:`,
-      `  s3cab backup ${set}`,
+      `  ${shellCommand(`s3cab backup ${set}`, color)}`,
     ].join("\n");
   }
   const { key, size, uploaded } = result;
@@ -1200,20 +1212,24 @@ export function renderUpload(result) {
  * selection that did nothing at all says so plainly rather than emitting blank
  * output.
  * @param {RestoreResult} result
+ * @param {RenderContext} [context]
  * @returns {string}
  */
-export function renderRestore({
-  set,
-  bucket,
-  snapshot,
-  restored,
-  skipped,
-  collided,
-  missing,
-  corrupt,
-  refused,
-  deleted,
-}) {
+export function renderRestore(
+  {
+    set,
+    bucket,
+    snapshot,
+    restored,
+    skipped,
+    collided,
+    missing,
+    corrupt,
+    refused,
+    deleted,
+  },
+  { color = false } = {},
+) {
   const sections = [];
   // The count line carries the set/snapshot context, so it leads whenever
   // anything happened — including the wrote-nothing-but-skipped case (every
@@ -1273,8 +1289,7 @@ export function renderRestore({
         ...collided.map((path) => `  ${path}`),
         "",
         "Keep both versions by restoring a colliding path into its own directory:",
-        "",
-        `  s3cab restore --set ${set} <path> --output <directory>`,
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
       ].join("\n"),
     );
   }
@@ -1296,8 +1311,7 @@ export function renderRestore({
         ...refused.map((path) => `  ${withVisibleControls(path)}`),
         "",
         "Restore them onto a disk that allows the names:",
-        "",
-        `  s3cab restore --set ${set} <path> --output <directory>`,
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
       ].join("\n"),
     );
   }
@@ -1317,8 +1331,7 @@ export function renderRestore({
         ...corrupt.map((path) => `  ${path}`),
         "",
         "If an unchanged copy of one of these files survives elsewhere, upload it again to repair the backup:",
-        "",
-        `  s3cab upload ${set} --file <path> --force`,
+        `  ${shellCommand(`s3cab upload ${set} --file <path> --force`, color)}`,
       ].join("\n"),
     );
   }
@@ -1333,8 +1346,7 @@ export function renderRestore({
         ...missing.map((path) => `  ${path}`),
         "",
         "The rest of the restore finished. To check the other backups in this bucket:",
-        "",
-        `  s3cab verify ${bucket}`,
+        `  ${shellCommand(`s3cab verify ${bucket}`, color)}`,
       ].join("\n"),
     );
   }

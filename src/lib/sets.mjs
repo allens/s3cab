@@ -5,6 +5,7 @@ import { isENOENT, ValidationError } from "./error.mjs";
 import { updateEnvFile } from "./env-file.mjs";
 import { assertPathSegment, s3cabDir } from "./home.mjs";
 import { parseLines } from "./read-lines.mjs";
+import { shellCommand } from "./style.mjs";
 
 /** @import { Dirent } from "node:fs" */
 
@@ -340,10 +341,10 @@ export function readSet(name) {
   if (!bucket) {
     throw new Error(
       `Backup set '${name}' has no bucket to back up to ` +
-        `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n` +
+        `(no S3CAB_BUCKET in ${setEnvPath(name)}).\n\n` +
         `To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set ` +
         `directory and create it again:\n` +
-        `  s3cab setup --set ${name} --bucket <bucket> <directory>...`,
+        `  ${shellCommand(`s3cab setup --set ${name} --bucket <bucket> <directory>...`)}`,
     );
   }
   return {
@@ -363,10 +364,11 @@ export function readSet(name) {
  * step (ADR-0030). Exported so `list`'s empty case prints the same words, since
  * the two messages had drifted ("configured." vs "yet."). `--bucket` is included
  * because `setup` requires it (ADR-0026): omitting it dead-ended a first-timer at
- * `Missing required argument: -b, --bucket`.
+ * `Missing required argument: -b, --bucket`. Plain, never `shellCommand`: one
+ * reader is `provider`'s returned text, which `--json` serializes verbatim.
  */
 export const NO_SETS_MESSAGE =
-  "No backup sets yet.\nCreate one with: s3cab setup --set <set> --bucket <bucket> <directory>...";
+  "No backup sets yet.\n\nCreate one with:\n  s3cab setup --set <set> --bucket <bucket> <directory>...";
 
 /**
  * Resolve which set a command operates on: a given name, or — per the

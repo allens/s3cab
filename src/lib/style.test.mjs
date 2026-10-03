@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { bold, isInteractive, styleEnabled } from "./style.mjs";
+import { bold, isInteractive, shellCommand, styleEnabled } from "./style.mjs";
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -59,5 +59,19 @@ describe("styleEnabled", () => {
 describe("bold", () => {
   it("wraps in bold-on/bold-off (22, not a full reset)", () => {
     assert.equal(bold("Options:"), "\x1b[1mOptions:\x1b[22m");
+  });
+});
+
+describe("shellCommand", () => {
+  it("bolds the command when styling is on and leaves it plain when off", () => {
+    assert.equal(shellCommand("s3cab verify b", true), bold("s3cab verify b"));
+    assert.equal(shellCommand("s3cab verify b", false), "s3cab verify b");
+  });
+
+  it("decides by stderr when no color is passed", () => {
+    const expected = styleEnabled(process.stderr)
+      ? bold("s3cab verify b")
+      : "s3cab verify b";
+    assert.equal(shellCommand("s3cab verify b"), expected);
   });
 });
