@@ -219,10 +219,13 @@ export function planUnrestorable(
  * already requires for fixes, and the reason the file beats "pipe it somewhere"
  * on Windows, the primary environment.
  * @param {UnrestorablePlan} plan
- * @param {{ set: string, reportPath: string, bucket: string }} context - The set being forgotten from, where the full list was written, and the repository bucket (so the unreadable caveat's `verify` command pastes as-is)
+ * @param {{ set: string, reportPath: string, bucket: string, color?: boolean }} context - The set being forgotten from, where the full list was written, the repository bucket (so the unreadable caveat's `verify` command pastes as-is), and whether stdout takes styling
  * @returns {string}
  */
-export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
+export function formatUnrestorableSummary(
+  plan,
+  { set, reportPath, bucket, color = false },
+) {
   const lines = [];
 
   if (plan.totalFiles === 0) {
@@ -278,6 +281,7 @@ export function formatUnrestorableSummary(plan, { set, reportPath, bucket }) {
         names: plan.unreadable,
         bucket,
         consequence: "this preview may overstate what becomes unrestorable",
+        color,
       }),
     );
   }

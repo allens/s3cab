@@ -203,9 +203,16 @@ export const unreadableSnapshots = (referencedBySet) =>
  * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
  * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms. **Must read for one snapshot or many.**
  * @param {string} [message.lead] - The blocked goal (`Can't delete safely`); omitted where the command carries on regardless
+ * @param {boolean} [message.color] - Bold the `verify` command. The caller's stream decides, not this module: `cleanup` throws the message to stderr, `forget` prints it to stdout
  * @returns {string}
  */
-export const unreadableMessage = ({ names, bucket, consequence, lead }) => {
+export const unreadableMessage = ({
+  names,
+  bucket,
+  consequence,
+  lead,
+  color = false,
+}) => {
   const one = names.length === 1;
   const subject = one ? "this snapshot" : "these snapshots";
   return [
@@ -214,6 +221,6 @@ export const unreadableMessage = ({ names, bucket, consequence, lead }) => {
     ...names.map((name) => `  ${name}`),
     ``,
     `Check ${one ? "it" : "them"} with:`,
-    `  ${shellCommand(`s3cab verify ${bucket}`)}`,
+    `  ${shellCommand(`s3cab verify ${bucket}`, color)}`,
   ].join("\n");
 };

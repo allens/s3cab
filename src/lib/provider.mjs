@@ -50,8 +50,9 @@ async function warnIfUnknownProfile(name) {
       `${available}\n` +
       `s3cab will use it anyway.\n\n` +
       `To create the profile first:\n` +
-      `  ${shellCommand(`aws configure --profile ${name}`)}\n` +
-      `(for AWS IAM Identity Center, run '${shellCommand("aws configure sso")}' instead).`,
+      `  ${shellCommand(`aws configure --profile ${name}`)}\n\n` +
+      `Or, for AWS IAM Identity Center:\n` +
+      `  ${shellCommand("aws configure sso")}`,
   );
 }
 

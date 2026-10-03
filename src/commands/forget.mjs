@@ -17,7 +17,7 @@ import {
   listRemoteSnapshots,
   referencedObjects,
 } from "../lib/remote.mjs";
-import { isInteractive, shellCommand } from "../lib/style.mjs";
+import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
 
 // The **preview**: a transient decision aid, overwritten every run, in the s3cab
 // root because it belongs to no set for longer than one command
@@ -204,6 +204,7 @@ export async function forget(snapshots = [], options = {}) {
         set: set.name,
         reportPath: previewPath,
         bucket: set.bucket,
+        color: styleEnabled(process.stdout),
       }),
     );
   }

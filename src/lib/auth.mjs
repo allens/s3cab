@@ -135,6 +135,7 @@ certificate identity is in place, but AWS would not exchange it for a session.`,
 env file names (AWS_REGION in ${tildeify(machineIdentityDir())}/env), then capture
 its ARNs again:
   ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`)}
+
 If the stack is gone, or the certificate no longer matches its trust anchor, set the
 identity up afresh:
 ${setupSteps(bucket)}`,

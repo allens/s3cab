@@ -6,7 +6,7 @@ import { countOf, formatByteValue } from "../lib/format.mjs";
 import { deleteStoredObject } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { unreadableMessage } from "../lib/referenced.mjs";
-import { isInteractive, shellCommand } from "../lib/style.mjs";
+import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
 
 /**
  * Reclaim storage held by orphaned objects — `objects/<hash>` entries no snapshot
@@ -114,6 +114,7 @@ export async function cleanup(bucket, options = {}) {
         lead: "Can't clean up safely",
         consequence:
           "objects nothing else references would look unused and be deleted",
+        color: styleEnabled(process.stderr),
       }),
     );
   }
