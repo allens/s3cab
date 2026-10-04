@@ -481,6 +481,32 @@ describe("renderCompareResult", () => {
     assert.doesNotMatch(text, /\.\./); // no parent-escape garbage
   });
 
+  it("shows absolute paths and no base when roots are on different drives", () => {
+    // Built with `sep` so the first segments differ on every platform.
+    const onC = ["C:", "photos", "x.txt"].join(sep);
+    const text = renderCompareResult(
+      result({
+        dirs: [["C:", "photos"].join(sep), ["D:", "docs"].join(sep)],
+        modified: [{ path: onC, size: 1 }],
+      }),
+    );
+
+    assert.match(text, /^photos: 2026-07-01T0900 → 2026-07-04T1000\n/);
+    assert.ok(text.includes(`\n  ${onC}\n`), text);
+  });
+
+  it("shows absolute paths and no base when the set has no dirs", () => {
+    const text = renderCompareResult(
+      result({
+        dirs: [],
+        modified: [{ path: under("x.txt"), size: 1 }],
+      }),
+    );
+
+    assert.match(text, /^photos: 2026-07-01T0900 → 2026-07-04T1000\n/);
+    assert.ok(text.includes(`\n  ${under("x.txt")}\n`), text);
+  });
+
   it("keeps a top segment starting with '..' relative, not an escape", () => {
     // `..stuff` under the root is a real directory name, not a parent escape —
     // it must display relative (this is the case compare.test.mjs delegates here).
