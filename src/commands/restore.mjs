@@ -11,6 +11,7 @@ import { getObject } from "../lib/objects.mjs";
 import { listRemoteSnapshots, readRemoteSnapshot } from "../lib/remote.mjs";
 import { planRestore, reroot, selectEntries } from "../lib/restore.mjs";
 import { isObjectNotFound } from "../lib/s3.mjs";
+import { shellCommand } from "../lib/style.mjs";
 
 /** @import { RecordedDeletion } from "../lib/deletion-record.mjs" */
 
@@ -102,7 +103,9 @@ export async function restore(paths = [], options = {}) {
   const names = await listRemoteSnapshots(set.bucket, set.name);
   if (names.length === 0) {
     throw new Error(
-      `No backups for set '${set.name}'. Back one up with: s3cab backup ${set.name}`,
+      `No backups for set '${set.name}'.\n\n` +
+        `Back one up with:\n` +
+        `  ${shellCommand(`s3cab backup ${set.name}`)}`,
     );
   }
   if (options.snapshot && !names.includes(options.snapshot)) {

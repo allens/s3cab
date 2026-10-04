@@ -10,7 +10,7 @@ import { deleteStoredObject, storedObjectSize } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
-import { isInteractive } from "../lib/style.mjs";
+import { isInteractive, shellCommand } from "../lib/style.mjs";
 
 /**
  * The SHA-256 of zero bytes — the object backing every empty file in the
@@ -135,9 +135,9 @@ export async function deleteHashes(hashes = [], options = {}) {
       }
       throw new Error(
         `Can't read the hash list — there is no file '${fromFile}' ` +
-          `(--from-file).\n` +
+          `(--from-file).\n\n` +
           `Write one with the search command, review it, then re-run:\n` +
-          `  s3cab find <pattern> > ${fromFile}`,
+          `  ${shellCommand(`s3cab find <pattern> > ${fromFile}`)}`,
         { cause: error },
       );
     }
@@ -152,16 +152,16 @@ export async function deleteHashes(hashes = [], options = {}) {
       `delete takes content hashes (64 hex characters), and ` +
         `${collected.rejected.length === 1 ? "this isn't one" : "these aren't"}:\n` +
         collected.rejected.map((entry) => `  ${entry}`).join("\n") +
-        `\n` +
+        `\n\n` +
         `Find the hashes backing a file or directory with:\n` +
-        `  s3cab find <pattern>`,
+        `  ${shellCommand("s3cab find <pattern>")}`,
     );
   }
   if (collected.hashes.length === 0) {
     throw new Error(
-      `No hashes to delete — '${fromFile}' has none in column one.\n` +
+      `No hashes to delete — '${fromFile}' has none in column one.\n\n` +
         `Write a fresh list with:\n` +
-        `  s3cab find <pattern> > ${fromFile}`,
+        `  ${shellCommand(`s3cab find <pattern> > ${fromFile}`)}`,
     );
   }
   if (collected.hashes.includes(EMPTY_FILE_HASH)) {
@@ -178,11 +178,11 @@ export async function deleteHashes(hashes = [], options = {}) {
   if (!dryRun && !force && !isInteractive(process.stdin)) {
     throw new Error(
       `Deleting backed-up content needs a confirmation, and there is no ` +
-        `terminal to ask on.\n` +
+        `terminal to ask on.\n\n` +
         `Preview what would be deleted:\n` +
-        `  s3cab delete --bucket ${bucket} --dry-run <hash>...\n` +
+        `  ${shellCommand(`s3cab delete --bucket ${bucket} --dry-run <hash>...`)}\n\n` +
         `Or state the intent explicitly and skip the prompt:\n` +
-        `  s3cab delete --bucket ${bucket} --force <hash>...`,
+        `  ${shellCommand(`s3cab delete --bucket ${bucket} --force <hash>...`)}`,
     );
   }
 

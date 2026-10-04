@@ -12,6 +12,7 @@ import {
 } from "../lib/provider.mjs";
 import { RA_MARKER, isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
+import { shellCommand } from "../lib/style.mjs";
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
 // how a set signs in to its storage provider (docs/design/auth.md): an AWS
@@ -280,7 +281,7 @@ export async function provider(setName, options = {}) {
     throw new ParseArgsError(
       `Set '${scope.name}' points at a custom S3 endpoint (${setEndpoint}), and\n` +
         `Roles Anywhere is AWS-only. Clear the endpoint first:\n` +
-        `  s3cab provider --unset endpoint ${scope.name}`,
+        `  ${shellCommand(`s3cab provider --unset endpoint ${scope.name}`)}`,
     );
   }
 

@@ -1,5 +1,6 @@
 import { localMoment } from "./format.mjs";
 import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
+import { shellCommand } from "./style.mjs";
 
 // The repository's **deletion record** — the root-level `objects.deleted-<n>.tsv`
 // files of the stored format (guide/format.md, ADR-0090). The record is a
@@ -165,8 +166,9 @@ export async function writeDeletionRecord(bucket, content) {
       `${next + MAX_ALLOCATION_ATTEMPTS - 1} of s3://${bucket}/${RECORD_PREFIX}*.tsv ` +
       `is already taken, which shouldn't happen.\n` +
       `Nothing was deleted — the record is written first, so your data is ` +
-      `untouched. Check what is writing those keys, then re-run:\n` +
-      `  aws s3 ls s3://${bucket}/`,
+      `untouched.\n\n` +
+      `Check what is writing those keys, then re-run:\n` +
+      `  ${shellCommand(`aws s3 ls s3://${bucket}/`)}`,
   );
 }
 

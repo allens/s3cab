@@ -1018,6 +1018,19 @@ describe("renderBackup", () => {
     const text = renderBackup(run({ errors: 3 }));
     assert.match(text, /^Couldn't be backed up: 3 errors$/m);
   });
+
+  it("bolds the compare command only when colour is on", () => {
+    const ESC = "\x1b";
+    const command =
+      "s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000";
+    const failed = run({ errors: 1 });
+    assert.ok(!renderBackup(failed, { color: false }).includes(ESC));
+    assert.ok(
+      renderBackup(failed, { color: true }).includes(
+        `  ${ESC}[1m${command}${ESC}[22m`,
+      ),
+    );
+  });
 });
 
 describe("offerBackupChanges", () => {

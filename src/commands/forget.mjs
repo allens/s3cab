@@ -17,7 +17,7 @@ import {
   listRemoteSnapshots,
   referencedObjects,
 } from "../lib/remote.mjs";
-import { isInteractive } from "../lib/style.mjs";
+import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
 
 // The **preview**: a transient decision aid, overwritten every run, in the s3cab
 // root because it belongs to no set for longer than one command
@@ -139,10 +139,10 @@ export async function forget(snapshots = [], options = {}) {
   if (!force && !isInteractive(process.stdin)) {
     throw new Error(
       `Forgetting snapshots from set '${set.name}' needs a confirmation, and ` +
-        `there is no terminal to ask on.\n` +
+        `there is no terminal to ask on.\n\n` +
         `State the intent explicitly and skip the prompt (and the unrestorable ` +
         `check):\n` +
-        `  s3cab forget --set ${set.name} ${snapshots.join(" ")} --force`,
+        `  ${shellCommand(`s3cab forget --set ${set.name} ${snapshots.join(" ")} --force`)}`,
     );
   }
 
@@ -160,7 +160,7 @@ export async function forget(snapshots = [], options = {}) {
         (remote.length
           ? `Backed-up snapshots:\n${remote.map((n) => `  ${n}`).join("\n")}\n`
           : `That set has no remote snapshots yet.\n`) +
-        `List them with: s3cab list ${set.name} --remote`,
+        `\nList them with:\n  ${shellCommand(`s3cab list ${set.name} --remote`)}`,
     );
   }
 
@@ -204,6 +204,7 @@ export async function forget(snapshots = [], options = {}) {
         set: set.name,
         reportPath: previewPath,
         bucket: set.bucket,
+        color: styleEnabled(process.stdout),
       }),
     );
   }
@@ -249,7 +250,7 @@ export async function forget(snapshots = [], options = {}) {
   // singular/plural agreement. `cleanup` has always read this way.
   console.warn(
     `Forgetting removes snapshots, not the objects they point at; ` +
-      `reclaim unreferenced ones with:\n  s3cab cleanup ${set.bucket}\n` +
+      `reclaim unreferenced ones with:\n  ${shellCommand(`s3cab cleanup ${set.bucket}`)}\n\n` +
       `Record of this removal:\n  ${auditPath}`,
   );
 

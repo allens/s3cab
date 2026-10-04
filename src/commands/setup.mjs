@@ -20,6 +20,7 @@ import {
   validateSetName,
   writeSet,
 } from "../lib/sets.mjs";
+import { shellCommand } from "../lib/style.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
@@ -101,9 +102,9 @@ const existsError = (name) => {
     `Backup set '${name}' already exists on this machine.\n` +
       `To change what it backs up, edit its files directly:\n` +
       `  ${set.dirsPath}   (directories)\n` +
-      `  ${set.excludePath}   (exclude patterns)\n` +
+      `  ${set.excludePath}   (exclude patterns)\n\n` +
       `To back up a different set of directories, create a new set:\n` +
-      `  s3cab setup --set <new-name> --bucket ${set.bucket} <directory>...`,
+      `  ${shellCommand(`s3cab setup --set <new-name> --bucket ${set.bucket} <directory>...`)}`,
   );
 };
 
@@ -142,9 +143,9 @@ const unresolvableDirectoryError = (directory, name, bucket, cause) =>
       `"no such file or directory").\n` +
       `A set stores each folder by its resolved location, so one that won't resolve ` +
       `can't be a member. This is usually a link into storage with no ordinary path ` +
-      `of its own — a protected vault, or a drive with no letter or mount point.\n` +
+      `of its own — a protected vault, or a drive with no letter or mount point.\n\n` +
       `To create the set, name a folder that has an ordinary path:\n` +
-      `  s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`,
+      `  ${shellCommand(`s3cab setup --set ${name} --bucket ${bucket || "<bucket>"} <directory>...`)}`,
     { cause },
   );
 
@@ -222,9 +223,9 @@ const collisionError = (name, bucket, info) => {
   }
   const detail = parts.length ? ` (${parts.join(", ")})` : "";
   return new Error(
-    `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n` +
+    `Backup set '${name}' is already set up in bucket '${bucket}'${detail}.\n\n` +
       `To take it over on this machine:\n` +
-      `  s3cab reattach ${name} --bucket ${bucket}`,
+      `  ${shellCommand(`s3cab reattach ${name} --bucket ${bucket}`)}`,
   );
 };
 

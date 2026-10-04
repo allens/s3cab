@@ -11,6 +11,7 @@ import { isENOENT } from "./error.mjs";
 import { compileExclude } from "./exclude.mjs";
 import { countOf, formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
+import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
 
@@ -144,10 +145,11 @@ function assertWalkableDirs(set) {
         notHere.map((dir) => `  ${dir}`).join("\n") +
         `\nEach line has to be a full path — a partial one would change what gets ` +
         `backed up depending on which folder you ran s3cab from. A set first set ` +
-        `up on a different kind of computer reads this way too. Edit the list:\n` +
-        `  ${set.dirsPath}\n` +
+        `up on a different kind of computer reads this way too.\n\n` +
+        `Edit the list:\n` +
+        `  ${set.dirsPath}\n\n` +
         `Or, to get files back from a backup made elsewhere:\n` +
-        `  s3cab restore --set ${set.name} --output <folder>`,
+        `  ${shellCommand(`s3cab restore --set ${set.name} --output <folder>`)}`,
     );
   }
 
@@ -210,10 +212,10 @@ export function resolveWalkRoot(dir) {
         `Every file goes into a backup under its folder's resolved location, so a ` +
         `folder that won't resolve can't be backed up. This is usually a link into ` +
         `storage with no ordinary path of its own — a protected vault, or a drive ` +
-        `with no letter or mount point.\n` +
+        `with no letter or mount point.\n\n` +
         `Back up a folder that has an ordinary path instead. To see which folders a ` +
         `set backs up, and the file that lists them:\n` +
-        `  s3cab list <set>`,
+        `  ${shellCommand("s3cab list <set>")}`,
       { cause: error },
     );
   }

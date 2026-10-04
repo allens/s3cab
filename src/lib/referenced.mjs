@@ -13,8 +13,11 @@
 // remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`unrestorable.mjs`/
 // `verify.mjs` are pure planners with no runtime imports at all. Putting
 // the vocabulary with its producer would drag the SDK into three pure modules
-// and their tests to flatten an array. So this module imports **nothing** and
-// every consumer — producer included — depends on it.
+// and their tests to flatten an array. So this module imports nothing beyond the
+// builtin-only style gate, and every consumer — producer included — depends on
+// it.
+
+import { shellCommand } from "./style.mjs";
 
 /**
  * One referenced path within a set: the `sizes` its snapshot rows record and the
@@ -200,16 +203,24 @@ export const unreadableSnapshots = (referencedBySet) =>
  * @param {string} message.bucket - The repository bucket, so the fix pastes as-is
  * @param {string} message.consequence - What follows from not knowing their references, in the caller's terms. **Must read for one snapshot or many.**
  * @param {string} [message.lead] - The blocked goal (`Can't delete safely`); omitted where the command carries on regardless
+ * @param {boolean} [message.color] - Bold the `verify` command. The caller's stream decides, not this module: `cleanup` throws the message to stderr, `forget` prints it to stdout
  * @returns {string}
  */
-export const unreadableMessage = ({ names, bucket, consequence, lead }) => {
+export const unreadableMessage = ({
+  names,
+  bucket,
+  consequence,
+  lead,
+  color = false,
+}) => {
   const one = names.length === 1;
   const subject = one ? "this snapshot" : "these snapshots";
   return [
     `${lead ? `${lead} — ${subject}` : subject.charAt(0).toUpperCase() + subject.slice(1)} ` +
       `can't be read, so ${consequence}:`,
     ...names.map((name) => `  ${name}`),
+    ``,
     `Check ${one ? "it" : "them"} with:`,
-    `  s3cab verify ${bucket}`,
+    `  ${shellCommand(`s3cab verify ${bucket}`, color)}`,
   ].join("\n");
 };

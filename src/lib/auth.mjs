@@ -11,6 +11,7 @@ import {
   readSigningIdentity,
   setupSteps,
 } from "./roles-anywhere.mjs";
+import { shellCommand } from "./style.mjs";
 
 /** @import { AwsCredentialIdentity, AwsCredentialIdentityProvider, MetadataBearer } from "@aws-sdk/types" */
 
@@ -133,7 +134,8 @@ certificate identity is in place, but AWS would not exchange it for a session.`,
       fix: `To fix it, check that the identity's stack is still deployed in the region its
 env file names (AWS_REGION in ${tildeify(machineIdentityDir())}/env), then capture
 its ARNs again:
-  s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}
+  ${shellCommand(`s3cab aws --roles-anywhere --save --from-stack ${identityStackName(bucket)}`)}
+
 If the stack is gone, or the certificate no longer matches its trust anchor, set the
 identity up afresh:
 ${setupSteps(bucket)}`,
@@ -146,9 +148,9 @@ ${setupSteps(bucket)}`,
         diagnosis: `Set '${set.name}' uses AWS profile '${profile}', but it isn't in your AWS
 config — that's why there are no credentials.`,
         fix: `To fix it, either:
-  - create the profile:          aws configure --profile ${profile}
-    (for AWS IAM Identity Center: aws configure sso)
-  - or point the set elsewhere:  s3cab provider --profile <name> ${set.name}`,
+  - create the profile:          ${shellCommand(`aws configure --profile ${profile}`)}
+    (for AWS IAM Identity Center: ${shellCommand("aws configure sso")})
+  - or point the set elsewhere:  ${shellCommand(`s3cab provider --profile <name> ${set.name}`)}`,
       };
     }
     return {
@@ -156,7 +158,7 @@ config — that's why there are no credentials.`,
       diagnosis: `Set '${set.name}' uses AWS profile '${profile}', but it produced no credentials.`,
       fix: `To fix it:
   - if '${profile}' is an SSO / IAM Identity Center profile, sign in:
-      aws sso login --profile ${profile}
+      ${shellCommand(`aws sso login --profile ${profile}`)}
   - otherwise, check the profile's access keys in ~/.aws`,
     };
   }
@@ -166,14 +168,14 @@ config — that's why there are no credentials.`,
       diagnosis: `Set '${set.name}' points at a custom S3 endpoint
 (${endpoint}) but has no access keys.`,
       fix: `To fix it, save the provider's access key + secret:
-  s3cab provider --keys ${set.name}`,
+  ${shellCommand(`s3cab provider --keys ${set.name}`)}`,
     };
   }
   return {
     annotation: "no credentials there",
     fix: `To give set '${set.name}' credentials, pick one:
-  - an AWS profile:                 s3cab provider --profile <name> ${set.name}
-  - access keys (R2 / B2 / Wasabi): s3cab provider --keys ${set.name}
+  - an AWS profile:                 ${shellCommand(`s3cab provider --profile <name> ${set.name}`)}
+  - access keys (R2 / B2 / Wasabi): ${shellCommand(`s3cab provider --keys ${set.name}`)}
   (for AWS IAM Identity Center, run \`aws sso login\` first)`,
   };
 };
@@ -294,7 +296,7 @@ export const expiredCredentialsError = (cause, ctx = {}) => {
       `s3cab found your standard AWS setup, but its session is no longer valid:
      ${reason}`,
     `To continue, refresh them and run the command again:
-  - for AWS IAM Identity Center, run \`${login}\`
+  - for AWS IAM Identity Center, run \`${shellCommand(login)}\`
   - for temporary credentials (AWS_SESSION_TOKEN), request new ones
   - for a named profile, renew it (and set AWS_PROFILE)`,
     `Run 's3cab help provider' for details.`,
@@ -404,7 +406,7 @@ export function credentialsUsed() {
  */
 const wrongIdentityAdvice = `If that isn't the identity you meant to use, point this set at the right
 profile and run the command again:
-  s3cab provider --profile <name>`;
+  ${shellCommand("s3cab provider --profile <name>")}`;
 
 /**
  * Whether an AWS error is the server refusing the request for lack of
@@ -441,7 +443,7 @@ export const accessDeniedError = (cause, { bucket, endpoint } = {}) => {
 and read/write access to ${target}.`
     : `If the identity is right, then it is missing permission on the bucket. To
 set up an identity with exactly the permissions it needs, start from:
-  s3cab aws ${bucket ?? "<bucket>"}`;
+  ${shellCommand(`s3cab aws ${bucket ?? "<bucket>"}`)}`;
   const message = [
     `You're signed in, but you don't have permission to use ${target}.`,
     `Your sign-in worked — this is a permissions problem, not a credentials one.`,
@@ -599,7 +601,7 @@ export const refusedWithoutReasonError = (cause, { bucket, endpoint } = {}) => {
 and read/write access to ${target}.`
     : `If the identity is right, it may be missing permission on the bucket. To
 set up an identity with exactly the permissions it needs, start from:
-  s3cab aws ${bucket ?? "<bucket>"}`;
+  ${shellCommand(`s3cab aws ${bucket ?? "<bucket>"}`)}`;
   const message = [
     `The cloud refused to answer a question about ${target}, and didn't say why (${detail}).`,
     `This kind of request is answered without a reply body, so the refusal

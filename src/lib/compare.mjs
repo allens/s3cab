@@ -4,6 +4,7 @@ import {
   normalizeSnapshotName,
   readSnapshot,
 } from "./snapshot-file.mjs";
+import { shellCommand } from "./style.mjs";
 
 /** @import { SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs" */
 
@@ -115,7 +116,7 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
   if (!until) {
     throw new Error(
       `No snapshots to compare yet for set '${options.setName}'.\n` +
-        `Take one first with:\n  s3cab snapshot ${options.setName}`,
+        `\nTake one first with:\n  ${shellCommand(`s3cab snapshot ${options.setName}`)}`,
     );
   }
   const untilSnapshot = await readSnapshot(snapshotDir, until);

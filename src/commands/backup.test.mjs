@@ -22,6 +22,8 @@ let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
 let calls = [];
 /** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookups?: object[] }} */
 let baseline;
+/** @type {Record<string, unknown>[]} the options each `readBaseline` call got */
+let baselineCalls = [];
 /** @type {Record<string, unknown>[]} the args each `storedHashes` call got */
 let storedCalls = [];
 /** @type {Record<string, unknown>[]} the args each `generateSnapshot` call got */
@@ -61,8 +63,12 @@ mock.module("../lib/set-marker.mjs", {
 });
 mock.module("../lib/snapshot.mjs", {
   exports: {
-    readBaseline: async () => {
+    readBaseline: async (
+      /** @type {object} */ _set,
+      /** @type {Record<string, unknown>} */ options,
+    ) => {
       calls.push("readBaseline");
+      baselineCalls.push(options);
       return baseline;
     },
     generateSnapshot: async (
@@ -138,6 +144,7 @@ beforeEach(() => {
     previousErrors: new Map(),
     lookups: [{ entries: new Map() }],
   };
+  baselineCalls = [];
   storedCalls = [];
   generateCalls = [];
   manifestCalls = [];
@@ -198,6 +205,9 @@ describe("backup (the fused pass)", () => {
       generateCalls[0]?.through,
       "expected the upload transform to be passed",
     );
+    // `readBaseline` refuses a held lock before the store LIST, so it must know
+    // which command's `--resume` to offer.
+    assert.deepEqual(baselineCalls, [{ command: "backup", resume: undefined }]);
     // The whole of `readBaseline`'s result, forwarded rather than picked apart:
     // `generateSnapshot` derives `lookups`/`sizes`/`previousInstant` from it itself.
     assert.equal(generateCalls[0]?.baseline, baseline);
