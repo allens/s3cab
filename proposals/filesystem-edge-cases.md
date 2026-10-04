@@ -76,4 +76,5 @@ independent of it: different mechanism, different code, different fix.
   check-after-reuse ordering rule in `fileProps`. Without the exemption, a dehydrated file is
   re-read (so downloaded) only on a set that opted in to the change-time check, which the guide
   already says not to do on a synced folder. ADR-0081 then needs a superseding ADR, and the
-  user docs lose guide/compare.md's online-only section and format.md's link to it.
+  user docs lose guide/compare.md's online-only section, format.md's link to it and
+  guide/backup.md's `--rehash` caveat.

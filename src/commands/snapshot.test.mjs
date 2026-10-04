@@ -267,18 +267,27 @@ const SENTINEL_HASH = "f".repeat(64);
  * the boundary somewhere in particular puts the *clock* there (`setUp`'s
  * `tick`) rather than re-stamping the file.
  * @param {string} snapshotsDir
+ * @param {object} [options]
+ * @param {boolean} [options.dropLastRow] - Leave the last file row out, as a run stopped before it got there would
  */
-function parkSentinelHashes(snapshotsDir) {
+function parkSentinelHashes(snapshotsDir, { dropLastRow } = {}) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
   const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
-  const parked = text
+  const lines = text
     .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
-    .replace(/^(#END\s+)COMPLETE/m, "$1PARTIAL");
+    .replace(/^(#END\s+)COMPLETE/m, "$1PARTIAL")
+    .split("\n");
+  if (dropLastRow) {
+    lines.splice(
+      lines.findLastIndex((line) => line.startsWith(SENTINEL_HASH)),
+      1,
+    );
+  }
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.zst"),
-    zstdCompressSync(Buffer.from(parked, "utf8")),
+    zstdCompressSync(Buffer.from(lines.join("\n"), "utf8")),
   );
   unlinkSync(path);
 }
@@ -315,18 +324,24 @@ function killSentinelRun(snapshotsDir) {
  * other hash source: a sentinel in the *next* snapshot can only have been reused
  * from this one, because it is nowhere on disk.
  * @param {string} snapshotsDir
+ * @param {object} [options]
+ * @param {string} [options.hash] - The sentinel to plant, when a test needs to tell this source from the parked one
+ * @param {string} [options.finished] - An instant to restamp the `#END` trailer with
  */
-function plantSentinelSnapshot(snapshotsDir) {
+function plantSentinelSnapshot(
+  snapshotsDir,
+  { hash = SENTINEL_HASH, finished } = {},
+) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
-  writeFileSync(
-    path,
-    zstdCompressSync(
-      Buffer.from(text.replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH), "utf8"),
-    ),
-  );
+  let text = zstdDecompressSync(readFileSync(path))
+    .toString("utf8")
+    .replace(/^[0-9a-f]{64}/gm, hash);
+  if (finished) {
+    text = text.replace(/^(#END[^\t]*\t[^\t]*\t)[^\t]*/m, `$1${finished}`);
+  }
+  writeFileSync(path, zstdCompressSync(Buffer.from(text, "utf8")));
 }
 
 /**
@@ -496,6 +511,110 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     const hashes = await hashesIn(snapshotsDir);
     assert.deepEqual([...new Set(hashes)].sort(), [...new Set(before)].sort());
+  });
+
+  it("judges by when the previous run started, not when it finished", async (t) => {
+    // A file edited mid-run, after it was hashed: its ctime falls between the
+    // run's `#SNAPSHOT` and `#END`, and only the start can veto it.
+    const { snapshotsDir, workDir, tick } = setUp(t);
+    process.env.S3CAB_CHECK_CHANGE_TIME = "1";
+
+    tick(-1);
+    await snapshot("photos", { rehash: true });
+    const before = await hashesIn(snapshotsDir);
+    const finished = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    plantSentinelSnapshot(snapshotsDir, { finished });
+
+    bumpCtimes(workDir());
+    tick(1);
+    await snapshot("photos", {});
+
+    const hashes = await hashesIn(snapshotsDir);
+    assert.deepEqual([...new Set(hashes)].sort(), [...new Set(before)].sort());
+  });
+
+  describe("with a previous snapshot as well", () => {
+    const PREVIOUS_HASH = "e".repeat(64);
+
+    /**
+     * Two runs: a finished one, then a later one stopped one row short of the
+     * end. The previous snapshot carries one sentinel and the parked file
+     * another, so every reused row names the source it came from.
+     * @param {TestContext} t
+     */
+    async function setUpBoth(t) {
+      const fixture = setUp(t);
+      fixture.tick(-1);
+      await snapshot("photos", { rehash: true });
+      fixture.tick(1);
+      await snapshot("photos", { rehash: true });
+      const before = await hashesIn(fixture.snapshotsDir);
+      parkSentinelHashes(fixture.snapshotsDir, { dropLastRow: true });
+      plantSentinelSnapshot(fixture.snapshotsDir, { hash: PREVIOUS_HASH });
+      fixture.tick(2);
+      return { ...fixture, before };
+    }
+
+    it("lays parked rows over the previous snapshot's, keeping the rows only it has", async (t) => {
+      const { snapshotsDir } = await setUpBoth(t);
+
+      await snapshot("photos", {});
+
+      const hashes = await hashesIn(snapshotsDir);
+      assert.equal(
+        hashes.filter((hash) => hash === PREVIOUS_HASH).length,
+        1,
+        "the row the stopped run never reached comes from the previous snapshot",
+      );
+      assert.ok(
+        hashes.length > 1 &&
+          hashes.every(
+            (hash) => hash === PREVIOUS_HASH || hash === SENTINEL_HASH,
+          ),
+        "every other row comes from the parked file, the newer of the two",
+      );
+    });
+
+    it("judges both by the previous snapshot's start, the older of the two", async (t) => {
+      // The ctimes sit between the two starts: the parked run alone would vouch
+      // for them, but the previous snapshot's rows are in the same lookup.
+      const { snapshotsDir, workDir, before } = await setUpBoth(t);
+      bumpCtimes(workDir());
+      process.env.S3CAB_CHECK_CHANGE_TIME = "1";
+
+      await snapshot("photos", {});
+
+      const hashes = await hashesIn(snapshotsDir);
+      assert.deepEqual(
+        [...new Set(hashes)].sort(),
+        [...new Set(before)].sort(),
+      );
+    });
+
+    it("ignores a parked file older than the previous snapshot", async (t) => {
+      // What a landed snapshot's best-effort delete leaves when it fails: its
+      // rows would undo a `--rehash` that ran after them.
+      const { snapshotsDir, tick } = setUp(t);
+      const parkedPath = join(snapshotsDir, ".snapshot.lookup.tsv.zst");
+
+      tick(1);
+      await snapshot("photos", { rehash: true });
+      parkSentinelHashes(snapshotsDir);
+      const leftover = readFileSync(parkedPath);
+      tick(2);
+      await snapshot("photos", { rehash: true });
+      writeFileSync(parkedPath, leftover);
+
+      tick(3);
+      await snapshot("photos", {});
+
+      const hashes = await hashesIn(snapshotsDir);
+      assert.ok(hashes.length, "expected file rows in the new snapshot");
+      assert.ok(
+        !hashes.includes(SENTINEL_HASH),
+        "rows from before the previous snapshot must not be reused",
+      );
+    });
   });
 
   it("ignores them under --rehash, which means re-hash everything", async (t) => {

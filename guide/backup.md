@@ -40,6 +40,11 @@ It takes as long to read your files as your first backup did, but it uploads onl
 changed. How often is up to you; more often if you use the tools above on files in the set.
 (`s3cab snapshot <set> --rehash` does the same without uploading anything.)
 
+On a folder OneDrive, Dropbox or Google Drive syncs, `--rehash` doesn't download a file kept
+[online only](compare.md#files-stored-online-not-on-this-computer): it leaves it out of the
+snapshot, even if an earlier backup holds it. Add `--include-online-only` to read those too,
+with room on this disk for every one of them to download.
+
 ## The change-time check
 
 Besides a modification time, every file has a **change time**: the system sets it whenever the

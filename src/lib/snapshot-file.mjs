@@ -368,8 +368,8 @@ export async function withSnapshotFile(
     // in flight both files exist, so a second interrupt still preserves the
     // earlier work. This snapshot re-records every hash the parked file held, so
     // landing it is what makes the parked copy redundant. Best-effort — the
-    // snapshot is already installed, and a leftover parked file is only ever a
-    // stale lookup, which is safe (`readParkedLookup`).
+    // snapshot is already installed, and a leftover parked file starts before
+    // it, which is how `readBaseline` knows to ignore it.
     await unlink(parkedPath).catch(() => {});
     return snapshotPath;
   } catch (error) {
@@ -395,9 +395,10 @@ export async function withSnapshotFile(
  * is also why the file's `#SNAPSHOT` identity is deliberately *not* checked
  * against the set: a path whose size and mtime still match is the same file
  * whichever set recorded it, so the check would reject nothing that could do harm.
- * `instant` — when the stopped run started — comes back too, as the change-time
- * check's boundary for a set with no previous snapshot to take one from
- * ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
+ * `instant` — when the stopped run started — comes back too: `readBaseline`
+ * ignores a parked file older than the previous snapshot, and uses it as the
+ * change-time check's boundary for a set with no previous snapshot to take one
+ * from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
  * which a snapshot never is: a file parked by {@link recoverWorkFile} is a work
  * file its run never closed, so it has no `#END` and its last row is torn. Always
@@ -413,7 +414,6 @@ export async function readParkedLookup(snapshotDir) {
   if (!existsSync(path)) {
     return undefined;
   }
-  console.warn("Reusing the hashes parked by an interrupted snapshot");
   const { entries, instant } = await parseCompressedSnapshotStream(
     createReadStream(path),
     { tolerant: true },
