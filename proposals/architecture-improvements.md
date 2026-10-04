@@ -67,10 +67,9 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 anchor — see **E** below for what skipping that costs.
 (2) **Ordering constraints.** **F** and **U** both edit `readBaseline` in
 [src/lib/snapshot.mjs](../src/lib/snapshot.mjs) (F also `generateSnapshot`), so build one, then
-re-verify the other. **B**, **C**, **T**, **G** and **J** are independent of everything.
-(3) **`.env.test` is gitignored and does not travel.** Every candidate below is pure or local and
-verifies with `npm test` alone, except that **T** rewrites the loop that drives restore's downloads,
-the S3 read path CLAUDE.md says to run `npm run test:integration` for before pushing.
+re-verify the other. **B**, **C**, **G** and **J** are independent of everything.
+(3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
+and verifies with `npm test` alone.
 
 - **A — The deletion record's instants were minted outside the clock seam that names them.**
   _Landed 2026-10-01 as [PR #348](https://github.com/allens/s3cab/pull/348) — see the run log._
@@ -212,21 +211,8 @@ the S3 read path CLAUDE.md says to run `npm run test:integration` for before pus
   as [PR #366](https://github.com/allens/s3cab/pull/366). See the run log._
 - **S — `FileChangedError` is a subclass nothing catches by type, and two docs say `backup` does.**
   _Landed 2026-10-04 as [PR #367](https://github.com/allens/s3cab/pull/367). See the run log._
-- **T — Restore plans "copy from where the first one landed" before anything has landed.** _Worth
-  exploring — fifteenth pass._ `planRestore` ([lib/restore.mjs](../src/lib/restore.mjs):63–96) points
-  every repeat of a hash at the first *planned* destination (`fetchedDestByHash`, :72, :86–92). Each way
-  a write can now fail without aborting — an ADR-0086 collision, a refused name (#350, #354, #365),
-  absent or corrupt content — has added a set in the executor to undo that guess
-  ([commands/restore.mjs](../src/commands/restore.mjs):186–206: `writtenCanonical`, `unwrittenDests`,
-  `absentHashes`, `corruptHashes`), plus the copy step's fallback (:262–276), which since #366 fetches
-  only when the copy's source has vanished; T must keep that check. `RestoreStep` (:33–40)
-  is one bag of optional fields, so the loop casts `step.hash` on every step (:240), `skip` and
-  `refuse` included: a reorder trap. Deepening: the plan decides skip, refuse or write; the executor
-  keeps where each hash *actually* landed and copies only from there, else fetches; each action gets
-  its own step type. **Not a reopening of pass 10's plan/execute verdict:** that left `planRestore`
-  alone when the split was clean, before `unwrittenDests` existed; the split stays and `planRestore`
-  stays pure. The tests that assert `copy` steps in the plan move to the command tier, where the
-  outcome is visible.
+- **T — Restore plans "copy from where the first one landed" before anything has landed.** _Landed
+  2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
 - **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Worth
   exploring — fifteenth pass._ [snapshot-file.mjs](../src/lib/snapshot-file.mjs):242–243 says it owns
   the parked file's "whole lifecycle — parked here, read by `readParkedLookup`, deleted when a snapshot
@@ -286,8 +272,7 @@ Each is one sentence; name the functions, not a count, or the next caller makes 
 ([render.mjs](../src/render.mjs):1287–1298) omits the `deleted` field, and :1295 runs past the
 line length. [referenced.mjs](../src/lib/referenced.mjs):13–14 calls `cleanup.mjs`,
 `unrestorable.mjs` and `verify.mjs` "pure planners with no runtime imports at all", which is false. `unrestorable.test.mjs`:172 says
-"delete" where it means `forget`. `restore.missing-object.test.mjs` is named for a missing object
-but also covers corrupt content, refused names, local failures and recorded deletions.
+"delete" where it means `forget`.
 **X — `hashedFiles` counts empty files.** `fileProps`'s doc (file-props.mjs:92–93) promises no
 `hashDuration` when nothing was read, but the `EMPTY_DIGEST` branch (:139–140) still returns one
 (:147), so an empty file counts as hashed. Cosmetic.
@@ -341,7 +326,7 @@ read and `recoverWorkFile`. `fileProps` after ADR-0095, and `prop --lookup` havi
 cut-off (deliberate); the ADR-0094/0095 removals are complete. `uploadObjects`' three sources,
 `progressLine`, and `backup` handing `compare` its baseline. ADR-0086 collision detection
 (model.hostile.test.mjs:308–368) and the `IntegrityError` path. `planRestore`/`selectEntries`/`reroot`
-as pure functions — **T** is about what the plan *says*, not that it is pure. `shellCommand` and the
+as pure functions. `shellCommand` and the
 suggested-command layout (#360): three forms, all ADR-0030's. `sameSizeAndMtime` — speculative, since
 `putFile`'s `ContentMismatchError` backstops it. Test-only exports used inside their own module, with
 fixtures going through the production codec. Restore's failure kinds listed in five places — each
@@ -511,7 +496,7 @@ least once; re-open only if the stated reason no longer holds.
     it means parameterizing on all five, which is the injection reflex and a solution more complex
     than its problem (working rule #3).
   - **The drift risk it exists to close is already closed behaviourally.**
-    `restore.missing-object.test.mjs` asserts *"reports a recorded absence as deleted-with-date,
+    `restore.downloads.test.mjs` asserts *"reports a recorded absence as deleted-with-date,
     not missing, and exits 0"* and *"an unrecorded absence beside a recorded one still exits 1"*;
     `verify.test.mjs` asserts exit 1 on findings and untouched on clean. Changing the rule on one
     side alone goes red.
@@ -805,3 +790,19 @@ least once; re-open only if the stated reason no longer holds.
   - Also fixed the pass-15 commit's broken `render.mjs` link, which failed the documentation-links
     test on `main`.
   - `npm test` 1176 pass; CI green on all three OSes.
+- **2026-10-04 — T landed** ([PR #368](https://github.com/allens/s3cab/pull/368), grilled in-session,
+  three decisions asked one per turn; ADR-0086 amended in place).
+  - **`planRestore` decides only skip, refuse or write; the loop owns dedupe.** One `fateByHash` map
+    (landed, absent or corrupt) replaces three sets, and `RestoreStep` is a union, so no step casts
+    its hash. #366's vanished-source check on the copy is kept.
+  - **A behaviour fix rode along.** Behind a refused or collided first holder, every later holder used
+    to download again; now the next one fetches and the rest copy from it. ADR-0086 had recorded the
+    re-download as a trade-off, so it was amended rather than overridden.
+  - **Tests.** `restore.missing-object.test.mjs` became `restore.downloads.test.mjs` (W's naming half)
+    with a shared-content group; both redirect tests fail on the old code. `planRestore`'s copy
+    assertions moved to the command tier.
+  - **Copilot: two wording fixes.** A name refused at the rename has already downloaded, so the docs
+    now say later paths copy "once it has landed", not that shared content downloads once.
+  - `backup.md`'s pre-#366 fallback paragraph was corrected in its own commit.
+  - `npm test` 1178 pass, 13 skipped; integration 27 pass, Roles Anywhere live 3/3; CI green on all
+    three OSes.
