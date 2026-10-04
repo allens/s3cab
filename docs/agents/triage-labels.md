@@ -10,6 +10,5 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 | `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
 | `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
-All five labels **already exist** in the `allens/s3cab` GitHub repo (the right column matches
-the left), so `/triage` only ever *applies* them — it never has to create them. If you rename
-a label in GitHub, update the right-hand column here to match.
+The tracker is local markdown ([issue-tracker.md](issue-tracker.md)): `/triage` records a role by
+writing its right-hand string into the issue file's `Status:` line.

@@ -155,15 +155,14 @@ Rank by complexity removed, heaviest first. These are the veins worth working:
    site — the rule's "call sites that already exist" means *production* callers.
    Reportable: a parameter whose only non-default caller is a test, an `export`
    needed solely so a unit test can reach an otherwise-internal function, a seam
-   that `mock.module` already makes redundant. **Because you are not reading the
-   tests, every such finding must state what the test would do instead** — never
-   silently cost coverage, which is a per-PR obligation here.
+   that `mock.module` already makes redundant. **Every such finding must state what
+   the test would do instead** — open the test file first (see *What does not
+   count*) — never silently cost coverage, which is a per-PR obligation here.
 5. **Duplication with a single obvious home** — the same computation spelled out
    in several modules, where one of them already exports a better version.
 6. **Complexity out of scale with its job** — a state machine for something with
-   two states, or configurability nothing configures. (The one-implementation
-   abstraction moved out to *unnecessary abstraction*, where the disqualifier can
-   travel with it.)
+   two states, or configurability nothing configures. (A one-implementation
+   abstraction files under *unnecessary abstraction*, where its disqualifier lives.)
 
 ## Method
 
@@ -266,9 +265,8 @@ Two artifacts:
    path or query that exposed it, the change proposed, the line delta as a signal,
    and for *structure that only tests use* the production/test call-site counts plus
    what the test would do instead. Tag surface findings `[USER-FACING]`. **Refer to
-   a category by its name, never its number** — the numbering has already shifted
-   once, and a report or rejection record citing "category 3" silently rots the next
-   time one is inserted.
+   a category by its name, never its number** — a report or rejection record citing
+   "category 3" silently rots the next time a category is inserted.
 2. **An HTML report** beside it at `proposals/over-engineering-sweep.html`, in the
    style of the existing `proposals/architecture-review.html` — before/after
    structure diagrams and the visual context that does not survive in markdown.

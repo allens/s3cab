@@ -55,9 +55,8 @@ overlap that leaves is accepted over sync machinery
    → an ADR; vocabulary → CONTEXT.md; a coding rule → this file. **Once a rule has settled,
    distill it to {rule + why + at most one example}** and let `git blame` hold the story —
    appending every correction without compressing is what bloats this file. **But distillation
-   alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** Repeated
-   distillation passes never held the file's size; the two `local/*` ESLint rules have never
-   been re-argued, while the `git -C` rule took six revisions as prose.
+   alone doesn't hold: when a rule keeps needing revision, automate it or delete it.** A
+   lint-enforced rule (the two `local/*` ESLint rules) stays settled; a prose rule gets re-argued.
 2. **Refactors and minor chores may ride along with a feature** — a small refactor, a
    settings.json tweak, a `proposals/` note, or a doc fix needn't be its own PR (still prefer a
    separate *commit* each). This includes notes already sitting uncommitted in `proposals/`: roll
@@ -180,9 +179,8 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   **`.native` is load-bearing, and enforced** (`no-restricted-syntax` bans the bare call): the JS
   `realpathSync` returns a Windows drive letter *as typed*, so only the native binding
   canonicalizes case. Tests must use it too — they build expectations with the same call, so the
-  JS binding would make a test agree with a broken implementation. That is not hypothetical: it
-  cost a six-week "flake" hunt (`uploadDir`'s drift tests, fixed 2026-08-18) when a fixture keyed
-  a mock on `resolve()`'s spelling and a lowercase-drive cwd made the two disagree.
+  JS binding would make a test agree with a broken implementation, and a fixture that keys a mock
+  on `resolve()`'s spelling fails only under a lowercase-drive cwd, where it reads as a flake.
 - **Canonical on the way out, case-tolerant on the way in.** Every path s3cab *writes* is
   canonical (`resolveWalkRoot`, so a snapshot's `#DIR` headers are spelled like the rows beneath
   them); every path s3cab *reads back* from a file a user may have edited — `dirs.txt`,
@@ -289,8 +287,7 @@ a constraint exists or how fixed it is**; some ADRs leave explicit doors open (e
 [0032](docs/adr/0032-generative-onboarding-not-active-provisioning.md)'s optional active `--run`).
 The *what* is best read from the code: [src/s3cab.mjs](src/s3cab.mjs) is the entry point,
 [src/commands.mjs](src/commands.mjs) is the registry, and each command file carries a doc comment.
-(No line counts here — a number in prose rots silently, which is how the previous "~80-line"
-claim survived the file doubling in size.)
+(No line counts here — a number in prose rots silently.)
 
 Module *ownership* (`objects/` → `objects.mjs`, `snapshots/` → `remote.mjs`, SDK boundary →
 `s3.mjs`) reads straight from the code and its ADRs; the auth split is in
