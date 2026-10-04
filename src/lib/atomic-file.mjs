@@ -40,8 +40,8 @@ import { IntegrityError } from "./error.mjs";
  *   is left at `destPath` or in the temp)
  */
 export async function writeFileAtomic(destPath, source, { hash } = {}) {
-  // Fixed-length, not `.<name>.s3cab-tmp`: a name that grows with the
-  // destination's pushes a legal name near the filesystem's 255 limit past it.
+  // Fixed-length, not `.<name>.s3cab-tmp`: a temp 11 characters longer than
+  // the name pushes a legal name near the filesystem's 255 limit past it.
   // Derived from the name, so a retry still overwrites its own leftover.
   const nameDigest = createHash("sha256")
     .update(basename(destPath))
