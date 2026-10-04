@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { FileChangedError } from "../lib/error.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @import { SnapshotRow } from "../lib/snapshot-file.mjs" */
@@ -120,7 +119,7 @@ mock.module("../lib/upload.mjs", {
       /** @type {string} */ set,
     ) => {
       driftErrorCalls.push({ drifted, set });
-      return new FileChangedError(`drift in '${set}'`);
+      return new Error(`drift in '${set}'`);
     },
   },
 });
@@ -374,8 +373,7 @@ describe("backup (the fused pass)", () => {
     outcome = { ...outcome, drifted };
 
     await assert.rejects(backup("photos"), (/** @type {Error} */ error) => {
-      assert.ok(error instanceof FileChangedError);
-      assert.doesNotMatch(error.message, /--snapshot/, "not the resume advice");
+      assert.equal(error.message, "drift in 'photos'");
       return true;
     });
 

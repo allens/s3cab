@@ -47,7 +47,7 @@ passes it: under `objects/` the key *is* the digest.
    subclass is caught-by-type identity, not decoration).
 4. **`uploadObjects` catches the type and records a `"changed"` drift** — the same fact as the
    pre-PUT guard, caught later: that file is skipped, the remaining transfers continue, `backup`
-   refuses to publish its manifest with the existing `FileChangedError` advice. Any other
+   refuses to publish its manifest with the existing `fileChangedError` advice. Any other
    `putFile` throw is still a transport failure that stops the run. No new user-facing wording.
 5. **A 412 (object already present) skips the check.** Nothing was stored; the object under the
    key is genuine content that hashes to it. The *file's* drift is the next run's pre-PUT guard

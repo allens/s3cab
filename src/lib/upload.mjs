@@ -3,7 +3,7 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { stderr } from "node:process";
 import { readDeletionRecords } from "./deletion-record.mjs";
-import { ContentMismatchError, FileChangedError, isENOENT } from "./error.mjs";
+import { ContentMismatchError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
 import { listObjectHashes, putObject } from "./objects.mjs";
@@ -657,12 +657,10 @@ export async function uploadDir({ bucket, dir, excludePath }) {
  * manifest is published, the run didn't finish, which is what makes one shared
  * "back up again" line honest for all three reasons.
  *
- * A {@link FileChangedError} because `backup` reads its *type* to pick the right
- * advice (ADR-0069): every other upload failure resumes with `upload --snapshot`,
- * this one needs a fresh backup. Wording follows ADR-0030 — a headline that says
- * what actually happened, the errno kept to a parenthetical, the fix as a
- * copy-pasteable command, the durable option (exclude) with its guide link — and
- * ADR-0012's consumer vocabulary: "s3cab", not "content-addressed backup".
+ * Wording follows ADR-0030 — a headline that says what actually happened, the
+ * errno kept to a parenthetical, the fix as a copy-pasteable command, the durable
+ * option (exclude) with its guide link — and ADR-0012's consumer vocabulary:
+ * "s3cab", not "content-addressed backup".
  *
  * Exported because the drift is reported as *data* now: the caller decides whether
  * it is fatal, so the caller raises this. A run that publishes nothing (the folder
@@ -670,7 +668,7 @@ export async function uploadDir({ bucket, dir, excludePath }) {
  * own — which is exactly why this is not built inside the transform.
  * @param {Drift[]} drifted - The refused files; the first names the error (at least one)
  * @param {string} set - The set being backed up (names the re-run command)
- * @returns {FileChangedError}
+ * @returns {Error}
  */
 export function fileChangedError(drifted, set) {
   const first = drifted[0];
@@ -695,7 +693,7 @@ export function fileChangedError(drifted, set) {
         `either and ${others === 1 ? "was" : "were"} left out too.\n\n`
       : ``;
 
-  return new FileChangedError(
+  return new Error(
     `Couldn't back up '${path}' — ${headline}.\n\n` +
       `s3cab stores a file only when it can confirm it's still the one it ` +
       `fingerprinted, so this file was left out and the backup didn't finish. ` +
