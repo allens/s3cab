@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -8,15 +16,16 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 import { writeFileAtomic } from "../lib/atomic-file.mjs";
 import { IntegrityError } from "../lib/error.mjs";
 
-// Offline tests for restore's degrade-on-a-missing-object behaviour: one object
-// absent from the bucket — or present but corrupt, or under a name this disk
-// refuses — must not abort the run. The S3 reads are faked at the
-// lib seam (docs/design/testing.md), so the skip, the continue, the end report
-// and the exit-code side effect are pinned without a bucket — but the restore
-// *planning* (lib/restore.mjs) and the real filesystem writes are left alone, so
-// the dedupe interaction (a `copy` step whose source fetch failed) is exercised
-// for real. Argument validation lives in restore.test.mjs; the round trip
-// against a real bucket in test/integration/backup-restore-roundtrip.test.mjs.
+// Offline tests for how restore lands its downloads: content shared by several
+// paths is downloaded once and copied to the rest, and one object absent from
+// the bucket — or present but corrupt, or under a name this disk refuses —
+// must not abort the run. The S3 reads are faked at the lib seam
+// (docs/design/testing.md), so the skip, the continue, the end report and the
+// exit-code side effect are pinned without a bucket — but the restore
+// *planning* (lib/restore.mjs) and the real filesystem writes are left alone,
+// so the copies, and the failures they must route around, happen for real.
+// Argument validation lives in restore.test.mjs; the round trip against a real
+// bucket in test/integration/backup-restore-roundtrip.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
 // import of the command.
 
@@ -83,8 +92,8 @@ const { restore } = await import("./restore.mjs");
 
 /**
  * The snapshot most tests restore: four files under one member root, two of
- * them (`gone.txt`, `gone-copy.txt`) sharing content — so `planRestore` makes
- * the second a `copy` from wherever the first landed.
+ * them (`gone.txt`, `gone-copy.txt`) sharing content — so the second shares the
+ * first's fate: copied from where it landed, or the same casualty.
  */
 const fourFiles = {
   entries: new Map([
@@ -113,6 +122,14 @@ let snapshot = fourFiles;
 /** @param {string} name */
 const named = (name) => Object.assign(new Error(name), { name });
 
+// A name component past 255 characters is refused wherever the suite runs —
+// ENOENT on NTFS, ENAMETOOLONG on ext4 and APFS — so tests using it drive the
+// real filesystem's refusal rather than a faked error. Windows forbidding a
+// form feed is the case that found this; length is the one every platform
+// shares.
+const long = "x".repeat(300);
+const at = { size: 3, mtime: "2026-07-01T10:00:00.000Z" };
+
 /** @type {number | string | null | undefined} */
 let savedExitCode;
 /** @type {string} */
@@ -135,6 +152,91 @@ afterEach(() => {
 /** Where `--output` re-roots `/data/<name>` to. */
 const dest = (/** @type {string} */ name) => join(output, "data", name);
 
+describe("restore with content shared by several paths", () => {
+  it("downloads each content once and copies it to every other path", async () => {
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.equal(result.restored.length, 4);
+    assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
+  });
+
+  it("still copies rather than downloads under --overwrite", async () => {
+    mkdirSync(join(output, "data"));
+    for (const name of ["first.txt", "gone.txt", "gone-copy.txt", "last.txt"]) {
+      writeFileSync(dest(name), "old");
+    }
+
+    const result = await restore([], {
+      set: "photos",
+      output,
+      overwrite: true,
+    });
+
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.equal(result.restored.length, 4);
+    assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
+  });
+
+  it("never copies from a file it skipped, whose content is unverified", async () => {
+    mkdirSync(join(output, "data"));
+    writeFileSync(dest("gone.txt"), "stale");
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.skipped, [dest("gone.txt")]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
+    assert.equal(readFileSync(dest("gone-copy.txt"), "utf8"), "bbb");
+  });
+
+  it("copies from the next path that landed when the first one's name was refused", async () => {
+    snapshot = {
+      entries: new Map([
+        [`/data/a-${long}`, { ...at, hash: "bbb" }], // refused at the download
+        ["/data/b-second.txt", { ...at, hash: "bbb" }],
+        ["/data/c-third.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.refused, [dest(`a-${long}`)]);
+    assert.deepEqual(result.restored, [
+      dest("b-second.txt"),
+      dest("c-third.txt"),
+    ]);
+    assert.deepEqual(fetched, ["bbb", "bbb"]);
+    assert.equal(readFileSync(dest("c-third.txt"), "utf8"), "bbb");
+  });
+
+  it("copies from the next path that landed when the first one collided", async (t) => {
+    // Only a filesystem that folds case can collide `File.txt` with `file.txt`.
+    mkdirSync(join(output, "data"));
+    writeFileSync(dest("probe.tmp"), "");
+    if (!existsSync(dest("PROBE.TMP"))) {
+      t.skip("filesystem is case-sensitive");
+      return;
+    }
+    rmSync(dest("probe.tmp"));
+    snapshot = {
+      entries: new Map([
+        ["/data/File.txt", { ...at, hash: "aaa" }],
+        ["/data/file.txt", { ...at, hash: "bbb" }], // collides with File.txt
+        ["/data/g-second.txt", { ...at, hash: "bbb" }],
+        ["/data/h-third.txt", { ...at, hash: "bbb" }],
+      ]),
+      dirs: ["/data"],
+    };
+
+    const result = await restore([], { set: "photos", output });
+
+    assert.deepEqual(result.collided, [dest("file.txt")]);
+    assert.deepEqual(fetched, ["aaa", "bbb"]);
+    assert.equal(readFileSync(dest("h-third.txt"), "utf8"), "bbb");
+  });
+});
+
 describe("restore with an object missing from the bucket", () => {
   it("skips the file, restores the rest, and reports every missing path", async () => {
     failures.set("bbb", named("NoSuchKey"));
@@ -154,10 +256,10 @@ describe("restore with an object missing from the bucket", () => {
     assert.equal(process.exitCode, 1);
   });
 
-  it("does not re-fetch — or copy from — content already found missing", async () => {
-    // `gone-copy.txt` is a `copy` step pointing at `gone.txt`, which was never
-    // written. Attempting it would throw ENOENT and abort the run; it must be
-    // recorded as the same casualty instead.
+  it("does not re-fetch content already found missing", async () => {
+    // `gone-copy.txt` shares `gone.txt`'s content, which the bucket has already
+    // said it doesn't hold: asking again would only cost a request for the same
+    // answer, so it is recorded as the same casualty.
     failures.set("bbb", named("NoSuchKey"));
     await restore([], { set: "photos", output });
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
@@ -201,7 +303,8 @@ describe("restore with a corrupt object in the bucket", () => {
     const result = await restore([], { set: "photos", output });
 
     assert.deepEqual(result.restored, [dest("first.txt"), dest("last.txt")]);
-    // The `copy` twin is the same casualty, recorded without a second fetch.
+    // The twin sharing its content is the same casualty, recorded without a
+    // second fetch.
     assert.deepEqual(result.corrupt, [dest("gone.txt"), dest("gone-copy.txt")]);
     assert.deepEqual(fetched, ["aaa", "bbb", "ccc"]);
     assert.deepEqual(result.missing, []);
@@ -224,19 +327,13 @@ describe("restore with a corrupt object in the bucket", () => {
 });
 
 describe("restore with a name this disk refuses", () => {
-  // A name component past 255 characters is refused wherever the suite runs —
-  // ENOENT on NTFS, ENAMETOOLONG on ext4 and APFS — so these drive the real
-  // filesystem's refusal rather than a faked error. Windows forbidding a form
-  // feed is the case that found this; length is the one every platform shares.
-  const long = "x".repeat(300);
-  const at = { size: 3, mtime: "2026-07-01T10:00:00.000Z" };
   beforeEach(() => {
     // Named so the snapshot's order is also sorted order.
     snapshot = {
       entries: new Map([
         ["/data/a-first.txt", { ...at, hash: "aaa" }],
         [`/data/b-${long}`, { ...at, hash: "bbb" }], // refused at the download
-        ["/data/c-copy.txt", { ...at, hash: "bbb" }], // a copy of the refused one
+        ["/data/c-copy.txt", { ...at, hash: "bbb" }], // the refused one's content
         [`/data/d-${long}/inner.txt`, { ...at, hash: "ccc" }], // refused directory
         ["/data/e-last.txt", { ...at, hash: "ddd" }],
         [`/data/f-${long}`, { ...at, hash: "ddd" }], // refused at a dedup copy
@@ -277,11 +374,11 @@ describe("restore with a name this disk refuses", () => {
   });
 
   it("fetches a refused file's content again for the next path that shares it", async () => {
-    // `c-copy.txt` is planned as a copy of `b-…`, which was never written; the
-    // content is sound, so it comes from the store rather than going down with
-    // the name. The refused directory never reaches a fetch at all, and nor
-    // does `f-…`: its copy fails with the source still on disk, so the name
-    // was the problem, and a fetch would download it only to be refused again.
+    // `b-…` was never written, so nothing holds its content yet; the content is
+    // sound, so `c-copy.txt` fetches it rather than going down with the name.
+    // The refused directory never reaches a fetch at all, and nor does `f-…`:
+    // its copy fails with the source still on disk, so the name was the
+    // problem, and a fetch would download it only to be refused again.
     const result = await restore([], { set: "photos", output });
 
     assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd"]);
@@ -391,8 +488,8 @@ describe("restore with deliberately deleted content (ADR-0064)", () => {
 
     const result = await restore([], { set: "photos", output });
 
-    // Both paths of the deduped content are the same deliberate casualty —
-    // including the `copy` twin that was never attempted.
+    // Both paths of the shared content are the same deliberate casualty —
+    // including the twin that was never attempted.
     assert.deepEqual(result.deleted, [
       { path: dest("gone.txt"), deletedOn: "2026-07-19T14:22:41.000Z" },
       { path: dest("gone-copy.txt"), deletedOn: "2026-07-19T14:22:41.000Z" },

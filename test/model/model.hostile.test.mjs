@@ -320,10 +320,9 @@ describe("hostile trees: mixed-case collisions", () => {
 
     // One backup on this host cannot list file.txt AND File.txt, but another
     // machine's case-sensitive tree can — craft that manifest directly. The
-    // third row shares File.txt's hash so its plan step is a dedupe *copy*
-    // pointing at File.txt's destination — which the collision leaves
-    // unwritten, so the copy must re-fetch rather than duplicate whatever
-    // survivor that name resolves to.
+    // third row shares File.txt's content, which the collision leaves landed
+    // nowhere, so it must come from the store rather than be copied from
+    // whatever survivor that name resolves to.
     const fake = backendHolder.current;
     const key = "snapshots/hostile/2026-01-05T0000.tsv.zst";
     const manifestBytes = /** @type {Buffer} */ (
@@ -372,7 +371,7 @@ describe("hostile trees: mixed-case collisions", () => {
     assert.equal(
       readFileSync(join(out, "data", "zzz-copy.txt"), "utf8"),
       "UPPERCASE CONTENT!",
-      "a copy whose source row collided re-fetches the true content",
+      "a path sharing a collided row's content fetches the true content",
     );
   });
 });

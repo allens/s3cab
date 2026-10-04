@@ -310,10 +310,10 @@ destination never gets that far: NTFS doesn't refuse one but reads it as a strea
 copy succeeds into the hidden stream), so `planRestore` refuses it before anything is written.
 Those three are the whole degrade; an operational error (network,
 credentials, a full disk) is wrong about the run rather than one file, and still aborts.
-Because `planRestore` points repeats of a hash at wherever the first copy landed, a failed
-fetch also marks its dependent `copy` steps the same casualty rather than reading a file that
-was never written — except after a refused name, whose content is sound: the next path
-sharing it fetches it again.
+Content shared by several paths is downloaded once and copied from wherever it last landed.
+An absent or corrupt object is the same casualty for every path sharing it, recorded without
+asking the bucket again; a refused or collided name is the path's failure, not the content's,
+so the next path sharing it fetches the content and the ones after copy from that.
 
 ### `forget` — remove remote snapshots (**built**)
 

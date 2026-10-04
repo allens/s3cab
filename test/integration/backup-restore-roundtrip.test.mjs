@@ -129,7 +129,7 @@ describe("backup → restore round trip (real bucket)", () => {
   });
 
   it("skips a file whose object is gone from the bucket and restores the rest", async () => {
-    // The mocked unit tests (src/commands/restore.missing-object.test.mjs) fake
+    // The mocked unit tests (src/commands/restore.downloads.test.mjs) fake
     // getObject outright, so only a real bucket proves what this depends on: that
     // a GET on an absent key surfaces as `NoSuchKey` all the way out through
     // getStream → writeFileAtomic, rather than as some wrapped stream error. That

@@ -30,24 +30,22 @@ const putsColonInName = (dest) =>
   foldsCase(dest) && dest.slice(win32.parse(dest).root.length).includes(":");
 
 /**
- * @typedef {Object} RestoreStep
- * @property {string} dest - Where this entry is written (or left alone, for `skip` and `refuse`)
- * @property {"skip" | "refuse" | "fetch" | "copy"} action
- * @property {string} [hash] - Content hash (`fetch`/`copy` only)
- * @property {string} [mtime] - Snapshot mtime, as stored (`fetch`/`copy` only)
- * @property {string} [from] - Local path to copy from (`copy` only)
+ * One target's step. `skip` and `refuse` leave `dest` alone; `write` restores
+ * content `hash` to it and gives it the snapshot's `mtime`, as stored.
+ * @typedef {{ action: "skip", dest: string }
+ *   | { action: "refuse", dest: string }
+ *   | { action: "write", dest: string, hash: string, mtime: string }} RestoreStep
  */
 
 /**
  * Decide what to do with each restore target, without touching the disk or the
- * network. Mirrors the snapshot's content-addressing: the first target with a
- * given hash is `fetch`ed, and every later target with the same hash is a
- * `copy` from wherever the first one landed (design #1 — identical content
- * downloads once). A target whose destination already exists is `skip`ped
- * unless `overwrite` — and a skipped entry never seeds the dedupe, since a
- * pre-existing file's content is unverified and so untrusted as a copy source.
- * A target whose name the destination can't hold as a file (`putsColonInName`)
- * is `refuse`d, and doesn't seed it either: nothing will be there to copy.
+ * network. A target whose destination already exists is `skip`ped unless
+ * `overwrite`; one whose name the destination can't hold as a file
+ * (`putsColonInName`) is `refuse`d; every other target is a `write`.
+ *
+ * Not where identical content is deduplicated, because only the restore loop
+ * knows where content actually landed: a write can fail without ending the run
+ * (ADR-0086).
  *
  * Pure and order-preserving, like `selectEntries`/`reroot`: `exists` is
  * injected so this is unit-testable without touching the filesystem.
@@ -67,30 +65,17 @@ export function planRestore(
 ) {
   /** @type {RestoreStep[]} */
   const plan = [];
-  /** @type {Map<string, string>} */
-  const fetchedDestByHash = new Map();
-
   for (const source of targets) {
     const dest = destFor(source);
     if (putsColonInName(dest)) {
       plan.push({ dest, action: "refuse" });
-      continue;
-    }
-    if (exists(dest) && !overwrite) {
+    } else if (exists(dest) && !overwrite) {
       plan.push({ dest, action: "skip" });
-      continue;
-    }
-
-    const { hash, mtime } = /** @type {Props} */ (entries.get(source));
-    const from = fetchedDestByHash.get(hash);
-    if (from) {
-      plan.push({ dest, action: "copy", hash, mtime, from });
     } else {
-      plan.push({ dest, action: "fetch", hash, mtime });
-      fetchedDestByHash.set(hash, dest);
+      const { hash, mtime } = /** @type {Props} */ (entries.get(source));
+      plan.push({ dest, action: "write", hash, mtime });
     }
   }
-
   return plan;
 }
 

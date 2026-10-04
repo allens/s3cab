@@ -32,13 +32,16 @@ not produced, unlike the deliberate-deletion skips that stay exit 0.
 
 Two subtleties the mechanism carries:
 
-- **A dedupe `copy` whose source row collided re-fetches from the store.** `planRestore` points
-  every later holder of a hash at where the first was written; a collision leaves that
-  destination unwritten, so copying from the *name* would duplicate whatever survivor it
-  resolves to — the wrong bytes. The loop tracks collided destinations and promotes such copies
-  back to fetches (re-downloading, rather than redirecting later copies, keeps the plan
-  untouched; N same-hash rows behind a collision is a crafted-manifest corner not worth
-  machinery).
+- **A later row sharing a collided row's content never copies from its name.** The collision
+  leaves that name resolving to another row's survivor, so copying from it would duplicate the
+  wrong bytes. The loop records where each hash actually *landed*, and a collision records
+  nothing: the next holder fetches, and the holders after it copy from that one.
+  - **Amended 2026-10-04: dedupe moved from the plan into the loop.** `planRestore` used to point
+    every later holder at the first holder's destination, and this ADR re-fetched every one of
+    them behind a collision rather than redirect them — N same-hash rows behind a collision was a
+    crafted-manifest corner, not worth machinery. Refused names (PR #354) made a write that fails
+    while its content is sound an ordinary cross-OS case, and with the loop recording where
+    content landed, redirecting is the simpler code rather than extra machinery.
 - **The per-file `realpathSync.native` is deliberate**, not the walk-hot-path mistake CLAUDE.md
   warns about: the loop is download-bound, and no pure-string function can say whether two names
   are one file — trusting strings is the bug this closes.
