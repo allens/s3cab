@@ -265,10 +265,11 @@ export async function restore(paths = [], options = {}) {
           } catch (error) {
             // A failed copy names its *source* in `path` whichever side
             // failed, so a refused name and a source gone since it was written
-            // are the same ENOENT. A fetch can only fail on the destination:
-            // it restores the file if the source was the problem, and is
-            // refused in turn if the name was.
-            if (!isRefusedName(error)) {
+            // are the same ENOENT. Whether the source is still there tells
+            // them apart: if it is, the name was refused, and the catch below
+            // says so; only a vanished source is worth a fetch, which would
+            // otherwise download the whole object just to be refused.
+            if (!isRefusedName(error) || existsSync(from)) {
               throw error;
             }
             await getObject(set.bucket, hash, step.dest);
@@ -280,10 +281,10 @@ export async function restore(paths = [], options = {}) {
         // This one file's problem, and only that: absent content
         // (`isObjectNotFound`, the s3.mjs spelling of "the key isn't there"),
         // corrupt content (writeFileAtomic's digest check), or a name this
-        // filesystem won't create — which can surface from the directory or
-        // the download. Anything else — a network or credentials failure, a
-        // full disk — is wrong about the whole run, so it propagates and
-        // aborts.
+        // filesystem won't create — which can surface from the directory, the
+        // download or a dedup copy. Anything else — a network or credentials
+        // failure, a full disk — is wrong about the whole run, so it
+        // propagates and aborts.
         if (error instanceof IntegrityError) {
           outcome = "corrupt";
         } else if (isObjectNotFound(error)) {
