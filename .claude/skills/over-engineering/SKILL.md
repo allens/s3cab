@@ -377,8 +377,6 @@ precisely the thing a cold reader re-proposes.
 
 ## Relationship to `/improve-codebase-architecture`
 
-> *Assistant-proposed framing — not part of the original brief.*
-
 That skill and this one are **antagonists, by design.** Its stated epic is to turn
 shallow modules into deep ones — more behaviour behind a smaller interface — so it
 *creates* seams. This one *destroys* seams that do not pay for themselves. Each is
