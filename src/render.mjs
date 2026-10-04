@@ -9,7 +9,8 @@
 //
 // Renderer bodies compose the primitives in lib/format.mjs and the colourisers
 // in lib/style.mjs; a renderer never prints (it returns), and never truncates
-// (ADR-0043 — the user manages volume with a pager or redirect).
+// (ADR-0043 — the user manages volume with a pager or redirect) — bar one list
+// whose remainder is a printed `compare` command away (`ERRORS_SHOWN`).
 //
 // One function here is not a renderer: `offerBackupChanges` *asks* whether to
 // render more, so it is async and it reads the terminal (ADR-0078). It lives
@@ -333,7 +334,7 @@ function errorSection(errors, shorten, paint) {
     errors,
     (text) => bold(red(text)),
     paint,
-    (entry) => `  ${shorten(entry.path)}  (${entry.reason})`,
+    (entry) => `  ${shorten(entry.path)}  (${errorReason(entry)})`,
   );
 }
 
@@ -892,14 +893,29 @@ function problemDetail(p) {
 
 /**
  * Report a finished `backup` ([ADR-0078](../docs/adr/0078-backup-run-report.md)) —
- * a line per question, in that order because they are different questions:
+ * a line per question about the run, then the snapshot's figures in two blocks,
+ * then what to do next:
  *
  * ```
  * Backed up 'onedrive' → snapshot 2026-08-08T0206
  * Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
  * Uploaded 426 objects (14.9GB) in 2m 12s
- * Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
- * Couldn't be backed up: 1 skipped, 1 error
+ *
+ * Changes since 2026-08-01T0846:
+ *   Added     425
+ *   Modified    1
+ *   Deleted     0
+ *   Moved       0
+ *
+ * Couldn't be backed up:
+ *   Skipped     1
+ *   Errors      1
+ *     D:\OneDrive\Outlook\archive.pst  (EBUSY: resource busy or locked)
+ *
+ * To try again:
+ *   s3cab backup onedrive
+ *
+ * To see the details:
  *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
  * ```
  *
@@ -908,57 +924,151 @@ function problemDetail(p) {
  * stand in for what happened: content-addressed dedup (ADR-0001) means a file
  * that merely moved changes everything and uploads nothing.
  *
- * **What is listed in full versus counted** (§2) is the dividing line: `backup`
- * spells out only what only `backup` can know — bytes, timings, transfers.
- * Everything the *snapshot* holds is a count plus the copy-pasteable command,
- * because the snapshot is permanent, so nothing is lost by not printing it. The
- * command names **both** snapshots on purpose: a bare `s3cab compare` stops
- * meaning "that run" the moment another backup lands.
+ * **What is listed in full versus counted** (§2): everything the *snapshot*
+ * holds is a count plus the copy-pasteable command, because the snapshot is
+ * permanent, so nothing is lost by not printing it — except the files that
+ * failed. Those are the one category with something to do about them, so each
+ * is named with its reason, up to `ERRORS_SHOWN`. The command names **both**
+ * snapshots on purpose: a bare `s3cab compare` stops meaning "that run" the
+ * moment another backup lands.
  *
- * **`moved` is in the changes line** so a large reorganisation cannot read as
- * "nothing happened" beside `uploaded 0 objects`. **The heading is `Couldn't`**,
- * not "Not backed up" (§4) — excluded files are also not backed up, in their
- * thousands, and the distinction that matters is *didn't choose to* versus
- * *couldn't*.
+ * **Two blocks, because they are different in kind** (§4): a diff against the
+ * baseline, and facts about this snapshot. A symlink skipped on every run since
+ * March under `Changes since` would read as news every time. **`Moved` is a
+ * row** so a large reorganisation cannot read as "nothing happened" beside
+ * `uploaded 0 objects`. **The heading is `Couldn't`**, not "Not backed up" —
+ * excluded files are also not backed up, in their thousands, and the
+ * distinction that matters is *didn't choose to* versus *couldn't*.
  *
  * Every figure is read off the result, never derived here (§10) — including
- * `skipped`/`errors`, which the *pass* counted rather than the diff, so a first
- * backup (which runs no diff) still reports them.
+ * `skipped`/`errors`, which the *pass* collected rather than the diff, so a
+ * first backup (which runs no diff) still reports them.
  * @param {BackupResult} result
  * @param {RenderContext} [context]
  * @returns {string}
  */
 export function renderBackup(result, { color = false } = {}) {
   const { set, snapshot, skipped, errors, comparison } = result;
-  const lines = [
-    `Backed up '${set}' → snapshot ${snapshot}`,
-    scanLine(result),
-    uploadLine(result),
-    changesLine(comparison),
+  const paint = painter(color);
+
+  /** @type {[string, number][]} */
+  const changes =
+    comparison?.since && changed(comparison)
+      ? [
+          ["Added", comparison.added.length],
+          ["Modified", comparison.modified.length],
+          ["Deleted", comparison.deleted.length],
+          ["Moved", comparison.moved.length],
+        ]
+      : [];
+  /** @type {[string, number][]} */
+  const failures = [];
+  if (skipped) {
+    failures.push(["Skipped", skipped]);
+  }
+  if (errors.length) {
+    failures.push(["Errors", errors.length]);
+  }
+  // One column for both blocks, so the counts line up down the whole report.
+  const all = [...changes, ...failures];
+  const labelWidth = Math.max(...all.map(([label]) => label.length));
+  const countWidth = Math.max(
+    ...all.map(([, count]) => formatCount(count).length),
+  );
+  const row = (/** @type {[string, number]} */ [label, count]) =>
+    `  ${label.padEnd(labelWidth)}  ${formatCount(count).padStart(countWidth)}`;
+
+  const blocks = [
+    [
+      `Backed up '${set}' → snapshot ${snapshot}`,
+      scanLine(result),
+      uploadLine(result),
+    ].join("\n"),
+    changes.length
+      ? [`Changes since ${comparison?.since}:`, ...changes.map(row)].join("\n")
+      : changesLine(comparison),
   ];
 
-  if (skipped || errors) {
-    const parts = [];
+  if (failures.length) {
+    const lines = ["Couldn't be backed up:"];
     if (skipped) {
-      parts.push(`${formatCount(skipped)} skipped`);
+      lines.push(paint(yellow)(row(["Skipped", skipped])));
     }
-    if (errors) {
-      parts.push(countOf(errors, "error"));
+    if (errors.length) {
+      lines.push(
+        paint((text) => bold(red(text)))(row(["Errors", errors.length])),
+      );
+      for (const error of errors.slice(0, ERRORS_SHOWN)) {
+        lines.push(`    ${error.path}  (${errorReason(error)})`);
+      }
+      if (errors.length > ERRORS_SHOWN) {
+        lines.push(`    and ${formatCount(errors.length - ERRORS_SHOWN)} more`);
+      }
     }
-    lines.push(`Couldn't be backed up: ${parts.join(", ")}`);
+    blocks.push(lines.join("\n"));
   }
 
-  // The pointer, only when it has something to show. On a run with no changes,
-  // nothing skipped and nothing failed there is nothing behind the command, and
-  // offering it would be busywork dressed as a next step.
-  if (skipped || errors || (comparison && changed(comparison))) {
-    const since = comparison?.since ? `--since ${comparison.since} ` : "";
-    lines.push(
-      `  ${shellCommand(`s3cab compare ${set} ${since}--until ${snapshot}`, color)}`,
+  // A failed file goes in on the next run once whatever stopped it is dealt
+  // with, and the reason on its line already says what that is.
+  if (errors.length) {
+    blocks.push(
+      `To try again:\n  ${shellCommand(`s3cab backup ${set}`, color)}`,
     );
   }
 
-  return lines.join("\n");
+  if (hasDetails(result)) {
+    const since = comparison?.since ? `--since ${comparison.since} ` : "";
+    blocks.push(
+      `To see the details:\n  ${shellCommand(`s3cab compare ${set} ${since}--until ${snapshot}`, color)}`,
+    );
+  }
+
+  return blocks.join("\n\n");
+}
+
+/**
+ * How many failed files the report names before handing the rest to `compare`.
+ * The one place a renderer truncates (ADR-0078 §2): ADR-0043's never-truncate
+ * protects results that cost something to produce, and these are one free local
+ * `compare` away, which the report then always prints. A list this long is
+ * nearly always one unreadable folder, and its first lines show that as well as
+ * all of them would.
+ */
+const ERRORS_SHOWN = 10;
+
+/**
+ * Whether the report's `compare` command has anything behind it the report
+ * didn't already show: a change, a skipped item, or failed files past
+ * `ERRORS_SHOWN`. Shared with `offerBackupChanges`, whose prompt is that same
+ * command run on the spot — so the two appear together or not at all.
+ * @param {BackupResult} result
+ * @returns {boolean}
+ */
+const hasDetails = ({ comparison, skipped, errors }) =>
+  Boolean(
+    (comparison && changed(comparison)) ||
+    skipped ||
+    errors.length > ERRORS_SHOWN,
+  );
+
+/**
+ * A failed file's reason, minus the path it repeats. Node words a failed fs call
+ * `<CODE>: <description>, <syscall> '<path>'` and `fileProps`' own throw ends
+ * `: <path>`, while every line that prints a reason shows the path beside it.
+ * The snapshot's `#ERROR` row keeps the full text (guide/format.md promises the
+ * operating system's), so this is display only. Anything else is left as is.
+ * @param {CompareError} error
+ * @returns {string}
+ */
+function errorReason({ path, reason }) {
+  const quoted = ` '${path}'`;
+  if (reason.endsWith(quoted)) {
+    const head = reason.slice(0, -quoted.length);
+    const syscall = head.lastIndexOf(", ");
+    return syscall === -1 ? head : head.slice(0, syscall);
+  }
+  const trailing = `: ${path}`;
+  return reason.endsWith(trailing) ? reason.slice(0, -trailing.length) : reason;
 }
 
 /**
@@ -1029,35 +1139,21 @@ function uploadLine({ candidates, uploaded, uploadedBytes, uploadMs }) {
 }
 
 /**
- * The diff line: what changed, and *since when* — "425 added" is meaningless
- * without the baseline, so the baseline is named rather than implied. A first
- * backup has no baseline and no diff to summarize (ADR-0078 §7); a run where
- * nothing moved says so in one line instead of four zeros.
+ * The one line that stands in for the changes block when it would have nothing
+ * to count: a first backup has no baseline and no diff (ADR-0078 §7), and a run
+ * where nothing moved says so in one line instead of four zeros.
  * @param {CompareResult | null} comparison
  * @returns {string}
  */
-function changesLine(comparison) {
-  if (!comparison?.since) {
-    return `First backup — every file is new.`;
-  }
-  const { since, added, modified, deleted, moved } = comparison;
-  if (!changed(comparison)) {
-    return `No changes since ${since}.`;
-  }
-  // Grouped counts, like every other figure s3cab prints: a big reorganisation
-  // puts five digits in this line, and `12480 moved` is the one number here that
-  // gets read as a magnitude rather than a label.
-  return (
-    `Changes since ${since}: ${formatCount(added.length)} added, ` +
-    `${formatCount(modified.length)} modified, ${formatCount(deleted.length)} deleted, ` +
-    `${formatCount(moved.length)} moved`
-  );
-}
+const changesLine = (comparison) =>
+  comparison?.since
+    ? `No changes since ${comparison.since}.`
+    : `First backup — every file is new.`;
 
 /**
- * Whether a diff found any *change* — the four categories the changes line
+ * Whether a diff found any *change* — the four categories the changes block
  * counts. Skipped and errored entries are deliberately not in it: they have
- * their own line, and a symlink that has been skipped on every run since March
+ * their own block, and a symlink that has been skipped on every run since March
  * is not news about this one.
  * @param {CompareResult} comparison
  * @returns {boolean}
@@ -1069,6 +1165,10 @@ const changed = ({ added, modified, deleted, moved }) =>
  * Offer a finished backup's full diff, and render it if it is wanted — the
  * interactive half of ADR-0078 §5, run by the dispatcher *after* the report is
  * on screen, because the report is what the answer is judged on.
+ *
+ * It is the report's `To see the details:` command run on the spot, so it asks
+ * exactly when that command is printed (`hasDetails`) and is worded to point at
+ * it — except on a first backup, which has no diff in memory to show.
  *
  * The diff is the one already in memory, rendered through the very renderer
  * `compare` uses: no second parse, no re-run, and no way for the summary and the
@@ -1089,15 +1189,12 @@ const changed = ({ added, modified, deleted, moved }) =>
  * @param {RenderContext} [context]
  * @returns {Promise<string | undefined>} The rendered diff, or nothing
  */
-export async function offerBackupChanges({ comparison }, context = {}) {
-  if (
-    !comparison ||
-    !hasFindings(comparison) ||
-    !isInteractive(process.stdin)
-  ) {
+export async function offerBackupChanges(result, context = {}) {
+  const { comparison } = result;
+  if (!comparison || !hasDetails(result) || !isInteractive(process.stdin)) {
     return undefined;
   }
-  const show = await promptYesNo("Show what changed?");
+  const show = await promptYesNo("Compare now?");
   return show ? renderCompareResult(comparison, context) : undefined;
 }
 

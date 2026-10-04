@@ -112,7 +112,7 @@ describe("prior-audit findings, encoded", () => {
     process.exitCode = 0;
     const result = await backup("col");
 
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
     assert.equal(result.uploaded, 1, "A's object really goes up this time");
     assert.equal(process.exitCode, 0);
 
@@ -353,7 +353,7 @@ describe("prior-audit findings, encoded", () => {
     const result = await backup("race");
 
     // The backup claims clean success…
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
     assert.equal(process.exitCode, 0);
 
     // …and its published snapshot references a deleted object. This is the
@@ -402,7 +402,7 @@ describe("prior-audit findings, encoded", () => {
     process.exitCode = 0;
     const result = await backup("interleave");
 
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
     assert.equal(result.uploaded, 0, "every object was baseline-skipped");
     assert.equal(process.exitCode, 0);
 
