@@ -2,7 +2,7 @@
 
 Ordered by contribution to one goal: **reducing the risk that a backup reports success and cannot be restored.**
 
-Everything here assumes Claude Code with `/effort` set per prompt. Run 1 and 2 before 3 and 4 — their findings become the target list for the test work. Run 1 before you freeze the format for 1.0, because a real durability flaw may want a change to the bucket layout, and that is cheap now and expensive later.
+Everything here assumes Claude Code with `/effort` set per prompt. Run 1 before you freeze the format for 1.0, because a real durability flaw may want a change to the bucket layout, and that is cheap now and expensive later.
 
 A lettered prompt (1b) re-asks its parent's question after the subject moved — run one when the parent's findings have stopped being about current code.
 
@@ -63,46 +63,6 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ---
 
-## 3. Model-based test suite with restore as the invariant
-
-**Effort: high. This is the long autonomous run — expect hours. Tier 1 needs nothing external; Tiers 2/3 use a pre-provisioned bucket named in the prompt.**
-
-> I want s3cab's test suite to be strong enough that I'd stake real data on a green build. The property I care about is not coverage, it's that every snapshot the tool reports as backed up can be restored byte-for-byte.
->
-> Build a model-based test harness. Maintain a model of expected repository state, generate random valid command sequences (`snapshot`, `backup`, `forget`, `cleanup`, `restore`, `verify`, `reattach`), and after every step assert the invariants: every snapshot listed as complete restores byte-identically; every stored object's content matches its name; identical content is stored exactly once; no snapshot references a missing object; `cleanup` and `forget` never remove a referenced object; and `verify`'s verdict agrees with the model. On failure, shrink to a minimal reproducing sequence.
->
-> **Make the storage backend a parameter of the harness from the start**, not something bolted on later. Two backends ship with the suite: an in-memory fake at the `s3.mjs` seam, and real S3 reached through the environment (bucket, credentials, `AWS_ENDPOINT_URL_S3` for a custom endpoint) — which is how the same suite later runs unmodified against other S3-compatible providers. Where a test can only pass on a backend with a particular capability, express that as a declared capability requirement the test skips on, rather than an assumption baked into the test body. Keep a written list of every capability the suite depends on — versioning, delete markers, lifecycle expiry of noncurrent versions, multipart, conditional writes, listing semantics — because that list is the real compatibility contract and I'll want it separately. The fake declares only the capabilities it truly models: an optimistic fake that claims what it fakes poorly is how a suite passes against broken code.
->
-> Then split the runs into three tiers:
->
-> - **Tier 1, in-memory fake, per-commit and nightly.** The high-volume loop: thousands of sequences, full shrinking, and all fault injection. The backend is an in-process fake behind the `s3.mjs` seam — the seam ADR-0019 already designates for deterministic error injection — modelling only the operations s3cab actually performs, not S3 at large. Add a fault-injecting layer in front of the backend that can produce throttling, 500s, timeouts, truncated responses, and duplicated requests, with a seed so any failure replays identically. No container, no credentials: this tier must run anywhere, including Windows CI runners and fork PRs.
-> - **Tier 2, real AWS S3, pre-release and nightly.** A much smaller conformance subset — tens of cases, not thousands — targeting exactly where the fake is most likely to diverge from the real thing: versioning and delete-marker behaviour, multipart ETag format, conditional-write atomicity if the set-name claim relies on it, listing pagination past a thousand keys, delimiter handling with awkward key names, real throttling responses, and credentials expiring mid-run.
-> - **Tier 3, real AWS, manual or scheduled slow-clock.** The things that need wall time, chiefly lifecycle expiry of noncurrent versions, which is the mechanism by which `cleanup` actually reclaims space. If it can't be tested in a normal run, write down the procedure and how often to run it.
->
-> The real-AWS bucket for Tiers 2 and 3 already exists: `test-s3cab-allen-conformance` (eu-west-1, versioning enabled, versioned-aware expiry baseline), reached via the `test-s3cab-allen` AWS profile. It is reserved for this harness as its sole owner, so whole-bucket assertions are safe, and its lifecycle configuration is yours to mutate. The scoped identity deliberately cannot flip bucket versioning (`s3:PutBucketVersioning` is denied) — treat versioned-ness as fixed at provisioning. The naming convention and both bucket subtypes are documented in `docs/integration-testing.md` ("Create a bucket"); when you wire up the nightly Tier 2 run in CI, provision `test-s3cab-ci-conformance` with `node scripts/setup-test-bucket.mjs --conformance` — the CI role's policy already covers `test-s3cab-ci-*`.
->
-> Pair all of this with a generator of hostile file trees. s3cab is Windows-first, so cover paths beyond MAX_PATH, reserved device names, trailing dots and spaces, mixed-case collisions, unicode and normalisation differences, junctions, symlinks, hardlinks, zero-byte files, files above the multipart threshold, files with implausible timestamps, and files that change or vanish mid-scan.
->
-> Prove the suite works rather than assuming it. Seed a set of deliberate bugs — a skipped upload, an off-by-one in the hash comparison, a `cleanup` that ignores one snapshot, a path normalisation error — and confirm the harness catches each one and shrinks to something a human can read. A suite that passes against broken code is worse than no suite. Do the same across tiers: seed a bug that only manifests under real S3 semantics and confirm Tier 2 catches what Tier 1 misses.
->
-> Fit the project's existing conventions in `CLAUDE.md`, keep Tier 1 within a sensible CI time budget with a longer nightly mode, and don't refactor production code beyond what the tests require. Establish a way to check your own work as you build: every hour or so, dispatch a fresh-context subagent to verify what you've produced against this brief. Before reporting progress, audit each claim against a tool result — if tests fail, say so with the output; if you skipped something, say that.
-
----
-
-## 4. Crash injection and multi-machine concurrency
-
-**Effort: high. Run after 1, using its findings as the target list.**
-
-> Separate from the property tests, I want a harness that specifically attacks the two conditions most likely to produce an unrestorable backup: interruption and concurrency.
->
-> For interruption: kill the process at every point where a multi-step transition can be torn — between object uploads, between the last object and the snapshot write, mid-multipart, during `cleanup`'s delete pass, during `forget`. After each kill, assert the repository is in a restorable state, that no snapshot references a missing object, and that re-running the command recovers cleanly rather than compounding the damage.
->
-> For concurrency: this must be genuinely multi-process, since one bucket is designed to hold sets from several machines sharing `objects/`. Run backups and maintenance commands simultaneously from separate processes with separate s3cab homes against one bucket, in every combination, and assert the same invariants throughout. Pay particular attention to a `cleanup` overlapping an in-flight `backup` whose objects are uploaded but whose snapshot file is not yet written.
->
-> Report findings as you go rather than only at the end. If a scenario is genuinely safe, say why and name the mechanism.
-
----
-
 ## 5. Recovery rehearsal as a release gate
 
 **Effort: medium. Cheap, and the closest thing to evidence a user would accept.**
@@ -129,11 +89,11 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## 7. Provider conformance suite
 
-**Effort: high. Run after 3, reusing its backend abstraction. Needs an account with each provider.**
+**Effort: high. Reuses the model-based harness's backend abstraction (`test/model/harness/`). Needs an account with each provider.**
 
 > s3cab advertises support for AWS S3 and for S3-compatible providers including Cloudflare R2, Backblaze B2 and Wasabi. Nothing currently verifies that claim, and these providers differ in exactly the areas s3cab's safety properties rest on. I want a conformance suite and an honest support matrix before 1.0.
 >
-> Start from the capability list produced by the test harness in the previous piece of work — the things s3cab depends on the object store doing. Build a suite that probes each capability directly against a live provider and reports what it actually does, rather than whether s3cab happens to pass. At minimum: bucket versioning and whether deletes become delete markers; whether noncurrent versions are listable and restorable; lifecycle rules for expiring noncurrent versions, or their absence; multipart upload thresholds and the ETag format returned; conditional writes and whether `If-None-Match` is genuinely atomic under contention; listing pagination past a thousand keys and delimiter handling; error codes and throttling behaviour under load; checksum and storage-class support; and the semantics of overwriting an existing key.
+> Start from the capability list in `test/model/CAPABILITIES.md` — the things s3cab depends on the object store doing. Build a suite that probes each capability directly against a live provider and reports what it actually does, rather than whether s3cab happens to pass. At minimum: bucket versioning and whether deletes become delete markers; whether noncurrent versions are listable and restorable; lifecycle rules for expiring noncurrent versions, or their absence; multipart upload thresholds and the ETag format returned; conditional writes and whether `If-None-Match` is genuinely atomic under contention; listing pagination past a thousand keys and delimiter handling; error codes and throttling behaviour under load; checksum and storage-class support; and the semantics of overwriting an existing key.
 >
 > Test the atomicity claims by contention, not by reading documentation. If two processes race to create the same key, find out empirically what each provider does.
 >
@@ -147,12 +107,12 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## Notes on running these
 
-**Give it a sandbox that can actually execute.** The test buckets are already stood up — prompt 3 names its conformance bucket, and Tier 1's in-memory fake needs nothing external. The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
+**Give it a sandbox that can actually execute.** The test buckets are already stood up ([docs/integration-testing.md](../integration-testing.md)). The value here is in verification loops, and a model that can only read code is doing a fraction of the work you're paying for.
 
 **Let it keep notes between runs.** A `notes/` directory with one lesson per file, referenced at the start of each session, meaningfully improves later runs on the same codebase.
 
 **Add a scope brake if it starts tidying.** At high effort it will refactor things you didn't ask about. `Don't add features, refactor, or introduce abstractions beyond what the task requires` handles most of it.
 
-**Findings are hypotheses, not proof.** Prompt 1 will hand you a list containing real races, things you already guard against, and misreadings. Prompts 3 and 4 are how you sort them. Don't let a clean audit substitute for an executable check — false confidence is the exact failure mode you're trying to design out.
+**Findings are hypotheses, not proof.** Prompt 1 will hand you a list containing real races, things you already guard against, and misreadings. Sort them by turning each into a case in the model-based or crash-injection suite. Don't let a clean audit substitute for an executable check — false confidence is the exact failure mode you're trying to design out.
 
 **On the credential paths:** reviewing the auth chain and Roles Anywhere handling may trip Fable's safety classifiers and fall back to an Opus model mid-run. Benign request, just don't be thrown by it.
