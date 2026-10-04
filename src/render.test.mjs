@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtempDisposable } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -1077,9 +1078,10 @@ describe("renderBackup", () => {
     assert.doesNotMatch(text, /To see the details|s3cab compare/);
   });
 
-  it("drops the path a reason repeats, and leaves any other reason whole", () => {
+  it("drops the path a reason repeats, and leaves any other reason whole", async () => {
     // A real fs error, so the stripping tracks how Node actually words one.
-    const missing = under("gone.txt");
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const missing = resolve(dir.path, "gone.txt");
     let reason = "";
     try {
       readFileSync(missing);
