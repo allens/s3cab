@@ -302,10 +302,10 @@ object — present, but failing `writeFileAtomic`'s digest check (`IntegrityErro
 the same way under its own `corrupt` heading: nothing is written for it, and the bad bytes are
 discarded rather than left in the temp. A name the destination filesystem **refuses** degrades
 too, under `refused` — NTFS answers a forbidden character with `ENOENT`, ext4 a component past
-255 bytes with `ENAMETOOLONG`, from the directory or the download. A dedup copy that fails that
-way is retried as a fetch instead: a failed `copyFile` names its *source* in `path` whichever
-side failed, so a refused name and a source deleted mid-run are the same `ENOENT`, and only the
-fetch, which can fail only on the destination, tells them apart. A `:` on a Windows-shaped
+255 bytes with `ENAMETOOLONG`, from the directory, the download or a dedup copy. A failed
+`copyFile` names its *source* in `path` whichever side failed, so a refused name and a source
+deleted mid-run are the same `ENOENT`; the source's presence tells them apart, and only a
+vanished source is worth a fetch. A `:` on a Windows-shaped
 destination never gets that far: NTFS doesn't refuse one but reads it as a stream separator (a
 copy succeeds into the hidden stream), so `planRestore` refuses it before anything is written.
 Those three are the whole degrade; an operational error (network,
