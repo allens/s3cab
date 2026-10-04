@@ -75,7 +75,7 @@ import {
  * objects + snapshot are already safely up — the next backup re-publishes.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
- * @param {{ debug?: boolean, rehash?: boolean, resume?: boolean, "include-online-only"?: boolean }} [options]
+ * @param {{ debug?: boolean, rehash?: boolean, resume?: boolean }} [options]
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
@@ -109,7 +109,6 @@ export async function backup(setName, options = {}) {
     // does the sending, `transfer` is how that sending is going.
     transfer: uploader.transfer,
     debug: options.debug,
-    includeOnlineOnly: options["include-online-only"],
   });
 
   // The snapshot file has landed locally whatever happened above — that is what
@@ -183,7 +182,7 @@ export async function backup(setName, options = {}) {
   // omitted files is the machine-readable half lying. Same pattern as `verify`
   // and `restore`: set `process.exitCode` rather than throw, so the publish
   // above stands and the run report still prints. Skips stay exit 0 — they are
-  // a *choice* (an excluded type, an online-only file), not a fault (ADR-0081).
+  // a *choice* (an unsupported type), not a fault.
   if (pass.errors > 0) {
     process.exitCode = 1;
   }

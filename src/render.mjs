@@ -1149,24 +1149,12 @@ export function renderUpload(result, { color = false } = {}) {
     );
   }
   if (result.mode === "dir") {
-    const { set, dir, candidates, uploaded, skipped, onlineOnly } = result;
-    let line = objectUploadLine(
+    const { set, dir, candidates, uploaded, skipped } = result;
+    const line = objectUploadLine(
       `Seeded '${dir}' into '${set}'`,
       candidates,
       uploaded,
     );
-    // Its own block, above the drift list and never merged into it: that list's
-    // header says s3cab couldn't confirm a file *while reading it*, and these are
-    // files it never opened (ADR-0081). Counted rather than named — a seeded
-    // OneDrive folder can hold tens of thousands, and the paths are not the
-    // question here; whether to spend the disk space is.
-    if (onlineOnly.length) {
-      line +=
-        `\n\nLeft ${countOf(onlineOnly.length, "file")} online rather than ` +
-        `downloading them: this computer holds a placeholder for each, not the ` +
-        `contents.\nTo store them off-vendor, back the set up with room for ` +
-        `them on this disk:\n  ${shellCommand(`s3cab backup ${set} --include-online-only`, color)}`;
-    }
     if (skipped.length === 0) {
       return line;
     }

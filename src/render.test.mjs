@@ -1201,7 +1201,6 @@ describe("renderUpload", () => {
       candidates: 40,
       uploaded: 40,
       skipped: [],
-      onlineOnly: [],
     });
     assert.equal(
       text,
@@ -1217,7 +1216,6 @@ describe("renderUpload", () => {
       candidates: 40,
       uploaded: 10,
       skipped: [],
-      onlineOnly: [],
     });
     assert.equal(
       text,
@@ -1239,7 +1237,6 @@ describe("renderUpload", () => {
         { path: "/home/me/Photos/2026/live.raw", reason: "changed" },
         { path: "/home/me/Photos/2026/gone.raw", reason: "removed" },
       ],
-      onlineOnly: [],
     });
 
     assert.match(text, /uploaded 38 of 40 objects/);
@@ -1264,7 +1261,6 @@ describe("renderUpload", () => {
       candidates: 1,
       uploaded: 0,
       skipped: [{ path: "/d/x.raw", reason: "unreadable" }],
-      onlineOnly: [],
     });
     // Reason-neutral header, so an `unreadable` skip is not described as a change.
     assert.match(text, /Skipped 1 file that couldn't be confirmed/);
