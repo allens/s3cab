@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -27,7 +27,7 @@ describe("writeFileAtomic", () => {
 
     assert.equal(readFileSync(dest, "utf8"), content);
     // No temp sibling left behind.
-    assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
+    assert.deepEqual(readdirSync(dir.path), ["out.bin"]);
   });
 
   it("rejects a content/digest mismatch and leaves no file behind", async () => {
@@ -50,10 +50,10 @@ describe("writeFileAtomic", () => {
         error instanceof IntegrityError &&
         /Integrity check failed/.test(error.message),
     );
-    assert.ok(!existsSync(dest), "a mismatched file must not be placed");
-    // Nor do the known-bad bytes survive in the temp: a restore that carries
-    // on would otherwise finish with one beside every corrupt file.
-    assert.ok(!existsSync(join(dir.path, ".out.bin.s3cab-tmp")));
+    // Nothing is placed, and the known-bad bytes don't survive in the temp: a
+    // restore that carries on would otherwise finish with one beside every
+    // corrupt file.
+    assert.deepEqual(readdirSync(dir.path), []);
   });
 
   it("copies verbatim (no digest check) when hash is not given", async () => {
@@ -63,7 +63,19 @@ describe("writeFileAtomic", () => {
     await writeFileAtomic(dest, Readable.from("any bytes at all"));
 
     assert.equal(readFileSync(dest, "utf8"), "any bytes at all");
-    assert.ok(!existsSync(join(dir.path, ".plain.txt.s3cab-tmp")));
+    assert.deepEqual(readdirSync(dir.path), ["plain.txt"]);
+  });
+
+  it("writes a file whose name is close to the filesystem's length limit", async () => {
+    await using dir = await mkTmpDir();
+    // 250 is legal on NTFS (255 UTF-16 units) and ext4 (255 bytes), but a
+    // temp name that grows with it would not be.
+    const dest = join(dir.path, "n".repeat(250));
+
+    await writeFileAtomic(dest, Readable.from(content), { hash });
+
+    assert.equal(readFileSync(dest, "utf8"), content);
+    assert.deepEqual(readdirSync(dir.path), ["n".repeat(250)]);
   });
 
   it("places no file at destPath when the source stream fails", async () => {
@@ -79,7 +91,10 @@ describe("writeFileAtomic", () => {
       /connection reset/,
     );
     // Same contract: the error propagates and nothing lands at destPath; a
-    // leftover temp sibling is fine.
+    // leftover temp sibling is fine, because a retry reuses and replaces it.
     assert.ok(!existsSync(dest), "a partial download must not be placed");
+
+    await writeFileAtomic(dest, Readable.from(content), { hash });
+    assert.deepEqual(readdirSync(dir.path), ["out.bin"]);
   });
 });
