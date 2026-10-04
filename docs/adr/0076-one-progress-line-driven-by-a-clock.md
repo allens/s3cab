@@ -297,7 +297,9 @@ is now `[1.8GB hashing 27%]` and then `[1.8GB hashed, sending 27%]`.
 - **The bytes sent are bracketed** apart from the count and the byte share: those say how far
   through the set the pass is; this measures the wire. The clause is padded whole, on its right,
   so no gap opens between label and number.
-- **The detail follows the path**, in square brackets (a path can end in `(1).jpg`). Held in a
+- **The detail follows the path**, in square brackets (a path can end in `(1).jpg`), and dimmed
+  where styling is on. The brackets stay under the dim: with styling off (piped output,
+  `NO_COLOR`) they are all that sets the detail apart from the path. Held in a
   padded column *before* the path it was 24 blank spaces on nearly every frame, since a file earns
   a detail only by taking a second. After the path it takes no room when absent, and the path's
   left edge still never moves when one appears — §7's guarantee, kept by position instead of by

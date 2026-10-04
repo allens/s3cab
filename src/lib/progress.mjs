@@ -1,4 +1,5 @@
 import { clearLine, cursorTo } from "node:readline";
+import { stripVTControlCharacters } from "node:util";
 import { formatCount, secondsSince } from "./format.mjs";
 import { isInteractive } from "./style.mjs";
 
@@ -112,7 +113,12 @@ export function createProgress(stream, { logLines = false } = {}) {
       // overflow of a wrapped line is stranded on screen and every later redraw
       // lands under it. Callers that care which end survives trim their own text
       // first (the backup line keeps the tail of the path); this is the backstop.
-      stream.write(text.slice(0, (stream.columns || Infinity) - 1));
+      // Measured without escape codes, which take no columns: a styled line the
+      // caller already fitted must not be cut. One that overflows loses its styling
+      // too, since a cut can land mid-sequence or drop the reset.
+      const room = (stream.columns || Infinity) - 1;
+      const visible = stripVTControlCharacters(text);
+      stream.write(visible.length > room ? visible.slice(0, room) : text);
       // Clear the *tail* after writing rather than blanking the line before it.
       // Same end state — no stale characters left by a longer previous update —
       // but the line is never empty in between. Clearing first leaves a window

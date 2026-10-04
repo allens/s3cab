@@ -23,7 +23,7 @@ import {
   snapshotMoment,
   writeSnapshot,
 } from "./snapshot-file.mjs";
-import { shellCommand } from "./style.mjs";
+import { dim, shellCommand, styleEnabled } from "./style.mjs";
 import { resolveWalkRoot, walkSet } from "./walk.mjs";
 
 /**
@@ -528,6 +528,7 @@ function withProgress({
   /** @param {Iterable<string> | AsyncIterable<string>} paths */
   return async function* (paths) {
     const start = Temporal.Now.instant();
+    const color = styleEnabled(process.stderr);
     let current = 0;
     /** @param {boolean} inHand - Whether a file is in hand to name */
     const frame = (inHand) =>
@@ -542,6 +543,7 @@ function withProgress({
         currentFile: inHand ? currentFile?.() : null,
         stopping: stopping?.(),
         width: process.stderr.columns,
+        color,
       });
 
     // A clock drives this line, not the paths flowing through it. This is a
@@ -597,6 +599,7 @@ function withProgress({
  * @param {string | null} [args.currentFile] - The file in hand, which names a hash in flight too
  * @param {boolean} [args.stopping] - The user has asked the pass to stop and it is finishing the file in hand (ADR-0067)
  * @param {number} [args.width] - Columns available (absent = unbounded)
+ * @param {boolean} [args.color] - Dim the detail (`styleEnabled`)
  * @returns {string}
  */
 export function progressLine({
@@ -610,6 +613,7 @@ export function progressLine({
   currentFile,
   stopping,
   width,
+  color = false,
 }) {
   // Every field before the path is fixed width, so the path starts at the same
   // column from one redraw to the next. Left to grow — a count gaining a digit,
@@ -683,7 +687,10 @@ export function progressLine({
   // No room for the path. A labelled detail still says something without one
   // (`[1.8GB hashed, sending 27%]`); a bare current file is *only* the path, so the
   // line ends at the figures.
-  return shown ? `${lead}  ${shown}${tail}` : `${bare}${tail}`;
+  // Dimmed only now: the budget above counts columns, and escape codes take none.
+  // The brackets stay, so the detail is still set apart where styling is off.
+  const styled = color && detail.text ? `  ${dim(`[${detail.text}]`)}` : tail;
+  return shown ? `${lead}  ${shown}${styled}` : `${bare}${styled}`;
 }
 
 /**

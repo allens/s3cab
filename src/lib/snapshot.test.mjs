@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import { progressLine } from "./snapshot.mjs";
 
 // The fused pass's one progress line (ADR-0069). `progressLine` takes the width
@@ -177,6 +178,23 @@ describe("progressLine", () => {
       / {2}D:\\Videos\\holiday\.MOV {2}\[2\.4GB sending 55%\]$/,
       line,
     );
+  });
+
+  it("dims the detail where styling is on, without changing what fits", () => {
+    // The budget counts columns, so the escape codes must not cost the path any:
+    // at the exact boundary width the styled line shows what the plain one does.
+    const state = sending({
+      path: "/some/very/long/path.jpg",
+      loaded: 0,
+      total: 1_500_000,
+    });
+    const plain = progressLine({ ...run, state, width: 66 });
+    const styled = progressLine({ ...run, state, width: 66, color: true });
+    assert.ok(
+      styled.endsWith("\x1b[2m[1.5MB hashed, sending]\x1b[22m"),
+      JSON.stringify(styled),
+    );
+    assert.equal(stripVTControlCharacters(styled), plain);
   });
 
   it("claims no percentage for a single PUT, which reports only at the end", () => {

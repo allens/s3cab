@@ -43,6 +43,10 @@ export const styleEnabled = (stream) =>
 // Bold — the help renderer's headings. Callers gate on `styleEnabled`.
 export const bold = decorate("bold");
 
+// Dim — the backup line's `[…]` detail, set back from the path beside it.
+// Callers gate on `styleEnabled`.
+export const dim = decorate("dim");
+
 /**
  * A command s3cab suggests the user run, bold where styling is on, so the fix
  * stands out from the prose around it (ADR-0030's house shape). The layout —
