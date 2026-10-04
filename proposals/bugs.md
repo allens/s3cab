@@ -43,10 +43,9 @@ was corrected 2026-08-21: ADR-0085 compared ctime against the *header's* instant
 **start**, so on a volume where reading a file moves its ctime — the Windows Cloud Files filter
 driver behind OneDrive Files On-Demand, measured 8/8 — every file a pass hashed was distrusted by
 the next one, for ever (97% of a 3,026-row sample, 1.8 TB re-read per run, none of it changed).
-The escape it closes is real and still closed; what it compared against was not late enough. The
-boundary is now the `#END` trailer's completion instant, each hash source carries its own, and
-`S3CAB_SKIP_CHANGE_TIME_CHECK` turns the check off for a set that cannot win it
-([ADR-0085](../docs/adr/0085-ctime-cross-check-on-hash-reuse.md) amendment 1).</sub>
+The check is now opt-in (`S3CAB_CHECK_CHANGE_TIME`) and weighs against the run's start again;
+by default the escape is documented in [guide/backup.md](../guide/backup.md), with `--rehash` as
+the recourse ([ADR-0094](../docs/adr/0094-change-time-check-opt-in.md)).</sub>
 
 <sub>The model-based test suite itself (prompt #3, 2026-08-14) found three more, **all fixed
 2026-08-14**, each pinned by a test that now asserts the correct behaviour: a truncated stored

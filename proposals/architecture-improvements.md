@@ -162,8 +162,7 @@ verifies with `npm test` alone; none needs a real bucket.
   take `through` and `transfer` as two independent optional parameters that in practice always arrive
   together off one uploader, and :409 derives a *third* fact, the command's own name, from whether
   `transfer` is truthy. That name feeds the opening `Backing up` vs `Snapshotting` line (:240) and two
-  copy-pasteable remedies (`warnAboutOnlineOnly`'s `s3cab ${command} ${set} --include-online-only`,
-  `warnAboutCtimeChurn`'s `every ${command} of '${set}'`, both called at :410–411). Nothing makes
+  copy-pasteable remedy (`warnAboutOnlineOnly`'s `s3cab ${command} ${set} --include-online-only`). Nothing makes
   `through`-without-`transfer` unrepresentable, and that combination uploads objects while announcing
   itself as a snapshot and handing out `s3cab snapshot` advice. **That combination now has a caller**
   (pass 14): [snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs):109–121 passes
@@ -171,10 +170,7 @@ verifies with `npm test` alone; none needs a real bucket.
   shape. Fix: take one optional `uploader` carrying all three, which
   [backup.mjs](../src/commands/backup.mjs):95–108 already builds as an object. Leverage is small today
   (two callers), which is exactly why the invariant is invisible. Note also that snapshot.mjs:405–408's
-  comment **defends the derivation, not the invariant**, so this disagrees with a comment, not an ADR. Test surface: the `backup` spelling of the churn remedy is asserted nowhere;
-  [snapshot.ctime-churn.test.mjs](../src/commands/snapshot.ctime-churn.test.mjs):131–186 drives the
-  `snapshot` porcelain and its own comment says "`backup` gets the same sentence with its own verb".
-  (The online-only pair *is* covered on both sides.)
+  comment **defends the derivation, not the invariant**, so this disagrees with a comment, not an ADR. (The online-only remedy is covered on both sides.)
 - **G — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
   is already curried.** _Worth exploring — against brand-new code; anchors re-verified 2026-10-02._ The
   relay is curried on its options precisely so "the give-up path is testable in milliseconds"
@@ -206,22 +202,13 @@ verifies with `npm test` alone; none needs a real bucket.
   a live run dies, and the user remains the liveness check. The ordering hazard the entry named is
   real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
   so.
-- **I — The rehash diagnosis exists only as a printed sentence, and one returned count merges two
-  populations.** _Worth exploring — anchors re-verified and the second half **narrowed** 2026-10-02._
-  [backup.mjs](../src/commands/backup.mjs):50–51 states the ADR-0078 rule — "Every figure lands here
-  rather than in the renderer, so `--json` gains it deliberately" — and the per-reason rehash counts
-  break it: [snapshot.mjs](../src/lib/snapshot.mjs):321 builds `rehashed`, :373 populates it
-  (`changed` / `ctime` / `ctime-on-read`), :411 consumes it in a module-private `console.warn`, and the
-  return at :413–426 carries **no `rehashed` field at all** — so the numbers that diagnosed the
-  re-read-everything-every-run incident reach the warning and nobody else, and a user diagnosing a
-  churning volume must read prose rather than a field. Three consumers want them (the warning, the run
-  report, `--json`); one can have them. Alongside it, :423 returns `skipped: skipped.length +
-  onlineOnly`, while backup.mjs:66 documents that number as "Entries the walk left out by design (a
-  symlink, a socket)". **Corrected by pass 14:** the sum is *deliberate*. ADR-0078 §2 says so in the
-  comment at :420–422, and `SnapshotPass`'s own typedef (:191) documents both populations. So this is
-  not a value aggregated by accident inside a `return`, as filed. It is one stale typedef, at
-  backup.mjs:66. Test surface: the churn condition is asserted only by matching warning prose
-  (snapshot.ctime-churn.test.mjs:157–186).
+- **I — `BackupResult.skipped` is documented as the walk's skips alone.** _Worth exploring —
+  narrowed 2026-10-02; the rehash-counts half dissolved 2026-10-04 when
+  [ADR-0094](../docs/adr/0094-change-time-check-opt-in.md) removed the counts._
+  [snapshot.mjs](../src/lib/snapshot.mjs) returns `skipped: skipped.length + onlineOnly`, while
+  [backup.mjs](../src/commands/backup.mjs) documents that number as "Entries the walk left out by
+  design (a symlink, a socket)". The sum is *deliberate* (ADR-0078 §2, and `SnapshotPass`'s own
+  typedef documents both populations), so this is one stale typedef.
 - **J — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.** _Worth
   exploring._ [lib/provider.mjs](../src/lib/provider.mjs):21–23 claims to be "the one home of the knob ↔
   env-key mapping", with the three-mode exclusivity rule at :144–153 and the env keys written inline at
