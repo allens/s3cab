@@ -9,6 +9,8 @@ pages are the sit-down read.
 
 ## Everyday
 
+- **[Backing up](backup.md)** — how s3cab decides a file hasn't changed, the rare edits
+  that fool it, and when to re-read everything with `--rehash`.
 - **[Getting files back](restore.md)** — recovering a deleted file, an older version, or
   everything onto a fresh machine. The job the backup exists for.
 - **[Reading a compare report](compare.md)** — what added / renamed / moved / modified /

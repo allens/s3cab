@@ -228,10 +228,9 @@ the one a plain `snapshot` would have written. (Not byte-identical any more: the
 records when its last row landed, so two runs differ in that one line —
 [ADR-0082](../adr/0082-snapshot-end-trailer.md).)
 
-**The hash sources are a list, in priority order** — an interrupted run's parked hashes first,
-then the previous snapshot — each carrying the completion instant its own file records. They are
-not merged into one map, because a single boundary judging both is the older one, and every parked
-row postdates it ([ADR-0085](../adr/0085-ctime-cross-check-on-hash-reuse.md)).
+**The hash lookup is one map**: the previous snapshot's rows with an interrupted run's parked
+hashes laid over them. Under the opt-in change-time check, one boundary judges both — the
+previous run's start ([ADR-0094](../adr/0094-change-time-check-opt-in.md)).
 
 Why fuse: the drift guard's window — between recording a file's size/mtime and PUTting its
 bytes — used to span the rest of the hash pass plus the whole upload phase, so editing a document
