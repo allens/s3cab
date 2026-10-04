@@ -35,7 +35,8 @@ Two subtleties the mechanism carries:
 - **A later row sharing a collided row's content never copies from its name.** The collision
   leaves that name resolving to another row's survivor, so copying from it would duplicate the
   wrong bytes. The loop records where each hash actually *landed*, and a collision records
-  nothing: the next holder fetches, and the holders after it copy from that one.
+  nothing: later holders copy from wherever the content has landed, and if it has landed
+  nowhere yet, the next one fetches it.
   - **Amended 2026-10-04: dedupe moved from the plan into the loop.** `planRestore` used to point
     every later holder at the first holder's destination, and this ADR re-fetched every one of
     them behind a collision rather than redirect them — N same-hash rows behind a collision was a

@@ -185,12 +185,12 @@ export async function restore(paths = [], options = {}) {
   /** @type {Set<string>} */
   const writtenCanonical = new Set();
   // What became of each content hash this run has tried to write, shared by
-  // every path that holds it. Content that landed is copied from where it
-  // landed, so identical content downloads once (#1) even when an earlier
-  // holder's write failed. Content found absent or corrupt is the same casualty
-  // for every later path, so it isn't tried again. A collision or a refused
-  // name is the path's failure, not the content's, so it records nothing; nor
-  // does a skipped file, whose content is unverified.
+  // every path that holds it. Once content lands, every later path holding it
+  // is copied from there rather than downloaded again (#1). Content found
+  // absent or corrupt is the same casualty for every later path, so it isn't
+  // tried again. A collision or a refused name is the path's failure, not the
+  // content's, so it records nothing and the next path holding that content
+  // fetches it; nor does a skipped file, whose content is unverified.
   /**
    * @type {Map<string,
    *   | { kind: "landed", dest: string }

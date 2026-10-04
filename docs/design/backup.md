@@ -310,10 +310,11 @@ destination never gets that far: NTFS doesn't refuse one but reads it as a strea
 copy succeeds into the hidden stream), so `planRestore` refuses it before anything is written.
 Those three are the whole degrade; an operational error (network,
 credentials, a full disk) is wrong about the run rather than one file, and still aborts.
-Content shared by several paths is downloaded once and copied from wherever it last landed.
-An absent or corrupt object is the same casualty for every path sharing it, recorded without
-asking the bucket again; a refused or collided name is the path's failure, not the content's,
-so the next path sharing it fetches the content and the ones after copy from that.
+Once content shared by several paths has landed, every later path sharing it is copied from
+where it last landed rather than downloaded again. An absent or corrupt object is the same
+casualty for every path sharing it, recorded without asking the bucket again. A refused or
+collided name is the path's failure, not the content's, and lands nothing: the next path
+sharing that content fetches it, unless it has already landed elsewhere.
 
 ### `forget` — remove remote snapshots (**built**)
 
