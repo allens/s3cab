@@ -2,7 +2,7 @@
 // orthogonal questions, not an inconsistency:
 //
 //   1. Is the error caught by *type* at some catch site to branch behaviour?
-//        yes → an Error *subclass* (this file's `ParseArgsError`, `MissingArgError`,
+//        yes → an Error *subclass* (e.g. `ParseArgsError`, `MissingArgError`,
 //              `ValidationError`), so the catch can `instanceof` it. `ParseArgsError`
 //              also guarantees a discriminator (`code`) across many throw sites by
 //              setting it once in the constructor. Reserve a subclass for owned types
@@ -113,26 +113,6 @@ export class InterruptedError extends Error {
   constructor(message, options) {
     super(message, options);
     this.name = "InterruptedError";
-  }
-}
-
-/**
- * A file that changed (or vanished) between being hashed and its bytes being
- * uploaded — raised by `uploadObjects` (lib/upload.mjs), which never stores
- * mismatched bytes under the hash recorded for them. A subclass because `backup`
- * catches it *by type* to branch behaviour
- * ([ADR-0069](../../docs/adr/0069-fused-snapshot-upload-pipeline.md)): every other
- * upload failure is retryable with `upload <set> --snapshot <name>`, but this one
- * needs a fresh backup, because the file itself has moved on.
- */
-export class FileChangedError extends Error {
-  /**
-   * @param {string} message
-   * @param {ErrorOptions} [options]
-   */
-  constructor(message, options) {
-    super(message, options);
-    this.name = "FileChangedError";
   }
 }
 

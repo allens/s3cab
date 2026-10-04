@@ -433,7 +433,6 @@ describe("hostile trees: files changing mid-run", () => {
     // refuses with the same "changed while the backup was running" error the
     // pre-PUT guard raises, and publishes nothing.
     await assert.rejects(backup("hostile"), (/** @type {Error} */ error) => {
-      assert.equal(error.name, "FileChangedError");
       assert.match(error.message, /changed while the backup was running/);
       return true;
     });

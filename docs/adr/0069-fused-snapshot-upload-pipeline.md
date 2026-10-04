@@ -90,7 +90,7 @@ The two kinds of failure differ only in what happens next:
 | Cause | network, credentials, a rejected PUT | the file changed, vanished, or became unreadable between hashing and its PUT |
 | Rest of the run | further uploads abandoned (one dead link is enough; the SDK-level retry window is already spent — [0068](0068-network-retries-above-the-sdk.md)) | **only that file is skipped** — every other file's bytes are still good and still go up |
 | Reported as | `failure` — the terminal one, checked first | `drifted` — per-file data the coordinator judges (see the amendment below) |
-| Raised as | a plain error, wrapped with the resume command | `FileChangedError` (error.mjs), built by the coordinator from the drift data |
+| Raised as | a plain error, wrapped with the resume command | a plain error from `fileChangedError` (lib/upload.mjs), built by the coordinator from the drift data |
 | The fix offered | `upload <set> --snapshot <name>` — the transfers alone | `s3cab backup <set>` — a fresh pass |
 
 > **Amended 2026-07-30 — two outcome fields, and a third source.** The outcome originally carried

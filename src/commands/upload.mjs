@@ -231,10 +231,8 @@ export async function upload(setName, options = {}) {
  * Its own message rather than the shared one, because the shared one's body is
  * mostly the "your snapshot is saved, so nothing has to be re-hashed" reassurance
  * that makes a failed *backup* bearable — there is no snapshot here, and no set to
- * name in a re-run when `--bucket` was used. A plain `Error`, not a
- * `FileChangedError`: nothing catches this by type, and error.mjs's taxonomy says a
- * subclass nobody branches on is unused identity. Wording per ADR-0030 — what
- * happened, the errno in a parenthetical, the retry as a pasteable command.
+ * name in a re-run when `--bucket` was used. Wording per ADR-0030 — what happened,
+ * the errno in a parenthetical, the retry as a pasteable command.
  * @param {string} path - The file that couldn't be confirmed
  * @param {string | undefined} target - How the run addressed its destination (the set, or `--bucket <b>`)
  * @param {FileChange} change - Which of the three happened, and the raw cause if any
