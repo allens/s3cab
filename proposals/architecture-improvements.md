@@ -67,7 +67,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 anchor — see **E** below for what skipping that costs.
 (2) **Ordering constraints.** **F** and **U** both edit `readBaseline` in
 [src/lib/snapshot.mjs](../src/lib/snapshot.mjs) (F also `generateSnapshot`), so build one, then
-re-verify the other. **B**, **C**, **S**, **T**, **G** and **J** are independent of everything.
+re-verify the other. **B**, **C**, **T**, **G** and **J** are independent of everything.
 (3) **`.env.test` is gitignored and does not travel.** Every candidate below is pure or local and
 verifies with `npm test` alone, except that **T** rewrites the loop that drives restore's downloads,
 the S3 read path CLAUDE.md says to run `npm run test:integration` for before pushing.
@@ -211,22 +211,7 @@ the S3 read path CLAUDE.md says to run `npm run test:integration` for before pus
 - **R — A refused name costs a full download and leaves it behind as a temp.** _Landed 2026-10-04
   as [PR #366](https://github.com/allens/s3cab/pull/366). See the run log._
 - **S — `FileChangedError` is a subclass nothing catches by type, and two docs say `backup` does.**
-  _Strong, cheap — fifteenth pass._ [error.mjs](../src/lib/error.mjs)'s taxonomy says a subclass is
-  for "owned types whose identity is read", and seven of its eight classes have a production
-  `instanceof`. `FileChangedError` (:119–137) has none: `backup` stopped catching it by type in #248
-  (`794bea0`), and [commands/backup.mjs](../src/commands/backup.mjs):125–133 branches on `failure` and
-  `drifted.length`, then throws. Yet the class's doc (:122–123) and `fileChangedError`'s
-  ([lib/upload.mjs](../src/lib/upload.mjs):660) both say `backup` reads its type. The only
-  `instanceof` is [backup.test.mjs](../src/commands/backup.test.mjs):377, against the test's own mock
-  factory (:123), so it cannot fail; the model tier
-  ([model.hostile.test.mjs](../test/model/model.hostile.test.mjs):436–437) reads `error.name` and the
-  message. The sibling already says it right: [commands/upload.mjs](../src/commands/upload.mjs):234–236,
-  "A plain `Error`, not a `FileChangedError`: nothing catches this by type". Fix: `fileChangedError`
-  returns a plain `Error`, the class and the tautological assertion go, the model tier keeps its message
-  match, and the docs are rewritten in place — the two above, error.mjs's header (it names three of
-  eight subclasses), [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md):93 and
-  [ADR-0083](../docs/adr/0083-streamed-digest-upload-guard.md):50. No ADR decision changes; the advice
-  raised is the same.
+  _Landed 2026-10-04 as [PR #367](https://github.com/allens/s3cab/pull/367). See the run log._
 - **T — Restore plans "copy from where the first one landed" before anything has landed.** _Worth
   exploring — fifteenth pass._ `planRestore` ([lib/restore.mjs](../src/lib/restore.mjs):63–96) points
   every repeat of a hash at the first *planned* destination (`fetchedDestByHash`, :72, :86–92). Each way
@@ -360,9 +345,9 @@ as pure functions — **T** is about what the plan *says*, not that it is pure. 
 suggested-command layout (#360): three forms, all ADR-0030's. `sameSizeAndMtime` — speculative, since
 `putFile`'s `ContentMismatchError` backstops it. Test-only exports used inside their own module, with
 fixtures going through the production codec. Restore's failure kinds listed in five places — each
-list serves a different reader. `error.mjs`'s other seven classes (**S** is the one); the
-dispatcher's render seam (s3cab.mjs:140–185); `render.mjs` as one file; `BackupResult.errors`;
-`command-details.mjs`.
+list serves a different reader. `error.mjs`'s remaining classes, each caught by type in
+production; the dispatcher's render seam (s3cab.mjs:140–185); `render.mjs` as one file;
+`BackupResult.errors`; `command-details.mjs`.
 
 ---
 
@@ -809,3 +794,14 @@ least once; re-open only if the stated reason no longer holds.
     made the cleanup itself fail; `atomic-file.cleanup-fails.test.mjs` mocks `rm` to reject and fails
     with the `.catch` removed.
   - `npm test` 1176 pass; integration 27 pass, 3 Roles Anywhere skipped; CI green on all three OSes.
+- **2026-10-04 — S landed** ([PR #367](https://github.com/allens/s3cab/pull/367), grilled in-session,
+  two decisions asked one per turn; no ADR, since error.mjs's taxonomy already decided it).
+  - **`fileChangedError` returns a plain `Error`; the class is gone.** ADR-0069's table and ADR-0083
+    now name the factory; neither decision changed.
+  - **`backup.test.mjs` asserts the factory's exact message** in place of an `instanceof` checking the
+    test's own mock. The model tier keeps its message match and drops the `error.name` check.
+  - **Declined (Copilot): asserting `name === "Error"`.** It pins construction nothing reads, and it
+    would fail a correct later subclass that arrives with a real catch site.
+  - Also fixed the pass-15 commit's broken `render.mjs` link, which failed the documentation-links
+    test on `main`.
+  - `npm test` 1176 pass; CI green on all three OSes.
