@@ -47,6 +47,8 @@ let deletionRecords = new Map();
 let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
+/** @type {(() => void) | undefined} Runs inside each PUT, while it is in flight. */
+let duringPut;
 // The store this suite really models — a keyed body map on the read side, and a
 // PUT that reports whether the object was new. `isObjectNotFound` is left to the
 // stencil's default, the real name-based predicate, which the `getStream` below
@@ -67,6 +69,7 @@ mock.module("./s3.mjs", {
     putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
       callOrder.push(`put:${basename(path)}`);
+      duringPut?.();
       if (putError) {
         throw putError;
       }
@@ -144,6 +147,7 @@ beforeEach(() => {
   deletionRecords = new Map();
   recordReads = 0;
   putError = undefined;
+  duringPut = undefined;
   driftAfterHash = new Set();
   rewrittenAfterHash = [];
   callOrder = [];
@@ -320,6 +324,23 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     });
     // Real elapsed time, so only its existence is assertable here.
     assert.ok(sendingMs >= 0);
+  });
+
+  it("says which file in flight this run hashed, and which reused a hash", async () => {
+    // The progress line claims `hashed,` only for a hash it saw happen. A reused
+    // hash comes back as the baseline's Props, which carry no `hashDuration`.
+    await using dir = await mkTmpDir();
+    const { a, c } = files(dir.path);
+    const { hashDuration, ...reused } = await fileProps(c);
+    assert.ok(hashDuration, "a fresh hash must carry its duration");
+    const upload = uploadObjects({ bucket: "fused", stored: new Set() });
+    /** @type {(boolean | undefined)[]} */
+    const hashed = [];
+    duringPut = () => hashed.push(upload.transfer().current?.hashed);
+
+    await Array.fromAsync(upload.through([await row(a), [c, reused]]));
+
+    assert.deepEqual(hashed, [true, false]);
   });
 
   it("counts no upload bytes for content the store already held", async () => {

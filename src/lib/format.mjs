@@ -159,10 +159,10 @@ const durationFormat = new Intl.DurationFormat("en", {
 // a clock's colons: `12:21` reads as twelve-twenty-one, and `999:23` — 999
 // minutes — is a duration nobody writes, so the colon form has to roll to
 // `16:39:23` and change width anyway. Letters carry their own meaning, need no
-// convention, and roll cleanly. Right-aligned in 7, which holds every duration
-// up to `99h 59m`; the retained summary lines keep the prose form, which is
-// what reads best in a sentence.
-const ELAPSED_COLUMNS = 7;
+// convention, and roll cleanly. At most 7 columns for every duration up to
+// `99h 59m`, so a caller can pad to that; the retained summary lines keep the
+// prose form, which is what reads best in a sentence.
+export const ELAPSED_COLUMNS = 7;
 
 /**
  * A whole-second span in the compact two-unit form — `45s`, `12m 21s`,
@@ -184,7 +184,7 @@ function compactSpan(totalSeconds) {
 }
 
 /**
- * `    45s`, `12m 21s`, ` 3h 04m` — fixed width for a column that must not move.
+ * `45s`, `12m 21s`, `3h 04m` — at most `ELAPSED_COLUMNS` wide.
  * @param {Temporal.Instant} instant
  * @returns {string}
  */
@@ -194,12 +194,11 @@ export const elapsedSince = (instant) =>
       0,
       Math.floor(Temporal.Now.instant().since(instant).total("seconds")),
     ),
-  ).padStart(ELAPSED_COLUMNS);
+  );
 
 /**
- * The same compact form for a span already measured in milliseconds, unpadded —
- * for a line printed once rather than redrawn, where padding would only insert a
- * gap mid-sentence.
+ * The same compact form for a span already measured in milliseconds, for a line
+ * printed once rather than redrawn.
  *
  * The compact form rather than {@link formatDuration}'s prose one, against
  * [ADR-0076](../../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s

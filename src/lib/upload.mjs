@@ -242,7 +242,9 @@ export function planUpload(target, stored) {
  * One transfer with the moment it began — `startedAt` is this module's to set,
  * not `putFile`'s, because it marks when the *decision to send* was taken, which
  * is what a "has this been going long enough to report?" rule measures.
- * @typedef {Transfer & { startedAt: number }} Sending
+ * `hashed` says this run hashed the file, rather than reusing a baseline's hash
+ * or reading a written snapshot's row.
+ * @typedef {Transfer & { startedAt: number, hashed: boolean }} Sending
  */
 
 /**
@@ -338,7 +340,8 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
           drifted.push({ path, ...change });
         } else if (!transfersStopped) {
           const startedAt = performance.now();
-          inFlight = { path, loaded: 0, total: props.size, startedAt };
+          const hashed = props.hashDuration !== undefined;
+          inFlight = { path, loaded: 0, total: props.size, startedAt, hashed };
           try {
             // Only take the bytes when someone is drawing them. Left on
             // unconditionally it would suppress `putFile`'s own byte bar for
@@ -347,7 +350,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
             const didUpload = await putObject(bucket, props.hash, path, {
               onProgress: ownProgress
                 ? (transfer) => {
-                    inFlight = { ...transfer, startedAt };
+                    inFlight = { ...transfer, startedAt, hashed };
                   }
                 : undefined,
             });

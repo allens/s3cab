@@ -6,6 +6,7 @@ import { OnlineOnlyFileError } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import {
   countOf,
+  ELAPSED_COLUMNS,
   elapsedSince,
   formatByteValue,
   formatCount,
@@ -461,10 +462,10 @@ export async function generateSnapshot(
  * bytes gone up, and suffixes whichever file is on the wire:
  *
  * ```
- * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min   Uploading 999.9MB (55%) …/ragged.jpg
- * 4,182/58,310   38% of   2.4GB  Uploaded   1.2GB in 3 min                            …/notes.txt
- * 4,182/58,310   38% of   2.4GB in 8 sec
- * 4,182/58,310   38% of   2.4GB in 8 sec  Stopping…  Uploading 999.9MB (55%) …/ragged.jpg
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    …/ragged.jpg  [999.9MB hashed, sending 55%]
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    …/notes.txt
+ *     8s  4,182/58,310   38% of 2.4GB
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    Stopping…  …/ragged.jpg  [999.9MB hashed, sending 55%]
  * ```
  *
  * The second line is the ordinary case, and the common one: no verb, because
@@ -598,13 +599,19 @@ export function progressLine({
   // column from one redraw to the next. Left to grow — a count gaining a digit,
   // an elapsed going from `9s` to `12m 21s` — it shuffles sideways four times a
   // second, which is unreadable however correct each frame is.
+  //
+  // The clock leads, unlabelled: it is the whole pass's, not any one figure's.
+  // The bytes sent are bracketed apart from the two progress figures — they
+  // measure the wire, not how far through the set the pass is — and padded
+  // *whole*, on the right, so no gap opens between the label and its number.
   const totals = formatCount(total);
   const counts = `${formatCount(current).padStart(totals.length)}/${totals}`;
-  const elapsed = elapsedSince(start);
+  const clock = elapsedSince(start).padStart(ELAPSED_COLUMNS);
   const share = byteShare(bytesDone, bytesTotal);
-  const run = state
-    ? `${counts}${share}  Uploaded ${formatByteValue(state.sent).padStart(BYTES_COLUMNS)} in ${elapsed}`
-    : `${counts}${share} in ${elapsed}`;
+  const sent = state
+    ? `  ${`(Uploaded ${formatByteValue(state.sent)})`.padEnd(UPLOADED_COLUMNS)}`
+    : "";
+  const run = `${clock}  ${counts}${share}${sent}`;
   // A stop goes with the figures, not in the detail column, and two reasons point
   // the same way. The figures are the last thing shed — the budget below drops
   // the path first and then the detail whole — so the stop survives every width
@@ -612,8 +619,8 @@ export function progressLine({
   // over-width line, which `createProgress`'s backstop cuts from the right,
   // taking the stop with it. Accepted: a terminal too narrow for the counts has
   // already lost the line, and buying the stop a width of its own would mean a
-  // shed order the figures no longer win.) And the detail column is where `Uploading
-  // 1.2GB (55%)` lives, which *during* a stop is the answer to "how long is this
+  // shed order the figures no longer win.) And the detail is where `[1.2GB
+  // hashed, sending 55%]` lives, which *during* a stop is the answer to "how long is this
   // wait", so it is the last thing worth taking away: the second Ctrl+C is the
   // way out of waiting, and a user deciding whether to press it needs that
   // percentage. The cost is the path column shifting right once, at the moment
@@ -624,6 +631,8 @@ export function progressLine({
   // (`parkOnInterrupt`). That line scrolls; this one is where the eye already is,
   // and it is the only thing on screen still being repainted.
   const head = stopping ? `${run}  Stopping…` : run;
+  // A line that ends at the figures ends without the clause's padding.
+  const bare = head.trimEnd();
 
   const detail = activity(
     state?.current ?? null,
@@ -631,43 +640,38 @@ export function progressLine({
     currentFile ?? null,
   );
   if (!detail) {
-    return head;
+    return bare;
   }
-  // Two budgets, because the two layouts spend different numbers of spaces:
-  // `run + "  " + detail` when the path is dropped, and one more space before the
-  // path when it isn't. Both leave the edge column unwritten — writing a row's
-  // last cell makes some terminals wrap on their own. Budgeting the whole line
-  // against the wider layout would shed the detail at the one width where it
-  // fits exactly without a path.
-  const forDetail = (width ?? Infinity) - head.length - 3;
-  const forBoth = forDetail - 1;
-  if (forDetail < detail.text.length) {
+  // The detail follows the path rather than sitting in a column before it, so
+  // the path starts right after the figures and a fast file — no detail, the
+  // common case — has no blank slot held open in front of it. Not a padded
+  // column before the path: it held 24 columns empty on nearly every frame.
+  // Square brackets, not round: a path can end in `(1).jpg`.
+  const tail = detail.text ? `  [${detail.text}]` : "";
+  // The edge column stays unwritten — writing a row's last cell makes some
+  // terminals wrap on their own.
+  const room = (width ?? Infinity) - 1;
+  if (bare.length + tail.length > room) {
     // Not even the figures fit. The counts are the line's reason for existing,
     // so they win: shedding the detail whole beats letting the backstop in
     // lib/progress.mjs cut it mid-word.
-    return head;
+    return bare;
   }
-  // Pad the detail so the path column holds still — but only while that leaves
-  // the path room to be worth printing. On a narrow terminal a fixed column the
-  // path never reaches is alignment for its own sake, so the padding goes first.
-  const padded = detail.text.padEnd(ACTIVITY_COLUMNS);
-  const aligned = forBoth - padded.length >= MIN_PATH_COLUMNS;
-  const text = aligned ? padded : detail.text;
-  const shown = fitPath(detail.path, forBoth - text.length);
-  if (!shown) {
-    // No room for the path. A labelled detail still says something without one
-    // (`Uploading 1.8GB (27%)`); a bare current file is *only* the path, so
-    // there is nothing left to print and the line ends at the figures rather
-    // than at two trailing spaces.
-    return detail.text ? `${head}  ${detail.text}` : head;
-  }
-  // `text` is empty only when the detail is a bare path *and* the padding was
-  // shed — pad and path both gone, so the two-space gap is the whole separator.
-  return text ? `${head}  ${text} ${shown}` : `${head}  ${shown}`;
+  // Keep the clause's padding so the path column holds still — but only while
+  // that leaves the path room to be worth printing. On a narrow terminal a fixed
+  // column the path never reaches is alignment for its own sake, so the padding
+  // goes first.
+  const aligned = room - head.length - 2 - tail.length >= MIN_PATH_COLUMNS;
+  const lead = aligned ? head : bare;
+  const shown = fitPath(detail.path, room - lead.length - 2 - tail.length);
+  // No room for the path. A labelled detail still says something without one
+  // (`[1.8GB hashed, sending 27%]`); a bare current file is *only* the path, so the
+  // line ends at the figures.
+  return shown ? `${lead}  ${shown}${tail}` : `${bare}${tail}`;
 }
 
 /**
- * `  38% of   2.4GB`, or nothing at all when there is no total to be a share of.
+ * `  38% of 2.4GB`, or nothing at all when there is no total to be a share of.
  *
  * The denominator is the previous snapshot's sizes for the files this pass
  * walked (see `withProgress`), so a file that is new — or that has grown since —
@@ -689,16 +693,17 @@ function byteShare(done, total) {
   }
   const of = Math.max(total, done);
   const percent = `${Math.floor((done / of) * 100)}%`;
-  // Both padded, for the same reason every other field here is: `9%` becoming
-  // `100%`, or `999.9MB` becoming `1.0GB`, must not shift the path column.
-  return `  ${percent.padStart(4)} of ${formatByteValue(of).padStart(BYTES_COLUMNS)}`;
+  // The percentage is padded, so `9%` becoming `100%` doesn't shift the path
+  // column. The total isn't: it is fixed for the run, and grows only when a run
+  // reads more than the previous snapshot recorded.
+  return `  ${percent.padStart(4)} of ${formatByteValue(of)}`;
 }
 
 // How often the line redraws.
 const TICK_MS = 250;
 
 // A row has to be *worth* reporting before it gets a *labelled* detail —
-// `Hashing 1.8GB (27%)`, a verb and a measurement. Below this the figures are
+// `[1.8GB hashing 27%]`, a verb and a measurement. Below this the figures are
 // over before they can be read, and tens of thousands of them flickering past
 // hide the one row that is actually holding things up.
 //
@@ -707,26 +712,25 @@ const TICK_MS = 250;
 // for hours with an empty detail column and read as hung (ADR-0076, amended).
 const WORTH_REPORTING_MS = 1000;
 
-// `999.9MB` is the widest `formatByteValue` gets, and `Uploading ` + that +
-// ` (100%)` the widest the detail gets. Both are padded to their maximum so
-// nothing to their right moves as the figures change.
+// `999.9MB` is the widest `formatByteValue` gets; the bytes-sent clause is
+// padded to its own widest so nothing to its right moves as the figure changes.
 const BYTES_COLUMNS = 7;
-const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
+const UPLOADED_COLUMNS = "(Uploaded ".length + BYTES_COLUMNS + ")".length;
 
 /**
- * The one slow thing this pass is doing right now, as `<verb> <size> (<pct>)` —
- * the size always (it is the fact we always have), the percentage parenthetical
- * because it is the fact we sometimes have. A single PUT reports its bytes once,
+ * The one slow thing this pass is doing right now, as `<size> <steps> <pct>` —
+ * the size always (it is the fact we always have), the percentage last because
+ * it is the fact we sometimes have. A single PUT reports its bytes once,
  * at the end, so a small upload never earns a percentage; a streamed hash and a
- * multipart upload both do.
+ * multipart upload both do. A send this run hashed says so (`hashed, sending`),
+ * because the two steps run back to back on one file and each climbs to 100%
+ * on its own; a send of a reused hash is just `sending`.
  *
  * Failing that, the file in hand with no text at all. Nothing measurable is known
  * about it — `fileProps` slurps anything under 5MB in one call and publishes no
  * `HashProgress` — but *which* file is known, always, and a path going by four
  * times a second is the difference between a line that is working and a line
- * that has hung. The empty text still pads to `ACTIVITY_COLUMNS`, so the path
- * sits in the same column whether or not a verb has joined it, and a row that
- * grows slow enough to earn one doesn't shunt the path sideways as it does.
+ * that has hung.
  * @param {Sending | null} sending
  * @param {HashProgress | null} hashing
  * @param {string | null} [currentFile]
@@ -734,14 +738,11 @@ const ACTIVITY_COLUMNS = "Uploading ".length + BYTES_COLUMNS + " (100%)".length;
  */
 function activity(sending, hashing, currentFile) {
   const now = performance.now();
-  // The text carries no separator of its own — `progressLine` owns the spacing,
-  // so `ACTIVITY_COLUMNS` measures the same string that gets padded. Leading
-  // spaces in here would both double the gap and push a maximum-length activity
-  // past the pad width, shifting the path column in precisely the case the
-  // padding exists to hold still.
+  // The text carries no separator of its own — `progressLine` owns the spacing
+  // and budgets the line against this exact string.
   if (sending && now - sending.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `Uploading ${sized(sending.total, sending.loaded)}`,
+      text: `${formatByteValue(sending.total)} ${sending.hashed ? "hashed, " : ""}sending${percent(sending.total, sending.loaded)}`,
       path: sending.path,
     };
   }
@@ -753,7 +754,7 @@ function activity(sending, hashing, currentFile) {
   // and `HashProgress` carries none.
   if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `Hashing ${sized(hashing.size, hashing.read())}`,
+      text: `${formatByteValue(hashing.size)} hashing${percent(hashing.size, hashing.read())}`,
       path: currentFile,
     };
   }
@@ -761,16 +762,14 @@ function activity(sending, hashing, currentFile) {
 }
 
 /**
- * `1.8GB (27%)`, or just `1.8GB` when nothing has been reported yet — "0%" would
- * dress up "no figure has come back" as a measurement.
+ * ` 27%`, or nothing when nothing has been reported yet — "0%" would dress up
+ * "no figure has come back" as a measurement.
  * @param {number} size
  * @param {number} done
  * @returns {string}
  */
-const sized = (size, done) =>
-  done > 0 && size > 0
-    ? `${formatByteValue(size)} (${Math.floor((done / size) * 100)}%)`
-    : formatByteValue(size);
+const percent = (size, done) =>
+  done > 0 && size > 0 ? ` ${Math.floor((done / size) * 100)}%` : "";
 
 // Below this a path is unreadable rubble — "…pg" tells you nothing, and the
 // percentage it would crowd out tells you something. Drop it instead.
