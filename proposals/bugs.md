@@ -115,17 +115,7 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**Open:**
-
-- **`restore` can't write a file whose name is within 11 characters of the filesystem's
-  limit.** `writeFileAtomic` lands each download through a sibling temp named
-  `.<name>.s3cab-tmp`, 11 characters longer than the name, so a legal name of 245–255
-  characters (NTFS) or bytes (ext4) gets a temp the filesystem refuses. Measured 2026-10-02 with
-  a 250-character name: `ENOENT` on NTFS and `ENAMETOOLONG` on ext4 at the temp's open, while a
-  plain write to the name itself succeeds on both. `restore` now reports such a file as a name
-  "this disk doesn't allow" — false — and carries on without it. Fix shape: a temp name whose
-  length doesn't grow with the destination's (fixed-length, derived from it so a retry still
-  overwrites it), so the atomic write never needs more room than the file does.
+**Open:** none.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.
