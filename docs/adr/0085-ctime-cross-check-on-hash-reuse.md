@@ -2,9 +2,10 @@
 
 **Status:** accepted, amended once (2026-08-21); partly superseded by
 [0094](0094-change-time-check-opt-in.md) — the check is opt-in, its boundary is the `#SNAPSHOT`
-start instant again, and all of Amendment 1 is gone. Tightens the change-detection reuse
-rule of [0045](0045-change-detection-local-baseline-list-fallback.md); the placeholder exemption
-preserves [0081](0081-online-only-files-skipped.md)'s guarantee.
+start instant again, and all of Amendment 1 is gone — and by
+[0095](0095-online-only-files-read-like-any-other.md), which drops the placeholder exemption.
+Tightens the change-detection reuse rule of
+[0045](0045-change-detection-local-baseline-list-fallback.md).
 
 > **Amendment 1 (2026-08-21) — the boundary is each source's *completion* instant, not the
 > `#SNAPSHOT` header's.** "Self-healing, one pass" below is **false** on any volume where reading

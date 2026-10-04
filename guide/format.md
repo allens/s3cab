@@ -300,8 +300,7 @@ and naming the zone (`Europe/London`) rather than just its offset says *where*, 
 explains a daylight-saving shift rather than merely recording one.
 
 Besides `#SNAPSHOT`/`#DIR`, a snapshot may carry `#EXCLUDED` (matched an exclude pattern),
-`#SKIPPED` (present but not stored — an unsupported type such as a symlink, or a file whose
-contents are [online only](compare.md#files-stored-online-not-on-this-computer)), and `#ERROR`
+`#SKIPPED` (present but not stored — an unsupported type such as a symlink), and `#ERROR`
 (a file that could not be read)
 metadata rows recording what the snapshot does *not* include and why. A reader wanting only
 the file rows can simply skip every `#` line. (One omission is silent by design: a directory
