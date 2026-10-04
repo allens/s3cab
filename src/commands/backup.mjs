@@ -3,6 +3,7 @@ import { loadSet } from "../lib/env.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
 import { readSetExclude } from "../lib/sets.mjs";
 import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
+import { shellCommand } from "../lib/style.mjs";
 import {
   fileChangedError,
   storedHashes,
@@ -84,7 +85,10 @@ export async function backup(setName, options = {}) {
 
   // Named rather than passed whole: `backup` has no `--rehash`, and handing
   // `readBaseline` the raw options bag would quietly grant it one.
-  const baseline = await readBaseline(set, { resume: options.resume });
+  const baseline = await readBaseline(set, {
+    command: "backup",
+    resume: options.resume,
+  });
   const { name: since, previous, previousErrors } = baseline;
   const stored = await storedHashes({
     bucket: set.bucket,
@@ -227,6 +231,6 @@ const uploadFailedError = (cause, set, name) =>
       `The snapshot of what's on this computer is saved, so nothing has to be ` +
       `read or hashed again. Once the problem is sorted, carry on from where it ` +
       `stopped:\n` +
-      `  s3cab upload ${set} --snapshot ${name}`,
+      `  ${shellCommand(`s3cab upload ${set} --snapshot ${name}`)}`,
     { cause },
   );

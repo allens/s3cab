@@ -94,7 +94,7 @@ describe("unreadableMessage", () => {
       "Can't clean up safely — these snapshots can't be read, so objects " +
         "nothing else references would look unused and be deleted:\n" +
         "  work-laptop/2026-07-30-1400\n" +
-        "  photos/2026-07-28-0900\n" +
+        "  photos/2026-07-28-0900\n\n" +
         "Check them with:\n" +
         "  s3cab verify my-bucket",
     );
@@ -116,7 +116,7 @@ describe("unreadableMessage", () => {
       message,
       "Can't delete safely — this snapshot can't be read, so an unknown " +
         "reference could be the only thing keeping this content alive:\n" +
-        "  photos/2026-07-28-0900\n" +
+        "  photos/2026-07-28-0900\n\n" +
         "Check it with:\n" +
         "  s3cab verify my-bucket",
     );
@@ -133,7 +133,7 @@ describe("unreadableMessage", () => {
       message,
       "This snapshot can't be read, so this preview may overstate what " +
         "becomes unrestorable:\n" +
-        "  photos/2026-07-28-0900\n" +
+        "  photos/2026-07-28-0900\n\n" +
         "Check it with:\n" +
         "  s3cab verify my-bucket",
     );

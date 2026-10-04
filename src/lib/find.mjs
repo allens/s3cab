@@ -6,6 +6,7 @@ import { globSource, preparePath } from "./path-match.mjs";
 import { countedPass } from "./progress.mjs";
 import { isCorruptSnapshotError } from "./referenced.mjs";
 import { listSnapshotNames, readSnapshot } from "./snapshot-file.mjs";
+import { shellCommand } from "./style.mjs";
 
 /** @import { PreparedPath } from "./path-match.mjs" */
 /** @import { BackupSet } from "./sets.mjs" */
@@ -131,7 +132,7 @@ export function compileFindPattern(pattern) {
     throw new ValidationError(
       `There's nothing to search for in the pattern '${pattern}'. Give a file ` +
         `name, a path fragment, or a directory to search beneath:\n\n` +
-        `    s3cab find secrets/`,
+        `  ${shellCommand("s3cab find secrets/")}`,
     );
   }
 

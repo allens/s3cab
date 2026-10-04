@@ -536,8 +536,20 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     // From the outside that file is exactly a run still going, so the next
     // snapshot must refuse: ADR-0048 never breaks the lock on its own guess.
+    // And refuse before the pass starts — for `backup` the same step runs ahead
+    // of a store LIST and a walk that cost a minute on a large set.
     tick(2);
-    await assert.rejects(snapshot("photos", {}), /already in progress/);
+    const warn = t.mock.method(console, "warn", () => {});
+    await assert.rejects(
+      snapshot("photos", {}),
+      /already in progress[\s\S]*s3cab snapshot photos --resume/,
+    );
+    assert.ok(
+      !warn.mock.calls.some((call) =>
+        String(call.arguments[0]).startsWith("Snapshotting"),
+      ),
+      "the refusal must come before the pass announces itself",
+    );
 
     await snapshot("photos", { resume: true });
 

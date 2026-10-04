@@ -5,6 +5,7 @@ import {
 import { updateEnvFile } from "./env-file.mjs";
 import { ValidationError } from "./error.mjs";
 import { tildeify } from "./home.mjs";
+import { shellCommand } from "./style.mjs";
 import {
   arnsFromOutputs,
   identityEnvPath,
@@ -46,9 +47,9 @@ import {
 export async function saveArnsFromStack({ stackName, region, profile }) {
   if (!machineIdentityExists()) {
     throw new ValidationError(
-      `No Roles Anywhere identity found at ${tildeify(machineIdentityDir())}.\n` +
+      `No Roles Anywhere identity found at ${tildeify(machineIdentityDir())}.\n\n` +
         `Generate it first (it also prints the template to deploy):\n` +
-        `   s3cab aws <bucket> --roles-anywhere`,
+        `  ${shellCommand("s3cab aws <bucket> --roles-anywhere")}`,
     );
   }
 

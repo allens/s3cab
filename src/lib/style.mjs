@@ -5,8 +5,8 @@ import { styleText } from "node:util";
 // and *styling* (bold and colours) additionally honours the NO_COLOR convention
 // (https://no-color.org — set and non-empty disables) and TERM=dumb. Every
 // consumer routes through here — the upload progress bar and restore counter
-// (animation), the help renderer's bold headings, and the compare/verify
-// section colours (styling) — so redirected output and CI logs never see escape
+// (animation), the help renderer's bold headings, suggested commands, and the
+// compare/verify section colours (styling) — so redirected output and CI logs never see escape
 // codes, decided once.
 //
 // The decorators wrap `node:util`'s `styleText` (a builtin — ADR-0005/0006 — no
@@ -42,6 +42,21 @@ export const styleEnabled = (stream) =>
 
 // Bold — the help renderer's headings. Callers gate on `styleEnabled`.
 export const bold = decorate("bold");
+
+/**
+ * A command s3cab suggests the user run, bold where styling is on, so the fix
+ * stands out from the prose around it (ADR-0030's house shape). The layout —
+ * the indent, the blank line before its lead-in — stays with the caller.
+ *
+ * Defaults to the stderr gate because nearly every suggestion is an error or a
+ * warning. A renderer passes its `color` flag instead. Never bake it into text
+ * a command *returns*: `--json` serializes that verbatim, escapes and all.
+ * @param {string} text - The command, exactly as it should be pasted
+ * @param {boolean} [color] - Whether to style it
+ * @returns {string}
+ */
+export const shellCommand = (text, color = styleEnabled(process.stderr)) =>
+  color ? bold(text) : text;
 
 // Foreground colours for the compare/verify section headers (ADR-0043). Callers
 // gate on `styleEnabled` (or a renderer's `color` flag) and colour *headers

@@ -16,6 +16,7 @@ import { countedPass } from "./progress.mjs";
 import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
 import { readSnapshot, snapshotFileName } from "./snapshot-file.mjs";
+import { shellCommand } from "./style.mjs";
 import { readExcludePatterns, walkDirs } from "./walk.mjs";
 
 /**
@@ -521,9 +522,9 @@ const nameTakenError = (set, name, uri) =>
       `Snapshot names are the local time to the minute, so another computer ` +
       `backing up the same set can take one first. Your files were uploaded ` +
       `and are safe in the store — it is this backup's record that wasn't ` +
-      `written, and snapshots are never overwritten.\n` +
+      `written, and snapshots are never overwritten.\n\n` +
       `Run it again to record it under the next minute's name:\n` +
-      `  s3cab backup ${set}`,
+      `  ${shellCommand(`s3cab backup ${set}`)}`,
   );
 
 /**
@@ -734,7 +735,7 @@ export function fileChangedError(drifted, set) {
       `Everything else was uploaded, and the snapshot taken here is saved on ` +
       `this computer, so backing up again won't re-read the files it already ` +
       `hashed:\n` +
-      `  s3cab backup ${set}\n\n` +
+      `  ${shellCommand(`s3cab backup ${set}`)}\n\n` +
       alsoCount +
       `If this keeps happening — a live database, a file another program is ` +
       `still writing, or one that comes and goes — it isn't a good fit for ` +

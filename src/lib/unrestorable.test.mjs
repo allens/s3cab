@@ -315,6 +315,26 @@ describe("formatUnrestorableSummary", () => {
     // `s3cab verify` would fail for the one user who most needs it to work.
     assert.match(summary, /\n {2}s3cab verify my-bucket\n/);
   });
+
+  it("bolds the verify command only when stdout takes styling", () => {
+    const plan = planUnrestorable(
+      enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
+    );
+    const context = {
+      set: "photos",
+      reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
+    };
+
+    const ESC = "\x1b";
+    assert.ok(!formatUnrestorableSummary(plan, context).includes(ESC));
+    assert.ok(
+      formatUnrestorableSummary(plan, { ...context, color: true }).includes(
+        `  ${ESC}[1ms3cab verify my-bucket${ESC}[22m\n`,
+      ),
+    );
+  });
 });
 
 describe("formatUnrestorableReport", () => {

@@ -46,14 +46,21 @@ The heuristic's three parts, in CLI terms:
 
 Mirror the existing well-formed messages (e.g. `collisionError` in
 [`src/commands/setup.mjs`](../../src/commands/setup.mjs)): a plain-language statement line,
-then the fix introduced by `To <do X>:` (or inline for a one-liner), then the command on its
-own indented (`  `) line so it stands out and copies cleanly. Keep the precise diagnostic
-(the path, the var) in the statement's parenthetical. Worked example, the bucket-less set:
+then a blank line, then each fix as a block: its lead-in (`To <do X>:`) directly above the
+command on its own indented (`  `) line, alternative fixes separated by a blank line so each
+stands out and copies cleanly. Steps of *one* fix stay in one block, and a short menu of
+alternatives may stay an aligned bullet list. Every suggested command is bolded through
+`shellCommand` (`src/lib/style.mjs`), decided by the stream the text is printed to — a
+renderer passes its `color`, so `NO_COLOR` and a piped stream stay plain; text a command
+*returns* never carries it, since `--json` would serialize the escape codes. Keep the precise
+diagnostic (the path, the var) in the statement's parenthetical. Worked example, the
+bucket-less set:
 
 ```
 Backup set 'photos' has no bucket to back up to (no S3CAB_BUCKET in …/env).
+
 To fix it, add 'S3CAB_BUCKET=<bucket>' to that file — or remove the set directory and create it again:
-  s3cab setup photos <directory>... --bucket <bucket>
+  s3cab setup --set photos --bucket <bucket> <directory>...
 ```
 
 The headline is the user's goal ("no bucket to back up to"); the env-var name is detail in

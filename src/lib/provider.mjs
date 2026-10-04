@@ -8,7 +8,7 @@ import {
   readSigningIdentity,
   setupSteps,
 } from "./roles-anywhere.mjs";
-import { isInteractive } from "./style.mjs";
+import { isInteractive, shellCommand } from "./style.mjs";
 
 // Shared logic behind the provider *connection knobs* — the `--profile` /
 // `--endpoint` / `--region` / `--keys` / `--roles-anywhere` options that say how a
@@ -48,9 +48,11 @@ async function warnIfUnknownProfile(name) {
   console.warn(
     `AWS profile '${name}' isn't in your AWS config yet.\n` +
       `${available}\n` +
-      `s3cab will use it anyway. To create the profile first:\n` +
-      `  aws configure --profile ${name}\n` +
-      `(for AWS IAM Identity Center, run 'aws configure sso' instead).`,
+      `s3cab will use it anyway.\n\n` +
+      `To create the profile first:\n` +
+      `  ${shellCommand(`aws configure --profile ${name}`)}\n\n` +
+      `Or, for AWS IAM Identity Center:\n` +
+      `  ${shellCommand("aws configure sso")}`,
   );
 }
 

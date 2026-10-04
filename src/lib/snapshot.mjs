@@ -14,6 +14,7 @@ import {
 import { tildeify } from "./home.mjs";
 import { clockedLine } from "./progress.mjs";
 import {
+  assertNoWorkFile,
   listSnapshotNames,
   readParkedLookup,
   readSnapshotFile,
@@ -22,6 +23,7 @@ import {
   snapshotMoment,
   writeSnapshot,
 } from "./snapshot-file.mjs";
+import { shellCommand } from "./style.mjs";
 import { resolveWalkRoot, walkSet } from "./walk.mjs";
 
 /**
@@ -88,6 +90,16 @@ const trustBoundary = (at) =>
     : Date.parse(at);
 
 /**
+ * The command that adopts a killed run's work file (ADR-0092), ready to paste —
+ * offered by both lock checks, the early one in {@link readBaseline} and the
+ * `wx` open the write itself makes.
+ * @param {"backup" | "snapshot"} command
+ * @param {string} setName
+ */
+const resumeCommand = (command, setName) =>
+  `s3cab ${command} ${setName} --resume`;
+
+/**
  * Read the set's previous snapshot and assemble the hash lookup for a fresh one.
  * The parked lookup is read on *every* snapshot, not just a first one: no "is
  * this the first run?" branch to get wrong, and in the routine case the parked
@@ -102,18 +114,23 @@ const trustBoundary = (at) =>
  * is why it happens *here*: adoption has to beat both the lock the write will
  * take and the parked read just below. Before the `rehash` return too — under
  * `--rehash` the hashes are unwanted but the unlock is the whole point, so the
- * combination has to clear the file rather than trip over it.
+ * combination has to clear the file rather than trip over it. Without
+ * `--resume`, a work file is refused here for the same reason of order: this is
+ * the first step of both commands, and `backup`'s store LIST comes next.
  * @param {BackupSet} set - The resolved set
- * @param {object} [options]
+ * @param {object} options
+ * @param {"backup" | "snapshot"} options.command - The command running, so a refusal names the right `--resume`
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.resume] - Adopt the work file an interrupted run left behind, reusing the hashes it had already computed (`--resume`)
  * @returns {Promise<SnapshotBaseline>}
  */
-export async function readBaseline(set, { rehash, resume } = {}) {
+export async function readBaseline(set, { command, rehash, resume }) {
   const snapshotDir = set.snapshotsDir;
 
   if (resume) {
     await recoverWorkFile(snapshotDir);
+  } else {
+    assertNoWorkFile(snapshotDir, resumeCommand(command, set.name));
   }
 
   /** @type {SnapshotEntries | undefined} */
@@ -358,11 +375,10 @@ export async function generateSnapshot(
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: roots,
-    // What to offer if the lock turns out to be held (ADR-0092). Composed here
-    // because this is the one scope that knows both halves: the set's name, and
-    // which command is running — `transfer` already tells those apart for the
-    // announcement line above, so naming the wrong one is not possible.
-    resumeCommand: `s3cab ${transfer ? "backup" : "snapshot"} ${set.name} --resume`,
+    // What to offer if the lock turns out to be held (ADR-0092). `transfer`
+    // already tells the two commands apart for the announcement line above, so
+    // naming the wrong one is not possible.
+    resumeCommand: resumeCommand(transfer ? "backup" : "snapshot", set.name),
     onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,
@@ -829,10 +845,10 @@ function warnAboutOnlineOnly(count, setName, command) {
     `Left ${countOf(count, "file")} in '${setName}' online rather than ` +
       `downloading them: this computer holds a placeholder for each, not the ` +
       `contents (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
-      `Google Drive).\n` +
+      `Google Drive).\n\n` +
       `Including them means downloading every one to this disk first, so ` +
       `there has to be room for the lot. To do that:\n` +
-      `  s3cab ${command} ${setName} --include-online-only`,
+      `  ${shellCommand(`s3cab ${command} ${setName} --include-online-only`)}`,
   );
 }
 
@@ -880,7 +896,7 @@ function warnAboutCtimeChurn(rehashed, set, command) {
       `reading them moves it again, so every ${command} of '${set.name}' will ` +
       `re-read them. Something is servicing the reads rather than editing the ` +
       `files (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
-      `Google Drive).\n` +
+      `Google Drive).\n\n` +
       `To go on size and modification time alone, add this line to ` +
       `'${tildeify(set.envPath)}':\n` +
       `  S3CAB_SKIP_CHANGE_TIME_CHECK=1\n` +
