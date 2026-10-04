@@ -1,6 +1,8 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
-**Status:** accepted, amended three times (2026-08-21, then twice on 2026-10-02). Extends
+**Status:** accepted, amended three times (2026-08-21, then twice on 2026-10-02); partly
+superseded by [0094](0094-change-time-check-opt-in.md) — the `#END` instant is no longer a
+boundary for any check, and is kept for people reading the file. Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 

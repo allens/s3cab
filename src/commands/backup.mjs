@@ -75,7 +75,7 @@ import {
  * objects + snapshot are already safely up — the next backup re-publishes.
  *
  * @param {string} [setName] - Backup set to back up (default: the only set)
- * @param {{ debug?: boolean, resume?: boolean, "include-online-only"?: boolean }} [options]
+ * @param {{ debug?: boolean, rehash?: boolean, resume?: boolean, "include-online-only"?: boolean }} [options]
  * @returns {Promise<BackupResult>}
  */
 export async function backup(setName, options = {}) {
@@ -83,10 +83,9 @@ export async function backup(setName, options = {}) {
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
 
-  // Named rather than passed whole: `backup` has no `--rehash`, and handing
-  // `readBaseline` the raw options bag would quietly grant it one.
   const baseline = await readBaseline(set, {
     command: "backup",
+    rehash: options.rehash,
     resume: options.resume,
   });
   const { name: since, previous, previousErrors } = baseline;

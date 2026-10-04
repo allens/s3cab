@@ -345,10 +345,11 @@ killed process leaves no trailer at all. The **status** then says whether the ro
 of them: `COMPLETE` for a finished snapshot, `PARTIAL` for the hashes a run stopped with
 Ctrl+C left behind (the `.snapshot.lookup.tsv.zst` file described below — the only file
 s3cab writes `PARTIAL` into). The **instant** is when the last row was written, in the same
-UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other. It is
-recorded because `#SNAPSHOT`'s instant is stamped *before* the run reads anything, and
-s3cab needs to know when the reading finished. Read it as an upper bound: the column holds
-milliseconds and the clock is finer, so the figure is rounded **up** — everything in the
+UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other.
+s3cab itself doesn't read it back. It's there for you: with `#SNAPSHOT`'s instant, stamped
+when the run started, it's the only record of how long the run took. Read it as an upper
+bound: the column holds milliseconds and the clock is finer, so the figure is rounded
+**up** — everything in the
 file was written at or before the moment it names, never after. Two snapshots of an
 unchanged folder therefore differ in this line and the `#SNAPSHOT` header — which carries
 its own instant and the snapshot's name — and nowhere else: every file row is identical.
@@ -394,13 +395,9 @@ s3cab's own rather than standard `AWS_*` ones: `S3CAB_BUCKET` (the set's bucket)
 set in Roles Anywhere mode, the marker `S3CAB_RA=1` — a pointer to the machine identity
 below, never credential material itself.
 
-A third is optional, and s3cab tells you about it only if your set is one that needs it:
-`S3CAB_SKIP_CHANGE_TIME_CHECK=1`. Before reusing a stored hash, s3cab checks the file's *change
-time* as well as its size and modification time, so that a file rewritten to exactly its old
-size with its old modification time put back afterwards is still noticed. On a folder your
-cloud client syncs, reading a file can move its change time all by itself, and then every
-backup re-reads the whole set for nothing. This line turns that check off for one set —
-s3cab prints it, with the cost spelled out, when it measures the problem happening.
+A third is optional: `S3CAB_CHECK_CHANGE_TIME=1` makes s3cab check a file's *change time*,
+as well as its size and modification time, before it decides the file is unchanged. When to
+set it, and when not to, is in [backing up](backup.md#the-change-time-check).
 
 `roles-anywhere/` holds the machine's keyless identity, shared by every set in that mode:
 the self-signed CA (`ca.pem`/`ca.key`), the client certificate and its signing key

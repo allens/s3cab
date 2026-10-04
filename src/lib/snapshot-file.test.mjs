@@ -1,11 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -160,8 +154,7 @@ describe("parseSnapshotStream", () => {
     );
 
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
-    // No trailer means no completion instant — `readParkedLookup` is what
-    // substitutes the file's mtime for it (ADR-0085's boundary).
+    // No trailer means no completion instant.
     assert.equal(completed, undefined);
   });
 
@@ -964,12 +957,9 @@ describe("withSnapshotFile (park on interrupt)", () => {
     assert.ok(parked);
     assert.deepEqual([...parked.entries.keys()], files.slice(0, 2));
     assert.equal(parked.entries.get(files[0] ?? "")?.hash, hashA);
-    // The completion instant comes back with them — the boundary the resumed
-    // run judges these very hashes by (ADR-0085).
-    assert.ok(
-      parked.completed && Temporal.Instant.from(parked.completed),
-      `parked lookup must carry when it was written, got: ${parked.completed}`,
-    );
+    // The stopped run's start comes back with them — the change-time boundary
+    // when there is no previous snapshot (ADR-0094).
+    assert.equal(parked.instant, momentOf("2026-06-23T1000").instant);
   });
 
   it("ends the parked file on a whole row, never a torn one", async () => {
@@ -1208,24 +1198,16 @@ describe("recoverWorkFile", () => {
     assert.deepEqual(recovered, files.slice(0, recovered.length));
   });
 
-  it("stands the file's mtime in for the completion instant it never got", async () => {
-    // Without one, `trustBoundary` reads undefined as "reuse on size and mtime
-    // alone" and the ADR-0085 ctime guard silently lapses for every recovered
-    // row. The mtime is later than every row that reached the disk and earlier
-    // than anything after the kill, so it vouches for exactly the right set.
+  it("keeps the start instant of the run that never finished", async () => {
+    // No trailer, but the header is the first line a run writes, so the
+    // change-time boundary (ADR-0094) survives the kill.
     await using dir = await mkTmpDir();
     killedRun(dir.path, [resolve(dir.path, "a.txt")]);
     await recoverWorkFile(dir.path);
 
     const parked = await readParkedLookup(dir.path);
 
-    assert.ok(parked?.completed, "a recovered file must carry a boundary");
-    const boundary = Date.parse(parked.completed);
-    const { mtimeMs } = statSync(parkedPath(dir.path));
-    assert.equal(boundary, Math.ceil(mtimeMs));
-    // Rounded *up*, never truncated, for the reason `completionInstant` is: a
-    // boundary a fraction early distrusts the last rows written under it.
-    assert.ok(boundary >= mtimeMs);
+    assert.equal(parked?.instant, "2026-06-12T08:15:32.123Z");
   });
 
   it("unblocks the next run, which the leftover file was refusing", async () => {

@@ -215,14 +215,9 @@ raised on seeing that the `del` in `inProgressError`'s remedy throws away 3h16m 
 Built as [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md): `--resume` on `snapshot`
 and `backup`, a `tolerant` mode on `parseSnapshotStream`, and `inProgressError` offering the
 resumption first and the deletion second. The ADR is the record — read it rather than the sketch
-this section used to carry. Two corrections it made to that sketch, kept here because they are the
+this section used to carry. One correction it made to that sketch, kept here because it is the
 kind of thing that gets re-proposed:
 
-- **The trust boundary is the work file's mtime, not nothing.** "Recording nothing is the more
-  honest of the two" was wrong: `trustBoundary(undefined)` means *reuse on size+mtime alone*, so
-  recording nothing silently drops [ADR-0085](../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)'s
-  guard for precisely the rows being recovered. The mtime is the last write the killed run managed,
-  so it is later than every read it made — which is the property 0085 asks for.
 - **A torn row is forgivable only as the file's *last* line.** Tolerating any malformed row would
   make the mode a corruption-swallower rather than a work-file reader.
 

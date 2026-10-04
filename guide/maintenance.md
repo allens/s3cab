@@ -340,6 +340,7 @@ There's no wrong answer, and none of this is required. A reasonable rhythm:
 | --------------- | ------------------------------------- | ------------------------------------------ |
 | Every backup    | nothing                               | `backup` is the whole job                  |
 | Occasionally    | `s3cab verify <bucket>`               | confirm it would actually restore          |
+| Now and then    | `s3cab backup <set> --rehash`         | catch the rare edit that hides its change — see [backing up](backup.md#when-that-rule-is-fooled) |
 | When space matters | `s3cab forget` old snapshots (several at once), then `s3cab cleanup <bucket>` | drop what you don't want, then reclaim it |
 | When one thing is the space | `s3cab find <path> > list.txt`, review, then `s3cab delete --bucket <bucket> --from-file list.txt` | drop that thing from every backup, keeping the snapshots |
 

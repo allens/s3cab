@@ -18,11 +18,11 @@ import { readSnapshotFile } from "../lib/snapshot-file.mjs";
  * directly with the previous snapshot's entries already in memory, so the only
  * `lookup` this command takes is the convenience *path* form (commands/snapshot.mjs).
  *
- * The source carries **no trust boundary**, so a size+mtime match is reused
- * without the ctime cross-check (ADR-0085). That is deliberate and unchanged:
- * this command is handed one arbitrary snapshot file to consult, not a set's own
- * baseline, and "when did the run that wrote this finish?" says nothing about
- * whether the answer applies to the file in front of it.
+ * The source carries **no change-time boundary**, even for a set that opted in
+ * to the check (ADR-0094): this command is handed one arbitrary snapshot file to
+ * consult, not a set's own baseline, and "when did the run that wrote this
+ * start?" says nothing about whether the answer applies to the file in front of
+ * it.
  * @param {string} [path] - The file to inspect
  * @param {object} [options]
  * @param {string} [options.lookup] - Path to a snapshot file whose stored hash is reused if the file is unchanged
@@ -31,13 +31,13 @@ import { readSnapshotFile } from "../lib/snapshot-file.mjs";
 export async function prop(path, options = {}) {
   requireArg(path, "file");
 
-  /** @type {HashSource[] | undefined} */
-  let lookups;
+  /** @type {HashSource | undefined} */
+  let lookup;
   if (options.lookup) {
     console.warn("Reading snapshot file:", options.lookup);
     const { entries } = await readSnapshotFile(options.lookup);
-    lookups = [{ entries }];
+    lookup = { entries };
   }
 
-  return fileProps(path, lookups);
+  return fileProps(path, lookup);
 }

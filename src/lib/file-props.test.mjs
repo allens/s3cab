@@ -13,12 +13,12 @@ const MTIME_ISO = "2025-01-15T10:30:00.000Z";
 const HELLO_HASH =
   "c0535e4be2b79ffd93291305436bf889314e4a3faec05ecffcbb7df31ad9e51a";
 
-/** A one-entry hash source, optionally carrying a trust boundary. @returns {HashSource[]} */
+/** A one-entry hash source, optionally carrying a change-time boundary. @returns {HashSource} */
 const lookupOf = (
   /** @type {string} */ path,
   /** @type {Props} */ props,
   /** @type {number | undefined} */ baselineMs = undefined,
-) => [{ entries: new Map([[path, props]]), baselineMs }];
+) => ({ entries: new Map([[path, props]]), baselineMs });
 
 describe("fileProps", () => {
   it("hashes a file with no lookup", async () => {
@@ -124,7 +124,7 @@ describe("fileProps", () => {
   });
 
   it("re-hashes a size+mtime match when the file was touched after the baseline", async () => {
-    // The `touch -r` shape (ADR-0085): the utimes call just moved the file's
+    // The `touch -r` shape (ADR-0094): the utimes call just moved the file's
     // ctime to now, so a baseline instant in the past proves the match stale.
     await utimes(FILE, MTIME, MTIME);
     const stale = { size: 12, mtime: MTIME_ISO, hash: "stale" };
@@ -154,56 +154,6 @@ describe("fileProps", () => {
     const props = await fileProps(FILE, lookupOf("/some/other/path", other));
 
     assert.equal(props.hash, HELLO_HASH);
-  });
-
-  it("judges each source against its own boundary, not one shared instant", async () => {
-    // The parked-hashes regression (ADR-0067 + ADR-0085). The interrupted run
-    // hashed this file moments ago, so its ctime is *now* — later than the
-    // previous snapshot, earlier than the parking. Merged into one map there was
-    // a single boundary to judge both by, and it was the older one, so the
-    // parked hash was thrown away and the resume re-hashed what it had saved.
-    await utimes(FILE, MTIME, MTIME);
-    const parked = { size: 12, mtime: MTIME_ISO, hash: "parked-hash" };
-    const older = { size: 12, mtime: MTIME_ISO, hash: "previous-hash" };
-
-    const props = await fileProps(FILE, [
-      { entries: new Map([[FILE, parked]]), baselineMs: Date.now() + 60_000 },
-      { entries: new Map([[FILE, older]]), baselineMs: MTIME.getTime() },
-    ]);
-
-    assert.equal(props, parked);
-    assert.equal(props.hashDuration, undefined);
-  });
-
-  it("falls through a source that doesn't know the path", async () => {
-    await utimes(FILE, MTIME, MTIME);
-    const stored = { size: 12, mtime: MTIME_ISO, hash: "reused-not-rehashed" };
-
-    const props = await fileProps(FILE, [
-      { entries: new Map(), baselineMs: Date.now() + 60_000 },
-      { entries: new Map([[FILE, stored]]), baselineMs: Date.now() + 60_000 },
-    ]);
-
-    assert.equal(props, stored);
-  });
-
-  it("reports why it re-read the file", async () => {
-    await utimes(FILE, MTIME, MTIME);
-    const changed = { size: 999, mtime: MTIME_ISO, hash: "stale" };
-    const untrusted = { size: 12, mtime: MTIME_ISO, hash: "stale" };
-
-    // `utimes` above moved the ctime to now, so a boundary in the past vetoes
-    // the size+mtime match — and re-reading the file on an ordinary filesystem
-    // leaves the ctime alone, which is what separates `ctime` from the
-    // `ctime-on-read` a sync-filtered volume produces.
-    const reasons = await Promise.all([
-      fileProps(FILE, lookupOf(FILE, changed)),
-      fileProps(FILE, lookupOf(FILE, untrusted, MTIME.getTime())),
-      fileProps(FILE, lookupOf("/some/other/path", changed)),
-      fileProps(FILE, lookupOf(FILE, { ...untrusted }, Date.now() + 60_000)),
-    ]).then((all) => all.map((props) => props.rehashReason));
-
-    assert.deepEqual(reasons, ["changed", "ctime", undefined, undefined]);
   });
 
   it("throws for a non-regular file", async () => {

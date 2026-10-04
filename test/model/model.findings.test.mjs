@@ -161,18 +161,19 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(restored, "safely stored bytes");
   });
 
-  it("a same-size rewrite preserving mtime is caught by the ctime guard (bugs.md, fixed: ADR-0085)", async () => {
-    await using dir = await mkdtempDisposable(join("test", ".tmp"));
-    const root = dir.path;
+  /**
+   * A set holding one backed-up file, then rewritten in the `touch -r` shape:
+   * same-size content, mtime put back. (Coarse-timestamp filesystems — FAT32's
+   * 2 s — produce the same collision without anyone asking for it.)
+   * @param {string} root
+   */
+  const rewriteKeepingMtime = async (root) => {
     useHome(root, "mA");
     const data = makeSet(root, "stale", "data");
     const file = join(data, "f.txt");
     writeFileSync(file, "old bytes!!");
     await backup("stale");
 
-    // The `touch -r` shape: rewrite with same-size content, put the mtime
-    // back. (Coarse-timestamp filesystems — FAT32's 2 s — produce the same
-    // collision without anyone asking for it.)
     const before = statSync(file);
     writeFileSync(file, "new bytes!!");
     utimesSync(file, before.atime, before.mtime);
@@ -182,29 +183,62 @@ describe("prior-audit findings, encoded", () => {
       before.mtime.toISOString(),
       "precondition: the filesystem must reproduce the mtime exactly",
     );
+  };
+
+  /**
+   * What a restore of one of the `stale` set's snapshots hands back.
+   * @param {string} root
+   * @param {string} snapshot
+   */
+  const restoredFrom = async (root, snapshot) => {
+    const out = join(root, `out-${snapshot}`);
+    mkdirSync(out, { recursive: true });
+    process.exitCode = 0;
+    await restore([], { set: "stale", snapshot, output: out });
+    assert.equal(process.exitCode, 0);
+    return readFile(join(out, "data", "f.txt"), "utf8");
+  };
+
+  it("a same-size rewrite preserving mtime is missed by default, and `backup --rehash` sees it (ADR-0094)", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    await rewriteKeepingMtime(root);
+
+    // The documented limit of the size+mtime rule: the stored hash is reused.
+    clockHolder.current.advance(MINUTE_MS);
+    process.exitCode = 0;
+    const routine = await backup("stale");
+    assert.equal(process.exitCode, 0);
+    assert.equal(routine.uploaded, 0);
+    assert.equal(await restoredFrom(root, "2026-01-05T0001"), "old bytes!!");
+
+    // And the documented cure.
+    clockHolder.current.advance(MINUTE_MS);
+    process.exitCode = 0;
+    const rehashed = await backup("stale", { rehash: true });
+    assert.equal(process.exitCode, 0);
+    assert.equal(rehashed.uploaded, 1, "the rewrite is seen and uploaded");
+    assert.equal(await restoredFrom(root, "2026-01-05T0002"), "new bytes!!");
+  });
+
+  it("a same-size rewrite preserving mtime is caught under S3CAB_CHECK_CHANGE_TIME (bugs.md, fixed: ADR-0085, opt-in since ADR-0094)", async () => {
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const root = dir.path;
+    await rewriteKeepingMtime(root);
 
     clockHolder.current.advance(MINUTE_MS);
+    process.env.S3CAB_CHECK_CHANGE_TIME = "1";
     process.exitCode = 0;
     const result = await backup("stale");
     assert.equal(process.exitCode, 0);
 
     // The rewrite put the mtime back, but the write (and the utimes call
-    // itself) bumped ctime past the baseline's instant, so the reuse check
-    // distrusts the size+mtime match and re-hashes (ADR-0085). The exact
-    // older-vs-newer ctime boundary is pinned in src/lib/file-props.test.mjs;
-    // this asserts the end-to-end outcome: the new bytes are backed up.
+    // itself) bumped ctime past the baseline's start, so the reuse check
+    // distrusts the size+mtime match and re-hashes. The exact older-vs-newer
+    // ctime boundary is pinned in src/lib/file-props.test.mjs; this asserts the
+    // end-to-end outcome: the new bytes are backed up.
     assert.equal(result.uploaded, 1, "the rewrite is seen and uploaded");
-    const out = join(root, "out");
-    mkdirSync(out, { recursive: true });
-    process.exitCode = 0;
-    await restore([], {
-      set: "stale",
-      snapshot: "2026-01-05T0001",
-      output: out,
-    });
-    assert.equal(process.exitCode, 0);
-    const restored = await readFile(join(out, "data", "f.txt"), "utf8");
-    assert.equal(restored, "new bytes!!", "the rewrite was backed up");
+    assert.equal(await restoredFrom(root, "2026-01-05T0001"), "new bytes!!");
   });
 
   it("a truncated stored manifest is a loud parse error — verify reports it, restore refuses (format-spec audit, fixed by ADR-0082)", async () => {

@@ -383,6 +383,11 @@ export const commands = {
       set: { description: "The backup set to back up (default: the only set)" },
     },
     options: {
+      rehash: {
+        type: "boolean",
+        description:
+          "Re-hash every file instead of reusing unchanged files' hashes from the previous snapshot",
+      },
       resume: {
         type: "boolean",
         description:

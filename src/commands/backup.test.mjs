@@ -20,7 +20,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
-/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookups?: object[] }} */
+/** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookup?: object }} */
 let baseline;
 /** @type {Record<string, unknown>[]} the options each `readBaseline` call got */
 let baselineCalls = [];
@@ -142,7 +142,7 @@ beforeEach(() => {
     name: "2026-01-01T0900",
     previous: new Map(),
     previousErrors: new Map(),
-    lookups: [{ entries: new Map() }],
+    lookup: { entries: new Map() },
   };
   baselineCalls = [];
   storedCalls = [];
@@ -207,9 +207,11 @@ describe("backup (the fused pass)", () => {
     );
     // `readBaseline` refuses a held lock before the store LIST, so it must know
     // which command's `--resume` to offer.
-    assert.deepEqual(baselineCalls, [{ command: "backup", resume: undefined }]);
+    assert.deepEqual(baselineCalls, [
+      { command: "backup", rehash: undefined, resume: undefined },
+    ]);
     // The whole of `readBaseline`'s result, forwarded rather than picked apart:
-    // `generateSnapshot` derives `lookups`/`sizes`/`previousInstant` from it itself.
+    // `generateSnapshot` derives `lookup`/`sizes`/`previousInstant` from it itself.
     assert.equal(generateCalls[0]?.baseline, baseline);
     assert.deepEqual(manifestCalls, [
       {
@@ -239,6 +241,14 @@ describe("backup (the fused pass)", () => {
       errors: 2,
       comparison,
     });
+  });
+
+  it("passes --rehash through, so the pass reuses no stored hash", async () => {
+    await backup("photos", { rehash: true });
+
+    assert.deepEqual(baselineCalls, [
+      { command: "backup", rehash: true, resume: undefined },
+    ]);
   });
 
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {

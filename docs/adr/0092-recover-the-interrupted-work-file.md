@@ -1,6 +1,8 @@
 # A hard-killed run's work file is offered back as `--resume`, not only as something to delete
 
-**Status:** accepted. Reverses the scoping half of
+**Status:** accepted; Decision 2 (the mtime boundary) superseded by
+[0094](0094-change-time-check-opt-in.md), which judges a recovered file by its `#SNAPSHOT` start
+instant. Reverses the scoping half of
 [0067](0067-park-hashes-on-interrupt.md) — hard kills are no longer out of scope — while leaving
 [0048](0048-snapshot-lock-atomic-temp-file.md)'s lock and 0067's graceful-interrupt parking exactly
 as they are.
