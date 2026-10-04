@@ -650,9 +650,11 @@ export function progressLine({
   // The handler also prints a retained line saying what the stop will save
   // (`parkOnInterrupt`). That line scrolls; this one is where the eye already is,
   // and it is the only thing on screen still being repainted.
-  const head = stopping ? `${run}  Stopping…` : run;
-  // A line that ends at the figures ends without the clause's padding.
-  const bare = head.trimEnd();
+  const stop = stopping ? "  Stopping…" : "";
+  const head = `${run}${stop}`;
+  // The same figures without the clause's padding, which the stop would otherwise
+  // hold open in front of it.
+  const bare = `${run.trimEnd()}${stop}`;
 
   const detail = activity(
     state?.current ?? null,

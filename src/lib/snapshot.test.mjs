@@ -394,6 +394,25 @@ describe("progressLine", () => {
     );
   });
 
+  it("drops the Uploaded padding in front of a stop before it drops the detail", () => {
+    // `(Uploaded 0B)` is padded to its widest; with a stop after it, that padding
+    // sits mid-line where trimming the end can't reach it. At this width the
+    // measurement fits only once the padding has gone.
+    const state = {
+      ...sending({
+        path: "/some/very/long/path.jpg",
+        loaded: 0,
+        total: 1_500_000,
+      }),
+      sent: 0,
+    };
+    const line = progressLine({ ...run, state, stopping: true, width: 74 });
+    assert.equal(
+      line,
+      "     0s   4,182/58,310  (Uploaded 0B)  Stopping…  [1.5MB hashed, sending]",
+    );
+  });
+
   it("keeps the stop when the width leaves room for nothing else", () => {
     // The shed order, from the other end: a stop is in the figures precisely so
     // the narrowest terminal keeps it, where the detail and the path are gone.
