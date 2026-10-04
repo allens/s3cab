@@ -28,7 +28,7 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
- * @import { HashProgress, HashSource, RehashReason } from "./file-props.mjs"
+ * @import { HashProgress, HashSource } from "./file-props.mjs"
  * @import { RowTransform, SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs"
  * @import { Sending, TransferState } from "./upload.mjs"
  */
@@ -41,53 +41,34 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
 // its atomic, interrupt-parking write; this module owns *what goes in one*.
 
 /**
- * The set's previous snapshot and the hash sources a fresh one reuses.
+ * The set's previous snapshot and the hash source a fresh one reuses.
  * `previous` is the compare baseline (and `backup`'s upload baseline) — strictly
- * the previous snapshot's entries. `lookups` is what hashing consults: those
+ * the previous snapshot's entries. `lookup` is what hashing consults: those
  * entries **and** any hashes an interrupted run parked (ADR-0067), so restarting
- * a long first seed doesn't re-hash what it already did.
- *
- * They stay **separate sources, in priority order**, rather than one merged map.
- * Two reasons, and the second is the one that bit. Parked rows were never in
- * that snapshot, so they must not read as its content. And the two sets were
- * written at different moments, so they do not share a trust boundary — merged,
- * one instant judged both, and it was the older one, so every parked hash read
- * as touched under the ctime cross-check and the resume re-hashed exactly what
- * the parking had saved (ADR-0085; see {@link HashSource}).
+ * a long first seed doesn't re-hash what it already did. The two stay apart
+ * because parked rows were never in that snapshot, so they must not read as its
+ * content.
  * @typedef {Object} SnapshotBaseline
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
  * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#ERROR` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
- * @property {HashSource[]} [lookups] - Where a stored hash may be reused from, parked hashes first, each with its own trust boundary. Absent under `--rehash`
+ * @property {HashSource} [lookup] - Where a stored hash may be reused from: the previous snapshot's entries with the parked ones laid over them. Absent under `--rehash`, or when there is neither
  * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT` header
  */
 
 /**
- * Turn a recorded instant into the epoch-millisecond trust boundary
- * {@link HashSource} carries — or `undefined`, meaning "reuse on size and mtime
- * alone", for the two cases that have no boundary to offer.
- *
- * `S3CAB_SKIP_CHANGE_TIME_CHECK` is one of them, and this is the whole of it: set in
- * the set's env file (or the shell), it drops every boundary and the reuse test
- * falls back to what it was before ADR-0085. The escape exists because on a
- * volume where reading a file moves its ctime the guard can never settle, and
- * re-hashing a 1.8 TB set on every run is not a trade every user will take. It
- * is off by default — safety first, and the run that needs it says so on screen
- * (see `warnAboutCtimeChurn`) rather than leaving the user to discover the cost.
- *
- * The other case is a file whose trailer carries no completion instant: written
- * before the `#END` trailer recorded one. For the previous snapshot the caller
- * falls back to the `#SNAPSHOT` instant, which is earlier and so only ever more
- * cautious. A parked file has no such fallback worth having — its header instant
- * is the *start* of the run that parked it, which every row it holds postdates,
- * so it would veto the lot and reinstate the very bug this fixes.
+ * Turn a recorded start instant into the epoch-millisecond boundary
+ * {@link HashSource} carries — only when the set has opted in to the change-time
+ * check with `S3CAB_CHECK_CHANGE_TIME`
+ * ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)), in the set's env
+ * file or the shell. Otherwise `undefined`: reuse on size and mtime alone.
  * @param {string} [at] - A recorded instant, if the file carries one
  * @returns {number | undefined}
  */
 const trustBoundary = (at) =>
-  at === undefined || process.env.S3CAB_SKIP_CHANGE_TIME_CHECK
-    ? undefined
-    : Date.parse(at);
+  process.env.S3CAB_CHECK_CHANGE_TIME && at !== undefined
+    ? Date.parse(at)
+    : undefined;
 
 /**
  * The command that adopts a killed run's work file (ADR-0092), ready to paste —
@@ -139,8 +120,6 @@ export async function readBaseline(set, { command, rehash, resume }) {
   let previousErrors = new Map();
   /** @type {string | undefined} */
   let instant;
-  /** @type {string | undefined} */
-  let completed;
   const name = listSnapshotNames(snapshotDir).at(0);
   if (name) {
     // One line for the whole step, naming the file it reads. `readSnapshotFile`
@@ -153,25 +132,15 @@ export async function readBaseline(set, { command, rehash, resume }) {
     // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
-    const {
-      entries,
-      errors,
-      instant: at,
-      completed: finishedAt,
-    } = await readSnapshotFile(path);
+    const { entries, errors, instant: at } = await readSnapshotFile(path);
     previous = entries;
     // Kept for the same reason as the entries, and just as free: the compare
     // that follows needs both halves of this snapshot to tell a file that was
     // unreadable last time from one that is genuinely new (ADR-0079).
     previousErrors = errors;
-    // Already parsed on the way past, and free: the clock check below is the
-    // only reason it is kept rather than discarded with the rest of the header.
+    // Already parsed on the way past, and free: the clock check below and the
+    // change-time check's boundary are the reasons it is kept.
     instant = at;
-    // When its last row was written (`#END`, ADR-0082) — the moment the ctime
-    // cross-check weighs a file against, because it is after every read that
-    // pass made. `instant` is minted before the pass reads anything, so on a
-    // volume where reading moves a file's ctime it can never be cleared.
-    completed = finishedAt;
   }
 
   if (rehash) {
@@ -180,25 +149,23 @@ export async function readBaseline(set, { command, rehash, resume }) {
 
   const parked = await readParkedLookup(snapshotDir);
 
-  // Parked first: those hashes are the newer of the two, so where both know a
-  // path the parked row is the one that can still match a file the interrupted
-  // run had already got to.
-  /** @type {HashSource[]} */
-  const lookups = [];
+  // Parked rows laid over the previous ones: they are the newer of the two, so
+  // where both know a path the parked row is the one that can still match a
+  // file the interrupted run had already got to. One boundary for both, the
+  // older start: a parked row was recorded after it, so a file untouched since
+  // then is untouched since its parked row too.
+  /** @type {HashSource | undefined} */
+  let lookup;
   if (parked) {
-    lookups.push({
-      entries: parked.entries,
-      baselineMs: trustBoundary(parked.completed),
-    });
-  }
-  if (previous) {
-    lookups.push({
-      entries: previous,
-      baselineMs: trustBoundary(completed ?? instant),
-    });
+    lookup = {
+      entries: new Map([...(previous ?? []), ...parked.entries]),
+      baselineMs: trustBoundary(previous ? instant : parked.instant),
+    };
+  } else if (previous) {
+    lookup = { entries: previous, baselineMs: trustBoundary(instant) };
   }
 
-  return { name, previous, previousErrors, lookups, instant };
+  return { name, previous, previousErrors, lookup, instant };
 }
 
 /**
@@ -237,7 +204,7 @@ export async function readBaseline(set, { command, rehash, resume }) {
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
  * @param {object} [options]
- * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookups` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below (the ctime cross-check does **not** use it — its boundary is each source's own completion instant, carried on the `HashSource`)
+ * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
@@ -248,7 +215,7 @@ export async function generateSnapshot(
   set,
   { baseline, through, transfer, debug, includeOnlineOnly } = {},
 ) {
-  const { lookups, previous: sizes, instant: previousInstant } = baseline ?? {};
+  const { lookup, previous: sizes, instant: previousInstant } = baseline ?? {};
   // From here, not from the first hashed row: the walk is part of what the
   // report calls scanning, and on a big set it is minutes of it.
   const startedAt = performance.now();
@@ -349,13 +316,6 @@ export async function generateSnapshot(
   // produces, silently, on a set nobody has touched.
   let hashedFiles = 0;
   let hashedBytes = 0;
-  // Of the files that *were* read, why each one had to be. A file no lookup knew
-  // is simply new and is counted in none of these. The split is what tells a
-  // pass that re-read genuinely changed files from one the ctime guard is
-  // re-reading for nothing — indistinguishable from `hashedFiles` alone, and the
-  // difference between a routine backup and hours of pointless work.
-  /** @type {Record<RehashReason, number>} */
-  const rehashed = { changed: 0, ctime: 0, "ctime-on-read": 0 };
   // Files the pass couldn't hash. Counted at the one place that learns of them —
   // `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
   // the tally cannot drift from the rows actually written.
@@ -394,7 +354,7 @@ export async function generateSnapshot(
     getProps: async (file) => {
       currentFile = file;
       try {
-        const props = await fileProps(file, lookups, {
+        const props = await fileProps(file, lookup, {
           onHashStart: (started) => (hashing = started),
           includeOnlineOnly,
         });
@@ -411,9 +371,6 @@ export async function generateSnapshot(
         if (props.hashDuration !== undefined) {
           hashedFiles++;
           hashedBytes += props.size;
-        }
-        if (props.rehashReason) {
-          rehashed[props.rehashReason]++;
         }
         return props;
       } catch (error) {
@@ -447,11 +404,9 @@ export async function generateSnapshot(
 
   // `transfer` is what tells the two porcelains apart, the same discriminator the
   // opening line uses for `Backing up` vs `Snapshotting` — so the command the
-  // hint offers is the command the user actually ran. Both warnings talk about
-  // what the *next* run will do, so both have to name it.
-  const command = transfer ? "backup" : "snapshot";
-  warnAboutOnlineOnly(onlineOnly, set.name, command);
-  warnAboutCtimeChurn(rehashed, set, command);
+  // hint offers is the command the user actually ran. The warning talks about
+  // what the *next* run will do, so it has to name it.
+  warnAboutOnlineOnly(onlineOnly, set.name, transfer ? "backup" : "snapshot");
 
   return {
     name,
@@ -858,60 +813,6 @@ function warnAboutOnlineOnly(count, setName, command) {
       `Including them means downloading every one to this disk first, so ` +
       `there has to be room for the lot. To do that:\n` +
       `  ${shellCommand(`s3cab ${command} ${setName} --include-online-only`)}`,
-  );
-}
-
-/**
- * Say that the ctime cross-check re-read files nothing had changed, and that it
- * will keep doing so — the one condition where the guard costs the user hours
- * per run and protects nothing.
- *
- * **Gated on `ctime-on-read`, not on the raw count.** A file whose change time
- * moved for a real reason is the guard working, and re-hashing it once settles
- * it. What cannot settle is a volume that moves the change time *because we read
- * the file*: the pass hashes it, the read moves the ctime past the pass's own
- * completion instant, and the next run distrusts it again, for ever. `fileProps`
- * establishes that per file at the cost of one `lstat`, so this fires on a
- * measured fact rather than on a guess about where the set lives — which is what
- * lets the wording state the cause instead of hedging about sync folders.
- *
- * ADR-0030 shape: the user's goal first (their run re-read files that hadn't
- * changed), the mechanism in a parenthetical, the exact fix on its own line —
- * and then what it costs, because this is a safety guard and turning it off is
- * a trade rather than a tuning knob. The fix is a line in a file rather than a
- * command because the set's env file is where a per-set setting lives
- * (docs/design/auth.md); the path is named in full for pasting.
- *
- * `command` is threaded for the same reason `warnAboutOnlineOnly` threads it:
- * the sentence talks about what will happen *next time*, so it has to name the
- * command the user actually ran. A `snapshot` run touches no cloud at all, and
- * telling that user about "every backup" describes a thing they did not do.
- *
- * Silent on every ordinary run: with nothing distrusted the counts are zero, and
- * a set that has already set `S3CAB_SKIP_CHANGE_TIME_CHECK` distrusts nothing by
- * construction, so it never nags about a decision the user has made.
- * @param {Record<RehashReason, number>} rehashed - Why this pass re-read what it re-read
- * @param {BackupSet} set - The set, so the fix names its own env file
- * @param {"backup" | "snapshot"} command - The command being run, so the warning names it
- */
-function warnAboutCtimeChurn(rehashed, set, command) {
-  if (!rehashed["ctime-on-read"]) {
-    return;
-  }
-  const wasted = rehashed.ctime + rehashed["ctime-on-read"];
-  console.warn(
-    `Read ${countOf(wasted, "file")} again that had not changed: the change ` +
-      `time recorded against each had moved since the last ${command} — and ` +
-      `reading them moves it again, so every ${command} of '${set.name}' will ` +
-      `re-read them. Something is servicing the reads rather than editing the ` +
-      `files (OneDrive Files On-Demand, or the same feature in Dropbox or ` +
-      `Google Drive).\n\n` +
-      `To go on size and modification time alone, add this line to ` +
-      `'${tildeify(set.envPath)}':\n` +
-      `  S3CAB_SKIP_CHANGE_TIME_CHECK=1\n` +
-      `The cost of that is a file rewritten to exactly its old size with its ` +
-      `modification time put back afterwards, which s3cab would then keep the ` +
-      `old contents of.`,
   );
 }
 

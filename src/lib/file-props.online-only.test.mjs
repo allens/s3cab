@@ -146,9 +146,9 @@ describe("fileProps on a cloud placeholder", () => {
       mtime: mtime.toISOString(),
     };
 
-    const props = await fileProps(path, [
-      { entries: new Map([[path, { ...stored, size: LOGICAL_SIZE }]]) },
-    ]);
+    const props = await fileProps(path, {
+      entries: new Map([[path, { ...stored, size: LOGICAL_SIZE }]]),
+    });
 
     assert.equal(props.hash, stored.hash);
     // Reused, not re-derived: no `hashDuration` on a lookup hit.
@@ -156,7 +156,7 @@ describe("fileProps on a cloud placeholder", () => {
   });
 
   it("keeps reusing when dehydration bumped ctime past the baseline", async () => {
-    // The ctime staleness guard (ADR-0085) must exempt the placeholder shape:
+    // The opt-in change-time check (ADR-0094) must exempt the placeholder shape:
     // dehydration moves *only* ctime, so distrusting the match here would make
     // every file the sync client reclaims read as touched — and, having no
     // bytes to re-hash, drop out of the backup. On other platforms the same
@@ -170,18 +170,16 @@ describe("fileProps on a cloud placeholder", () => {
       mtime: mtime.toISOString(),
     };
     // The file was just written, so its ctime is after this baseline instant.
-    const lookups = [
-      {
-        entries: new Map([[path, stored]]),
-        baselineMs: Date.parse("2020-01-01T00:00:00.000Z"),
-      },
-    ];
+    const lookup = {
+      entries: new Map([[path, stored]]),
+      baselineMs: Date.parse("2020-01-01T00:00:00.000Z"),
+    };
 
     if (platform === "win32") {
-      const props = await fileProps(path, lookups);
+      const props = await fileProps(path, lookup);
       assert.equal(props, stored);
     } else {
-      const props = await fileProps(path, lookups);
+      const props = await fileProps(path, lookup);
       assert.notEqual(props.hash, stored.hash);
       assert.notEqual(props.hashDuration, undefined);
     }

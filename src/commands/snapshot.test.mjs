@@ -261,10 +261,10 @@ const SENTINEL_HASH = "f".repeat(64);
  * whatever came before it is the previous snapshot (none, for the
  * interrupted-first-seed state).
  *
- * Only the hashes and the status are rewritten. The `#END` instant is kept as
- * the run minted it, because it is the trust boundary those rows are judged by
- * (ADR-0085) and the run's own clock is the honest source of it — a test that
- * needs the boundary somewhere in particular puts the *clock* there (`setUp`'s
+ * Only the hashes and the status are rewritten. The `#SNAPSHOT` instant is kept
+ * as the run minted it, because with no previous snapshot it is the
+ * change-time boundary those rows are judged by (ADR-0094) — a test that needs
+ * the boundary somewhere in particular puts the *clock* there (`setUp`'s
  * `tick`) rather than re-stamping the file.
  * @param {string} snapshotsDir
  */
@@ -332,8 +332,8 @@ function plantSentinelSnapshot(snapshotsDir) {
 /**
  * Move every file's ctime to now, leaving its size and mtime exactly as they
  * are — what reading a file does on a volume behind the Windows Cloud Files
- * filter driver (OneDrive, Dropbox, Google Drive), and the reason the ctime
- * cross-check needed a boundary of its own (ADR-0085). `utimes` re-applying the
+ * filter driver (OneDrive, Dropbox, Google Drive), and the reason the
+ * change-time check is opt-in (ADR-0094). `utimes` re-applying the
  * mtime a file already has is the portable way to touch only the change time;
  * the recorded mtime is millisecond-precision either way, so the size+mtime
  * match still stands and only the ctime guard can veto it.
@@ -370,8 +370,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
    * A fixture set and a clock pinned *relative to real time*, in whole minutes.
    *
    * The ctimes these tests are about are real — the filesystem stamps them when
-   * the fixture is copied and when `bumpCtimes` touches it — and a run's `#END`
-   * trailer is the boundary they are judged against (ADR-0085). So the clock
+   * the fixture is copied and when `bumpCtimes` touches it — and a run's start
+   * is the boundary they are judged against (ADR-0094). So the clock
    * has to be able to sit on either side of them: a run ticked to `-1` cannot
    * vouch for a file touched now, a run ticked to `+1` can. A minute of margin
    * either way keeps the two clocks involved (the kernel's, stamping ctimes,
@@ -399,8 +399,6 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
   it("reuses them, then deletes the parked file once the snapshot lands", async (t) => {
     const { snapshotsDir, tick } = setUp(t);
 
-    // Ahead of real time, so the parked trailer vouches for the fixture just
-    // copied; the interrupted run read those files after they were written.
     tick(1);
     await snapshot("photos", { rehash: true });
     parkSentinelHashes(snapshotsDir);
@@ -421,45 +419,28 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     );
   });
 
-  it("keeps them when the interrupted run's own read moved every ctime", async (t) => {
-    // The bug this whole boundary exists to fix, end to end. Run 1 finishes.
-    // Run 2 reads the set — moving every ctime, as a synced volume does — and is
-    // interrupted, parking those hashes. Run 3 must reuse them.
-    //
-    // Merged into one lookup there was a single instant to judge both sources
-    // by, and it was run 1's: every parked row's ctime is *after* it, so the
-    // resume threw away precisely the work the parking had saved. Each source
-    // judged against its own completion instant, run 2's parking vouches for
-    // rows run 2 hashed, and the sentinels survive.
+  it("trusts size and mtime alone by default, however the ctimes moved", async (t) => {
+    // What reading does to every file on a synced volume, and the reason the
+    // change-time check is opt-in (ADR-0094): left on, it would re-read them all.
     const { snapshotsDir, workDir, tick } = setUp(t);
 
-    // Run 1 finishes before the ctimes move, so its trailer cannot vouch for
-    // them — which is what makes the parked source the only thing that can.
     tick(-1);
     await snapshot("photos", { rehash: true });
+    plantSentinelSnapshot(snapshotsDir);
 
     bumpCtimes(workDir());
     tick(1);
     await snapshot("photos", {});
-    parkSentinelHashes(snapshotsDir);
-
-    tick(2);
-    await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length, "expected file rows in the new snapshot");
-    assert.deepEqual(
-      [...new Set(hashes)],
-      [SENTINEL_HASH],
-      "the resume must reuse the parked hashes, not re-read the files",
-    );
+    assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
   });
 
-  it("re-hashes when the previous snapshot is all there is to vouch for them", async (t) => {
-    // The other half of the same fact, so the test above can't pass by the guard
-    // simply being off: with *no* parked file, the same moved ctimes are judged
-    // against run 1's completion instant — which cannot vouch for a file touched
-    // after it — and every one is read again (ADR-0085).
+  it("re-hashes a file touched since the previous run started, under S3CAB_CHECK_CHANGE_TIME", async (t) => {
+    // The opt-in at the level a user meets it: a line in the set's env file
+    // (or the shell). A file whose ctime is after the previous run's start
+    // cannot reuse that run's hash, whatever its size and mtime say.
     const { snapshotsDir, workDir, tick } = setUp(t);
 
     tick(-1);
@@ -469,6 +450,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     bumpCtimes(workDir());
     tick(1);
+    process.env.S3CAB_CHECK_CHANGE_TIME = "1";
     await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
@@ -479,25 +461,41 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     );
   });
 
-  it("reuses them regardless under S3CAB_SKIP_CHANGE_TIME_CHECK", async (t) => {
-    // The escape hatch, at the level a user meets it: the set's env file. On a
-    // volume where reading a file moves its ctime the guard can never settle, so
-    // the previous snapshot's hashes are trusted on size and mtime alone — what
-    // the reuse test did before ADR-0085.
-    const { snapshotsDir, workDir, tick } = setUp(t);
+  it("judges parked hashes by the stopped run's start when there is no previous snapshot", async (t) => {
+    // An interrupted first seed: nothing earlier to take a boundary from, so the
+    // parked file's own `#SNAPSHOT` instant is it. Ticked ahead of the fixture's
+    // ctimes, it vouches for them; behind, it would veto every one — the half
+    // below that proves the check is really on.
+    const { snapshotsDir, tick } = setUp(t);
+    process.env.S3CAB_CHECK_CHANGE_TIME = "1";
 
-    tick(-1);
-    await snapshot("photos", { rehash: true });
-    plantSentinelSnapshot(snapshotsDir);
-
-    bumpCtimes(workDir());
     tick(1);
-    process.env.S3CAB_SKIP_CHANGE_TIME_CHECK = "1";
+    await snapshot("photos", { rehash: true });
+    parkSentinelHashes(snapshotsDir);
+
+    tick(2);
     await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length, "expected file rows in the new snapshot");
     assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
+  });
+
+  it("re-hashes parked rows a run that started before the touch can't vouch for", async (t) => {
+    const { snapshotsDir, workDir, tick } = setUp(t);
+    process.env.S3CAB_CHECK_CHANGE_TIME = "1";
+
+    tick(-1);
+    await snapshot("photos", { rehash: true });
+    const before = await hashesIn(snapshotsDir);
+    parkSentinelHashes(snapshotsDir);
+
+    bumpCtimes(workDir());
+    tick(1);
+    await snapshot("photos", {});
+
+    const hashes = await hashesIn(snapshotsDir);
+    assert.deepEqual([...new Set(hashes)].sort(), [...new Set(before)].sort());
   });
 
   it("ignores them under --rehash, which means re-hash everything", async (t) => {

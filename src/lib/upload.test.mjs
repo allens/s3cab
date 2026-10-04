@@ -123,9 +123,9 @@ mock.module("./file-props.mjs", {
   exports: {
     fileProps: async (
       /** @type {string} */ path,
-      /** @type {HashSource[]} */ lookups,
+      /** @type {HashSource} */ lookup,
     ) => {
-      const props = await fileProps(path, lookups);
+      const props = await fileProps(path, lookup);
       callOrder.push(`hash:${basename(path)}`);
       if (driftAfterHash.has(path)) {
         writeFileSync(path, "rewritten the instant hashing finished");

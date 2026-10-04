@@ -24,7 +24,6 @@ import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
-/** @import { RehashReason } from "./file-props.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
 /** @import { FileHandle } from "node:fs/promises" */
 /** @import { AssertionError } from "node:assert" */
@@ -108,12 +107,6 @@ const ONLINE_ONLY_FILE = "Online-Only File";
  * @property {string} hash
  * @property {number} [hashDuration] - Seconds spent hashing (absent when the
  *   hash came from a snapshot lookup, and not stored in the snapshot file).
- * @property {RehashReason} [rehashReason] - Why this file had to be read rather
- *   than reusing a stored hash (absent on a reuse, and on a file no lookup knew
- *   — that one is simply new). A fact about the run, like `hashDuration`, so it
- *   is likewise never written to the file; `generateSnapshot` tallies it to tell
- *   a pass that re-read genuinely changed files from one the ctime guard is
- *   re-reading for nothing.
  */
 /** @typedef {[string, Props | Error]} SnapshotRow */
 /**
@@ -152,11 +145,9 @@ const ONLINE_ONLY_FILE = "Online-Only File";
  *
  * `status` and `completed` are the `#END` trailer's two columns: whether the
  * rows are all of them (`COMPLETE`/`PARTIAL`), and when the last one was
- * written. `completed` is the one the hash-reuse cross-check weighs a file's
- * ctime against (ADR-0085) — `instant` is minted before the pass reads anything
- * and so cannot serve. `status` has no branch behind it and is surfaced anyway:
- * it is a documented column of the file (guide/format.md), and a parser that
- * silently dropped it would be a trap for the next reader.
+ * written. Neither has a branch behind it and both are surfaced anyway: they are
+ * documented columns of the file (guide/format.md), and a parser that silently
+ * dropped them would be a trap for the next reader.
  * @typedef {{ entries: SnapshotEntries, errors: SnapshotErrors, skipped: SnapshotSkipped, dirs: string[], identity?: string, instant?: string, zone?: string, status?: string, completed?: string }} Snapshot
  */
 
@@ -404,28 +395,18 @@ export async function withSnapshotFile(
  * is also why the file's `#SNAPSHOT` identity is deliberately *not* checked
  * against the set: a path whose size and mtime still match is the same file
  * whichever set recorded it, so the check would reject nothing that could do harm.
- * `completed` comes back with the entries because the two are only meaningful
- * together: these hashes were computed *during* the run that was stopped, so the
- * ctime of every file behind them was moved by that run's own read on any volume
- * where reading moves it. Weighed against the previous snapshot's instant — a
- * run that may have finished days earlier — every parked hash reads as touched
- * and is thrown away, which is precisely the re-hashing the parking exists to
- * avoid. The trailer's instant is the boundary that fits these rows (ADR-0085).
+ * `instant` — when the stopped run started — comes back too, as the change-time
+ * check's boundary for a set with no previous snapshot to take one from
+ * ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
  * which a snapshot never is: a file parked by {@link recoverWorkFile} is a work
  * file its run never closed, so it has no `#END` and its last row is torn. Always
  * on, not only for a recovered file — a gracefully parked one simply has nothing
  * for the tolerance to forgive, and one reader with one mode beats a "was this
- * recovered?" branch to get wrong.
- *
- * That leaves a recovered file with no completion instant, and `undefined` there
- * means "reuse on size and mtime alone" — dropping the ADR-0085 guard for every
- * row it holds. So the file's own **mtime** stands in: later than every row that
- * reached the disk, so it vouches for all of them, and earlier than anything that
- * happened after the run died, so it vouches for nothing else. Rounded *up* to
- * the millisecond for the reason `completionInstant` is.
+ * recovered?" branch to get wrong. A recovered file still has its `#SNAPSHOT`
+ * header, the first line its run wrote, so `instant` is there either way.
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
- * @returns {Promise<{ entries: SnapshotEntries, completed?: string } | undefined>} The parked entries and when the parking was written, or undefined when none are parked
+ * @returns {Promise<{ entries: SnapshotEntries, instant?: string } | undefined>} The parked entries and when the stopped run started, or undefined when none are parked
  */
 export async function readParkedLookup(snapshotDir) {
   const path = parkedLookupPath(snapshotDir);
@@ -433,21 +414,12 @@ export async function readParkedLookup(snapshotDir) {
     return undefined;
   }
   console.warn("Reusing the hashes parked by an interrupted snapshot");
-  const { entries, completed } = await parseCompressedSnapshotStream(
+  const { entries, instant } = await parseCompressedSnapshotStream(
     createReadStream(path),
     { tolerant: true },
   );
-  return { entries, completed: completed ?? lastWrittenInstant(path) };
+  return { entries, instant };
 }
-
-/**
- * When a file was last written, as the UTC instant the `#END` column would have
- * held — the stand-in trust boundary for a recovered work file, which carries no
- * trailer of its own (see {@link readParkedLookup}).
- * @param {string} path
- */
-const lastWrittenInstant = (path) =>
-  new Date(Math.ceil(statSync(path).mtimeMs)).toISOString();
 
 /**
  * Adopt the work file a killed run left behind, so the next pass reuses its
@@ -972,10 +944,7 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
         skipped.set(path, { fileType, reason });
       } else if (marker === END) {
         complete = true;
-        // status | instant. Both are absent on a trailer written before they
-        // existed, and `undefined` is the honest reading of that — a caller
-        // that wants a trust boundary falls back to the `#SNAPSHOT` instant,
-        // which is earlier and so only ever more cautious (see `readBaseline`).
+        // status | instant — `undefined` when the column is empty.
         status = col2.trim() || undefined;
         completed = col3.trim() || undefined;
       }
@@ -1147,13 +1116,10 @@ function propsRows(getProps, signal) {
  * which is exactly the fact the status column records.
  *
  * The trailer's instant is minted **here**, at the tail, not taken from the
- * pass's opening moment: it is when the last row landed, and that is the whole
- * reason it is worth writing. The `#SNAPSHOT` instant is minted at pass *start*,
- * before a single file is read — so on a volume where reading a file moves its
- * ctime (a OneDrive/Dropbox/Google Drive sync root), every file this pass hashes
- * ends up with a ctime *after* the header's instant and the next run distrusts
- * the lot, for ever. The completion instant is after every read this pass made,
- * so it settles (ADR-0085).
+ * pass's opening moment: it is when the last row landed. No code reads it — it
+ * is for a person reading the file, and beside the `#SNAPSHOT` start instant it
+ * is the only record of how long a run took, kept in every snapshot in the
+ * bucket.
  * @param {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} snapshot - Snapshot entries (a lookup Map, or the props pipeline stream)
  * @param {AbortSignal} [signal] - The park-on-interrupt signal; aborted means this file stops part-way (`PARTIAL`)
  * @yields {string} TSV line
