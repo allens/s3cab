@@ -20,8 +20,7 @@ const normalize = (p) => {
 /**
  * Whether `dest` puts a `:` in a name on Windows. NTFS doesn't refuse one, it
  * reads `a:b.txt` as stream `b.txt` of a file `a`: a copy succeeds into that
- * hidden stream, and a fetch fails only at the rename, leaving its temp's empty
- * `.a` behind (both measured). So the name is caught here, before anything is
+ * hidden stream (measured). So the name is caught here, before anything is
  * written. Keyed on the path's shape, like `foldsCase`; a backup made on Linux
  * reaches one only through `--output`.
  * @param {string} dest

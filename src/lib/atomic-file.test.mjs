@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -78,7 +78,7 @@ describe("writeFileAtomic", () => {
     assert.deepEqual(readdirSync(dir.path), ["n".repeat(250)]);
   });
 
-  it("places no file at destPath when the source stream fails", async () => {
+  it("leaves nothing behind when the source stream fails", async () => {
     await using dir = await mkTmpDir();
     const dest = join(dir.path, "out.bin");
 
@@ -90,11 +90,24 @@ describe("writeFileAtomic", () => {
       () => writeFileAtomic(dest, Readable.from(failingSource())),
       /connection reset/,
     );
-    // Same contract: the error propagates and nothing lands at destPath; a
-    // leftover temp sibling is fine, because a retry reuses and replaces it.
-    assert.ok(!existsSync(dest), "a partial download must not be placed");
+    // No partial file at destPath, and no partial temp beside it either.
+    assert.deepEqual(readdirSync(dir.path), []);
+  });
 
-    await writeFileAtomic(dest, Readable.from(content), { hash });
-    assert.deepEqual(readdirSync(dir.path), ["out.bin"]);
+  it("leaves nothing behind when the filesystem refuses the name", async () => {
+    await using dir = await mkTmpDir();
+    // Past 255 wherever the suite runs: ENOENT on NTFS, ENAMETOOLONG on ext4
+    // and APFS. The temp's own name is always legal, so the refusal comes at
+    // the rename, after the whole download is on disk.
+    const dest = join(dir.path, "n".repeat(300));
+
+    await assert.rejects(
+      () => writeFileAtomic(dest, Readable.from(content), { hash }),
+      // Unmasked by the cleanup: `restore` recognizes a refused name by it.
+      (/** @type {NodeJS.ErrnoException} */ error) =>
+        ["ENOENT", "ENAMETOOLONG"].includes(error.code ?? "") &&
+        typeof error.path === "string",
+    );
+    assert.deepEqual(readdirSync(dir.path), []);
   });
 });

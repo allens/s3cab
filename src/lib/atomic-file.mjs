@@ -23,14 +23,14 @@ import { IntegrityError } from "./error.mjs";
  * file first, and only once the pipeline — and, when `hash` is given, the digest
  * check — has succeeded is the file renamed into place. The `rename` is the
  * atomic gate: a crash, a failed download, or a corrupt object never leaves a
- * partial or unverified file *at `destPath`*. A failed *stream* may leave the
- * temp sibling behind — harmless: it's plainly a temp by its extension (never
- * mistaken for the real file) and a retry overwrites it, so there's no
- * catch-and-clean to risk masking the real error. A digest mismatch is
- * different: the bytes are known bad and the caller may carry on past them
- * (`restore` does), so the temp is removed before the throw rather than left
- * beside every corrupt file in a finished restore. `destPath`'s parent
- * directory must already exist (the temp file is a sibling, and the rename needs it).
+ * partial or unverified file *at `destPath`*. Any failure removes the temp
+ * before the error leaves — a torn stream, a digest mismatch, or a name the
+ * filesystem refuses, which only the rename finds out, after the whole
+ * download — because the caller may carry on past it (`restore` does), and
+ * would otherwise finish with a temp beside every file it couldn't place. Only
+ * a process that dies mid-write leaves one, and a retry overwrites it.
+ * `destPath`'s parent directory must already exist (the temp file is a
+ * sibling, and the rename needs it).
  * @param {string} destPath - Where to write the file (parent must exist)
  * @param {Readable} source - The byte stream to write (typically `await getStream(uri)`)
  * @param {object} [options]
@@ -49,26 +49,32 @@ export async function writeFileAtomic(destPath, source, { hash } = {}) {
     .slice(0, 16);
   const tmpPath = join(dirname(destPath), `.${nameDigest}.s3cab-tmp`);
   const hasher = hash ? createHash("sha256") : undefined;
-  // Tee every chunk to disk unchanged, hashing en route only when verifying.
-  await pipeline(
-    source,
-    async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
-      for await (const chunk of chunks) {
-        hasher?.update(chunk);
-        yield chunk;
+  try {
+    // Tee every chunk to disk unchanged, hashing en route only when verifying.
+    await pipeline(
+      source,
+      async function* (/** @type {AsyncIterable<Buffer | string>} */ chunks) {
+        for await (const chunk of chunks) {
+          hasher?.update(chunk);
+          yield chunk;
+        }
+      },
+      createWriteStream(tmpPath),
+    );
+    if (hasher) {
+      const got = hasher.digest("hex");
+      if (got !== hash) {
+        throw new IntegrityError(
+          `Integrity check failed writing ${destPath}: its content hashes ` +
+            `to ${got}, not ${hash}. The stored object is corrupt or mismatched.`,
+        );
       }
-    },
-    createWriteStream(tmpPath),
-  );
-  if (hasher) {
-    const got = hasher.digest("hex");
-    if (got !== hash) {
-      await rm(tmpPath, { force: true });
-      throw new IntegrityError(
-        `Integrity check failed writing ${destPath}: its content hashes ` +
-          `to ${got}, not ${hash}. The stored object is corrupt or mismatched.`,
-      );
     }
+    await rename(tmpPath, destPath);
+  } catch (error) {
+    // The cleanup's own failure is dropped: the caller needs the error that
+    // says why the file didn't land, not why its temp outlived it.
+    await rm(tmpPath, { force: true }).catch(() => {});
+    throw error;
   }
-  await rename(tmpPath, destPath);
 }

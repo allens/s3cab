@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
+import { writeFileAtomic } from "../lib/atomic-file.mjs";
 import { IntegrityError } from "../lib/error.mjs";
 
 // Offline tests for restore's degrade-on-a-missing-object behaviour: one object
@@ -56,9 +57,11 @@ mock.module("../lib/objects.mjs", {
       if (failure) {
         throw failure;
       }
-      // The real getObject lands the file; the restore loop then sets its mtime,
-      // so a fake that wrote nothing would fail for the wrong reason.
-      await writeFile(destPath, hash);
+      // Landed the way the real getObject lands it, so a name the disk refuses
+      // fails where it really does (the rename, after the download) and leaves
+      // what it really leaves. The digest check is the one part skipped: these
+      // hashes are labels, not digests.
+      await writeFileAtomic(destPath, Readable.from(hash));
       afterFetch(hash);
     },
   },
@@ -263,23 +266,34 @@ describe("restore with a name this disk refuses", () => {
     assert.equal(process.exitCode, 1);
   });
 
+  it("leaves nothing in the tree for a name refused after its download", async () => {
+    await restore([], { set: "photos", output });
+
+    assert.deepEqual(readdirSync(join(output, "data")).sort(), [
+      "a-first.txt",
+      "c-copy.txt",
+      "e-last.txt",
+    ]);
+  });
+
   it("fetches a refused file's content again for the next path that shares it", async () => {
     // `c-copy.txt` is planned as a copy of `b-…`, which was never written; the
     // content is sound, so it comes from the store rather than going down with
-    // the name. The refused directory never reaches a fetch at all. `f-…`'s
-    // copy fails and is retried as the second `ddd` fetch: only that one can
-    // say the name, not the source, was the problem.
+    // the name. The refused directory never reaches a fetch at all, and nor
+    // does `f-…`: its copy fails with the source still on disk, so the name
+    // was the problem, and a fetch would download it only to be refused again.
     const result = await restore([], { set: "photos", output });
 
-    assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd", "ddd"]);
+    assert.deepEqual(fetched, ["aaa", "bbb", "bbb", "ddd"]);
     assert.equal(readFileSync(dest("c-copy.txt"), "utf8"), "bbb");
     assert.ok(result.restored.includes(dest("c-copy.txt")));
   });
 
   it("restores a copy whose source vanished mid-run, rather than calling its name refused", async () => {
     // A failed copy names its source in `path` whichever side failed, so a
-    // source deleted after it was restored looks exactly like a refused
-    // destination: ENOENT with a path.
+    // source deleted after it was restored gives the same error as a refused
+    // destination: ENOENT with a path. Only the source's absence tells them
+    // apart.
     snapshot = {
       entries: new Map([
         ["/data/a-source.txt", { ...at, hash: "aaa" }],
