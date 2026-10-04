@@ -2,7 +2,8 @@
 
 **Status:** accepted & implemented (2026-10-04). Supersedes
 [0081](0081-online-only-files-skipped.md), and with it the placeholder exemption in
-[0085](0085-ctime-cross-check-on-hash-reuse.md)'s change-time check.
+[0085](0085-ctime-cross-check-on-hash-reuse.md)'s change-time check, which
+[0094](0094-change-time-check-opt-in.md) had kept.
 
 ## Context
 
