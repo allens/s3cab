@@ -298,7 +298,7 @@ the same staleness test `fileProps` uses", false since ADR-0094 made the change-
 Same family at snapshot-file.mjs:311 and :506–507, commands/prop.mjs:17–19, commands/upload.mjs:49–50.
 Each is one sentence; name the functions, not a count, or the next caller makes it stale again.
 **W — Restore and `referenced.mjs` docs.** `renderRestore`'s doc
-([render.mjs](../src/lib/render.mjs):1287–1298) omits the `deleted` field, and :1295 runs past the
+([render.mjs](../src/render.mjs):1287–1298) omits the `deleted` field, and :1295 runs past the
 line length. [referenced.mjs](../src/lib/referenced.mjs):13–14 calls `cleanup.mjs`,
 `unrestorable.mjs` and `verify.mjs` "pure planners with no runtime imports at all", which is false. `unrestorable.test.mjs`:172 says
 "delete" where it means `forget`. `restore.missing-object.test.mjs` is named for a missing object
