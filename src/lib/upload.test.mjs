@@ -18,6 +18,7 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 /** @import { SnapshotEntries, SnapshotRow } from "./snapshot-file.mjs" */
 /** @import { HashSource } from "./file-props.mjs" */
 /** @import { Drift } from "./upload.mjs" */
+/** @import { Transfer } from "./s3.mjs" */
 
 // This file mocks the s3.mjs seam, per docs/design/testing.md ("mock at s3.mjs,
 // not the AWS SDK"): the baseline-trust check (the remote baseline fetched and
@@ -47,6 +48,11 @@ let deletionRecords = new Map();
 let recordReads = 0;
 /** @type {Error | undefined} Let every PUT fail, to drive the failure paths. */
 let putError;
+/**
+ * @type {((path: string, options?: { onProgress?: (transfer: Transfer) => void }) => void) | undefined}
+ * Runs inside each PUT, while it is in flight.
+ */
+let duringPut;
 // The store this suite really models — a keyed body map on the read side, and a
 // PUT that reports whether the object was new. `isObjectNotFound` is left to the
 // stencil's default, the real name-based predicate, which the `getStream` below
@@ -64,9 +70,14 @@ mock.module("./s3.mjs", {
       }
       return Readable.from([bytes]);
     },
-    putFile: async (/** @type {string} */ path, /** @type {string} */ uri) => {
+    putFile: async (
+      /** @type {string} */ path,
+      /** @type {string} */ uri,
+      /** @type {{ onProgress?: (transfer: Transfer) => void } | undefined} */ options,
+    ) => {
       putFiles.push({ path, uri }); // recorded even when it fails: it was tried
       callOrder.push(`put:${basename(path)}`);
+      duringPut?.(path, options);
       if (putError) {
         throw putError;
       }
@@ -144,6 +155,7 @@ beforeEach(() => {
   deletionRecords = new Map();
   recordReads = 0;
   putError = undefined;
+  duringPut = undefined;
   driftAfterHash = new Set();
   rewrittenAfterHash = [];
   callOrder = [];
@@ -320,6 +332,41 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     });
     // Real elapsed time, so only its existence is assertable here.
     assert.ok(sendingMs >= 0);
+  });
+
+  it("says which file in flight this run hashed, and which reused a hash", async () => {
+    // The progress line claims `hashed,` only for a hash it saw happen. A reused
+    // hash comes back as the baseline's Props, which carry no `hashDuration`.
+    await using dir = await mkTmpDir();
+    const { a, c } = files(dir.path);
+    const { hashDuration, ...reused } = await fileProps(c);
+    assert.ok(hashDuration !== undefined && hashDuration >= 0);
+    const upload = uploadObjects({
+      bucket: "fused",
+      stored: new Set(),
+      ownProgress: true,
+    });
+    /** @type {{ hashed?: boolean, loaded?: number }[]} */
+    const seen = [];
+    duringPut = (path, options) => {
+      const flag = () => {
+        const { hashed, loaded } = upload.transfer().current ?? {};
+        seen.push({ hashed, loaded });
+      };
+      flag();
+      // A byte-count event replaces the in-flight state; the flag must survive it.
+      options?.onProgress?.({ path, loaded: 1, total: 5 });
+      flag();
+    };
+
+    await Array.fromAsync(upload.through([await row(a), [c, reused]]));
+
+    assert.deepEqual(seen, [
+      { hashed: true, loaded: 0 },
+      { hashed: true, loaded: 1 },
+      { hashed: false, loaded: 0 },
+      { hashed: false, loaded: 1 },
+    ]);
   });
 
   it("counts no upload bytes for content the store already held", async () => {

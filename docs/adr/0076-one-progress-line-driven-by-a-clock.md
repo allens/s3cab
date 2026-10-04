@@ -5,8 +5,8 @@
 concession's home in the progress line. Accepted & implemented; amended 2026-08-06 (§3 now has an
 owner — see *A counted pass is a thing the module offers*), 2026-08-09 (§4's announce gained the
 destination bucket, with [0078](0078-backup-run-report.md)), 2026-09-13 (§5 governs the
-measurement, not the name; and the clock needs the loop conceded to it) and 2026-10-01 (the line
-reports a stop). Extends
+measurement, not the name; and the clock needs the loop conceded to it), 2026-10-01 (the line
+reports a stop) and 2026-10-04 (the line's layout). Extends
 [0010](0010-cli-output-conventions.md)'s output/stream discipline and
 [0043](0043-human-first-output.md)'s human-first rendering to *progress*, and settles the display
 [0069](0069-fused-snapshot-upload-pipeline.md) left behind when it fused two passes into one.
@@ -186,10 +186,10 @@ Three things follow.
   rows, which is precisely when no file is in hand. The pass is sequential, so the file it last
   touched is either in flight or just finished: a truthful sample of where the walk has got to
   either way.
-- **The unlabelled detail is an empty text with a path, not a path on its own.** It still pads to
-  `ACTIVITY_COLUMNS`, so a file that crosses the one-second mark mid-read gains its verb without
-  shunting its own path sideways — the column holds still across the transition, which is what §7's
-  fixed-width discipline is for.
+- **The unlabelled detail is an empty text with a path, not a path on its own.** A file that
+  crosses the one-second mark mid-read gains its verb without shunting its own path sideways —
+  the column holds still across the transition, which is what §7's fixed-width discipline is for.
+  (How it holds still changed on 2026-10-04, below.)
 - **A bare path that will not fit sheds the line back to the figures.** §7 sheds the path first and
   the whole detail last, which for a labelled detail leaves `Uploading 1.8GB (27%)` still saying
   something. An unlabelled one *is* its path, so shedding it leaves nothing — and the line has to
@@ -279,3 +279,34 @@ delayed the park itself. The concession bought both. Without it the first Ctrl+C
 files could sit unhandled for seconds — which is the strongest version of "it did nothing", and no
 wording on the line could have answered it. ([0093](0093-a-clocked-line-ticks-where-its-caller-never-yields.md)
 has since given the concession to the interrupt alone, beside the check it serves.)
+
+## Amendment (2026-10-04) — the line's layout
+
+```
+ 1h 02m  267,982/281,755   83% of 1.9TB  (Uploaded 12.4GB)   D:\Videos\holiday.MOV  [2.4GB hashed, sending 55%]
+```
+
+Left to right: the clock, then the two progress figures, then the bytes sent, then the path, then
+the detail. The detail's wording (§6's `Uploading 1.8GB (27%)` and the amendments' quotes of it)
+is now `[1.8GB hashing 27%]` and then `[1.8GB hashed, sending 27%]`.
+
+- **The clock leads, unlabelled.** It is the pass's elapsed time, not the upload's, which a
+  trailing `in 7m 39s` after `Uploaded` implied. It stays on the line, not as a start time in the
+  announce (the snapshot name already carries that): it is the one field certain to change every
+  second, and on a slow single PUT or between multipart parts nothing else moves.
+- **The bytes sent are bracketed** apart from the count and the byte share: those say how far
+  through the set the pass is; this measures the wire. The clause is padded whole, on its right,
+  so no gap opens between label and number.
+- **The detail follows the path**, in square brackets (a path can end in `(1).jpg`), and dimmed
+  where styling is on. The brackets stay under the dim: with styling off (piped output,
+  `NO_COLOR`) they are all that sets the detail apart from the path. Held in a
+  padded column *before* the path it was 24 blank spaces on nearly every frame, since a file earns
+  a detail only by taking a second. After the path it takes no room when absent, and the path's
+  left edge still never moves when one appears — §7's guarantee, kept by position instead of by
+  padding. A send names the finished hash too (`hashed, sending`): a new big file is hashed and
+  then sent, and with no verbs, or only the current one, the percentage seems to climb to 100%
+  and start again. Only a hash this run did, though: a send of a reused hash (a resumed run, an
+  object missing from the bucket) is just `[2.4GB sending 55%]`.
+
+On a narrow terminal the shed order is unchanged: the path first, then the padding, then the
+detail whole.

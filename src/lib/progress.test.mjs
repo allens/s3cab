@@ -47,6 +47,18 @@ describe("createProgress", () => {
     assert.equal(writes.at(-1), "\n");
   });
 
+  it("cuts a line by the columns it fills, not by its escape codes", () => {
+    const { stream, writes } = fakeStream(true);
+    stream.columns = 11;
+    // Ten visible columns: fits, so it is written whole, styling and all.
+    const fits = "count \x1b[2m[1%]\x1b[22m";
+    createProgress(stream).update(fits);
+    assert.ok(writes.includes(fits), JSON.stringify(writes));
+    // Over by one: cut to the room, with the styling dropped rather than broken.
+    createProgress(stream).update("counts \x1b[2m[1%]\x1b[22m");
+    assert.ok(writes.includes("counts [1%"), JSON.stringify(writes));
+  });
+
   it("writes the text before clearing, so the line is never blanked", () => {
     // The flicker fix: clearing to end-of-line *after* the text leaves the same
     // end state with no empty-line window for the terminal to repaint.

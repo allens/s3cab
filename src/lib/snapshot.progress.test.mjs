@@ -143,7 +143,7 @@ describe("the fused pass's progress line", () => {
       const line = drawn[index];
       assert.ok(line, `no draw for row ${index + 1}`);
       assert.ok(
-        line.startsWith(`${index + 1}/3`),
+        /^ *\S+ {2}/.test(line) && line.includes(`  ${index + 1}/3`),
         `draw ${index + 1} reported the wrong count: ${line}`,
       );
       // The whole point: the name and the number describe the same file — the
@@ -169,7 +169,7 @@ describe("the fused pass's progress line", () => {
     await generateSnapshot(threeFileSet(dir.path));
 
     assert.ok(closing, "a pass that ran to its end draws a closing frame");
-    assert.ok(closing.startsWith("3/3"), `expected every file: ${closing}`);
+    assert.ok(closing.includes("  3/3"), `expected every file: ${closing}`);
     assert.ok(
       !closing.includes(dir.path),
       `the closing frame names no file: ${closing}`,
