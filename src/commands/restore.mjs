@@ -184,26 +184,22 @@ export async function restore(paths = [], options = {}) {
   // whether two names are one file — trusting strings is the bug this closes.
   /** @type {Set<string>} */
   const writtenCanonical = new Set();
-  // Dests left unwritten though their content is sound — a collision, or a
-  // refused name. A later `copy` step pointing at one would read whatever
-  // survivor a collided name resolves to (the wrong bytes) or nothing at all,
-  // so it re-fetches from the store instead.
-  /** @type {Set<string>} */
-  const unwrittenDests = new Set();
+  // What became of each content hash this run has tried to write, shared by
+  // every path that holds it. Once content lands, every later path holding it
+  // is copied from there rather than downloaded again (#1). Content found
+  // absent or corrupt is the same casualty for every later path, so it isn't
+  // tried again. A collision or a refused name is the path's failure, not the
+  // content's, so it records nothing and the next path holding that content
+  // fetches it; nor does a skipped file, whose content is unverified.
+  /**
+   * @type {Map<string,
+   *   | { kind: "landed", dest: string }
+   *   | { kind: "absent", record: RecordedDeletion | undefined }
+   *   | { kind: "corrupt" }>}
+   */
+  const fateByHash = new Map();
   /** @type {{ path: string, deletedOn: string }[]} */
   const deleted = [];
-  // Hashes whose fetch found nothing, with the deletion record's explanation if
-  // it has one. `planRestore` points each repeat of a hash at wherever the
-  // *first* one landed, so a failed fetch would leave every later `copy` of that
-  // content reading a file that was never written — they are the same casualty,
-  // and are recorded (under the first fetch's classification) rather than
-  // attempted.
-  /** @type {Map<string, RecordedDeletion | undefined>} */
-  const absentHashes = new Map();
-  // Hashes whose download failed the integrity check — the same dependent-copy
-  // reasoning as `absentHashes`: every path sharing one is the same casualty.
-  /** @type {Set<string>} */
-  const corruptHashes = new Set();
   // The deletion records, fetched once and only if an object turns up absent —
   // the happy path never pays for them.
   /** @type {Map<string, RecordedDeletion> | undefined} */
@@ -213,9 +209,8 @@ export async function restore(paths = [], options = {}) {
     deletionRecords ??= await readDeletionRecords(set.bucket);
     return deletionRecords.get(hash);
   };
-  /** @param {string} hash @param {string} dest */
-  const reportAbsent = (hash, dest) => {
-    const record = absentHashes.get(hash);
+  /** @param {RecordedDeletion | undefined} record @param {string} dest */
+  const reportAbsent = (record, dest) => {
     if (record) {
       deleted.push({ path: dest, deletedOn: record.deletedOn });
     } else {
@@ -237,29 +232,28 @@ export async function restore(paths = [], options = {}) {
   const total = formatCount(plan.length);
   let done = 0;
   for (const step of plan) {
-    const hash = /** @type {string} */ (step.hash);
+    const fate =
+      step.action === "write" ? fateByHash.get(step.hash) : undefined;
     if (step.action === "skip") {
       skipped.push(step.dest);
     } else if (step.action === "refuse") {
       refused.push(step.dest);
-    } else if (absentHashes.has(hash)) {
-      reportAbsent(hash, step.dest);
-    } else if (corruptHashes.has(hash)) {
+    } else if (fate?.kind === "absent") {
+      reportAbsent(fate.record, step.dest);
+    } else if (fate?.kind === "corrupt") {
       corrupt.push(step.dest);
     } else if (
       existsSync(step.dest) &&
       writtenCanonical.has(realpathSync.native(step.dest))
     ) {
       collided.push(step.dest);
-      unwrittenDests.add(step.dest);
     } else {
       /** @type {"found" | "absent" | "corrupt" | "refused"} */
       let outcome = "found";
-      const from =
-        step.action === "copy" ? /** @type {string} */ (step.from) : undefined;
+      const from = fate?.dest;
       try {
         mkdirSync(dirname(step.dest), { recursive: true });
-        if (from !== undefined && !unwrittenDests.has(from)) {
+        if (from !== undefined) {
           try {
             await copyFile(from, step.dest);
           } catch (error) {
@@ -272,10 +266,10 @@ export async function restore(paths = [], options = {}) {
             if (!isRefusedName(error) || existsSync(from)) {
               throw error;
             }
-            await getObject(set.bucket, hash, step.dest);
+            await getObject(set.bucket, step.hash, step.dest);
           }
         } else {
-          await getObject(set.bucket, hash, step.dest);
+          await getObject(set.bucket, step.hash, step.dest);
         }
       } catch (error) {
         // This one file's problem, and only that: absent content
@@ -297,6 +291,7 @@ export async function restore(paths = [], options = {}) {
       }
       if (outcome === "found") {
         writtenCanonical.add(realpathSync.native(step.dest));
+        fateByHash.set(step.hash, { kind: "landed", dest: step.dest });
         // Lossy below the millisecond, and not fixable here — don't try. `utimes`
         // takes seconds as a binary64 however it is spelled (a `Date` becomes
         // `getTime() / 1000`), and one ULP of that near a 2026 epoch is ~238ns, so
@@ -306,18 +301,18 @@ export async function restore(paths = [], options = {}) {
         // (the error falls below its 100ns tick), which is why it went unseen until
         // clean-room run 2 compared `st_mtime_ns` on ext4. guide/format.md promises
         // the *millisecond* for exactly this reason.
-        const when = new Date(/** @type {string} */ (step.mtime));
+        const when = new Date(step.mtime);
         await utimes(step.dest, when, when);
         restored.push(step.dest);
       } else if (outcome === "absent") {
-        absentHashes.set(hash, await recordFor(hash));
-        reportAbsent(hash, step.dest);
+        const record = await recordFor(step.hash);
+        fateByHash.set(step.hash, { kind: "absent", record });
+        reportAbsent(record, step.dest);
       } else if (outcome === "corrupt") {
-        corruptHashes.add(hash);
+        fateByHash.set(step.hash, { kind: "corrupt" });
         corrupt.push(step.dest);
       } else {
         refused.push(step.dest);
-        unwrittenDests.add(step.dest);
       }
     }
 

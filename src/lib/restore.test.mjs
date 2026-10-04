@@ -243,99 +243,48 @@ describe("reroot", () => {
 });
 
 // `planRestore` is the pure decision step behind the restore loop: for each
-// target it decides skip / fetch / copy-from-an-earlier-fetch, with no disk or
-// network access — `exists` is injected so these run with a fake filesystem.
+// target it decides skip / refuse / write, with no disk or network access —
+// `exists` is injected so these run with a fake filesystem.
 describe("planRestore", () => {
   const destFor = (/** @type {string} */ source) => source;
   /** @type {SnapshotEntries} */
   const entries = new Map([
     ["/a.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }],
     ["/b.jpg", { hash: "h1", mtime: "2026-01-01T00:00Z", size: 1 }], // same content as a.jpg
-    ["/c.jpg", { hash: "h2", mtime: "2026-01-02T00:00Z", size: 2 }],
   ]);
-
-  it("fetches the first occurrence of a hash", () => {
-    const plan = planRestore(entries, ["/a.jpg"], destFor, {
-      exists: () => false,
-    });
-    assert.deepEqual(plan, [
-      {
-        dest: "/a.jpg",
-        action: "fetch",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-      },
-    ]);
+  const writeOf = (/** @type {string} */ dest) => ({
+    dest,
+    action: "write",
+    hash: "h1",
+    mtime: "2026-01-01T00:00Z",
   });
 
-  it("copies a later occurrence of the same hash from the first fetch's destination", () => {
+  it("writes every target, a repeated hash included — dedupe is the restore loop's", () => {
     const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
       exists: () => false,
     });
-    assert.deepEqual(plan, [
-      {
-        dest: "/a.jpg",
-        action: "fetch",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-      },
-      {
-        dest: "/b.jpg",
-        action: "copy",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-        from: "/a.jpg",
-      },
-    ]);
+    assert.deepEqual(plan, [writeOf("/a.jpg"), writeOf("/b.jpg")]);
   });
 
   it("skips a target whose destination already exists", () => {
-    const plan = planRestore(entries, ["/a.jpg"], destFor, {
-      exists: (dest) => dest === "/a.jpg",
-    });
-    assert.deepEqual(plan, [{ dest: "/a.jpg", action: "skip" }]);
-  });
-
-  it("overwrite bypasses the skip but doesn't disable dedupe", () => {
-    const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
-      exists: (dest) => dest === "/a.jpg",
-      overwrite: true,
-    });
-    assert.deepEqual(plan, [
-      {
-        dest: "/a.jpg",
-        action: "fetch",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-      },
-      {
-        dest: "/b.jpg",
-        action: "copy",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-        from: "/a.jpg",
-      },
-    ]);
-  });
-
-  it("a skipped entry never seeds the dedupe — a later same-hash target still fetches", () => {
-    // a.jpg is skipped (pre-existing, unverified content), so b.jpg — same
-    // hash — must not be told to copy from it.
     const plan = planRestore(entries, ["/a.jpg", "/b.jpg"], destFor, {
       exists: (dest) => dest === "/a.jpg",
     });
     assert.deepEqual(plan, [
       { dest: "/a.jpg", action: "skip" },
-      {
-        dest: "/b.jpg",
-        action: "fetch",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-      },
+      writeOf("/b.jpg"),
     ]);
   });
 
-  it("refuses a `:` in a Windows name, and never copies from it — under either root", () => {
+  it("overwrite writes over an existing destination instead of skipping it", () => {
+    const plan = planRestore(entries, ["/a.jpg"], destFor, {
+      exists: (dest) => dest === "/a.jpg",
+      overwrite: true,
+    });
+    assert.deepEqual(plan, [writeOf("/a.jpg")]);
+  });
+
+  it("refuses a `:` in a Windows name — under either root", () => {
     // NTFS would take `a:b.jpg` as a stream of a file `a`; the drive's own `:`
     // and a UNC root are not names. `exists` isn't consulted for the refused
     // one: a stream left by an earlier restore must not read as "already here".
@@ -349,12 +298,7 @@ describe("planRestore", () => {
       });
       assert.deepEqual(plan, [
         { dest: `${root}a:b.jpg`, action: "refuse" },
-        {
-          dest: `${root}b.jpg`,
-          action: "fetch",
-          hash: "h1",
-          mtime: "2026-01-01T00:00Z",
-        },
+        writeOf(`${root}b.jpg`),
       ]);
     }
   });
@@ -366,26 +310,6 @@ describe("planRestore", () => {
     const plan = planRestore(named, ["/a:b.jpg"], destFor, {
       exists: () => false,
     });
-    assert.equal(plan[0]?.action, "fetch");
-  });
-
-  it("different hashes never dedupe against each other", () => {
-    const plan = planRestore(entries, ["/a.jpg", "/c.jpg"], destFor, {
-      exists: () => false,
-    });
-    assert.deepEqual(plan, [
-      {
-        dest: "/a.jpg",
-        action: "fetch",
-        hash: "h1",
-        mtime: "2026-01-01T00:00Z",
-      },
-      {
-        dest: "/c.jpg",
-        action: "fetch",
-        hash: "h2",
-        mtime: "2026-01-02T00:00Z",
-      },
-    ]);
+    assert.deepEqual(plan, [writeOf("/a:b.jpg")]);
   });
 });

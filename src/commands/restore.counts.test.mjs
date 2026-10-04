@@ -9,7 +9,7 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 // behaviour is unit-tested in lib/restore.test.mjs. Faking it is what keeps a
 // four-figure plan free of four-figure disk writes: every step is a `skip`, so
 // the loop does nothing but count. Argument validation lives in
-// restore.test.mjs, the missing-object degrade in restore.missing-object.test.mjs.
+// restore.test.mjs, the downloads and their failures in restore.downloads.test.mjs.
 // Module-mock ordering (objects.test.mjs) applies: mocks first, then a dynamic
 // import of the command.
 
@@ -39,11 +39,7 @@ mock.module("../lib/restore.mjs", {
     reroot: () => (/** @type {string} */ path) => path,
     // A plan of pure skips: the command's loop counts them and touches nothing.
     planRestore: (/** @type {Map<string, unknown>} */ entries) =>
-      [...entries.keys()].map((dest) => ({
-        action: "skip",
-        dest,
-        hash: "aaa",
-      })),
+      [...entries.keys()].map((dest) => ({ action: "skip", dest })),
   },
 });
 mock.module("../lib/progress.mjs", {
