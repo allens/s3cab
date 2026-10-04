@@ -26,6 +26,7 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
 
 /**
  * @import { BackupSet } from "./sets.mjs"
+ * @import { CompareError } from "./compare.mjs"
  * @import { HashProgress, HashSource } from "./file-props.mjs"
  * @import { RowTransform, SnapshotEntries, SnapshotErrors } from "./snapshot-file.mjs"
  * @import { Sending, TransferState } from "./upload.mjs"
@@ -196,7 +197,7 @@ export async function readBaseline(set, { command, rehash, resume }) {
  * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
  * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`): its unsupported types
- * @property {number} errors - Files it couldn't hash (`#ERROR`)
+ * @property {CompareError[]} errors - Files it couldn't hash (`#ERROR`), with the reason each row records
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
 
@@ -325,10 +326,11 @@ export async function generateSnapshot(
   // produces, silently, on a set nobody has touched.
   let hashedFiles = 0;
   let hashedBytes = 0;
-  // Files the pass couldn't hash. Counted at the one place that learns of them —
-  // `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
-  // the tally cannot drift from the rows actually written.
-  let errored = 0;
+  // Files the pass couldn't hash. Collected at the one place that learns of them
+  // — `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
+  // the list cannot drift from the rows actually written.
+  /** @type {CompareError[]} */
+  const errored = [];
   let bytesTotal = 0;
   for (const file of files) {
     bytesTotal += sizes?.get(file)?.size ?? 0;
@@ -375,7 +377,9 @@ export async function generateSnapshot(
         }
         return props;
       } catch (error) {
-        errored++;
+        // The same text the `#ERROR` row records (see `propsRows`).
+        const reason = Error.isError(error) ? error.message : String(error);
+        errored.push({ path: file, reason });
         throw error;
       } finally {
         hashing = null;

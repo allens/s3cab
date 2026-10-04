@@ -131,11 +131,11 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
         faithful++;
       }
     }
-    const accounted = faithful + result.errors + result.skipped;
+    const accounted = faithful + result.errors.length + result.skipped;
     assert.ok(
       accounted >= hostileOnDisk.size,
       `every file must be restored or counted: ${faithful} faithful + ` +
-        `${result.errors} errors + ${result.skipped} skipped < ${hostileOnDisk.size} files`,
+        `${result.errors.length} errors + ${result.skipped} skipped < ${hostileOnDisk.size} files`,
     );
     // And the ordinary neighbour must never be collateral damage.
     assert.equal(restored.get("data/normal.txt")?.toString(), "plain");
@@ -175,7 +175,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
       assert.equal(buried.toString(), "deep content");
     } else {
       assert.ok(
-        result.errors + result.skipped > 0 || process.exitCode !== 0,
+        result.errors.length + result.skipped > 0 || process.exitCode !== 0,
         "deep file neither restored nor accounted for",
       );
     }
@@ -281,7 +281,7 @@ describe("hostile trees: contents and timestamps", () => {
       sha256(/** @type {Buffer} */ (restored.get("data/big.bin"))),
       sha256(big),
     );
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
   });
 
   it("round-trips implausible timestamps without mangling content", async () => {
@@ -300,7 +300,7 @@ describe("hostile trees: contents and timestamps", () => {
       restored.get("data/future.txt")?.toString(),
       "written tomorrow",
     );
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
   });
 });
 
@@ -395,7 +395,8 @@ describe("hostile trees: files changing mid-run", () => {
     process.exitCode = 0;
     const result = await backup("hostile");
 
-    assert.equal(result.errors, 1, "the vanished file must be counted");
+    assert.equal(result.errors.length, 1, "the vanished file must be counted");
+    assert.match(result.errors[0]?.path ?? "", /zzz-vanishes\.txt$/);
     // The machine-readable half must not lie: a backup that omitted files sets
     // a nonzero exit code (guide/output.md — scripts branch on it), while the
     // snapshot still publishes honestly with its #ERROR row.

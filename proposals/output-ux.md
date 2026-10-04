@@ -15,12 +15,6 @@ niceties.
   working rule #3. **Reopen only if the registry grows past what's worth printing**, which is the
   condition that made it pay for git. The entry's other half — `help <unknown-topic>` falling
   silently through to the command list on stdout under exit 0 — was the real defect and is fixed.
-- **The run report's `Couldn't be backed up: 1 error` doesn't name the file, and the line under
-  it reads as the fix** (user, 2026-10-04, from a real OneDrive run; fast-follow, to be sorted
-  the same day). `renderBackup` in `src/render.mjs` prints the count, then the
-  `s3cab compare <set> --since … --until …` command indented beneath it, so the command reads as
-  the remedy for the error rather than as "see what changed". ADR-0078 §2 settled "count + command"
-  deliberately, so this probably amends it.
 - **Retire `helpTopics` — it is down to one member** (user, 2026-08-07, noticing the topics path
   still existed at all: *"I thought that was all rolled into command help."*). The consolidation
   did happen — [ADR-0041](../docs/adr/0041-auth-command-hosts-credential-guide.md) folded the

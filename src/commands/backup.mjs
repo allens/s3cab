@@ -11,7 +11,7 @@ import {
   uploadSnapshotFile,
 } from "../lib/upload.mjs";
 
-/** @import { CompareResult } from "../lib/compare.mjs" */
+/** @import { CompareError, CompareResult } from "../lib/compare.mjs" */
 
 /**
  * Back up a set to the cloud (docs/design/backup.md) — snapshot and upload in
@@ -48,8 +48,10 @@ import {
  * everything and uploads nothing, so an object count alone answers a question
  * nobody asked. `backup` states in full only what only `backup` knows (bytes,
  * timings, transfers), and hands the detail to `compare`: everything the
- * *snapshot* holds is a count plus a copy-pasteable command. Every figure lands
- * here rather than in the renderer, so `--json` gains it deliberately.
+ * *snapshot* holds is a count plus a copy-pasteable command — except the files
+ * that failed, which the report names because they are what to act on. Every
+ * figure lands here rather than in the renderer, so `--json` gains it
+ * deliberately.
  *
  * @typedef {Object} BackupResult
  * @property {string} set - The set backed up
@@ -65,7 +67,7 @@ import {
  * @property {number} uploadedBytes - Bytes those transfers moved
  * @property {number} uploadMs - Milliseconds spent sending them
  * @property {number} skipped - Entries the walk left out by design (a symlink, a socket)
- * @property {number} errors - Files that couldn't be read to be backed up
+ * @property {CompareError[]} errors - Files that couldn't be read to be backed up, each with the OS's reason
  * @property {CompareResult | null} comparison - What changed since the baseline; `null` on a first backup, which runs no comparison at all (ADR-0078 §7)
  *
  * With no update mode ([ADR-0052](../../docs/adr/0052-retire-setup-update-mode.md)),
@@ -183,7 +185,7 @@ export async function backup(setName, options = {}) {
   // and `restore`: set `process.exitCode` rather than throw, so the publish
   // above stands and the run report still prints. Skips stay exit 0 — they are
   // a *choice* (an unsupported type), not a fault.
-  if (pass.errors > 0) {
+  if (pass.errors.length > 0) {
     process.exitCode = 1;
   }
 

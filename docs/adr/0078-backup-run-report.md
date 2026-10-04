@@ -53,6 +53,14 @@ detail to `compare`.**
    it; the command is what makes recovery work, because bare `compare` stops meaning "that run"
    as soon as another backup lands.
 
+   **Bar one category: the files that failed are named**, each with the operating system's reason
+   minus the path it repeats. They are the one thing in the report there is something to *do*
+   about — a count alone sends the user to `compare` to find out which file is locked. The list
+   stops at ten, then `and N more`: the one place a renderer truncates, against
+   [0043](0043-human-first-output.md) §4, because the rest is a free local command away and that
+   command is then always printed. A list that long is nearly always one unreadable folder, which
+   its first lines show as well as all of them would.
+
 3. **`compare` gains skipped items, listed in full, not diffed.** Full listing is what lets a
    user answer "what *was* that symlink?" on any run, not just the one where it first appeared.
    Recurring noise is then a signal to add an exclude pattern — the design working, not a cost.
@@ -64,16 +72,40 @@ detail to `compare`.**
    Backed up 'onedrive' → snapshot 2026-08-08T0206
    Scanned 265,716 files (1.8TB) in 9m 12s — 1,204 needed re-hashing (12.4GB)
    Uploaded 426 objects (14.9GB) in 2m 12s
-   Changes since 2026-08-01T0846: 425 added, 1 modified, 0 deleted, 0 moved
-   Couldn't be backed up: 1 skipped, 1 error
+
+   Changes since 2026-08-01T0846:
+     Added     425
+     Modified    1
+     Deleted     0
+     Moved       0
+
+   Couldn't be backed up:
+     Skipped     1
+     Errors      1
+       D:\OneDrive\Outlook\archive.pst  (EBUSY: resource busy or locked)
+
+   To try again:
+     s3cab backup onedrive
+
+   To see the details:
      s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
    ```
 
-   `Changes since` names the baseline: "425 added" is meaningless without *since when*. `moved`
-   is included so a large reorganisation doesn't read as "nothing happened" beside
-   `uploaded 0 objects`. The heading is **`Couldn't`**, not "Not backed up" — excluded files are
-   also not backed up, in their thousands, and the distinction that matters is *didn't choose to*
-   versus *couldn't*.
+   `Changes since` names the baseline: "425 added" is meaningless without *since when*. `Moved`
+   is a row so a large reorganisation doesn't read as "nothing happened" beside
+   `uploaded 0 objects`. Zeros stay in the changes block, which is one fixed shape; it collapses
+   to `No changes since <baseline>.` only when all four are zero. The `Couldn't` block appears
+   only when something is in it, and it is a separate block because a symlink skipped on every
+   run since March is not news about this one. The heading is **`Couldn't`**, not "Not backed
+   up" — excluded files are also not backed up, in their thousands, and the distinction that
+   matters is *didn't choose to* versus *couldn't*.
+
+   **Each command sits under a lead-in saying what it is for** (the
+   [0030](0030-error-message-guidelines.md) house shape), because a command indented straight
+   under a failure reads as that failure's fix. Skips and errors stay apart because only errors
+   are fixed by trying again — and only errors make the run exit 1. `To try again:` prints
+   whenever a file failed. `To see the details:` prints when the command has something the report
+   didn't show: a change, a skip, or failed files past the tenth.
 
    Two details settled while building. The verb is **`Scanned`**, not "Hashed": the figure is
    every walked file's bytes, and on a routine run most of those hashes were *reused* from the
@@ -82,8 +114,10 @@ detail to `compare`.**
    defaults to the only set, which is not the machine this design is written for.
 
 5. **Interactive runs are offered the detail; the pointer prints either way.** A
-   `Show what changed? [y/N]` prompt via the existing `promptYesNo` (default **No** — the shared
+   `Compare now? [y/N]` prompt via the existing `promptYesNo` (default **No** — the shared
    helper's invariant serves `forget`/`cleanup` and is not worth a variant to save one keystroke).
+   It is the `To see the details:` command run on the spot, so it is asked exactly when that
+   command prints, and worded to point at it.
    A yes renders the **already-in-memory** `CompareResult` through `renderCompareResult` — the same
    renderer `compare` uses — to **stdout**, since output the user asked for is output
    ([0010](0010-cli-output-conventions.md)).
@@ -98,7 +132,7 @@ detail to `compare`.**
    expensive (every file is an `AddedEntry`) and least informative. The count that illustration
    originally carried is already on the line above it, so the line says the one thing that line
    cannot. The `Couldn't be backed up` block still prints — it matters *more* on a first run — and
-   takes the command with it, naming the one snapshot there is (`--until <name>`).
+   a `To see the details:` command under it names the one snapshot there is (`--until <name>`).
 
 8. **One computation, not two.** The counts come from `compareSnapshots` re-reading the snapshot
    just written, with the baseline handed in pre-parsed from memory (it already accepts that
@@ -125,7 +159,8 @@ detail to `compare`.**
    every mtime looks exactly like that, and is otherwise invisible).
 
 10. **All of it lands in `BackupResult`**, so `--json` gains the counts and times deliberately
-    rather than by accident. A renderer that computes its own facts is what
+    rather than by accident — and the failed files as `errors: {path, reason}[]`, the reason
+    unstripped, as the `#ERROR` row records it. A renderer that computes its own facts is what
     [0043](0043-human-first-output.md) exists to prevent.
 
 11. **The preamble names the destination bucket**, on a second line. Today the bucket is named

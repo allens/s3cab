@@ -157,7 +157,10 @@ beforeEach(() => {
     hashedFiles: 12,
     hashedBytes: 300_000,
     skipped: 1,
-    errors: 2,
+    errors: [
+      { path: "/p/a.pst", reason: "EBUSY: resource busy or locked" },
+      { path: "/p/b.key", reason: "EACCES: permission denied" },
+    ],
     elapsedMs: 9_000,
   };
   outcome = {
@@ -238,7 +241,7 @@ describe("backup (the fused pass)", () => {
       uploadedBytes: 1_500_000,
       uploadMs: 2_000,
       skipped: 1,
-      errors: 2,
+      errors: pass.errors,
       comparison,
     });
   });
@@ -252,7 +255,7 @@ describe("backup (the fused pass)", () => {
   });
 
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {
-    // The fixture pass carries `errors: 2` (#ERROR rows). The snapshot still
+    // The fixture pass carries two errors (#ERROR rows). The snapshot still
     // publishes — everything it lists is stored — but a scheduled backup runs
     // on the exit code alone (guide/output.md), so it must go nonzero. Set via
     // process.exitCode, not a throw, so the run report still prints.
@@ -262,7 +265,7 @@ describe("backup (the fused pass)", () => {
   });
 
   it("leaves the exit code alone when every file was read", async () => {
-    pass.errors = 0;
+    pass.errors = [];
     process.exitCode = 0;
     await backup("photos");
     assert.equal(process.exitCode, 0);
@@ -273,13 +276,12 @@ describe("backup (the fused pass)", () => {
     // are facts about the snapshot just written, and a first backup — which runs
     // no diff at all — still has to report them.
     pass.skipped = 7;
-    pass.errors = 4;
     comparison = { since: "x", until: "y", skipped: [], errors: [] };
 
     const result = await backup("photos");
 
     assert.equal(result.skipped, 7);
-    assert.equal(result.errors, 4);
+    assert.deepEqual(result.errors, pass.errors);
   });
 
   it("diffs against the baseline it already parsed, never a second read of it", async () => {
