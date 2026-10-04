@@ -26,7 +26,10 @@ docs under `docs/design/` — read those for the _why_. This file is the short b
 3. **House style** (see CLAUDE.md): Node built-ins over dependencies — the AWS SDK is the
    _only_ sanctioned runtime dep, and tests use `node:test`, never Jest/Vitest; small,
    low-surface-area code; no speculative structure ("build the small thing the current need
-   justifies"); don't bury `await` inside a larger statement.
+   justifies"); don't bury `await` in a larger expression. Flag member/index access on an
+   awaited result (`(await read(…)).entries`) and an `await` inside a compound
+   `if`/`while`/`&&`/`||` condition — but **not** an `await` in a ternary branch, in
+   destructuring, or as a call argument; those are accepted style here.
 
 4. **Docs honesty** — README/CLAUDE.md claims must match the code, and must distinguish what
    is built today from what is planned.

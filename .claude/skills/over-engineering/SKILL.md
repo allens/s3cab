@@ -377,8 +377,6 @@ precisely the thing a cold reader re-proposes.
 
 ## Relationship to `/improve-codebase-architecture`
 
-> *Assistant-proposed framing — not part of the original brief.*
-
 That skill and this one are **antagonists, by design.** Its stated epic is to turn
 shallow modules into deep ones — more behaviour behind a smaller interface — so it
 *creates* seams. This one *destroys* seams that do not pay for themselves. Each is
@@ -392,11 +390,10 @@ split looking for a reason.
 
 ## Not built, on purpose
 
-- **No run log, and no durable findings file.** The first run settled this: what
-  needs to outlive a report is not the findings but the *rejections*, and those now
-  go in the code (see *Where a rejection goes*). Findings that land need no memory
-  at all — implementing one removes the complexity, so a cold read cannot re-find
-  it. That self-correction is why the reports can stay disposable, and why the
-  large memory apparatus this section once anticipated was never justified.
+- **No run log, and no durable findings file.** What needs to outlive a report is
+  not the findings but the *rejections*, and those go in the code (see *Where a
+  rejection goes*). Findings that land need no memory at all — implementing one
+  removes the complexity, so a cold read cannot re-find it, which is why the
+  reports can stay disposable.
 - **No hard-coded baseline numbers** — the stage-1 queries are carried instead, so
   the skill cannot rot as the codebase moves.
