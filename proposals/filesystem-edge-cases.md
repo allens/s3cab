@@ -8,7 +8,7 @@ a subtree is descended, skipped or read. Distinct from
 
 The entry below was measured on 2026-08-11 against a real OneDrive install (`D:\OneDrive`, vault
 unlocked for the test). It came out of the same investigation as the online-only-files problem —
-now built and settled in [ADR-0081](../docs/adr/0081-online-only-files-skipped.md) — but is
+now settled in [ADR-0095](../docs/adr/0095-online-only-files-read-like-any-other.md) — but is
 independent of it: different mechanism, different code, different fix.
 
 - **An unlocked OneDrive Personal Vault is skipped — correctly, but by coincidence.** Confirmed
@@ -62,19 +62,3 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
-- **Remove the online-only handling (ADR-0081): read a placeholder like any other file.**
-  Decided 2026-10-04, to follow the change-time opt-in
-  ([ADR-0094](../docs/adr/0094-change-time-check-opt-in.md)) as its own PR. The stance, in the
-  user's words: *"fundamentally s3cab is for backing up local files. i just want it to work
-  nicely with onedrive. so that means 'all files locally' or at least you're doing it on a
-  machine with enough breathing room for work with online-only files."* A file that reaches the
-  hash is new or edited, so it is usually local already; when it isn't, downloading it is the
-  right thing (it can be made online-only again afterwards), and a `#SKIPPED` row is the wrong
-  one. Goes: `hasNoBytesOnDisk`, `RESIDENT_CEILING`, `DETECT_ONLINE_ONLY`, `OnlineOnlyFileError`,
-  `--include-online-only` on `snapshot` and `backup`, `warnAboutOnlineOnly`, the
-  `Online-Only File` skip type, the placeholder clause in `trustMatch`, and the
-  check-after-reuse ordering rule in `fileProps`. Without the exemption, a dehydrated file is
-  re-read (so downloaded) only on a set that opted in to the change-time check, which the guide
-  already says not to do on a synced folder. ADR-0081 then needs a superseding ADR, and the
-  user docs lose guide/compare.md's online-only section, format.md's link to it and
-  guide/backup.md's `--rehash` caveat.

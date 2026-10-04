@@ -104,11 +104,6 @@ export const commands = {
         description:
           "Carry on from the work file a killed run left behind, reusing the hashes it had already worked out",
       },
-      "include-online-only": {
-        type: "boolean",
-        description:
-          "Download files stored online (OneDrive and the like) so they can be hashed, instead of skipping them",
-      },
     },
     exec: (options, [set] = []) => snapshot(set, options),
     render: renderCompareResult,
@@ -392,11 +387,6 @@ export const commands = {
         type: "boolean",
         description:
           "Carry on from the work file a killed run left behind, reusing the hashes it had already worked out",
-      },
-      "include-online-only": {
-        type: "boolean",
-        description:
-          "Download files stored online (OneDrive and the like) so they can be backed up, instead of skipping them",
       },
     },
     exec: (options, [set] = []) => backup(set, options),

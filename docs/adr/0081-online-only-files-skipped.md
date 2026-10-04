@@ -1,9 +1,9 @@
 # Online-only files are skipped, not downloaded
 
-**Status:** accepted — designed and implemented 2026-08-11. Applies
-[0030](0030-error-message-guidelines.md)'s wording rules and [0012](0012-consumer-vocabulary-naming.md)'s
-naming rule; routes through the skip channel [0078](0078-backup-run-report.md) gave a voice to, and
-rides inside [0069](0069-fused-snapshot-upload-pipeline.md)'s fused pass without changing its shape.
+**Status:** superseded by [0095](0095-online-only-files-read-like-any-other.md) (2026-10-04).
+A placeholder is now read, and so downloaded, like any other file; none of the mechanism below
+remains in the code. Its measurements stand: the mtime stability across hydration that 0095
+leans on, and the NTFS, ext4 and APFS `blocks` findings, should detection ever be proposed again.
 
 ## Context
 

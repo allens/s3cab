@@ -5,7 +5,8 @@
 Amendment 1 — and [0082](0082-snapshot-end-trailer.md)'s Amendment 1 use of the `#END` instant as
 that check's boundary (the instant itself stays). Retires
 [0092](0092-recover-the-interrupted-work-file.md)'s mtime stand-in boundary for a recovered work
-file.
+file. Its keeping of the placeholder exemption is superseded by
+[0095](0095-online-only-files-read-like-any-other.md), which removes it.
 
 ## Context
 
@@ -49,7 +50,8 @@ but neither has to coexist with a Windows sync client.
    of how long a run took.
 
 The dehydrated-placeholder exemption in `trustMatch` is untouched: it belongs to
-[0081](0081-online-only-files-skipped.md), whose removal is a separate decision.
+[0081](0081-online-only-files-skipped.md), whose removal is a separate decision (since taken:
+[0095](0095-online-only-files-read-like-any-other.md)).
 
 ## Consequences
 
