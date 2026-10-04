@@ -150,7 +150,7 @@ describe("backup's run report (real engine)", () => {
     assert.equal(result.uploaded, 2);
     assert.equal(result.uploadedBytes, 10);
     assert.equal(result.skipped, 0);
-    assert.equal(result.errors, 0);
+    assert.deepEqual(result.errors, []);
     // Nothing to reuse on a first backup, so every file was really read.
     assert.equal(result.hashedFiles, 3);
     assert.equal(result.hashedBytes, 15);

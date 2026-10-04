@@ -70,7 +70,7 @@ describe("conformance: backup/restore round-trip on real S3", () => {
 
       process.exitCode = 0;
       const result = await backup("conf");
-      assert.equal(result.errors, 0);
+      assert.deepEqual(result.errors, []);
       assert.equal(process.exitCode, 0);
       assert.equal(result.uploaded, 4);
 
@@ -131,13 +131,13 @@ describe("conformance: backup/restore round-trip on real S3", () => {
       writeSet("conf", { dirs: [data], bucket });
 
       const first = await backup("conf");
-      assert.equal(first.errors, 0);
+      assert.deepEqual(first.errors, []);
       const firstTree = captureTree([data]);
 
       writeFileSync(join(data, "mutating.txt"), "second version");
       await nextMinute();
       const second = await backup("conf");
-      assert.equal(second.errors, 0);
+      assert.deepEqual(second.errors, []);
       assert.equal(
         second.uploaded,
         1,
