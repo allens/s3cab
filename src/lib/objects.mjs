@@ -154,6 +154,10 @@ export async function storedObjectSizes(bucket, hashes) {
   const queue = (function* () {
     yield* hashes;
   })();
+  // Not `Readable.map(…, { concurrency })`: it returns results in input order
+  // and starts none while `highWaterMark` of them (99 at 50) wait behind one
+  // stalled HEAD, and despite its docs the signal it gives the mapper isn't
+  // aborted when another call fails (measured on Node 26).
   await Promise.all(
     Array.from({ length: HEAD_CONCURRENCY }, async () => {
       for (const hash of queue) {
