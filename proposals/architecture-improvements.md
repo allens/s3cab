@@ -215,6 +215,35 @@ and verifies with `npm test` alone.
   2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
 - **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
   2026-10-05 as [PR #369](https://github.com/allens/s3cab/pull/369). See the run log._
+- **Y — Both removers delete one object at a time, the shape C's branch just fixed for the HEADs.**
+  _Worth exploring — surfaced 2026-10-05 by C's review
+  ([PR #370](https://github.com/allens/s3cab/pull/370)), not by a pass._ `deleteHashes` in
+  [commands/delete.mjs](../src/commands/delete.mjs) (after the deletion record is written) and
+  `cleanup` in [commands/cleanup.mjs](../src/commands/cleanup.mjs) (over `orphanHashes`) each loop
+  `await deleteStoredObject(bucket, hash)`. This hurts the many-small-files population: deleting a
+  photo folder, or running `cleanup` after a `forget`, means thousands of round trips back to back.
+  For 10,000 objects that is about 5 minutes at a 30ms round trip and about 97 at 580ms. The HEADs
+  `storedObjectSizes` makes for the same 10,000 take about 8 seconds and 2 minutes, at 50 in flight
+  (measured with [scripts/head-concurrency-bench.mjs](../scripts/head-concurrency-bench.mjs)). **The
+  DELETE figures are extrapolated from that HEAD bench, not measured**; it would need a DELETE mode
+  to confirm that 50 still holds. ADR-0069's non-goal is cross-object *upload* concurrency and
+  doesn't reach the removers, but its bar (measured, not assumed) applies here too.
+  **Shape:** a `deleteStoredObjects(bucket, hashes)` beside `storedObjectSizes` in
+  [lib/objects.mjs](../src/lib/objects.mjs), with the same contract: at most 50 in flight, and the
+  first failure rejects the call with no more started. Both commands call it, and the singular
+  `deleteStoredObject` loses its last production caller. Two users of the generator pool in one
+  module are the second case that earns a module-private pool helper (CLAUDE.md, working convention
+  3). `HEAD_CONCURRENCY` is then misnamed, since 50 is the SDK's socket pool rather than a fact
+  about HEADs. **The record-first rule is not at risk:** it orders the record before *any* delete
+  ([docs/design/repository-protocol.md](../docs/design/repository-protocol.md), `delete` step 4),
+  and nothing orders the deletes among themselves. A crash part-way still leaves an over-complete
+  record, and `cleanup` still compacts records only after its deletes.
+  **Not S3's DeleteObjects first** (1,000 keys per request). It answers 200 with per-key `Errors`,
+  so success has to be read key by key. It is also an operation that *requires* a checksum, so
+  `client()`'s required-only gate for custom endpoints
+  ([s3-provider-compatibility.md](../docs/design/s3-provider-compatibility.md), item 4) doesn't
+  remove it. Whether R2, B2 and Wasabi accept the SDK's CRC32 there in place of Content-MD5 is
+  unverified. The pool runs on every provider that already runs `delete`.
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
 **L — Three spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
