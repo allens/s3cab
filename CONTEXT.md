@@ -81,8 +81,9 @@ paths, since the reader meeting the absence is already holding a snapshot
 ([ADR-0090](docs/adr/0090-deletion-record-format-compaction.md), format spec). It is what
 lets the tooling tell *deliberately gone* from *corrupted*: `verify` reports a recorded hash
 as **expected-missing** (context, exit 0) rather than damage, `restore` skips it gracefully
-with its date, and `backup`/`cleanup` subtract recorded hashes from their baselines and
-interlocks. Never overwritten; **cleanup** compacts the files into one and trims rows no
+with its date, `backup`/`cleanup` subtract recorded hashes from their baselines and
+interlocks, and `forget`'s preview leaves out recorded content no longer stored. Never
+overwritten; **cleanup** compacts the files into one and trims rows no
 snapshot references.
 _Avoid_: tombstone (jargon), audit log (it deliberately isn't one), manifest.
 

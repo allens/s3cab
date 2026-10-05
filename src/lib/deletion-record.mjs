@@ -183,8 +183,8 @@ export async function writeDeletionRecord(bucket, content) {
 /**
  * Read every deletion record in the bucket into one hash lookup — the
  * repository's complete "deliberately gone" set, for `verify`'s
- * expected/unexplained partition, `restore`'s graceful skip, and the
- * `backup`/`cleanup` subtractions. A repository that never ran `delete` (the
+ * expected/unexplained partition, `restore`'s graceful skip, the
+ * `backup`/`cleanup` subtractions, and `forget`'s preview. A repository that never ran `delete` (the
  * common case) costs one LIST returning nothing. A hash recorded twice
  * (re-deleted after a re-backup) keeps the newest row's instant — compared on
  * the rows themselves, since a compacted file holds rows from many runs.

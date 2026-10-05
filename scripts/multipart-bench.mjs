@@ -41,13 +41,7 @@
  *
  * ## Method
  *
- * Network throughput drifts minute to minute, enough to swamp the differences
- * being measured. So it interleaves — one sample of every config per round, the
- * order reshuffled each round — and reports the MEDIAN plus min–max spread,
- * never a best-of-N (which just rewards whichever config ran in the quietest
- * window). A gap between two medians means something only if it clears the
- * spread.
- *
+ * Sampling (interleaved rounds, median and spread) is bench-sampling.mjs's.
  * Run it from hosts at different distances against the SAME bucket to watch the
  * optimum move; ADR-0060 records three such runs.
  *
@@ -80,6 +74,7 @@ import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatByteValue } from "../src/lib/format.mjs";
+import { median, numList, positive, shuffle } from "./bench-sampling.mjs";
 import { writeRandomFile } from "./dd.mjs";
 
 const MB = 1024 * 1024;
@@ -95,34 +90,6 @@ if (!bucket) {
 
 const region =
   process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1";
-
-/**
- * Every tunable is a positive count or size, so anything else is a typo, not a
- * setting. Rejected loudly at parse time because the failure is otherwise
- * silent-but-plausible: a NaN `reps` runs zero rounds and then reports median 0
- * with an Infinity–-Infinity spread, which reads as a result rather than a
- * mistake.
- * @param {string} name - The env var, so the error names what to fix.
- * @param {number} value
- * @returns {number}
- */
-function positive(name, value) {
-  if (!Number.isFinite(value) || value <= 0) {
-    console.error(`${name}: expected a positive number (got "${value}")`);
-    process.exit(2);
-  }
-  return value;
-}
-
-/**
- * Parse a comma-separated number list env var, or fall back.
- * @param {string} name
- * @param {string | undefined} raw
- * @param {number[]} fallback
- * @returns {number[]}
- */
-const numList = (name, raw, fallback) =>
-  raw ? raw.split(",").map((n) => positive(name, Number(n.trim()))) : fallback;
 
 const sizesMb = numList(
   "S3CAB_BENCH_SIZE_MB",
@@ -176,31 +143,6 @@ async function timeUpload(path, size, partSize, queueSize) {
 
 /** @param {number} bytesPerSec */
 const rate = (bytesPerSec) => `${formatByteValue(bytesPerSec)}/s`;
-
-/**
- * Median of a sample list, the robust summary this reports instead of a
- * best-of-N. Returns 0 for an empty list (never happens — every config is
- * sampled `reps` times — but keeps the caller total).
- * @param {number[]} xs
- * @returns {number}
- */
-function median(xs) {
-  const s = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  if (s.length % 2 === 1) {
-    return s[mid] ?? 0;
-  }
-  return ((s[mid - 1] ?? 0) + (s[mid] ?? 0)) / 2;
-}
-
-/** Fisher–Yates shuffle in place, so each round visits configs in a fresh order. */
-const shuffle = (/** @type {any[]} */ xs) => {
-  for (let i = xs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [xs[i], xs[j]] = [xs[j], xs[i]];
-  }
-  return xs;
-};
 
 /**
  * The partSize × queueSize grid for one payload, reduced to the executions that
