@@ -348,7 +348,7 @@ export async function withSnapshotFile(
     // earlier work. This snapshot re-records every hash the parked file held, so
     // landing it is what makes the parked copy redundant. Best-effort — the
     // snapshot is already installed, and a leftover parked file starts before
-    // it, which is how `readBaseline` knows to ignore it.
+    // it, which is how `readParkedLookup` knows to ignore it.
     await unlink(parkedPath).catch(() => {});
     return snapshotPath;
   } catch (error) {
@@ -375,9 +375,8 @@ export async function withSnapshotFile(
  * against the set: a path whose size and mtime still match is the same file
  * whichever set recorded it, so the check would reject nothing that could do harm.
  * `instant` — when the stopped run started — comes back too: `readBaseline`
- * ignores a parked file older than the previous snapshot, and uses it as the
- * change-time check's boundary for a set with no previous snapshot to take one
- * from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
+ * uses it as the change-time check's boundary for a set with no previous
+ * snapshot to take one from ([ADR-0094](../../docs/adr/0094-change-time-check-opt-in.md)).
  * Read **tolerantly** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)),
  * which a snapshot never is: a file parked by {@link recoverWorkFile} is a work
  * file its run never closed, so it has no `#END` and its last row is torn. Always
@@ -386,9 +385,10 @@ export async function withSnapshotFile(
  * recovered?" branch to get wrong. A recovered file still has its `#SNAPSHOT`
  * header, the first line its run wrote, so `instant` is there either way.
  * @param {string} snapshotDir - The set's snapshots dir (`~/.s3cab/sets/<set>/snapshots/`)
+ * @param {string} [notBefore] - When the previous snapshot started; a parked file whose run started earlier is ignored
  * @returns {Promise<{ entries: SnapshotEntries, instant?: string } | undefined>} The parked entries and when the stopped run started, or undefined when none are parked
  */
-export async function readParkedLookup(snapshotDir) {
+export async function readParkedLookup(snapshotDir, notBefore) {
   const path = parkedLookupPath(snapshotDir);
   if (!existsSync(path)) {
     return undefined;
@@ -397,6 +397,13 @@ export async function readParkedLookup(snapshotDir) {
     createReadStream(path),
     { tolerant: true },
   );
+  // A leftover a landed snapshot's best-effort delete missed: that snapshot
+  // re-recorded every row, and laid on top, these older hashes would undo a
+  // `--rehash` that corrected one. Not deleted here: this runs before the lock,
+  // so a run parking right now could have replaced it. The next landing does.
+  if (instant && notBefore && Date.parse(instant) < Date.parse(notBefore)) {
+    return undefined;
+  }
   return { entries, instant };
 }
 
