@@ -1074,9 +1074,52 @@ describe("withSnapshotFile (park on interrupt)", () => {
 });
 
 describe("readParkedLookup", () => {
+  const parkedPath = (/** @type {string} */ dir) =>
+    resolve(dir, ".snapshot.lookup.tsv.zst");
+
+  /**
+   * Park one row as a run that started at `instant` and was stopped with
+   * Ctrl+C leaves it.
+   * @param {string} dir
+   * @param {string} instant
+   */
+  const parkRunStartedAt = (dir, instant) => {
+    const text = [
+      `#SNAPSHOT\tphotos\t${instant}\t2026-06-12T0915 Europe/London`,
+      `${hashA}\t1\t2026-06-01T12:00:00.000Z\t${resolve(dir, "a.txt")}`,
+      "#END\tPARTIAL\t2026-06-12T08:20:44.500Z\t",
+    ].join("\n");
+    writeFileSync(parkedPath(dir), zstdCompressSync(Buffer.from(text, "utf8")));
+  };
+
   it("returns undefined when nothing is parked (the ordinary case)", async () => {
     await using dir = await mkTmpDir();
     assert.equal(await readParkedLookup(dir.path), undefined);
+  });
+
+  it("ignores a file parked by a run that started before the previous snapshot", async () => {
+    await using dir = await mkTmpDir();
+    parkRunStartedAt(dir.path, "2026-06-12T08:15:32.123Z");
+
+    const parked = await readParkedLookup(dir.path, "2026-06-12T08:15:32.124Z");
+
+    assert.equal(parked, undefined);
+    assert.ok(
+      existsSync(parkedPath(dir.path)),
+      "an ignored file is left for the next landed snapshot to delete",
+    );
+  });
+
+  it("reads a file parked by a run that started after the previous snapshot", async () => {
+    await using dir = await mkTmpDir();
+    parkRunStartedAt(dir.path, "2026-06-12T08:15:32.123Z");
+
+    const parked = await readParkedLookup(dir.path, "2026-06-12T08:15:32.122Z");
+
+    assert.deepEqual(
+      [...(parked?.entries.keys() ?? [])],
+      [resolve(dir.path, "a.txt")],
+    );
   });
 });
 
