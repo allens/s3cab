@@ -146,17 +146,8 @@ export async function readBaseline(set, { command, rehash, resume }) {
     return { name, previous, previousErrors, instant };
   }
 
-  let parked = await readParkedLookup(snapshotDir);
-  // A parked file that started before the previous snapshot is one a later
-  // run's best-effort delete left behind: that run re-recorded every row, and
-  // laid on top, its older hashes would undo a `--rehash` that corrected one.
-  if (
-    parked?.instant &&
-    instant &&
-    Date.parse(parked.instant) < Date.parse(instant)
-  ) {
-    parked = undefined;
-  } else if (parked) {
+  const parked = await readParkedLookup(snapshotDir, instant);
+  if (parked) {
     console.warn("Reusing the hashes parked by an interrupted snapshot");
   }
 
