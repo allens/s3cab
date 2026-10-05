@@ -6,7 +6,7 @@ import {
 } from "../lib/deletion-record.mjs";
 import { isENOENT, requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue, localMoment } from "../lib/format.mjs";
-import { deleteStoredObject, storedObjectSize } from "../lib/objects.mjs";
+import { deleteStoredObject, storedObjectSizes } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
@@ -193,8 +193,8 @@ export async function deleteHashes(hashes = [], options = {}) {
   const found = [];
   /** @type {string[]} */
   const missing = [];
-  for (const hash of collected.hashes) {
-    const size = await storedObjectSize(bucket, hash);
+  const sizes = await storedObjectSizes(bucket, collected.hashes);
+  for (const [hash, size] of sizes) {
     if (size === undefined) {
       missing.push(hash);
     } else {

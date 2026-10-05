@@ -6,7 +6,7 @@ import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
 import { formatMoment, localMoment } from "../lib/format.mjs";
-import { storedObjectSize } from "../lib/objects.mjs";
+import { storedObjectSizes } from "../lib/objects.mjs";
 import {
   formatForcedReport,
   formatUnrestorableReport,
@@ -193,10 +193,12 @@ export async function forget(snapshots = [], options = {}) {
     // next backup, and the row stays — so only the recorded hashes this run would
     // orphan are HEADed, and only the absent ones are left out.
     const deleted = await readDeletionRecords(set.bucket);
+    const sizes = await storedObjectSizes(set.bucket, [
+      ...orphaned.intersection(deleted),
+    ]);
     /** @type {Set<string>} */
     const gone = new Set();
-    for (const hash of orphaned.intersection(deleted)) {
-      const size = await storedObjectSize(set.bucket, hash);
+    for (const [hash, size] of sizes) {
       if (size === undefined) {
         gone.add(hash);
       }

@@ -17,7 +17,7 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for `forget`: the S3 reads/writes (listRemoteSnapshots,
-// deleteRemoteSnapshot, referencedObjects, readDeletionRecords, storedObjectSize),
+// deleteRemoteSnapshot, referencedObjects, readDeletionRecords, storedObjectSizes),
 // the set resolver (loadSet), and the prompt are faked at the lib seam, and the
 // TTY gate is driven via process.stdin.isTTY — so the required-arg guards, the
 // existence check, the unrestorable check's wiring, the non-interactive `--force`
@@ -89,12 +89,14 @@ mock.module("../lib/deletion-record.mjs", {
 });
 mock.module("../lib/objects.mjs", {
   exports: {
-    storedObjectSize: async (
+    storedObjectSizes: async (
       /** @type {string} */ _bucket,
-      /** @type {string} */ hash,
+      /** @type {string[]} */ hashes,
     ) => {
-      headCalls.push(hash);
-      return stored.has(hash) ? 1 : undefined;
+      headCalls.push(...hashes);
+      return new Map(
+        hashes.map((hash) => [hash, stored.has(hash) ? 1 : undefined]),
+      );
     },
   },
 });

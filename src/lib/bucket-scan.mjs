@@ -35,7 +35,7 @@ import { referencedObjects } from "./remote.mjs";
 // which is the enforcement: the invariant is the function's body, not a
 // comment at each call site. `referencedObjects` stays exported from
 // remote.mjs for `forget`, which needs no objects LIST: it HEADs only the
-// few recorded hashes it would count as lost.
+// recorded hashes it would count as lost.
 
 /**
  * What a whole-bucket scan reads, in the order it read it. `stored` is

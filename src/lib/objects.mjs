@@ -124,20 +124,44 @@ export async function* listStoredObjects(bucket) {
   }
 }
 
+// Measured with scripts/head-concurrency-bench.mjs (2026-10-05, an eu-west-1
+// bucket, 640 HEADs) at round trips of 30ms, 55ms and 580ms: at all three the
+// speed-up tracks the number in flight up to 50 and stops there. The ceiling is
+// the SDK's default socket pool of 50 per client, not S3 or the link: past it
+// the extra requests only queue for a socket.
+const HEAD_CONCURRENCY = 50;
+
 /**
- * One stored object's size in bytes, or `undefined` if it isn't stored — the
- * per-hash HEAD behind `delete`'s preflight, which is how a hash the bucket
- * doesn't hold gets reported-and-skipped before anything is destroyed, and
- * where the deletion record's size column comes from. One HEAD per hash is the
- * honest cost of an exact preflight over a handful of named objects; a
- * whole-store LIST ({@link listStoredObjects}) wins only when the question is
- * about *every* object.
+ * Each stored object's size in bytes, or `undefined` where it isn't stored, keyed
+ * by hash in the order given — the HEADs behind `delete`'s preflight (how a hash
+ * the bucket doesn't hold gets reported-and-skipped before anything is destroyed,
+ * and where the deletion record's size column comes from) and `forget`'s
+ * preview. One HEAD per hash is the honest cost of an exact answer about named
+ * objects; a whole-store LIST ({@link listStoredObjects}) wins only when the
+ * question is about *every* object. The first HEAD to fail rejects the call, and
+ * no more are started.
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} hash - The object's SHA-256, its key under `objects/`
- * @returns {Promise<number | undefined>}
+ * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
+ * @returns {Promise<Map<string, number | undefined>>}
  */
-export function storedObjectSize(bucket, hash) {
-  return objectSize(objectUri(bucket, hash));
+export async function storedObjectSizes(bucket, hashes) {
+  /** @type {Map<string, number | undefined>} */
+  const sizes = new Map(hashes.map((hash) => [hash, undefined]));
+  // A generator, not `hashes.values()`: the worker whose HEAD throws closes it on
+  // the way out of its for-of, which stops the others taking more. An array
+  // iterator has no `return()`, so they would drain the rest, and a failed run
+  // would wait on every remaining HEAD before it could exit.
+  const queue = (function* () {
+    yield* hashes;
+  })();
+  await Promise.all(
+    Array.from({ length: HEAD_CONCURRENCY }, async () => {
+      for (const hash of queue) {
+        sizes.set(hash, await objectSize(objectUri(bucket, hash)));
+      }
+    }),
+  );
+  return sizes;
 }
 
 /**

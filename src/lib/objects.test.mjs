@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { setImmediate as tick } from "node:timers/promises";
 import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 
 /** @import { _Object } from "@aws-sdk/client-s3" */
@@ -29,8 +30,8 @@ let requestedUri;
 let download;
 /** @type {_Object[]} */
 let listedObjects = [];
-/** @type {number | undefined} */
-let headSize;
+/** @type {(uri: string) => Promise<number | undefined>} what each HEAD answers */
+let head = async () => undefined;
 mock.module("./atomic-file.mjs", {
   exports: {
     writeFileAtomic: async (
@@ -57,13 +58,10 @@ mock.module("./s3.mjs", {
         yield object;
       }
     },
-    objectSize: async (/** @type {string} */ uri) => {
-      requestedUri = uri;
-      return headSize;
-    },
+    objectSize: (/** @type {string} */ uri) => head(uri),
   }),
 });
-const { getObject, listObjectHashes, listStoredObjects, storedObjectSize } =
+const { getObject, listObjectHashes, listStoredObjects, storedObjectSizes } =
   await import("./objects.mjs");
 
 /** @type {NodeJS.ProcessEnv} */
@@ -146,15 +144,70 @@ describe("getObject", () => {
   });
 });
 
-describe("storedObjectSize", () => {
-  it("HEADs objects/<hash> and returns the size", async () => {
-    headSize = 42;
-    assert.equal(await storedObjectSize("my-bucket", "abc123"), 42);
-    assert.equal(requestedUri, "s3://my-bucket/objects/abc123");
+describe("storedObjectSizes", () => {
+  const hashes = (/** @type {number} */ n) =>
+    Array.from({ length: n }, (_, i) => `h${i}`);
+
+  it("HEADs each objects/<hash>, keyed in the order given whatever order they answer in", async () => {
+    // bbb isn't stored, and aaa answers last.
+    const sizes = new Map([
+      ["s3://my-bucket/objects/aaa", 42],
+      ["s3://my-bucket/objects/ccc", 7],
+    ]);
+    head = async (uri) => {
+      await tick();
+      if (uri.endsWith("/aaa")) {
+        await tick();
+      }
+      return sizes.get(uri);
+    };
+    const result = await storedObjectSizes("my-bucket", ["aaa", "bbb", "ccc"]);
+    assert.deepEqual(
+      [...result],
+      [
+        ["aaa", 42],
+        ["bbb", undefined],
+        ["ccc", 7],
+      ],
+    );
   });
 
-  it("returns undefined for a hash the bucket doesn't hold", async () => {
-    headSize = undefined;
-    assert.equal(await storedObjectSize("my-bucket", "abc123"), undefined);
+  it("keeps at most 50 HEADs in flight, the SDK's socket pool", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    head = async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await tick();
+      inFlight--;
+      return 1;
+    };
+    await storedObjectSizes("my-bucket", hashes(200));
+    assert.equal(peak, 50);
+  });
+
+  it("starts no more HEADs once one fails", async () => {
+    // s3cab sets an exit code rather than exiting, so every HEAD still pending
+    // would hold the failed run open until it finished.
+    let started = 0;
+    let inFlight = 0;
+    head = async (uri) => {
+      started++;
+      inFlight++;
+      await tick();
+      inFlight--;
+      if (uri.endsWith("/h0")) {
+        throw new Error("HEAD failed");
+      }
+      return 1;
+    };
+    await assert.rejects(
+      storedObjectSizes("my-bucket", hashes(200)),
+      /HEAD failed/,
+    );
+    while (inFlight > 0) {
+      await tick();
+    }
+    assert.equal(started, 50, "only the HEADs already in flight");
   });
 });
