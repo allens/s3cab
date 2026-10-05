@@ -147,6 +147,36 @@ describe("planUnrestorable", () => {
     assert.equal(plan.totalBytes, 900);
   });
 
+  it("leaves content already gone out of every count, counting its files apart", () => {
+    // h3 is gone too, but s2 keeps referencing it, so this run doesn't orphan it.
+    const plan = planUnrestorable(
+      enumeration({
+        photos: {
+          s1: {
+            "a.jpg": ["h1", 500],
+            "copy.jpg": ["h1", 500],
+            "b.jpg": ["h2", 300],
+            "c.jpg": ["h3", 100],
+          },
+          s2: { "c.jpg": ["h3", 100] },
+        },
+      }),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1", "s2"] },
+      { gone: new Set(["h1", "h3"]) },
+    );
+
+    assert.equal(plan.totalFiles, 1);
+    assert.equal(plan.totalBytes, 300);
+    assert.equal(plan.totalObjects, 1);
+    assert.deepEqual([...plan.orphaned], ["h2"]);
+    assert.deepEqual(
+      plan.entries.map((e) => e.path),
+      ["b.jpg"],
+    );
+    // Files are paths: one object, two of them.
+    assert.equal(plan.deletedFiles, 2);
+  });
+
   it("flags the deletion that takes out a set's last remote snapshot", () => {
     /** @type {EnumerationSpec} */
     const spec = {
@@ -297,6 +327,51 @@ describe("formatUnrestorableSummary", () => {
     assert.match(summary, /also held elsewhere/);
   });
 
+  it("notes the files a delete already removed, which the table leaves out", () => {
+    const plan = planUnrestorable(
+      enumeration({
+        photos: {
+          s1: {
+            "a.jpg": ["h1", 500],
+            "copy.jpg": ["h1", 500],
+            "b.jpg": ["h2", 300],
+          },
+        },
+      }),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
+      { gone: new Set(["h1"]) },
+    );
+    const summary = formatUnrestorableSummary(plan, {
+      set: "photos",
+      reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
+    });
+
+    assert.match(summary, /^ {2}total unrestorable +1 +300B$/m);
+    assert.match(
+      summary,
+      /\n\n2 files these snapshots list were already deleted \(s3cab delete\), so aren't counted\.\n/,
+    );
+  });
+
+  it("doesn't call every file held elsewhere when a delete removed one", () => {
+    const plan = planUnrestorable(
+      enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
+      { gone: new Set(["h1"]) },
+    );
+    const summary = formatUnrestorableSummary(plan, {
+      set: "photos",
+      reportPath: "/tmp/r.txt",
+      bucket: "my-bucket",
+    });
+
+    assert.match(summary, /nothing would become unrestorable\.\n/);
+    assert.doesNotMatch(summary, /also held elsewhere/);
+    assert.match(summary, /1 file these snapshots list was already deleted/);
+    assert.match(summary, /so isn't counted/);
+  });
+
   it("caveats the numbers when a snapshot would not read", () => {
     const plan = planUnrestorable(
       enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
@@ -382,6 +457,29 @@ describe("formatUnrestorableReport", () => {
 
     assert.match(report, /# 2 files, holding 900B across 1 stored object\./);
     assert.match(report, /identical content is stored once/);
+  });
+
+  it("notes in the header the files a delete already removed", () => {
+    const plan = planUnrestorable(
+      enumeration({
+        photos: { s1: { "a.jpg": ["h1", 900], "b.jpg": ["h2", 100] } },
+      }),
+      { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },
+      { gone: new Set(["h1"]) },
+    );
+    const report = formatUnrestorableReport(plan, {
+      set: "photos",
+      bucket: "b1",
+      snapshots: ["s1"],
+      generated: "2026-07-19T024107",
+    });
+
+    assert.match(
+      report,
+      /\n# 1 file these snapshots list was already deleted \(s3cab delete\), so isn't counted\.\n/,
+    );
+    const rows = report.split("\n").filter((l) => l && !l.startsWith("#"));
+    assert.deepEqual(rows, ["s1\tb.jpg"]);
   });
 });
 

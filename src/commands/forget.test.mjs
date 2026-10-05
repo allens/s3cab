@@ -13,19 +13,20 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { enumeration } from "../../test/helpers/enumeration.mjs";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
+/** @import { RecordedDeletion } from "../lib/deletion-record.mjs" */
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for `forget`: the S3 reads/writes (listRemoteSnapshots,
-// deleteRemoteSnapshot, referencedObjects), the set resolver (loadSet), and the
-// prompt are faked at the lib seam, and the TTY gate is driven via
-// process.stdin.isTTY — so the required-arg guards, the existence check, the
-// unrestorable check's wiring, the non-interactive `--force` gate, and the
-// confirm/skip logic are locked down without a bucket or a terminal. The orphan
-// *computation* is tested pure in lib/unrestorable.test.mjs; what's asserted here
-// is the command's part — that the check runs, the report lands on disk, and
-// --force skips both halves (ADR-0064's destructive-command pattern). The real
-// removal is covered by test/integration/remote.test.mjs's gated round-trip.
-// Mocks first, then a dynamic import.
+// deleteRemoteSnapshot, referencedObjects, readDeletionRecords, storedObjectSize),
+// the set resolver (loadSet), and the prompt are faked at the lib seam, and the
+// TTY gate is driven via process.stdin.isTTY — so the required-arg guards, the
+// existence check, the unrestorable check's wiring, the non-interactive `--force`
+// gate, and the confirm/skip logic are locked down without a bucket or a
+// terminal. The orphan *computation* is tested pure in lib/unrestorable.test.mjs;
+// what's asserted here is the command's part — that the check runs, the report
+// lands on disk, and --force skips both halves (ADR-0064's destructive-command
+// pattern). The real removal is covered by test/integration/remote.test.mjs's
+// gated round-trip. Mocks first, then a dynamic import.
 
 /** @type {{ name: string, bucket: string, dir: string }} */
 let fakeSet = { name: "photos", bucket: "b1", dir: "" };
@@ -41,6 +42,12 @@ let promptCalls = 0;
 let referencedCalls = 0;
 /** @type {Map<string, ReferencedResult>} */
 let referenced = new Map();
+/** @type {Map<string, RecordedDeletion>} */
+let recorded = new Map();
+/** @type {Set<string>} */
+let stored = new Set();
+/** @type {string[]} */
+let headCalls = [];
 
 /**
  * One set holding two files: `a.jpg` only in the older snapshot, `b.jpg` in both
@@ -74,6 +81,20 @@ mock.module("../lib/remote.mjs", {
       /** @type {string} */ name,
     ) => {
       deleteCalls.push([bucket, set, name]);
+    },
+  },
+});
+mock.module("../lib/deletion-record.mjs", {
+  exports: { readDeletionRecords: async () => recorded },
+});
+mock.module("../lib/objects.mjs", {
+  exports: {
+    storedObjectSize: async (
+      /** @type {string} */ _bucket,
+      /** @type {string} */ hash,
+    ) => {
+      headCalls.push(hash);
+      return stored.has(hash) ? 1 : undefined;
     },
   },
 });
@@ -122,6 +143,9 @@ beforeEach(() => {
   promptCalls = 0;
   referencedCalls = 0;
   referenced = fakeReferenced();
+  recorded = new Map();
+  stored = new Set();
+  headCalls = [];
   stdout = [];
   console.log = (/** @type {unknown[]} */ ...args) =>
     stdout.push(args.join(" "));
@@ -303,6 +327,43 @@ describe("forget command", () => {
       assert.match(summary, /total unrestorable\s+2\s+800B/);
       // Both snapshots are the set's whole remote history.
       assert.match(summary, /last remote snapshot of set 'photos'/);
+    });
+
+    it("leaves out content a delete already removed, checking only what this run would orphan", async () => {
+      // h2 is recorded too, but b.jpg survives in 2026-06-12T0915 — so only h1
+      // is worth a HEAD.
+      recorded = new Map([
+        ["h1", { deletedOn: "2026-06-13T10:00:00.000Z" }],
+        ["h2", { deletedOn: "2026-06-13T10:00:00.000Z" }],
+      ]);
+
+      stdin.isTTY = true;
+      promptAnswer = true;
+      await forget(["2026-06-11T0915"], { set: "photos" });
+
+      assert.deepEqual(headCalls, ["h1"]);
+      const rows = readFileSync(previewPath(), "utf8")
+        .split("\n")
+        .filter((l) => l && !l.startsWith("#"));
+      assert.deepEqual(rows, []);
+      const summary = stdout.join("\n");
+      assert.match(summary, /nothing would become unrestorable/);
+      assert.match(summary, /1 file these snapshots list was already deleted/);
+    });
+
+    it("still counts recorded content a later backup stored again", async () => {
+      // Deleting is never a ban: the row outlives the re-upload, so the record
+      // alone would hide a real loss.
+      recorded = new Map([["h1", { deletedOn: "2026-06-13T10:00:00.000Z" }]]);
+      stored = new Set(["h1"]);
+
+      stdin.isTTY = true;
+      promptAnswer = true;
+      await forget(["2026-06-11T0915"], { set: "photos" });
+
+      const summary = stdout.join("\n");
+      assert.match(summary, /^ {2}total unrestorable +1 +500B$/m);
+      assert.doesNotMatch(summary, /already deleted/);
     });
   });
 

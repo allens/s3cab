@@ -56,6 +56,10 @@ Two properties make this the only correct formulation:
   snapshot independently against the current state reports zero for each while deleting both
   orphans it.
 
+Content a `delete` already removed is unrestorable whatever happens to these snapshots, so it
+is left out of the counts and named in a note instead. Why confirming it takes a HEAD rather
+than the deletion record alone is the comment in [`forget`](../../src/commands/forget.mjs).
+
 `referencedObjects` ([lib/remote.mjs](../../src/lib/remote.mjs)) already produces the
 enumeration this needs. The difference itself is a **`Set.difference()`** — the operation the
 code should say outright, and an idiom already used in [lib/compare.mjs](../../src/lib/compare.mjs).

@@ -168,6 +168,10 @@ destructive commands.
 - `forget`'s unrestorable preview may overstate slightly for content a `delete` already
   removed (it counts references, not stored presence) — an accepted, safe-direction
   imprecision; revisit if it confuses in practice.
+  - **Amended 2026-10-05: it no longer overstates.** `forget` HEADs the content it would
+    count as lost that the record also lists, leaves out what is absent, and says how many
+    files that was. Not the record alone: deleted content re-uploads on the next backup and
+    its row stays, so subtracting every recorded hash would hide a real loss.
 - A concurrent backup can re-upload content while a `delete` runs (its conditional PUT
   sees the object present pre-delete, skips, then the delete lands) — the published
   snapshot's gap is still record-explained, so this degrades to expected-missing, never

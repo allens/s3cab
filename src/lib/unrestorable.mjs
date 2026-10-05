@@ -61,6 +61,8 @@ import {
  * @property {number} totalFiles - Every unrestorable file
  * @property {number} totalBytes - Every orphaned object's size, counted once each
  * @property {number} totalObjects - Distinct objects left orphaned (the reclaimable ones)
+ * @property {Set<string>} orphaned - Those objects' hashes
+ * @property {number} deletedFiles - Files left out of every count because their content is in `gone`
  * @property {boolean} lastOfSet - The selection takes out the set's last remote snapshot
  * @property {UnrestorableEntry[]} entries - Every unrestorable file, for the report file
  * @property {string[]} unreadable - `set/snapshot` names that would not read
@@ -95,11 +97,13 @@ import {
  * `forget` never acts on this set, it only shows it).
  * @param {Map<string, ReferencedResult>} referencedBySet - The bucket's per-set referenced enumeration (`referencedObjects`)
  * @param {{ set: string, snapshots: string[], remoteSnapshots: string[] }} selection - The target set, the snapshots to forget, and every snapshot that set has remotely
+ * @param {{ gone?: Set<string> }} [stored] - `gone` = hashes confirmed no longer stored, which forgetting cannot lose again
  * @returns {UnrestorablePlan}
  */
 export function planUnrestorable(
   referencedBySet,
   { set, snapshots, remoteSnapshots },
+  { gone = new Set() } = {},
 ) {
   const unreadable = unreadableSnapshots(referencedBySet);
 
@@ -134,6 +138,14 @@ export function planUnrestorable(
       orphaned = orphaned.difference(referenced);
     }
   }
+
+  // Content a `delete` already removed is unrestorable whether or not these
+  // snapshots go, so it is counted apart rather than as this run's loss.
+  let deletedFiles = 0;
+  for (const hash of orphaned.intersection(gone)) {
+    deletedFiles += target.get(hash)?.paths.size ?? 0;
+  }
+  orphaned = orphaned.difference(gone);
 
   // Step 3 — attribute each orphaned hash to the selected snapshots referencing
   // it: exactly one → that snapshot's row; two or more → the shared line. Counting
@@ -195,6 +207,8 @@ export function planUnrestorable(
     totalFiles,
     totalBytes,
     totalObjects: orphaned.size,
+    orphaned,
+    deletedFiles,
     // Every remote snapshot the set has is in the selection — the deletion that
     // orphans everything unique to the set, and the most consequential form of
     // this operation.
@@ -229,9 +243,13 @@ export function formatUnrestorableSummary(
   const lines = [];
 
   if (plan.totalFiles === 0) {
+    // Not "every file is held elsewhere" once a delete has removed some: nothing
+    // holds those.
     lines.push(
-      `Unrestorable preview — nothing would become unrestorable. Every file ` +
-        `these snapshots hold is also held elsewhere.`,
+      plan.deletedFiles > 0
+        ? `Unrestorable preview — nothing would become unrestorable.`
+        : `Unrestorable preview — nothing would become unrestorable. Every file ` +
+            `these snapshots hold is also held elsewhere.`,
     );
   } else {
     lines.push(
@@ -259,6 +277,10 @@ export function formatUnrestorableSummary(
     ]);
 
     lines.push(...alignTotalTable(["snapshot", "files", "size"], rows));
+  }
+
+  if (plan.deletedFiles > 0) {
+    lines.push(``, deletedNote(plan.deletedFiles));
   }
 
   if (plan.lastOfSet) {
@@ -321,6 +343,7 @@ export function formatUnrestorableReport(
       `across ${countOf(plan.totalObjects, "stored object")}.`,
     `# (Fewer objects than files: identical content is stored once, however many`,
     `# files hold it — so the space freed is the object total, not the file count.)`,
+    ...(plan.deletedFiles > 0 ? [`# ${deletedNote(plan.deletedFiles)}`] : []),
     `#`,
     `# Forgetting those snapshots leaves no snapshot holding the files below, so`,
     `# restore can no longer produce them. Reclaim the space with:`,
@@ -333,6 +356,16 @@ export function formatUnrestorableReport(
   );
   return [...header, ...rows, ``].join("\n");
 }
+
+/**
+ * The note for files these snapshots list whose content a `delete` already
+ * removed — shared by the summary and the report header, which both leave them out.
+ * @param {number} n
+ * @returns {string}
+ */
+const deletedNote = (n) =>
+  `${countOf(n, "file")} these snapshots list ${n === 1 ? "was" : "were"} ` +
+  `already deleted (s3cab delete), so ${n === 1 ? "isn't" : "aren't"} counted.`;
 
 /**
  * The audit record for a `--force` run, which skipped the check — so there is no

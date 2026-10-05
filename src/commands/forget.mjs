@@ -1,10 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { readDeletionRecords } from "../lib/deletion-record.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { s3cabDir } from "../lib/home.mjs";
 import { formatMoment, localMoment } from "../lib/format.mjs";
+import { storedObjectSize } from "../lib/objects.mjs";
 import {
   formatForcedReport,
   formatUnrestorableReport,
@@ -183,11 +185,23 @@ export async function forget(snapshots = [], options = {}) {
   let report;
   if (!force) {
     const referencedBySet = await referencedObjects(set.bucket);
-    const plan = planUnrestorable(referencedBySet, {
-      set: set.name,
-      snapshots,
-      remoteSnapshots: remote,
-    });
+    const selection = { set: set.name, snapshots, remoteSnapshots: remote };
+    const orphaned = planUnrestorable(referencedBySet, selection).orphaned;
+
+    // Content a `delete` removed would otherwise be counted as this run's loss.
+    // The record alone can't say it is gone — deleted content re-uploads on the
+    // next backup, and the row stays — so only the recorded hashes this run would
+    // orphan are HEADed, and only the absent ones are left out.
+    const deleted = await readDeletionRecords(set.bucket);
+    /** @type {Set<string>} */
+    const gone = new Set();
+    for (const hash of orphaned.intersection(deleted)) {
+      const size = await storedObjectSize(set.bucket, hash);
+      if (size === undefined) {
+        gone.add(hash);
+      }
+    }
+    const plan = planUnrestorable(referencedBySet, selection, { gone });
     report = formatUnrestorableReport(plan, context);
 
     // The preview lands *before* the prompt, so declining still leaves the list
