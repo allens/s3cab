@@ -65,9 +65,10 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** **F** and **U** both edit `readBaseline` in
-[src/lib/snapshot.mjs](../src/lib/snapshot.mjs) (F also `generateSnapshot`), so build one, then
-re-verify the other. **B**, **C**, **G** and **J** are independent of everything.
+(2) **Ordering constraints.** **U** changed `readBaseline` in
+[src/lib/snapshot.mjs](../src/lib/snapshot.mjs), which **F** also edits (F also `generateSnapshot`),
+so re-verify F's anchors before building it. **B**, **G**, **J** and **Y** are independent of
+everything.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -89,33 +90,8 @@ and verifies with `npm test` alone.
   either move both carve-outs behind `diff`'s signature, or make `diff` module-private and let its
   tests cross `compareSnapshots`.
 - **C — `forget`'s unrestorable preview is the only bucket-wide reader that never consults the
-  deletion record.** _Strong — re-verified by hand 2026-10-04._
-  [commands/forget.mjs](../src/commands/forget.mjs):185–190 calls `referencedObjects(set.bucket)`
-  alone and hands the result to `planUnrestorable`, whose signature
-  ([unrestorable.mjs](../src/lib/unrestorable.mjs):100–103) has no `deleted` parameter anywhere — where
-  its sibling `planCleanup` ([cleanup.mjs](../src/lib/cleanup.mjs):75) takes
-  `{ now = Date.now(), deleted = new Set() }`. Every other bucket-wide reader consults the record:
-  `verify` partitions into `expectedMissing` ([verify.mjs](../src/lib/verify.mjs):64), `cleanup`
-  subtracts it from the `missing` interlock (cleanup.mjs:94),
-  [commands/restore.mjs](../src/commands/restore.mjs):213 reads it to skip gracefully, and
-  [upload.mjs](../src/lib/upload.mjs):90 subtracts it from the baseline. `forget` is the fifth and the
-  only abstainer. **C disagrees with a comment:** [bucket-scan.mjs](../src/lib/bucket-scan.mjs):36–37
-  says `referencedObjects` stays exported "for `forget`, which needs the snapshot half alone". The
-  grilling should settle which is right before code moves.
-  **The consequence is a wrong number on the strongest confirmation prompt the tool has.** After a
-  `delete` has removed content an old snapshot still lists, `planUnrestorable` — which reasons purely
-  over snapshot references and never sees the store — counts those paths as files "you would no longer
-  be able to restore" and their bytes as reclaimable, in the report header at unrestorable.mjs:320–327
-  (`N files, holding X across M stored objects` … "Reclaim the space with: `s3cab cleanup <bucket>`")
-  and in the table's "total unrestorable" row (:255–259).
-  Both halves are false for that content: it cannot be lost, and there are no bytes to reclaim. This is
-  precisely the line [CONTEXT.md](../CONTEXT.md)'s **Delete** entry already draws — "the removed content
-  is simply **deleted** (not **unrestorable**, which stays `forget`'s preview word for content a
-  snapshot removal would strand)". The vocabulary exists; `forget` is the one command that cannot see
-  it. Fix: give `planUnrestorable` the same optional `deleted` set and subtract it in step 2 alongside
-  the other sets (unrestorable.mjs:131–136), with `forget` reading the record after the snapshot scan:
-  the same relative order `scanBucket` enforces for its own reads 1 and 3. `planUnrestorable` is pure
-  and non-throwing by design, so the case tests as a fixture: no S3, no new seam.
+  deletion record.** _Landed 2026-10-05 as [PR #370](https://github.com/allens/s3cab/pull/370). See
+  the run log._
 - **D — The progress line goes blank on exactly the files that are slow.**
   _Landed 2026-10-01 as [PR #343](https://github.com/allens/s3cab/pull/343) — see the run log. Its
   "narrow `onHashStart` to the byte cursor" half was not done there. It landed later as smaller item
@@ -215,7 +191,7 @@ and verifies with `npm test` alone.
   2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
 - **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
   2026-10-05 as [PR #369](https://github.com/allens/s3cab/pull/369). See the run log._
-- **Y — Both removers delete one object at a time, the shape C's branch just fixed for the HEADs.**
+- **Y — Both removers delete one object at a time, the shape C fixed for the HEADs.**
   _Worth exploring — surfaced 2026-10-05 by C's review
   ([PR #370](https://github.com/allens/s3cab/pull/370)), not by a pass._ `deleteHashes` in
   [commands/delete.mjs](../src/commands/delete.mjs) (after the deletion record is written) and
@@ -838,3 +814,23 @@ least once; re-open only if the stated reason no longer holds.
   - **Tests.** Two reader tests, a millisecond either side of the boundary; the stale one fails on the
     old reader. The command-tier test stays, as the guard on `readBaseline` passing the instant.
   - `npm test` 1180 pass, 13 skipped; no S3 path touched. Copilot raised nothing.
+- **2026-10-05 — C landed** ([PR #370](https://github.com/allens/s3cab/pull/370); ADR-0064 amended
+  in place, since it had accepted the overstatement).
+  - **`forget`'s preview leaves out content a `delete` already removed**, and the summary and report
+    header say how many files that was. `planUnrestorable` takes an optional set of hashes confirmed
+    gone and returns the orphaned hashes and that count.
+  - **Not the record alone, as the entry proposed.** Deleted content re-uploads on the next backup
+    and its row stays, so subtracting every recorded hash would hide a real loss. `forget` HEADs only
+    the recorded hashes the preview would count as lost. That settles the comment C disagreed with:
+    `forget` needs no objects LIST, and bucket-scan.mjs now says why.
+  - **50 HEADs in flight (Copilot).** `storedObjectSizes` replaced `storedObjectSize` for `delete`'s
+    preflight and `forget`'s preview. 50 is the SDK's socket pool, measured as the ceiling at round
+    trips of 30ms, 55ms and 580ms with `scripts/head-concurrency-bench.mjs`, kept to re-run. The
+    removers' one-at-a-time deletes are the same shape, filed as **Y**.
+  - **Tests.** `storedObjectSizes` keeps the order given, holds 50 in flight and starts none after a
+    failure; `forget` stops before the prompt when the check fails.
+  - **Copilot, declined:** rewording the last-snapshot warning when everything the set alone holds
+    was already deleted. The set then keeps nothing, so "loses everything the set alone was keeping"
+    stays true, and the deleted-content note sits directly above it.
+  - `npm test` 1189 pass, 12 skipped on `main` after the merge; CI green on all three OSes, real-S3
+    job included.
