@@ -213,17 +213,8 @@ and verifies with `npm test` alone.
   _Landed 2026-10-04 as [PR #367](https://github.com/allens/s3cab/pull/367). See the run log._
 - **T — Restore plans "copy from where the first one landed" before anything has landed.** _Landed
   2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
-- **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Worth
-  exploring — fifteenth pass._ [snapshot-file.mjs](../src/lib/snapshot-file.mjs):242–243 says it owns
-  the parked file's "whole lifecycle — parked here, read by `readParkedLookup`, deleted when a snapshot
-  next lands", and :350–351 notes a leftover one "starts before it, which is how `readBaseline` knows to
-  ignore it". The ignoring is done in [snapshot.mjs](../src/lib/snapshot.mjs):149–161, after
-  `readParkedLookup` (snapshot-file.mjs:391–401) has handed the stale rows over, and is tested only
-  through the command ([commands/snapshot.test.mjs](../src/commands/snapshot.test.mjs):594). Deepening:
-  the reader takes the instant it must not predate and returns nothing for a stale file. Stays inside
-  ADR-0092 and does **not** reopen H's declined half: adoption stays explicit (`--resume`). Don't fold
-  adopt-or-refuse in with it — the `--rehash` early return (snapshot.mjs:145–147) sits between the two,
-  and a rehash must neither read nor discard the parked file. ADRs 0048, 0067, 0092, 0094.
+- **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
+  2026-10-05 as [PR #369](https://github.com/allens/s3cab/pull/369). See the run log._
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
 **L — Three spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
@@ -806,3 +797,15 @@ least once; re-open only if the stated reason no longer holds.
   - `backup.md`'s pre-#366 fallback paragraph was corrected in its own commit.
   - `npm test` 1178 pass, 13 skipped; integration 27 pass, Roles Anywhere live 3/3; CI green on all
     three OSes.
+- **2026-10-05 — U landed** ([PR #369](https://github.com/allens/s3cab/pull/369); no ADR, since
+  ADR-0094's decision 4 doesn't say where the check lives).
+  - **`readParkedLookup(snapshotDir, notBefore)` returns nothing for a stale file**, one parked by a
+    run that started before the previous snapshot. `readBaseline` passes that instant and only warns
+    when it reuses parked hashes.
+  - **The stale file stays on disk.** The read runs before the lock, so a run parking at that moment
+    could have replaced it; the next landed snapshot's delete removes it anyway.
+  - **Unchanged, as the entry asked:** `--resume`'s adopt-or-refuse and the `--rehash` early return
+    stay ahead of the read.
+  - **Tests.** Two reader tests, a millisecond either side of the boundary; the stale one fails on the
+    old reader. The command-tier test stays, as the guard on `readBaseline` passing the instant.
+  - `npm test` 1180 pass, 13 skipped; no S3 path touched. Copilot raised nothing.
