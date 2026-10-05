@@ -48,6 +48,8 @@ let recorded = new Map();
 let stored = new Set();
 /** @type {string[]} */
 let headCalls = [];
+/** @type {Error | undefined} what the HEADs fail with, if they do */
+let headFailure;
 
 /**
  * One set holding two files: `a.jpg` only in the older snapshot, `b.jpg` in both
@@ -93,6 +95,9 @@ mock.module("../lib/objects.mjs", {
       /** @type {string} */ _bucket,
       /** @type {string[]} */ hashes,
     ) => {
+      if (headFailure) {
+        throw headFailure;
+      }
       headCalls.push(...hashes);
       return new Map(
         hashes.map((hash) => [hash, stored.has(hash) ? 1 : undefined]),
@@ -148,6 +153,7 @@ beforeEach(() => {
   recorded = new Map();
   stored = new Set();
   headCalls = [];
+  headFailure = undefined;
   stdout = [];
   console.log = (/** @type {unknown[]} */ ...args) =>
     stdout.push(args.join(" "));
@@ -366,6 +372,24 @@ describe("forget command", () => {
       const summary = stdout.join("\n");
       assert.match(summary, /^ {2}total unrestorable +1 +500B$/m);
       assert.doesNotMatch(summary, /already deleted/);
+    });
+
+    it("stops before the prompt when checking for deleted content fails", async () => {
+      // A preview that couldn't check would count deleted content as this run's
+      // loss again, so the run fails rather than asking on a wrong figure.
+      recorded = new Map([["h1", { deletedOn: "2026-06-13T10:00:00.000Z" }]]);
+      headFailure = new Error("HEAD failed");
+
+      stdin.isTTY = true;
+      promptAnswer = true;
+      await assert.rejects(
+        () => forget(["2026-06-11T0915"], { set: "photos" }),
+        /HEAD failed/,
+      );
+
+      assert.equal(promptCalls, 0);
+      assert.deepEqual(deleteCalls, []);
+      assert.deepEqual(auditRecords(), []);
     });
   });
 
