@@ -5,10 +5,10 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { isAbsolute, join, posix, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
-import { compileExclude } from "./exclude.mjs";
+import { compileExcludePatterns } from "./exclude.mjs";
 import { countOf, formatCount, secondsSince } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
@@ -379,10 +379,7 @@ export function walkDirs(dirs, patterns) {
  * @returns {(path: string, fileType: string) => boolean} walk callback function
  */
 function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
-  const matchers = patterns.map((pattern) => ({
-    pattern,
-    matcher: compileExclude(join(baseDir, pattern)),
-  }));
+  const excludedBy = compileExcludePatterns(baseDir, patterns);
 
   // Takes the resolved type rather than the `Dirent` it came from: `walkFiles`
   // has already paid for it (possibly with an `lstat`), and asking the dirent
@@ -390,16 +387,10 @@ function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
   // exists to fix.
   return (path, fileType) => {
     if (fileType === "File" || fileType === "Directory") {
-      let testString = path.split(sep).join(posix.sep);
+      const reason = excludedBy(path, fileType === "Directory");
 
-      if (fileType === "Directory") {
-        testString += posix.sep;
-      }
-
-      const match = matchers.find(({ matcher }) => matcher.test(testString));
-
-      if (match) {
-        excluded.push({ fileType, reason: match.pattern, path });
+      if (reason) {
+        excluded.push({ fileType, reason, path });
         return false;
       }
     } else {

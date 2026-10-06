@@ -99,7 +99,7 @@ import { shellCommand } from "./style.mjs";
 /**
  * Compile one find pattern into a matcher.
  *
- * The anchoring, which is the whole difference from `compileExclude`
+ * The anchoring, which is the whole difference from `compileExcludePatterns`
  * ([ADR-0088](../../docs/adr/0088-find-matches-like-posix-find.md)):
  *
  * - **No separator** → match the **basename**. `junkfile.dat` finds that file

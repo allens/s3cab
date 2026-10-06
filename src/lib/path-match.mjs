@@ -23,7 +23,7 @@ import { posix } from "node:path";
 //   separators, case folds: a UNC path only ever originates from a Windows
 //   client, whose name lookup is case-insensitive against every Windows server
 //   and against the usual NAS defaults, and the share never told the user which
-//   spelling it holds. (`compileExclude` legitimately keys on the platform
+//   spelling it holds. (`compileExcludePatterns` legitimately keys on the platform
 //   instead — its patterns only ever meet paths from the running machine's own
 //   walk.)
 // - **POSIX** (`/home/me`) — `/` is the only separator, a backslash is an
@@ -84,7 +84,7 @@ export function preparePath(path) {
  * shared half of s3cab's two path matchers, whose whole difference is the
  * anchoring each wraps around this
  * ([ADR-0088](../../docs/adr/0088-find-matches-like-posix-find.md)):
- * `compileExclude` anchors whole and absolute, `find` follows POSIX `find` and
+ * `compileExcludePatterns` anchors whole and absolute, `find` follows POSIX `find` and
  * anchors to the basename or floats over the path.
  *
  * Tokens (guide/exclude.md, guide/find.md): a `**` path segment matches zero or

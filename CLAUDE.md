@@ -188,7 +188,7 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   the two spellings are one file. Tolerance keys on the **path's shape** (`foldsCase`: is the
   root a drive letter or a UNC share?), never on `process.platform` — `restore --output` exists
   to put a Windows backup on another machine, where `platform` says `linux` and the paths are
-  still Windows paths. The one deliberate exception is `compileExclude`: exclude patterns only
+  still Windows paths. The one deliberate exception is `compileExcludePatterns`: exclude patterns only
   ever meet paths from this machine's own walk, so there the platform *is* the path's shape.
   What we promise users is in [guide/format.md](guide/format.md) ("Paths are written with the
   casing the filesystem itself reports"); the drive letter is the one component we normalize,
