@@ -23,16 +23,13 @@ import { generateSnapshot, readBaseline } from "../lib/snapshot.mjs";
 export async function snapshot(setName, options = {}) {
   const set = loadSet(setName);
 
-  const resumeCommand = `s3cab snapshot ${set.name} --resume`;
   const baseline = await readBaseline(set, {
-    resumeCommand,
     rehash: options.rehash,
     resume: options.resume,
   });
   const { name: previousName, previous, previousErrors } = baseline;
   const { name } = await generateSnapshot(set, {
     baseline,
-    resumeCommand,
     debug: options.debug,
   });
 

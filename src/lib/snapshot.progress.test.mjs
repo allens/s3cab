@@ -76,8 +76,6 @@ mock.module("./progress.mjs", {
 
 const { generateSnapshot } = await import("./snapshot.mjs");
 
-const RESUME = "s3cab snapshot photos --resume";
-
 /**
  * A three-file set under `root`, with its snapshot store outside the walked
  * directory so the file being written is not itself walked.
@@ -127,7 +125,6 @@ describe("the fused pass's progress line", () => {
     const rowPaths = [];
 
     await generateSnapshot(threeFileSet(dir.path), {
-      resumeCommand: RESUME,
       through: recording(rowPaths),
     });
 
@@ -169,7 +166,7 @@ describe("the fused pass's progress line", () => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     forgetFrames();
 
-    await generateSnapshot(threeFileSet(dir.path), { resumeCommand: RESUME });
+    await generateSnapshot(threeFileSet(dir.path));
 
     assert.ok(closing, "a pass that ran to its end draws a closing frame");
     assert.ok(closing.includes("  3/3"), `expected every file: ${closing}`);
@@ -189,7 +186,6 @@ describe("the fused pass's progress line", () => {
 
     await assert.rejects(
       generateSnapshot(threeFileSet(dir.path), {
-        resumeCommand: RESUME,
         // One row through, so the line is open and mid-pass when it fails.
         through: async function* (
           /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
@@ -222,7 +218,6 @@ describe("the fused pass's progress line", () => {
 
     await assert.rejects(
       generateSnapshot(threeFileSet(dir.path), {
-        resumeCommand: RESUME,
         through: async function* (
           /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
         ) {

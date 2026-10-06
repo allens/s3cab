@@ -89,18 +89,17 @@ const trustBoundary = (at) =>
  * the first step of both commands, and `backup`'s store LIST comes next.
  * @param {BackupSet} set - The resolved set
  * @param {object} options
- * @param {string} options.resumeCommand - The command that adopts the work file, ready to paste, which a refusal offers
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.resume] - Adopt the work file an interrupted run left behind, reusing the hashes it had already computed (`--resume`)
  * @returns {Promise<SnapshotBaseline>}
  */
-export async function readBaseline(set, { resumeCommand, rehash, resume }) {
+export async function readBaseline(set, { rehash, resume }) {
   const snapshotDir = set.snapshotsDir;
 
   if (resume) {
     await recoverWorkFile(snapshotDir);
   } else {
-    assertNoWorkFile(snapshotDir, resumeCommand);
+    assertNoWorkFile(snapshotDir);
   }
 
   /** @type {SnapshotEntries | undefined} */
@@ -195,9 +194,8 @@ export async function readBaseline(set, { resumeCommand, rehash, resume }) {
  * hashes exactly as it does during a snapshot, with the objects already uploaded
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
- * @param {object} options
+ * @param {object} [options]
  * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below
- * @param {string} options.resumeCommand - The command that adopts the work file, ready to paste, which the write offers if it finds the lock held
  * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
@@ -205,7 +203,7 @@ export async function readBaseline(set, { resumeCommand, rehash, resume }) {
  */
 export async function generateSnapshot(
   set,
-  { baseline, resumeCommand, through, transfer, debug },
+  { baseline, through, transfer, debug } = {},
 ) {
   const { lookup, previous: sizes, instant: previousInstant } = baseline ?? {};
   // From here, not from the first hashed row: the walk is part of what the
@@ -321,7 +319,6 @@ export async function generateSnapshot(
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: roots,
-    resumeCommand,
     onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,

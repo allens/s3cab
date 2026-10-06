@@ -345,8 +345,6 @@ describe("parseCompressedSnapshotStream", () => {
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 
-const RESUME = "s3cab snapshot photos --resume";
-
 /**
  * A snapshot moment with a fixed instant and zone, so a written header is
  * deterministic. Production mints these from one clock read (`snapshotMoment`).
@@ -521,7 +519,6 @@ describe("writeSnapshot", () => {
     const skipped = resolve(dir.path, "scratch.tmp");
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files: [a, b, bad],
@@ -562,7 +559,6 @@ describe("writeSnapshot", () => {
     const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
 
     await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs,
       files: [],
@@ -582,7 +578,6 @@ describe("writeSnapshot", () => {
     const link = resolve(dir.path, "link.txt");
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files: [regular],
@@ -636,7 +631,6 @@ describe("writeSnapshot", () => {
       files,
       excluded: [],
       getProps: props,
-      resumeCommand: RESUME,
     };
 
     /** @type {string[]} */
@@ -671,7 +665,6 @@ describe("writeSnapshot", () => {
     await using dir = await mkTmpDir();
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [],
       files: [],
@@ -713,7 +706,6 @@ describe("writeSnapshot", () => {
     );
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files: [resolve(dir.path, "a.txt")],
@@ -735,7 +727,6 @@ describe("writeSnapshot", () => {
       files: [],
       excluded: [],
       getProps: props,
-      resumeCommand: RESUME,
     };
 
     await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), args);
@@ -764,24 +755,17 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // First run: signal once inside the callback (lock held), then block.
     // The callback must end the stream itself (in production writeSnapshot's
     // pipeline does that) or the compression pipeline never settles.
-    const first = withSnapshotFile(
-      dir.path,
-      "2026-06-23T1000",
-      async (s) => {
-        acquired.resolve(undefined);
-        await gate.promise;
-        s.end("x");
-      },
-      { resumeCommand: RESUME },
-    );
+    const first = withSnapshotFile(dir.path, "2026-06-23T1000", async (s) => {
+      acquired.resolve(undefined);
+      await gate.promise;
+      s.end("x");
+    });
     await acquired.promise;
 
     // Second run (different name, so it's the lock refusing, not the
     // same-minute check) must fail with the in-progress error.
     await assert.rejects(
-      withSnapshotFile(dir.path, "2026-06-23T1001", async () => {}, {
-        resumeCommand: RESUME,
-      }),
+      withSnapshotFile(dir.path, "2026-06-23T1001", async () => {}),
       /already in progress/,
     );
 
@@ -802,9 +786,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     writeFileSync(tmpPath, "");
 
     await assert.rejects(
-      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {}, {
-        resumeCommand: RESUME,
-      }),
+      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {}),
       (/** @type {Error} */ error) => {
         // ADR-0030: goal-framed headline, then the copy-pasteable fixes, gated
         // on nothing else running. Recovery leads (ADR-0092) — the file holds
@@ -812,10 +794,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
         // remains as the way to start the pass over.
         assert.match(error.message, /already in progress/);
         assert.match(error.message, /carry on from the file hashes/);
-        assert.ok(
-          error.message.includes(RESUME),
-          "the fix must offer the given --resume",
-        );
+        assert.match(error.message, /same command again with --resume/);
         assert.match(error.message, /start the pass over/);
         assert.ok(
           error.message.includes(tmpPath),
@@ -830,14 +809,9 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
-      withSnapshotFile(
-        dir.path,
-        "2026-06-23T1000",
-        async () => {
-          throw new Error("member directory vanished");
-        },
-        { resumeCommand: RESUME },
-      ),
+      withSnapshotFile(dir.path, "2026-06-23T1000", async () => {
+        throw new Error("member directory vanished");
+      }),
       /vanished/,
     );
     assert.ok(
@@ -852,7 +826,6 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
       async (s) => {
         s.end("x");
       },
-      { resumeCommand: RESUME },
     );
     assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
   });
@@ -901,7 +874,6 @@ describe("withSnapshotFile (park on interrupt)", () => {
    */
   const write = (snapshotDir, name, files, getProps) =>
     writeSnapshot(snapshotDir, momentOf(name), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [snapshotDir],
       files,
@@ -1246,7 +1218,6 @@ describe("recoverWorkFile", () => {
     // Before: the lock is held by a run that no longer exists.
     await assert.rejects(
       writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-        resumeCommand: RESUME,
         identity: "photos",
         dirs: [dir.path],
         files,
@@ -1263,7 +1234,6 @@ describe("recoverWorkFile", () => {
     await recoverWorkFile(dir.path);
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files,
@@ -1314,7 +1284,6 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
    */
   const seed = (dir, name) =>
     writeSnapshot(dir, momentOf(name), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir],
       files: [resolve(dir, "a.txt")],

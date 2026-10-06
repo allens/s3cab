@@ -250,9 +250,8 @@ const interruptedError = () =>
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
  * @param {(stream: Writable, signal: AbortSignal) => Promise<void>} callbackFn - Callback receiving the write stream and the stop-cleanly signal
- * @param {object} options
+ * @param {object} [options]
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
- * @param {string} options.resumeCommand - The `--resume` command {@link inProgressError} offers when the lock is already held
  * @returns {Promise<string>} Path to the created snapshot file
  * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
  */
@@ -260,7 +259,7 @@ export async function withSnapshotFile(
   snapshotDir,
   name,
   callbackFn,
-  { overwrite = false, resumeCommand },
+  { overwrite = false } = {},
 ) {
   mkdirSync(snapshotDir, { recursive: true });
   const snapshotPath = resolve(snapshotDir, snapshotFileName(name));
@@ -282,7 +281,7 @@ export async function withSnapshotFile(
     fd = await open(tmpPath, "wx");
   } catch (error) {
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
-      throw inProgressError(tmpPath, resumeCommand);
+      throw inProgressError(tmpPath);
     }
     throw error;
   }
@@ -461,12 +460,11 @@ export async function recoverWorkFile(snapshotDir) {
  * guard: two runs started together both pass here, and the `wx` open still
  * stops the second.
  * @param {string} snapshotDir - The set's snapshots dir
- * @param {string} resumeCommand - The `--resume` command {@link inProgressError} offers
  */
-export function assertNoWorkFile(snapshotDir, resumeCommand) {
+export function assertNoWorkFile(snapshotDir) {
   const tmpPath = workFilePath(snapshotDir);
   if (existsSync(tmpPath)) {
-    throw inProgressError(tmpPath, resumeCommand);
+    throw inProgressError(tmpPath);
   }
 }
 
@@ -474,25 +472,28 @@ export function assertNoWorkFile(snapshotDir, resumeCommand) {
  * The lock-held error `withSnapshotFile` raises when the snapshot temp file
  * already exists (ADR-0048): either another snapshot/backup of this set is
  * running right now, or a crashed run left the file behind. Never auto-broken —
- * the message gives the exact commands (ADR-0030), both gated on "if nothing is
- * running": on POSIX, taking a *live* run's file and re-running can corrupt the
- * store (Windows blocks it via the open handle).
+ * both remedies are gated on "if nothing is running": on POSIX, taking a *live*
+ * run's file and re-running can corrupt the store (Windows blocks it via the
+ * open handle).
  *
  * **Two remedies, recovery first** ([ADR-0092](../../docs/adr/0092-recover-the-interrupted-work-file.md)):
  * the work file holds the hashes the dead run had already worked out, which on a
  * long first pass is hours of reading, so offering only the delete threw that
  * away by default. The delete stays as the way to start the pass over.
+ *
+ * The recovery is "the same command again with `--resume`", not a pasteable
+ * `s3cab backup <set> --resume` (ADR-0030's usual form): that needs the calling
+ * command threaded down here, and would drop any other options the user typed.
  * @param {string} tmpPath - The lock/temp file path (`.snapshot.tsv.zst`)
- * @param {string} resumeCommand - The command that adopts the file instead, ready to paste
  */
-const inProgressError = (tmpPath, resumeCommand) => {
+const inProgressError = (tmpPath) => {
   const del = process.platform === "win32" ? "del" : "rm";
   return new Error(
     `A snapshot of this set is already in progress — or a previous one was ` +
       `interrupted and left its work file behind.\n\n` +
-      `If no snapshot or backup of this set is running now, carry on from the ` +
-      `file hashes it had already worked out:\n` +
-      `  ${shellCommand(resumeCommand)}\n\n` +
+      `If no snapshot or backup of this set is running now, run the same ` +
+      `command again with --resume to carry on from the file hashes it had ` +
+      `already worked out.\n\n` +
       `Or start the pass over, reading those files again:\n` +
       `  ${shellCommand(`${del} "${tmpPath}"`)}`,
   );
@@ -539,7 +540,6 @@ const inProgressError = (tmpPath, resumeCommand) => {
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
  * @param {RowTransform} [args.through] - Pass-through applied to each hashed row before it reaches the TSV (`backup`'s object uploader)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
- * @param {string} args.resumeCommand - Passed straight to {@link withSnapshotFile} for its lock-held error
  * @param {() => void} [args.onStop] - Called once when the user asks the pass to stop (ADR-0067), so a caller's progress line can say so
  * @returns {Promise<string>} Path to the created snapshot file
  */
@@ -555,7 +555,6 @@ export async function writeSnapshot(
     getProps,
     through,
     overwrite = false,
-    resumeCommand,
     onStop,
   },
 ) {
@@ -594,7 +593,7 @@ export async function writeSnapshot(
         writeStream,
       );
     },
-    { overwrite, resumeCommand },
+    { overwrite },
   );
 }
 

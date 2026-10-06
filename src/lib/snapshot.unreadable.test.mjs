@@ -43,7 +43,6 @@ describe("a pass over files that vanish before they are read", () => {
         envPath: join(dir.path, "env"),
       },
       {
-        resumeCommand: "s3cab snapshot photos --resume",
         // The pipeline is lazy, so the rows after the first are not yet hashed
         // when the first one arrives here.
         through: async function* (

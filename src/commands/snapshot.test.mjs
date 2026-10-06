@@ -659,7 +659,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     const warn = t.mock.method(console, "warn", () => {});
     await assert.rejects(
       snapshot("photos", {}),
-      /already in progress[\s\S]*s3cab snapshot photos --resume/,
+      /already in progress[\s\S]*same command again with --resume/,
     );
     assert.ok(
       !warn.mock.calls.some((call) =>

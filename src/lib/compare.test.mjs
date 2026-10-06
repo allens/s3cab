@@ -304,7 +304,6 @@ describe("diff", () => {
 const OLDEST = "2023-12-31T0101";
 const PREVIOUS = "2024-01-01T0101";
 const CURRENT = "2024-01-02T0101";
-const RESUME = "s3cab snapshot photos --resume";
 
 /**
  * Project a structured {@link CompareResult} into compact relative strings for
@@ -486,22 +485,18 @@ describe("compareSnapshots", () => {
     // unreadable file. The path existed in the previous snapshot, so before
     // the errors category it was mis-reported as deleted; it must now surface
     // under `errors` and stay out of `deleted` (the file is still on disk).
-    await withSnapshotFile(
-      dir.path,
-      CURRENT,
-      (stream) =>
-        pipeline(
-          stringifySnapshot(
-            new Map([
-              [
-                resolve(dir.path, "file1.txt"),
-                new Error("EACCES: permission denied"),
-              ],
-            ]),
-          ),
-          stream,
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [
+              resolve(dir.path, "file1.txt"),
+              new Error("EACCES: permission denied"),
+            ],
+          ]),
         ),
-      { resumeCommand: RESUME },
+        stream,
+      ),
     );
 
     const result = await compareSnapshots(dir.path, [dir.path]);
@@ -518,7 +513,6 @@ describe("compareSnapshots", () => {
 
     await writeSnapshot(dir.path, PREVIOUS, []);
     await writeFullSnapshot(dir.path, momentOf(CURRENT), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files: [],
@@ -556,7 +550,6 @@ describe("compareSnapshots", () => {
       new File(["contents1"], "file1.txt"),
     ]);
     await writeFullSnapshot(dir.path, momentOf(CURRENT), {
-      resumeCommand: RESUME,
       identity: "photos",
       dirs: [dir.path],
       files: [],
@@ -586,22 +579,15 @@ describe("compareSnapshots", () => {
     // errors category it was in neither entries map, so it vanished from the
     // report entirely; it must now surface under `errors`.
     await writeSnapshot(dir.path, PREVIOUS, []);
-    await withSnapshotFile(
-      dir.path,
-      CURRENT,
-      (stream) =>
-        pipeline(
-          stringifySnapshot(
-            new Map([
-              [
-                resolve(dir.path, "new.bin"),
-                new Error("EISDIR: is a directory"),
-              ],
-            ]),
-          ),
-          stream,
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [resolve(dir.path, "new.bin"), new Error("EISDIR: is a directory")],
+          ]),
         ),
-      { resumeCommand: RESUME },
+        stream,
+      ),
     );
 
     const result = await compareSnapshots(dir.path, [dir.path]);
@@ -621,19 +607,15 @@ describe("compareSnapshots", () => {
     // match what was stored — but flagged, because the file itself sat there the
     // whole time. It cannot be `modified`: with no hash on the older side there
     // is nothing to say the bytes changed (ADR-0079).
-    await withSnapshotFile(
-      dir.path,
-      PREVIOUS,
-      (stream) =>
-        pipeline(
-          stringifySnapshot(
-            new Map([
-              [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
-            ]),
-          ),
-          stream,
+    await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
+      pipeline(
+        stringifySnapshot(
+          new Map([
+            [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
+          ]),
         ),
-      { resumeCommand: RESUME },
+        stream,
+      ),
     );
     await writeSnapshot(dir.path, CURRENT, [new File(["contents"], "X.doc")]);
 
@@ -667,17 +649,11 @@ describe("compareSnapshots", () => {
       [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
       [kept, keptProps],
     ];
-    await withSnapshotFile(
-      dir.path,
-      PREVIOUS,
-      (stream) => pipeline(stringifySnapshot(before), stream),
-      { resumeCommand: RESUME },
+    await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
+      pipeline(stringifySnapshot(before), stream),
     );
-    await withSnapshotFile(
-      dir.path,
-      CURRENT,
-      (stream) => pipeline(stringifySnapshot([[kept, keptProps]]), stream),
-      { resumeCommand: RESUME },
+    await withSnapshotFile(dir.path, CURRENT, (stream) =>
+      pipeline(stringifySnapshot([[kept, keptProps]]), stream),
     );
 
     const result = await compareSnapshots(dir.path, [dir.path]);

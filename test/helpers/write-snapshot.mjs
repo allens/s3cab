@@ -61,10 +61,7 @@ export async function writeSnapshot(
       snapshot.set(resolve(base, file.name), await propsOfFile(file));
     }
   }
-  return withSnapshotFile(
-    snapshotDir,
-    name,
-    (stream) => pipeline(stringifySnapshot(snapshot), stream),
-    { resumeCommand: "s3cab snapshot --resume" },
+  return withSnapshotFile(snapshotDir, name, (stream) =>
+    pipeline(stringifySnapshot(snapshot), stream),
   );
 }
