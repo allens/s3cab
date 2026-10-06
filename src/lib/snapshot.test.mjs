@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempDisposable } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { progressLine } from "./snapshot.mjs";
+import { generateSnapshot, progressLine, readBaseline } from "./snapshot.mjs";
+
+/** @import { TestContext } from "node:test" */
 
 // The fused pass's one progress line (ADR-0069). `progressLine` takes the width
 // and the activities' state rather than reading a terminal or a clock of its
@@ -427,5 +432,37 @@ describe("progressLine", () => {
       `expected under 55 columns, got ${line.length}`,
     );
     assert.match(line, /Stopping…$/, line);
+  });
+});
+
+describe("generateSnapshot", () => {
+  it("offers the --resume of the command the baseline was read for", async (/** @type {TestContext} */ t) => {
+    // The lock can be taken between `readBaseline`'s check and the pass's own
+    // `wx` open, and then it is the pass that names the command. No `transfer`
+    // here, so a pass guessing the command from its uploader would say snapshot.
+    t.mock.method(console, "warn", () => {});
+    await using dir = await mkdtempDisposable(join("test", ".tmp"));
+    const data = join(dir.path, "data");
+    const snapshotsDir = join(dir.path, "snapshots");
+    mkdirSync(data);
+    mkdirSync(snapshotsDir);
+    writeFileSync(join(data, "one.txt"), "one");
+    const set = {
+      name: "photos",
+      dirs: [realpathSync.native(data)],
+      bucket: "b",
+      dir: dir.path,
+      snapshotsDir,
+      dirsPath: join(dir.path, "dirs.txt"),
+      excludePath: join(dir.path, "exclude.txt"),
+      envPath: join(dir.path, "env"),
+    };
+    const baseline = await readBaseline(set, { command: "backup" });
+    writeFileSync(join(snapshotsDir, ".snapshot.tsv.zst"), "");
+
+    await assert.rejects(
+      generateSnapshot(set, { baseline }),
+      /already in progress[\s\S]*s3cab backup photos --resume/,
+    );
   });
 });

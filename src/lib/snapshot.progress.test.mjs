@@ -74,7 +74,7 @@ mock.module("./progress.mjs", {
   },
 });
 
-const { generateSnapshot } = await import("./snapshot.mjs");
+const { generateSnapshot, readBaseline } = await import("./snapshot.mjs");
 
 /**
  * A three-file set under `root`, with its snapshot store outside the walked
@@ -123,8 +123,11 @@ describe("the fused pass's progress line", () => {
     forgetFrames();
     /** @type {string[]} */
     const rowPaths = [];
+    const set = threeFileSet(dir.path);
+    const baseline = await readBaseline(set, { command: "snapshot" });
 
-    await generateSnapshot(threeFileSet(dir.path), {
+    await generateSnapshot(set, {
+      baseline,
       through: recording(rowPaths),
     });
 
@@ -165,8 +168,10 @@ describe("the fused pass's progress line", () => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     forgetFrames();
+    const set = threeFileSet(dir.path);
+    const baseline = await readBaseline(set, { command: "snapshot" });
 
-    await generateSnapshot(threeFileSet(dir.path));
+    await generateSnapshot(set, { baseline });
 
     assert.ok(closing, "a pass that ran to its end draws a closing frame");
     assert.ok(closing.includes("  3/3"), `expected every file: ${closing}`);
@@ -183,9 +188,12 @@ describe("the fused pass's progress line", () => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     forgetFrames();
+    const set = threeFileSet(dir.path);
+    const baseline = await readBaseline(set, { command: "snapshot" });
 
     await assert.rejects(
-      generateSnapshot(threeFileSet(dir.path), {
+      generateSnapshot(set, {
+        baseline,
         // One row through, so the line is open and mid-pass when it fails.
         through: async function* (
           /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
@@ -215,9 +223,12 @@ describe("the fused pass's progress line", () => {
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     forgetFrames();
+    const set = threeFileSet(dir.path);
+    const baseline = await readBaseline(set, { command: "snapshot" });
 
     await assert.rejects(
-      generateSnapshot(threeFileSet(dir.path), {
+      generateSnapshot(set, {
+        baseline,
         through: async function* (
           /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
         ) {

@@ -4,7 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { readSnapshot } from "./snapshot-file.mjs";
-import { generateSnapshot } from "./snapshot.mjs";
+import { generateSnapshot, readBaseline } from "./snapshot.mjs";
 
 /** @import { TestContext } from "node:test" */
 /** @import { SnapshotRow } from "./snapshot-file.mjs" */
@@ -31,36 +31,37 @@ describe("a pass over files that vanish before they are read", () => {
       join(root, name),
     );
 
-    const pass = await generateSnapshot(
-      {
-        name: "photos",
-        dirs: [root],
-        bucket: "b",
-        dir: dir.path,
-        snapshotsDir,
-        dirsPath: join(dir.path, "dirs.txt"),
-        excludePath: join(dir.path, "exclude.txt"),
-        envPath: join(dir.path, "env"),
-      },
-      {
-        // The pipeline is lazy, so the rows after the first are not yet hashed
-        // when the first one arrives here.
-        through: async function* (
-          /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
-        ) {
-          let first = true;
-          for await (const row of rows) {
-            if (first) {
-              first = false;
-              for (const path of all.filter((path) => path !== row[0])) {
-                rmSync(path);
-              }
+    const set = {
+      name: "photos",
+      dirs: [root],
+      bucket: "b",
+      dir: dir.path,
+      snapshotsDir,
+      dirsPath: join(dir.path, "dirs.txt"),
+      excludePath: join(dir.path, "exclude.txt"),
+      envPath: join(dir.path, "env"),
+    };
+    const baseline = await readBaseline(set, { command: "snapshot" });
+
+    const pass = await generateSnapshot(set, {
+      baseline,
+      // The pipeline is lazy, so the rows after the first are not yet hashed
+      // when the first one arrives here.
+      through: async function* (
+        /** @type {Iterable<SnapshotRow> | AsyncIterable<SnapshotRow>} */ rows,
+      ) {
+        let first = true;
+        for await (const row of rows) {
+          if (first) {
+            first = false;
+            for (const path of all.filter((path) => path !== row[0])) {
+              rmSync(path);
             }
-            yield row;
           }
-        },
+          yield row;
+        }
       },
-    );
+    });
 
     assert.equal(pass.errors.length, 2);
     for (const { reason } of pass.errors) {

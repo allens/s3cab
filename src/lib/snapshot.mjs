@@ -48,6 +48,7 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
  * because parked rows were never in that snapshot, so they must not read as its
  * content.
  * @typedef {Object} SnapshotBaseline
+ * @property {"backup" | "snapshot"} command - The command running, as the porcelain stated it to {@link readBaseline} — carried here so the pass names the same one
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
  * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#ERROR` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
@@ -99,7 +100,7 @@ const resumeCommand = (command, setName) =>
  * the first step of both commands, and `backup`'s store LIST comes next.
  * @param {BackupSet} set - The resolved set
  * @param {object} options
- * @param {"backup" | "snapshot"} options.command - The command running, so a refusal names the right `--resume`
+ * @param {"backup" | "snapshot"} options.command - The command running, so a refusal names the right `--resume`; returned on the baseline for the pass
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.resume] - Adopt the work file an interrupted run left behind, reusing the hashes it had already computed (`--resume`)
  * @returns {Promise<SnapshotBaseline>}
@@ -143,7 +144,7 @@ export async function readBaseline(set, { command, rehash, resume }) {
   }
 
   if (rehash) {
-    return { name, previous, previousErrors, instant };
+    return { command, name, previous, previousErrors, instant };
   }
 
   const parked = await readParkedLookup(snapshotDir, instant);
@@ -167,7 +168,7 @@ export async function readBaseline(set, { command, rehash, resume }) {
     lookup = { entries: previous, baselineMs: trustBoundary(instant) };
   }
 
-  return { name, previous, previousErrors, lookup, instant };
+  return { command, name, previous, previousErrors, lookup, instant };
 }
 
 /**
@@ -205,18 +206,23 @@ export async function readBaseline(set, { command, rehash, resume }) {
  * hashes exactly as it does during a snapshot, with the objects already uploaded
  * left as harmless orphans.
  * @param {BackupSet} set - The resolved set
- * @param {object} [options]
- * @param {SnapshotBaseline} [options.baseline] - `readBaseline`'s result, passed through whole: `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below
- * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader)
+ * @param {object} options
+ * @param {SnapshotBaseline} options.baseline - `readBaseline`'s result, passed through whole: `command` for what the pass calls itself, `lookup` for hash reuse, `previous` for the progress line's byte denominator (see `withProgress`; absent on a first run, which has no previous snapshot to size against), and `instant` for the clock-went-backwards warning below
+ * @param {RowTransform} [options.through] - Pass-through applied to each hashed row (`backup`'s object uploader). It says nothing about which command is running: tests hook rows through it on a `snapshot` pass too
  * @param {() => TransferState} [options.transfer] - That uploader's live state, so the one progress line can report the sending too
  * @param {boolean} [options.debug] - Leave an uncompressed copy beside the snapshot (and allow a same-minute overwrite)
  * @returns {Promise<SnapshotPass>} The snapshot, and what the pass took to make it
  */
 export async function generateSnapshot(
   set,
-  { baseline, through, transfer, debug } = {},
+  { baseline, through, transfer, debug },
 ) {
-  const { lookup, previous: sizes, instant: previousInstant } = baseline ?? {};
+  const {
+    command,
+    lookup,
+    previous: sizes,
+    instant: previousInstant,
+  } = baseline;
   // From here, not from the first hashed row: the walk is part of what the
   // report calls scanning, and on a big set it is minutes of it.
   const startedAt = performance.now();
@@ -229,13 +235,13 @@ export async function generateSnapshot(
   // The pass announces itself once, here, so the line that follows carries no
   // constant text at all — it was spending a dozen columns four times a second
   // repeating a label that never changed, and those columns are what the file
-  // path needs. It names what it is doing (an uploader spliced in makes this a
-  // backup; hashing is then the means, not the errand), what it is doing it to,
-  // and where that lands: `<set>/<snapshot>` is already how the rest of the
-  // output identifies a snapshot within a set, and the path is the pasteable
-  // half the "Generating new snapshot" line it replaces used to carry.
+  // path needs. It names what it is doing (for a backup, hashing is the means,
+  // not the errand), what it is doing it to, and where that lands:
+  // `<set>/<snapshot>` is already how the rest of the output identifies a
+  // snapshot within a set, and the path is the pasteable half the "Generating
+  // new snapshot" line it replaces used to carry.
   const displayPath = join(set.snapshotsDir, snapshotFileName(name));
-  const verb = transfer ? "Backing up" : "Snapshotting";
+  const verb = command === "backup" ? "Backing up" : "Snapshotting";
   console.warn(`${verb} '${set.name}/${name}' ('${tildeify(displayPath)}'):`);
   // Where the objects are going, on a second line (ADR-0078 §11). Until now the
   // only line that named the bucket was the store LIST's, which fires *only*
@@ -244,9 +250,9 @@ export async function generateSnapshot(
   // folders it was reading and stayed silent about where it was sending them.
   // Same shape as that line, quotes and all: the bucket alone, since the
   // `objects/` prefix is internal layout (guide/format.md) while `s3://<bucket>`
-  // is the thing the user configured. Only when this pass is sending — an
-  // offline `snapshot` has no destination to name.
-  if (transfer) {
+  // is the thing the user configured. Only for a backup — an offline `snapshot`
+  // has no destination to name.
+  if (command === "backup") {
     console.warn(`Storing objects in 's3://${set.bucket}'`);
   }
 
@@ -330,10 +336,8 @@ export async function generateSnapshot(
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: roots,
-    // What to offer if the lock turns out to be held (ADR-0092). `transfer`
-    // already tells the two commands apart for the announcement line above, so
-    // naming the wrong one is not possible.
-    resumeCommand: resumeCommand(transfer ? "backup" : "snapshot", set.name),
+    // What to offer if the lock turns out to be held (ADR-0092).
+    resumeCommand: resumeCommand(command, set.name),
     onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,
