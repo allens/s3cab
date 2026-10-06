@@ -47,7 +47,7 @@ import { prop } from "./prop.mjs";
  *   skip leaves nothing inconsistent.
  *
  * (The snapshot-aware *hashing* skip — reusing a stored hash for a file unchanged since a
- * snapshot — is `snapshot`-time machinery via `prop`'s `lookup`, not `upload`'s concern; the
+ * snapshot — is `fileProps`'s `lookup`, used at snapshot time, not `upload`'s concern; the
  * old `--if-modified-from` TODO here was resolved into the `--since` baseline above, ADR-0044.)
  *
  * @typedef {Object} FileUploadResult

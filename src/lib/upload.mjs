@@ -414,8 +414,8 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
 /**
  * How the file on disk differs from the one that was hashed, or `undefined` when
  * it is still the same file — the drift guard, run in the sliver between hashing
- * a file and PUTting its bytes. Unchanged is the same staleness test `fileProps`
- * uses (size *and* mtime), against what the row recorded.
+ * a file and PUTting its bytes. Unchanged means the same size *and* mtime as
+ * the row recorded.
  *
  * **Every** `lstat` failure is a change, not just ENOENT: this runs inside a
  * pipeline link, where a throw would destroy the chain and truncate the snapshot

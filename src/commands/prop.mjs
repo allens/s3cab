@@ -16,7 +16,7 @@ import { readSnapshotFile } from "../lib/snapshot-file.mjs";
  *
  * The snapshot pipeline does not route through here: it calls `fileProps`
  * directly with the previous snapshot's entries already in memory, so the only
- * `lookup` this command takes is the convenience *path* form (commands/snapshot.mjs).
+ * `lookup` this command takes is the convenience *path* form (`generateSnapshot`).
  *
  * The source carries **no change-time boundary**, even for a set that opted in
  * to the check (ADR-0094): this command is handed one arbitrary snapshot file to

@@ -199,7 +199,7 @@ describe("planUnrestorable", () => {
 
   it("passes unreadable snapshots through as data rather than throwing", () => {
     // The command decides what to do about them — a warning here, not cleanup's
-    // abort, because delete never acts on this set.
+    // abort, because forget never acts on this set.
     const plan = planUnrestorable(
       enumeration({ photos: { s1: { "a.jpg": ["h1"] } } }, { photos: ["s9"] }),
       { set: "photos", snapshots: ["s1"], remoteSnapshots: ["s1"] },

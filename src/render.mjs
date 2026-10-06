@@ -1285,17 +1285,16 @@ export function renderUpload(result, { color = false } = {}) {
 
 /**
  * Confirm a `restore` (ADR-0043) — how many files were written from which
- * snapshot, then the existing files left untouched, then the names this volume
- * folded into an already-restored file, then the names it refused outright,
- * then any file whose stored content is damaged, then any file whose content
- * the bucket no longer holds. All lists are given in full, never truncated:
- * each entry is a file the user asked for and didn't get, so name them all and
- * say what to do about it (`--overwrite` for the skipped, a separate `--output`
- * for the collided and the refused, `upload --force` of a surviving copy for
- * the corrupt, `verify` for the missing — ADR-0030's constructive fix). The missing block comes last so it is what remains on
- * screen after a long run, and its exit code is set by the command. An empty
- * selection that did nothing at all says so plainly rather than emitting blank
- * output.
+ * snapshot, then one block per reason a requested file wasn't written. All
+ * lists are given in full, never truncated: each entry is a file the user asked
+ * for and didn't get, so name them all and say what to do about it
+ * (`--overwrite` for the skipped, a separate `--output` for the collided and the
+ * refused, `upload --force` of a surviving copy for the corrupt, `verify` for
+ * the missing — ADR-0030's constructive fix). The deliberately deleted need no
+ * fix: the deletion record explains them. The missing block comes last so it is
+ * what remains on screen after a long run, and its exit code is set by the
+ * command. An empty selection that did nothing at all says so plainly rather
+ * than emitting blank output.
  * @param {RestoreResult} result
  * @param {RenderContext} [context]
  * @returns {string}

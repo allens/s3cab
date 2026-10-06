@@ -11,9 +11,9 @@
 // **Why this is not in remote.mjs, which produces the shape**
 // ([ADR-0074](../../docs/adr/0074-referenced-enumeration-vocabulary-module.md)):
 // remote.mjs reaches `@aws-sdk/client-s3`, and `cleanup.mjs`/`unrestorable.mjs`/
-// `verify.mjs` are pure planners with no runtime imports at all. Putting
-// the vocabulary with its producer would drag the SDK into three pure modules
-// and their tests to flatten an array. So this module imports nothing beyond the
+// `verify.mjs` are pure planners that reach no I/O at all. Putting the
+// vocabulary with its producer would drag the SDK into three pure modules and
+// their tests to flatten an array. So this module imports nothing beyond the
 // builtin-only style gate, and every consumer — producer included — depends on
 // it.
 
@@ -172,11 +172,11 @@ export const sizeDisagreements = (object, storedSize) => {
  * bucket (`snapshots/<set>/<name>.tsv.zst`), so a name printed here pastes
  * straight after `s3://<bucket>/snapshots/` (CONTEXT.md, **Snapshot**).
  *
- * `referencedObjects` reports these **per set**, but every consumer of a
- * whole-bucket scan wants them flat: `cleanup` and `delete` refuse on a non-empty
- * list, `forget` caveats its preview with one. The per-set `reason` is dropped —
- * these three commands say *which* snapshots and send the user to `verify` for
- * *why*, and `verify` reads the per-set list where the reason is still carried.
+ * `referencedObjects` reports these **per set**, but a whole-bucket scan wants
+ * them flat, to refuse on a non-empty list or to caveat its output with one. The
+ * per-set `reason` is dropped — a whole-bucket scan says *which* snapshots and
+ * sends the user to `verify` for *why*, and `verify` reads the per-set list where
+ * the reason is still carried.
  * @param {Map<string, ReferencedResult>} referencedBySet - The bucket's per-set enumeration (`referencedObjects`)
  * @returns {string[]} `set/snapshot` names, in scan order
  */
@@ -186,11 +186,11 @@ export const unreadableSnapshots = (referencedBySet) =>
   );
 
 /**
- * The one message `cleanup`, `delete` and `forget` report unreadable snapshots
- * with (ADR-0030): what it stops the user doing, the plain reason, every name,
- * and the exact command that diagnoses it. Returns *text* rather than an `Error`
- * because half its callers push it into a summary they are already building and
- * half throw it — the shared part is the wording, not the throwing.
+ * The one message a whole-bucket scan reports unreadable snapshots with
+ * (ADR-0030): what it stops the user doing, the plain reason, every name, and
+ * the exact command that diagnoses it. Returns *text* rather than an `Error`
+ * because some callers push it into a summary they are already building and
+ * others throw it — the shared part is the wording, not the throwing.
  *
  * Every name is listed, never elided: a count is no use to someone deciding
  * which snapshot to look at, and this is a data-loss report. There is no count

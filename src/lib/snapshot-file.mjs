@@ -307,7 +307,7 @@ export async function withSnapshotFile(
   try {
     // Handler installed here, around the write, rather than at the top-level
     // dispatch — that has no handle on the open stream to finalise (ADR-0067).
-    // `backup` gets it for free, through `snapshot`.
+    // `backup` and `snapshot` both get it, through `generateSnapshot`.
     using park = parkOnInterrupt();
 
     // The finally ensures the fd is closed on every path — including a mid-pipeline
@@ -512,8 +512,8 @@ const inProgressError = (tmpPath) => {
  * Hashing is *injected* as `getProps`, not imported — the seam that lets a test
  * drive the writer without touching disk (it passes a `getProps` that synthesizes
  * props; see test/helpers/write-snapshot.mjs). Production binds it to the lib
- * `fileProps` with the previous-snapshot lookup already in (commands/snapshot.mjs).
- * `files` is accepted as any (async) iterable, so the command can hand in a
+ * `fileProps` with the previous-snapshot lookup already in (`generateSnapshot`).
+ * `files` is accepted as any (async) iterable, so the caller can hand in a
  * progress-wrapped stream.
  *
  * Write order is header → excluded → skipped → entries: the "not backed up"
@@ -618,10 +618,9 @@ export async function writeSnapshot(
  *   empty snapshot, which a caller could mistake for an empty one. The error
  *   **names the snapshots that do exist** (ADR-0030: give the fix, don't just
  *   state the failure), which is the standard `restore` and `forget` already
- *   set for remote names; this is the local path `compare` and
- *   `upload --snapshot` reach through. Enriching it here rather than at those
- *   call sites is safe because the only other caller, `readBaseline`, passes a
- *   name that came *from* this directory's listing and so can never miss.
+ *   set for remote names. Enriching it here rather than at each call site is
+ *   safe because a name that came *from* this directory's listing can never
+ *   miss, so only a name the user typed ever sees the error.
  */
 export async function readSnapshot(snapshotDir, name) {
   assert(snapshotDir, "No snapshot directory specified");

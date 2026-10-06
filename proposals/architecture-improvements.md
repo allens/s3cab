@@ -157,11 +157,6 @@ builds the finding's `reason` inline (`Error.isError(error) ? error.message : St
 [snapshot.mjs](../src/lib/snapshot.mjs):381, which agrees with
 [snapshot-file.mjs](../src/lib/snapshot-file.mjs):1079/:1110 only because it restates them. No leverage
 today — the current error classes carry messages — offered as a consistency fix, not a defect.
-Alongside it, [referenced.mjs](../src/lib/referenced.mjs):176–178 and :189 still name `delete` as one of three
-consumers of `unreadableSnapshots`/`unreadableMessage`; `commands/delete.mjs` has not imported
-`referenced.mjs` since ADR-0089, so the real two adapters are `commands/cleanup.mjs` and
-`lib/unrestorable.mjs`. (This is the *second* stale consumer list on that module's header — the first
-was fixed when pass-12's G landed. If it recurs again, the list is the problem, not the edit.)
 **`preparePath`'s unread fields — `preparePath` returns three fields and neither caller reads all three.** _Speculative, and
 unmeasured — recorded as join residue at a new seam, not as a finding I am confident in._
 path-match.mjs:70–80's own doc says it is "called once per row of every snapshot in history, so it
@@ -179,19 +174,6 @@ clock** in
 [PR #355](https://github.com/allens/s3cab/pull/355), as their own commit. See the run log._
 
 **Smaller items (fifteenth pass)** — verified, too small for an entry of their own.
-**Stale caller lists — The pipeline's caller lists are stale.** `readSnapshot`'s doc
-([snapshot-file.mjs](../src/lib/snapshot-file.mjs):616–618) calls `readBaseline` "the only other
-caller"; the real callers are `status`, `compare`, `find` and `upload`. `fileProps`'s doc
-([file-props.mjs](../src/lib/file-props.mjs):78–80) says "both callers"; there are three (`prop`,
-`generateSnapshot`, `uploadDir`). [lib/upload.mjs](../src/lib/upload.mjs):417–418 says unchanged "is
-the same staleness test `fileProps` uses", false since ADR-0094 made the change-time half opt-in.
-Same family at snapshot-file.mjs:311 and :506–507, commands/prop.mjs:17–19, commands/upload.mjs:49–50.
-Each is one sentence; name the functions, not a count, or the next caller makes it stale again.
-**Restore and `referenced.mjs` docs.** `renderRestore`'s doc
-([render.mjs](../src/render.mjs):1287–1298) omits the `deleted` field, and :1295 runs past the
-line length. [referenced.mjs](../src/lib/referenced.mjs):13–14 calls `cleanup.mjs`,
-`unrestorable.mjs` and `verify.mjs` "pure planners with no runtime imports at all", which is false. `unrestorable.test.mjs`:172 says
-"delete" where it means `forget`.
 **`hashedFiles` counts empty files.** `fileProps`'s doc (file-props.mjs:92–93) promises no
 `hashDuration` when nothing was read, but the `EMPTY_DIGEST` branch (:139–140) still returns one
 (:147), so an empty file counts as hashed. Cosmetic.

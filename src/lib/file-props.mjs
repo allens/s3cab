@@ -75,9 +75,9 @@ const trustMatch = (stat, baselineMs) =>
  * unchanged (same `size` *and* `mtime`, and — if the set opted in — `ctime` via
  * {@link trustMatch}), so an unchanged file is never re-hashed.
  *
- * The `lib` hashing primitive behind both callers: the `prop` command (which
- * resolves a `--lookup <snapshot>` path into a single source) and the snapshot
- * writer's injected `getProps` (bound by `snapshot`, see commands/snapshot.mjs).
+ * The `lib` hashing primitive behind the `prop` command (which resolves a
+ * `--lookup <snapshot>` path into a single source), the snapshot writer's
+ * injected `getProps` (bound in `generateSnapshot`) and `uploadDir`.
  * It lives in `lib` so the snapshot pipeline reaches it directly instead of
  * smuggling a `commands/` function across the porcelain/lib seam (ADR-0023).
  *
