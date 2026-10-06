@@ -61,13 +61,13 @@ overlap that leaves is accepted over sync machinery
    settings.json tweak, a `proposals/` note, or a doc fix needn't be its own PR (still prefer a
    separate *commit* each). This includes notes already sitting uncommitted in `proposals/`: roll
    them in rather than stepping around them.
-3. **Do not over-engineer** — the process-level twin of
-   [ADR-0006](docs/adr/0006-minimal-code.md): build the small thing the current need justifies,
-   generalize when the second case appears, counted in call sites that **already exist**. Two
-   clarifications, because the restrictive half gets misapplied to extractions the permissive half
-   authorizes: over-engineering is the **solution** being more complex than the problem warrants,
-   *not* the churn a change costs; and **"simpler" means clearer, not only smaller**. Pre-1.0
-   (`package.json` major `0`) you have free rein for large, correct refactors. (Example:
+3. **Judge an option by its result, and build what the current need justifies** — the
+   process-level twin of [ADR-0006](docs/adr/0006-minimal-code.md). Generalize when the second
+   case appears, counted in call sites that **already exist**. Compare options by the code they
+   leave behind: the right one is a **solution no more complex than its problem**, and "simpler"
+   means **clearer**, usually but not always smaller. Cost an option in runtime or user terms only,
+   and measure that cost (a benchmark, a test run); the diff that gets there is free. Pre-1.0
+   (`package.json` major `0`) a large, correct refactor is as open as a small one. (Example:
    `isENOENT` in `src/lib/error.mjs`, added at four call sites as the specific predicate, not a
    generic `isErrnoCode`.)
 4. **Test coverage is judged by review, not a percentage gate**

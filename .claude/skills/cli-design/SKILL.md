@@ -164,7 +164,7 @@ these rules live:
   warn (don't break) when a form is deprecated, suggesting the new way. Iterating
   on *human* output is fine — `--json`/`--plain` are the script-facing contract.
   How bold to be is **version-gated** (pre-1.0 free rein vs post-1.0 care) — see
-  CLAUDE.md's *Do not over-engineer* working convention.
+  CLAUDE.md's *Judge an option by its result* working convention.
 
 ## Naming
 
