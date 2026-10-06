@@ -65,7 +65,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** None: **B**, **G** and **J** are independent of one another.
+(2) **Ordering constraints.** None: **B** and **J** are independent of each other.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -116,24 +116,8 @@ and verifies with `npm test` alone.
   _Landed 2026-10-06 as [PR #375](https://github.com/allens/s3cab/pull/375), as a deletion rather
   than the fix proposed. See the run log._
 - **G — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
-  is already curried.** _Worth exploring — anchors re-verified 2026-10-04, exact._ The
-  relay is curried on its options precisely so "the give-up path is testable in milliseconds"
-  ([s3.mjs](../src/lib/s3.mjs):498–503),
-  and [network-status.mjs](../src/lib/network-status.mjs):50 and :77 already take the stream as their
-  first parameter — but both call sites hard-code it (s3.mjs:543 `enterNetworkWait(process.stderr, …)`,
-  :563 `leaveNetworkWait(process.stderr, …)`), so the only way to observe an announcement is
-  monkeypatching `process.stderr.write` ([s3.test.mjs](../src/lib/s3.test.mjs):815–825, whose comment
-  at :807 claims "there is no stream to inject through SDK middleware". The place to inject it is the
-  relay's own option bag, which exists). **The concrete cost:** ADR-0091 decision 2 says the announcement "now names
-  **what is left** of the window rather than the constant", and nothing asserts it — s3.test.mjs:860
-  asserts the *constant* wording (`/up to 2 minutes/`), the three remaining-window assertions
-  ([network-status.test.mjs](../src/lib/network-status.test.mjs):107, :112, :119) drive
-  `enterNetworkWait` directly and never go through the relay, and s3.test.mjs:910 ("starts the
-  window at the first failure, not at the request") never reaches an announcement at all. Fix: carry
-  the stream alongside `windowMs` in the already-curried options, defaulted to `process.stderr`.
-  **Brushes the network-resilience-trio rejection and must say so:** that rejection is against
-  *restructuring*; the mechanic, `requestErrorTable` and `network-status.mjs` are untouched here — this
-  is one parameter on an injection point that already exists.
+  is already curried.** _Landed 2026-10-06 as [PR #376](https://github.com/allens/s3cab/pull/376), as
+  a test only — the stream parameter was declined. See the run log._
 - **H — The parser knows how much of a torn work file it got, then throws it away.** _Built
   2026-10-01 as [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) — a tolerant
   `parseSnapshotStream` whose completeness is a returned fact, with the work file's mtime standing in
@@ -823,3 +807,15 @@ least once; re-open only if the stated reason no longer holds.
   - **Copilot**: its one comment asked to pin the verb to the command, which the final shape drops;
     declined on the thread.
   - `npm test` 1191 pass, 13 skipped; no S3 path touched.
+- **2026-10-06 — G landed** ([PR #376](https://github.com/allens/s3cab/pull/376); no ADR).
+  - **The gap was a test, not a seam.** `formatDuration` rounds to the second, so the few real
+    milliseconds a test spends leave the full window and what is left of it both printing
+    `up to 2 minutes`; reverting the relay to `windowMs` passed everything. The new relay test fakes
+    `Date.now` so the second failure surfaces 90 s in, asserts `up to 30 seconds`, and was checked red
+    against that revert.
+  - **Not taken: the stream parameter.** Production has one stream, so it would be a seam with one
+    adapter, kept for tests, and the `process.stderr.write` patch already works. The rejection is
+    `captureStderr`'s comment in s3.test.mjs, which also drops the false "no stream to inject through
+    SDK middleware".
+  - **Copilot**: no comments.
+  - `npm test` 1192 pass, 13 skipped; no `src/` behaviour touched.
