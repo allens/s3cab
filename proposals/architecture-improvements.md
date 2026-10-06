@@ -29,13 +29,17 @@ Strength tags: **Strong** / **Worth exploring** / **Speculative**. Each entry no
 that surfaced it and when it was last verified against the source.
 
 Re-verified 2026-10-04 (fifteenth pass): **19 `src/` commits since `f9bba9a`** (58 files,
-+3246/−2143), read at HEAD `7501768`. O, P and Q landed (#355), H landed as ADR-0092, and the stretch
++3246/−2143), read at HEAD `7501768`. The walk's silent clock, the file in hand three ways and the pre-#343 comments landed
+(#355), the torn work file landed as ADR-0092, and the stretch
 also brought ADR-0094 (the change-time check opt-in), ADR-0095 (online-only files read like any
-other) and restore's refused names (#350, #354, #365). **I and K are dead and deleted:** ADR-0094/0095
-removed what I described, and `foldsCase` gained a production caller (`putsColonInName` in
-[restore.mjs](../src/lib/restore.mjs)). **B is downgraded and F rewritten**; C, E, J, L and N hold with
-anchors corrected in place; G and M are exact. **Four new candidates, R–U, and smaller items V–X.**
-**R was a regression, confirmed by experiment and landed the same day:** #365 made
+other) and restore's refused names (#350, #354, #365). **Backup's figures and idle `foldsCase` are dead and deleted:** ADR-0094/0095
+removed what the first described, and `foldsCase` gained a production caller (`putsColonInName` in
+[restore.mjs](../src/lib/restore.mjs)). **`diff`'s test-only export is downgraded and command named twice
+rewritten**; forget's blind preview, exclude subject side, two knob tables, three failure-reason
+spellings and `preparePath`'s unread fields hold with anchors corrected in place; unpinned retry
+window and find's stale header are exact. **Four new candidates (refused-name download, uncaught
+`FileChangedError`, restore's early copy plan, parked lookup lifecycle) and three smaller items.**
+**The refused-name download was a regression, confirmed by experiment and landed the same day:** #365 made
 `writeFileAtomic`'s temp name always legal, which moved a refused name's failure from temp creation to
 the `rename` after the full download, on a path that left the temp behind. It was pass 13's shape
 again: the module gave a reason to remove its temp ("the caller may carry on past them (`restore`
@@ -47,16 +51,17 @@ one read the **11 `src/` commits since `a4ed60c`'s HEAD `a4e0c9d`** (59 files, +
 `completionInstant`, the `s3.mjs` fake stencil, the enumeration builder, the Roles Anywhere error
 family — plus one genuinely new subsystem, **ADR-0091**'s idle-connection bound and retry-window
 origin. Three background sweeps (pass-12's new seams / the transfer+progress path / re-verification
-plus the uncovered remainder); **A, C, the `foldsCase` fact in K, the `diff` call-graph in B and the
-starter-pattern count in E were re-verified against source by hand** before being written down.
+plus the uncovered remainder); **the clock seam bypass, forget's blind preview and three facts behind
+other entries (`foldsCase`'s callers, `diff`'s call graph, the starter-pattern count) were
+re-verified against source by hand** before being written down.
 
 **Verdict: the recurring shape has changed.** Earlier passes kept finding one rule split across two
 modules that don't import each other. This pass's dominant shape is narrower and more embarrassing —
 **a module that states a rule in prose _about itself_ which its own code does not keep**: the clock
-seam's "and nowhere else" (**A**), `lib/provider.mjs`'s "the one home of the knob ↔ env-key mapping"
-(**J**), `commands/backup.mjs`'s "every figure lands here rather than in the renderer" (**I**), and
-`exclude.mjs`'s subject-side convention, which turns out to be documented nowhere at all (**E**).
-A codebase that writes its invariants down gets measured against them — and **A** showed the cost of
+seam's "and nowhere else" (**clock seam bypass**), `lib/provider.mjs`'s "the one home of the knob ↔ env-key mapping"
+(**two knob tables**), `commands/backup.mjs`'s "every figure lands here rather than in the renderer" (**backup's figures**), and
+`exclude.mjs`'s subject-side convention, which turns out to be documented nowhere at all (**exclude subject side**).
+A codebase that writes its invariants down gets measured against them — and the **clock seam bypass** showed the cost of
 writing one down in the wrong words: its diagnostic sentence named a `Temporal.Now` read, and both
 escapes spelled it `new Date()`, so grepping the rule as written found nothing (landed — run log).
 
@@ -64,14 +69,14 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 (1) **Line anchors rot on every landing, and so do file paths.** Two files of the same name exist in
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
-anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** None: **B** and **J** are independent of each other.
+anchor — see **exclude subject side** below for what skipping that costs.
+(2) **Ordering constraints.** None: **`diff`'s test-only export** and **two knob tables** are independent of each other.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
-- **A — The deletion record's instants were minted outside the clock seam that names them.**
+- **Clock seam bypass — The deletion record's instants were minted outside the clock seam that names them.**
   _Landed 2026-10-01 as [PR #348](https://github.com/allens/s3cab/pull/348) — see the run log._
-- **B — `diff` is exported only for its test, and the rule about skipped paths lives outside it.**
+- **`diff`'s test-only export — `diff` is exported only for its test, and the rule about skipped paths lives outside it.**
   _Worth exploring — carried from the eleventh pass's smaller items; **downgraded from Strong**
   2026-10-04._ `diff` is [compare.mjs](../src/lib/compare.mjs):313; its **only** production call is
   :172, inside `compareSnapshots` itself, so the export exists so
@@ -86,14 +91,14 @@ and verifies with `npm test` alone.
   Minimal version: document the `skipped` rule where the `errors` rule already is. Real version:
   either move both carve-outs behind `diff`'s signature, or make `diff` module-private and let its
   tests cross `compareSnapshots`.
-- **C — `forget`'s unrestorable preview is the only bucket-wide reader that never consults the
+- **Forget's blind preview — `forget`'s unrestorable preview is the only bucket-wide reader that never consults the
   deletion record.** _Landed 2026-10-05 as [PR #370](https://github.com/allens/s3cab/pull/370). See
   the run log._
-- **D — The progress line goes blank on exactly the files that are slow.**
+- **Blank progress line — The progress line goes blank on exactly the files that are slow.**
   _Landed 2026-10-01 as [PR #343](https://github.com/allens/s3cab/pull/343) — see the run log. Its
   "narrow `onHashStart` to the byte cursor" half was not done there. It landed later as smaller item
-  **P**, in [PR #355](https://github.com/allens/s3cab/pull/355)._
-- **E — `compileExclude` owns the pattern side; the walk owns the convention.** _Worth exploring —
+  **file in hand three ways**, in [PR #355](https://github.com/allens/s3cab/pull/355)._
+- **Exclude subject side — `compileExclude` owns the pattern side; the walk owns the convention.** _Worth exploring —
   carried from the eleventh pass; anchors re-verified 2026-10-04._ `compileExclude` returns a bare
   `RegExp` ([exclude.mjs](../src/lib/exclude.mjs):21–27), and its JSDoc (:5–20) states one
   subject-side obligation, the `/`-separated subject. All three are implemented in
@@ -112,13 +117,13 @@ and verifies with `npm test` alone.
   normalization, the directory rule and first-match-wins move behind the module that owns the grammar.
   ADR-0088 governs the *token* grammar and says nothing about the subject side, so this **completes
   0088 rather than reopening it**. One production caller makes it a depth move, not a seam.
-- **F — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
+- **Command named twice — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
   _Landed 2026-10-06 as [PR #375](https://github.com/allens/s3cab/pull/375), as a deletion rather
   than the fix proposed. See the run log._
-- **G — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
+- **Unpinned retry window — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
   is already curried.** _Landed 2026-10-06 as [PR #376](https://github.com/allens/s3cab/pull/376), as
   a test only — the stream parameter was declined. See the run log._
-- **H — The parser knows how much of a torn work file it got, then throws it away.** _Built
+- **Torn work file — The parser knows how much of a torn work file it got, then throws it away.** _Built
   2026-10-01 as [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) — a tolerant
   `parseSnapshotStream` whose completeness is a returned fact, with the work file's mtime standing in
   for the `#END` instant it never wrote._ **One half was deliberately not taken, and the reason is
@@ -130,7 +135,7 @@ and verifies with `npm test` alone.
   a live run dies, and the user remains the liveness check. The ordering hazard the entry named is
   real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
   so.
-- **J — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.** _Worth
+- **Two knob tables — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.** _Worth
   exploring — anchors re-verified 2026-10-04._ [lib/provider.mjs](../src/lib/provider.mjs):21–23 (and
   :206–208) claims to be "the one home of the knob ↔ env-key mapping", with the three-mode exclusivity
   rule at :146–155 and the env keys written inline at :164–201;
@@ -146,23 +151,24 @@ and verifies with `npm test` alone.
   mode replaces, so the command applies a list rather than deriving one. **Deliberately not the
   standing-rejected `credentialMode(env)` classifier** — nothing is classified from an env bag; a table
   moves and a return value grows. Named because the two sit next to each other.
-- **O — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
+- **Walk's silent clock — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
   ticks.** _Landed 2026-10-02 as [PR #355](https://github.com/allens/s3cab/pull/355). See the run
   log; the record is
   [ADR-0093](../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md)._
-- **R — A refused name costs a full download and leaves it behind as a temp.** _Landed 2026-10-04
+- **Refused-name download — A refused name costs a full download and leaves it behind as a temp.** _Landed 2026-10-04
   as [PR #366](https://github.com/allens/s3cab/pull/366). See the run log._
-- **S — `FileChangedError` is a subclass nothing catches by type, and two docs say `backup` does.**
+- **Uncaught `FileChangedError` — `FileChangedError` is a subclass nothing catches by type, and two docs say `backup` does.**
   _Landed 2026-10-04 as [PR #367](https://github.com/allens/s3cab/pull/367). See the run log._
-- **T — Restore plans "copy from where the first one landed" before anything has landed.** _Landed
+- **Restore's early copy plan — Restore plans "copy from where the first one landed" before anything has landed.** _Landed
   2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
-- **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
+- **Parked lookup lifecycle — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
   2026-10-05 as [PR #369](https://github.com/allens/s3cab/pull/369). See the run log._
-- **Y — Both removers delete one object at a time, the shape C fixed for the HEADs.** _Landed
+- **One-at-a-time removers — Both removers delete one object at a time, the shape forget's blind
+  preview fixed for the HEADs.** _Landed
   2026-10-06 as [PR #371](https://github.com/allens/s3cab/pull/371). See the run log._
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
-**L — Three spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
+**Three failure-reason spellings — Three spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
 builds the finding's `reason` inline (`Error.isError(error) ? error.message : String(error)`);
 [find.mjs](../src/lib/find.mjs):219 builds the same field with `errorText`
 ([error.mjs](../src/lib/error.mjs):311–322), which additionally unwraps a message-less
@@ -175,12 +181,12 @@ consumers of `unreadableSnapshots`/`unreadableMessage`; `commands/delete.mjs` ha
 `referenced.mjs` since ADR-0089, so the real two adapters are `commands/cleanup.mjs` and
 `lib/unrestorable.mjs`. (This is the *second* stale consumer list on that module's header — the first
 was fixed when pass-12's G landed. If it recurs again, the list is the problem, not the edit.)
-**M — `find.mjs` calls a shipped feature unbuilt, citing a deleted file.**
+**Find's stale header — `find.mjs` calls a shipped feature unbuilt, citing a deleted file.**
 [commands/find.mjs](../src/commands/find.mjs):12–15 still describes the command as "the first half of
 a settled-but-unbuilt rework in which `delete` takes **hashes** (proposals/hash-operand-delete.md)".
 Both halves are false: ADR-0089 records "settled 2026-08-22 … built the same day", and the proposal
 file is deleted. Noted as a loose end when pass-12's E landed, still there. One sentence.
-**N — `preparePath` returns three fields and neither caller reads all three.** _Speculative, and
+**`preparePath`'s unread fields — `preparePath` returns three fields and neither caller reads all three.** _Speculative, and
 unmeasured — recorded as join residue at a new seam, not as a finding I am confident in._
 path-match.mjs:70–80's own doc says it is "called once per row of every snapshot in history, so it
 does the least it can". There are four calls: [find.mjs](../src/lib/find.mjs):279 and
@@ -191,12 +197,13 @@ search — the commonest — pays a whole-path
 zstd decompression cost**, and the memory/async stance argues against pre-emptive fuss. Either a lazy
 getter or letting `compileFindPattern`'s already-computed `wholePath` decide what the caller asks for.
 
-**Smaller items (fourteenth pass).** **P** (the file in hand carried three ways) and **Q** (three
-comments still describing the line before #343): _landed 2026-10-02 with **O** in
+**Smaller items (fourteenth pass).** **File in hand three ways** and **pre-#343 comments** (three
+comments still describing the line before #343): _landed 2026-10-02 with the **walk's silent
+clock** in
 [PR #355](https://github.com/allens/s3cab/pull/355), as their own commit. See the run log._
 
 **Smaller items (fifteenth pass)** — verified, too small for an entry of their own.
-**V — The pipeline's caller lists are stale.** `readSnapshot`'s doc
+**Stale caller lists — The pipeline's caller lists are stale.** `readSnapshot`'s doc
 ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):616–618) calls `readBaseline` "the only other
 caller"; the real callers are `status`, `compare`, `find` and `upload`. `fileProps`'s doc
 ([file-props.mjs](../src/lib/file-props.mjs):78–80) says "both callers"; there are three (`prop`,
@@ -204,12 +211,12 @@ caller"; the real callers are `status`, `compare`, `find` and `upload`. `filePro
 the same staleness test `fileProps` uses", false since ADR-0094 made the change-time half opt-in.
 Same family at snapshot-file.mjs:311 and :506–507, commands/prop.mjs:17–19, commands/upload.mjs:49–50.
 Each is one sentence; name the functions, not a count, or the next caller makes it stale again.
-**W — Restore and `referenced.mjs` docs.** `renderRestore`'s doc
+**Restore and `referenced.mjs` docs.** `renderRestore`'s doc
 ([render.mjs](../src/render.mjs):1287–1298) omits the `deleted` field, and :1295 runs past the
 line length. [referenced.mjs](../src/lib/referenced.mjs):13–14 calls `cleanup.mjs`,
 `unrestorable.mjs` and `verify.mjs` "pure planners with no runtime imports at all", which is false. `unrestorable.test.mjs`:172 says
 "delete" where it means `forget`.
-**X — `hashedFiles` counts empty files.** `fileProps`'s doc (file-props.mjs:92–93) promises no
+**`hashedFiles` counts empty files.** `fileProps`'s doc (file-props.mjs:92–93) promises no
 `hashDuration` when nothing was read, but the `EMPTY_DIGEST` branch (:139–140) still returns one
 (:147), so an empty file counts as hashed. Cosmetic.
 
@@ -221,12 +228,12 @@ call-order assertion cannot see (a held snapshot GET proving the objects LIST ha
 consumers destructure and re-derive nothing. [test/helpers/s3-seam.mjs](../test/helpers/s3-seam.mjs) —
 the asymmetric defaults are a real design argument and `test/s3-seam.test.mjs` keeps the surface honest
 in both directions *and* guards its own blind spot (a namespace or dynamic import fails loudly rather
-than leaving the check silently blind); this is the model the clock seam lacked when **A** was filed
-(A landed a lint rule, for the `new Date()` spelling only).
+than leaving the check silently blind); this is the model the clock seam lacked when the **clock seam bypass** was filed
+(it landed a lint rule, for the `new Date()` spelling only).
 [test/helpers/enumeration.mjs](../test/helpers/enumeration.mjs) — fixtures go through
 `addSnapshotReferences`, the production fold, so a test cannot hold a shape a real read would not
 produce. `format.mjs`'s `localMoment`/`completionInstant`/`readClock` **as a seam** — one clock read
-behind both doors, round-up rule argued and pinned; **A** was about the two callers that bypassed it, not
+behind both doors, round-up rule argued and pinned; the **clock seam bypass** was about the two callers that bypassed it, not
 about the seam. `safeSize`/`sizeDisagreements` and `referenced.mjs`'s `unreadableMessage` — two real
 adapters each, and the number-neutral `consequence` contract is the right shape. `verifySet` vs
 `planCleanup` — genuinely opposite set-differences over the same two enumerations, not one computation
@@ -247,12 +254,12 @@ syscall; the `find` → `delete --from-file` contract — **not** an untested pr
 IAM-name cap and is in fact a clean parameterized seam (`commands/aws.mjs` passes
 `maxLength: maxBucketNameLength(name)`); `network-status.mjs`'s refcount proxy mis-announcing under
 ADR-0069's one-in-flight pass — recorded deliberately in ADR-0091 and pinned as intended.
-**Examined & left alone (fourteenth pass).** Every other progress line, checked for **O**'s fault, and
-none has it. The store scan's counted pass ([upload.mjs](../src/lib/upload.mjs):138) and both of
+**Examined & left alone (fourteenth pass).** Every other progress line, checked for the **walk's silent clock**'s
+fault, and none has it. The store scan's counted pass ([upload.mjs](../src/lib/upload.mjs):138) and both of
 `find`'s (find.mjs:259, :379) are fed by real async I/O (a network page, a zstd/readline stream), so
 their timers get turns. `restore` pushes on `due()` over real async writes and owns no timer. The
 per-file upload bar in `s3.mjs` is driven by the SDK's progress events. `network-status.mjs` has no
-timer at all. **O** is the walk and the fused pass only, the two places where synchronous work runs in
+timer at all. The **walk's silent clock** is the walk and the fused pass only, the two places where synchronous work runs in
 front of a timer. #343's own landing was otherwise re-read and holds: `currentFile` set and never
 cleared is argued at its declaration (snapshot.mjs:288–296), and the concession's placement after the
 yield is argued at :533–538.
@@ -312,12 +319,12 @@ rewrite (ADR-0077), the progress rework (ADR-0076), resolve-time credential expi
 ([PR #277](https://github.com/allens/s3cab/pull/277), knowledge now in
 [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s amendment). **Its walk half never
 took effect**: the walk is synchronous, so the clock it got never ticks. That is the fourteenth pass's
-**O**. **D landed
+**walk's silent clock**. **D landed
 2026-08-07**, and **H was rejected** the same day (see *Rejected & parked*). The twelfth pass
 re-verified the rest: **B, C and G carried forward** as the twelfth pass's **C**, **E** and **J**,
 **F survives only as I**, and **I is dead**. The thirteenth pass then took the last two: this
 pass's **E** (`compileExclude`'s subject-side convention) and the `compare`/`diff` smaller item
-carry forward as the thirteenth pass's **E** and **B**, both **rewritten** — each had been filed
+carry forward as the thirteenth pass's **exclude subject side** and **`diff`'s test-only export**, both **rewritten** — each had been filed
 with the wrong mechanism, which the re-verification caught. Nothing else from this pass is open.
 
 **Smaller items (eleventh pass), as later passes left them.** `snapshotName` — **dead**, the
@@ -556,27 +563,27 @@ least once; re-open only if the stated reason no longer holds.
   answered), so this pass read the **11 `src/` commits since `a4e0c9d`** (59 files, +2233/−1302)
   at HEAD `3395305` — nine of them pass 12's own landings, plus **ADR-0091**'s idle-connection
   bound and retry-window origin as the one new subsystem. Three background sweeps (pass-12's new
-  seams / the transfer+progress path / re-verification plus the uncovered remainder), then **A, C,
-  the `foldsCase` fact in K, the `diff` call-graph in B and the starter-pattern count in E
-  re-verified by hand** against source. **Fourteen candidates recorded above (A–N)**, the standout
-  being **A: the deletion record's instants are minted outside the clock seam that names them** —
+  seams / the transfer+progress path / re-verification plus the uncovered remainder), then **the clock seam bypass,
+  forget's blind preview and three facts behind other entries (`foldsCase`'s callers, `diff`'s call
+  graph, the starter-pattern count) re-verified by hand** against source. **Fourteen candidates
+  recorded above**, the standout being **the clock seam bypass: the deletion record's instants are minted outside the clock seam that names them** —
   found independently by two sweeps, byte-identical output either way, and the precedent-setter for
   the three others sharing its shape. **Verdict: the recurring shape changed** — earlier passes kept
   finding one rule split across two modules; this pass's dominant shape is a module stating a rule
-  *about itself* in prose that its own code does not keep (A, E, I, J). **The re-verification rule
-  paid again, and this time against a Strong entry of my own filing:** carried candidate **E** was
+  *about itself* in prose that its own code does not keep (clock seam bypass, exclude subject side, backup's figures, two knob tables). **The re-verification rule
+  paid again, and this time against a Strong entry of my own filing:** carried candidate **exclude subject side** was
   two-thirds wrong — two sentences dead, the mechanism wrong in three places, the pattern count
   wrong (four of eight, not four of six) and the file wrong (`lib/sets.mjs`, not
-  `commands/setup.mjs`) — so it is downgraded to *Worth exploring* and rewritten; carried **B** kept
+  `commands/setup.mjs`) — so it is downgraded to *Worth exploring* and rewritten; carried **`diff`'s test-only export** kept
   its strength but had the wrong mechanism (the contract cross-references `compareSnapshots`
   honestly for `errors`; it is `skipped` that is documented nowhere). Recorded as leave-alone:
   every pass-12 landing re-read and holding, plus five discarded findings (`render.mjs`'s remaining
   hand-built blocks, `bytesTotal`'s pre-pass, the `find` → `delete --from-file` contract,
   `validateBucketName`, and `network-status.mjs`'s refcount proxy under ADR-0069). The
   parked/rejected list was re-checked and stands untouched — three candidates brush a rejection
-  (**D** two, **G** and **J** one each) and each says in its entry why it does not reopen it.
+  (**blank progress line** two, **unpinned retry window** and **two knob tables** one each) and each says in its entry why it does not reopen it.
   Overwrote the HTML report in place.
-- **2026-10-01 — A landed** ([PR #348](https://github.com/allens/s3cab/pull/348), grilled
+- **2026-10-01 — Clock seam bypass landed** ([PR #348](https://github.com/allens/s3cab/pull/348), grilled
   in-session, eight decisions asked one per turn; no ADR — the rule's record is `format.mjs`'s
   header and the lint). *Read the deletion record's instants through the clock seam.*
   `commands/delete.mjs` and `lib/deletion-record.mjs`'s `compactDeletionRecords` both read
@@ -606,7 +613,7 @@ least once; re-open only if the stated reason no longer holds.
   - Red first: four instant-asserting tests failed on wall-clock time under a pinned clock.
     `npm test` 1118 pass, integration 26 pass, Roles Anywhere live 3/3; CI green, Copilot raised
     nothing.
-- **2026-10-01 — D landed** ([PR #343](https://github.com/allens/s3cab/pull/343), built in its own
+- **2026-10-01 — Blank progress line landed** ([PR #343](https://github.com/allens/s3cab/pull/343), built in its own
   session from the [output-ux.md](output-ux.md) note; the record is
   [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)'s two-part amendment). *Name the
   file the pass has in hand, and let the clock tick.* `WORTH_REPORTING_MS` now governs the
@@ -614,23 +621,25 @@ least once; re-open only if the stated reason no longer holds.
   pass concedes the event loop every 100 ms after each row.
   [snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs) drives the wiring through
   `through` under a fake `setInterval`.
-  - **The entry's fix was right but not enough, and the gap became the fourteenth pass's O.** The
+  - **The entry's fix was right but not enough, and the gap became the walk's silent clock.** The
     entry predicted that one assignment in `getProps` would name every file. It did, and the line
     still didn't move, because its timer never fired: every stage is async in form but synchronous in
     the work it does, so the microtask queue never drains. The entry had no way to see that from the
     code. Measured in the PR at 1 ms a file: zero ticks in eight seconds.
   - **Half the entry was not done:** narrowing `onHashStart` to the byte cursor. `HashProgress` still
-    carries `path`, so the name now travels three ways. That is smaller item **P**.
+    carries `path`, so the name now travels three ways. That is smaller item **file in hand three ways**.
 - **2026-10-02 — fourteenth pass.** Read the **2 `src/` commits since `3395305`** (9 files,
-  +381/−55) at HEAD `f9bba9a`, both of them pass-13 landings (A in #348, D in #343). The steps:
+  +381/−55) at HEAD `f9bba9a`, both of them pass-13 landings (the clock seam bypass in #348, the blank progress line in #343). The steps:
   - one background sweep of the progress subsystem, as the organic friction walk, since #343 was
     where the code had moved;
-  - hand re-verification of B, C and E–N, all of which hold, with anchors corrected for F, G, H and I;
-  - a narrowing of I's second half (the `skipped` sum is deliberate, ADR-0078 §2);
+  - hand re-verification of every other pass-13 entry, all of which hold, with anchors corrected
+    for command named twice, unpinned retry window, torn work file and backup's figures;
+  - a narrowing of backup's figures' second half (the `skipped` sum is deliberate, ADR-0078 §2);
   - hand verification of every sweep claim before it was written down.
 
-  **New: O (Strong), plus smaller items P and Q.** Overwrote the HTML report in place.
-  - **O was found by asking where else #343's fault lives.** #343 found event-loop starvation in the
+  **New: walk's silent clock (Strong), plus smaller items file in hand three ways and pre-#343
+  comments.** Overwrote the HTML report in place.
+  - **The walk's silent clock was found by asking where else #343's fault lives.** #343 found event-loop starvation in the
     pass it was fixing and closed it there. The sweep then asked which other clock-driven line sits in
     front of synchronous work. The walk does, and its `countedPass` has never ticked. This was
     confirmed by running the real module under a scratch harness rather than by reading it, because
@@ -647,10 +656,10 @@ least once; re-open only if the stated reason no longer holds.
     (snapshot.mjs:544–548) leaves the suite green. That rests on the test file's own header
     (snapshot.progress.test.mjs:40–47, "the 100ms concession that lets it fire at all … still
     unasserted"), not on a mutation. It is recorded as the test's admission, not as a measured result.
-  - **The rejected/parked list was re-checked and stands untouched.** O touches no rejection. It amends
+  - **The rejected/parked list was re-checked and stands untouched.** The walk's silent clock touches no rejection. It amends
     ADR-0076's consequence rather than its decision, and it leaves #343's declined chunked-read fix
     declined.
-- **2026-10-02 — O landed, with P and Q** ([PR #355](https://github.com/allens/s3cab/pull/355),
+- **2026-10-02 — Walk's silent clock landed, with file in hand three ways and pre-#343 comments** ([PR #355](https://github.com/allens/s3cab/pull/355),
   grilled in-session the same day). The record is
   [ADR-0093](../docs/adr/0093-a-clocked-line-ticks-where-its-caller-never-yields.md); it partly
   supersedes [ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md) and adds a consequence
@@ -661,7 +670,7 @@ least once; re-open only if the stated reason no longer holds.
   - **The two passes.** The walk ticks per entry visited. The fused pass ticks per row, and it draws a
     figures-only closing frame when it runs to the end.
   - **The concession** (100 ms) moved into `propsRows`, beside the `signal.aborted` check it serves.
-  - **P and Q went in as their own commit.** `HashProgress` lost `path`, and `activity` names a hash
+  - **File in hand three ways and pre-#343 comments went in as their own commit.** `HashProgress` lost `path`, and `activity` names a hash
     from `currentFile`. The test of the impossible both-in-flight state was deleted with it.
   - **Two additions the grilling did not settle, flagged in the PR:**
     - an `opening` option, for `countedPass`'s bare label;
@@ -686,19 +695,22 @@ least once; re-open only if the stated reason no longer holds.
 - **2026-10-04 — fifteenth pass.** Read the **19 `src/` commits since `f9bba9a`** (58 files,
   +3246/−2143) at HEAD `7501768`: ADR-0092–0095, the restore name-refusal work (#350/#354/#365) and
   #364's unreadable-file naming. Three background sweeps (rate-limited mid-run and resumed), then hand
-  re-verification of the carried list: **I and K dead**, **B downgraded**, **F rewritten**, C and L
-  wider, E, J and N re-anchored. **New: R and S (Strong), T and U (Worth exploring), smaller items
-  V–X.** Top pick: **R**. Overwrote the HTML report in place.
-  - **R was confirmed by experiment, not reading.** A scratch probe ran the real `writeFileAtomic`
+  re-verification of the carried list: **backup's figures and idle `foldsCase` dead**, **`diff`'s test-only
+  export downgraded**, **command named twice rewritten**, forget's blind preview and three
+  failure-reason spellings wider, exclude subject side, two knob tables and `preparePath`'s unread
+  fields re-anchored. **New: refused-name download and uncaught `FileChangedError` (Strong),
+  restore's early copy plan and parked lookup lifecycle (Worth exploring), and three smaller
+  items.** Top pick: **refused-name download**. Overwrote the HTML report in place.
+  - **The refused-name download was confirmed by experiment, not reading.** A scratch probe ran the real `writeFileAtomic`
     against a refused name: on NTFS both a 300-character name and `q?.txt` failed at `rename` with
     ENOENT and left the 100,000-byte temp; on ext4 the long name failed with ENAMETOOLONG.
   - **Why the regression hid.** The restore refusal tests fake `getObject`, so none reaches
     `writeFileAtomic`; and `putsColonInName`'s "measured" leftover temp was measured before #365
     renamed the temp. A doc that says *measured* is measured as of its commit.
-  - **The rejected/parked list was re-checked.** T does not reopen pass 10's plan/execute verdict,
-    and U does not reopen H's declined half (adoption stays explicit). The read-surface rejection's
+  - **The rejected/parked list was re-checked.** Restore's early copy plan does not reopen pass 10's plan/execute
+    verdict, and parked lookup lifecycle does not reopen the torn work file's declined half (adoption stays explicit). The read-surface rejection's
     caller list was stale and is corrected; its reason holds.
-- **2026-10-04 — R landed** ([PR #366](https://github.com/allens/s3cab/pull/366), grilled in-session,
+- **2026-10-04 — Refused-name download landed** ([PR #366](https://github.com/allens/s3cab/pull/366), grilled in-session,
   four decisions asked one per turn; no ADR, the rule lives in `writeFileAtomic`'s doc).
   - **`writeFileAtomic` removes its temp on any failure**, a torn stream included, and drops the
     cleanup's own error so it can't mask the one `restore` classifies. Only process death leaves a
@@ -715,7 +727,7 @@ least once; re-open only if the stated reason no longer holds.
     made the cleanup itself fail; `atomic-file.cleanup-fails.test.mjs` mocks `rm` to reject and fails
     with the `.catch` removed.
   - `npm test` 1176 pass; integration 27 pass, 3 Roles Anywhere skipped; CI green on all three OSes.
-- **2026-10-04 — S landed** ([PR #367](https://github.com/allens/s3cab/pull/367), grilled in-session,
+- **2026-10-04 — Uncaught `FileChangedError` landed** ([PR #367](https://github.com/allens/s3cab/pull/367), grilled in-session,
   two decisions asked one per turn; no ADR, since error.mjs's taxonomy already decided it).
   - **`fileChangedError` returns a plain `Error`; the class is gone.** ADR-0069's table and ADR-0083
     now name the factory; neither decision changed.
@@ -726,7 +738,7 @@ least once; re-open only if the stated reason no longer holds.
   - Also fixed the pass-15 commit's broken `render.mjs` link, which failed the documentation-links
     test on `main`.
   - `npm test` 1176 pass; CI green on all three OSes.
-- **2026-10-04 — T landed** ([PR #368](https://github.com/allens/s3cab/pull/368), grilled in-session,
+- **2026-10-04 — Restore's early copy plan landed** ([PR #368](https://github.com/allens/s3cab/pull/368), grilled in-session,
   three decisions asked one per turn; ADR-0086 amended in place).
   - **`planRestore` decides only skip, refuse or write; the loop owns dedupe.** One `fateByHash` map
     (landed, absent or corrupt) replaces three sets, and `RestoreStep` is a union, so no step casts
@@ -734,7 +746,7 @@ least once; re-open only if the stated reason no longer holds.
   - **A behaviour fix rode along.** Behind a refused or collided first holder, every later holder used
     to download again; now the next one fetches and the rest copy from it. ADR-0086 had recorded the
     re-download as a trade-off, so it was amended rather than overridden.
-  - **Tests.** `restore.missing-object.test.mjs` became `restore.downloads.test.mjs` (W's naming half)
+  - **Tests.** `restore.missing-object.test.mjs` became `restore.downloads.test.mjs` (the naming half of restore and `referenced.mjs` docs)
     with a shared-content group; both redirect tests fail on the old code. `planRestore`'s copy
     assertions moved to the command tier.
   - **Copilot: two wording fixes.** A name refused at the rename has already downloaded, so the docs
@@ -742,7 +754,7 @@ least once; re-open only if the stated reason no longer holds.
   - `backup.md`'s pre-#366 fallback paragraph was corrected in its own commit.
   - `npm test` 1178 pass, 13 skipped; integration 27 pass, Roles Anywhere live 3/3; CI green on all
     three OSes.
-- **2026-10-05 — U landed** ([PR #369](https://github.com/allens/s3cab/pull/369); no ADR, since
+- **2026-10-05 — Parked lookup lifecycle landed** ([PR #369](https://github.com/allens/s3cab/pull/369); no ADR, since
   ADR-0094's decision 4 doesn't say where the check lives).
   - **`readParkedLookup(snapshotDir, notBefore)` returns nothing for a stale file**, one parked by a
     run that started before the previous snapshot. `readBaseline` passes that instant and only warns
@@ -754,19 +766,19 @@ least once; re-open only if the stated reason no longer holds.
   - **Tests.** Two reader tests, a millisecond either side of the boundary; the stale one fails on the
     old reader. The command-tier test stays, as the guard on `readBaseline` passing the instant.
   - `npm test` 1180 pass, 13 skipped; no S3 path touched. Copilot raised nothing.
-- **2026-10-05 — C landed** ([PR #370](https://github.com/allens/s3cab/pull/370); ADR-0064 amended
+- **2026-10-05 — Forget's blind preview landed** ([PR #370](https://github.com/allens/s3cab/pull/370); ADR-0064 amended
   in place, since it had accepted the overstatement).
   - **`forget`'s preview leaves out content a `delete` already removed**, and the summary and report
     header say how many files that was. `planUnrestorable` takes an optional set of hashes confirmed
     gone and returns the orphaned hashes and that count.
   - **Not the record alone, as the entry proposed.** Deleted content re-uploads on the next backup
     and its row stays, so subtracting every recorded hash would hide a real loss. `forget` HEADs only
-    the recorded hashes the preview would count as lost. That settles the comment C disagreed with:
+    the recorded hashes the preview would count as lost. That settles the comment the entry disagreed with:
     `forget` needs no objects LIST, and bucket-scan.mjs now says why.
   - **50 HEADs in flight (Copilot).** `storedObjectSizes` replaced `storedObjectSize` for `delete`'s
     preflight and `forget`'s preview. 50 is the SDK's socket pool, measured as the ceiling at round
     trips of 30ms, 55ms and 580ms with `scripts/request-concurrency-bench.mjs`, kept to re-run. The
-    removers' one-at-a-time deletes are the same shape, filed as **Y**.
+    removers' one-at-a-time deletes are the same shape, filed as **one-at-a-time removers**.
   - **Tests.** `storedObjectSizes` keeps the order given, holds 50 in flight and starts none after a
     failure; `forget` stops before the prompt when the check fails.
   - **Copilot, declined:** rewording the last-snapshot warning when everything the set alone holds
@@ -774,7 +786,7 @@ least once; re-open only if the stated reason no longer holds.
     stays true, and the deleted-content note sits directly above it.
   - `npm test` 1189 pass, 12 skipped on `main` after the merge; CI green on all three OSes, real-S3
     job included.
-- **2026-10-06 — Y landed** ([PR #371](https://github.com/allens/s3cab/pull/371); no ADR).
+- **2026-10-06 — One-at-a-time removers landed** ([PR #371](https://github.com/allens/s3cab/pull/371); no ADR).
   - **`deleteStoredObjects(bucket, hashes)` replaced `deleteStoredObject`**, 50 in flight, the first
     failure rejecting with no more started. `delete` and `cleanup` each make one call; `delete`
     still writes the record first.
@@ -792,7 +804,7 @@ least once; re-open only if the stated reason no longer holds.
     costs microseconds against one round trip).
   - `npm test` 1192 pass, 12 skipped on `main` after the merge; integration 27 pass before it; CI
     green.
-- **2026-10-06 — F landed** ([PR #375](https://github.com/allens/s3cab/pull/375); ADR-0092 reworded
+- **2026-10-06 — Command named twice landed** ([PR #375](https://github.com/allens/s3cab/pull/375); ADR-0092 reworded
   from "two commands" to "two remedies").
   - **The lock-held error no longer names a command.** It says to run the same command again with
     `--resume`; the delete stays pasteable. Nothing passes a command or a remedy string into the
@@ -807,7 +819,7 @@ least once; re-open only if the stated reason no longer holds.
   - **Copilot**: its one comment asked to pin the verb to the command, which the final shape drops;
     declined on the thread.
   - `npm test` 1191 pass, 13 skipped; no S3 path touched.
-- **2026-10-06 — G landed** ([PR #376](https://github.com/allens/s3cab/pull/376); no ADR).
+- **2026-10-06 — Unpinned retry window landed** ([PR #376](https://github.com/allens/s3cab/pull/376); no ADR).
   - **The gap was a test, not a seam.** `formatDuration` rounds to the second, so the few real
     milliseconds a test spends leave the full window and what is left of it both printing
     `up to 2 minutes`; reverting the relay to `windowMs` passed everything. The new relay test fakes
