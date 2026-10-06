@@ -65,9 +65,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** **U** changed `readBaseline` in
-[src/lib/snapshot.mjs](../src/lib/snapshot.mjs), which **F** also edits (F also `generateSnapshot`),
-so re-verify F's anchors before building it. **B**, **G** and **J** are independent of everything.
+(2) **Ordering constraints.** None: **B**, **F**, **G** and **J** are independent of one another.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -115,15 +113,16 @@ and verifies with `npm test` alone.
   ADR-0088 governs the *token* grammar and says nothing about the subject side, so this **completes
   0088 rather than reopening it**. One production caller makes it a depth move, not a seam.
 - **F — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
-  _Worth exploring — rewritten 2026-10-04._ #360 gave `readBaseline` the command explicitly
+  _Worth exploring — rewritten 2026-10-04, anchors re-verified 2026-10-06 after U._ #360 gave
+  `readBaseline` the command explicitly
   ([snapshot.mjs](../src/lib/snapshot.mjs):102, :107, used at :113 for the `--resume` refusal), but
-  `generateSnapshot` (:224–227) still takes `through` and `transfer` as two independent optional
+  `generateSnapshot` (:215–218) still takes `through` and `transfer` as two independent optional
   parameters and rebuilds the command from whether `transfer` is set: the opening `Backing up` vs
-  `Snapshotting` (:247), the `Storing objects in …` line (:258) and the `--resume` command offered if
-  the lock turns out to be held (:342–345). The comment there says "naming the wrong one is not
+  `Snapshotting` (:238), the `Storing objects in …` line (:250) and the `--resume` command offered if
+  the lock turns out to be held (:333–336). The comment there says "naming the wrong one is not
   possible"; four test callers pass `through` alone
   ([snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs):127–129, :188–198, :220–231;
-  [snapshot.unreadable.test.mjs](../src/lib/snapshot.unreadable.test.mjs):34–63). The :345 command is
+  [snapshot.unreadable.test.mjs](../src/lib/snapshot.unreadable.test.mjs):34–63). The :336 command is
   reachable only when another run takes the lock between `assertNoWorkFile` and the `wx` acquire, and
   no test reaches it; `withSnapshotFile` defaults it to `"s3cab backup --resume"` for tests' sake
   ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):255, :263), and
