@@ -200,9 +200,8 @@ and verifies with `npm test` alone.
   photo folder, or running `cleanup` after a `forget`, means thousands of round trips back to back.
   For 10,000 objects that is about 5 minutes at a 30ms round trip and about 97 at 580ms. The HEADs
   `storedObjectSizes` makes for the same 10,000 take about 8 seconds and 2 minutes, at 50 in flight
-  (measured with [scripts/head-concurrency-bench.mjs](../scripts/head-concurrency-bench.mjs)). **The
-  DELETE figures are extrapolated from that HEAD bench, not measured**; it would need a DELETE mode
-  to confirm that 50 still holds. ADR-0069's non-goal is cross-object *upload* concurrency and
+  (measured with [scripts/request-concurrency-bench.mjs](../scripts/request-concurrency-bench.mjs)). Its
+  DELETE mode puts the knee for DELETEs at 50 too (a 37ms round trip, 2026-10-06). ADR-0069's non-goal is cross-object *upload* concurrency and
   doesn't reach the removers, but its bar (measured, not assumed) applies here too.
   **Shape:** a `deleteStoredObjects(bucket, hashes)` beside `storedObjectSizes` in
   [lib/objects.mjs](../src/lib/objects.mjs), with the same contract: at most 50 in flight, and the
