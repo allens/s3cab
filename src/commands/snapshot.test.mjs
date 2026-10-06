@@ -3,6 +3,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -29,16 +30,17 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /**
  * @param {string} fixtureName
- * @param {string} testName
+ * @param {TestContext} t
  */
-function copyFixtureToWorkDir(fixtureName, testName) {
+function copyFixtureToWorkDir(fixtureName, t) {
   const fixtureDir = resolve("./test/fixtures", fixtureName);
   if (!readdirSync(fixtureDir).length) {
     throw new Error(`Fixture "${fixtureName}" does not exist or is empty`);
   }
-  const tmpDir = resolve("./test/.tmp", ...testName.split(" > "));
-  rmSync(tmpDir, { recursive: true, force: true });
-  mkdirSync(tmpDir, { recursive: true });
+  // Not a folder named after the test: those nest past Windows' 260-char
+  // MAX_PATH, and `git worktree remove` then fails with "Filename too long".
+  const tmpDir = resolve(mkdtempSync(join("test", ".tmp")));
+  t.after(() => rmSync(tmpDir, { recursive: true, force: true }));
   cpSync(fixtureDir, tmpDir, {
     recursive: true,
     force: true,
@@ -69,8 +71,8 @@ afterEach(() => {
 });
 
 describe("snapshot", () => {
-  it("errors for a set whose directory no longer exists", async () => {
-    const workDir = copyFixtureToWorkDir("before", "snapshot > missing-dir");
+  it("errors for a set whose directory no longer exists", async (t) => {
+    const workDir = copyFixtureToWorkDir("before", t);
     useTempHome(workDir());
     mkdirSync(workDir("data"));
     writeFileSync(workDir("data", "x.txt"), "x");
@@ -95,7 +97,7 @@ describe("snapshot", () => {
       ),
     );
 
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
@@ -158,7 +160,7 @@ describe("snapshot", () => {
       ),
     );
 
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     const home = useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
@@ -195,7 +197,7 @@ describe("snapshot", () => {
     "canonicalizes the #DIR header, so it agrees with the rows beneath it",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
     async (t) => {
-      const workDir = copyFixtureToWorkDir("before", t.fullName);
+      const workDir = copyFixtureToWorkDir("before", t);
       const home = useTempHome(workDir());
 
       const canonical = realpathSync.native(workDir());
@@ -234,7 +236,7 @@ describe("snapshot", () => {
       ),
     );
 
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
 
@@ -400,7 +402,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       origin.add({ minutes }),
     );
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     const home = useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
     return {
@@ -704,7 +706,7 @@ describe("clock-went-backwards warning (ADR-0072 check A)", () => {
     mockClock(t, () => now);
     const warn = t.mock.method(console, "warn", () => {});
 
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     const home = useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
     await snapshot("photos", { rehash: true });
@@ -734,7 +736,7 @@ describe("clock-went-backwards warning (ADR-0072 check A)", () => {
     mockClock(t, () => now);
     const warn = t.mock.method(console, "warn", () => {});
 
-    const workDir = copyFixtureToWorkDir("before", t.fullName);
+    const workDir = copyFixtureToWorkDir("before", t);
     useTempHome(workDir());
     writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
     await snapshot("photos", { rehash: true });
