@@ -103,10 +103,10 @@ export async function writeRemoteInfo(bucket, set, info) {
 /**
  * Push a set's config to its remote marker for the full-DR story, **mirroring
  * the local set**: `dirs.txt` always, and `exclude.txt` only when the set has
- * one — when it doesn't (`exclude` undefined), any stale remote `exclude.txt` is
- * **deleted**, so removing `exclude.txt` locally and re-running `sets` can't
- * leave one behind for `reattach` to resurrect. Plain overwrites — the caller
- * owns the set (it won the claim or reattached to it).
+ * one — when it doesn't (`exclude` undefined or empty), any stale remote
+ * `exclude.txt` is **deleted**, so removing `exclude.txt` locally and re-running
+ * `sets` can't leave one behind for `reattach` to resurrect. Plain overwrites —
+ * the caller owns the set (it won the claim or reattached to it).
  * @param {string} bucket
  * @param {string} set
  * @param {object} config
@@ -116,7 +116,10 @@ export async function writeRemoteInfo(bucket, set, info) {
  */
 export async function pushSetConfig(bucket, set, { dirs, exclude }) {
   await putText(fileUri(bucket, set, "dirs.txt"), dirs.join("\n") + "\n");
-  if (exclude === undefined) {
+  // An empty file counts as none: `readSetConfig` reads one back as none
+  // anyway, and the SDK prints a "Stream of unknown length" warning on every
+  // PUT of an empty string.
+  if (!exclude) {
     // No local exclude → remove any stale remote one (DeleteObject is idempotent).
     await deleteObject(fileUri(bucket, set, "exclude.txt"));
   } else {

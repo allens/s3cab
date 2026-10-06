@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { getText } from "../../src/lib/s3.mjs";
 import {
   claimRemoteSet,
   listRemoteSets,
@@ -80,6 +81,21 @@ describe("set marker (real bucket)", () => {
         dirs: ["C:\\Photos"],
         exclude: undefined,
       });
+
+      // An emptied local exclude.txt deletes the remote one too, rather than
+      // PUTting an empty object (which readSetConfig couldn't tell apart).
+      await pushSetConfig(bucket, withExclude, {
+        dirs: ["C:\\Photos"],
+        exclude: "*.tmp\n",
+      });
+      await pushSetConfig(bucket, withExclude, {
+        dirs: ["C:\\Photos"],
+        exclude: "",
+      });
+      assert.equal(
+        await getText(`s3://${bucket}/sets/${withExclude}/exclude.txt`),
+        undefined,
+      );
 
       // No exclude pushed → exclude reads back as undefined.
       await pushSetConfig(bucket, noExclude, { dirs: ["C:\\Photos"] });
