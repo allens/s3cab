@@ -115,7 +115,17 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**Open:** none.
+**Open:**
+
+- **An empty `exclude.txt` makes every `backup` print an AWS SDK warning.** `pushSetConfig` in
+  [set-marker.mjs](../src/lib/set-marker.mjs) PUTs the local file's text as it is, and
+  `readSetExclude` returns `""` for a file that exists but is empty. `putText(uri, "")` prints
+  *"Are you using a Stream of unknown length as the Body of a PutObject request? Consider using
+  Upload instead from @aws-sdk/lib-storage."* (reproduced 2026-10-06 against the integration
+  bucket; a one-byte body is silent). `backup` re-pushes the config on every run, and `setup` does
+  too, so a user who clears their excludes sees an SDK message they can do nothing about. The upload
+  itself succeeds. Likely fix: `pushSetConfig` treats `""` as no exclude and deletes the remote
+  copy, the same way `readSetConfig` already reads an empty remote file back as `undefined`.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.
