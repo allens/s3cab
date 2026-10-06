@@ -38,7 +38,7 @@ prose rots silently.
 
 | Key | States | Written by | Deleted by |
 | --- | --- | --- | --- |
-| `objects/<sha256>` | absent → present | `backup`, `upload` — conditional PUT (`IfNoneMatch: "*"`) in `putObject` ([objects.mjs](../../src/lib/objects.mjs)) | `cleanup`, `delete` — via `deleteStoredObject`, the only remover |
+| `objects/<sha256>` | absent → present | `backup`, `upload` — conditional PUT (`IfNoneMatch: "*"`) in `putObject` ([objects.mjs](../../src/lib/objects.mjs)) | `cleanup`, `delete` — via `deleteStoredObjects`, the only remover |
 | `snapshots/<set>/<name>.tsv.zst` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
 | `sets/<set>/info` | absent → claimed → re-stamped | `setup` claims it (conditional `putText`, first-writer-wins); `reattach` re-stamps OWNER with a plain PUT, preserving CREATED ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
 | `sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `reattach`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
@@ -168,7 +168,7 @@ snapshots having been read first, and `bucket-scan.test.mjs` asserts the order a
    reported and skipped, and the ContentLength fills the record's size column.
 3. The strongest confirmation in the tool (type the bucket name).
 4. **Record first, then the deletes** — conditional PUT of `objects.deleted-<n>.tsv` at the
-   lowest free index, then each `deleteStoredObject`. **[multi-step]**, deliberately ordered so
+   lowest free index, then `deleteStoredObjects`. **[multi-step]**, deliberately ordered so
    a crash between them leaves an *over-complete* record (objects recorded as deleted that
    still exist, which reads as simply present) rather than unexplained absences.
 

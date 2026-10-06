@@ -6,7 +6,7 @@ import {
 } from "../lib/deletion-record.mjs";
 import { isENOENT, requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue, localMoment } from "../lib/format.mjs";
-import { deleteStoredObject, storedObjectSizes } from "../lib/objects.mjs";
+import { deleteStoredObjects, storedObjectSizes } from "../lib/objects.mjs";
 import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
@@ -271,9 +271,10 @@ export async function deleteHashes(hashes = [], options = {}) {
       found.map(({ hash, size }) => ({ hash, size, instant, by })),
     ),
   );
-  for (const { hash } of found) {
-    await deleteStoredObject(bucket, hash);
-  }
+  await deleteStoredObjects(
+    bucket,
+    found.map(({ hash }) => hash),
+  );
 
   // No headline: `renderDelete` states the count and that snapshots stand, on
   // stdout. What is left is the one thing the result can't carry — where the

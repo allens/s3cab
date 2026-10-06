@@ -32,6 +32,8 @@ let download;
 let listedObjects = [];
 /** @type {(uri: string) => Promise<number | undefined>} what each HEAD answers */
 let head = async () => undefined;
+/** @type {(uri: string) => Promise<void>} what each DELETE does */
+let remove = async () => {};
 mock.module("./atomic-file.mjs", {
   exports: {
     writeFileAtomic: async (
@@ -43,12 +45,14 @@ mock.module("./atomic-file.mjs", {
     },
   },
 });
-// The three reads objects.mjs makes on behalf of the functions under test. The
-// PUT is deliberately left unmodelled: `putObject` is exercised through
-// upload.mjs and against a real bucket, and a `putFile` stubbed to succeed here
-// would be a claim about ADR-0083's guard that this file cannot make good on.
+// The three reads and the DELETE objects.mjs makes on behalf of the functions
+// under test. The PUT is deliberately left unmodelled: `putObject` is exercised
+// through upload.mjs and against a real bucket, and a `putFile` stubbed to
+// succeed here would be a claim about ADR-0083's guard that this file cannot
+// make good on.
 mock.module("./s3.mjs", {
   exports: s3Seam({
+    deleteObject: (/** @type {string} */ uri) => remove(uri),
     getStream: async (/** @type {string} */ uri) => {
       requestedUri = uri;
       return Readable.from("");
@@ -61,8 +65,13 @@ mock.module("./s3.mjs", {
     objectSize: (/** @type {string} */ uri) => head(uri),
   }),
 });
-const { getObject, listObjectHashes, listStoredObjects, storedObjectSizes } =
-  await import("./objects.mjs");
+const {
+  deleteStoredObjects,
+  getObject,
+  listObjectHashes,
+  listStoredObjects,
+  storedObjectSizes,
+} = await import("./objects.mjs");
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -209,5 +218,60 @@ describe("storedObjectSizes", () => {
       await tick();
     }
     assert.equal(started, 50, "only the HEADs already in flight");
+  });
+});
+
+describe("deleteStoredObjects", () => {
+  const hashes = (/** @type {number} */ n) =>
+    Array.from({ length: n }, (_, i) => `h${i}`);
+
+  it("deletes each objects/<hash>", async () => {
+    /** @type {string[]} */
+    const deleted = [];
+    remove = async (uri) => {
+      await tick();
+      deleted.push(uri);
+    };
+    await deleteStoredObjects("my-bucket", ["aaa", "bbb", "ccc"]);
+    assert.deepEqual(deleted.toSorted(), [
+      "s3://my-bucket/objects/aaa",
+      "s3://my-bucket/objects/bbb",
+      "s3://my-bucket/objects/ccc",
+    ]);
+  });
+
+  it("keeps at most 50 DELETEs in flight, the SDK's socket pool", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    remove = async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await tick();
+      inFlight--;
+    };
+    await deleteStoredObjects("my-bucket", hashes(200));
+    assert.equal(peak, 50);
+  });
+
+  it("starts no more DELETEs once one fails", async () => {
+    let started = 0;
+    let inFlight = 0;
+    remove = async (uri) => {
+      started++;
+      inFlight++;
+      await tick();
+      inFlight--;
+      if (uri.endsWith("/h0")) {
+        throw new Error("DELETE failed");
+      }
+    };
+    await assert.rejects(
+      deleteStoredObjects("my-bucket", hashes(200)),
+      /DELETE failed/,
+    );
+    while (inFlight > 0) {
+      await tick();
+    }
+    assert.equal(started, 50, "only the DELETEs already in flight");
   });
 });
