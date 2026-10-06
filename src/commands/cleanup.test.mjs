@@ -5,11 +5,11 @@ import { enumeration } from "../../test/helpers/enumeration.mjs";
 /** @import { ReferencedResult } from "../lib/referenced.mjs" */
 
 // Offline tests for the `cleanup` *command shell*: the bucket scan
-// (scanBucket), the S3 writes (deleteStoredObject, compactDeletionRecords) and
+// (scanBucket), the S3 writes (deleteStoredObjects, compactDeletionRecords) and
 // the prompt are faked at the lib seam, so these cover what the command adds
 // around the pure plan — the two abort interlocks, the act-by-default / `-n`
-// split, the non-interactive `--force` gate, the TTY prompt, and the delete
-// loop (ADR-0064's destructive-command pattern). The scan's referenced
+// split, the non-interactive `--force` gate, the TTY prompt, and the deletes
+// (ADR-0064's destructive-command pattern). The scan's referenced
 // enumeration is built by the shared `enumeration` fixture (paths spelled
 // `/<hash>`). The orphan/grace/missing/damaged *arithmetic* is unit-tested
 // without mocks in lib/cleanup.test.mjs (planCleanup); the scan's read order
@@ -45,11 +45,11 @@ mock.module("../lib/bucket-scan.mjs", {
 });
 mock.module("../lib/objects.mjs", {
   exports: {
-    deleteStoredObject: async (
+    deleteStoredObjects: async (
       /** @type {string} */ _bucket,
-      /** @type {string} */ hash,
+      /** @type {string[]} */ hashes,
     ) => {
-      deleteCalls.push(hash);
+      deleteCalls.push(...hashes);
     },
   },
 });

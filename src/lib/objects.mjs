@@ -124,12 +124,41 @@ export async function* listStoredObjects(bucket) {
   }
 }
 
-// Measured with scripts/head-concurrency-bench.mjs (2026-10-05, an eu-west-1
-// bucket, 640 HEADs) at round trips of 30ms, 55ms and 580ms: at all three the
-// speed-up tracks the number in flight up to 50 and stops there. The ceiling is
-// the SDK's default socket pool of 50 per client, not S3 or the link: past it
-// the extra requests only queue for a socket.
-const HEAD_CONCURRENCY = 50;
+// Measured with scripts/request-concurrency-bench.mjs (an eu-west-1 bucket, 640
+// requests a sample): HEADs at round trips of 30ms, 55ms and 580ms (2026-10-05),
+// DELETEs at 37ms (2026-10-06). Every time, the speed-up tracks the number in
+// flight up to 50 and stops there. The ceiling is the SDK's default socket pool
+// of 50 per client, not S3 or the link: past it the extra requests only queue
+// for a socket.
+const REQUESTS_IN_FLIGHT = 50;
+
+/**
+ * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. The first
+ * call to fail rejects, and no more are started.
+ * @param {string[]} hashes
+ * @param {(hash: string) => Promise<void>} request
+ * @returns {Promise<void>}
+ */
+async function eachInFlight(hashes, request) {
+  // A generator, not `hashes.values()`: the worker whose request throws closes
+  // it on the way out of its for-of, which stops the others taking more. An
+  // array iterator has no `return()`, so they would drain the rest, and a failed
+  // run would wait on every remaining request before it could exit.
+  const queue = (function* () {
+    yield* hashes;
+  })();
+  // Not `Readable.map(…, { concurrency })`: it returns results in input order
+  // and starts none while `highWaterMark` of them (99 at 50) wait behind one
+  // stalled request, and despite its docs the signal it gives the mapper isn't
+  // aborted when another call fails (measured on Node 26).
+  await Promise.all(
+    Array.from({ length: REQUESTS_IN_FLIGHT }, async () => {
+      for (const hash of queue) {
+        await request(hash);
+      }
+    }),
+  );
+}
 
 /**
  * Each stored object's size in bytes, or `undefined` where it isn't stored, keyed
@@ -147,41 +176,31 @@ const HEAD_CONCURRENCY = 50;
 export async function storedObjectSizes(bucket, hashes) {
   /** @type {Map<string, number | undefined>} */
   const sizes = new Map(hashes.map((hash) => [hash, undefined]));
-  // A generator, not `hashes.values()`: the worker whose HEAD throws closes it on
-  // the way out of its for-of, which stops the others taking more. An array
-  // iterator has no `return()`, so they would drain the rest, and a failed run
-  // would wait on every remaining HEAD before it could exit.
-  const queue = (function* () {
-    yield* hashes;
-  })();
-  // Not `Readable.map(…, { concurrency })`: it returns results in input order
-  // and starts none while `highWaterMark` of them (99 at 50) wait behind one
-  // stalled HEAD, and despite its docs the signal it gives the mapper isn't
-  // aborted when another call fails (measured on Node 26).
-  await Promise.all(
-    Array.from({ length: HEAD_CONCURRENCY }, async () => {
-      for (const hash of queue) {
-        sizes.set(hash, await objectSize(objectUri(bucket, hash)));
-      }
-    }),
-  );
+  await eachInFlight(hashes, async (hash) => {
+    sizes.set(hash, await objectSize(objectUri(bucket, hash)));
+  });
   return sizes;
 }
 
 /**
- * Delete one stored object — `objects/<hash>` — the reclamation `cleanup`
- * performs (docs/design/backup.md). The **only** operation that removes from
- * `objects/`; every everyday command leaves it alone. Composes the generic
- * `deleteObject` over this module's key layout, so callers never spell the key.
- * On a versioned bucket this is a soft delete (a delete marker), the
- * ransomware-safety model (ADR-0033) — permanent reclamation needs a lifecycle
- * rule, which `cleanup`'s docs recommend.
+ * Delete stored objects — `objects/<hash>` for each hash — 50 at a time: the
+ * reclamation `cleanup` performs (docs/design/backup.md) and the removal
+ * `delete` performs. The **only** operation that removes from `objects/`; every
+ * everyday command leaves it alone. Composes the generic `deleteObject` over
+ * this module's key layout, so callers never spell the key. On a versioned
+ * bucket this is a soft delete (a delete marker), the ransomware-safety model
+ * (ADR-0033) — permanent reclamation needs a lifecycle rule, which `cleanup`'s
+ * docs recommend. The first delete to fail rejects the call, and no more are
+ * started.
  * @param {string} bucket - The repository's S3 bucket
- * @param {string} hash - The object's SHA-256, its key under `objects/`
+ * @param {string[]} hashes - Objects' SHA-256s, their keys under `objects/`
  * @returns {Promise<void>}
  */
-export async function deleteStoredObject(bucket, hash) {
-  await deleteObject(objectUri(bucket, hash));
+export async function deleteStoredObjects(bucket, hashes) {
+  // Not DeleteObjects, 1,000 keys a request: its required checksum survives
+  // `client()`'s off-AWS `WHEN_REQUIRED` gate, and whether R2, B2 and Wasabi
+  // accept it is untested. A 200 from it can also carry per-key `Errors`.
+  await eachInFlight(hashes, (hash) => deleteObject(objectUri(bucket, hash)));
 }
 
 /**

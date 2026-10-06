@@ -1,6 +1,6 @@
 /**
  * The sampling method the network benchmarks share (multipart-bench.mjs,
- * head-concurrency-bench.mjs), and their env-var parsing.
+ * request-concurrency-bench.mjs), and their env-var parsing.
  *
  * Network timings drift minute to minute, enough to swamp the differences being
  * measured. So a benchmark interleaves — one sample of every config per round,

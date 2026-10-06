@@ -46,11 +46,11 @@ mock.module("../lib/objects.mjs", {
       heads += hashes.length;
       return new Map(hashes.map((hash) => [hash, storedSizes.get(hash)]));
     },
-    deleteStoredObject: async (
+    deleteStoredObjects: async (
       /** @type {string} */ _bucket,
-      /** @type {string} */ hash,
+      /** @type {string[]} */ hashes,
     ) => {
-      effects.push(`delete:${hash}`);
+      effects.push(...hashes.map((hash) => `delete:${hash}`));
     },
   },
 });
