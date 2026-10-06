@@ -29,7 +29,10 @@ docs under `docs/design/` — read those for the _why_. This file is the short b
    justifies"); don't bury `await` in a larger expression. Flag member/index access on an
    awaited result (`(await read(…)).entries`) and an `await` inside a compound
    `if`/`while`/`&&`/`||` condition — but **not** an `await` in a ternary branch, in
-   destructuring, or as a call argument; those are accepted style here.
+   destructuring, or as a call argument; those are accepted style here. A `lib/` function takes
+   values, never which command called it: flag a parameter such as
+   `command: "backup" | "snapshot"`, or a `lib/` branch on one. ADR-0023 forbids `lib/` importing
+   `commands/`, and knowing its callers by name is the same dependency.
 
 4. **Docs honesty** — README/CLAUDE.md claims must match the code, and must distinguish what
    is built today from what is planned.
