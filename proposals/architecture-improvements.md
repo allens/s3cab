@@ -67,8 +67,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 anchor — see **E** below for what skipping that costs.
 (2) **Ordering constraints.** **U** changed `readBaseline` in
 [src/lib/snapshot.mjs](../src/lib/snapshot.mjs), which **F** also edits (F also `generateSnapshot`),
-so re-verify F's anchors before building it. **B**, **G**, **J** and **Y** are independent of
-everything.
+so re-verify F's anchors before building it. **B**, **G** and **J** are independent of everything.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -191,34 +190,8 @@ and verifies with `npm test` alone.
   2026-10-04 as [PR #368](https://github.com/allens/s3cab/pull/368). See the run log._
 - **U — The parked lookup's lifecycle is claimed by one module and finished by another.** _Landed
   2026-10-05 as [PR #369](https://github.com/allens/s3cab/pull/369). See the run log._
-- **Y — Both removers delete one object at a time, the shape C fixed for the HEADs.**
-  _Worth exploring — surfaced 2026-10-05 by C's review
-  ([PR #370](https://github.com/allens/s3cab/pull/370)), not by a pass._ `deleteHashes` in
-  [commands/delete.mjs](../src/commands/delete.mjs) (after the deletion record is written) and
-  `cleanup` in [commands/cleanup.mjs](../src/commands/cleanup.mjs) (over `orphanHashes`) each loop
-  `await deleteStoredObject(bucket, hash)`. This hurts the many-small-files population: deleting a
-  photo folder, or running `cleanup` after a `forget`, means thousands of round trips back to back.
-  For 10,000 objects that is about 5 minutes at a 30ms round trip and about 97 at 580ms. The HEADs
-  `storedObjectSizes` makes for the same 10,000 take about 8 seconds and 2 minutes, at 50 in flight
-  (measured with [scripts/request-concurrency-bench.mjs](../scripts/request-concurrency-bench.mjs)). Its
-  DELETE mode puts the knee for DELETEs at 50 too (a 37ms round trip, 2026-10-06). ADR-0069's non-goal is cross-object *upload* concurrency and
-  doesn't reach the removers, but its bar (measured, not assumed) applies here too.
-  **Shape:** a `deleteStoredObjects(bucket, hashes)` beside `storedObjectSizes` in
-  [lib/objects.mjs](../src/lib/objects.mjs), with the same contract: at most 50 in flight, and the
-  first failure rejects the call with no more started. Both commands call it, and the singular
-  `deleteStoredObject` loses its last production caller. Two users of the generator pool in one
-  module are the second case that earns a module-private pool helper (CLAUDE.md, working convention
-  3). `HEAD_CONCURRENCY` is then misnamed, since 50 is the SDK's socket pool rather than a fact
-  about HEADs. **The record-first rule is not at risk:** it orders the record before *any* delete
-  ([docs/design/repository-protocol.md](../docs/design/repository-protocol.md), `delete` step 4),
-  and nothing orders the deletes among themselves. A crash part-way still leaves an over-complete
-  record, and `cleanup` still compacts records only after its deletes.
-  **Not S3's DeleteObjects first** (1,000 keys per request). It answers 200 with per-key `Errors`,
-  so success has to be read key by key. It is also an operation that *requires* a checksum, so
-  `client()`'s required-only gate for custom endpoints
-  ([s3-provider-compatibility.md](../docs/design/s3-provider-compatibility.md), item 4) doesn't
-  remove it. Whether R2, B2 and Wasabi accept the SDK's CRC32 there in place of Content-MD5 is
-  unverified. The pool runs on every provider that already runs `delete`.
+- **Y — Both removers delete one object at a time, the shape C fixed for the HEADs.** _Landed
+  2026-10-06 as [PR #371](https://github.com/allens/s3cab/pull/371). See the run log._
 
 **Smaller items (thirteenth pass)** — verified, too small for an entry of their own.
 **L — Three spellings of "why this snapshot would not read".** [remote.mjs](../src/lib/remote.mjs):305
@@ -824,7 +797,7 @@ least once; re-open only if the stated reason no longer holds.
     `forget` needs no objects LIST, and bucket-scan.mjs now says why.
   - **50 HEADs in flight (Copilot).** `storedObjectSizes` replaced `storedObjectSize` for `delete`'s
     preflight and `forget`'s preview. 50 is the SDK's socket pool, measured as the ceiling at round
-    trips of 30ms, 55ms and 580ms with `scripts/head-concurrency-bench.mjs`, kept to re-run. The
+    trips of 30ms, 55ms and 580ms with `scripts/request-concurrency-bench.mjs`, kept to re-run. The
     removers' one-at-a-time deletes are the same shape, filed as **Y**.
   - **Tests.** `storedObjectSizes` keeps the order given, holds 50 in flight and starts none after a
     failure; `forget` stops before the prompt when the check fails.
@@ -833,3 +806,21 @@ least once; re-open only if the stated reason no longer holds.
     stays true, and the deleted-content note sits directly above it.
   - `npm test` 1189 pass, 12 skipped on `main` after the merge; CI green on all three OSes, real-S3
     job included.
+- **2026-10-06 — Y landed** ([PR #371](https://github.com/allens/s3cab/pull/371); no ADR).
+  - **`deleteStoredObjects(bucket, hashes)` replaced `deleteStoredObject`**, 50 in flight, the first
+    failure rejecting with no more started. `delete` and `cleanup` each make one call; `delete`
+    still writes the record first.
+  - **One private pool, `eachInFlight`,** now serves it and `storedObjectSizes`. `HEAD_CONCURRENCY`
+    became `REQUESTS_IN_FLIGHT`.
+  - **Measured, not extrapolated.** The bench gained a DELETE mode and became
+    `scripts/request-concurrency-bench.mjs`; at a 37ms round trip the knee for DELETEs is 50, as for
+    HEADs.
+  - **Not DeleteObjects,** for the reasons the entry gave; the rejection is a comment on
+    `deleteStoredObjects`.
+  - **Tests.** `deleteStoredObjects` deletes each `objects/<hash>`, holds 50 in flight and starts
+    none after a failure.
+  - **Copilot, declined:** a separate concurrency for the bench's untimed DELETE targets (the timed
+    phase already sends up to 64), and capping the pool's workers at the hash count (an idle worker
+    costs microseconds against one round trip).
+  - `npm test` 1192 pass, 12 skipped on `main` after the merge; integration 27 pass before it; CI
+    green.
