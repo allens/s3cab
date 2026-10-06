@@ -207,11 +207,7 @@ describe("backup (the fused pass)", () => {
       generateCalls[0]?.through,
       "expected the upload transform to be passed",
     );
-    // `readBaseline` refuses a held lock before the store LIST, so it must know
-    // which command's `--resume` to offer.
-    assert.deepEqual(baselineCalls, [
-      { command: "backup", rehash: undefined, resume: undefined },
-    ]);
+    assert.deepEqual(baselineCalls, [{ rehash: undefined, resume: undefined }]);
     // The whole of `readBaseline`'s result, forwarded rather than picked apart:
     // `generateSnapshot` derives `lookup`/`sizes`/`previousInstant` from it itself.
     assert.equal(generateCalls[0]?.baseline, baseline);
@@ -248,9 +244,7 @@ describe("backup (the fused pass)", () => {
   it("passes --rehash through, so the pass reuses no stored hash", async () => {
     await backup("photos", { rehash: true });
 
-    assert.deepEqual(baselineCalls, [
-      { command: "backup", rehash: true, resume: undefined },
-    ]);
+    assert.deepEqual(baselineCalls, [{ rehash: true, resume: undefined }]);
   });
 
   it("exits 1 when files couldn't be read — the machine-readable signal must not lie", async () => {

@@ -66,7 +66,7 @@ the one the user actually meets:
    **up** to the millisecond for the reason `completionInstant` already rounds up — a boundary that
    lands mid-millisecond must not sit *before* a ctime stamped in the same millisecond.
 
-3. **The lock error leads with recovery.** `inProgressError` now offers two commands, the
+3. **The lock error leads with recovery.** `inProgressError` now offers two remedies, the
    resumption first and the deletion second, in the user's own terms: *carry on from the file hashes
    it had already worked out*, or *start the pass over, reading those files again*. Both `snapshot`
    and `backup` take `--resume`, which adopts the file — one `rename` onto the parked name, with no

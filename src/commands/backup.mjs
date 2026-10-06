@@ -86,7 +86,6 @@ export async function backup(setName, options = {}) {
   const set = loadSet(setName);
 
   const baseline = await readBaseline(set, {
-    command: "backup",
     rehash: options.rehash,
     resume: options.resume,
   });

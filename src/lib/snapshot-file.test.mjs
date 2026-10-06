@@ -794,7 +794,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
         // remains as the way to start the pass over.
         assert.match(error.message, /already in progress/);
         assert.match(error.message, /carry on from the file hashes/);
-        assert.match(error.message, /s3cab backup --resume/);
+        assert.match(error.message, /same command again with --resume/);
         assert.match(error.message, /start the pass over/);
         assert.ok(
           error.message.includes(tmpPath),

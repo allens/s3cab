@@ -70,16 +70,6 @@ const trustBoundary = (at) =>
     : undefined;
 
 /**
- * The command that adopts a killed run's work file (ADR-0092), ready to paste —
- * offered by both lock checks, the early one in {@link readBaseline} and the
- * `wx` open the write itself makes.
- * @param {"backup" | "snapshot"} command
- * @param {string} setName
- */
-const resumeCommand = (command, setName) =>
-  `s3cab ${command} ${setName} --resume`;
-
-/**
  * Read the set's previous snapshot and assemble the hash lookup for a fresh one.
  * The parked lookup is read on *every* snapshot, not just a first one: no "is
  * this the first run?" branch to get wrong, and in the routine case the parked
@@ -99,18 +89,17 @@ const resumeCommand = (command, setName) =>
  * the first step of both commands, and `backup`'s store LIST comes next.
  * @param {BackupSet} set - The resolved set
  * @param {object} options
- * @param {"backup" | "snapshot"} options.command - The command running, so a refusal names the right `--resume`
  * @param {boolean} [options.rehash] - Re-hash every file instead of reusing previous hashes
  * @param {boolean} [options.resume] - Adopt the work file an interrupted run left behind, reusing the hashes it had already computed (`--resume`)
  * @returns {Promise<SnapshotBaseline>}
  */
-export async function readBaseline(set, { command, rehash, resume }) {
+export async function readBaseline(set, { rehash, resume }) {
   const snapshotDir = set.snapshotsDir;
 
   if (resume) {
     await recoverWorkFile(snapshotDir);
   } else {
-    assertNoWorkFile(snapshotDir, resumeCommand(command, set.name));
+    assertNoWorkFile(snapshotDir);
   }
 
   /** @type {SnapshotEntries | undefined} */
@@ -330,10 +319,6 @@ export async function generateSnapshot(
   const path = await writeSnapshot(set.snapshotsDir, moment, {
     identity: set.name,
     dirs: roots,
-    // What to offer if the lock turns out to be held (ADR-0092). `transfer`
-    // already tells the two commands apart for the announcement line above, so
-    // naming the wrong one is not possible.
-    resumeCommand: resumeCommand(transfer ? "backup" : "snapshot", set.name),
     onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,

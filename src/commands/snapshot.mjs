@@ -24,7 +24,6 @@ export async function snapshot(setName, options = {}) {
   const set = loadSet(setName);
 
   const baseline = await readBaseline(set, {
-    command: "snapshot",
     rehash: options.rehash,
     resume: options.resume,
   });
