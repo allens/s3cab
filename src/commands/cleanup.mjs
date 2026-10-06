@@ -3,7 +3,7 @@ import { planCleanup } from "../lib/cleanup.mjs";
 import { compactDeletionRecords } from "../lib/deletion-record.mjs";
 import { requireArg } from "../lib/error.mjs";
 import { countOf, formatByteValue } from "../lib/format.mjs";
-import { deleteStoredObject } from "../lib/objects.mjs";
+import { deleteStoredObjects } from "../lib/objects.mjs";
 import { promptYesNo } from "../lib/prompt.mjs";
 import { unreadableMessage } from "../lib/referenced.mjs";
 import { isInteractive, shellCommand, styleEnabled } from "../lib/style.mjs";
@@ -212,9 +212,7 @@ export async function cleanup(bucket, options = {}) {
   }
 
   // Single pass: delete from the set already in memory (no second enumeration).
-  for (const hash of orphanHashes) {
-    await deleteStoredObject(bucket, hash);
-  }
+  await deleteStoredObjects(bucket, orphanHashes);
 
   await compactRecords();
 
