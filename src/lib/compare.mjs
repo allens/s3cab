@@ -300,6 +300,10 @@ function getPathsByHash(snapshotLookup) {
  *   `errors` map, not `currentSnapshot` — so `diff` never sees them.
  *   `compareSnapshots` reports them under its own `errors` category and keeps
  *   them out of `deleted`.
+ * - Skipped paths (`#SKIPPED` rows: a symlink, an unsupported type) aren't
+ *   entries either, so a file that became one reads as deleted here.
+ *   `compareSnapshots` takes the path itself back out of `deleted`, but not the
+ *   files under a skipped directory; why is the comment at its loop.
  * - A path in `previousErrors` was *there* in the previous snapshot, unreadable
  *   rather than absent, so nothing can have moved *to* it: it is barred from
  *   being a move destination and reports as added, however its content pairs up

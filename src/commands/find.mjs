@@ -8,11 +8,10 @@ import { NO_SETS_MESSAGE, listSets, readSet } from "../lib/sets.mjs";
  * Search local snapshot history for backed-up files, and report the objects
  * that back them ([ADR-0088](../../docs/adr/0088-find-matches-like-posix-find.md)).
  * It answers "which snapshot has my file, and what did it hash to", which the
- * tool could not answer at all, and it ships on its own. It is also the first
- * half of a settled-but-unbuilt rework in which `delete` takes **hashes**
- * (proposals/hash-operand-delete.md): an irreversible bucket-wide delete must not
- * take a fuzzy operand, so the fuzzy step becomes this read-only command where a
- * mistake costs nothing. Nothing here depends on that landing.
+ * tool could not answer at all. It is also where `delete`'s **hashes** come from
+ * ([ADR-0089](../../docs/adr/0089-hash-operand-delete.md)): an irreversible
+ * bucket-wide delete must not take a fuzzy operand, so the fuzzy step is this
+ * read-only command, where a mistake costs nothing.
  *
  * **Local only, and free.** No `--remote`: `reattach` pulls a set's entire
  * snapshot history down precisely so the browse commands stay local

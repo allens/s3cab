@@ -82,15 +82,12 @@ and verifies with `npm test` alone.
   :172, inside `compareSnapshots` itself, so the export exists so
   [compare.test.mjs](../src/lib/compare.test.mjs) can reach it. Both carve-outs are applied by
   mutating `diff`'s output afterwards: :182–184 (`untilSnapshot.errors`) and :193–195
-  (`untilSnapshot.skipped`), each `deleted.delete(path)`. The contract (:279–312) documents the
-  **errors** carve-out and honestly names `compareSnapshots` as its owner; the **skipped** one is in
-  no contract, only in the inline comment inside the loop. **What the downgrade corrects:** the
-  carve-outs are *not* on an untested side. compare.test.mjs:476 and :542 assert both through
-  `compareSnapshots`, and the I/O-shell tests cover them again. What is left is a test-only export
-  and a contract missing one line. The standing rejection of `diff` **as a module** does not bind.
-  Minimal version: document the `skipped` rule where the `errors` rule already is. Real version:
-  either move both carve-outs behind `diff`'s signature, or make `diff` module-private and let its
-  tests cross `compareSnapshots`.
+  (`untilSnapshot.skipped`), each `deleted.delete(path)`. `diff`'s contract documents both and names
+  `compareSnapshots` as their owner. **What the downgrade corrects:** the carve-outs are *not* on an
+  untested side. compare.test.mjs:476 and :542 assert both through `compareSnapshots`, and the
+  I/O-shell tests cover them again. What is left is a test-only export. The standing rejection of
+  `diff` **as a module** does not bind. Fix: either move both carve-outs behind `diff`'s signature,
+  or make `diff` module-private and let its tests cross `compareSnapshots`.
 - **Forget's blind preview — `forget`'s unrestorable preview is the only bucket-wide reader that never consults the
   deletion record.** _Landed 2026-10-05 as [PR #370](https://github.com/allens/s3cab/pull/370). See
   the run log._
@@ -165,11 +162,6 @@ consumers of `unreadableSnapshots`/`unreadableMessage`; `commands/delete.mjs` ha
 `referenced.mjs` since ADR-0089, so the real two adapters are `commands/cleanup.mjs` and
 `lib/unrestorable.mjs`. (This is the *second* stale consumer list on that module's header — the first
 was fixed when pass-12's G landed. If it recurs again, the list is the problem, not the edit.)
-**Find's stale header — `find.mjs` calls a shipped feature unbuilt, citing a deleted file.**
-[commands/find.mjs](../src/commands/find.mjs):12–15 still describes the command as "the first half of
-a settled-but-unbuilt rework in which `delete` takes **hashes** (proposals/hash-operand-delete.md)".
-Both halves are false: ADR-0089 records "settled 2026-08-22 … built the same day", and the proposal
-file is deleted. Noted as a loose end when pass-12's E landed, still there. One sentence.
 **`preparePath`'s unread fields — `preparePath` returns three fields and neither caller reads all three.** _Speculative, and
 unmeasured — recorded as join residue at a new seam, not as a finding I am confident in._
 path-match.mjs:70–80's own doc says it is "called once per row of every snapshot in history, so it
