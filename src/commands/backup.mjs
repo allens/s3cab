@@ -85,8 +85,9 @@ export async function backup(setName, options = {}) {
   // shell (env.mjs, ADR-0022/0055 — the one s3cab layer), before any S3 call.
   const set = loadSet(setName);
 
+  const resumeCommand = `s3cab backup ${set.name} --resume`;
   const baseline = await readBaseline(set, {
-    command: "backup",
+    resumeCommand,
     rehash: options.rehash,
     resume: options.resume,
   });
@@ -106,6 +107,7 @@ export async function backup(setName, options = {}) {
   });
   const pass = await generateSnapshot(set, {
     baseline,
+    resumeCommand,
     through: uploader.through,
     // Both halves of the fused pass report into one progress line: `through`
     // does the sending, `transfer` is how that sending is going.

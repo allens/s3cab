@@ -4,7 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { generateSnapshot, progressLine, readBaseline } from "./snapshot.mjs";
+import { generateSnapshot, progressLine } from "./snapshot.mjs";
 
 /** @import { TestContext } from "node:test" */
 
@@ -436,10 +436,10 @@ describe("progressLine", () => {
 });
 
 describe("generateSnapshot", () => {
-  it("offers the --resume of the command the baseline was read for", async (/** @type {TestContext} */ t) => {
+  it("offers the --resume it was given when the lock is held", async (/** @type {TestContext} */ t) => {
     // The lock can be taken between `readBaseline`'s check and the pass's own
-    // `wx` open, and then it is the pass that names the command. No `transfer`
-    // here, so a pass guessing the command from its uploader would say snapshot.
+    // `wx` open, and then it is the pass that offers the remedy. A `backup`
+    // remedy with no `transfer`, so it can't be read off the uploader's presence.
     t.mock.method(console, "warn", () => {});
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = join(dir.path, "data");
@@ -457,11 +457,10 @@ describe("generateSnapshot", () => {
       excludePath: join(dir.path, "exclude.txt"),
       envPath: join(dir.path, "env"),
     };
-    const baseline = await readBaseline(set, { command: "backup" });
     writeFileSync(join(snapshotsDir, ".snapshot.tsv.zst"), "");
 
     await assert.rejects(
-      generateSnapshot(set, { baseline }),
+      generateSnapshot(set, { resumeCommand: "s3cab backup photos --resume" }),
       /already in progress[\s\S]*s3cab backup photos --resume/,
     );
   });

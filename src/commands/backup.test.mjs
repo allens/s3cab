@@ -207,11 +207,19 @@ describe("backup (the fused pass)", () => {
       generateCalls[0]?.through,
       "expected the upload transform to be passed",
     );
-    // `readBaseline` refuses a held lock before the store LIST, so it must know
-    // which command's `--resume` to offer.
+    // Both lock checks offer `backup`'s own `--resume`: the early one, before
+    // the store LIST, and the write's.
     assert.deepEqual(baselineCalls, [
-      { command: "backup", rehash: undefined, resume: undefined },
+      {
+        resumeCommand: "s3cab backup photos --resume",
+        rehash: undefined,
+        resume: undefined,
+      },
     ]);
+    assert.equal(
+      generateCalls[0]?.resumeCommand,
+      "s3cab backup photos --resume",
+    );
     // The whole of `readBaseline`'s result, forwarded rather than picked apart:
     // `generateSnapshot` derives `lookup`/`sizes`/`previousInstant` from it itself.
     assert.equal(generateCalls[0]?.baseline, baseline);
@@ -249,7 +257,11 @@ describe("backup (the fused pass)", () => {
     await backup("photos", { rehash: true });
 
     assert.deepEqual(baselineCalls, [
-      { command: "backup", rehash: true, resume: undefined },
+      {
+        resumeCommand: "s3cab backup photos --resume",
+        rehash: true,
+        resume: undefined,
+      },
     ]);
   });
 

@@ -250,9 +250,9 @@ const interruptedError = () =>
  * @param {string} snapshotDir - Directory the snapshot file is written into
  * @param {string} name - Snapshot file name
  * @param {(stream: Writable, signal: AbortSignal) => Promise<void>} callbackFn - Callback receiving the write stream and the stop-cleanly signal
- * @param {object} [options]
+ * @param {object} options
  * @param {boolean} [options.overwrite] - Replace an existing same-name snapshot instead of erroring
- * @param {string} [options.resumeCommand] - The `--resume` command {@link inProgressError} offers when the lock is already held. Defaulted rather than required because the only production path in (`writeSnapshot` ← `generateSnapshot`) always passes the real one, while the test call sites that never hit the lock would otherwise all have to thread a string they don't care about
+ * @param {string} options.resumeCommand - The `--resume` command {@link inProgressError} offers when the lock is already held
  * @returns {Promise<string>} Path to the created snapshot file
  * @throws {InterruptedError} When the user interrupted the run — its work is parked, not lost
  */
@@ -260,7 +260,7 @@ export async function withSnapshotFile(
   snapshotDir,
   name,
   callbackFn,
-  { overwrite = false, resumeCommand = "s3cab backup --resume" } = {},
+  { overwrite = false, resumeCommand },
 ) {
   mkdirSync(snapshotDir, { recursive: true });
   const snapshotPath = resolve(snapshotDir, snapshotFileName(name));
@@ -539,7 +539,7 @@ const inProgressError = (tmpPath, resumeCommand) => {
  * @param {(path: string) => Promise<Props>} args.getProps - Compute a file's props (hash/size/mtime)
  * @param {RowTransform} [args.through] - Pass-through applied to each hashed row before it reaches the TSV (`backup`'s object uploader)
  * @param {boolean} [args.overwrite] - Replace an existing same-name snapshot instead of erroring
- * @param {string} [args.resumeCommand] - Passed straight to {@link withSnapshotFile} for its lock-held error
+ * @param {string} args.resumeCommand - Passed straight to {@link withSnapshotFile} for its lock-held error
  * @param {() => void} [args.onStop] - Called once when the user asks the pass to stop (ADR-0067), so a caller's progress line can say so
  * @returns {Promise<string>} Path to the created snapshot file
  */
