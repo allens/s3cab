@@ -98,25 +98,9 @@ and verifies with `npm test` alone.
   _Landed 2026-10-01 as [PR #343](https://github.com/allens/s3cab/pull/343) — see the run log. Its
   "narrow `onHashStart` to the byte cursor" half was not done there. It landed later as smaller item
   **file in hand three ways**, in [PR #355](https://github.com/allens/s3cab/pull/355)._
-- **Exclude subject side — `compileExclude` owns the pattern side; the walk owns the convention.** _Worth exploring —
-  carried from the eleventh pass; anchors re-verified 2026-10-04._ `compileExclude` returns a bare
-  `RegExp` ([exclude.mjs](../src/lib/exclude.mjs):21–27), and its JSDoc (:5–20) states one
-  subject-side obligation, the `/`-separated subject. All three are implemented in
-  `createWalkCallbackFn` ([walk.mjs](../src/lib/walk.mjs):381) and nowhere else: separator
-  normalization (:393), the trailing-separator directory rule (:395–397) and `matchers.find`
-  first-match-wins (:399). There is one production call (walk.mjs:384); `tree --excluded` reads the
-  walk's `excluded` output (ADR-0080) and is not a second caller. **No test anywhere compiles a
-  trailing-`/` _pattern_:** [exclude.test.mjs](../src/lib/exclude.test.mjs):41–42 tests a trailing-`/`
-  *subject* against a `**` pattern, and [walk.test.mjs](../src/lib/walk.test.mjs) covers the directory
-  form only end to end through a temp tree. The rule is a string test today
-  (`compileExclude("/root/build/")` yields `^/root/build/$`); only the walk's append and its
-  stop-descending need a tree. Four of `starterExclude`'s eight patterns are directory-form
-  ([sets.mjs](../src/lib/sets.mjs):131–140), eight of fourteen in the dogfood
-  [.s3cab/exclude.txt](../.s3cab/exclude.txt). Users are told what a trailing `/` means (the starter
-  file's own header, sets.mjs:125–126); the compile side is what has no test. Shape if taken:
-  normalization, the directory rule and first-match-wins move behind the module that owns the grammar.
-  ADR-0088 governs the *token* grammar and says nothing about the subject side, so this **completes
-  0088 rather than reopening it**. One production caller makes it a depth move, not a seam.
+- **Exclude subject side — `compileExclude` owns the pattern side; the walk owns the convention.**
+  _Landed 2026-10-06 as [PR #378](https://github.com/allens/s3cab/pull/378), as
+  `compileExcludePatterns`. See the run log._
 - **Command named twice — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
   _Landed 2026-10-06 as [PR #375](https://github.com/allens/s3cab/pull/375), as a deletion rather
   than the fix proposed. See the run log._
@@ -831,3 +815,19 @@ least once; re-open only if the stated reason no longer holds.
     SDK middleware".
   - **Copilot**: no comments.
   - `npm test` 1192 pass, 13 skipped; no `src/` behaviour touched.
+- **2026-10-06 — Exclude subject side landed** ([PR #378](https://github.com/allens/s3cab/pull/378),
+  grilled in-session; no ADR, since the rules are the doc comment on `compileExcludePatterns`).
+  - **The whole match moved, not just the path's half.** `compileExcludePatterns(baseDir, patterns)`
+    returns `(path, isDirectory) => pattern | undefined`, and owns the join onto the root, `\` → `/`
+    on both sides, the directory's trailing `/` and first-match-wins. The walk's callback keeps the
+    type triage and the two record lists.
+  - **`isDirectory`, not the walk's `fileType` string**, so exclude.mjs never depends on the
+    `"Directory"` spelling `getFileType` owns.
+  - **One export.** The per-pattern compile is private, and the tests cross the walk's interface:
+    the old trailing-`/` *subject* test now reads `excludedBy(["build/**"], "/root/build", true)`,
+    and new ones cover a trailing-`/` pattern against a file and a directory, first-match-wins and a
+    `\`-separated path.
+  - **Not taken: the `.s3cab` skip.** It matches no pattern and records no row; moving it would
+    have made those directories show up as `#EXCLUDED`.
+  - **Left as of record:** ADR-0073, ADR-0088 and the ADR index still say `compileExclude`.
+  - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
