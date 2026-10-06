@@ -3,7 +3,7 @@ name: over-engineering
 description: >-
   s3cab's over-engineering sweep — a cold read of src/ hunting needless
   indirection, dead structure and cognitive complexity, judged against CLAUDE.md
-  working convention *Do not over-engineer*. Use ONLY when explicitly asked to run a complexity or
+  working convention *Judge an option by its result*. Use ONLY when explicitly asked to run a complexity or
   over-engineering sweep of the codebase, or of a named subsystem within it. It is
   a whole-codebase audit producing a ranked report — NOT a review tool. Do not
   invoke it to review a diff or a PR (that's /code-review or /simplify), for
