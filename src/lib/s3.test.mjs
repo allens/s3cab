@@ -804,8 +804,9 @@ describe("requestErrorRelay network retries", () => {
 
   /**
    * Collect what the relay writes to stderr while `run` executes. The status
-   * lines go to the real `process.stderr` (there is no stream to inject through
-   * SDK middleware), so the write is swapped out for the duration.
+   * lines go to the real `process.stderr` — production has no other stream, so
+   * the relay takes none as a parameter — so the write is swapped out for the
+   * duration.
    * @param {() => Promise<unknown>} run
    * @returns {Promise<string>}
    */
@@ -924,6 +925,30 @@ describe("requestErrorRelay network retries", () => {
     };
     assert.equal(await requestErrorRelay(50)(next)({ input: {} }), "ok");
     assert.equal(calls, 2, "a slow first failure must not consume the window");
+  });
+
+  it("announces what is left of the window, not the whole of it", async (t) => {
+    // ADR-0091: discovering the second failure can eat most of the window, and
+    // the line must not promise a ceiling the request won't honour. The clock
+    // is faked because rounding hides the few real milliseconds a test spends:
+    // the full window and what is left of it both print as "2 minutes".
+    let now = 0;
+    t.mock.method(Date, "now", () => now);
+    let calls = 0;
+    const next = async () => {
+      calls += 1;
+      if (calls === 2) {
+        now += 90_000;
+      }
+      if (calls <= 2) {
+        throw dropped();
+      }
+      return "ok";
+    };
+    const output = await captureStderr(() =>
+      requestErrorRelay()(next)({ input: {} }),
+    );
+    assert.match(output, /up to 30 seconds/);
   });
 
   it("never retries a request whose body is a stream", async () => {
