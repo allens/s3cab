@@ -99,7 +99,8 @@ and verifies with `npm test` alone.
   "narrow `onHashStart` to the byte cursor" half was not done there. It landed later as smaller item
   **file in hand three ways**, in [PR #355](https://github.com/allens/s3cab/pull/355)._
 - **Exclude subject side — `compileExclude` owns the pattern side; the walk owns the convention.**
-  _Landed 2026-10-06 as `compileExcludePatterns`. See the run log._
+  _Landed 2026-10-06 as [PR #378](https://github.com/allens/s3cab/pull/378), as
+  `compileExcludePatterns`. See the run log._
 - **Command named twice — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
   _Landed 2026-10-06 as [PR #375](https://github.com/allens/s3cab/pull/375), as a deletion rather
   than the fix proposed. See the run log._
@@ -814,8 +815,8 @@ least once; re-open only if the stated reason no longer holds.
     SDK middleware".
   - **Copilot**: no comments.
   - `npm test` 1192 pass, 13 skipped; no `src/` behaviour touched.
-- **2026-10-06 — Exclude subject side landed** (grilled in-session; no ADR, since the rules are the doc comment on
-  `compileExcludePatterns`).
+- **2026-10-06 — Exclude subject side landed** ([PR #378](https://github.com/allens/s3cab/pull/378),
+  grilled in-session; no ADR, since the rules are the doc comment on `compileExcludePatterns`).
   - **The whole match moved, not just the path's half.** `compileExcludePatterns(baseDir, patterns)`
     returns `(path, isDirectory) => pattern | undefined`, and owns the join onto the root, `\` → `/`
     on both sides, the directory's trailing `/` and first-match-wins. The walk's callback keeps the
