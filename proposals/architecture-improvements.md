@@ -65,7 +65,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **E** below for what skipping that costs.
-(2) **Ordering constraints.** None: **B**, **F**, **G** and **J** are independent of one another.
+(2) **Ordering constraints.** None: **B**, **G** and **J** are independent of one another.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -113,23 +113,8 @@ and verifies with `npm test` alone.
   ADR-0088 governs the *token* grammar and says nothing about the subject side, so this **completes
   0088 rather than reopening it**. One production caller makes it a depth move, not a seam.
 - **F — One run names its command twice: given to `readBaseline`, inferred by `generateSnapshot`.**
-  _Worth exploring — rewritten 2026-10-04, anchors re-verified 2026-10-06 after U._ #360 gave
-  `readBaseline` the command explicitly
-  ([snapshot.mjs](../src/lib/snapshot.mjs):102, :107, used at :113 for the `--resume` refusal), but
-  `generateSnapshot` (:215–218) still takes `through` and `transfer` as two independent optional
-  parameters and rebuilds the command from whether `transfer` is set: the opening `Backing up` vs
-  `Snapshotting` (:238), the `Storing objects in …` line (:250) and the `--resume` command offered if
-  the lock turns out to be held (:333–336). The comment there says "naming the wrong one is not
-  possible"; four test callers pass `through` alone
-  ([snapshot.progress.test.mjs](../src/lib/snapshot.progress.test.mjs):127–129, :188–198, :220–231;
-  [snapshot.unreadable.test.mjs](../src/lib/snapshot.unreadable.test.mjs):34–63). The :336 command is
-  reachable only when another run takes the lock between `assertNoWorkFile` and the `wx` acquire, and
-  no test reaches it; `withSnapshotFile` defaults it to `"s3cab backup --resume"` for tests' sake
-  ([snapshot-file.mjs](../src/lib/snapshot-file.mjs):255, :263), and
-  [snapshot-file.test.mjs](../src/lib/snapshot-file.test.mjs):797 pins that default. Fix: the
-  porcelain states the command once and it is carried into the pass (the baseline
-  [backup.mjs](../src/commands/backup.mjs):88–114 already hands over is one carrier), and `through`
-  and `transfer` arrive together or not at all. This disagrees with a comment, not an ADR.
+  _Landed 2026-10-06 as [PR #375](https://github.com/allens/s3cab/pull/375), as a deletion rather
+  than the fix proposed. See the run log._
 - **G — ADR-0091's one user-visible promise is unpinned, because a stream is welded into a seam that
   is already curried.** _Worth exploring — anchors re-verified 2026-10-04, exact._ The
   relay is curried on its options precisely so "the give-up path is testable in milliseconds"
@@ -823,3 +808,18 @@ least once; re-open only if the stated reason no longer holds.
     costs microseconds against one round trip).
   - `npm test` 1192 pass, 12 skipped on `main` after the merge; integration 27 pass before it; CI
     green.
+- **2026-10-06 — F landed** ([PR #375](https://github.com/allens/s3cab/pull/375); ADR-0092 reworded
+  from "two commands" to "two remedies").
+  - **The lock-held error no longer names a command.** It says to run the same command again with
+    `--resume`; the delete stays pasteable. Nothing passes a command or a remedy string into the
+    snapshot lib any more, so there is no second naming to disagree with the first.
+  - **Two shapes built and dropped.** Carrying `command: "backup" | "snapshot"` on the baseline had
+    the lib knowing its callers. Each porcelain building the string and passing it four levels down
+    was correct, but too much plumbing for one pasteable line, and it dropped any other options the
+    user typed. The departure from ADR-0030's pasteable form is a comment on `inProgressError`.
+  - **Not taken: "`through` and `transfer` arrive together".** With the command gone, the verb and
+    the Storing line key on `transfer` alone, whether this pass is sending, and `through` alone is a
+    test hook with nothing to contradict.
+  - **Copilot**: its one comment asked to pin the verb to the command, which the final shape drops;
+    declined on the thread.
+  - `npm test` 1191 pass, 13 skipped; no S3 path touched.
