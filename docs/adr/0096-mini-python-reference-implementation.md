@@ -44,6 +44,7 @@ that was weighed and set aside.
 
   Candidates above the floor include `delete` (with deletion records), hash reuse, simple exclude
   patterns, `verify` and `list`.
+- **Starting point.** A bash spike of the floor, [scripts/s3cab-mini.sh](../../scripts/s3cab-mini.sh), and the two bugs it hit are the cautionary tale for what the mini tool must get right.
 - **Placement.** It is not a dev utility, so it doesn't belong in `scripts/`. The options are a
   top-level directory in this repo or a repository of its own.
 - **How far it honours the full tool's state.** For example, whether it writes `sets/<set>/`
