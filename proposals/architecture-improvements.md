@@ -117,7 +117,7 @@ and verifies with `npm test` alone.
   real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
   so.
 - **Two knob tables — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.**
-  _Landed 2026-10-07 — see the run log._
+  _Landed 2026-10-07 as [PR #380](https://github.com/allens/s3cab/pull/380) — see the run log._
 - **Walk's silent clock — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
   ticks.** _Landed 2026-10-02 as [PR #355](https://github.com/allens/s3cab/pull/355). See the run
   log; the record is
@@ -791,7 +791,7 @@ least once; re-open only if the stated reason no longer holds.
     have made those directories show up as `#EXCLUDED`.
   - **Left as of record:** ADR-0073, ADR-0088 and the ADR index still say `compileExclude`.
   - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
-- **2026-10-07 — Two knob tables landed** (no ADR).
+- **2026-10-07 — Two knob tables landed** ([PR #380](https://github.com/allens/s3cab/pull/380); no ADR).
   - **The table moved; the gather names what it replaces.** `knobKeys` sits in lib/provider.mjs, and
     `gatherProviderConfig` returns `replaces`: the credential modes it did not choose. The command
     clears those instead of re-deriving them.
