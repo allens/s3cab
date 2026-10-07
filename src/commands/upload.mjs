@@ -90,7 +90,7 @@ export async function upload(setName, options = {}) {
   const { file, dir, bucket, force } = options;
   // `--snapshot`/`--since` name snapshots, and the user may have either spelling
   // to hand: `list` prints bare names, but the file in the set's snapshots folder
-  // is `<name>.tsv.zst`. Accept both by canonicalizing here at the boundary, as
+  // is `<name>.tsv.gz`. Accept both by canonicalizing here at the boundary, as
   // `compare` does (ADR-0011) — so the name that reaches the resolver, the error
   // message, and the result is the bare one, and `readSnapshot` stays strict
   // about resolving exactly one filename from it.

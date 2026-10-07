@@ -127,7 +127,7 @@ describe("uploadSnapshot (real bucket)", () => {
       // error: rewrite the local `first` manifest (an extra file changes its
       // rows — removed first, since the writer refuses same-name overwrites)
       // and the remote copy no longer matches.
-      rmSync(join(snapshotDir, `${first}.tsv.zst`));
+      rmSync(join(snapshotDir, `${first}.tsv.gz`));
       await writeSnapshot(snapshotDir, first, [fileA, fileB, fileC]);
       await assert.rejects(
         () => uploadSnapshot({ bucket, set, snapshotDir, name: first }),
@@ -139,7 +139,7 @@ describe("uploadSnapshot (real bucket)", () => {
       }
       for (const name of [first, second]) {
         await deleteObject(
-          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
         );
       }
     }
@@ -188,7 +188,7 @@ describe("uploadSnapshot (real bucket)", () => {
       // Forget the remote snapshot, then "cleanup" its now-orphan object —
       // the delete/cleanup dance, done directly. Local history is untouched.
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${first}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${first}.tsv.gz`,
       );
       await deleteObject(`s3://${bucket}/objects/${hash}`);
 
@@ -218,7 +218,7 @@ describe("uploadSnapshot (real bucket)", () => {
       await deleteObject(`s3://${bucket}/objects/${hash}`);
       for (const name of [first, second]) {
         await deleteObject(
-          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
         );
       }
     }

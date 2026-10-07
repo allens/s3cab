@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DAY_MS } from "./harness/clock.mjs";
 import { FakeS3, parseUri } from "./harness/fake-s3.mjs";
 import { runSequence } from "./harness/runner.mjs";
@@ -249,7 +249,7 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
         async function* (uri) {
           let hidden = parseUri(uri).key !== "snapshots/";
           for await (const object of original.call(this, uri)) {
-            if (!hidden && object.Key?.endsWith(".tsv.zst")) {
+            if (!hidden && object.Key?.endsWith(".tsv.gz")) {
               hidden = true;
               continue;
             }
@@ -332,17 +332,13 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
         async function (path, uri, options) {
           const stored = await original.call(this, path, uri, options);
           const { bucket, key } = parseUri(uri);
-          if (stored && /^snapshots\/.+\.tsv\.zst$/.test(key)) {
+          if (stored && /^snapshots\/.+\.tsv\.gz$/.test(key)) {
             const bytes = /** @type {Buffer} */ (
               await this.getBytes(bucket, key)
             );
-            const text = zstdDecompressSync(bytes).toString("utf8");
+            const text = gunzipSync(bytes).toString("utf8");
             const mangled = text.split("\n").map(mangleRow).join("\n");
-            await this.putBytes(
-              bucket,
-              key,
-              zstdCompressSync(Buffer.from(mangled)),
-            );
+            await this.putBytes(bucket, key, gzipSync(Buffer.from(mangled)));
           }
           return stored;
         };

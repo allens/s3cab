@@ -112,7 +112,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
@@ -676,16 +676,16 @@ await client.send(
 // backup killed mid-write (ADR-0082), and it has only ever been staged *present* — so
 // nothing has tested the one thing it exists for, and run 2 could only note that its
 // own completeness check went unexercised. Truncating the *compressed* bytes would test
-// zstd's leniency instead, so this decompresses, drops the trailer line, and
-// recompresses: a well-formed frame missing its last line, which is precisely what a
+// gunzip's own check instead, so this decompresses, drops the trailer line, and
+// recompresses: a well-formed gzip stream missing its last line, which is precisely what a
 // reader has to notice. It is published under `faults` as a second snapshot, backdated
 // so the intact one stays the set's latest.
 const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
-  .filter((entry) => entry.endsWith(".tsv.zst"))
+  .filter((entry) => entry.endsWith(".tsv.gz"))
   .sort()
   .at(-1);
 const damagedName = oneMinuteBefore(
-  /** @type {string} */ (wholeName).replace(/\.tsv\.zst$/, ""),
+  /** @type {string} */ (wholeName).replace(/\.tsv\.gz$/, ""),
 );
 console.log(`publishing snapshots/faults/${damagedName} with no #END trailer`);
 const whole = await client.send(
@@ -697,12 +697,12 @@ const whole = await client.send(
 const wholeBytes = await /** @type {NonNullable<typeof whole.Body>} */ (
   whole.Body
 ).transformToByteArray();
-const text = zstdDecompressSync(wholeBytes).toString("utf8");
+const text = gunzipSync(wholeBytes).toString("utf8");
 await client.send(
   new PutObjectCommand({
     Bucket: bucket,
-    Key: `snapshots/faults/${damagedName}.tsv.zst`,
-    Body: zstdCompressSync(
+    Key: `snapshots/faults/${damagedName}.tsv.gz`,
+    Body: gzipSync(
       Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"),
     ),
   }),
@@ -733,8 +733,8 @@ async function restoreReferences() {
     const prefix = `snapshots/${name}/`;
     const keys = await listAll(prefix);
     const snapshots = keys
-      .filter((key) => key.endsWith(".tsv.zst"))
-      .map((key) => key.slice(prefix.length, -".tsv.zst".length));
+      .filter((key) => key.endsWith(".tsv.gz"))
+      .map((key) => key.slice(prefix.length, -".tsv.gz".length));
     for (const snapshot of snapshots) {
       const target = join(reference, `${name}-${snapshot}`);
       console.log(`restore ${name} ${snapshot}`);

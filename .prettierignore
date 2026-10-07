@@ -8,7 +8,7 @@ coverage
 # Never let Prettier touch snapshot files or the on-disk store
 .s3cab
 *.tsv
-*.tsv.zst
+*.tsv.gz
 
 # Docs are hand-authored. Prettier's Markdown formatting churns prose emphasis
 # (*x* -> _x_) and pads table cells with trailing whitespace, which makes the

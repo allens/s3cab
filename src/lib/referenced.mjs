@@ -85,8 +85,9 @@ export function addSnapshotReferences(referenced, name, entries) {
  * Whether an error reading a remote snapshot means the *snapshot itself* is
  * damaged (a finding — verify records it and carries on) rather than an
  * operational S3 failure (network/auth/throttle — an ordinary error that aborts
- * the run, docs/design/backup.md). Damage is a zstd decompression failure
- * (`code` like `ZSTD_error_*`) or a snapshot-parse assertion (`AssertionError`
+ * the run, docs/design/backup.md). Damage is a gunzip failure — `Z_DATA_ERROR`
+ * for bytes that aren't gzip or fail its checksum, `Z_BUF_ERROR` for a stream
+ * cut short — or a snapshot-parse assertion (`AssertionError`
  * from `parseSnapshotStream`); anything else — an SDK/credential/network error —
  * is *not* corruption and is rethrown, so an outage never masquerades as data
  * loss. Unknown → not corruption → abort (the safe direction).
@@ -100,7 +101,8 @@ export function isCorruptSnapshotError(error) {
   const code = /** @type {NodeJS.ErrnoException} */ (error).code;
   return (
     error.name === "AssertionError" ||
-    (typeof code === "string" && code.startsWith("ZSTD_"))
+    code === "Z_DATA_ERROR" ||
+    code === "Z_BUF_ERROR"
   );
 }
 
@@ -169,7 +171,7 @@ export const sizeDisagreements = (object, storedSize) => {
  * The bucket's unreadable snapshots, each qualified by the set it belongs to —
  * `set/snapshot`, the name a whole-bucket scan has to use because a snapshot name
  * alone is only unique within its set. Written the same way as its place in the
- * bucket (`snapshots/<set>/<name>.tsv.zst`), so a name printed here pastes
+ * bucket (`snapshots/<set>/<name>.tsv.gz`), so a name printed here pastes
  * straight after `s3://<bucket>/snapshots/` (CONTEXT.md, **Snapshot**).
  *
  * `referencedObjects` reports these **per set**, but a whole-bucket scan wants

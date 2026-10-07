@@ -12,7 +12,7 @@ import { createInterface } from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
-import { constants, createZstdCompress, createZstdDecompress } from "node:zlib";
+import { constants, createGunzip, createGzip } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError, isENOENT } from "./error.mjs";
 import { completionInstant, localMoment } from "./format.mjs";
 import { tildeify } from "./home.mjs";
@@ -135,14 +135,14 @@ const PARTIAL = "PARTIAL";
  * ([ADR-0067](../../docs/adr/0067-park-hashes-on-interrupt.md)) — the work file
  * of a run stopped with Ctrl+C, renamed aside so the next run can reuse the
  * hashes instead of computing them again. Two names, two meanings: the temp
- * `.snapshot.tsv.zst` says "a run is writing right now, keep out" (the ADR-0048
+ * `.snapshot.tsv.gz` says "a run is writing right now, keep out" (the ADR-0048
  * lock), this one says "nobody is writing; here are hashes to reuse". A
  * leading-dot, non-datestamped name, so `snapshotNames` can never mistake it for
  * a real snapshot and `list` never shows it; local-only, never uploaded.
  * @param {string} snapshotDir - The set's snapshots dir
  */
 const parkedLookupPath = (snapshotDir) =>
-  resolve(snapshotDir, ".snapshot.lookup.tsv.zst");
+  resolve(snapshotDir, ".snapshot.lookup.tsv.gz");
 
 /**
  * The in-progress snapshot's own file — the temp the writer streams into, which
@@ -151,7 +151,7 @@ const parkedLookupPath = (snapshotDir) =>
  * handler finishing, which is what {@link recoverWorkFile} adopts.
  * @param {string} snapshotDir - The set's snapshots dir
  */
-const workFilePath = (snapshotDir) => resolve(snapshotDir, ".snapshot.tsv.zst");
+const workFilePath = (snapshotDir) => resolve(snapshotDir, ".snapshot.tsv.gz");
 
 /**
  * The interrupts a snapshot parks its work on. SIGINT (Ctrl+C) is the blessed,
@@ -228,7 +228,7 @@ const interruptedError = () =>
  * `snapshotDir` (the set's `~/.s3cab/sets/<set>/snapshots/`, resolved by the
  * caller). The FileHandle is automatically disposed when the callback completes.
  *
- * The fixed-name temp file `.snapshot.tsv.zst` doubles as the set's snapshot
+ * The fixed-name temp file `.snapshot.tsv.gz` doubles as the set's snapshot
  * **concurrency lock** (ADR-0048): it is created atomically (`wx`), so a second
  * concurrent snapshot of the same set fails to acquire it rather than
  * interleaving writes into the same file. The success path releases the lock by
@@ -293,12 +293,12 @@ export async function withSnapshotFile(
   // Start the pipeline but don't await it yet
   const pipelinePromise = pipeline(
     snapshotWriter,
-    createZstdCompress({
-      chunkSize,
-      params: {
-        [constants.ZSTD_c_compressionLevel]: 19,
-      },
-    }),
+    // gzip, not a newer codec: every reader decodes it out of the box (ADR-0097).
+    // `Z_FILTERED` drops the short matches deflate otherwise finds by chance in
+    // the random hex of the hash column — each costs more bits than the four or
+    // so a hex literal does — so the hashes code close to their entropy while
+    // the paths, which really do repeat, keep their long matches.
+    createGzip({ chunkSize, level: 9, strategy: constants.Z_FILTERED }),
     fd.createWriteStream(),
   );
 
@@ -484,7 +484,7 @@ export function assertNoWorkFile(snapshotDir) {
  * The recovery is "the same command again with `--resume`", not a pasteable
  * `s3cab backup <set> --resume` (ADR-0030's usual form): that needs the calling
  * command threaded down here, and would drop any other options the user typed.
- * @param {string} tmpPath - The lock/temp file path (`.snapshot.tsv.zst`)
+ * @param {string} tmpPath - The lock/temp file path (`.snapshot.tsv.gz`)
  */
 const inProgressError = (tmpPath) => {
   const del = process.platform === "win32" ? "del" : "rm";
@@ -504,7 +504,7 @@ const inProgressError = (tmpPath) => {
  * header, `#EXCLUDED` rows for pattern-matched entries, `#SKIPPED` rows for
  * by-design-unsupported entries, then a file-entry row per kept file — each
  * hashed via the injected `getProps`, with an `#ERROR` row for any that fails —
- * all zstd-compressed and atomically renamed into place (`withSnapshotFile`).
+ * all gzip-compressed and atomically renamed into place (`withSnapshotFile`).
  * This is the single production seam for "files → snapshot file"; the grammar
  * (`snapshotHeader`/`excludedLine`/`skippedLine`/`errorLine`/`formatLine`,
  * `SnapshotRow`) never leaves this module.
@@ -601,7 +601,7 @@ export async function writeSnapshot(
  * Read a snapshot by name from a snapshot directory.
  *
  * One candidate, composed by `snapshotFileName`: a snapshot *is* its
- * `<name>.tsv.zst`, so the name this resolves is exactly the name the writer
+ * `<name>.tsv.gz`, so the name this resolves is exactly the name the writer
  * lands on and `listSnapshotNames` reports. It used to try `<name>` and
  * `<name>.tsv` first (carried from the initial commit, never a decision), which
  * bought nothing — a name arrives here either straight from the lister or
@@ -688,36 +688,36 @@ export const snapshotMoment = () => localMoment("minutes");
  * The filename a snapshot is stored as — its name plus the extension. The one
  * place the extension is *constructed*, so the modules that address snapshot
  * files (`remote.mjs`'s S3 keys, `upload.mjs`'s local reads) compose this
- * instead of spelling the grammar they don't own. The `.tsv.zst` itself is a
+ * instead of spelling the grammar they don't own. The `.tsv.gz` itself is a
  * user-facing promise (guide/format.md, ADR-0002): a recoverer decompresses it
- * with plain `zstd -d`.
+ * with plain `gunzip`.
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @returns {string} e.g. `2026-06-12T0915.tsv.zst`
+ * @returns {string} e.g. `2026-06-12T0915.tsv.gz`
  */
-export const snapshotFileName = (name) => `${name}.tsv.zst`;
+export const snapshotFileName = (name) => `${name}.tsv.gz`;
 
 /**
  * Accept either a bare snapshot name (as `list` reports) or a full snapshot
- * filename, by stripping the `.tsv`/`.tsv.zst` extension — so callers taking
+ * filename, by stripping the `.tsv`/`.tsv.gz` extension — so callers taking
  * user-supplied names (`compare`) never learn the extension grammar.
  * @param {string} [name]
  */
 export const normalizeSnapshotName = (name) =>
-  name?.replace(/\.tsv(\.zst)?$/, "");
+  name?.replace(/\.tsv(\.gz)?$/, "");
 
 /**
  * The snapshot names among a set of snapshot file names, newest first. This
- * datestamped `.tsv.zst` filter is the one place the snapshot naming convention
+ * datestamped `.tsv.gz` filter is the one place the snapshot naming convention
  * is recognised; `list` (local files) and the remote lister (snapshot keys with
  * their `snapshots/<set>/` prefix already stripped) both run through here,
  * so a local and a remote listing sort and filter identically.
- * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.zst`)
+ * @param {Iterable<string>} names - Snapshot file names (e.g. `2026-06-12T0915.tsv.gz`)
  * @returns {string[]} Snapshot names without extension (e.g. `2026-06-12T0915`), newest first
  */
 export function snapshotNames(names) {
   return [...names]
-    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.zst$/.test(name))
-    .map((name) => basename(name, ".tsv.zst"))
+    .filter((name) => /\d{4}-\d{2}-\d{2}T\d{4}\.tsv\.gz$/.test(name))
+    .map((name) => basename(name, ".tsv.gz"))
     .sort()
     .reverse();
 }
@@ -764,15 +764,15 @@ export function listSnapshotNames(snapshotDir) {
 export async function readSnapshotFile(path) {
   const readStream = createReadStream(path);
 
-  return extname(path) === ".zst"
+  return extname(path) === ".gz"
     ? parseCompressedSnapshotStream(readStream)
     : parseSnapshotStream(readStream);
 }
 
 /**
- * Parse a **compressed** (`.tsv.zst`) snapshot byte stream into a snapshot —
- * the zstd-decompressing front of {@link parseSnapshotStream}, shared by the
- * local `.zst` read ({@link readSnapshotFile}) and the remote read
+ * Parse a **compressed** (`.tsv.gz`) snapshot byte stream into a snapshot —
+ * the gunzipping front of {@link parseSnapshotStream}, shared by the
+ * local `.gz` read ({@link readSnapshotFile}) and the remote read
  * (`readRemoteSnapshot`, streaming an S3 body). A `pipeline` with the parser as
  * its **terminal sink**, which is the one shape with both properties this read
  * needs: a mid-stream source error (a dropped connection, a failed disk read)
@@ -780,9 +780,9 @@ export async function readSnapshotFile(path) {
  * `error`), and teardown waits for the sink — the source is fully consumed
  * first, so a live S3 request is never aborted on normal completion (the eager
  * teardown of a bare `compose`/`pipeline` regressed #171 with `ABORT_ERR`).
- * @param {Readable} source - Raw `.tsv.zst` bytes (a file stream or S3 body)
+ * @param {Readable} source - Raw `.tsv.gz` bytes (a file stream or S3 body)
  * @param {object} [options]
- * @param {boolean} [options.tolerant] - Accept a frame cut short, and pass the same tolerance on to {@link parseSnapshotStream} — the work-file read, and nothing else
+ * @param {boolean} [options.tolerant] - Accept a stream cut short, and pass the same tolerance on to {@link parseSnapshotStream} — the work-file read, and nothing else
  * @returns {Promise<Snapshot>}
  * @throws {AssertionError} When the bytes are cut short, unless `tolerant` — whichever layer
  *   notices, so a truncated snapshot reads the same on every Node (ADR-0082
@@ -792,24 +792,24 @@ export async function parseCompressedSnapshotStream(
   source,
   { tolerant = false } = {},
 ) {
-  // A killed run's work file is a frame never closed, and the default
+  // A killed run's work file is a gzip stream never closed, and the default
   // `finishFlush` rejects one with `Z_BUF_ERROR` after emitting every row it
-  // holds; `ZSTD_e_flush` ends cleanly with them. Tolerant reads only — for a
-  // snapshot, a cut frame must stay loud (ADR-0082 amendment 2).
-  const decompressed = createZstdDecompress(
-    tolerant ? { finishFlush: constants.ZSTD_e_flush } : {},
+  // holds; `Z_SYNC_FLUSH` ends cleanly with them. Tolerant reads only — for a
+  // snapshot, a cut stream must stay loud (ADR-0082 amendment 2).
+  const decompressed = createGunzip(
+    tolerant ? { finishFlush: constants.Z_SYNC_FLUSH } : {},
   );
   try {
-    // The sink closes over the zstd stream rather than taking pipeline's sink
+    // The sink closes over the gunzip stream rather than taking pipeline's sink
     // argument — the same object at runtime, but typed as a bare
     // AsyncIterable, which the parser's readline can't take.
     return await pipeline(source, decompressed, () =>
       parseSnapshotStream(decompressed, { tolerant }),
     );
   } catch (error) {
-    // zstd rejects a stream that ends mid-frame itself, before the parser can
-    // miss its `#END` — so for a *compressed* snapshot this is where truncation
-    // is caught, and the trailer covers what a frame check can't see
+    // gunzip rejects a stream that ends before its own trailer, before the
+    // parser can miss its `#END` — so for a *compressed* snapshot this is where
+    // truncation is caught, and `#END` covers what gzip's check can't see
     // (ADR-0082 amendment 3). Same damage, so the same AssertionError.
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "Z_BUF_ERROR") {
       assert.fail(
@@ -825,9 +825,9 @@ export async function parseCompressedSnapshotStream(
  * core of `readSnapshotFile`, split out so a snapshot can be read straight from
  * a remote object stream (`backup`/`restore` downloading from `snapshots/`)
  * with no temp file. The caller hands in an already-**decompressed** TSV stream;
- * both compressed sources — a local `.zst` file and a remote S3 body — come
+ * both compressed sources — a local `.gz` file and a remote S3 body — come
  * through {@link parseCompressedSnapshotStream}, which fronts this parser with
- * zstd as a pipeline sink.
+ * gunzip as a pipeline sink.
  *
  * The `#SNAPSHOT`/`#DIR` header comments are parsed out (into `identity`/`dirs`)
  * rather than discarded, so a snapshot stays self-describing on read — the
@@ -998,11 +998,11 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
 
   // The completeness check (ADR-0082): the `#END` trailer is what makes
   // truncation loud, because completeness is a property of the *content* — any
-  // cut that loses a row loses the trailer with it. zstd rejects a cut-short
-  // frame on its own now, and parseCompressedSnapshotStream folds that into
+  // cut that loses a row loses the trailer with it. gunzip rejects a cut-short
+  // stream on its own, and parseCompressedSnapshotStream folds that into
   // this same AssertionError, but it can't stand in for this check: an
-  // uncompressed `.tsv` has no frame at all, and the `tolerant` read below is
-  // *allowed* to end mid-frame (ADR-0082 amendment 3). Whole-object integrity
+  // uncompressed `.tsv` has no gzip trailer at all, and the `tolerant` read below
+  // is *allowed* to end mid-stream (ADR-0082 amendment 3). Whole-object integrity
   // is the store's ETag, not the TSV's job.
   // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as

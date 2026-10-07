@@ -1,7 +1,7 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { createZstdDecompress } from "node:zlib";
+import { createGunzip } from "node:zlib";
 import { fileProps } from "./file-props.mjs";
 import {
   ELAPSED_COLUMNS,
@@ -116,7 +116,7 @@ export async function readBaseline(set, { rehash, resume }) {
     // even a large set. The path is composed once and then *read*, rather than
     // announced here and resolved again by `readSnapshot`: the file named is the
     // file opened, by identity rather than by two derivations agreeing.
-    // `listSnapshotNames` only yields names backed by a `.tsv.zst`, so the
+    // `listSnapshotNames` only yields names backed by a `.tsv.gz`, so the
     // composed path exists.
     const path = join(snapshotDir, snapshotFileName(name));
     console.warn("Reading previous snapshot", `'${tildeify(path)}'`);
@@ -368,7 +368,7 @@ export async function generateSnapshot(
   if (debug) {
     await pipeline(
       createReadStream(path),
-      createZstdDecompress(),
+      createGunzip(),
       createWriteStream(join(dirname(path), ".snapshot.tsv")),
     );
   }

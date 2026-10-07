@@ -61,7 +61,7 @@ Thumbs.db
 # themselves now live in ~/.s3cab/sets/<set>/snapshots/ (outside any working
 # copy), so no in-repo snapshot-output rule is needed any more.
 .snapshot.tsv
-.snapshot.tsv.zst
+.snapshot.tsv.gz
 snapshot-log.tsv
 
 # Ad-hoc scratch/debug dumps

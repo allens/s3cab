@@ -10,7 +10,7 @@ import { s3Seam } from "../../test/helpers/s3-seam.mjs";
 // mock; the real round-trip lives in test/integration/remote.test.mjs. Here we drive
 // the three-way branch in readSetReferenced deterministically — a snapshot that
 // vanished mid-scan (skip), a corrupt one (flag), an operational error (abort) —
-// with no live bucket and no real zstd streams. The mock is registered before the
+// with no live bucket and no real gzip streams. The mock is registered before the
 // dynamic import of remote.mjs so that import binds the fakes (ordering rule from
 // objects.test.mjs); needs --experimental-test-module-mocks (set on the test scripts).
 
@@ -38,12 +38,12 @@ const { referencedObjects } = await import("./remote.mjs");
 
 const BUCKET = "b";
 /** @param {string} set @param {string} name */
-const key = (set, name) => `snapshots/${set}/${name}.tsv.zst`;
+const key = (set, name) => `snapshots/${set}/${name}.tsv.gz`;
 /** @param {string} name */
 const named = (name) => Object.assign(new Error(name), { name });
-const zstdError = () =>
-  Object.assign(new Error("bad zstd"), {
-    code: "ZSTD_error_corruption_detected",
+const gunzipError = () =>
+  Object.assign(new Error("incorrect header check"), {
+    code: "Z_DATA_ERROR",
   });
 
 describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
@@ -72,7 +72,7 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
   it("still flags a corrupt (undecompressable) snapshot as unreadable", async () => {
     snapshotKeys = [key("s", "2025-03-10T0900")];
     onGetStream = async () => {
-      throw zstdError();
+      throw gunzipError();
     };
 
     const bySet = await referencedObjects(BUCKET);

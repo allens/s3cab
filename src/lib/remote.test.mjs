@@ -9,12 +9,12 @@ describe("remoteSnapshotsPrefix", () => {
 });
 
 describe("remoteSnapshotUri", () => {
-  it("addresses a snapshot at snapshots/<set>/<name>.tsv.zst", () => {
+  it("addresses a snapshot at snapshots/<set>/<name>.tsv.gz", () => {
     // The repository layout the format spec promises a recoverer — spelled
     // out independently so a change to prefix or extension fails here.
     assert.equal(
       remoteSnapshotUri("my-bucket", "photos", "2026-06-12T0915"),
-      "s3://my-bucket/snapshots/photos/2026-06-12T0915.tsv.zst",
+      "s3://my-bucket/snapshots/photos/2026-06-12T0915.tsv.gz",
     );
   });
 });

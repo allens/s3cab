@@ -121,7 +121,7 @@ describe("backup → restore round trip (real bucket)", () => {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.gz`,
       );
       // setup() also claimed the set's remote marker — clean it up too.
       await cleanupSetMarker(setName);
@@ -179,7 +179,7 @@ describe("backup → restore round trip (real bucket)", () => {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.gz`,
       );
       await cleanupSetMarker(setName);
     }
@@ -245,7 +245,7 @@ describe("backup → restore round trip (real bucket)", () => {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.gz`,
       );
       await cleanupSetMarker(setName);
     }

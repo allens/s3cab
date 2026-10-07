@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { join, normalize, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { writeSet } from "../lib/sets.mjs";
 import {
   listSnapshotNames,
@@ -276,7 +276,7 @@ function parkSentinelHashes(snapshotsDir, { dropLastRow } = {}) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
+  const text = gunzipSync(readFileSync(path)).toString("utf8");
   const lines = text
     .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
     .replace(/^(#END\s+)COMPLETE/m, "$1PARTIAL")
@@ -288,8 +288,8 @@ function parkSentinelHashes(snapshotsDir, { dropLastRow } = {}) {
     );
   }
   writeFileSync(
-    join(snapshotsDir, ".snapshot.lookup.tsv.zst"),
-    zstdCompressSync(Buffer.from(lines.join("\n"), "utf8")),
+    join(snapshotsDir, ".snapshot.lookup.tsv.gz"),
+    gzipSync(Buffer.from(lines.join("\n"), "utf8")),
   );
   unlinkSync(path);
 }
@@ -309,13 +309,13 @@ function killSentinelRun(snapshotsDir) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
+  const text = gunzipSync(readFileSync(path)).toString("utf8");
   const rows = text
     .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
     .replace(/^#END.*\n?/m, "");
   writeFileSync(
-    join(snapshotsDir, ".snapshot.tsv.zst"),
-    zstdCompressSync(Buffer.from(`${rows}${SENTINEL_HASH}\t12`, "utf8")),
+    join(snapshotsDir, ".snapshot.tsv.gz"),
+    gzipSync(Buffer.from(`${rows}${SENTINEL_HASH}\t12`, "utf8")),
   );
   unlinkSync(path);
 }
@@ -337,13 +337,13 @@ function plantSentinelSnapshot(
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  let text = zstdDecompressSync(readFileSync(path))
+  let text = gunzipSync(readFileSync(path))
     .toString("utf8")
     .replace(/^[0-9a-f]{64}/gm, hash);
   if (finished) {
     text = text.replace(/^(#END[^\t]*\t[^\t]*\t)[^\t]*/m, `$1${finished}`);
   }
-  writeFileSync(path, zstdCompressSync(Buffer.from(text, "utf8")));
+  writeFileSync(path, gzipSync(Buffer.from(text, "utf8")));
 }
 
 /**
@@ -431,7 +431,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     // Consumed on success: the new snapshot re-records every parked row.
     assert.ok(
-      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.gz")),
       "a landed snapshot must delete the parked lookup",
     );
   });
@@ -597,7 +597,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       // What a landed snapshot's best-effort delete leaves when it fails: its
       // rows would undo a `--rehash` that ran after them.
       const { snapshotsDir, tick } = setUp(t);
-      const parkedPath = join(snapshotsDir, ".snapshot.lookup.tsv.zst");
+      const parkedPath = join(snapshotsDir, ".snapshot.lookup.tsv.gz");
 
       tick(1);
       await snapshot("photos", { rehash: true });
@@ -636,7 +636,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       "--rehash must read every file from disk, parked hashes included",
     );
     assert.ok(
-      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.gz")),
       "a landed snapshot deletes the parked lookup however it was taken",
     );
   });
@@ -681,11 +681,11 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     // Adopted, then consumed like any other parked lookup: neither name is left
     // behind to block the run after this one.
     assert.ok(
-      !existsSync(join(snapshotsDir, ".snapshot.tsv.zst")),
+      !existsSync(join(snapshotsDir, ".snapshot.tsv.gz")),
       "the work file must not survive the run that adopted it",
     );
     assert.ok(
-      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.zst")),
+      !existsSync(join(snapshotsDir, ".snapshot.lookup.tsv.gz")),
       "a landed snapshot deletes the lookup it was adopted into",
     );
   });
@@ -725,7 +725,7 @@ describe("clock-went-backwards warning (ADR-0072 check A)", () => {
     // Warns, never blocks: the snapshot itself is written.
     assert.equal(
       readdirSync(join(home, ".s3cab", "sets", "photos", "snapshots")).filter(
-        (f) => f.endsWith(".tsv.zst"),
+        (f) => f.endsWith(".tsv.gz"),
       ).length,
       2,
     );

@@ -92,7 +92,7 @@ describe("backup (fused snapshot + upload, real engine)", () => {
     assert.deepEqual(putUris, [
       `s3://b/objects/${sha("hello")}`,
       `s3://b/objects/${sha("world")}`,
-      `s3://b/snapshots/photos/${result.snapshot}.tsv.zst`,
+      `s3://b/snapshots/photos/${result.snapshot}.tsv.gz`,
     ]);
     assert.equal(result.candidates, 2);
     assert.equal(result.uploaded, 2);
@@ -123,7 +123,7 @@ describe("backup (fused snapshot + upload, real engine)", () => {
     assert.ok(name, "expected the local snapshot to have landed");
     const { entries } = await readSnapshot(snapshotDir, name);
     assert.equal(entries.size, 3);
-    assert.ok(existsSync(join(snapshotDir, `${name}.tsv.zst`)));
+    assert.ok(existsSync(join(snapshotDir, `${name}.tsv.gz`)));
   });
 });
 

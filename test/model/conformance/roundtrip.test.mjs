@@ -17,7 +17,7 @@ import { RealS3, bucket } from "./real-s3.mjs";
 // content-addressed store shape, verify agreeing with an independent read of
 // the bucket — held against **real S3**, through the real commands, with the
 // real clock. The model reads the bucket through its own SDK client and its
-// own zstd/TSV parser (real-s3.mjs, model.mjs), so nothing under test
+// own gunzip/TSV parser (real-s3.mjs, model.mjs), so nothing under test
 // verifies itself.
 
 const real = new RealS3();

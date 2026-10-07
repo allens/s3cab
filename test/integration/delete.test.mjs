@@ -226,7 +226,7 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       }
       for (const snapshot of snapshots) {
         await deleteObject(
-          `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+          `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.gz`,
         ).catch(() => {});
       }
       if (recordUri) {

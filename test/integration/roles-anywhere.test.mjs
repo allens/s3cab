@@ -189,7 +189,7 @@ describe("Roles Anywhere runtime (real CreateSession)", () => {
           await deleteObject(`s3://${bucket}/objects/${hash}`);
         }
         await deleteObject(
-          `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.zst`,
+          `s3://${bucket}/${remoteSnapshotsPrefix(setName)}${snapshot}.tsv.gz`,
         );
         await cleanupSetMarker(setName);
       }

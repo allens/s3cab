@@ -44,7 +44,7 @@ mock.module("../lib/remote.mjs", {
       snapshotsDir = dir;
       mkdirSync(dir, { recursive: true });
       for (const name of remoteSnapshots) {
-        writeFileSync(join(dir, `${name}.tsv.zst`), "");
+        writeFileSync(join(dir, `${name}.tsv.gz`), "");
       }
       return remoteSnapshots.length;
     },

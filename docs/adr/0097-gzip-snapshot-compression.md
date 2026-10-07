@@ -31,7 +31,7 @@ reader most often has to install:
 
 That reaches three other decisions:
 
-- **[0096](0096-three-implementations-prove-the-format.md)'s readers lose their only extra
+- **ADR-0096's readers** (proposed in PR #379) **lose their only extra
   install.** The Windows reader can target the **.NET Framework that ships with Windows**, so
   nothing is installed at all; under zstd it needs .NET 11. The macOS reader needs nothing from
   Homebrew.

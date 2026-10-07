@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 /**
- * Create a set on disk with the given snapshot names — drops empty `.tsv.zst`
+ * Create a set on disk with the given snapshot names — drops empty `.tsv.gz`
  * files into the set's snapshot dir, which is all `list` reads to name them.
  * @param {string} name
  * @param {string[]} dirs
@@ -42,7 +42,7 @@ function seedSet(name, dirs, bucket, snapshots) {
   const set = writeSet(name, { dirs, bucket });
   mkdirSync(set.snapshotsDir, { recursive: true });
   for (const snap of snapshots) {
-    writeFileSync(join(set.snapshotsDir, `${snap}.tsv.zst`), "");
+    writeFileSync(join(set.snapshotsDir, `${snap}.tsv.gz`), "");
   }
 }
 
