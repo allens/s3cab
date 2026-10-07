@@ -76,7 +76,7 @@ describe("model harness smoke", () => {
       `objects/${sha("alpha")}`,
       `objects/${sha("beta")}`,
       "sets/photos/dirs.txt", // the set claim backup publishes alongside
-      "snapshots/photos/2026-01-05T0000.tsv.zst",
+      "snapshots/photos/2026-01-05T0000.tsv.gz",
     ]);
     // Objects strictly before the manifest (the commit point); the set claim
     // may land after it, and did.
@@ -84,7 +84,7 @@ describe("model harness smoke", () => {
       .filter(({ op }) => op === "PUT")
       .map(({ uri }) => uri.slice(`s3://${BUCKET}/`.length));
     const manifestAt = putKeys.indexOf(
-      "snapshots/photos/2026-01-05T0000.tsv.zst",
+      "snapshots/photos/2026-01-05T0000.tsv.gz",
     );
     assert.ok(manifestAt >= 0, "manifest was PUT");
     for (const key of putKeys.filter((k) => k.startsWith("objects/"))) {

@@ -180,15 +180,15 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 /**
  * Publish a local snapshot's bytes at its remote URI, so the mocked `getStream`
  * serves exactly the copy the byte-identity check should trust (ADR-0084).
- * @param {string} snapshotDir - Local dir holding `<name>.tsv.zst`
+ * @param {string} snapshotDir - Local dir holding `<name>.tsv.gz`
  * @param {string} bucket - The fixture's bucket
  * @param {string} set - The fixture's set
  * @param {string} name - Snapshot name without extension
  * @returns {string} The remote URI it was published at
  */
 const publishSnapshot = (snapshotDir, bucket, set, name) => {
-  const uri = `s3://${bucket}/snapshots/${set}/${name}.tsv.zst`;
-  remoteFiles.set(uri, readFileSync(join(snapshotDir, `${name}.tsv.zst`)));
+  const uri = `s3://${bucket}/snapshots/${set}/${name}.tsv.gz`;
+  remoteFiles.set(uri, readFileSync(join(snapshotDir, `${name}.tsv.gz`)));
   return uri;
 };
 
@@ -610,7 +610,7 @@ describe("uploadSnapshot baseline trust", () => {
     // Nothing planned; the only PUT is the snapshot itself, last and alone.
     assert.deepEqual(
       putFiles.map(({ uri }) => uri),
-      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
+      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`],
     );
     assert.equal(result.candidates, 0);
   });
@@ -641,8 +641,8 @@ describe("uploadSnapshot baseline trust", () => {
     assert.deepEqual(putFiles, [
       { path: file, uri: `s3://trust-bucket/objects/${hash}` },
       {
-        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
-        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+        path: join(args.snapshotDir, `${args.name}.tsv.gz`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`,
       },
     ]);
     assert.equal(result.candidates, 1);
@@ -668,8 +668,8 @@ describe("uploadSnapshot baseline trust", () => {
     assert.deepEqual(putFiles, [
       { path: file, uri: `s3://trust-bucket/objects/${hash}` },
       {
-        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
-        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+        path: join(args.snapshotDir, `${args.name}.tsv.gz`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`,
       },
     ]);
     assert.equal(result.candidates, 1);
@@ -686,7 +686,7 @@ describe("uploadSnapshot baseline trust", () => {
 
     assert.deepEqual(
       putFiles.map(({ uri }) => uri),
-      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`],
+      [`s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`],
     );
     assert.equal(result.candidates, 0);
   });
@@ -710,8 +710,8 @@ describe("uploadSnapshot baseline trust", () => {
     assert.deepEqual(putFiles, [
       { path: file, uri: `s3://trust-bucket/objects/${hash}` },
       {
-        path: join(args.snapshotDir, `${args.name}.tsv.zst`),
-        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`,
+        path: join(args.snapshotDir, `${args.name}.tsv.gz`),
+        uri: `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`,
       },
     ]);
     assert.equal(result.candidates, 1);
@@ -745,7 +745,7 @@ describe("uploadSnapshotFile manifest idempotence", () => {
   it("still refuses a same-name manifest holding different bytes — snapshots are immutable", async () => {
     await using dir = await mkTmpDir();
     const { args } = await oneFileFixture(dir.path);
-    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`;
+    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`;
     remoteFiles.set(manifestUri, Buffer.from("machine B's snapshot bytes"));
     storedUris.add(manifestUri);
 
@@ -775,7 +775,7 @@ describe("uploadSnapshotFile manifest idempotence", () => {
     // "was already taken when we wrote it" stays true either way.
     await using dir = await mkTmpDir();
     const { args } = await oneFileFixture(dir.path);
-    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.zst`;
+    const manifestUri = `s3://trust-bucket/snapshots/trusty/${args.name}.tsv.gz`;
     storedUris.add(manifestUri); // the PUT 412s…
     // …and `remoteFiles` has nothing under it, so the read is a NoSuchKey.
 

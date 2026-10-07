@@ -29,7 +29,7 @@ let objectsListFailure;
 /**
  * A snapshot body read. The default is the seam's own: absent, which the scan
  * treats as vanished-mid-scan and skips — enough to exercise the snapshot
- * phase without a real zstd body. One test replaces it to hold a read open.
+ * phase without a real gzip body. One test replaces it to hold a read open.
  * @type {(uri: string) => Promise<Readable>}
  */
 let onGetStream = vanished;
@@ -69,7 +69,7 @@ describe("scanBucket", () => {
     // Every read has something to find, so the order is not an artifact of an
     // empty phase returning early.
     keysByPrefix = {
-      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.zst" }],
+      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.gz" }],
       "objects/": [{ Key: "objects/aaa", Size: 10, LastModified: new Date(0) }],
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
@@ -98,7 +98,7 @@ describe("scanBucket", () => {
     // cannot see — two awaits started back to back would list in the right
     // order and still race.
     keysByPrefix = {
-      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.zst" }],
+      "snapshots/": [{ Key: "snapshots/photos/2026-06-12T0915.tsv.gz" }],
     };
     /** @type {() => void} */
     let releaseSnapshotRead = () => {};

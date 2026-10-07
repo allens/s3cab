@@ -20,7 +20,7 @@ import { captureTree, sha256 } from "./model.mjs";
  */
 const LEGAL_KEY = new RegExp(
   "^(objects/[0-9a-f]{64}" +
-    "|snapshots/[^/]+/[^/]+\\.tsv\\.zst" +
+    "|snapshots/[^/]+/[^/]+\\.tsv\\.gz" +
     "|sets/[^/]+/(info|dirs\\.txt|exclude\\.txt)" +
     "|objects\\.deleted-[1-9][0-9]*\\.tsv)$",
 );

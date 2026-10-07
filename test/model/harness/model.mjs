@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
-import { zstdDecompressSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
 
 /**
  * The slice of the inspection surface the model reads a bucket through —
@@ -28,7 +28,7 @@ import { zstdDecompressSync } from "node:zlib";
 // because the runner only mutates trees *between* operations).
 //
 // **Parse the stored format independently.** References, sizes and deletion
-// records are extracted by this file's own zstd + TSV parser, written from
+// records are extracted by this file's own gunzip + TSV parser, written from
 // guide/format.md alone — not by the production snapshot reader, which is
 // itself under test.
 
@@ -58,7 +58,7 @@ import { zstdDecompressSync } from "node:zlib";
 export const sha256 = (/** @type {Buffer | string} */ content) =>
   crypto.hash("sha256", Buffer.from(content), "hex");
 
-const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.zst$/;
+const MANIFEST_KEY = /^snapshots\/([^/]+)\/([^/]+)\.tsv\.gz$/;
 const OBJECT_KEY = /^objects\/([0-9a-f]{64})$/;
 
 /**
@@ -98,7 +98,7 @@ export function captureTree(dirs) {
  * lines whose first field starts with `#` are metadata. Anything the spec
  * says can't happen lands in `parseErrors`.
  * @param {string} key - The manifest's bucket key (names its set + snapshot)
- * @param {Buffer} bytes - The stored `.tsv.zst` content
+ * @param {Buffer} bytes - The stored `.tsv.gz` content
  * @returns {ParsedManifest}
  */
 export function parseManifest(key, bytes) {
@@ -116,7 +116,7 @@ export function parseManifest(key, bytes) {
   /** @type {string} */
   let text;
   try {
-    text = zstdDecompressSync(bytes).toString("utf8");
+    text = gunzipSync(bytes).toString("utf8");
   } catch (error) {
     return {
       key,
@@ -125,7 +125,7 @@ export function parseManifest(key, bytes) {
       rows,
       headerSet,
       headerName,
-      parseErrors: [`zstd decompression failed: ${String(error)}`],
+      parseErrors: [`gunzip failed: ${String(error)}`],
     };
   }
   for (const line of text.split("\n")) {

@@ -21,7 +21,7 @@ import {
 /** @import { ReferencedResult } from "./referenced.mjs" */
 
 // The remote half of an s3cab repository's fixed layout (docs/design/backup.md): a
-// set's snapshots live under `snapshots/<set>/<name>.tsv.zst`, keyed by the set's
+// set's snapshots live under `snapshots/<set>/<name>.tsv.gz`, keyed by the set's
 // name — its whole identity (ADR-0024). The other half is the content-addressed
 // `objects/<sha256>` store, owned by objects.mjs. This module owns the
 // `snapshots/` layout — the store's read/manage side (list, read, download,
@@ -48,7 +48,7 @@ const SNAPSHOTS_PREFIX = "snapshots/";
 export const remoteSnapshotsPrefix = (set) => `${SNAPSHOTS_PREFIX}${set}/`;
 
 /**
- * The `s3://bucket/snapshots/<set>/<name>.tsv.zst` URI of one remote snapshot —
+ * The `s3://bucket/snapshots/<set>/<name>.tsv.gz` URI of one remote snapshot —
  * this module's key layout composed with the snapshot writer's filename grammar
  * ({@link snapshotFileName}), so neither is spelled at a call site. The twin of
  * objects.mjs's `objectUri` for the `snapshots/` half; exported because upload.mjs
@@ -84,7 +84,7 @@ export async function listRemoteSnapshots(bucket, set) {
 }
 
 /**
- * Delete one of a set's remote snapshots — `snapshots/<set>/<name>.tsv.zst` — the
+ * Delete one of a set's remote snapshots — `snapshots/<set>/<name>.tsv.gz` — the
  * remote half of the `forget` retention primitive (docs/design/backup.md). It
  * removes **only** the snapshot object; the content it referenced stays under
  * `objects/` (reclaiming what nothing references any more is `cleanup`'s job), so
@@ -140,12 +140,12 @@ export async function readLatestRemoteSnapshot(bucket, set) {
  * `downloadRemoteSnapshots` relies on the same fact in the other direction), so
  * equality means "this very snapshot". Compared as bytes, not ETags — an ETag is
  * only a content hash for single-part uploads on real S3, and s3cab promises
- * S3-*compatible* stores (ADR-0002). Manifests are small (zstd-compressed TSV),
+ * S3-*compatible* stores (ADR-0002). Manifests are small (gzip-compressed TSV),
  * so buffering one is nothing.
  * @param {string} bucket - The repository's S3 bucket
  * @param {string} set - The set's name (its whole identity, ADR-0024)
  * @param {string} name - Snapshot name without extension, e.g. `2026-06-12T0915`
- * @param {string} snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
+ * @param {string} snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @returns {Promise<"identical" | "different" | "absent">}
  */
 export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
@@ -167,8 +167,8 @@ export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
 }
 
 /**
- * Read a set's remote snapshot by name, straight from S3 — the `.tsv.zst` object
- * is streamed through zstd and parsed in flight, no temp file (a remote snapshot file
+ * Read a set's remote snapshot by name, straight from S3 — the `.tsv.gz` object
+ * is streamed through gunzip and parsed in flight, no temp file (a remote snapshot file
  * is byte-identical to its local form, docs/design/backup.md). The `backup`/`status`
  * diff fetches the latest already-backed-up snapshot this way (taking `.entries`);
  * `restore` reads its chosen one the same way and uses the `#DIR` headers for
@@ -197,7 +197,7 @@ export async function readRemoteSnapshot(bucket, set, name) {
  * ([ADR-0042](../../docs/adr/0042-verify-bucket-operand.md)): one repository is
  * checked in one run under one credential. A lib function with no plumbing
  * command of its own (hand recovery already reads the hashes straight out of the
- * snapshot files with `zstdcat` + `cut`). The per-set grouping is what lets
+ * snapshot files with `gunzip -c` + `cut`). The per-set grouping is what lets
  * `verify` report findings against the set they belong to.
  *
  * The `snapshots/` **LIST** is an ordinary request — a failure aborts. Reading
@@ -222,7 +222,7 @@ export async function readRemoteSnapshot(bucket, set, name) {
  */
 export async function referencedObjects(bucket) {
   // Group every snapshot key under `snapshots/` by its set — the path segment
-  // after the prefix (`snapshots/<set>/<name>.tsv.zst`). The set name is a canonical
+  // after the prefix (`snapshots/<set>/<name>.tsv.gz`). The set name is a canonical
   // `[a-z0-9-]+` segment (ADR-0024), so this split is unambiguous.
   /** @type {Map<string, string[]>} */
   const filesBySet = new Map();
@@ -317,7 +317,7 @@ async function readSetReferenced(bucket, set, names) {
  * Pull a set's remote snapshot files down into `snapshotDir` — the
  * reattach-time metadata sync
  * ([ADR-0027](../../docs/adr/0027-compare-local-only-adoption-syncs-manifests.md)).
- * Lists `snapshots/<set>/` and streams each `.tsv.zst` **verbatim** to a local
+ * Lists `snapshots/<set>/` and streams each `.tsv.gz` **verbatim** to a local
  * file (atomically, via `writeFileAtomic`), touching **no** `objects/`. A
  * remote snapshot file is byte-identical to its local form
  * ([ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md)), so a raw copy is

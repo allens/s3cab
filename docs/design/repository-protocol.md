@@ -39,7 +39,7 @@ prose rots silently.
 | Key | States | Written by | Deleted by |
 | --- | --- | --- | --- |
 | `objects/<sha256>` | absent → present | `backup`, `upload` — conditional PUT (`IfNoneMatch: "*"`) in `putObject` ([objects.mjs](../../src/lib/objects.mjs)) | `cleanup`, `delete` — via `deleteStoredObjects`, the only remover |
-| `snapshots/<set>/<name>.tsv.zst` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
+| `snapshots/<set>/<name>.tsv.gz` | absent → present, then **immutable** | `backup`, `upload --snapshot` — no-clobber PUT in `uploadSnapshotFile` ([upload.mjs](../../src/lib/upload.mjs)) | `forget` only |
 | `sets/<set>/info` | absent → claimed → re-stamped | `setup` claims it (conditional `putText`, first-writer-wins); `reattach` re-stamps OWNER with a plain PUT, preserving CREATED ([set-marker.mjs](../../src/lib/set-marker.mjs)) | never |
 | `sets/<set>/dirs.txt`, `exclude.txt` | absent → present, overwritten freely | `setup`, `reattach`, `backup` (`pushSetConfig`, best-effort) | `pushSetConfig`, when the local file goes away |
 | `objects.deleted-<n>.tsv` | absent → present, then **immutable** (never overwritten — compaction writes a *new* index) | `delete` — conditional PUT at the lowest free index, walking upward on collision ([deletion-record.mjs](../../src/lib/deletion-record.mjs)) | `cleanup` — compaction removes absorbed files, only *after* their merge lands at a fresh index ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) |
@@ -61,9 +61,9 @@ rests on them:
 
 | File | Meaning |
 | --- | --- |
-| `<name>.tsv.zst` | A landed local snapshot. **Nothing on it records whether it was ever uploaded** — `readBaseline` takes the latest by name regardless, and remote existence is established later by a single HEAD. |
-| `.snapshot.tsv.zst` | The in-progress work file, doubling as the per-set lock ([ADR-0048](../adr/0048-snapshot-lock-atomic-temp-file.md)) |
-| `.snapshot.lookup.tsv.zst` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), closed with a `PARTIAL` `#END` trailer. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
+| `<name>.tsv.gz` | A landed local snapshot. **Nothing on it records whether it was ever uploaded** — `readBaseline` takes the latest by name regardless, and remote existence is established later by a single HEAD. |
+| `.snapshot.tsv.gz` | The in-progress work file, doubling as the per-set lock ([ADR-0048](../adr/0048-snapshot-lock-atomic-temp-file.md)) |
+| `.snapshot.lookup.tsv.gz` | Hashes parked by an interrupted run ([ADR-0067](../adr/0067-park-hashes-on-interrupt.md)), closed with a `PARTIAL` `#END` trailer. Candidates only — every entry is re-validated by `fileProps` against the live file's size+mtime (and, if the set opts in, its ctime — [ADR-0094](../adr/0094-change-time-check-opt-in.md)), which is why it needs no liveness check. |
 
 ## The invariant, and the single place it is enforced
 
@@ -94,7 +94,7 @@ Marked **[atomic]** where a single indivisible operation carries the state chang
    baseline and LIST `objects/` as a first backup would. **[atomic]** read. This was a name-only
    HEAD until 2026-08-14, which let another machine's same-named snapshot vouch for a local
    baseline that was never uploaded.
-3. Acquire the lock — `open(".snapshot.tsv.zst", "wx")`. **[atomic]**, and a same-minute snapshot
+3. Acquire the lock — `open(".snapshot.tsv.gz", "wx")`. **[atomic]**, and a same-minute snapshot
    name is refused before this, by `existsSync` on the final name.
 4. Per file: one `lstat` + hash (or a reuse of the baseline hash on identical size+mtime), then in
    the upload transform a second `lstat` via `fileChange`, then the conditional PUT.
@@ -242,6 +242,6 @@ a description of the protocol rather than a running defect list:
 - A truncated stored snapshot object reading as a shorter valid snapshot — **closed 2026-08-14** by
   [ADR-0082](../adr/0082-snapshot-end-trailer.md)'s `#END` trailer: a prefix cut either loses the
   trailer or tears a row. (Independently found 2026-08-11; the audit did not catch this one,
-  because it is zstd frame semantics rather than protocol.) What remains is defence-in-depth, not a
-  hole — checking the decompressor consumed a complete frame —
-  [proposals/engine-robustness.md](../../proposals/engine-robustness.md).
+  because it is compression-stream semantics rather than protocol.) Since snapshots became gzip
+  ([ADR-0097](../adr/0097-gzip-snapshot-compression.md)) there is a second, independent check:
+  gunzip verifies the stream's own length and CRC-32 trailer, so a cut also fails to decompress.

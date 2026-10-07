@@ -247,11 +247,11 @@ describe("upload --snapshot (a snapshot's objects)", () => {
 
   it("takes a snapshot's filename as readily as its name", async () => {
     // Either spelling is to hand — `list` prints the name, the snapshots folder
-    // holds the `.tsv.zst`. Both are canonicalized here, at the boundary, so the
+    // holds the `.tsv.gz`. Both are canonicalized here, at the boundary, so the
     // strict resolver downstream only ever sees a bare name (and so does the
     // result, rather than echoing back whatever was typed).
     const result = await upload("photos", {
-      snapshot: "2026-01-02T0900.tsv.zst",
+      snapshot: "2026-01-02T0900.tsv.gz",
       since: "2026-01-01T0900.tsv",
     });
 

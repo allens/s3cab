@@ -1,6 +1,6 @@
 # Target modern tech, but only open standards
 
-**Status:** accepted
+**Status:** accepted; its zstd example is superseded by [0097](0097-gzip-snapshot-compression.md) (snapshots are gzip)
 
 Deliberately target the newest OS, runtime, and language features — **provided they are
 standard and open**. Modern ≠ proprietary. The project happily requires recent tech (see
@@ -15,6 +15,10 @@ both the most modern and the most lock-in-free option. Worked examples:
 
 - **zstd** — an open standard, native in Node and in Windows 11 (not Win10 out of the box).
   Chosen for snapshot compression after testing several algorithms; best speed/ratio balance.
+  *Superseded by [0097](0097-gzip-snapshot-compression.md):* "native in Windows 11" turned out to
+  mean Explorer's archive support, not a library a program can call. gzip is open, older and
+  readable out of the box everywhere, which serves this ADR's *open* half better than zstd's
+  *modern* one did.
 - **Node 26+** — for native built-ins that remove dependencies (see
   [0005](0005-builtins-over-dependencies.md)).
 - **Temporal** — the `@js-temporal/polyfill` was used temporarily and **dropped** the moment

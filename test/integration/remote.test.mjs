@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { zstdCompressSync } from "node:zlib";
+import { gzipSync } from "node:zlib";
 import {
   deleteObject,
   getStream,
@@ -105,8 +105,8 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
 
       // Verbatim copy: byte-identical to the local snapshot that was uploaded.
       assert.deepEqual(
-        readFileSync(join(destDir, `${name}.tsv.zst`)),
-        readFileSync(join(snapshotDir, `${name}.tsv.zst`)),
+        readFileSync(join(destDir, `${name}.tsv.gz`)),
+        readFileSync(join(snapshotDir, `${name}.tsv.gz`)),
       );
       // And it parses back to the same entries, so a local compare/list can use it.
       const { entries: roundTripped } = await readSnapshot(destDir, name);
@@ -116,7 +116,7 @@ describe("downloadRemoteSnapshots (real bucket)", () => {
         await deleteObject(`s3://${bucket}/objects/${hash}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       );
     }
   });
@@ -145,11 +145,11 @@ describe("referencedObjects (real bucket)", () => {
     // A second, garbage snapshot object under a valid-looking name: it lists but
     // fails to decompress, so it must be recorded unreadable (not abort the run).
     const badName = "2025-03-10T0900";
-    const badKey = `${remoteSnapshotsPrefix(set)}${badName}.tsv.zst`;
+    const badKey = `${remoteSnapshotsPrefix(set)}${badName}.tsv.gz`;
 
     try {
       await uploadSnapshot({ bucket, set, snapshotDir, name });
-      await putText(`s3://${bucket}/${badKey}`, "not a zstd stream");
+      await putText(`s3://${bucket}/${badKey}`, "not a gzip stream");
 
       // Bucket-wide, grouped by set: pick out the set this test wrote (the shared
       // test bucket may hold other sets from concurrent runs).
@@ -176,7 +176,7 @@ describe("referencedObjects (real bucket)", () => {
         await deleteObject(`s3://${bucket}/objects/${h}`);
       }
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       );
       await deleteObject(`s3://${bucket}/${badKey}`);
     }
@@ -199,7 +199,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
   before(async () => {
     // Fabricated rather than walked: 20k real files would slow the suite for
     // nothing — only the bytes on the wire matter here. Chained sha256 hashes
-    // keep the rows incompressible, so the object stays large after zstd.
+    // keep the rows incompressible, so the object stays large after gzip.
     const rows = [
       `#SNAPSHOT\t${set}\t2025-05-05T06:00:00.000Z\t${name} Etc/UTC`,
     ];
@@ -212,7 +212,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),
-      zstdCompressSync(rows.join("\n")),
+      gzipSync(rows.join("\n")),
     );
     await uploadSnapshotFile({ bucket, set, snapshotDir: dir.path, name });
   });
@@ -298,7 +298,7 @@ describe("deleteRemoteSnapshot (real bucket)", () => {
       }
       // Best-effort: the snapshot should already be gone from the test body.
       await deleteObject(
-        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+        `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
       ).catch(() => {});
     }
   });

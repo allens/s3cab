@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { gunzipSync, gzipSync } from "node:zlib";
 import {
   isCorruptSnapshotError,
   safeSize,
@@ -170,11 +171,22 @@ describe("isCorruptSnapshotError", () => {
     assert.equal(isCorruptSnapshotError(error), true);
   });
 
-  it("treats a zstd decompression failure as corruption (a finding)", () => {
-    const error = Object.assign(new Error("Unknown frame descriptor"), {
-      code: "ZSTD_error_prefix_unknown",
-    });
-    assert.equal(isCorruptSnapshotError(error), true);
+  it("treats a gunzip failure as corruption (a finding)", () => {
+    // What a real gunzip throws for bytes that aren't gzip, and for a stream
+    // cut short — taken from zlib itself rather than spelled by hand.
+    for (const bytes of [
+      Buffer.from("not gzip"),
+      gzipSync("x").subarray(0, 8),
+    ]) {
+      /** @type {unknown} */
+      let thrown;
+      try {
+        gunzipSync(bytes);
+      } catch (error) {
+        thrown = error;
+      }
+      assert.equal(isCorruptSnapshotError(thrown), true, String(thrown));
+    }
   });
 
   it("does NOT treat an operational S3 error as corruption (it aborts)", () => {

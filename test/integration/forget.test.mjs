@@ -123,7 +123,7 @@ describe("forget --set (real bucket)", () => {
     } finally {
       if (name) {
         await deleteObject(
-          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.zst`,
+          `s3://${bucket}/${remoteSnapshotsPrefix(set)}${name}.tsv.gz`,
         );
       }
       for (const hash of hashes) {

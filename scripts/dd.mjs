@@ -3,13 +3,13 @@
  * this repo, and the shared payload generator for the benchmarks.
  *
  * Random bytes matter for the same reason in both callers: they defeat
- * compression and dedup, so a benchmark measures what it means to (zstd's worst
- * case; the wire rather than a provider's compression) instead of how well the
- * data happened to squash.
+ * compression and dedup, so a benchmark measures what it means to (a
+ * compressor's worst case; the wire rather than a provider's compression)
+ * instead of how well the data happened to squash.
  *
- * Two faces, hence the `import.meta.main` guard: run it to *keep* a blob
- * (zstd-bench wants a standing file to compress), or import `writeRandomFile`
- * for throwaway ones (multipart-bench generates and deletes a payload per size).
+ * Two faces, hence the `import.meta.main` guard: run it to *keep* a blob (a
+ * standing file to compress), or import `writeRandomFile` for throwaway ones
+ * (multipart-bench generates and deletes a payload per size).
  *
  * Usage:
  *   node scripts/dd.mjs <path> [sizeMB]     # sizeMB defaults to 100

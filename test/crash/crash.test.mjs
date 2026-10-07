@@ -27,7 +27,7 @@ import { captureTree } from "../model/harness/model.mjs";
 // audited request schedule of each command:
 //
 //   backup (first): LIST objects/ → PUT objects/<hash> ×N → PUT
-//     snapshots/<set>/<name>.tsv.zst (commit point) → PUT sets/<set>/dirs.txt
+//     snapshots/<set>/<name>.tsv.gz (commit point) → PUT sets/<set>/dirs.txt
 //     → DELETE sets/<set>/exclude.txt (config push, best-effort)
 //   multipart object: HEAD objects/<hash> → POST ?uploads → PUT ?partNumber=N
 //     ×parts → POST ?uploadId= (complete)
@@ -72,7 +72,7 @@ function assertKilled(run, label) {
 
 /** The set's local work-file lock path. @param {string} home @param {string} set */
 const lockPath = (home, set) =>
-  join(home, "sets", set, "snapshots", ".snapshot.tsv.zst");
+  join(home, "sets", set, "snapshots", ".snapshot.tsv.gz");
 
 describe("interruption: backup", () => {
   /**
@@ -360,7 +360,7 @@ describe("interruption: cleanup and forget", () => {
     const names = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("snapshots/s/"))
-      .map((key) => key.slice("snapshots/s/".length, -".tsv.zst".length))
+      .map((key) => key.slice("snapshots/s/".length, -".tsv.gz".length))
       .sort();
     assert.equal(names.length, 2);
 
@@ -409,7 +409,7 @@ describe("interruption: cleanup and forget", () => {
     assert.match(sameNames.stderr, /not backed up/);
 
     const survivor = /** @type {string} */ (
-      left[0]?.slice("snapshots/s/".length, -".tsv.zst".length)
+      left[0]?.slice("snapshots/s/".length, -".tsv.gz".length)
     );
     const retry = s3cab(["forget", "--set", "s", survivor, "--force"], {
       home,

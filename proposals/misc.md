@@ -58,7 +58,7 @@ seed of a future "platform / release" epic).
   — so a full scheme "falls out naturally". Recorded rather than taken, for three reasons. (1)
   **Nothing accepts one as input**: every command takes the bucket as a positional/`--bucket` and
   the set as `--set`, so a scheme would be a second name with no payoff. (2) **`s3://` is already
-  the honest URI** — `s3://<bucket>/snapshots/<set>/<name>.tsv.zst` works with `aws s3 cp` and no
+  the honest URI** — `s3://<bucket>/snapshots/<set>/<name>.tsv.gz` works with `aws s3 cp` and no
   s3cab installed, which is the ADR-0002 no-lock-in pillar; an `s3cab://` form would be *lossier*
   (dropping the literal `snapshots/` segment is dropping what makes it hand-recoverable) and longer
   than what we print. (3) In the messages that print these names the bucket is already stated a line

@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { useTempHome } from "../helpers/temp-home.mjs";
 import { MINUTE_MS, VirtualClock, clockHolder } from "./harness/clock.mjs";
@@ -324,11 +324,11 @@ describe("hostile trees: mixed-case collisions", () => {
     // nowhere, so it must come from the store rather than be copied from
     // whatever survivor that name resolves to.
     const fake = backendHolder.current;
-    const key = "snapshots/hostile/2026-01-05T0000.tsv.zst";
+    const key = "snapshots/hostile/2026-01-05T0000.tsv.gz";
     const manifestBytes = /** @type {Buffer} */ (
       await fake.getBytes(BUCKET, key)
     );
-    const original = zstdDecompressSync(manifestBytes).toString("utf8");
+    const original = gunzipSync(manifestBytes).toString("utf8");
     const altBytes = Buffer.from("UPPERCASE CONTENT!");
     const altHash = sha256(altBytes);
     await fake.putBytes(BUCKET, `objects/${altHash}`, altBytes);
@@ -345,7 +345,7 @@ describe("hostile trees: mixed-case collisions", () => {
     await fake.putBytes(
       BUCKET,
       key,
-      zstdCompressSync(Buffer.from(rows.join("\n") + "\n")),
+      gzipSync(Buffer.from(rows.join("\n") + "\n")),
     );
 
     const out = join(dir.path, "out");

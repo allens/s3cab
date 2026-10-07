@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { constants, gzipSync, gunzipSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
   listSnapshotNames,
@@ -120,8 +121,8 @@ describe("parseSnapshotStream", () => {
 
   it("rejects a stream that ends without the #END trailer as truncated", async () => {
     // ADR-0082: this parser takes an already-decompressed stream, so it has no
-    // frame to lean on — for an uncompressed `.tsv` there is none at all, and
-    // the trailer is the only thing standing between a destroyed manifest and a
+    // gzip trailer to lean on — for an uncompressed `.tsv` there is none, and
+    // `#END` is the only thing standing between a destroyed manifest and a
     // clean parse. An AssertionError on purpose — isCorruptSnapshotError
     // classifies it as snapshot damage, so verify records the finding instead
     // of vouching for the wreck.
@@ -260,7 +261,7 @@ describe("parseSnapshotStream", () => {
   });
 });
 
-// parseCompressedSnapshotStream fronts the parser with zstd as the terminal
+// parseCompressedSnapshotStream fronts the parser with gunzip as the terminal
 // sink of a pipeline. The shape exists for error propagation: the `.pipe` it
 // replaced forwarded no source `error`, so a dropped stream stalled the parser
 // forever — which is why these tests carry timeouts (the failure mode under
@@ -278,7 +279,7 @@ describe("parseCompressedSnapshotStream", () => {
     "parses a compressed stream arriving in arbitrary chunks",
     { timeout: 5000 },
     async () => {
-      const compressed = zstdCompressSync(text);
+      const compressed = gzipSync(text);
       const chunks = [];
       for (let i = 0; i < compressed.length; i += 7) {
         chunks.push(compressed.subarray(i, i + 7));
@@ -295,12 +296,12 @@ describe("parseCompressedSnapshotStream", () => {
     "rejects cut-short bytes as a truncated snapshot, whichever layer notices",
     { timeout: 5000 },
     async () => {
-      // zstd rejects the cut stream itself (`Z_BUF_ERROR`) where the parser
-      // would otherwise have missed `#END` — measured on 26.10 for both cuts
-      // here, the empty stream included. Either way it must surface as the same
+      // gunzip rejects the cut stream itself (`Z_BUF_ERROR`) where the parser
+      // would otherwise have missed `#END` — measured on 26.11 at every cut
+      // point of a small snapshot, the empty stream included. Either way it must surface as the same
       // AssertionError, the one isCorruptSnapshotError files as damage
       // (ADR-0082 amendments 2 and 3).
-      const compressed = zstdCompressSync(text);
+      const compressed = gzipSync(text);
       for (const length of [0, Math.floor(compressed.length / 2)]) {
         await assert.rejects(
           parseCompressedSnapshotStream(
@@ -319,7 +320,7 @@ describe("parseCompressedSnapshotStream", () => {
     async () => {
       // Half the compressed bytes arrive, then the source dies — a dropped
       // connection or a failed disk read, surfaced as the source's `error`.
-      const compressed = zstdCompressSync(text);
+      const compressed = gzipSync(text);
       const source = new Readable({ read() {} });
       source.push(compressed.subarray(0, Math.floor(compressed.length / 2)));
       const parsed = parseCompressedSnapshotStream(source);
@@ -335,7 +336,7 @@ describe("parseCompressedSnapshotStream", () => {
       // A connection torn down without an error event: the source closes before
       // ever ending. `pipeline` turns that into ERR_STREAM_PREMATURE_CLOSE.
       const source = new Readable({ read() {} });
-      source.push(zstdCompressSync(text).subarray(0, 8));
+      source.push(gzipSync(text).subarray(0, 8));
       const parsed = parseCompressedSnapshotStream(source);
       source.destroy();
       await assert.rejects(parsed, { code: "ERR_STREAM_PREMATURE_CLOSE" });
@@ -384,9 +385,9 @@ describe("listSnapshotNames", () => {
   it("lists snapshot names newest-first", async () => {
     await using dir = await mkTmpDir();
     makeSnapshots(dir.path, [
-      "2025-01-14T0830.tsv.zst",
-      "2025-01-15T1030.tsv.zst",
-      "2025-01-13T1200.tsv.zst",
+      "2025-01-14T0830.tsv.gz",
+      "2025-01-15T1030.tsv.gz",
+      "2025-01-13T1200.tsv.gz",
     ]);
     assert.deepEqual(listSnapshotNames(dir.path), [
       "2025-01-15T1030",
@@ -398,9 +399,9 @@ describe("listSnapshotNames", () => {
   it("ignores non-snapshot files", async () => {
     await using dir = await mkTmpDir();
     makeSnapshots(dir.path, [
-      "2025-01-15T1030.tsv.zst",
+      "2025-01-15T1030.tsv.gz",
       "not-a-snapshot.txt",
-      ".snapshot.tsv.zst",
+      ".snapshot.tsv.gz",
     ]);
     assert.deepEqual(listSnapshotNames(dir.path), ["2025-01-15T1030"]);
   });
@@ -410,8 +411,8 @@ describe("listSnapshotNames", () => {
   it("puts the newest snapshot name first", async () => {
     await using dir = await mkTmpDir();
     makeSnapshots(dir.path, [
-      "2025-01-14T0830.tsv.zst",
-      "2025-01-15T1030.tsv.zst",
+      "2025-01-14T0830.tsv.gz",
+      "2025-01-15T1030.tsv.gz",
     ]);
     assert.equal(listSnapshotNames(dir.path).at(0), "2025-01-15T1030");
   });
@@ -428,25 +429,22 @@ describe("snapshotMoment's minted name", () => {
     assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
     // The minted name round-trips through the recognizer that list (local
     // files) and the remote lister both filter by.
-    assert.deepEqual(snapshotNames([`${name}.tsv.zst`]), [name]);
+    assert.deepEqual(snapshotNames([`${name}.tsv.gz`]), [name]);
   });
 });
 
 describe("snapshotFileName", () => {
   it("appends the stored extension — the format spec's promise, spelled out", () => {
-    // The literal is written independently on purpose: `.tsv.zst` is a
+    // The literal is written independently on purpose: `.tsv.gz` is a
     // user-facing contract (guide/format.md), so changing it must fail here.
-    assert.equal(
-      snapshotFileName("2026-06-12T0915"),
-      "2026-06-12T0915.tsv.zst",
-    );
+    assert.equal(snapshotFileName("2026-06-12T0915"), "2026-06-12T0915.tsv.gz");
   });
 });
 
 describe("normalizeSnapshotName", () => {
-  it("strips the .tsv/.tsv.zst extension and leaves bare names alone", () => {
+  it("strips the .tsv/.tsv.gz extension and leaves bare names alone", () => {
     const name = "2026-06-12T0915";
-    assert.equal(normalizeSnapshotName(`${name}.tsv.zst`), name);
+    assert.equal(normalizeSnapshotName(`${name}.tsv.gz`), name);
     assert.equal(normalizeSnapshotName(`${name}.tsv`), name);
     assert.equal(normalizeSnapshotName(name), name);
     assert.equal(normalizeSnapshotName(undefined), undefined);
@@ -454,7 +452,7 @@ describe("normalizeSnapshotName", () => {
 });
 
 // readSnapshot resolves a name to the one file a snapshot can be — its
-// `<name>.tsv.zst`. The round-trip through it is asserted under writeSnapshot
+// `<name>.tsv.gz`. The round-trip through it is asserted under writeSnapshot
 // below; what these pin is the *resolution*, which used to try `<name>` and
 // `<name>.tsv` first and accept anything `existsSync` liked.
 describe("readSnapshot", () => {
@@ -465,7 +463,7 @@ describe("readSnapshot", () => {
   const writeRealSnapshot = (snapshotDir) =>
     writeFileSync(
       join(snapshotDir, snapshotFileName(name)),
-      zstdCompressSync(
+      gzipSync(
         [
           "#SNAPSHOT\tphotos\t2026-06-23T09:00:00.000Z\t2026-06-23T1000 Europe/London",
           `${hashA}\t3\t2026-06-23T10:00:00.000Z\t${file}`,
@@ -532,7 +530,7 @@ describe("writeSnapshot", () => {
       },
     });
 
-    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
 
     const { entries, errors, dirs, identity } = await readSnapshot(
       dir.path,
@@ -596,7 +594,7 @@ describe("writeSnapshot", () => {
       }),
     });
 
-    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
 
     const snap = await readSnapshot(dir.path, "2026-06-23T1000");
 
@@ -641,7 +639,7 @@ describe("writeSnapshot", () => {
       momentOf("2026-06-23T1000"),
       args,
     );
-    const plainText = zstdDecompressSync(readFileSync(plain)).toString("utf8");
+    const plainText = gunzipSync(readFileSync(plain)).toString("utf8");
     const fused = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       ...args,
       through: async function* (rows) {
@@ -655,10 +653,41 @@ describe("writeSnapshot", () => {
 
     // Every row reached the transform, in file order, before reaching the TSV.
     assert.deepEqual(seen, files);
-    assert.equal(
-      zstdDecompressSync(readFileSync(fused)).toString("utf8"),
-      plainText,
+    assert.equal(gunzipSync(readFileSync(fused)).toString("utf8"), plainText);
+  });
+
+  it("compresses with gzip level 9, memLevel 9 and Z_FILTERED (ADR-0097)", async () => {
+    // The settings are the decision, and a round trip can't see them: any gzip
+    // reads back the same. Recompressing the file's own text with exactly these
+    // options must reproduce it byte for byte (deflate is deterministic for a
+    // given input and settings, however the input was chunked), and zlib's
+    // defaults must not, or this test couldn't tell the two apart. Random hex
+    // hashes are what `Z_FILTERED` is for, so the fixture has a few hundred.
+    await using dir = await mkTmpDir();
+    const files = Array.from({ length: 400 }, (_, i) =>
+      resolve(dir.path, `photo-${i}.jpg`),
     );
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files,
+      excluded: [],
+      getProps: async (file) => ({
+        size: 3,
+        mtime: "2026-06-23T10:00:00.000Z",
+        hash: createHash("sha256").update(file).digest("hex"),
+      }),
+    });
+
+    const written = readFileSync(path);
+    const text = gunzipSync(written);
+    const chosen = gzipSync(text, {
+      level: 9,
+      memLevel: 9,
+      strategy: constants.Z_FILTERED,
+    });
+    assert.ok(written.equals(chosen), "written with the ADR-0097 settings");
+    assert.ok(!written.equals(gzipSync(text)), "distinct from zlib's defaults");
   });
 
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
@@ -675,7 +704,7 @@ describe("writeSnapshot", () => {
     // Every spelling of the moment comes from the one `snapshotMoment` read the
     // caller made (ADR-0072), so the filename and the header cannot disagree.
     // The row keeps four columns: set, UTC instant, then the name and its zone.
-    const text = zstdDecompressSync(readFileSync(path)).toString("utf8");
+    const text = gunzipSync(readFileSync(path)).toString("utf8");
     const [header = ""] = text.split("\n");
     const [marker, identity, instant, nameAndZone] = header
       .split("\t")
@@ -773,16 +802,16 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
     // snapshot is also what releases the lock — no temp file remains.
     gate.resolve(undefined);
     const path = await first;
-    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
     assert.ok(
-      !existsSync(resolve(dir.path, ".snapshot.tsv.zst")),
+      !existsSync(resolve(dir.path, ".snapshot.tsv.gz")),
       "success must release the lock (temp renamed away)",
     );
   });
 
   it("reports a stale lock (crashed run's leftover) with the exact fix", async () => {
     await using dir = await mkTmpDir();
-    const tmpPath = resolve(dir.path, ".snapshot.tsv.zst");
+    const tmpPath = resolve(dir.path, ".snapshot.tsv.gz");
     writeFileSync(tmpPath, "");
 
     await assert.rejects(
@@ -815,7 +844,7 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
       /vanished/,
     );
     assert.ok(
-      !existsSync(resolve(dir.path, ".snapshot.tsv.zst")),
+      !existsSync(resolve(dir.path, ".snapshot.tsv.gz")),
       "a failed run must release the lock, not wedge the next one",
     );
 
@@ -827,21 +856,21 @@ describe("withSnapshotFile (snapshot concurrency lock)", () => {
         s.end("x");
       },
     );
-    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
   });
 });
 
 // Park-on-interrupt (ADR-0067): a graceful stop ends the writer cleanly and
-// renames the work file aside as `.snapshot.lookup.tsv.zst`, so the next run
+// renames the work file aside as `.snapshot.lookup.tsv.gz`, so the next run
 // reuses the hashes it holds instead of computing them again. Driven through
 // `writeSnapshot` with a `getProps` that raises the signal part-way:
 // `process.emit` invokes exactly the listener `withSnapshotFile` registers,
 // without asking the OS to signal the test runner.
 describe("withSnapshotFile (park on interrupt)", () => {
   const parkedPath = (/** @type {string} */ dir) =>
-    resolve(dir, ".snapshot.lookup.tsv.zst");
+    resolve(dir, ".snapshot.lookup.tsv.gz");
   const lockPath = (/** @type {string} */ dir) =>
-    resolve(dir, ".snapshot.tsv.zst");
+    resolve(dir, ".snapshot.tsv.gz");
 
   /** @type {(p: string) => Promise<Props>} */
   const props = async () => ({
@@ -896,7 +925,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
 
     // No snapshot lands — this run did not finish the tree.
     assert.ok(
-      !existsSync(resolve(dir.path, "2026-06-23T1000.tsv.zst")),
+      !existsSync(resolve(dir.path, "2026-06-23T1000.tsv.gz")),
       "an interrupted run must not install a partial snapshot",
     );
     // The lock is released by the park, not left for `inProgressError`.
@@ -931,9 +960,9 @@ describe("withSnapshotFile (park on interrupt)", () => {
     // newline of the last complete row — a truncated row would not parse. The
     // trailer says PARTIAL: it is there because the stop was controlled, and it
     // must not read as a finished snapshot (ADR-0082).
-    const text = zstdDecompressSync(
-      readFileSync(parkedPath(dir.path)),
-    ).toString("utf8");
+    const text = gunzipSync(readFileSync(parkedPath(dir.path))).toString(
+      "utf8",
+    );
     const trailer = text.split("\n").at(-2) ?? "";
     assert.match(
       trailer,
@@ -1075,7 +1104,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
 
 describe("readParkedLookup", () => {
   const parkedPath = (/** @type {string} */ dir) =>
-    resolve(dir, ".snapshot.lookup.tsv.zst");
+    resolve(dir, ".snapshot.lookup.tsv.gz");
 
   /**
    * Park one row as a run that started at `instant` and was stopped with
@@ -1089,7 +1118,7 @@ describe("readParkedLookup", () => {
       `${hashA}\t1\t2026-06-01T12:00:00.000Z\t${resolve(dir, "a.txt")}`,
       "#END\tPARTIAL\t2026-06-12T08:20:44.500Z\t",
     ].join("\n");
-    writeFileSync(parkedPath(dir), zstdCompressSync(Buffer.from(text, "utf8")));
+    writeFileSync(parkedPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
 
   it("returns undefined when nothing is parked (the ordinary case)", async () => {
@@ -1129,9 +1158,9 @@ describe("readParkedLookup", () => {
 // the other name. `--resume` adopts it instead of throwing it away.
 describe("recoverWorkFile", () => {
   const lockPath = (/** @type {string} */ dir) =>
-    resolve(dir, ".snapshot.tsv.zst");
+    resolve(dir, ".snapshot.tsv.gz");
   const parkedPath = (/** @type {string} */ dir) =>
-    resolve(dir, ".snapshot.lookup.tsv.zst");
+    resolve(dir, ".snapshot.lookup.tsv.gz");
 
   /**
    * Leave a work file exactly as a hard kill leaves one: header, whole rows,
@@ -1149,7 +1178,7 @@ describe("recoverWorkFile", () => {
       ),
       `${hashA}\t2806546623\t2026-07-26T17:21:28`,
     ].join("\n");
-    writeFileSync(lockPath(dir), zstdCompressSync(Buffer.from(text, "utf8")));
+    writeFileSync(lockPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
 
   it("adopts the work file, so its hashes are there to reuse", async () => {
@@ -1171,20 +1200,20 @@ describe("recoverWorkFile", () => {
     assert.deepEqual([...(parked?.entries.keys() ?? [])], files);
   });
 
-  it("recovers the rows of a frame its run never closed", async () => {
-    // What a kill leaves on disk is a cut-short *frame*: the compressor had
-    // written its finished blocks and not the one it was filling. `killedRun`
-    // alone is a whole frame around a torn row. A one-block frame yields
-    // nothing once cut, so this needs rows enough for several blocks.
+  it("recovers the rows of a gzip stream its run never closed", async () => {
+    // What a kill leaves on disk is a cut-short *stream*: the compressor had
+    // written its finished deflate blocks and not the one it was filling, nor
+    // gzip's trailer. `killedRun` alone is a whole stream around a torn row, so
+    // this needs rows enough for several blocks and then cuts it.
     await using dir = await mkTmpDir();
     const files = Array.from({ length: 3000 }, (_, i) =>
       resolve(dir.path, `photo-${i}.jpg`),
     );
     killedRun(dir.path, files);
-    const frame = readFileSync(lockPath(dir.path));
+    const whole = readFileSync(lockPath(dir.path));
     writeFileSync(
       lockPath(dir.path),
-      frame.subarray(0, Math.floor(frame.length * 0.9)),
+      whole.subarray(0, Math.floor(whole.length * 0.9)),
     );
 
     await recoverWorkFile(dir.path);
@@ -1244,7 +1273,7 @@ describe("recoverWorkFile", () => {
         hash: hashA,
       }),
     });
-    assert.match(path, /2026-06-23T1000\.tsv\.zst$/);
+    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
     // And the snapshot landing consumes the recovered lookup, exactly as it
     // consumes a gracefully parked one.
     assert.ok(!existsSync(parkedPath(dir.path)));

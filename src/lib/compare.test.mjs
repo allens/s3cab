@@ -4,7 +4,7 @@ import { mkdtempDisposable } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
-import { zstdCompressSync } from "node:zlib";
+import { gzipSync } from "node:zlib";
 import {
   stringifySnapshot,
   withSnapshotFile,
@@ -25,7 +25,7 @@ const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
 // in-memory SnapshotEntries Maps, so pairing edge cases are cheap to
 // enumerate (no fixture files). `compareSnapshots` tests keep only what the
 // I/O shell adds on top: since/until resolution and defaults, reading real
-// `.tsv.zst` files, the errors category, and the structured absolute-path
+// `.tsv.gz` files, the errors category, and the structured absolute-path
 // result (ADR-0043) whose sizes come from the snapshot entries.
 
 // ---------------------------------------------------------------------------
@@ -298,7 +298,7 @@ describe("diff", () => {
 // compact relative form: it's a test-only view of *what was classified how*,
 // not the renderer (which decides display, colour, and rename-vs-move wording).
 //
-// listSnapshotNames() only reports datestamped `.tsv.zst` snapshots, so tests
+// listSnapshotNames() only reports datestamped `.tsv.gz` snapshots, so tests
 // that lean on the default since/until resolution use real-looking names —
 // lexical order is chronological order.
 const OLDEST = "2023-12-31T0101";
@@ -728,7 +728,7 @@ describe("compareSnapshots", () => {
     ]);
 
     const result = await compareSnapshots(dir.path, [dir.path], {
-      until: CURRENT + ".tsv.zst",
+      until: CURRENT + ".tsv.gz",
     });
 
     assert.deepStrictEqual(summarize(result, dir.path), {
@@ -812,8 +812,8 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
       : ``;
     const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     writeFileSync(
-      join(dir, `${name}.tsv.zst`),
-      zstdCompressSync(Buffer.from(header + row + "#END\n", "utf8")),
+      join(dir, `${name}.tsv.gz`),
+      gzipSync(Buffer.from(header + row + "#END\n", "utf8")),
     );
   }
 

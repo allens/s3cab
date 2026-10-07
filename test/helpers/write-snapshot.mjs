@@ -10,7 +10,7 @@ import {
 /** @import { Props } from "../../src/lib/snapshot-file.mjs" */
 
 // Test fixture builder: write a snapshot file from a list of paths or `File`
-// objects, in the real `.tsv.zst` form (so a snapshot lister sees it when the
+// objects, in the real `.tsv.gz` form (so a snapshot lister sees it when the
 // name is datestamped). It writes file rows only — no `#SNAPSHOT`/`#DIR`
 // headers — which is all the compare/remote tests need; production snapshots
 // (with headers) are written by `snapshot()`. On-disk paths go through the lib
@@ -34,7 +34,7 @@ const propsOfFile = async (file) => ({
 
 /**
  * Write a snapshot of the given files into `snapshotDir`, in the same
- * `.tsv.zst` form real snapshots take. File paths are stored absolute, resolved
+ * `.tsv.gz` form real snapshots take. File paths are stored absolute, resolved
  * against `base` (defaulting to `snapshotDir` — handy for tests that store
  * snapshots alongside the files they describe).
  * @param {string} snapshotDir

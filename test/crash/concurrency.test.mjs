@@ -333,7 +333,7 @@ describe("concurrency: cleanup vs in-flight backup", () => {
     assert.equal(first.status, 0, first.stderr);
     const m1 = (await manifestKeys())[0]?.slice(
       "snapshots/s/".length,
-      -".tsv.zst".length,
+      -".tsv.gz".length,
     );
     assert.ok(m1);
     await new Promise((r) => setTimeout(r, 12_000));
@@ -400,7 +400,7 @@ describe("concurrency: forget and cleanup", () => {
     assert.equal(first.status, 0, first.stderr);
     const m1 = (await manifestKeys())[0]?.slice(
       "snapshots/s/".length,
-      -".tsv.zst".length,
+      -".tsv.gz".length,
     );
     assert.ok(m1);
 
@@ -447,7 +447,7 @@ describe("concurrency: forget and cleanup", () => {
     assert.equal(first.status, 0, first.stderr);
     const m1 = (await manifestKeys())[0]?.slice(
       "snapshots/s/".length,
-      -".tsv.zst".length,
+      -".tsv.gz".length,
     );
     assert.ok(m1);
     await new Promise((r) => setTimeout(r, 6_000));
@@ -546,7 +546,7 @@ describe("concurrency: forget and cleanup", () => {
     const second = s3cab(["backup", "s"], { home, tz: nextZone() });
     assert.equal(second.status, 0, second.stderr);
     const names = (await manifestKeys()).map((key) =>
-      key.slice("snapshots/s/".length, -".tsv.zst".length),
+      key.slice("snapshots/s/".length, -".tsv.gz".length),
     );
     const target = /** @type {string} */ (names.sort()[0]);
 

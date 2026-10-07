@@ -28,7 +28,7 @@ import { addSnapshotReferences } from "../../src/lib/referenced.mjs";
 /**
  * @param {EnumerationSpec} spec - set → snapshot name → its rows
  * @param {Record<string, (string | { snapshot: string, reason: string })[]>} [unreadable]
- *   set → the snapshots that would not read; a bare name gets a zstd reason.
+ *   set → the snapshots that would not read; a bare name gets a gunzip reason.
  *   Every set named here must appear in `spec` (with `{}` if it has no readable
  *   snapshot), so a mistyped set name fails instead of vanishing.
  * @returns {Map<string, ReferencedResult>}
@@ -54,7 +54,7 @@ export function enumeration(spec, unreadable = {}) {
       snapshotsChecked: Object.keys(snapshots).length,
       unreadable: (unreadable[set] ?? []).map((entry) =>
         typeof entry === "string"
-          ? { snapshot: entry, reason: "zstd: Data corruption detected" }
+          ? { snapshot: entry, reason: "incorrect header check" }
           : entry,
       ),
     });

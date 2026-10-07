@@ -9,7 +9,7 @@ snapshot against the one taken just before it.
   before `--until`; when `--until` is the oldest snapshot there is nothing
   older, so the report collapses to the one-line first-snapshot count below)
 
-Snapshot names are as `s3cab list` prints them; the `.tsv`/`.tsv.zst` filename
+Snapshot names are as `s3cab list` prints them; the `.tsv`/`.tsv.gz` filename
 extension may be included or left off. Naming a snapshot that doesn't exist is
 an error — a typo never silently becomes an empty snapshot (which would have
 read as "everything added" or "everything deleted").

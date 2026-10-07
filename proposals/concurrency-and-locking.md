@@ -102,7 +102,7 @@ entry in [engine-robustness.md](engine-robustness.md).
 
 ## 2. Stale temp-file recovery (the local half)
 
-A crashed or interrupted snapshot leaves `.snapshot.tsv.zst` behind, and every later snapshot
+A crashed or interrupted snapshot leaves `.snapshot.tsv.gz` behind, and every later snapshot
 fails until the user hand-deletes it.
 
 The wrinkle: that temp file does **double duty** — it is both the orphan-on-death *and* the
@@ -144,7 +144,7 @@ not for sweeping this stale lock, which it leaves untouched. That verdict above 
 > no liveness guesswork. That is the live starting point for item 2.
 >
 > **ADR-0067 also shrank this item.** A *graceful* interrupt now parks the work file as
-> `.snapshot.lookup.tsv.zst` instead of leaving a stale lock, so Ctrl+C no longer wedges the
+> `.snapshot.lookup.tsv.gz` instead of leaving a stale lock, so Ctrl+C no longer wedges the
 > next run. What remains is only the **hard-kill / crash / power-loss** case — which ADR-0067
 > says outright it does not solve. Smaller, and rarer, but still hand-cleaned. _(Since
 > [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md): still hand-cleared, but the
@@ -166,8 +166,8 @@ pass.
 ### A hard-killed work file turned out to be readable (2026-09-13)
 
 **Measured on the real 280,232-file OneDrive set**, after a backup died un-gracefully about 3h16m
-in (no handler ran, so nothing was parked): the leftover `.snapshot.tsv.zst` decompressed
-**cleanly** to 50,328,875 bytes holding **271,909 whole file rows of 280,232** — 97% of the pass.
+in (no handler ran, so nothing was parked): the leftover work file, then `.snapshot.tsv.zst`,
+decompressed **cleanly** to 50,328,875 bytes holding **271,909 whole file rows of 280,232** — 97% of the pass.
 The only damage was the final TSV line, torn mid-hash. There is no `#END`, so `parseSnapshotStream`
 asserts and nothing will read it — but the rows themselves were all there.
 
@@ -175,7 +175,10 @@ That replaces the parenthetical this paragraph used to carry ("the work file die
 and it qualifies **§4's point 2**: the failure mode attributed there to plain text — *"complete
 lines are readable, and the only new code is tolerating a partial final line"* — is what the
 **compressed** work file actually did. Node's zstd stream flushes blocks as it goes, so a hard kill
-loses the in-flight block, not the stream.
+loses the in-flight block, not the stream. (That was zstd. Since snapshots became gzip
+([ADR-0097](../docs/adr/0097-gzip-snapshot-compression.md)) the same shape is expected, since
+deflate also writes its blocks as it goes, and `recoverWorkFile`'s unit test cuts a gzip work file
+short and recovers a clean prefix. No real hard kill has been measured on gzip yet.)
 
 _Not a refutation, and it must not be read as one — n=1._ The crash tier observed a mid-frame death
 on 2026-08-14, and the obvious reconciliation is **size**: a 10MB compressed stream has flushed
@@ -270,9 +273,10 @@ three, and `delete`'s profile is the *least* protected of them:
 _User idea, previously rejected as "added complexity" — raised again after the fused pipeline
 landed, on the grounds that the scales may have moved. The analysis below is mine._
 
-Today `withSnapshotFile` streams rows through zstd-19 into `.snapshot.tsv.zst`, so the work file
-is only readable if the stream was closed cleanly. The proposal: write it as plain `.snapshot.tsv`
-and compress once at finalize.
+Today `withSnapshotFile` streams rows through gzip into `.snapshot.tsv.gz`. A hard-killed work file
+is still read back, tolerantly, through `Z_SYNC_FLUSH`
+([ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md); point 2 below). The proposal:
+write it as plain `.snapshot.tsv` and compress once at finalize.
 
 **Why it looks better than it did.** Three things from building
 [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md):
@@ -292,7 +296,7 @@ and compress once at finalize.
    point is what [ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md) bought, and it
    bought it *on the compressed file*, because the measurement in §2 says zstd's flushed blocks
    already leave the same "whole lines plus one torn one" shape. The tolerating-a-partial-final-line
-   code exists and reads `.tsv.zst` today, so **plain text can no longer claim it.** §4's remaining
+   code exists and reads `.tsv.gz` today, so **plain text can no longer claim it.** §4's remaining
    case is the *bonus* below and the design compromise in point 1, not robustness.
 3. **The write window is now longer and more eventful.** Since the fusion, uploads happen *inside*
    the write, so the work file is open across all the network work rather than local work alone.
@@ -304,15 +308,18 @@ openable in any editor at the cost of a rename — **not** a second write.
 debug-only, and its reasoning is explicitly cost-based ("a second artifact per snapshot forever —
 bytes, a second write per run"). That cost genuinely changes here, so 0061 would need **revisiting
 on its own terms**, not quietly overtaking. Its other leg still stands: the no-lock-in pillar is
-already met by standard `.tsv.zst`, so the case rests on convenience plus the robustness above.
+already met by standard `.tsv.gz`, so the case rests on convenience plus the robustness above.
 Holding both an uncompressed and a compressed copy locally is **not** an objection (user,
 2026-07-29) — it is redundancy, not a problem.
 
-**What it costs.** Finalize stops being a bare atomic rename and becomes read → zstd → write →
-rename, which moves level-19 compression off the overlapped path (where the hash pass currently
-hides it) into a visible few seconds at the end of a large run. Reading needs no change —
-`readSnapshotFile` already switches on the `.zst` extension, and `readSnapshot` already probes the
-plain `.tsv` form.
+**What it costs.** Finalize stops being a bare atomic rename and becomes read → gzip → write →
+rename, which moves compression off the overlapped path (where the hash pass currently hides it)
+to the end of the run. Under zstd-19 that was a visible few seconds on a large set; gzip is about
+30 times faster (ADR-0097), so about a second. Reading *does* need a change. `readSnapshotFile`
+already switches on the `.gz` extension, but `readSnapshot` resolves only `<name>.tsv.gz`, and
+work-file recovery (`readParkedLookup`, `recoverWorkFile`) reads through
+`parseCompressedSnapshotStream` unconditionally, so a plain work file needs its own uncompressed
+recovery path.
 
 **How it meets item 2.** It does *not* dissolve the stale lock: a hard-killed run still leaves the
 work file at the lock name, still hand-deleted. What changes is what that leftover is *worth* —

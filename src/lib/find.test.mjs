@@ -19,7 +19,7 @@ import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
 //   on whatever machine runs the suite. That is the point: the case rule keys on
 //   the path's shape, so a Windows path must fold on Linux and a POSIX path must
 //   not fold on Windows, and only literal paths can assert both from one run.
-// - **The scan** needs real `.tsv.zst` snapshots, so it writes them into a temp
+// - **The scan** needs real `.tsv.gz` snapshots, so it writes them into a temp
 //   S3CAB_HOME. Its fixtures use paths this platform resolves, since what is
 //   under test there is spans, dedup and unreadable snapshots — not path shape.
 
@@ -366,7 +366,7 @@ describe("findInSnapshots", () => {
     const set = await seedSet("myset", "my-bucket", {
       "2026-06-11T0915": [file("notes/secret1", "S")],
     });
-    writeFileSync(join(set.snapshotsDir, "2026-06-12T0915.tsv.zst"), "");
+    writeFileSync(join(set.snapshotsDir, "2026-06-12T0915.tsv.gz"), "");
 
     const result = await findInSnapshots([set], ["secret1"]);
 

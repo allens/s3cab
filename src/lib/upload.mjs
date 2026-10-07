@@ -63,7 +63,7 @@ import { readExcludePatterns, walkDirs } from "./walk.mjs";
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
- * @param {string} args.snapshotDir - Local dir holding the baseline (`<since>.tsv.zst`)
+ * @param {string} args.snapshotDir - Local dir holding the baseline (`<since>.tsv.gz`)
  * @param {string} [args.since] - The baseline snapshot's name (trust-checked remotely)
  * @param {SnapshotEntries} [args.baseline] - That baseline's entries; without both, the store is LISTed
  * @returns {Promise<Set<string>>} Hashes that need no upload
@@ -456,7 +456,7 @@ export async function fileChange(path, recorded) {
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
- * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
+ * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @returns {Promise<void>}
  */
@@ -536,7 +536,7 @@ const nameTakenError = (set, name, uri) =>
  * @param {object} args
  * @param {string} args.bucket - The repository's S3 bucket
  * @param {string} args.set - The set's name (its whole identity, ADR-0024)
- * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.zst`)
+ * @param {string} args.snapshotDir - Local dir holding the snapshot (`<name>.tsv.gz`)
  * @param {string} args.name - The snapshot name to upload, e.g. `2026-06-12T0915`
  * @param {string} [args.since] - Baseline snapshot to skip against (a local snapshot
  *   name); omit for a first backup, which LISTs the store instead

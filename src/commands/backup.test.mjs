@@ -150,7 +150,7 @@ beforeEach(() => {
   compareCalls = [];
   pass = {
     name: "2026-01-02T0900",
-    path: "snaps/2026-01-02T0900.tsv.zst",
+    path: "snaps/2026-01-02T0900.tsv.gz",
     files: 400,
     bytes: 4_000_000,
     hashedFiles: 12,

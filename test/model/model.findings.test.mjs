@@ -252,7 +252,7 @@ describe("prior-audit findings, encoded", () => {
     await backup("trunc");
 
     const fake = backendHolder.current;
-    const key = "snapshots/trunc/2026-01-05T0000.tsv.zst";
+    const key = "snapshots/trunc/2026-01-05T0000.tsv.gz";
     const full = /** @type {Buffer} */ (await fake.getBytes(BUCKET, key));
 
     // The untruncated manifest must parse, or the loop below proves nothing:
@@ -264,10 +264,10 @@ describe("prior-audit findings, encoded", () => {
     assert.equal(whole.dirs.length, 1);
 
     // ADR-0082: the #END trailer makes truncation loud. The invariant is: every
-    // truncation either *rejects* (the trailer or a whole row is gone, or — at
-    // the 26.10 floor — zstd refuses the cut frame itself) or parses the
-    // complete manifest, which only a cut shaving compression framing after the
-    // last content byte could ever do. What no truncation may do is parse as a
+    // truncation either *rejects* (the trailer or a whole row is gone, or
+    // gunzip refuses the cut stream itself, as it does at every cut measured on
+    // 26.11) or parses the complete manifest, which only a cut shaving
+    // compression framing after the last content byte could ever do. What no truncation may do is parse as a
     // valid smaller-or-empty snapshot. The loop is written to allow both
     // outcomes because that is the invariant, not because a reject is expected
     // at some lengths and not others (amendment 3: at this floor they all do).
