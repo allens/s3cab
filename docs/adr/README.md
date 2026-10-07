@@ -47,6 +47,7 @@ ADR as a live constraint.
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
 - [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(accepted; the TS question closed 2026-07-18)*
+- [0096](0096-mini-python-reference-implementation.md) — A "back to basics" s3cab in Python: one file, boto3 the only dependency, the same format and bucket as the real tool, readable in half an hour; functionality before optimisation *(proposed; scope and placement open, nothing built)*
 
 ### Licensing
 
