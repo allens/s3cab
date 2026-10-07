@@ -395,10 +395,10 @@ export async function generateSnapshot(
  * bytes gone up, and suffixes whichever file is on the wire:
  *
  * ```
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB) …/ragged.jpg  [hashed, sent 55% of 999.9MB]
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB) …/notes.txt
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)…/ragged.jpg  [hashed, sent 55% of 999.9MB]
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)…/notes.txt
  *     8s  4,182/58,310   38% of 2.4GB
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB) Stopping…  …/ragged.jpg  [hashed, sent 55% of 999.9MB]
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)Stopping…  …/ragged.jpg  [hashed, sent 55% of 999.9MB]
  * ```
  *
  * The second line is the ordinary case, and the common one: no verb, because

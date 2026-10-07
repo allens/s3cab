@@ -229,6 +229,32 @@ describe("progressLine", () => {
     );
   });
 
+  it("says a slow hash is under way before its first figure comes back", () => {
+    const line = progressLine({
+      ...run,
+      currentFile: "D:\\Scans\\big.psd",
+      hashing: hashing(1_800_000_000, 0),
+    });
+    assert.match(line, / {2}D:\\Scans\\big\.psd {2}\[hashing 1\.8GB\]$/, line);
+  });
+
+  it("says a single PUT of a reused hash is under way, with no hash claimed", () => {
+    const line = progressLine({
+      ...run,
+      state: sending({
+        path: "D:\\Pictures\\P1060735.JPG",
+        loaded: 0,
+        total: 1_500_000,
+        hashed: false,
+      }),
+    });
+    assert.match(
+      line,
+      / {2}D:\\Pictures\\P1060735\.JPG {2}\[sending 1\.5MB\]$/,
+      line,
+    );
+  });
+
   it("measures nothing for work that has not been going a second", () => {
     // The rule that keeps tens of thousands of fast files from flickering
     // figures past: a row earns a *verb and a size* by taking long enough for
