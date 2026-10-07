@@ -29,7 +29,12 @@ right is the point. Correctness covers:
 - the exact format;
 - full exclude syntax;
 - objects first, snapshot last;
-- uploads verified with `ChecksumSHA256`.
+- every object stored is the bytes its key names. A file can change between being hashed and
+  being sent, so the writer has to check the bytes it actually sends. `ChecksumSHA256` does
+  that for a single PUT (up to 5 GB). It does *not* for a multipart upload, where S3's SHA-256
+  is a composite of the parts. Above the multipart threshold the writer must hash the bytes as
+  they stream, as s3cab does ([0083](0083-streamed-digest-upload-guard.md)). How, while staying
+  in the half-hour budget, is open below.
 
 The SDK is allowed because boto3's `upload_file` hides multipart, retries and the credential
 chain, none of which is the format. Python is chosen because it is the most widely readable
@@ -119,6 +124,11 @@ runs are rehearsals that find spec gaps. At 1.0 the format becomes the promise
 indefinitely.
 
 ## Open
+
+- **Large files in the writer.** boto3's `upload_file` switches to multipart above 8 MB, where
+  `ChecksumSHA256` no longer covers the whole file. The options: raise the threshold so every
+  object is one PUT (simple, and capped at 5 GB per object), or hash a wrapper around the file
+  stream as it is read and refuse on mismatch, which is s3cab's own approach.
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the writer and the readers
   against the current spec. Today it is restore-shaped (`create.mjs`, `stage.mjs`,

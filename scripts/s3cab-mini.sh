@@ -36,16 +36,18 @@ snapshot() {
     list=$(mktemp)
     TZ=UTC find "${dirs[@]}" -name .s3cab -prune -o -type f \
       -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\0' | sort -z -t $'\t' -k3 >"$list"
-    while IFS=$'\t' read -r -d '' size mtime path && IFS= read -r -d '' sum <&3; do
+    while IFS=$'\t' read -r -d '' size mtime path; do
       [[ $path != *$'\t'* && $path != *$'\r'* && $path != *$'\n'* ]] ||
         die "path holds a tab, CR or LF, which the format can't store: $path"
-      # An unreadable file gets no sha256sum line, so check the pairing hasn't slipped.
-      [[ ${sum#*  } == "$path" ]] || die "could not hash $path (unreadable?)"
+      # An unreadable file gets no sha256sum line, so the hash stream can run out
+      # early (the last file) or slip by a row (any other): both are fatal.
+      IFS= read -r -d '' sum <&3 && [[ ${sum#*  } == "$path" ]] ||
+        die "could not hash $path (unreadable?)"
       row "${sum%% *}" "$size" "${mtime:0:23}Z" "$path"
     done <"$list" 3< <(cut -z -f3- "$list" | xargs -0r sha256sum -z)
     rm -f "$list"
     row '#END' COMPLETE "$(now)" ''
-  } | zstd -q -o "$out.part"
+  } | zstd -q -f -o "$out.part" # -f: a failed earlier attempt leaves a .part
   mv "$out.part" "$out"
   echo "$out"
 }
@@ -62,7 +64,12 @@ upload() {
     aws s3api list-objects-v2 --bucket "$bucket" --prefix objects/ \
       --query 'Contents[].Key' --output text | tr '\t' '\n' | grep -v '^None$' || true)
 
-  local hash size mtime path sent=0
+  # Decompress in full first: a damaged snapshot must stop the upload, not end the
+  # loop early and still publish a snapshot whose objects never went up.
+  local rows hash size mtime path sent=0
+  rows=$(mktemp); trap "rm -f '$rows'" EXIT
+  zstd -dc "$snap" >"$rows"
+  [[ $(tail -1 "$rows") == '#END'* ]] || die "local snapshot ${snap##*/} is truncated (no #END trailer)"
   while IFS=$'\t' read -r hash size mtime path; do
     [[ $hash == '#'* || -n ${stored[$hash]:-} ]] && continue
     # S3 checks the body against the expected SHA-256, so a file that changed since
@@ -71,7 +78,7 @@ upload() {
       --checksum-sha256 "$(printf "$(sed 's/../\\x&/g' <<<"$hash")" | base64)" >/dev/null ||
       die "upload failed (changed since snapshot?): $path"
     stored[$hash]=1; sent=$((sent + 1))
-  done < <(zstd -dc "$snap")
+  done <"$rows"
 
   aws s3 cp --quiet "$snap" "s3://$bucket/snapshots/$set/${snap##*/}" # snapshot last
   echo "uploaded $sent objects and ${snap##*/}"
