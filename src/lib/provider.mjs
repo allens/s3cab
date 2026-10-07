@@ -31,6 +31,19 @@ import { isInteractive, shellCommand } from "./style.mjs";
  */
 export const keyTail = (keyId) => `…${keyId.slice(-4)}`;
 
+/** The env keys each knob is stored under — what clearing that knob removes. */
+export const knobKeys = {
+  profile: ["AWS_PROFILE"],
+  // Clear both endpoint spellings: `--endpoint` writes the specific _S3 form,
+  // but a hand-written AWS_ENDPOINT_URL would otherwise keep the endpoint live.
+  endpoint: ["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"],
+  region: ["AWS_REGION"],
+  keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+  "roles-anywhere": [RA_MARKER],
+};
+
+/** @typedef {"profile" | "keys" | "roles-anywhere"} CredentialKnob */
+
 /**
  * Warn (but don't block) when a profile isn't in the user's AWS config, listing
  * the ones that are — the typo-catcher. Best-effort: `listProfiles` returns
@@ -127,13 +140,15 @@ ${setupSteps(bucket)}`,
  * (ADR-0057), and it needs the machine identity to be complete *before* a set is
  * pointed at it ({@link rolesAnywhereNotReadyError}); it contributes the set's
  * `S3CAB_RA` marker to `updates`, no material. Callers apply the returned
- * `updates`: `provider` writes them to a set's env file (and clears the modes
- * RA/profile/keys replace); `setup` populates the environment for its remote
- * claim, then persists them on a win.
+ * `updates`: `provider` writes them to a set's env file (and clears the
+ * credential modes in `replaces`); `setup` populates the environment for its
+ * remote claim, then persists them on a win.
  * @param {{ profile?: string, endpoint?: string, region?: string, keys?: boolean,
  *   rolesAnywhere?: boolean, bucket?: string }} options - `bucket` is the set's,
  *   used only to spell the Roles Anywhere recipe.
- * @returns {Promise<{ updates: Record<string, string>, summary: string[] }>}
+ * @returns {Promise<{ updates: Record<string, string>, summary: string[],
+ *   replaces: CredentialKnob[] }>} `replaces` holds the credential modes not
+ *   chosen, or none when no mode was chosen.
  */
 export async function gatherProviderConfig({
   profile,
@@ -143,16 +158,25 @@ export async function gatherProviderConfig({
   rolesAnywhere,
   bucket,
 }) {
+  /** @type {{ knob: CredentialKnob, given: boolean, phrase: string }[]} */
   const modes = [
-    profile !== undefined && "a profile",
-    keys && "access keys",
-    rolesAnywhere && "Roles Anywhere",
-  ].filter(Boolean);
-  if (modes.length > 1) {
+    { knob: "profile", given: profile !== undefined, phrase: "a profile" },
+    { knob: "keys", given: Boolean(keys), phrase: "access keys" },
+    {
+      knob: "roles-anywhere",
+      given: Boolean(rolesAnywhere),
+      phrase: "Roles Anywhere",
+    },
+  ];
+  const chosen = modes.filter((mode) => mode.given);
+  if (chosen.length > 1) {
     throw new ParseArgsError(
-      `Set one way to sign in, not ${modes.join(" and ")} — they are alternatives, not layers.`,
+      `Set one way to sign in, not ${chosen.map((mode) => mode.phrase).join(" and ")} — they are alternatives, not layers.`,
     );
   }
+  const replaces = chosen.length
+    ? modes.filter((mode) => !mode.given).map((mode) => mode.knob)
+    : [];
   if (rolesAnywhere && endpoint !== undefined) {
     throw new ParseArgsError(
       "Roles Anywhere is AWS-only, so it can't be combined with a custom --endpoint (that's for non-AWS S3 providers).",
@@ -199,7 +223,7 @@ export async function gatherProviderConfig({
     Object.assign(updates, pair);
     summary.push(`access keys (${keyTail(pair.AWS_ACCESS_KEY_ID)})`);
   }
-  return { updates, summary };
+  return { updates, summary, replaces };
 }
 
 /**

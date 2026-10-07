@@ -8,11 +8,14 @@ import { ParseArgsError } from "../lib/error.mjs";
 import {
   gatherProviderConfig,
   keyTail,
+  knobKeys,
   readProviderConfig,
 } from "../lib/provider.mjs";
-import { RA_MARKER, isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
+import { isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
+
+/** @import { CredentialKnob } from "../lib/provider.mjs" */
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
 // how a set signs in to its storage provider (docs/design/auth.md): an AWS
@@ -35,20 +38,26 @@ import { shellCommand } from "../lib/style.mjs";
 // writing credentials to the wrong set would be as bad as a missing arg), while a
 // bare `provider` show summarizes every set.
 //
-// A set is exactly one credential mode: a profile OR access keys (ADR-0055) —
-// alternative ways to sign in, not layers. Setting one clears the other on that
-// set (with a note in the confirmation), and passing both in one call is rejected.
-// Endpoint and region are orthogonal connection knobs, untouched by the switch.
+// A set is exactly one credential mode: a profile, access keys or Roles Anywhere
+// (ADR-0055/0057) — alternative ways to sign in, not layers. Setting one clears
+// the others on that set (with a note in the confirmation), and passing two in one
+// call is rejected. Endpoint and region are orthogonal connection knobs, untouched
+// by the switch.
 
-/** The knobs `--unset` accepts, and the env keys each one clears. */
-const knobs = {
-  profile: ["AWS_PROFILE"],
-  // Clear both endpoint spellings: `--endpoint` writes the specific _S3 form,
-  // but a hand-written AWS_ENDPOINT_URL would otherwise keep the endpoint live.
-  endpoint: ["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"],
-  region: ["AWS_REGION"],
-  keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
-  "roles-anywhere": [RA_MARKER],
+/**
+ * How the confirmation names a credential mode a set's env carries, or
+ * `undefined` when it carries none — so nothing is cleared.
+ * @type {Record<CredentialKnob, (env: NodeJS.Dict<string>) => string | undefined>}
+ */
+const replacedName = {
+  profile: (env) =>
+    env.AWS_PROFILE ? `its profile '${env.AWS_PROFILE}'` : undefined,
+  keys: (env) =>
+    env.AWS_ACCESS_KEY_ID || env.AWS_SECRET_ACCESS_KEY
+      ? "its access keys"
+      : undefined,
+  "roles-anywhere": (env) =>
+    isRolesAnywhereMode(env) ? "its Roles Anywhere setting" : undefined,
 };
 
 /**
@@ -246,10 +255,10 @@ export async function provider(setName, options = {}) {
   const scope = resolveScope(setName);
 
   if (unset !== undefined) {
-    const envKeys = knobs[/** @type {keyof typeof knobs} */ (unset)];
+    const envKeys = knobKeys[/** @type {keyof typeof knobKeys} */ (unset)];
     if (!envKeys) {
       throw new ParseArgsError(
-        `Unknown setting to unset: ${unset}. Use one of: ${Object.keys(knobs).join(", ")}.`,
+        `Unknown setting to unset: ${unset}. Use one of: ${Object.keys(knobKeys).join(", ")}.`,
       );
     }
     // The set's directory already exists (resolveScope resolved it), and clearing
@@ -289,7 +298,7 @@ export async function provider(setName, options = {}) {
   // once, refuse Roles Anywhere until the machine identity is complete) is shared
   // with `setup` — see lib/provider.mjs. `provider` then applies the one-mode
   // clearing below, which `setup` doesn't need (its set is brand new).
-  const { updates, summary } = await gatherProviderConfig({
+  const { updates, summary, replaces } = await gatherProviderConfig({
     profile,
     endpoint,
     region,
@@ -298,36 +307,17 @@ export async function provider(setName, options = {}) {
     bucket: scope.bucket,
   });
 
-  // Enforce the one-mode rule against what's already on disk: a set holds exactly
-  // one credential mode (profile / keys / Roles Anywhere, ADR-0055/0057), so
-  // setting one clears the other two (endpoint and region are orthogonal
-  // connection knobs — left alone). Name what was replaced, for the confirmation.
-  const newMode = rolesAnywhere
-    ? "ra"
-    : profile !== undefined
-      ? "profile"
-      : keys
-        ? "keys"
-        : undefined;
+  // Enforce the one-mode rule against what's already on disk: clear each mode the
+  // new one replaces, naming the ones that were there, for the confirmation.
   /** @type {string[]} */
   const clear = [];
   /** @type {string[]} */
   const replacedParts = [];
-  if (newMode) {
-    if (
-      newMode !== "keys" &&
-      (current.AWS_ACCESS_KEY_ID || current.AWS_SECRET_ACCESS_KEY)
-    ) {
-      clear.push(...knobs.keys);
-      replacedParts.push("its access keys");
-    }
-    if (newMode !== "profile" && current.AWS_PROFILE) {
-      clear.push(...knobs.profile);
-      replacedParts.push(`its profile '${current.AWS_PROFILE}'`);
-    }
-    if (newMode !== "ra" && isRolesAnywhereMode(current)) {
-      clear.push(...knobs["roles-anywhere"]);
-      replacedParts.push("its Roles Anywhere setting");
+  for (const knob of replaces) {
+    const name = replacedName[knob](current);
+    if (name) {
+      clear.push(...knobKeys[knob]);
+      replacedParts.push(name);
     }
   }
   const replaced = replacedParts.length
