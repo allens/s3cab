@@ -32,7 +32,7 @@ reader most often had to install:
 
 That reaches three other decisions:
 
-- **The clean-room readers** proposed as ADR-0096 (PR #379) lose their only extra install. The
+- **The clean-room readers** proposed in [0096](0096-three-implementations-prove-the-format.md) lose their only extra install. The
   Windows reader can target the .NET Framework that ships with Windows, and the macOS reader
   needs nothing from Homebrew.
 - **The planned `browse` command** can decompress snapshots in the page itself.
