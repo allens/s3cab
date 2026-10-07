@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPIKE (preserved) — s3cab-mini: snapshot, upload, restore in bash. Writes the s3cab format
 # (guide/format.md), nothing else: no exclude patterns, no hash reuse, no retries beyond the aws
-# CLI's own, no files over 5 GB (single put-object), GNU/Linux only. The starting sketch for the
+# CLI's own, no files over 5 GB (single put-object), no #ERROR/#SKIPPED rows (an unreadable
+# file stops the run; symlinks are left out silently), GNU/Linux only. The starting sketch for the
 # clean-room writer (ADR-0096), not a tool: tested only against a fake local `aws`, never a real
 # bucket. Needs: bash 4+, GNU find/coreutils, zstd, aws CLI v2.
 #
