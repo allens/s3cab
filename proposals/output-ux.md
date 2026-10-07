@@ -42,7 +42,7 @@ niceties.
 - **The fused pass's progress line retains its last state, unlabelled**
   ([ADR-0076](../docs/adr/0076-one-progress-line-driven-by-a-clock.md)). `withProgress` closes
   the line the ordinary way, so a finished run leaves `14m 02s  256,776/256,776  100% of 1.9TB
-  (Uploaded 13.2GB)` sitting directly above the command's real summary — saying roughly the same thing, but
+  (Uploaded: 13.2GB)` sitting directly above the command's real summary — saying roughly the same thing, but
   without the header that named it (that has scrolled away by then). The machinery to fix it is
   already there and already used for this exact reason by the upload byte bar: `progress.clear()`
   instead of letting disposal retain. **Not obviously right, which is why it wasn't just done:**
