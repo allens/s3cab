@@ -1,6 +1,6 @@
 # Snapshots close with an `#END` trailer, and a parse without one is damage
 
-**Status:** accepted, amended three times (2026-08-21, then twice on 2026-10-02); partly
+**Status:** accepted, amended four times (2026-08-21, twice on 2026-10-02, then 2026-10-07); partly
 superseded by [0094](0094-change-time-check-opt-in.md) — the `#END` instant is no longer a
 boundary for any check, and is kept for people reading the file. Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
@@ -62,6 +62,15 @@ boundary for any check, and is kept for people reading the file. Extends
 > Point 1's "completeness is a property of the *content*, and only the content can state it" is the
 > durable half of this ADR. The decompressor's leniency was what made that urgent, not what made it
 > true — which is why the floor moving costs the decision nothing.
+
+> **Amendment 4 (2026-10-07) — snapshots are gzip now ([0097](0097-gzip-snapshot-compression.md)).**
+> Nothing here changes. Node's gunzip fails a cut-short stream with the same `Z_BUF_ERROR`,
+> measured at every cut point of a snapshot including the empty one, and
+> `parseCompressedSnapshotStream` folds it into the same AssertionError. The tolerant work-file
+> read ends cleanly with `Z_SYNC_FLUSH` where it used `ZSTD_e_flush`. Read "frame" above as
+> "gzip stream". gzip also adds a fourth reason for the trailer, aimed at hand readers:
+> `gunzip -c` and Python's `gzip` module both hand over every line they can decompress *before*
+> reporting the cut, so a reader working row by row has already seen a valid-looking prefix.
 
 ## Context
 

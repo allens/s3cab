@@ -88,7 +88,7 @@ diagram is repeated here because the design points below lean on it.)
       env                # S3CAB_BUCKET=… + how to reach it (profile or keys)
       exclude.txt        # optional; patterns applied relative to each member dir
       snapshots/
-        2026-06-12T0915.tsv.zst
+        2026-06-12T0915.tsv.gz
 ```
 
 - **The files are the API.** Editing a set = opening `dirs.txt`/`env`/`exclude.txt` in
@@ -382,7 +382,7 @@ yet would otherwise be invisible — and `dirs.txt`/`exclude.txt` are pushed for
 back; only credentials need re-entering). The set's `env` is **never** pushed (it holds
 credentials); the bucket name is not stored (redundant once in the bucket).
 
-**Remote snapshot files are byte-identical local snapshot files** — the `.tsv.zst` uploaded as-is.
+**Remote snapshot files are byte-identical local snapshot files** — the `.tsv.gz` uploaded as-is.
 One format everywhere; the upload is trivially verifiable; the recovery story is
 identical to the local one.
 
@@ -506,7 +506,7 @@ Because both inputs are hash-per-line streams, the whole computation is reproduc
 hand with `sort` and `comm` — even s3cab's heaviest maintenance operation needs no
 s3cab. (*Referenced* is a lib function only, **not** a plumbing command — decided
 2026-07-03: the hand-recovery contract is already met by the snapshot files themselves
-(`zstdcat snapshots/*/*.tsv.zst | cut -f1 | sort -u`), and its two callers, `verify` and
+(`gunzip -c snapshots/*/*.tsv.gz | cut -f1 | sort -u`), and its two callers, `verify` and
 `cleanup`, are internal. A CLI face is one registry entry away the day someone wants the
 stream.)
 
@@ -751,7 +751,7 @@ retired with it), later split into the standalone `reattach` command
 ([ADR-0053](../adr/0053-reattach-command.md)). **`compare --remote` is dropped, not deferred**
 (PR #89, [ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)): `compare` stays
 local-only, and `reattach` instead pulls the set's remote snapshot files down (verbatim
-`.tsv.zst` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
+`.tsv.gz` copies, no objects), so a fresh machine's local `compare`/`list`/`restore` work on
 full history. (The `--remote` flag + `notImplemented()` stub were removed and the reattach-time
 snapshot-file sync — `downloadRemoteSnapshots` in `remote.mjs` — added.)
 

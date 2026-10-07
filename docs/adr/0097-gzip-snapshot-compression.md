@@ -1,123 +1,123 @@
 # Snapshots are compressed with gzip, not zstd
 
-**Status:** proposed (2026-10-07). Investigation PR: the direction is close to decided, pending
-a measurement on a real snapshot. Nothing is built yet. If accepted, this partly supersedes
+**Status:** accepted & implemented (2026-10-07). Partly supersedes
 [0003](0003-modern-open-tech-only.md)'s zstd example.
 
-Snapshot files (`<name>.tsv.zst`, locally and under `snapshots/<set>/`) are zstd at level 19.
-This proposes **gzip at level 9 with zlib's `Z_FILTERED` strategy** (`<name>.tsv.gz`) instead.
+Snapshot files are **gzip** (`<name>.tsv.gz`, locally and under `snapshots/<set>/`), as are the
+work file and the parked lookup (`.snapshot.tsv.gz`, `.snapshot.lookup.tsv.gz`). They were zstd
+at level 19. The writer uses zlib's maximum settings: **level 9, `memLevel` 9 and the
+`Z_FILTERED` strategy**. The spec promises only plain, single-stream gzip; the settings are the
+writer's choice.
 
-The trade is about 15% larger snapshot files for a format that **every platform and every kind
-of reader decodes out of the box**: Node, every Python, the .NET Framework that ships inside
-Windows, macOS's own frameworks, the zlib on every Linux, `gunzip` in any shell, and a browser's
-`DecompressionStream`. Compression also gets about 25 times faster.
+The trade is snapshots **about 4–10% larger** than zstd 19 on realistic data, for a format that
+**every platform and every kind of reader decodes out of the box**. Compression also gets about
+**30 times faster**.
 
 ## Why
 
 zstd was chosen as the best speed/ratio balance, and as native in Node and "in Windows 11"
-(0003). The second half was weaker than it read. Windows 11's zstd support is Explorer's archive
-handling, not a library a program can call. In practice zstd is the one dependency a recovering
-reader most often has to install:
+(0003). The second half was weaker than it read: Windows 11's zstd support is Explorer's archive
+handling, not a library a program can call. In practice zstd was the one dependency a recovering
+reader most often had to install:
 
 | Reader | zstd | gzip |
 |---|---|---|
 | Node | built in | built in |
 | Python | 3.14+ only (`compression.zstd`) | **every version** (`gzip`, `zlib`) |
-| Windows | .NET 11 only (`ZstandardStream`), installed separately | **`GZipStream` in the .NET Framework 4.x that ships with Windows**, so even Windows PowerShell 5.1 |
+| Windows | .NET 11 only (`ZstandardStream`), installed separately | **`GZipStream` in the .NET Framework that ships with Windows**, so even Windows PowerShell 5.1 |
 | macOS | `brew install zstd`; Apple's Compression framework has no zstd | **built in** (Foundation/Compression zlib, system libz) |
 | Linux C | the libzstd package | zlib, present essentially everywhere |
-| A person in a shell | `zstd` often not installed | `gunzip -c x.tsv.gz \| grep …` on any Mac or Linux |
+| A person in a shell | `zstd` often not installed | `gunzip` on any Mac or Linux |
 | A browser (`browse`, planned for v2) | no standard support | **`DecompressionStream('gzip')`** |
 
 That reaches three other decisions:
 
-- **ADR-0096's readers** (proposed in PR #379) **lose their only extra
-  install.** The Windows reader can target the **.NET Framework that ships with Windows**, so
-  nothing is installed at all; under zstd it needs .NET 11. The macOS reader needs nothing from
-  Homebrew.
-- **The planned `browse` command** can decompress snapshots in the page itself, with no server
-  round trip through a decoder and no JS zstd library.
+- **The clean-room readers** proposed as ADR-0096 (PR #379) lose their only extra install. The
+  Windows reader can target the .NET Framework that ships with Windows, and the macOS reader
+  needs nothing from Homebrew.
+- **The planned `browse` command** can decompress snapshots in the page itself.
 - **[0002](0002-no-lock-in-hard-constraint.md)'s no-lock-in promise gets simpler to keep.**
-  The tool needed to read a snapshot by hand is the one already on every machine.
+  The tool needed to read a snapshot by hand is already on every machine.
+  [guide/format.md](../../guide/format.md) now gives the PowerShell lines for Windows, which has
+  no `gunzip`.
 
 ## What it costs: measured
 
-A synthetic snapshot was built from `/usr` on a Linux box: 83,861 rows in the exact column layout
-(64-wide padded hash, right-aligned size, 24-wide mtime, path), 12.7 MB uncompressed. Hashes
-were SHA-256 of each path, which is random like a real content hash. It was compressed with
-Node's built-in zlib (xz via its CLI), single run, 2026-10-07:
+Five synthetic snapshots in the exact column layout (64-wide padded hash, right-aligned size,
+24-wide mtime, path), with each hash the SHA-256 of its path so it is random like a real one.
+Compressed with Node 26.11's built-in zlib, one run each, 2026-10-07. `scripts/compression-bench.mjs`
+repeats the comparison on any real snapshot.
 
-| | Size | Ratio | Compress | Decompress |
-|---|---|---|---|---|
-| gzip -6 | 3,987 KiB | 30.7% | 0.4 s | 0.3 s |
-| gzip -9 | 3,921 KiB | 30.2% | 0.5 s | 0.14 s |
-| **gzip -9, `Z_FILTERED`** | **3,767 KiB** | **29.0%** | **0.75 s** | — |
-| gzip via Zopfli (15 iterations) | 3,641 KiB | 28.0% | 41 s | — |
-| bzip2 -9 | 3,446 KiB | 26.5% | — | — |
-| brotli q9 | 3,931 KiB | 30.3% | 4.6 s | 0.14 s |
-| brotli q11 | 3,301 KiB | 25.4% | 37 s | 0.06 s |
-| xz -9e | 3,401 KiB | 26.2% | 17 s | — |
-| zstd 3 | 4,004 KiB | 30.8% | 0.1 s | 0.04 s |
-| **zstd 19 (today)** | **3,433 KiB** | **26.4%** | **13 s** | **0.05 s** |
+| Snapshot | Rows | Raw | zstd 19 | gzip 9 | **gzip 9, `Z_FILTERED`, mem 9** | vs zstd 19 |
+|---|---|---|---|---|---|---|
+| small (Linux paths) | 603 | 84 KiB | 26 KiB | 29 KiB | **28 KiB** | +5.3% |
+| photo library (`D:\Photos\<year>\<event>\IMG_….JPG`) | 124,015 | 17.5 MiB | 5.6 MiB | 6.1 MiB | **5.8 MiB** | +3.5% |
+| Windows profile tree | 154,335 | 26.8 MiB | 6.2 MiB | 7.1 MiB | **6.8 MiB** | +9.8% |
+| Linux `/usr` + `/opt` | 154,335 | 24.7 MiB | 6.2 MiB | 7.1 MiB | **6.8 MiB** | +9.1% |
+| all of the above, one set | 432,679 | 68.9 MiB | 18.1 MiB | 20.2 MiB | **19.4 MiB** | +7.4% |
+
+Compression time for the combined 433,000-row set was **81 s for zstd 19 and 2.5 s for gzip**.
+For the photo library it was 24.6 s against 0.8 s.
 
 - **Every algorithm hits the same floor.** Each row's hash is 32 bytes of incompressible
-  entropy written as 64 hex characters, about 2.6 MB of this file. No algorithm gets near it,
-  and the spread between them is small. gzip -9 is about 14% larger than zstd 19, roughly half a
-  megabyte at 84,000 files. **`Z_FILTERED` cuts that to about 10%** at no cost to readers: it is
-  a compressor-side strategy flag (Node's `createGzip({ level: 9, strategy: Z_FILTERED })`), and
-  the output is ordinary gzip. `memLevel: 9` changed nothing.
-- **Smaller still costs a dependency or a portability loss.** Zopfli writes standard gzip that
-  any `gunzip` reads, about 3% smaller again, but it is about 55 times slower and isn't built
-  into Node (ADR-0005). bzip2 matches zstd 19's size, but Node, .NET and browsers can't read it.
-- **zstd 19 is slow to compress.** About 13 s of CPU here, against 0.5 s for gzip -9. The
-  compressor runs alongside hashing in the fused pass ([0069](0069-fused-snapshot-upload-pipeline.md)),
-  so part of that is hidden, but it grows with the set.
-- **Decompression speed doesn't matter** at these sizes for any of them.
+  entropy written as 64 hex characters. No algorithm gets near it, so the spread between them is
+  small.
+- **`Z_FILTERED` is the setting that matters**, at about 4% smaller than gzip's default
+  strategy on every set. It makes deflate discard matches of 5 bytes or fewer. In random hex,
+  3–4 character repeats turn up by chance within gzip's 32 KB window. Each costs roughly 15–20
+  bits as a back-reference, while Huffman coding spends only about 4 bits on a hex digit. So
+  dropping the short matches lets the hash column code close to its entropy, while the paths,
+  which genuinely repeat, keep their long matches. It is a compressor-only flag: the output is
+  ordinary gzip.
+- **`memLevel` 9 adds 0.1–0.2%** and costs the compressor 128 KB more, nothing for readers.
+  `windowBits` is already at its maximum (15); smaller windows, Huffman-only and RLE were all
+  worse, the last two by about 80%.
+- **zstd 19 was slow to compress.** The fused pass ([0069](0069-fused-snapshot-upload-pipeline.md))
+  runs the compressor alongside hashing, which hid part of it, but it grew with the set.
+- **Decompression speed doesn't matter** at these sizes for either.
 
-## To do in this PR
+An earlier single-set run on a `/usr`-only snapshot also covered other algorithms; see
+*Considered*.
 
-1. **Confirm on a real snapshot.** Extend `scripts/zstd-bench.mjs` (renamed, since it would no
-   longer be zstd-only) to compare gzip levels beside zstd, and run it on a large real
-   decompressed snapshot, including `Z_FILTERED`. Accept if gzip stays within about 20% of
-   zstd 19.
-2. **Change the writer and readers** in `src/lib/snapshot-file.mjs` and `src/lib/snapshot.mjs`:
-   `createZstdCompress`/`createZstdDecompress` become `createGzip`/`createGunzip`. Check:
-   - **Tolerant work-file reads** ([0092](0092-recover-the-interrupted-work-file.md)) use
-     `finishFlush: ZSTD_e_flush` to accept a cut-short frame. The gunzip equivalent is
-     `finishFlush: Z_SYNC_FLUSH`.
-   - **Error matching:** `isCorruptSnapshotError` in `src/lib/referenced.mjs` matches `ZSTD_*`
-     error codes; gunzip's are `Z_*`/`Z_BUF_ERROR` ("unexpected end of file").
-   - **Byte identity** ([0084](0084-snapshot-identity-byte-equality.md)) compares a local file
-     with its uploaded copy, made on one machine, so it is unaffected. But the gzip header
-     carries an OS byte and an mtime field, so output is not byte-identical *across* platforms
-     or zlib builds. Confirm nothing compares snapshots compressed on different machines.
-3. **Rename `.tsv.zst` → `.tsv.gz`** everywhere: `src/`, tests, test helpers, the model and crash
-   suites, `.gitattributes`/`.gitignore`/`.prettierignore`, and CI if it names the extension.
-   Pre-1.0, with no compatibility reader for `.zst` (CLAUDE.md): change the format and move on.
-4. **Update the spec and docs:** `guide/format.md` (compression, the extension, "decompress with
-   any zstd tool", the truncation paragraph), `guide/compare.md`, `README.md`, `CONTEXT.md`,
-   `docs/design/`, and the ADR index. Mark 0003's zstd example as superseded by this ADR, and
-   correct older ADRs only where they would otherwise mislead.
-5. **Clean-room harness:** `scripts/cleanroom/stage.mjs` recompresses the trailer-less `faults`
-   snapshot, so it switches to gzip. The frozen restorers are not updated (they are to be
-   replaced; see 0096), but the README's Windows note changes from ".NET 11 for zstd" to the
-   in-box .NET Framework.
-6. **Run `npm run test:integration`** before pushing, per CLAUDE.md: this changes the S3
-   read/write/stream path.
+## Consequences
+
+- **No reader for `.tsv.zst`.** Pre-1.0, per CLAUDE.md: the format changed and the old files are
+  not read. A zstd snapshot is simply not a snapshot to `list`, `restore` or `cleanup`. A
+  repository that still holds them should be started fresh rather than cleaned up: `cleanup`
+  would see their objects as unreferenced.
+- **Corruption is still recognised.** `isCorruptSnapshotError` classifies gunzip's
+  `Z_DATA_ERROR` (bytes that aren't gzip, a failed CRC-32, or junk after the stream) and
+  `Z_BUF_ERROR` (cut short) as damage. A damaged snapshot is still an *unreadable* finding,
+  never an S3 failure.
+- **Truncation is caught twice.** Node's gunzip rejects every cut-short stream with
+  `Z_BUF_ERROR`, measured at every cut point of a snapshot including the empty one, and
+  `parseCompressedSnapshotStream` folds it into the same AssertionError as a missing `#END`
+  ([0082](0082-snapshot-end-trailer.md), amendment 4). The tolerant work-file read
+  ([0092](0092-recover-the-interrupted-work-file.md)) ends cleanly with `Z_SYNC_FLUSH`.
+- **Byte identity is unaffected.** [0084](0084-snapshot-identity-byte-equality.md) compares a
+  local file with its uploaded copy, and nothing recompresses a snapshot. Node writes a zero gzip
+  mtime, so the header leaks no time. But the header's OS byte, and potentially the zlib build,
+  differ between platforms, so two machines compressing the same rows need not produce the same
+  bytes. Nothing compares those.
+- **Older ADRs keep their `.tsv.zst` names** as the history they record. The spec, guides,
+  designs and code all say `.tsv.gz`.
 
 ## Considered
 
-- **Keep zstd.** It gives the best ratio at a fast decode. But it is the one dependency a
-  recovering reader most often lacks, for a gain of about half a megabyte per large snapshot.
-- **Brotli.** It is native in Node and .NET Core, but not in Python's standard library, the .NET
-  Framework, or a browser's `DecompressionStream`. Only its slowest level beats zstd 19.
+- **Keep zstd.** It has the best ratio and a fast decode. But it is the one dependency a
+  recovering reader most often lacks, for a gain of 4–10%.
+- **Zopfli.** It writes standard gzip about 3% smaller than `Z_FILTERED` (`/usr` set: 3,641 KiB
+  against 3,767 KiB). But it's about 55 times slower and isn't built into Node, so it would be a
+  dependency ([0005](0005-builtins-over-dependencies.md)). Because its output is still gzip, a
+  writer can adopt it later without a format change.
+- **bzip2.** It matches zstd 19's ratio (3,446 KiB on `/usr`) and ships with most Unix shells
+  and Python, but not with Node, .NET or browsers.
+- **Brotli.** It is native in Node and modern .NET, but not in Python's standard library, the
+  .NET Framework or a browser's `DecompressionStream`. Only its slowest level, at 37 s, beat zstd
+  19.
 - **xz.** It's in Python's standard library, but not in Node's or .NET's.
-- **bzip2.** It matches zstd 19's ratio and ships with most Unix shells and Python, but not
-  Node, .NET or browsers.
-- **Zopfli.** It writes standard gzip, about 3% smaller than `Z_FILTERED`, but it's 55 times
-  slower and is a dependency. A writer can adopt it later without changing the format.
+- **zstd at a low level.** This fixes the compression time but none of the availability gaps,
+  and its ratio drops to gzip's anyway.
 
 Nothing else comes close to gzip's portability. Its deflate format is also inside ZIP, PNG and
 HTTP compression, which is why every platform ships a decoder.
-- **zstd at a low level.** This fixes the compression time but none of the availability gaps,
-  and the ratio drops to gzip's anyway.

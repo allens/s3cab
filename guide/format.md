@@ -50,7 +50,7 @@ prefix, so anything (s3cab, another tool, or you by hand) can find everything:
 ```
 s3://my-backup-bucket/
   objects/<sha256>                  # every backed-up file, stored once, named by content hash
-  snapshots/<set>/<name>.tsv.zst    # each backup set's snapshot files
+  snapshots/<set>/<name>.tsv.gz     # each backup set's snapshot files
   sets/<set>/                       # each set's config + ownership marker
     info                            # owner machine + created date (the name-claim marker)
     dirs.txt                        # the set's member directories, one per line
@@ -66,7 +66,7 @@ s3://my-backup-bucket/
   hash. Keep one: given only `objects/`, you have your data but no way to tell what any of it
   was. (This is why snapshots are immutable and never overwritten.)
 - **`snapshots/<set>/`** holds one backup set's snapshot files, named by a minute-precision
-  local timestamp (`2026-06-12T0915.tsv.zst`). A remote snapshot file is **byte-identical**
+  local timestamp (`2026-06-12T0915.tsv.gz`). A remote snapshot file is **byte-identical**
   to its local counterpart — uploaded as-is, one format everywhere.
 - **`sets/<set>/`** marks the set's existence (a set with no snapshots yet would otherwise
   be invisible), records which machine holds it, and carries the set's
@@ -196,9 +196,11 @@ content is still stored.
 ## Snapshot files
 
 A snapshot is a point-in-time record of every file in a backup set: a plain-text,
-tab-separated (TSV) table, zstd-compressed on disk and in the bucket (`.tsv.zst` —
-decompress with any zstd tool). Lines whose first field starts with `#` are metadata, not
-file rows — **check for that before checking anything structural**, because the four-field
+tab-separated (TSV) table, gzip-compressed on disk and in the bucket (`.tsv.gz` —
+decompress with any gzip tool: `gunzip`, or the gzip support built into every mainstream
+language). How hard it is compressed is s3cab's choice and may change; what is promised is
+plain, single-stream gzip. Lines whose first field starts with `#` are metadata, not file
+rows — **check for that before checking anything structural**, because the four-field
 grammar below describes file rows only, and the metadata lines do not all obey it.
 
 The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) apply here in
@@ -329,8 +331,10 @@ rather than four. Neither troubles a reader that tests for `#` before counting f
 both break one that counts first.
 
 The last line of every snapshot is the trailer `#END`. It exists to make truncation
-detectable: zstd happily decompresses a cut-short file to a byte *prefix* of the original,
-which would otherwise read as a valid, smaller snapshot. A snapshot without the `#END`
+detectable. gzip does notice a cut-short file, but only at the end: `gunzip -c` and
+Python's `gzip` module both hand over every line they can decompress *before* reporting the
+cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of the
+original, which would otherwise read as a valid, smaller snapshot. A snapshot without the `#END`
 trailer is damaged goods — treat it as truncated, not as complete. Concretely: **don't
 restore from it**. The rows that survive a cut are a valid-looking prefix, so restoring
 them produces a tree that looks finished and silently isn't; refuse the snapshot, say why,
@@ -342,7 +346,7 @@ Its two columns say how the run ended, and they answer different questions. The 
 being **there** means s3cab ended the file deliberately, so the last row is whole — a
 killed process leaves no trailer at all. The **status** then says whether the rows are all
 of them: `COMPLETE` for a finished snapshot, `PARTIAL` for the hashes a run stopped with
-Ctrl+C left behind (the `.snapshot.lookup.tsv.zst` file described below — the only file
+Ctrl+C left behind (the `.snapshot.lookup.tsv.gz` file described below — the only file
 s3cab writes `PARTIAL` into). The **instant** is when the last row was written, in the same
 UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other.
 s3cab itself doesn't read it back. It's there for you: with `#SNAPSHOT`'s instant, stamped
@@ -364,7 +368,7 @@ that equals `#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers
 
 Three smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
-and the file is that name plus `.tsv.zst`. A snapshot holding a header, a trailer and
+and the file is that name plus `.tsv.gz`. A snapshot holding a header, a trailer and
 **no file rows at all** is perfectly legal: an empty backup set, not a damaged file. And
 s3cab never writes the same path twice in one snapshot, but its own reader doesn't reject a
 hand-damaged file that does — it silently takes the **last** row for a path; a stricter
@@ -383,7 +387,7 @@ the API**, and some of them you are expected to edit directly in a text editor:
       env                # S3CAB_BUCKET=… + any per-set auth overrides — yours to edit
       exclude.txt        # optional exclude patterns — yours to edit
       snapshots/
-        2026-06-12T0915.tsv.zst    # same format as the bucket's copy, byte for byte
+        2026-06-12T0915.tsv.gz    # same format as the bucket's copy, byte for byte
   roles-anywhere/        # only if the keyless identity is set up — see below
   my-backup-bucket.yaml  # a CloudFormation template `s3cab aws` wrote, named per bucket
 ```
@@ -408,14 +412,14 @@ config — leave it out of any backup you share.
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
 dot, neither is ever uploaded, and both are safe to delete when nothing is running:
 
-- `.snapshot.tsv.zst` — the snapshot being written right now. It becomes the finished
+- `.snapshot.tsv.gz` — the snapshot being written right now. It becomes the finished
   snapshot when the run completes. One left behind means a run was killed part-way; s3cab
   says so, and names it, the next time you snapshot that set. It has no trailer, because the
   run never reached one, and its last line stops wherever the kill landed — so once you know
   nothing is running, `--resume` carries on from the rows before it instead of reading all
   those files again. That last line is dropped unread: a row cut off part-way can still look
   complete, so the one row s3cab cannot vouch for is one file it hashes again.
-- `.snapshot.lookup.tsv.zst` — the file hashes from a snapshot you stopped with Ctrl+C,
+- `.snapshot.lookup.tsv.gz` — the file hashes from a snapshot you stopped with Ctrl+C,
   kept so the next run doesn't have to work them out again. Structurally it is a snapshot
   like any other, closed with a `PARTIAL` trailer that says so. It is read as a lookup only
   — every hash in it is re-checked against the file's current size and modification time
@@ -432,7 +436,13 @@ back down and syncs the snapshot history — whereas nothing can rebuild a lost 
 ## Recovering by hand (no s3cab)
 
 1. List `snapshots/<set>/` in the bucket and download the snapshot you want.
-2. Decompress it: `zstd -d 2026-06-12T0915.tsv.zst`.
+2. Decompress it: `gunzip 2026-06-12T0915.tsv.gz`. Windows has no `gunzip`, but
+   PowerShell needs nothing installed, since .NET's `GZipStream` is built in:
+   ```powershell
+   $f = Resolve-Path 2026-06-12T0915.tsv.gz
+   $gz = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($f), [IO.Compression.CompressionMode]::Decompress)
+   $out = [IO.File]::Create(($f -replace "\.gz$", "")); $gz.CopyTo($out); $out.Close(); $gz.Close()
+   ```
 3. Open the `.tsv` — a text editor or a spreadsheet — and find your file's row.
 4. Download `objects/<its-hash>` from the bucket. That is your file, byte for byte; the row
    tells you its original path and modification time.

@@ -59,8 +59,9 @@ is never locked in**:
   up and no thawing delay when you restore — and are encrypted at rest with SSE-S3. Other
   S3-compatible providers get plain uploads, since storage classes are AWS's own vocabulary.
 
-- **🧱 Modern, open building blocks.** Standard SHA-256 hashing, zstd compression, and a
-  current Node.js runtime. Deliberately modern — but never proprietary.
+- **🧱 Modern, open building blocks.** Standard SHA-256 hashing, gzip compression any
+  machine can read with what it already has, and a current Node.js runtime. Deliberately
+  modern — but never proprietary.
 
 ## Installing & running
 
@@ -151,8 +152,8 @@ file, not a delete plus an add:
 ```console
 > s3cab snapshot
 Using s3cab home 'C:\Users\you\.s3cab'
-Reading previous snapshot '~\.s3cab\sets\photos\snapshots\2025-11-11T0830.tsv.zst'
-Snapshotting 'photos/2025-11-12T0915' ('~\.s3cab\sets\photos\snapshots\2025-11-12T0915.tsv.zst'):
+Reading previous snapshot '~\.s3cab\sets\photos\snapshots\2025-11-11T0830.tsv.gz'
+Snapshotting 'photos/2025-11-12T0915' ('~\.s3cab\sets\photos\snapshots\2025-11-12T0915.tsv.gz'):
 Finding files in '~\Photos'… 1,204 in 3 sec
 Comparing '2025-11-11T0830' → '2025-11-12T0915'
 photos: ~\Photos  2025-11-11T0830 → 2025-11-12T0915
@@ -283,8 +284,8 @@ the set's own directory under your home directory — never inside your backed-u
   env                            # S3CAB_BUCKET=… plus how this set signs in
   exclude.txt                    # glob patterns for files to skip — yours to edit
   snapshots/
-    2025-11-10T2104.tsv.zst      # one snapshot per run (zstd-compressed TSV)
-    2025-11-11T0830.tsv.zst
+    2025-11-10T2104.tsv.gz       # one snapshot per run (gzip-compressed TSV)
+    2025-11-11T0830.tsv.gz
 ```
 
 Editing a set _is_ editing these files, and deleting the directory deletes the set. Only
@@ -310,8 +311,8 @@ path — space-padded to those widths _and_ separated by tabs, so it reads as a 
 editor and parses as clean TSV in a script. The metadata lines pad the columns they don't
 use, which is why `#DIR` looks indented.
 
-To inspect a compressed snapshot by hand, decompress it with any zstd tool
-(`zstd -d snapshot.tsv.zst`) and open the resulting `.tsv`. That's the whole recovery
+To inspect a compressed snapshot by hand, decompress it with any gzip tool
+(`gunzip snapshot.tsv.gz`) and open the resulting `.tsv`. That's the whole recovery
 story — no s3cab required. (The complete stored format is specified in
 [guide/format.md](guide/format.md).)
 
@@ -333,7 +334,7 @@ directory inside a shared one. Inside, the structure is fixed and well-known, so
 ```
 s3://my-backup-bucket/
   objects/<sha256>                 # your files, each stored once under its content hash
-  snapshots/<set>/<name>.tsv.zst   # the snapshot files saying which objects make up each backup
+  snapshots/<set>/<name>.tsv.gz    # the snapshot files saying which objects make up each backup
   sets/<set>/                      # each set's config + the marker claiming its name
     info                             # the machine that created it, and when
     dirs.txt                         # its member directories

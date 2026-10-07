@@ -107,8 +107,9 @@ fresh window, so outliving the permission set's session duration (8 hours here,
 Staged on Windows, the room gets a Windows brief. Nothing comes as standard
 there and there is no package archive, so the toolchain sentence becomes
 "installed on this machine, standard library only" — install it before the run,
-and pick the language knowing its standard library has to decompress zstd
-(.NET 11's does, as does Python 3.14's). The brief also tells the session to
+and pick the language knowing its standard library has to decompress gzip
+(every .NET does, including the .NET Framework that ships with Windows, as does
+every Python). The brief also tells the session to
 work natively, never through WSL: a user-level `CLAUDE.md` loads into every
 session, and one that routes Windows work through WSL would turn a Windows run
 into a Linux one without saying so. The credentials go over as `credentials.ps1`
@@ -158,8 +159,8 @@ recorded — F5's fixture re-backs its file up, which is the presence-wins trap
 and leaves nothing for the skip path to skip. `corrupt` puts wrong bytes under a
 right key, the case where the spec neither requires re-hashing a download nor
 says what to do when it fails. And `faults` gets a second snapshot with its
-`#END` trailer removed and the frame recompressed: truncating the compressed
-bytes would test zstd's leniency instead, and the trailer's whole purpose is
+`#END` trailer removed and the rest recompressed: truncating the compressed
+bytes would test gunzip's own check instead, and the trailer's whole purpose is
 catching a backup killed mid-write.
 
 `reference/` holds what **s3cab itself restored**, not the source trees. A
@@ -252,6 +253,11 @@ python3 scripts/cleanroom/compare.py <my-restore-dir> <reference-dir>
 One program per run, each written from the spec alone, each **deliberately not
 maintained** in step with s3cab. If one drifts from a future format, that drift
 is a breaking format change to notice — not a bug to patch here.
+
+**All three predate gzip snapshots**
+([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)). They read the
+earlier `.tsv.zst` files, so none of them restores a corpus staged today. That is
+exactly such a drift, recorded rather than patched.
 
 ### pyrestore.py — run 1
 
