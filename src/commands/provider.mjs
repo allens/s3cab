@@ -8,14 +8,14 @@ import { ParseArgsError } from "../lib/error.mjs";
 import {
   gatherProviderConfig,
   keyTail,
-  knobKeys,
   readProviderConfig,
+  settingKeys,
 } from "../lib/provider.mjs";
 import { isRolesAnywhereMode } from "../lib/roles-anywhere.mjs";
 import { NO_SETS_MESSAGE, listSets, resolveSet } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
 
-/** @import { CredentialKnob } from "../lib/provider.mjs" */
+/** @import { CredentialMode } from "../lib/provider.mjs" */
 
 // `s3cab provider` (né `auth`, né `profile` — ADR-0047/0041) — change or inspect
 // how a set signs in to its storage provider (docs/design/auth.md): an AWS
@@ -47,7 +47,7 @@ import { shellCommand } from "../lib/style.mjs";
 /**
  * How the confirmation names a credential mode a set's env carries, or
  * `undefined` when it carries none — so nothing is cleared.
- * @type {Record<CredentialKnob, (env: NodeJS.Dict<string>) => string | undefined>}
+ * @type {Record<CredentialMode, (env: NodeJS.Dict<string>) => string | undefined>}
  */
 const replacedName = {
   profile: (env) =>
@@ -255,10 +255,11 @@ export async function provider(setName, options = {}) {
   const scope = resolveScope(setName);
 
   if (unset !== undefined) {
-    const envKeys = knobKeys[/** @type {keyof typeof knobKeys} */ (unset)];
+    const envKeys =
+      settingKeys[/** @type {keyof typeof settingKeys} */ (unset)];
     if (!envKeys) {
       throw new ParseArgsError(
-        `Unknown setting to unset: ${unset}. Use one of: ${Object.keys(knobKeys).join(", ")}.`,
+        `Unknown setting to unset: ${unset}. Use one of: ${Object.keys(settingKeys).join(", ")}.`,
       );
     }
     // The set's directory already exists (resolveScope resolved it), and clearing
@@ -313,10 +314,10 @@ export async function provider(setName, options = {}) {
   const clear = [];
   /** @type {string[]} */
   const replacedParts = [];
-  for (const knob of replaces) {
-    const name = replacedName[knob](current);
+  for (const mode of replaces) {
+    const name = replacedName[mode](current);
     if (name) {
-      clear.push(...knobKeys[knob]);
+      clear.push(...settingKeys[mode]);
       replacedParts.push(name);
     }
   }

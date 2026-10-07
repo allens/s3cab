@@ -31,8 +31,8 @@ import { isInteractive, shellCommand } from "./style.mjs";
  */
 export const keyTail = (keyId) => `…${keyId.slice(-4)}`;
 
-/** The env keys each knob is stored under — what clearing that knob removes. */
-export const knobKeys = {
+/** The env keys each setting is stored under — what clearing that setting removes. */
+export const settingKeys = {
   profile: ["AWS_PROFILE"],
   // Clear both endpoint spellings: `--endpoint` writes the specific _S3 form,
   // but a hand-written AWS_ENDPOINT_URL would otherwise keep the endpoint live.
@@ -42,7 +42,7 @@ export const knobKeys = {
   "roles-anywhere": [RA_MARKER],
 };
 
-/** @typedef {"profile" | "keys" | "roles-anywhere"} CredentialKnob */
+/** @typedef {"profile" | "keys" | "roles-anywhere"} CredentialMode */
 
 /**
  * Warn (but don't block) when a profile isn't in the user's AWS config, listing
@@ -147,7 +147,7 @@ ${setupSteps(bucket)}`,
  *   rolesAnywhere?: boolean, bucket?: string }} options - `bucket` is the set's,
  *   used only to spell the Roles Anywhere recipe.
  * @returns {Promise<{ updates: Record<string, string>, summary: string[],
- *   replaces: CredentialKnob[] }>} `replaces` holds the credential modes not
+ *   replaces: CredentialMode[] }>} `replaces` holds the credential modes not
  *   chosen, or none when no mode was chosen.
  */
 export async function gatherProviderConfig({
@@ -158,12 +158,12 @@ export async function gatherProviderConfig({
   rolesAnywhere,
   bucket,
 }) {
-  /** @type {{ knob: CredentialKnob, given: boolean, phrase: string }[]} */
+  /** @type {{ name: CredentialMode, given: boolean, phrase: string }[]} */
   const modes = [
-    { knob: "profile", given: profile !== undefined, phrase: "a profile" },
-    { knob: "keys", given: Boolean(keys), phrase: "access keys" },
+    { name: "profile", given: profile !== undefined, phrase: "a profile" },
+    { name: "keys", given: Boolean(keys), phrase: "access keys" },
     {
-      knob: "roles-anywhere",
+      name: "roles-anywhere",
       given: Boolean(rolesAnywhere),
       phrase: "Roles Anywhere",
     },
@@ -175,7 +175,7 @@ export async function gatherProviderConfig({
     );
   }
   const replaces = chosen.length
-    ? modes.filter((mode) => !mode.given).map((mode) => mode.knob)
+    ? modes.filter((mode) => !mode.given).map((mode) => mode.name)
     : [];
   if (rolesAnywhere && endpoint !== undefined) {
     throw new ParseArgsError(

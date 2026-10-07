@@ -792,14 +792,14 @@ least once; re-open only if the stated reason no longer holds.
   - **Left as of record:** ADR-0073, ADR-0088 and the ADR index still say `compileExclude`.
   - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
 - **2026-10-07 — Two knob tables landed** ([PR #380](https://github.com/allens/s3cab/pull/380); no ADR).
-  - **The table moved; the gather names what it replaces.** `knobKeys` sits in lib/provider.mjs, and
+  - **The table moved; the gather names what it replaces.** `settingKeys` sits in lib/provider.mjs, and
     `gatherProviderConfig` returns `replaces`: the credential modes it did not choose. The command
     clears those instead of re-deriving them.
   - **Returns modes, not env keys** as the entry proposed: the confirmation names each replaced mode,
     and each mode keeps its own presence rule (`S3CAB_RA` counts only as `1`, pinned by a test that
     caught a generic "any key set" check).
-  - **A fourth mode is now a compile error, not a silent miss.** Adding one to `CredentialKnob` fails
-    `typecheck` at `knobKeys` and at the command's `replacedName` until both name it; checked by doing so.
+  - **A fourth mode is now a compile error, not a silent miss.** Adding one to `CredentialMode` fails
+    `typecheck` at `settingKeys` and at the command's `replacedName` until both name it; checked by doing so.
   - **Not taken: the endpoint's two spellings.** The write and the clear still sit apart; the
-    clear's reason is the comment on `knobKeys.endpoint`.
+    clear's reason is the comment on `settingKeys.endpoint`.
   - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
