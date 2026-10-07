@@ -14,6 +14,7 @@ import {
   wipeBucket,
 } from "./harness.mjs";
 import { captureTree } from "../model/harness/model.mjs";
+import { REQUESTS_IN_FLIGHT } from "../../src/lib/objects.mjs";
 
 // The interruption half of the crash/concurrency harness (prompt #4 of
 // docs/agents/s3cab-fable-prompts.md): hard-kill the real CLI, as a real
@@ -31,7 +32,8 @@ import { captureTree } from "../model/harness/model.mjs";
 //     → DELETE sets/<set>/exclude.txt (config push, best-effort)
 //   multipart object: HEAD objects/<hash> → POST ?uploads → PUT ?partNumber=N
 //     ×parts → POST ?uploadId= (complete)
-//   cleanup: GET listings + manifests → DELETE objects/<hash> ×orphans
+//   cleanup: GET listings + manifests → DELETE objects/<hash> ×orphans,
+//     REQUESTS_IN_FLIGHT at a time
 //   forget: GET listing → GET manifests (unrestorable scan; skipped by
 //     --force) → DELETE snapshots/... ×named
 //
@@ -288,11 +290,20 @@ describe("interruption: cleanup and forget", () => {
     const home = join(scratch, "home");
     const data = join(scratch, "data");
     mkdirSync(home, { recursive: true });
-    makeTree(data, SMALL_TREE);
+    // More orphans than cleanup keeps in flight, so the kill can land on a
+    // DELETE that waited for a slot. With every DELETE dispatched at once, a
+    // kill on any of them precedes every response, and nothing is torn.
+    const orphans = REQUESTS_IN_FLIGHT + 10;
+    makeTree(
+      data,
+      Object.fromEntries(
+        Array.from({ length: orphans }, (_, i) => [`f${i}.txt`, `orphan ${i}`]),
+      ),
+    );
     seedSet(home, "s", [data]);
 
     // Manufacture genuine crash orphans: a backup killed at the commit
-    // boundary leaves all four objects uploaded and no manifest.
+    // boundary leaves every object uploaded and no manifest.
     const killed = s3cab(["backup", "s"], {
       home,
       tz: nextZone(),
@@ -302,7 +313,7 @@ describe("interruption: cleanup and forget", () => {
     const orphanKeys = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
-    assert.equal(orphanKeys.length, 4, "four crash orphans seeded");
+    assert.equal(orphanKeys.length, orphans, "crash orphans seeded");
 
     // Age them past a compressed grace window (labeled time compression —
     // GRACE_MS only; see killswitch.mjs). Production grace is 7 days; the
@@ -313,22 +324,27 @@ describe("interruption: cleanup and forget", () => {
     const cleanupKilled = s3cab(["cleanup", bucket, "--force"], {
       home,
       graceMs,
-      kill: "2:DELETE:^/objects/",
+      // The first DELETE dispatched only once an earlier one has completed.
+      kill: `${REQUESTS_IN_FLIGHT + 1}:DELETE:^/objects/`,
       log: join(scratch, "trace.log"),
       tag: "cleanup-killed",
     });
     assertKilled(cleanupKilled, "cleanup kill");
 
     // Torn delete pass: some orphans gone, some left — but orphans are
-    // unreferenced by definition, so the store must still be healthy.
+    // unreferenced by definition, so the store must still be healthy. How many
+    // of the in-flight DELETEs landed is a race; the bounds are not.
     assert.deepEqual(await bucketViolations(), []);
     const remaining = (await inspector.listAll(bucket))
       .map(({ key }) => key)
       .filter((key) => key.startsWith("objects/"));
-    assert.equal(
-      remaining.length,
-      3,
-      "exactly one orphan was deleted before the kill",
+    assert.ok(
+      remaining.length < orphans,
+      "at least one orphan was deleted before the kill",
+    );
+    assert.ok(
+      remaining.length >= orphans - REQUESTS_IN_FLIGHT,
+      `the DELETEs never dispatched left their orphans (${remaining.length} remain)`,
     );
 
     // Re-running is the recovery: same plan minus the already-deleted.
