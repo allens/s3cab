@@ -43,7 +43,7 @@ ADR as a live constraint.
 - [0002](0002-no-lock-in-hard-constraint.md) — No lock-in is a hard constraint
 - [0003](0003-modern-open-tech-only.md) — Target modern tech, but only open standards
 - [0004](0004-tsv-snapshot-manifests.md) — TSV snapshot files
-- [0097](0097-gzip-snapshot-compression.md) — Snapshots compressed with gzip -9 (`.tsv.gz`), not zstd 19: about 14% larger on a measured 84,000-row snapshot, about 25× faster to compress, and decodable out of the box by every reader (any Python, the .NET Framework inside Windows, macOS's frameworks, `gunzip`, a browser's `DecompressionStream`) *(proposed; investigation PR, pending a real-snapshot measurement; would partly supersede 0003's zstd example)*
+- [0097](0097-gzip-snapshot-compression.md) — Snapshots compressed with gzip -9 using `Z_FILTERED` (`.tsv.gz`), not zstd 19: about 10% larger on a measured 84,000-row snapshot, about 25× faster to compress, and decodable out of the box by every reader (any Python, the .NET Framework inside Windows, macOS's frameworks, `gunzip`, a browser's `DecompressionStream`) *(proposed; investigation PR, pending a real-snapshot measurement; would partly supersede 0003's zstd example)*
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
 - [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(accepted; the TS question closed 2026-07-18)*
