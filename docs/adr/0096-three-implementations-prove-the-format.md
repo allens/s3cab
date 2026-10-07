@@ -64,7 +64,7 @@ the platform's own language, with its own frameworks or system libraries, shows 
 Variety for its own sake is not a goal, and nor is avoiding a language.
 
 The target assumes snapshots move from zstd to gzip
-([0097](0097-gzip-snapshot-compression.md), proposed in its own PR). zstd was the one thing no
+(ADR-0097, implemented in PR #381). zstd was the one thing no
 platform's own stack could read, and gzip removes it:
 
 - **Windows: C# on the .NET Framework that ships with Windows**, so **nothing is installed**.
