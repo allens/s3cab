@@ -70,24 +70,14 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **exclude subject side** below for what skipping that costs.
-(2) **Ordering constraints.** None: **`diff`'s test-only export** is the only open candidate.
+(2) **Ordering constraints.** None: no candidate is open.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
 - **Clock seam bypass — The deletion record's instants were minted outside the clock seam that names them.**
   _Landed 2026-10-01 as [PR #348](https://github.com/allens/s3cab/pull/348) — see the run log._
 - **`diff`'s test-only export — `diff` is exported only for its test, and the rule about skipped paths lives outside it.**
-  _Worth exploring — carried from the eleventh pass's smaller items; **downgraded from Strong**
-  2026-10-04._ `diff` is [compare.mjs](../src/lib/compare.mjs):313; its **only** production call is
-  :172, inside `compareSnapshots` itself, so the export exists so
-  [compare.test.mjs](../src/lib/compare.test.mjs) can reach it. Both carve-outs are applied by
-  mutating `diff`'s output afterwards: :182–184 (`untilSnapshot.errors`) and :193–195
-  (`untilSnapshot.skipped`), each `deleted.delete(path)`. `diff`'s contract documents both and names
-  `compareSnapshots` as their owner. **What the downgrade corrects:** the carve-outs are *not* on an
-  untested side. compare.test.mjs:476 and :542 assert both through `compareSnapshots`, and the
-  I/O-shell tests cover them again. What is left is a test-only export. The standing rejection of
-  `diff` **as a module** does not bind. Fix: either move both carve-outs behind `diff`'s signature,
-  or make `diff` module-private and let its tests cross `compareSnapshots`.
+  _Rejected 2026-10-07 — see the rejected section._
 - **Forget's blind preview — `forget`'s unrestorable preview is the only bucket-wide reader that never consults the
   deletion record.** _Landed 2026-10-05 as [PR #370](https://github.com/allens/s3cab/pull/370). See
   the run log._
@@ -366,6 +356,10 @@ signer).
 Recorded so future runs (and reviewers) skip them. Each was verified against the source at
 least once; re-open only if the stated reason no longer holds.
 
+- **Making `diff` private to compare.mjs** (was open as "`diff`'s test-only export") — rejected
+  2026-10-07. Its tests would each need a snapshot file on disk in place of an in-memory Map; the
+  reason is `diff`'s doc comment. The carve-outs it also named are asserted through
+  `compareSnapshots`, and its contract documents both.
 - **Giving `verify` and `restore` a shared "deliberate ≠ fault" implementation** (was open
   candidate **H**, eleventh pass) — **rejected 2026-08-07** after reading both sides, in the
   session that had just refactored `verifySet`. The candidate's premise was that the rule is
