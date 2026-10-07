@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { constants, gzipSync, gunzipSync } from "node:zlib";
 import { InterruptedError } from "./error.mjs";
 import {
   listSnapshotNames,
@@ -653,6 +654,40 @@ describe("writeSnapshot", () => {
     // Every row reached the transform, in file order, before reaching the TSV.
     assert.deepEqual(seen, files);
     assert.equal(gunzipSync(readFileSync(fused)).toString("utf8"), plainText);
+  });
+
+  it("compresses with gzip level 9, memLevel 9 and Z_FILTERED (ADR-0097)", async () => {
+    // The settings are the decision, and a round trip can't see them: any gzip
+    // reads back the same. Recompressing the file's own text with exactly these
+    // options must reproduce it byte for byte (deflate is deterministic for a
+    // given input and settings, however the input was chunked), and zlib's
+    // defaults must not, or this test couldn't tell the two apart. Random hex
+    // hashes are what `Z_FILTERED` is for, so the fixture has a few hundred.
+    await using dir = await mkTmpDir();
+    const files = Array.from({ length: 400 }, (_, i) =>
+      resolve(dir.path, `photo-${i}.jpg`),
+    );
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files,
+      excluded: [],
+      getProps: async (file) => ({
+        size: 3,
+        mtime: "2026-06-23T10:00:00.000Z",
+        hash: createHash("sha256").update(file).digest("hex"),
+      }),
+    });
+
+    const written = readFileSync(path);
+    const text = gunzipSync(written);
+    const chosen = gzipSync(text, {
+      level: 9,
+      memLevel: 9,
+      strategy: constants.Z_FILTERED,
+    });
+    assert.ok(written.equals(chosen), "written with the ADR-0097 settings");
+    assert.ok(!written.equals(gzipSync(text)), "distinct from zlib's defaults");
   });
 
   it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {

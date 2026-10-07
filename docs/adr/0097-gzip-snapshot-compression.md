@@ -25,7 +25,7 @@ reader most often had to install:
 | Node | built in | built in |
 | Python | 3.14+ only (`compression.zstd`) | **every version** (`gzip`, `zlib`) |
 | Windows | .NET 11 only (`ZstandardStream`), installed separately | **`GZipStream` in the .NET Framework that ships with Windows**, so even Windows PowerShell 5.1 |
-| macOS | `brew install zstd`; Apple's Compression framework has no zstd | **built in** (Foundation/Compression zlib, system libz) |
+| macOS | `brew install zstd`; Apple's Compression framework has no zstd | **built in**: the system libz reads gzip directly (Apple's Compression framework does raw deflate, so it needs gzip's 10-byte header skipped first) |
 | Linux C | the libzstd package | zlib, present essentially everywhere |
 | A person in a shell | `zstd` often not installed | `gunzip` on any Mac or Linux |
 | A browser (`browse`, planned for v2) | no standard support | **`DecompressionStream('gzip')`** |

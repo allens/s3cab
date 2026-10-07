@@ -273,9 +273,10 @@ three, and `delete`'s profile is the *least* protected of them:
 _User idea, previously rejected as "added complexity" — raised again after the fused pipeline
 landed, on the grounds that the scales may have moved. The analysis below is mine._
 
-Today `withSnapshotFile` streams rows through gzip into `.snapshot.tsv.gz`, so the work file
-is only readable if the stream was closed cleanly. The proposal: write it as plain `.snapshot.tsv`
-and compress once at finalize.
+Today `withSnapshotFile` streams rows through gzip into `.snapshot.tsv.gz`. A hard-killed work file
+is still read back, tolerantly, through `Z_SYNC_FLUSH`
+([ADR-0092](../docs/adr/0092-recover-the-interrupted-work-file.md); point 2 below). The proposal:
+write it as plain `.snapshot.tsv` and compress once at finalize.
 
 **Why it looks better than it did.** Three things from building
 [ADR-0069](../docs/adr/0069-fused-snapshot-upload-pipeline.md):
@@ -313,9 +314,12 @@ Holding both an uncompressed and a compressed copy locally is **not** an objecti
 
 **What it costs.** Finalize stops being a bare atomic rename and becomes read → gzip → write →
 rename, which moves compression off the overlapped path (where the hash pass currently hides it)
-to the end of the run. Under zstd-19 that was a visible few seconds on a large set; gzip is roughly
-25 times faster (ADR-0097), so about a second. Reading needs no change — `readSnapshotFile`
-already switches on the `.gz` extension, and `readSnapshot` already probes the plain `.tsv` form.
+to the end of the run. Under zstd-19 that was a visible few seconds on a large set; gzip is about
+30 times faster (ADR-0097), so about a second. Reading *does* need a change. `readSnapshotFile`
+already switches on the `.gz` extension, but `readSnapshot` resolves only `<name>.tsv.gz`, and
+work-file recovery (`readParkedLookup`, `recoverWorkFile`) reads through
+`parseCompressedSnapshotStream` unconditionally, so a plain work file needs its own uncompressed
+recovery path.
 
 **How it meets item 2.** It does *not* dissolve the stale lock: a hard-killed run still leaves the
 work file at the lock name, still hand-deleted. What changes is what that leftover is *worth* —
