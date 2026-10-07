@@ -70,7 +70,7 @@ escapes spelled it `new Date()`, so grepping the rule as written found nothing (
 `src/commands/` and `src/lib/` (`delete.mjs`, `verify.mjs`, `cleanup.mjs`, `provider.mjs`,
 `snapshot.mjs`), so **write paths from `src/`, not bare filenames**. Re-verify before trusting any
 anchor — see **exclude subject side** below for what skipping that costs.
-(2) **Ordering constraints.** None: **`diff`'s test-only export** and **two knob tables** are independent of each other.
+(2) **Ordering constraints.** None: **`diff`'s test-only export** is the only open candidate.
 (3) **`.env.test` is gitignored and does not travel.** Every open candidate below is pure or local
 and verifies with `npm test` alone.
 
@@ -116,22 +116,8 @@ and verifies with `npm test` alone.
   a live run dies, and the user remains the liveness check. The ordering hazard the entry named is
   real and is answered by the flag rather than by the acquire: nothing is adopted unless a person says
   so.
-- **Two knob tables — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.** _Worth
-  exploring — anchors re-verified 2026-10-04._ [lib/provider.mjs](../src/lib/provider.mjs):21–23 (and
-  :206–208) claims to be "the one home of the knob ↔ env-key mapping", with the three-mode exclusivity
-  rule at :146–155 and the env keys written inline at :164–201;
-  [commands/provider.mjs](../src/commands/provider.mjs):43–52 holds a second `knobs` table
-  (knob → env keys) and :305–332 re-enumerates the same `"ra" | "profile" | "keys"` modes to decide
-  which to clear on disk, under a header comment (:38–40) that still counts two modes. So a fourth
-  credential mode would be rejected correctly at the option level by
-  `gatherProviderConfig` and silently **not cleared** on disk by the command, and the endpoint's
-  two-spelling rule is spread across three spots (`knobs.endpoint` clears both `AWS_ENDPOINT_URL_S3` and
-  `AWS_ENDPOINT_URL`; `gatherProviderConfig`:184 writes only the `_S3` form;
-  [env.mjs](../src/lib/env.mjs):51–52's `customEndpoint` resolves the precedence). Fix: move the table
-  beside `gatherProviderConfig`/`readProviderConfig` and have the gather return the env keys its chosen
-  mode replaces, so the command applies a list rather than deriving one. **Deliberately not the
-  standing-rejected `credentialMode(env)` classifier** — nothing is classified from an env bag; a table
-  moves and a return value grows. Named because the two sit next to each other.
+- **Two knob tables — Two homes for the knob ↔ env-key mapping, one of which claims to be the only one.**
+  _Landed 2026-10-07 — see the run log._
 - **Walk's silent clock — Two lines run on a clock, each has half of what keeps it live, and the walk's clock never
   ticks.** _Landed 2026-10-02 as [PR #355](https://github.com/allens/s3cab/pull/355). See the run
   log; the record is
@@ -804,4 +790,16 @@ least once; re-open only if the stated reason no longer holds.
   - **Not taken: the `.s3cab` skip.** It matches no pattern and records no row; moving it would
     have made those directories show up as `#EXCLUDED`.
   - **Left as of record:** ADR-0073, ADR-0088 and the ADR index still say `compileExclude`.
+  - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
+- **2026-10-07 — Two knob tables landed** (no ADR).
+  - **The table moved; the gather names what it replaces.** `knobKeys` sits in lib/provider.mjs, and
+    `gatherProviderConfig` returns `replaces`: the credential modes it did not choose. The command
+    clears those instead of re-deriving them.
+  - **Returns modes, not env keys** as the entry proposed: the confirmation names each replaced mode,
+    and each mode keeps its own presence rule (`S3CAB_RA` counts only as `1`, pinned by a test that
+    caught a generic "any key set" check).
+  - **A fourth mode is now a compile error, not a silent miss.** Adding one to `CredentialKnob` fails
+    `typecheck` at `knobKeys` and at the command's `replacedName` until both name it; checked by doing so.
+  - **Not taken: the endpoint's two spellings.** The write and the clear still sit apart; the
+    clear's reason is the comment on `knobKeys.endpoint`.
   - `npm test` 1194 pass, 13 skipped; behaviour unchanged.
