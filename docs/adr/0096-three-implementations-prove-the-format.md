@@ -121,9 +121,12 @@ indefinitely.
   - a step that runs the whole matrix: build the corpus, write it with both writers, restore
     each result with every reader, then compare.
 
-  Still to decide: whether its output is committed every run, or only at the 1.0 freeze. A
-  session-written program can't be regenerated identically, so the ones kept as evidence have
-  to be committed.
+  **What it keeps is settled.** Before 1.0, only the latest writer and readers are committed,
+  each replacing its predecessor; the reports in `docs/` keep the history. After 1.0, one set
+  is kept per major format version. The hope is that there is only ever one, because a major
+  format change is a broken promise ([0002](0002-no-lock-in-hard-constraint.md)). A
+  session-written program can't be regenerated identically, which is why the outputs are
+  committed at all.
 - **Set state.** Does the writer write the `sets/<set>/` markers (`info`, `dirs.txt`) so s3cab
   adopts its sets? The spec documents them, so probably yes.
 - **Where the writer lives.** It is a clean-room run, so beside the restorers in

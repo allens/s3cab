@@ -1,5 +1,14 @@
 # The clean-room exercise
 
+> **Target, not yet built:** this folder is to become a bootstrapper that builds the
+> clean-room writer and readers for the current spec
+> ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)). Before 1.0 it
+> keeps only the latest programs, so [restorers/](restorers/) stops being append-only and the
+> earlier runs' programs go, while their reports in `docs/` stay. Everything below describes
+> the harness as built today. Its operational notes (Windows staging, credential windows,
+> bucket clearing, the fixture matrix, byte-path comparison) are what the bootstrapper should
+> build on.
+
 A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'s
 no-lock-in promise: a session that has read
 [guide/format.md](../../guide/format.md) and **nothing else** writes a restorer
