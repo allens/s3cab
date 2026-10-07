@@ -297,8 +297,14 @@ export async function withSnapshotFile(
     // `Z_FILTERED` drops the short matches deflate otherwise finds by chance in
     // the random hex of the hash column — each costs more bits than the four or
     // so a hex literal does — so the hashes code close to their entropy while
-    // the paths, which really do repeat, keep their long matches.
-    createGzip({ chunkSize, level: 9, strategy: constants.Z_FILTERED }),
+    // the paths, which really do repeat, keep their long matches. Level 9 and
+    // `memLevel` 9 are zlib's maximums; both cost the compressor only.
+    createGzip({
+      chunkSize,
+      level: 9,
+      memLevel: 9,
+      strategy: constants.Z_FILTERED,
+    }),
     fd.createWriteStream(),
   );
 

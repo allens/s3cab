@@ -11,25 +11,28 @@ restorers preserved from each run. Its harness (`create.mjs`, `stage.mjs`,
 `compare.py`) and its frozen artifacts live together in
 [cleanroom/](cleanroom/), documented by [its own README](cleanroom/README.md).
 
-## zstd-bench.mjs
+## compression-bench.mjs
 
-Benchmarks zstd compression levels (with and without long-distance matching) on
-a snapshot file, reporting compressed size plus compress/decompress time and
-printing recommendations. This is the experiment behind the zstd choice
-([ADR-0003](../docs/adr/0003-modern-open-tech-only.md) — modern open tech).
+Compares gzip settings (level, strategy, `memLevel`) on a snapshot, with zstd
+alongside as the reference the format moved away from. It prints each one's size
+against gzip's default and against zstd 19, plus the compression time. This is
+the experiment behind snapshot compression
+([ADR-0097](../docs/adr/0097-gzip-snapshot-compression.md): gzip level 9,
+`memLevel` 9, `Z_FILTERED`). Pass any snapshot as s3cab stores it, or a
+decompressed one:
 
 ```sh
-node scripts/zstd-bench.mjs path/to/snapshot.tsv
+node scripts/compression-bench.mjs ~/.s3cab/sets/<set>/snapshots/<name>.tsv.gz
 ```
 
 ## dd.mjs
 
 Generates a file of incompressible random bytes — the `dd if=/dev/urandom` of
 this repo. Random data is the point: it defeats compression and dedup, so a
-benchmark measures what it means to (zstd's worst case above; the wire, not a
+benchmark measures what it means to (a compressor's worst case; the wire, not a
 provider's compression, below) rather than how well the data happened to squash.
 
-Two faces. Run it to *keep* a blob — what zstd-bench wants — or import its
+Two faces. Run it to *keep* a blob — a standing file to compress — or import its
 `writeRandomFile` for throwaway payloads, which is how
 [multipart-bench.mjs](#multipart-benchmjs) generates and deletes one per size.
 The path is required: it previously hardcoded `test/zblob.bin`, parking a 100 MB
