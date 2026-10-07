@@ -63,14 +63,21 @@ reader's job is to show how little recovering your data takes beyond the operati
 the platform's own language, with its own frameworks or system libraries, shows that best.
 Variety for its own sake is not a goal, and nor is avoiding a language.
 
-- **Windows: C#** on .NET 11. `HttpClient`, `SHA256`/`HMACSHA256` and `ZstandardStream` are all
-  in the standard library, so nothing else is installed. Windows has no zstd decoder out of the
-  box, so .NET 11 is the one install.
-- **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (`URLSession`) and
-  SHA-256/HMAC (CryptoKit) come with the OS. Apple's Compression framework has no zstd, so
-  `brew install zstd` is the one addition.
-- **Linux: C**, the language POSIX specifies and the system is built in. libcurl, OpenSSL and
-  libzstd are one `apt`/`dnf` install.
+The target assumes snapshots move from zstd to gzip
+([0097](0097-gzip-snapshot-compression.md), proposed in its own PR). zstd was the one thing no
+platform's own stack could read, and gzip removes it:
+
+- **Windows: C# on the .NET Framework that ships with Windows**, so **nothing is installed**.
+  `HttpClient`, `SHA256`/`HMACSHA256` and `GZipStream` are all in the in-box framework. A clean
+  room has to find a way to compile without installing a toolchain: the in-box `csc.exe`, which
+  is limited to C# 5, or `Add-Type` from Windows PowerShell 5.1. Expected traps include long
+  paths, which the .NET Framework needs an opt-in for, and the TLS defaults. *While snapshots are
+  still zstd, this falls back to C# on .NET 11 (`ZstandardStream`), its one install.*
+- **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (`URLSession`),
+  SHA-256/HMAC (CryptoKit) and zlib (Compression, raw deflate behind gzip's 10-byte header) come
+  with the OS. With gzip **nothing comes from Homebrew**; under zstd, `brew install zstd`.
+- **Linux: C**, the language POSIX specifies and the system is built in: libcurl, OpenSSL and
+  zlib, one `apt`/`dnf` install of their headers (libzstd under zstd).
 
 Runs 1–3 (Python with boto3, C++23, Go) predate the rule. Their programs can go once the
 bootstrapper below has produced their replacements; their reports in `docs/` stay, since the

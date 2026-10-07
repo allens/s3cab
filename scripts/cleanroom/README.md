@@ -127,7 +127,8 @@ Staged on Windows, the room gets a Windows brief. Nothing comes as standard
 there and there is no package archive, so the toolchain sentence becomes
 "installed on this machine, standard library only" — install it before the run,
 in C# against the .NET Framework that ships with Windows, whose `GZipStream`
-decompresses gzip. The brief also tells the session to
+decompresses gzip ([ADR-0097](../../docs/adr/0097-gzip-snapshot-compression.md)).
+The brief also tells the session to
 work natively, never through WSL: a user-level `CLAUDE.md` loads into every
 session, and one that routes Windows work through WSL would turn a Windows run
 into a Linux one without saying so. The credentials go over as `credentials.ps1`
