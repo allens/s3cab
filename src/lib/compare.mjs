@@ -279,6 +279,10 @@ function getPathsByHash(snapshotLookup) {
 /**
  * Diff two snapshots. Neither input is modified.
  *
+ * Exported only for compare.test.mjs, which drives the pairing cases with
+ * in-memory Maps. Not private behind `compareSnapshots`: that would put every
+ * case behind a snapshot file on disk.
+ *
  * Classification rules (each pinned by a test in compare.test.mjs; the
  * user-facing guide is guide/compare.md):
  * - Same path in both snapshots → `modified` when the hash differs; silently
