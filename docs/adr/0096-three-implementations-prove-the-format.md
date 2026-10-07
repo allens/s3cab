@@ -10,9 +10,9 @@ s3cab's). Each proves the format in one direction and serves a second goal of it
 | | Writer | Reader |
 |---|---|---|
 | **Proves** | a backup can be *written* from the spec | a backup can be *read* from the spec |
-| **Second goal** | education: shows how s3cab works | an alternative restore tool |
+| **Second goal** | education: shows how s3cab works | a restore path that needs nothing of s3cab's |
 | **Commands** | snapshot and upload, with full exclude syntax | restore |
-| **Language** | Python | Go (or C) |
+| **Language** | Python | per run: C, C++, Go, … |
 | **AWS SDK** | allowed (boto3) | **not allowed**; requests signed by hand |
 
 ## The writer
@@ -51,12 +51,18 @@ characters.
 ## The reader
 
 Restore is the half of s3cab you can do without s3cab: a snapshot row names the object, and
-fetching it is one request. The reader turns that into a tool, with **no AWS SDK, no S3 client
+fetching it is one request. The reader turns that into a program, with **no AWS SDK, no S3 client
 library and no shelling out**. Clean-room runs 2 (C++23) and 3 (Go) already showed the cost: an
 HTTP client, SHA-256/HMAC, zstd and about 80 lines of SigV4.
 
-Go is preferred over C for the alternative restore tool. A static binary for every target from
-one machine is more portable in practice than C's per-platform libcurl, OpenSSL and libzstd.
+**Nothing here is distributed.** The readers and the writer live in the repo, on GitHub, as
+evidence for anyone who wants to check the claim. s3cab's releases ship s3cab alone.
+
+The language is picked per run. On Linux every dependency (libcurl, OpenSSL, libzstd) is one
+`apt`/`dnf` install away, so C is as easy to stage as anything. A Windows run has no package
+archive and its brief says "standard library only", so it needs a language whose standard
+library decompresses zstd: Python 3.14 or .NET 11. Go's doesn't, and C has no standard library
+for any of it.
 
 ## How the three prove each other
 
@@ -81,18 +87,17 @@ What a writer comparison must allow for, because these aren't defects:
 
 File rows (hash, size, mtime, path) and the excluded paths must match exactly.
 
-## Frozen evidence vs maintained tools
+## Frozen, and timed to 1.0
 
-Clean-room runs are frozen by design. Each one is a single reading of the spec on a given date,
-and maintaining it would slowly import s3cab's behaviour and erode its independence. Two rules
-reconcile that with a reader people rely on and a writer people learn from:
+Clean-room programs are frozen by design. Each is one reading of the spec on a given date;
+maintaining it would slowly import s3cab's behaviour and erode its independence. Since none is
+distributed, none needs to be maintained. A program that drifts from a later format is a
+breaking change to notice, not a bug to patch.
 
-1. **A run is promoted, then maintained under the spec-only rule.** Every fix must be justified
-   by the spec text. A fix that needs knowledge the spec lacks means the spec is fixed first.
-2. **The runs worth keeping are made at the 1.0 format freeze.** Before 1.0 the format moves, so
-   runs are rehearsals that find spec gaps. At 1.0 the format becomes the promise
-   ([0002](0002-no-lock-in-hard-constraint.md)), and programs written against it stay valid,
-   which is when an alternative restorer is worth shipping.
+**The runs worth keeping are made at the 1.0 format freeze.** Before 1.0 the format moves, so
+runs are rehearsals that find spec gaps. At 1.0 the format becomes the promise
+([0002](0002-no-lock-in-hard-constraint.md)), and programs written against it stay valid
+indefinitely.
 
 ## Open
 
@@ -101,8 +106,8 @@ reconcile that with a reader people rely on and a writer people learn from:
   result with every reader, then compare with `compare.py`.
 - **Set state.** Does the writer write the `sets/<set>/` markers (`info`, `dirs.txt`) so s3cab
   adopts its sets? The spec documents them, so probably yes.
-- **Where the promoted programs live, and whether s3cab ships the reader** beside its own
-  release.
+- **Where the writer lives.** It is a clean-room run, so beside the restorers in
+  `scripts/cleanroom/` is the natural home.
 - **Starting point.** A bash spike of the writer side is preserved at
   [scripts/s3cab-mini.sh](../../scripts/s3cab-mini.sh). The two silent-corruption bugs it hit
   are a warning about what the writer must get right.
