@@ -9,9 +9,9 @@ at level 19. The writer uses zlib's maximum settings: **level 9, `memLevel` 9 an
 `Z_FILTERED` strategy**. The spec promises only plain, single-stream gzip; the settings are the
 writer's choice.
 
-The trade is snapshots **about 4–10% larger** than zstd 19 on realistic data, for a format that
-**every platform and every kind of reader decodes out of the box**. Compression also gets about
-**30 times faster**.
+The trade is snapshots **about 4–16% larger** than zstd 19, the top of that range on a real set,
+for a format that **every platform and every kind of reader decodes out of the box**. Compression
+also gets about **30 times faster**.
 
 ## Why
 
@@ -59,6 +59,10 @@ repeats the comparison on any real snapshot.
 Compression time for the combined 433,000-row set was **81 s for zstd 19 and 2.5 s for gzip**.
 For the photo library it was 24.6 s against 0.8 s.
 
+A real snapshot showed a wider gap than any synthetic one. A 281,782-row OneDrive set, 50.0 MiB
+raw, came to 10.3 MiB with zstd 19, 12.4 MiB with gzip 9 and **11.9 MiB** with the chosen
+settings: **+15.8%**. It compressed in 1.3 s against 44 s (Node 26.10, Windows).
+
 - **Every algorithm hits the same floor.** Each row's hash is 32 bytes of incompressible
   entropy written as 64 hex characters. No algorithm gets near it, so the spread between them is
   small.
@@ -105,7 +109,7 @@ An earlier single-set run on a `/usr`-only snapshot also covered other algorithm
 ## Considered
 
 - **Keep zstd.** It has the best ratio and a fast decode. But it is the one dependency a
-  recovering reader most often lacks, for a gain of 4–10%.
+  recovering reader most often lacks, for a gain of 4–16%.
 - **Zopfli.** It writes standard gzip about 3% smaller than `Z_FILTERED` (`/usr` set: 3,641 KiB
   against 3,767 KiB). But it's about 55 times slower and isn't built into Node, so it would be a
   dependency ([0005](0005-builtins-over-dependencies.md)). Because its output is still gzip, a
