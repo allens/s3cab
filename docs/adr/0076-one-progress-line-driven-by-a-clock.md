@@ -283,12 +283,13 @@ has since given the concession to the interrupt alone, beside the check it serve
 ## Amendment (2026-10-04) — the line's layout
 
 ```
- 1h 02m  267,982/281,755   83% of 1.9TB  (Uploaded 12.4GB)   D:\Videos\holiday.MOV  [2.4GB hashed, sending 55%]
+ 1h 02m  267,982/281,755   83% of 1.9TB  (Uploaded: 12.4GB)   D:\Videos\holiday.MOV  [hashed, sent 55% of 2.4GB]
 ```
 
 Left to right: the clock, then the two progress figures, then the bytes sent, then the path, then
 the detail. The detail's wording (§6's `Uploading 1.8GB (27%)` and the amendments' quotes of it)
-is now `[1.8GB hashing 27%]` and then `[1.8GB hashed, sending 27%]`.
+is now `[hashed 27% of 1.8GB]` and then `[hashed, sent 27% of 1.8GB]` — the same `N% of size`
+as the byte share on the left — or `[hashing 1.8GB]` until a figure comes back.
 
 - **The clock leads, unlabelled.** It is the pass's elapsed time, not the upload's, which a
   trailing `in 7m 39s` after `Uploaded` implied. It stays on the line, not as a start time in the
@@ -303,10 +304,10 @@ is now `[1.8GB hashing 27%]` and then `[1.8GB hashed, sending 27%]`.
   padded column *before* the path it was 24 blank spaces on nearly every frame, since a file earns
   a detail only by taking a second. After the path it takes no room when absent, and the path's
   left edge still never moves when one appears — §7's guarantee, kept by position instead of by
-  padding. A send names the finished hash too (`hashed, sending`): a new big file is hashed and
+  padding. A send names the finished hash too (`hashed, sent`): a new big file is hashed and
   then sent, and with no verbs, or only the current one, the percentage seems to climb to 100%
   and start again. Only a hash this run did, though: a send of a reused hash (a resumed run, an
-  object missing from the bucket) is just `[2.4GB sending 55%]`.
+  object missing from the bucket) is just `[sent 55% of 2.4GB]`.
 
 On a narrow terminal the shed order is unchanged: the path first, then the padding, then the
 detail whole.

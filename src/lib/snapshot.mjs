@@ -395,10 +395,10 @@ export async function generateSnapshot(
  * bytes gone up, and suffixes whichever file is on the wire:
  *
  * ```
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    …/ragged.jpg  [999.9MB hashed, sending 55%]
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    …/notes.txt
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)    …/ragged.jpg  [hashed, sent 55% of 999.9MB]
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)    …/notes.txt
  *     8s  4,182/58,310   38% of 2.4GB
- * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded 1.2GB)    Stopping…  …/ragged.jpg  [999.9MB hashed, sending 55%]
+ * 3m 02s  4,182/58,310   38% of 2.4GB  (Uploaded: 1.2GB)    Stopping…  …/ragged.jpg  [hashed, sent 55% of 999.9MB]
  * ```
  *
  * The second line is the ordinary case, and the common one: no verb, because
@@ -546,7 +546,7 @@ export function progressLine({
   const clock = elapsedSince(start).padStart(ELAPSED_COLUMNS);
   const share = byteShare(bytesDone, bytesTotal);
   const sent = state
-    ? `  ${`(Uploaded ${formatByteValue(state.sent)})`.padEnd(UPLOADED_COLUMNS)}`
+    ? `  ${`(Uploaded: ${formatByteValue(state.sent)})`.padEnd(UPLOADED_COLUMNS)}`
     : "";
   const run = `${clock}  ${counts}${share}${sent}`;
   // A stop goes with the figures, not in the detail column, and two reasons point
@@ -556,8 +556,8 @@ export function progressLine({
   // over-width line, which `createProgress`'s backstop cuts from the right,
   // taking the stop with it. Accepted: a terminal too narrow for the counts has
   // already lost the line, and buying the stop a width of its own would mean a
-  // shed order the figures no longer win.) And the detail is where `[1.2GB
-  // hashed, sending 55%]` lives, which *during* a stop is the answer to "how long is this
+  // shed order the figures no longer win.) And the detail is where `[hashed,
+  // sent 55% of 1.2GB]` lives, which *during* a stop is the answer to "how long is this
   // wait", so it is the last thing worth taking away: the second Ctrl+C is the
   // way out of waiting, and a user deciding whether to press it needs that
   // percentage. The cost is the path column shifting right once, at the moment
@@ -604,7 +604,7 @@ export function progressLine({
   const lead = aligned ? head : bare;
   const shown = fitPath(detail.path, room - lead.length - 2 - tail.length);
   // No room for the path. A labelled detail still says something without one
-  // (`[1.8GB hashed, sending 27%]`); a bare current file is *only* the path, so the
+  // (`[hashed, sent 27% of 1.8GB]`); a bare current file is *only* the path, so the
   // line ends at the figures.
   // Dimmed only now: the budget above counts columns, and escape codes take none.
   // The brackets stay, so the detail is still set apart where styling is off.
@@ -645,7 +645,7 @@ function byteShare(done, total) {
 const TICK_MS = 250;
 
 // A row has to be *worth* reporting before it gets a *labelled* detail —
-// `[1.8GB hashing 27%]`, a verb and a measurement. Below this the figures are
+// `[hashed 27% of 1.8GB]`, a verb and a measurement. Below this the figures are
 // over before they can be read, and tens of thousands of them flickering past
 // hide the one row that is actually holding things up.
 //
@@ -657,16 +657,15 @@ const WORTH_REPORTING_MS = 1000;
 // `999.9MB` is the widest `formatByteValue` gets; the bytes-sent clause is
 // padded to its own widest so nothing to its right moves as the figure changes.
 const BYTES_COLUMNS = 7;
-const UPLOADED_COLUMNS = "(Uploaded ".length + BYTES_COLUMNS + ")".length;
+const UPLOADED_COLUMNS = "(Uploaded: ".length + BYTES_COLUMNS + ")".length;
 
 /**
- * The one slow thing this pass is doing right now, as `<size> <steps> <pct>` —
- * the size always (it is the fact we always have), the percentage last because
- * it is the fact we sometimes have. A single PUT reports its bytes once,
- * at the end, so a small upload never earns a percentage; a streamed hash and a
- * multipart upload both do. A send this run hashed says so (`hashed, sending`),
- * because the two steps run back to back on one file and each climbs to 100%
- * on its own; a send of a reused hash is just `sending`.
+ * The one slow thing this pass is doing right now, as `hashed 27% of 1.8GB` —
+ * or `hashing 1.8GB` until a figure comes back. A single PUT reports its bytes
+ * once, at the end, so a small upload never earns a percentage; a streamed hash
+ * and a multipart upload both do. A send this run hashed says so (`hashed, sent
+ * 55% of 2.4GB`), because the two steps run back to back on one file and each
+ * climbs to 100% on its own; a send of a reused hash is just `sent`.
  *
  * Failing that, the file in hand with no text at all. Nothing measurable is known
  * about it — `fileProps` slurps anything under 5MB in one call and publishes no
@@ -684,7 +683,7 @@ function activity(sending, hashing, currentFile) {
   // and budgets the line against this exact string.
   if (sending && now - sending.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `${formatByteValue(sending.total)} ${sending.hashed ? "hashed, " : ""}sending${percent(sending.total, sending.loaded)}`,
+      text: `${sending.hashed ? "hashed, " : ""}${measured("sending", "sent", sending.total, sending.loaded)}`,
       path: sending.path,
     };
   }
@@ -696,7 +695,7 @@ function activity(sending, hashing, currentFile) {
   // and `HashProgress` carries none.
   if (hashing && now - hashing.startedAt >= WORTH_REPORTING_MS) {
     return {
-      text: `${formatByteValue(hashing.size)} hashing${percent(hashing.size, hashing.read())}`,
+      text: measured("hashing", "hashed", hashing.size, hashing.read()),
       path: currentFile,
     };
   }
@@ -704,14 +703,18 @@ function activity(sending, hashing, currentFile) {
 }
 
 /**
- * ` 27%`, or nothing when nothing has been reported yet — "0%" would dress up
- * "no figure has come back" as a measurement.
+ * `hashed 27% of 1.8GB`, or `hashing 1.8GB` when nothing has been reported yet —
+ * "0%" would dress up "no figure has come back" as a measurement.
+ * @param {string} doing
+ * @param {string} did
  * @param {number} size
  * @param {number} done
  * @returns {string}
  */
-const percent = (size, done) =>
-  done > 0 && size > 0 ? ` ${Math.floor((done / size) * 100)}%` : "";
+const measured = (doing, did, size, done) =>
+  done > 0 && size > 0
+    ? `${did} ${Math.floor((done / size) * 100)}% of ${formatByteValue(size)}`
+    : `${doing} ${formatByteValue(size)}`;
 
 // Below this a path is unreadable rubble — "…pg" tells you nothing, and the
 // percentage it would crowd out tells you something. Drop it instead.

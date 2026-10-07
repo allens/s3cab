@@ -34,8 +34,8 @@ const hashing = (size, done) => ({
 
 describe("progressLine", () => {
   it("starts the path at the same column however long the detail is", () => {
-    // The detail follows the path, so `[999.9MB hashed, sending 100%]` — the longest
-    // it gets — must leave the path where `[1B hashing]` does.
+    // The detail follows the path, so `[hashed, sent 100% of 999.9MB]` — the longest
+    // it gets — must leave the path where `[hashing 1B]` does.
     const widest = progressLine({
       ...run,
       state: sending({
@@ -132,7 +132,7 @@ describe("progressLine", () => {
       currentFile: path,
       width: 200,
     });
-    assert.match(late, /^99h 59m .*\(Uploaded 999\.9MB\)/, late);
+    assert.match(late, /^99h 59m .*\(Uploaded: 999\.9MB\)/, late);
     assert.equal(early.indexOf("Uploaded"), late.indexOf("Uploaded"));
     assert.equal(early.indexOf(path), late.indexOf(path));
   });
@@ -142,10 +142,10 @@ describe("progressLine", () => {
       ...run,
       state: { sent: 1_200_000_000, current: null },
     });
-    assert.equal(line, "     0s   4,182/58,310  (Uploaded 1.2GB)");
+    assert.equal(line, "     0s   4,182/58,310  (Uploaded: 1.2GB)");
   });
 
-  it("names a multipart upload with its size and a parenthetical percentage", () => {
+  it("names a multipart upload with the share sent and its size", () => {
     const line = progressLine({
       ...run,
       state: sending({
@@ -156,7 +156,7 @@ describe("progressLine", () => {
     });
     assert.match(
       line,
-      / {2}D:\\Videos\\holiday\.MOV {2}\[2\.4GB hashed, sending 55%\]$/,
+      / {2}D:\\Videos\\holiday\.MOV {2}\[hashed, sent 55% of 2\.4GB\]$/,
       line,
     );
   });
@@ -175,7 +175,7 @@ describe("progressLine", () => {
     });
     assert.match(
       line,
-      / {2}D:\\Videos\\holiday\.MOV {2}\[2\.4GB sending 55%\]$/,
+      / {2}D:\\Videos\\holiday\.MOV {2}\[sent 55% of 2\.4GB\]$/,
       line,
     );
   });
@@ -188,10 +188,10 @@ describe("progressLine", () => {
       loaded: 0,
       total: 1_500_000,
     });
-    const plain = progressLine({ ...run, state, width: 66 });
-    const styled = progressLine({ ...run, state, width: 66, color: true });
+    const plain = progressLine({ ...run, state, width: 67 });
+    const styled = progressLine({ ...run, state, width: 67, color: true });
     assert.ok(
-      styled.endsWith("\x1b[2m[1.5MB hashed, sending]\x1b[22m"),
+      styled.endsWith("\x1b[2m[hashed, sending 1.5MB]\x1b[22m"),
       JSON.stringify(styled),
     );
     assert.equal(stripVTControlCharacters(styled), plain);
@@ -211,7 +211,7 @@ describe("progressLine", () => {
     assert.ok(!line.includes("%"), `got ${line}`);
     assert.match(
       line,
-      / {2}D:\\Pictures\\P1060735\.JPG {2}\[1\.5MB hashed, sending\]$/,
+      / {2}D:\\Pictures\\P1060735\.JPG {2}\[hashed, sending 1\.5MB\]$/,
       line,
     );
   });
@@ -224,7 +224,33 @@ describe("progressLine", () => {
     });
     assert.match(
       line,
-      / {2}D:\\Scans\\big\.psd {2}\[1\.8GB hashing 48%\]$/,
+      / {2}D:\\Scans\\big\.psd {2}\[hashed 48% of 1\.8GB\]$/,
+      line,
+    );
+  });
+
+  it("says a slow hash is under way before its first figure comes back", () => {
+    const line = progressLine({
+      ...run,
+      currentFile: "D:\\Scans\\big.psd",
+      hashing: hashing(1_800_000_000, 0),
+    });
+    assert.match(line, / {2}D:\\Scans\\big\.psd {2}\[hashing 1\.8GB\]$/, line);
+  });
+
+  it("says a single PUT of a reused hash is under way, with no hash claimed", () => {
+    const line = progressLine({
+      ...run,
+      state: sending({
+        path: "D:\\Pictures\\P1060735.JPG",
+        loaded: 0,
+        total: 1_500_000,
+        hashed: false,
+      }),
+    });
+    assert.match(
+      line,
+      / {2}D:\\Pictures\\P1060735\.JPG {2}\[sending 1\.5MB\]$/,
       line,
     );
   });
@@ -245,7 +271,7 @@ describe("progressLine", () => {
       },
     };
     const line = progressLine({ ...run, state: justStarted });
-    assert.equal(line, "     0s   4,182/58,310  (Uploaded 0B)");
+    assert.equal(line, "     0s   4,182/58,310  (Uploaded: 0B)");
   });
 
   it("names the file in hand even when nothing has earned a measurement", () => {
@@ -257,7 +283,7 @@ describe("progressLine", () => {
       currentFile: "D:\\OneDrive\\Documents\\notes.txt",
     });
     assert.match(line, /notes\.txt$/, line);
-    assert.ok(!line.includes("hashing"), `nothing was measured, got ${line}`);
+    assert.ok(!line.includes("hash"), `nothing was measured, got ${line}`);
   });
 
   it("holds the path column still whether or not a verb has joined it", () => {
@@ -288,7 +314,7 @@ describe("progressLine", () => {
     });
     assert.match(
       line,
-      / {2}D:\\Scans\\big\.psd {2}\[1\.8GB hashing 48%\]$/,
+      / {2}D:\\Scans\\big\.psd {2}\[hashed 48% of 1\.8GB\]$/,
       line,
     );
   });
@@ -321,7 +347,7 @@ describe("progressLine", () => {
       `expected under 110 columns, got ${line.length}`,
     );
     assert.ok(
-      line.endsWith("IMG_20160117_104801.jpg  [2.2MB hashed, sending 50%]"),
+      line.endsWith("IMG_20160117_104801.jpg  [hashed, sent 50% of 2.2MB]"),
       `expected the file name to survive, got ${line}`,
     );
   });
@@ -341,7 +367,7 @@ describe("progressLine", () => {
       `expected under 75 columns, got ${line.length}`,
     );
     // Ending on the figures is itself the proof no path stub followed them.
-    assert.match(line, /\[1\.5MB hashed, sending\]$/, line);
+    assert.match(line, /\[hashed, sending 1\.5MB\]$/, line);
   });
 
   it("keeps the figures at the width where they fit exactly without a path", () => {
@@ -352,11 +378,11 @@ describe("progressLine", () => {
       loaded: 0,
       total: 1_500_000,
     });
-    const exact = progressLine({ ...run, state, width: 66 });
-    assert.match(exact, /\[1\.5MB hashed, sending\]$/, exact);
-    assert.equal(exact.length, 65);
-    const narrower = progressLine({ ...run, state, width: 65 });
-    assert.match(narrower, /\(Uploaded 1\.2GB\)$/, narrower);
+    const exact = progressLine({ ...run, state, width: 67 });
+    assert.match(exact, /\[hashed, sending 1\.5MB\]$/, exact);
+    assert.equal(exact.length, 66);
+    const narrower = progressLine({ ...run, state, width: 66 });
+    assert.match(narrower, /\(Uploaded: 1\.2GB\)$/, narrower);
   });
 
   it("sheds the whole detail when even the figures will not fit", () => {
@@ -373,7 +399,7 @@ describe("progressLine", () => {
       line.length < 50,
       `expected under 50 columns, got ${line.length}`,
     );
-    assert.match(line, /\(Uploaded 1\.2GB\)$/, line);
+    assert.match(line, /\(Uploaded: 1\.2GB\)$/, line);
   });
 
   it("says it is stopping, and keeps measuring what the stop is waiting for", () => {
@@ -389,13 +415,13 @@ describe("progressLine", () => {
     const line = progressLine({ ...run, state, stopping: true, width: 200 });
     assert.ok(line.includes("Stopping…"), line);
     assert.ok(
-      line.endsWith("/some/video.mp4  [1.0GB hashed, sending 55%]"),
+      line.endsWith("/some/video.mp4  [hashed, sent 55% of 1.0GB]"),
       line,
     );
   });
 
   it("drops the Uploaded padding in front of a stop before it drops the detail", () => {
-    // `(Uploaded 0B)` is padded to its widest; with a stop after it, that padding
+    // `(Uploaded: 0B)` is padded to its widest; with a stop after it, that padding
     // sits mid-line where trimming the end can't reach it. At this width the
     // measurement fits only once the padding has gone.
     const state = {
@@ -406,10 +432,10 @@ describe("progressLine", () => {
       }),
       sent: 0,
     };
-    const line = progressLine({ ...run, state, stopping: true, width: 74 });
+    const line = progressLine({ ...run, state, stopping: true, width: 75 });
     assert.equal(
       line,
-      "     0s   4,182/58,310  (Uploaded 0B)  Stopping…  [1.5MB hashed, sending]",
+      "     0s   4,182/58,310  (Uploaded: 0B)  Stopping…  [hashed, sending 1.5MB]",
     );
   });
 
