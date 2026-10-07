@@ -464,14 +464,22 @@ describe("provider --roles-anywhere", () => {
     useTempHome(dir.path);
     makeSet();
     makeIdentity();
-    seedSetEnv("photos", "AWS_PROFILE=work\n");
+    // Two modes at once is a hand-edit; both go, and the confirmation names both
+    // (in no promised order).
+    seedSetEnv(
+      "photos",
+      "AWS_PROFILE=work\nAWS_ACCESS_KEY_ID=AKIA\nAWS_SECRET_ACCESS_KEY=shh\n",
+    );
 
     const out = await provider("photos", { "roles-anywhere": true });
 
     const env = setEnv();
     assert.equal(env.S3CAB_RA, "1");
-    assert.equal(env.AWS_PROFILE, undefined); // the other mode is gone
-    assert.match(out, /replacing its profile 'work'/);
+    assert.equal(env.AWS_PROFILE, undefined); // the other modes are gone
+    assert.equal(env.AWS_ACCESS_KEY_ID, undefined);
+    assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.match(out, /its profile 'work'/);
+    assert.match(out, /its access keys/);
   });
 
   it("clears the S3CAB_RA marker when switching back to a profile", async (t) => {
