@@ -134,8 +134,8 @@ node scripts/sqlite-hash-cache.mjs [N]   # N = number of synthetic files
 ## s3cab-mini.sh
 
 A preserved spike: snapshot, upload and restore in about 120 lines of bash and the aws CLI,
-writing the real snapshot format. It is the sketch behind the mini Python s3cab
-([ADR-0096](../docs/adr/0096-mini-python-reference-implementation.md)), kept for what it proved:
+writing the real snapshot format. It is the sketch behind the Python write-side reference
+([ADR-0096](../docs/adr/0096-python-write-side-reference.md)), kept for what it proved:
 the core is small, and bash's text defaults are a hazard. Two silent-corruption bugs turned up
 in testing: `read` trimming a path's trailing space, and an unreadable file shifting every later
 hash by one row. Its header lists what it leaves out. Tested only against a fake local `aws`.

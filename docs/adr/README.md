@@ -47,7 +47,7 @@ ADR as a live constraint.
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
 - [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(accepted; the TS question closed 2026-07-18)*
-- [0096](0096-mini-python-reference-implementation.md) — A "back to basics" s3cab in Python: one file, boto3 the only dependency, the same format and bucket as the real tool, readable in half an hour; functionality before optimisation *(proposed; scope and placement open, nothing built)*
+- [0096](0096-python-write-side-reference.md) — A Python reference for the write side: snapshot, upload and exclude patterns, correct but unoptimised, readable in half an hour, in one file with boto3 the only dependency. Writes the same format and bucket, so s3cab and every clean-room restorer must restore it. Restore is left to the clean room, because it is the half of s3cab you can do without s3cab *(proposed; exclude semantics, set markers, placement and a maintained portable restorer open; nothing built)*
 
 ### Licensing
 
