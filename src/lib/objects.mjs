@@ -130,7 +130,7 @@ export async function* listStoredObjects(bucket) {
 // flight up to 50 and stops there. The ceiling is the SDK's default socket pool
 // of 50 per client, not S3 or the link: past it the extra requests only queue
 // for a socket.
-const REQUESTS_IN_FLIGHT = 50;
+export const REQUESTS_IN_FLIGHT = 50;
 
 /**
  * Call `request` once per hash, {@link REQUESTS_IN_FLIGHT} at a time. The first

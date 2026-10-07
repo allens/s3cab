@@ -115,15 +115,7 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**Open:**
-
-- **Crash tier: `kill mid-cleanup's delete pass` fails** (`test/crash/crash.test.mjs`, "interruption:
-  cleanup and forget"). Killed on the second `DELETE` under `objects/`, cleanup has deleted none
-  of the four orphans rather than the one the test expects (`4 !== 3`). Reproduced on `main`
-  (`0e3740b`) against a real crash bucket, Windows, and under moto on Linux. Not yet known
-  whether cleanup's delete pass changed shape (deletes in flight together, so the kill lands
-  before the first completes) — a test assumption to update — or whether the first delete is
-  really lost.
+**Open:** none.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.
