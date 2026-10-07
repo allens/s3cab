@@ -72,7 +72,9 @@ Variety for its own sake is not a goal, and nor is avoiding a language.
 - **Linux: C**, the language POSIX specifies and the system is built in. libcurl, OpenSSL and
   libzstd are one `apt`/`dnf` install.
 
-Runs 2 (C++23) and 3 (Go) predate the rule and stay as history.
+Runs 1–3 (Python with boto3, C++23, Go) predate the rule. Their programs can go once the
+bootstrapper below has produced their replacements; their reports in `docs/` stay, since the
+report, not the program, is what a later run is diffed against.
 
 ## How the three prove each other
 
@@ -111,9 +113,17 @@ indefinitely.
 
 ## Open
 
-- **The writer's harness.** `scripts/cleanroom/` is restore-shaped. It needs a writer brief and a
-  step that runs the whole matrix: build the corpus, write it with both writers, restore each
-  result with every reader, then compare with `compare.py`.
+- **`scripts/cleanroom/` becomes a bootstrapper** for building the writer and the readers
+  against the current spec. Today it is restore-shaped (`create.mjs`, `stage.mjs`,
+  `compare.py`). It needs:
+  - a writer brief beside the reader brief;
+  - the language derived from role and platform, rather than passed as `--lang`;
+  - a step that runs the whole matrix: build the corpus, write it with both writers, restore
+    each result with every reader, then compare.
+
+  Still to decide: whether its output is committed every run, or only at the 1.0 freeze. A
+  session-written program can't be regenerated identically, so the ones kept as evidence have
+  to be committed.
 - **Set state.** Does the writer write the `sets/<set>/` markers (`info`, `dirs.txt`) so s3cab
   adopts its sets? The spec documents them, so probably yes.
 - **Where the writer lives.** It is a clean-room run, so beside the restorers in
