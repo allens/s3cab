@@ -47,7 +47,7 @@ ADR as a live constraint.
 - [0005](0005-builtins-over-dependencies.md) — Built-ins over dependencies
 - [0006](0006-minimal-code.md) — Minimal, simple code — minimize total complexity
 - [0007](0007-plain-js-via-jsdoc.md) — Plain JavaScript, typed via JSDoc *(accepted; the TS question closed 2026-07-18)*
-- [0096](0096-python-write-side-reference.md) — A Python reference for the write side: snapshot, upload and exclude patterns, correct but unoptimised, readable in half an hour, in one file with boto3 the only dependency. Writes the same format and bucket, so s3cab and every clean-room restorer must restore it. Restore is left to the clean room, because it is the half of s3cab you can do without s3cab *(proposed; exclude semantics, set markers, placement and a maintained portable restorer open; nothing built)*
+- [0096](0096-three-implementations-prove-the-format.md) — Three implementations prove the format: s3cab (writer and reader), a clean-room **writer** (Python, boto3 allowed; snapshot, upload and full exclude syntax; correct but unoptimised; readable in half an hour — the educational one) and a clean-room **reader** (Go, no AWS SDK — the alternative restore tool). Every writer's output must restore with every reader; writer-from-spec read by reader-from-spec is the one cell that proves the spec without s3cab. What a plain Python writer can't do portably must be justified as essential or made optional. Runs are frozen; one is promoted and maintained only under a spec-only rule, and the keepers are made at the 1.0 format freeze *(proposed; the writer's harness, set markers and shipping the reader open; writer not built)*
 
 ### Licensing
 
