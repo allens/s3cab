@@ -18,11 +18,13 @@
  * nothing else about the format — survives a run long enough to write a program,
  * where a rule given once in the opening turn would scroll away.
  *
- * The language is a parameter because what makes a run worth repeating is a fresh
- * reader, not a new language, and the brief is language-neutral apart from one
- * sentence. That sentence names no version and no toolchain: "the most modern version
- * that comes as standard on the platform you are running on" is discovered on the
- * machine, where a version pinned in prose would rot the way a line number does.
+ * The language is a parameter, but on a given platform it is fixed at that
+ * platform's canonical one (C# on Windows, Swift on macOS, C on Linux; see
+ * README.md), so runs differ by reader and by spec version. The brief is
+ * language-neutral apart from one sentence. That sentence names no version and no
+ * toolchain: "the most modern version that comes as standard on the platform you are
+ * running on" is discovered on the machine, where a version pinned in prose would
+ * rot the way a line number does.
  *
  * A room staged on Windows gets a Windows brief, because the platform is then the thing
  * under test. Nothing comes as standard there and there is no package archive, so the
@@ -42,7 +44,7 @@
  *
  * Usage:
  *   node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
- *   node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/src/cleanroom
+ *   node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/src/cleanroom
  *
  * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_INTEGRATION from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
@@ -93,7 +95,7 @@ const [dir] = positionals;
 if (unknown !== undefined || positionals.length !== 1 || !language || !dir) {
   console.error(
     "usage: node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>\n" +
-      '\ne.g. node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/src/cleanroom',
+      '\ne.g. node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/src/cleanroom',
   );
   process.exit(2);
 }

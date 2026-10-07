@@ -12,7 +12,7 @@ s3cab's). Each proves the format in one direction and serves a second goal of it
 | **Proves** | a backup can be *written* from the spec | a backup can be *read* from the spec |
 | **Second goal** | education: shows how s3cab works | a restore path that needs nothing of s3cab's |
 | **Commands** | snapshot and upload, with full exclude syntax | restore |
-| **Language** | Python | per run: C, C++, Go, … |
+| **Language** | Python, on every platform | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
 | **AWS SDK** | allowed (boto3) | **not allowed**; requests signed by hand |
 
 ## The writer
@@ -58,11 +58,21 @@ HTTP client, SHA-256/HMAC, zstd and about 80 lines of SigV4.
 **Nothing here is distributed.** The readers and the writer live in the repo, on GitHub, as
 evidence for anyone who wants to check the claim. s3cab's releases ship s3cab alone.
 
-The language is picked per run. On Linux every dependency (libcurl, OpenSSL, libzstd) is one
-`apt`/`dnf` install away, so C is as easy to stage as anything. A Windows run has no package
-archive and its brief says "standard library only", so it needs a language whose standard
-library decompresses zstd: Python 3.14 or .NET 11. Go's doesn't, and C has no standard library
-for any of it.
+**Each platform's reader is written in that platform's canonical language.** Part of the
+reader's job is to show how little recovering your data takes beyond the operating system, and
+the platform's own language, with its own frameworks or system libraries, shows that best.
+Variety for its own sake is not a goal, and nor is avoiding a language.
+
+- **Windows: C#** on .NET 11. `HttpClient`, `SHA256`/`HMACSHA256` and `ZstandardStream` are all
+  in the standard library, so nothing else is installed. Windows has no zstd decoder out of the
+  box, so .NET 11 is the one install.
+- **macOS: Swift.** `swiftc` comes with the Xcode command-line tools; HTTPS (`URLSession`) and
+  SHA-256/HMAC (CryptoKit) come with the OS. Apple's Compression framework has no zstd, so
+  `brew install zstd` is the one addition.
+- **Linux: C**, the language POSIX specifies and the system is built in. libcurl, OpenSSL and
+  libzstd are one `apt`/`dnf` install.
+
+Runs 2 (C++23) and 3 (Go) predate the rule and stay as history.
 
 ## How the three prove each other
 

@@ -4,8 +4,8 @@ A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'
 no-lock-in promise: a session that has read
 [guide/format.md](../../guide/format.md) and **nothing else** writes a restorer
 from scratch, and its output is compared byte-for-byte against s3cab's own. The
-restorer is never the point. The point is the list of places the spec is
-ambiguous, silent, or wrong, ranked by whether a wrong guess corrupts a restore
+restorer itself is the lesser result. The main one is the list of places the
+spec is ambiguous, silent, or wrong, ranked by whether a wrong guess corrupts a restore
 or merely costs the implementer an afternoon.
 
 Reports so far: [run 1](../../docs/format-spec-audit.md) (2026-08-12, Python,
@@ -13,6 +13,16 @@ boto3), [run 2](../../docs/format-spec-audit-2.md) (2026-08-20, C++23, no
 SDK) and [run 3](../../docs/format-spec-audit-3.md) (2026-08-23, Go, no SDK).
 Diffing a new run's list against the last one is what makes a re-run worth
 doing — an item that reappears is a fix that didn't land.
+
+**Each platform's restorer is written in that platform's canonical language:**
+C# on Windows, Swift on macOS, C on Linux. The aim is not variety, or avoiding
+any language. It is to show what recovering your data takes with as little as
+possible beyond the operating system: on each platform, its own language, its
+own frameworks or system libraries, and nothing of s3cab's. Runs 2 (C++) and 3
+(Go) predate that rule and stay as history. The restorers are one half of
+[ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)'s
+three-way proof: a clean-room writer, in Python on every platform, is the
+other. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** `create.mjs`,
 `stage.mjs` and `compare.py` are the harness: ours, maintained, and improved
@@ -24,7 +34,7 @@ A run, end to end:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom
 # hand the room over, then when it finishes:
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
@@ -48,9 +58,9 @@ node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~\cleanroom --refere
 
 Stages a directory for the *next* clean-room restorer: a byte copy of
 [guide/format.md](../../guide/format.md), a brief naming the language, and
-nothing else. `--lang` is a plain string because what makes a rerun worth doing
-is a fresh reader rather than a new language, and the brief is language-neutral
-apart from one sentence — which names no version and no toolchain, leaving the
+nothing else. `--lang` names the platform's canonical language (above), so on
+a given platform it is fixed and runs differ by reader and by spec version. The
+brief is language-neutral apart from one sentence — which names no version and no toolchain, leaving the
 session to find "the most modern version that comes as standard" on the machine
 it's on.
 
@@ -107,9 +117,8 @@ fresh window, so outliving the permission set's session duration (8 hours here,
 Staged on Windows, the room gets a Windows brief. Nothing comes as standard
 there and there is no package archive, so the toolchain sentence becomes
 "installed on this machine, standard library only" — install it before the run,
-and pick the language knowing its standard library has to decompress gzip
-(every .NET does, including the .NET Framework that ships with Windows, as does
-every Python). The brief also tells the session to
+in C# against the .NET Framework that ships with Windows, whose `GZipStream`
+decompresses gzip. The brief also tells the session to
 work natively, never through WSL: a user-level `CLAUDE.md` loads into every
 session, and one that routes Windows work through WSL would turn a Windows run
 into a Linux one without saying so. The credentials go over as `credentials.ps1`
@@ -126,7 +135,7 @@ and the session reads both as readily.
 
 ```sh
 node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
-node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/cleanroom
 ```
 
 ## stage.mjs
