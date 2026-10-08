@@ -31,7 +31,7 @@ gh workflow run release.yml --ref main
 gh run watch        # or: gh run list --workflow=release.yml
 ```
 
-Green means the machinery still builds — and, when the `S3CAB_TEST_BUCKET` repo var is
+Green means the machinery still builds — and, when the `S3CAB_TEST_BUCKET_INTEGRATION` repo var is
 configured, that each platform's **built binary** passed the gated real-S3
 `setup → backup → restore` round-trip in the build job (the per-platform ship-gate,
 [ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md); without the var it's skipped and

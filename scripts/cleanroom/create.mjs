@@ -44,7 +44,7 @@
  *   node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
  *   node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C++" ~/src/cleanroom
  *
- * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET from the environment, so
+ * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_INTEGRATION from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
  *
  * Credentials go in as static keys in credentials.env (credentials.ps1 on Windows), not
@@ -78,7 +78,7 @@ const valueIndices = new Set(
     .map((index) => index + 1),
 );
 const language = valueOf("--lang");
-const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET;
+const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 const force = args.includes("--force");
 const unknown = args.find(
   (arg, index) =>

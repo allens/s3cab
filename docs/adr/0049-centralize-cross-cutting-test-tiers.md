@@ -40,8 +40,8 @@ makes `src/**/*.test.mjs` unit-only automatically — no negation, rename, or ru
 ## The skip flag goes with it
 
 Under 0046, a plain `npm test`'s `src/**/*.test.mjs` glob **also** matched the integration
-files, so a `skip` flag (no-op when `S3CAB_TEST_BUCKET` is unset) kept that run green without a
-bucket. That flag was a *symptom of the glob overlap*, not a feature, and it created a
+files, so a `skip` flag (no-op when `S3CAB_TEST_BUCKET_INTEGRATION` is unset) kept that run green
+without a bucket. That flag was a *symptom of the glob overlap*, not a feature, and it created a
 silent-green hazard: `test:integration` with no bucket **exited 0 having run nothing**. With the
 tiers in separate directories, a plain `npm test` never selects integration, so the flag has no
 job. It is replaced by a **hard-fail precondition** in the shared harness

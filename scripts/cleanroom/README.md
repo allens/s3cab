@@ -74,7 +74,7 @@ whose suites assert whole-bucket state and which hold deliberately torn
 repositories — snapshots published over swept objects, written on purpose by
 `test/crash`. That is the exact signature this exercise hunts, so a session that
 wandered into one would report a real observation as a spec defect. Pass
-`--bucket`, or let `--env-file=.env.test` supply `S3CAB_TEST_BUCKET` and the
+`--bucket`, or let `--env-file=.env.test` supply `S3CAB_TEST_BUCKET_INTEGRATION` and the
 `AWS_*` settings without the file itself travelling.
 
 Libraries come from the platform's packages, and the brief bars **any AWS SDK or

@@ -49,7 +49,7 @@ which set `partSize` = 16 MiB and `queueSize` = 32 in
 [../src/lib/s3.mjs](../src/lib/s3.mjs). Re-run it when a link, a region, or the
 SDK changes. `putFile` hardcodes both values, so it drives
 `@aws-sdk/lib-storage`'s `Upload` directly — the same uploader `putFile` uses.
-Bucket from `S3CAB_TEST_BUCKET` or the first arg; ambient AWS credentials; region
+Bucket from `S3CAB_TEST_BUCKET_INTEGRATION` or the first arg; ambient AWS credentials; region
 from `AWS_REGION` / `AWS_DEFAULT_REGION` (default `us-east-1`, auto-corrected to
 the bucket's real region). With no file path it generates incompressible random
 payloads and cleans them up. Probe objects land under `bench/multipart/` and are
@@ -78,7 +78,7 @@ slow-start **under-measures a high-latency link** (one far link looked capped at
 above both.
 
 ```sh
-S3CAB_TEST_BUCKET=<bucket> node scripts/multipart-bench.mjs
+S3CAB_TEST_BUCKET_INTEGRATION=<bucket> node scripts/multipart-bench.mjs
 # or: node scripts/multipart-bench.mjs <bucket> [path/to/file]
 # tunables (comma-separated lists): S3CAB_BENCH_SIZE_MB, S3CAB_BENCH_PARTS,
 #   S3CAB_BENCH_QUEUES, S3CAB_BENCH_REPS
@@ -113,7 +113,7 @@ exists" and the run continues. If it doesn't exist, the calls after it say so.
 
 ```sh
 node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>
-# or: S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
+# or: S3CAB_TEST_BUCKET_INTEGRATION=<bucket> node scripts/setup-test-bucket.mjs
 # raise an existing bucket's expiry (credentials from .env.test):
 #   node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 ```

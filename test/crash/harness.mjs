@@ -15,13 +15,13 @@ import { RepoModel, captureTree } from "../model/harness/model.mjs";
 // (harness/real-inspector.mjs) and the model's independent parser — never
 // through src/lib/s3.mjs, which is part of what is under test.
 
-const CRASH_BUCKET = process.env.S3CAB_CRASH_BUCKET;
+const CRASH_BUCKET = process.env.S3CAB_TEST_BUCKET_CRASH;
 
 if (!CRASH_BUCKET) {
   throw new Error(
     "No crash bucket configured. The crash/concurrency tier needs a real,\n" +
       "sole-owner S3 bucket (docs/integration-testing.md naming convention):\n\n" +
-      "    export S3CAB_CRASH_BUCKET=test-s3cab-<you>-crash\n\n" +
+      "    export S3CAB_TEST_BUCKET_CRASH=test-s3cab-<you>-crash\n\n" +
       "  Working in a worktree? `.env.test` is gitignored and stays in the\n" +
       "  main checkout. Copy it across:\n" +
       "    cp ../../../.env.test .env.test\n",
