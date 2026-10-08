@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
@@ -15,8 +15,8 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 // `pushSetConfig` are faked at the module seam — what's under test is the wiring
 // and its order. Mocks first, then a dynamic import (objects.test.mjs rule).
 
-/** @type {{ name: string, bucket: string, snapshotsDir: string, dirs: string[] }} */
-let fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
+/** @type {{ name: string, bucket: string, snapshotsDir: string, excludePath: string, dirs: string[] }} */
+let fakeSet;
 /** @type {string[]} the ordered log of lib calls a run made */
 let calls = [];
 /** @type {{ name?: string, previous?: Map<string, object>, previousErrors?: Map<string, string>, lookup?: object }} */
@@ -135,7 +135,13 @@ let savedExitCode;
 beforeEach(() => {
   savedEnv = { ...process.env };
   savedExitCode = process.exitCode;
-  fakeSet = { name: "photos", bucket: "b", snapshotsDir: "snaps", dirs: [] };
+  fakeSet = {
+    name: "photos",
+    bucket: "b",
+    snapshotsDir: "snaps",
+    excludePath: "photos/exclude.txt",
+    dirs: [],
+  };
   calls = [];
   baseline = {
     name: "2026-01-01T0900",
@@ -237,8 +243,48 @@ describe("backup (the fused pass)", () => {
       uploadMs: 2_000,
       skipped: 1,
       errors: pass.errors,
+      excludeSuggestions: [],
+      excludePath: "photos/exclude.txt",
       comparison,
     });
+  });
+
+  it("suggests excluding only the files that failed last time too", async () => {
+    // EBUSY on both — the error code can't tell a lock file nobody wants from a
+    // mailbox that only needs its program closed. Failing twice is the signal.
+    const music = resolve("data", "music");
+    const docs = resolve("data", "docs");
+    pass.roots = [music, docs];
+    const again = join(docs, "Outlook", "archive.pst");
+    const once = join(docs, "draft.docx");
+    pass.errors = [
+      { path: again, reason: "EBUSY: resource busy or locked" },
+      { path: once, reason: "EBUSY: resource busy or locked" },
+    ];
+    baseline.previousErrors = new Map([[again, "EBUSY"]]);
+
+    const result = await backup("photos");
+
+    // Relative to the member directory holding it, in the native separator the
+    // starter exclude.txt is written in (ADR-0051).
+    assert.deepEqual(result.excludeSuggestions, [
+      join("Outlook", "archive.pst"),
+    ]);
+  });
+
+  it("measures a suggestion from the root the walk resolved, not dirs.txt's text", async () => {
+    // A symlinked or differently-cased dirs.txt entry contains none of the
+    // walk's paths; only the resolved root does.
+    const root = resolve("real", "docs");
+    fakeSet.dirs = [resolve("alias", "docs")];
+    pass.roots = [root];
+    const again = join(root, "a.pst");
+    pass.errors = [{ path: again, reason: "EBUSY" }];
+    baseline.previousErrors = new Map([[again, "EBUSY"]]);
+
+    const result = await backup("photos");
+
+    assert.deepEqual(result.excludeSuggestions, ["a.pst"]);
   });
 
   it("passes --rehash through, so the pass reuses no stored hash", async () => {
@@ -305,7 +351,7 @@ describe("backup (the fused pass)", () => {
     // Every file is an addition against an empty baseline: the diff is both the
     // most expensive one there is and the least informative (ADR-0078 §7). The
     // couldn't-be-backed-up counts still come through.
-    baseline = {}; // no previous snapshot
+    baseline = { previousErrors: new Map() }; // no previous snapshot
     pass.skipped = 3;
 
     const result = await backup("photos");
@@ -330,7 +376,7 @@ describe("backup (the fused pass)", () => {
   });
 
   it("passes no baseline on a first backup (storedHashes then LISTs the store)", async () => {
-    baseline = {}; // no previous snapshot
+    baseline = { previousErrors: new Map() }; // no previous snapshot
 
     await backup("photos");
 
@@ -402,12 +448,7 @@ describe("backup config re-sync (ADR-0052)", () => {
   it("re-publishes the set's dirs + exclude to the remote marker after uploading", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path); // empty store → no exclude.txt → exclude: undefined
-    fakeSet = {
-      name: "photos",
-      bucket: "b",
-      snapshotsDir: "snaps",
-      dirs: ["/home/me/Photos"],
-    };
+    fakeSet = { ...fakeSet, dirs: ["/home/me/Photos"] };
 
     await backup("photos");
 

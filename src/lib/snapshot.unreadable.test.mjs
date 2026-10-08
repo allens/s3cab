@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { describe, it } from "node:test";
 import { readSnapshot } from "./snapshot-file.mjs";
 import { generateSnapshot } from "./snapshot.mjs";
@@ -34,7 +34,10 @@ describe("a pass over files that vanish before they are read", () => {
     const pass = await generateSnapshot(
       {
         name: "photos",
-        dirs: [root],
+        // As dirs.txt might spell it — absolute but not canonical — so the
+        // roots the pass returns are seen to be the walk's, which the failed
+        // paths below start with (backup measures exclude suggestions from them).
+        dirs: [`${resolve(data)}${sep}.`],
         bucket: "b",
         dir: dir.path,
         snapshotsDir,
@@ -62,6 +65,7 @@ describe("a pass over files that vanish before they are read", () => {
       },
     );
 
+    assert.deepEqual(pass.roots, [root]);
     assert.equal(pass.errors.length, 2);
     for (const { reason } of pass.errors) {
       assert.match(reason, /^ENOENT: /);
