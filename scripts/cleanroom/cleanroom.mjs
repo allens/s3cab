@@ -1,6 +1,12 @@
 /**
- * Stage a clean-room directory for a clean-room backup or restorer (ADR-0096): a copy
- * of the spec, a brief naming the language, and nothing else.
+ * What both sandbox builds share (ADR-0096): reading the one root they take, and writing
+ * the clean room inside it — a copy of the spec, a brief naming the language, the bucket
+ * and its credentials, and nothing else.
+ *
+ * A sandbox root holds `cleanroom/`, where the session is opened, beside what the build
+ * needs and the session must not see (`fixtures/`, and a restore build's `.s3cab/`). It
+ * is built once, from empty, and deleted when the run is harvested; the bucket is shared,
+ * so sandboxes take turns rather than coexist.
  *
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
@@ -9,7 +15,7 @@
  * headers, the drive-letter normalisation and (via ADR-0004's filename) the TSV
  * encoding. Those are restore-correctness facts the reading is supposed to have to
  * derive, and a contaminated run fails silently: the ambiguity list comes back
- * shorter, which reads as "the spec is fixed". So the firewall is physical — an empty
+ * shorter, which reads as "the spec is fixed". So the firewall is physical — a
  * directory outside the repo, holding the spec alone.
  *
  * The brief is written as the clean room's own CLAUDE.md for two reasons. It is
@@ -26,9 +32,9 @@
  * running on" is discovered on the machine, where a version pinned in prose would
  * rot the way a line number does.
  *
- * A room staged on Windows gets a Windows brief, because the platform is then the thing
- * under test. Nothing comes as standard there and there is no package archive, so the
- * sentence becomes "installed on this machine, standard library only" — install the
+ * A clean room built on Windows gets a Windows brief, because the platform is then the
+ * thing under test. Nothing comes as standard there and there is no package archive, so
+ * the sentence becomes "installed on this machine, standard library only" — install the
  * toolchain before the run. The brief also pins the session to native Windows: a
  * user-level CLAUDE.md is loaded into every session, and one that routes Windows work
  * through WSL would quietly turn a Windows run into a Linux one. The credentials are
@@ -42,19 +48,9 @@
  * test/crash. That is the exact signature of the finding this exercise hunts, so a
  * session that wandered into one would report a real observation as a spec defect.
  *
- * Usage:
- *   node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>] [--force] <dir>
- *   node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
- *
- * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_CLEANROOM from the environment, so
- * --env-file=.env.test supplies them without the file itself travelling.
- *
  * Credentials go in as static keys in credentials.env (credentials.ps1 on Windows), not
- * as AWS_PROFILE: the restorer brief
- * forbids an AWS SDK, and a profile name is only meaningful to one. Re-run the script
- * (--force) to refresh them — resolving through the chain mints a fresh window, so a
- * run that outlives the permission set's session duration is a re-run away from
- * carrying on rather than a lost afternoon.
+ * as AWS_PROFILE: the restorer brief forbids an AWS SDK, and a profile name is only
+ * meaningful to one. Resolving through the chain mints a fresh window at every build.
  */
 import { S3Client } from "@aws-sdk/client-s3";
 import {
@@ -67,119 +63,135 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { parseArgs } from "node:util";
 
-const args = process.argv.slice(2);
-const valueOf = (/** @type {string} */ flag) => {
-  const index = args.indexOf(flag);
-  return index === -1 ? undefined : args[index + 1];
-};
-const valueIndices = new Set(
-  ["--role", "--bucket"]
-    .map((flag) => args.indexOf(flag))
-    .filter((index) => index !== -1)
-    .map((index) => index + 1),
-);
-const role = valueOf("--role");
-const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_CLEANROOM;
-const force = args.includes("--force");
-const unknown = args.find(
-  (arg, index) =>
-    arg.startsWith("-") &&
-    !["--role", "--bucket", "--force"].includes(arg) &&
-    !valueIndices.has(index),
-);
-const positionals = args.filter(
-  (arg, index) => !arg.startsWith("-") && !valueIndices.has(index),
-);
-const [dir] = positionals;
-if (
-  unknown !== undefined ||
-  positionals.length !== 1 ||
-  (role !== "backup" && role !== "restore") ||
-  !dir
-) {
-  console.error(
-    "usage: node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>] [--force] <dir>\n" +
-      "\ne.g. node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom",
-  );
-  process.exit(2);
-}
-const backup = role === "backup";
-const windows = process.platform === "win32";
-const language = backup
-  ? "Python"
-  : windows
-    ? "C#"
-    : process.platform === "darwin"
-      ? "Swift"
-      : "C";
+/** @import { ParseArgsConfig } from "node:util" */
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
-// Expand a leading `~` before resolving. The usage line above writes one and PowerShell
-// does not expand it, so node would take it literally and `resolve` would make a
-// directory named `~` under the cwd — which is the repo, and so exactly the placement
-// the guard below exists to refuse, reported as a path the operator never typed.
-const target = resolve(
-  dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")
-    ? join(homedir(), dir.slice(1))
-    : dir,
-);
-
-// The one guard that matters: a clean room inside the repo is not a clean room, since
-// the session would inherit the repo's CLAUDE.md from a parent directory. Compared
-// case-blind because Windows spells the same directory several ways; on a
-// case-sensitive filesystem that can only over-refuse, the safe direction here.
-const contains = (/** @type {string} */ root, /** @type {string} */ path) => {
-  const [lowerRoot, lowerPath] = [root.toLowerCase(), path.toLowerCase()];
-  return lowerPath === lowerRoot || lowerPath.startsWith(lowerRoot + sep);
-};
-if (contains(repoRoot, target)) {
-  console.error(
-    `${target} is inside the repository, so a session opened there would be handed\n` +
-      "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
-      "has to prevent. Stage it somewhere outside the repo instead:\n" +
-      "\n" +
-      `    node scripts/cleanroom/new-cleanroom.mjs --role ${role} ~/cleanroom\n`,
-  );
-  process.exit(2);
-}
-
-if (existsSync(target) && readdirSync(target).length > 0 && !force) {
-  console.error(
-    `${target} already has files in it, and a clean room is only meaningful when the\n` +
-      "spec is the only thing in reach. Pick an empty directory, or overwrite this one:\n" +
-      "\n" +
-      `    node scripts/cleanroom/new-cleanroom.mjs --role ${role} --force ${dir}\n`,
-  );
-  process.exit(2);
-}
-
-const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
-const profile = process.env.AWS_PROFILE;
+const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
-// Resolved before anything is written, so a lapsed SSO session fails with one clear
-// message instead of leaving a half-staged room behind. Static credentials rather than
-// a profile name because the brief forbids an AWS SDK, and a profile is only meaningful
-// to one: without an SDK to read ~/.aws/config there is nothing on the far side of
-// AWS_PROFILE. Resolving through the chain also mints a fresh window — these are SSO
-// session credentials, so the run gets the permission set's full session duration
-// rather than whatever was left of the last one.
-const credentials = bucket
-  ? await new S3Client({}).config.credentials().catch((error) => {
-      console.error(
-        `couldn't resolve AWS credentials for ${bucket}, and the clean room needs them\n` +
-          "as static keys. If the SSO session has lapsed:\n" +
-          "\n" +
-          `    aws sso login${profile ? ` --profile ${profile}` : ""}\n` +
-          "\n" +
-          `(${error instanceof Error ? error.message : error})`,
-      );
-      return process.exit(2);
-    })
-  : undefined;
+/**
+ * Read `[--flag…] <root>` and the bucket, or exit 2 saying what was wrong. The root
+ * has to be outside the repo, and empty.
+ * @param {string} script this script's file name, for the usage line
+ * @param {string[]} [flags] the boolean flags it takes, without their dashes
+ */
+export function readCommandLine(script, flags = []) {
+  const command = `node --env-file=.env.test scripts/cleanroom/${script}`;
+  const usage =
+    `usage: ${command} ${flags.map((flag) => `[--${flag}] `).join("")}<root>\n` +
+    `\ne.g. ${command} ~/s3cab.sandbox`;
+  /** @type {ParseArgsConfig["options"]} */
+  const options = Object.fromEntries(
+    flags.map((flag) => [flag, { type: "boolean" }]),
+  );
+  /** @type {ReturnType<typeof parseArgs>} */
+  let parsed;
+  try {
+    parsed = parseArgs({ options, allowPositionals: true });
+  } catch {
+    console.error(usage);
+    return process.exit(2);
+  }
+  const [arg] = parsed.positionals;
+  if (parsed.positionals.length !== 1 || !arg) {
+    console.error(usage);
+    return process.exit(2);
+  }
 
-const restoreBrief = `# Independent restorer for the s3cab storage format
+  const bucket = process.env.S3CAB_TEST_BUCKET_CLEANROOM;
+  if (!bucket) {
+    console.error(
+      "No clean-room bucket is set (S3CAB_TEST_BUCKET_CLEANROOM). Run with the test\n" +
+        "environment, which names it:\n" +
+        "\n" +
+        `    ${command} ${arg}\n`,
+    );
+    return process.exit(2);
+  }
+
+  // Expand a leading `~` before resolving. The usage line writes one and PowerShell
+  // does not expand it, so node would take it literally and `resolve` would make a
+  // directory named `~` under the cwd — which is the repo, and so exactly the placement
+  // the guard below exists to refuse, reported as a path the operator never typed.
+  const root = resolve(
+    arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
+      ? join(homedir(), arg.slice(1))
+      : arg,
+  );
+
+  // The one guard that matters: a clean room inside the repo is not a clean room, since
+  // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
+  // case-blind because Windows spells the same directory several ways (`realpathSync`
+  // gives `D:\src\s3cab`, `resolve` keeps a typed `d:\src\s3cab`); on a case-sensitive
+  // filesystem that can only over-refuse, the safe direction here.
+  const [lowerRepo, lowerRoot] = [repoRoot.toLowerCase(), root.toLowerCase()];
+  if (lowerRoot === lowerRepo || lowerRoot.startsWith(lowerRepo + sep)) {
+    console.error(
+      `${root} is inside the repository, so a session opened there would be handed\n` +
+        "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
+        "has to prevent. Build it somewhere outside the repo instead:\n" +
+        "\n" +
+        `    ${command} ~/s3cab.sandbox\n`,
+    );
+    return process.exit(2);
+  }
+
+  // Built once, from empty: a leftover from the last turn is either an older brief the
+  // session would read beside the new one, or s3cab's output in reach.
+  if (existsSync(root) && readdirSync(root).length > 0) {
+    console.error(
+      `${root} already has files in it. A sandbox is built from empty, once per run —\n` +
+        "harvest what the last run wrote, delete the directory, and build again.",
+    );
+    return process.exit(2);
+  }
+
+  return { root, bucket, values: parsed.values };
+}
+
+/**
+ * The session's static keys. Resolved before anything is written, so a lapsed SSO
+ * session fails with one clear message instead of leaving a half-built sandbox behind.
+ * These are SSO session credentials, so resolving them mints the permission set's full
+ * session duration rather than whatever was left of the last one.
+ * @param {string} bucket
+ */
+export async function sessionCredentials(bucket) {
+  const profile = process.env.AWS_PROFILE;
+  return await new S3Client({}).config.credentials().catch((error) => {
+    console.error(
+      `couldn't resolve AWS credentials for ${bucket}, and the clean room needs them\n` +
+        "as static keys. If the SSO session has lapsed:\n" +
+        "\n" +
+        `    aws sso login${profile ? ` --profile ${profile}` : ""}\n` +
+        "\n" +
+        `(${error instanceof Error ? error.message : error})`,
+    );
+    return process.exit(2);
+  });
+}
+
+/**
+ * Write the clean room: the spec, the brief, ENVIRONMENT.md and the credentials.
+ * @param {string} dir
+ * @param {"backup" | "restore"} role
+ * @param {string} bucket
+ * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} credentials
+ */
+export function writeCleanroom(dir, role, bucket, credentials) {
+  const backup = role === "backup";
+  const language = backup
+    ? "Python"
+    : windows
+      ? "C#"
+      : process.platform === "darwin"
+        ? "Swift"
+        : "C";
+  const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
+
+  const restoreBrief = `# Independent restorer for the s3cab storage format
 
 \`format.md\` in this directory is the complete specification you are working from, and the only
 source of format knowledge you may use. There is no source tree here and that is deliberate: this
@@ -193,23 +205,23 @@ without the tool, or write a replacement in an afternoon. The spec has been revi
 claim was last tested, and I want it tested again by a fresh reader.
 
 Working only from the spec, implement a minimal independent restorer in ${language}. ${
-  windows
-    ? `Use the most
+    windows
+      ? `Use the most
 modern version of the language installed on this machine, and nothing beyond its standard library
 — Windows has no package archive to take libraries from. Don't install another toolchain, and don't
 spend the run fighting this one — if something you want isn't in the standard library, pick
 something else.`
-    : `Use the most
+      : `Use the most
 modern version of the language that comes as standard on the platform you are running on, and take
 your libraries from what that platform packages. Don't build a compiler or a runtime from source,
 and don't spend the run fighting a toolchain — if something you want isn't packaged, pick something
 else.`
-}
+  }
 
 **No AWS SDK, and no S3 client library, packaged or not.** Talk to S3 over plain HTTPS with a
 general-purpose HTTP client and sign the requests yourself; hashing and decompression come from ${
-  windows ? "the\nstandard library" : "the\nplatform's own packages"
-}. That is the second thing being tested, so it is worth saying why: the tool
+    windows ? "the\nstandard library" : "the\nplatform's own packages"
+  }. That is the second thing being tested, so it is worth saying why: the tool
 that writes this format depends on the vendor's SDK completely, and nobody has established what
 *reading* it actually needs. A restorer that needs nothing from the vendor is a far stronger claim
 than a documented format is.
@@ -251,7 +263,7 @@ Record each guess as you make it, while you can still remember not knowing. A gu
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
 
-const backupBrief = `# Independent backup for the s3cab storage format
+  const backupBrief = `# Independent backup for the s3cab storage format
 
 \`format.md\` and \`exclude.md\` in this directory are the complete specification you are working
 from, and the only source of format knowledge you may use. There is no source tree here and that
@@ -304,7 +316,7 @@ Record each guess as you make it, while you can still remember not knowing. A gu
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
 
-const brief = `${backup ? backupBrief : restoreBrief}
+  const brief = `${backup ? backupBrief : restoreBrief}
 ## Ground rules
 ${
   windows
@@ -324,16 +336,18 @@ ${
   so this is a rule rather than a secret. Ambiguity in the text is the measurement; resolving it
   from another source destroys the reading.
 - **Touch only the bucket \`ENVIRONMENT.md\` names**, ${
-  backup ? "which is yours to write to and to empty." : "and only to read."
-}
+    backup ? "which is yours to write to and to empty." : "and only to read."
+  }
   Its neighbours are in use by other work.
 - Report findings as you go rather than saving everything for the end.
 - Before reporting any finding, audit it against something you actually ran. If a comparison
   failed, say so with the output; if you skipped a case, say that.
 `;
 
-const expiry = credentials?.expiration?.toISOString().replace(/\.\d{3}Z$/, "Z");
-const environment = `# Environment
+  const expiry = credentials.expiration
+    ?.toISOString()
+    .replace(/\.\d{3}Z$/, "Z");
+  const environment = `# Environment
 
 ## The bucket
 
@@ -362,24 +376,24 @@ ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
 
 \`${credentialsFile}\` holds \`AWS_ACCESS_KEY_ID\`, \`AWS_SECRET_ACCESS_KEY\` and
 \`AWS_SESSION_TOKEN\` for that bucket. ${
-  backup
-    ? "boto3 reads all three from the environment."
-    : `They are **session** credentials, so the token is not
+    backup
+      ? "boto3 reads all three from the environment."
+      : `They are **session** credentials, so the token is not
 optional: it goes in the \`x-amz-security-token\` header, and that header is part of what you sign.`
-}
+  }
 ${
   expiry
     ? `
 **They expire at ${expiry}.** Requests that were working and then start coming
-back 403 mean the window closed${backup ? "" : ", not that your signing is wrong"} — ask me to refresh the file
+back 403 mean the window closed${backup ? "" : ", not that your signing is wrong"} — stop and tell me
 rather than debugging it.
 `
     : ""
 }
 The \`aws\` CLI is installed and these credentials work with it, which makes it a quick way to
 confirm you can reach the bucket before writing any code.${
-  backup
-    ? `
+    backup
+      ? `
 
 ## The sets
 
@@ -387,7 +401,7 @@ confirm you can reach the bucket before writing any code.${
 directories, and \`exclude.txt\`, where there is one, its exclude patterns. Back up each set's
 directories where they are; don't copy them anywhere first.
 `
-    : ` The restorer itself must not use it —
+      : ` The restorer itself must not use it —
 see CLAUDE.md.
 
 ## The reference restores
@@ -399,29 +413,25 @@ modification times.
 Work out for yourself which sets and snapshots the bucket holds — the spec describes the layout,
 and finding your way around from it is part of what is being tested.
 `
-}`;
+  }`;
 
-mkdirSync(target, { recursive: true });
-cpSync(join(repoRoot, "guide", "format.md"), join(target, "format.md"));
-writeFileSync(join(target, "CLAUDE.md"), brief, "utf8");
-const written = ["format.md", "CLAUDE.md"];
-if (backup) {
-  cpSync(join(repoRoot, "guide", "exclude.md"), join(target, "exclude.md"));
-  written.push("exclude.md");
-}
-if (bucket && credentials) {
-  writeFileSync(join(target, "ENVIRONMENT.md"), environment, "utf8");
+  mkdirSync(dir, { recursive: true });
+  cpSync(join(repoRoot, "guide", "format.md"), join(dir, "format.md"));
+  if (backup) {
+    cpSync(join(repoRoot, "guide", "exclude.md"), join(dir, "exclude.md"));
+  }
+  writeFileSync(join(dir, "CLAUDE.md"), brief, "utf8");
+  writeFileSync(join(dir, "ENVIRONMENT.md"), environment, "utf8");
   // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
-  // rather than inside prose the session may quote back into a report — and so it can
-  // be rewritten on its own when the window closes mid-run. Single-quoted because a
-  // session token is base64 and a shell would otherwise be free to read it.
+  // rather than inside prose the session may quote back into a report. Single-quoted
+  // because a session token is base64 and a shell would otherwise be free to read it.
   const assign = windows
     ? (/** @type {string} */ name, /** @type {string} */ value) =>
         `$env:${name} = '${value}'`
     : (/** @type {string} */ name, /** @type {string} */ value) =>
         `export ${name}='${value}'`;
   writeFileSync(
-    join(target, credentialsFile),
+    join(dir, credentialsFile),
     [
       assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
       assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
@@ -432,65 +442,35 @@ if (bucket && credentials) {
     ].join("\n"),
     "utf8",
   );
-  written.push("ENVIRONMENT.md", credentialsFile);
-}
 
-// --force overwrites what this script writes and leaves everything else, which in a
-// clean room is the wrong kind of quiet: a renamed or moved directory can carry an
-// older brief in beside the new one, and the session would read both. Don't delete
-// anyone's files — just refuse to be silent about them. Each role expects only its own
-// staged directory: a reference/ in a backup room is s3cab's output in reach.
-const strays = readdirSync(target).filter(
-  (entry) =>
-    !written.includes(entry) && entry !== (backup ? "sets" : "reference"),
-);
-
-console.log(`staged a ${language} ${role} clean room in ${target}`);
-console.log("  format.md       the spec, byte-for-byte");
-if (backup) {
-  console.log("  exclude.md      the exclude-pattern spec, byte-for-byte");
-}
-console.log("  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it");
-if (bucket) {
+  const profile = process.env.AWS_PROFILE;
+  console.log(`wrote a ${language} ${role} clean room in ${dir}`);
+  console.log("  format.md       the spec, byte-for-byte");
+  if (backup) {
+    console.log("  exclude.md      the exclude-pattern spec, byte-for-byte");
+  }
+  console.log(
+    "  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it",
+  );
   console.log(`  ENVIRONMENT.md  s3://${bucket}`);
   console.log(
     `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
   );
-} else {
-  console.log(
-    "  (no ENVIRONMENT.md — pass --bucket, or run with --env-file=.env.test)",
-  );
-}
-if (strays.length > 0) {
-  console.log(
-    `\n! ${target} also holds ${strays.join(", ")}, which this script did not write.\n` +
-      "  A clean room is only meaningful when the spec is the only thing in reach —\n" +
-      "  and an older brief left beside the new one gets read as readily as it does.\n" +
-      "  Delete anything stale before the run.",
-  );
 }
 
-console.log(
-  `\nStill to do before the run:\n` +
-    (backup
-      ? `  - build the sets' trees, and their dirs.txt/exclude.txt in ${join(target, "sets")}:\n` +
-        `    stage-cleanroom.mjs --trees-only ${target}\n` +
-        `  - empty the bucket: the backup's turn starts from nothing.\n` +
-        `  - install Python 3 and boto3 if this machine lacks them: the brief tells the\n` +
-        `    session not to install anything.\n`
-      : `  - stage the fixture repositories in the bucket, and restore each one into\n` +
-        `    ${join(target, "reference")} with the tool itself. Don't let the session run\n` +
-        `    s3cab for its own comparison: the npm package ships source (ADR-0017), so\n` +
-        `    installing it would put src/ in reach.\n` +
-        (windows
-          ? `    On Windows that is two halves: stage the corpus from WSL, where every\n` +
-            `    fixture can exist, then build reference/ here with\n` +
-            `    stage-cleanroom.mjs --reference-only.\n` +
-            `  - install the toolchain: nothing comes as standard on Windows, and the brief\n` +
-            `    tells the session not to install one.\n`
-          : "")) +
-    `  - raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days\n` +
-    `\nOpen the session in that directory — never in the repo — and keep the previous\n` +
-    `run's report out of it. Diffing the two ambiguity lists is your job afterwards,\n` +
-    `not the session's: a reappearing item is a fix that didn't land.`,
-);
+/**
+ * The closing message: what is left to do by hand, and where to open the session.
+ * @param {string} root
+ * @param {string[]} todo
+ */
+export function handover(root, todo) {
+  console.log(
+    `\nStill to do before the run:\n` +
+      todo.map((item) => `  - ${item}\n`).join("") +
+      `  - raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days\n` +
+      `\nOpen the session in ${join(root, "cleanroom")} — not in the root beside it, and never\n` +
+      `in the repo — and keep the previous run's report out of it. Diffing the two\n` +
+      `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
+      `fix that didn't land.`,
+  );
+}

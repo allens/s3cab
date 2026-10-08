@@ -133,8 +133,8 @@ indefinitely.
 ## Open
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the clean-room implementations
-  against the current spec. `new-cleanroom.mjs --role backup|restore` stages either room, with
-  the language derived from role and platform. Still to build: a CI workflow that runs the whole
+  against the current spec. `build-backup-cleanroom.mjs` and `build-restore-cleanroom.mjs` each
+  build a sandbox for one run, with the language derived from role and platform. Still to build: a CI workflow that runs the whole
   matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are
@@ -147,8 +147,8 @@ indefinitely.
   **The bucket is settled: one, `S3CAB_TEST_BUCKET_CLEANROOM`, used in turns.** Every backup
   in the matrix backs up the same file contents, so they share every hash, and a bucket's
   `objects/` is shared by all its sets. Two backups in one bucket at once would let one's
-  object stand in for the other's: hiding a bad upload, or leaking `stage-cleanroom.mjs`'s
-  deliberate damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the
+  object stand in for the other's: hiding a bad upload, or leaking
+  `build-restore-cleanroom.mjs`'s deliberate damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the
   bucket, one backup, every restorer restores it. The turns are s3cab's, on Linux, where every
   fixture can exist; then the clean-room backup's, once per OS. A second bucket would not remove
   the turns, since the clean-room backup alone takes three. The bucket is
@@ -163,7 +163,7 @@ indefinitely.
   same trees, which is local and needs no bucket. A personal bucket of the same name serves the
   sessions that write the programs, one session at a time.
 
-  **The clean-room backup backs up `stage-cleanroom.mjs`'s trees in place**, so its paths and
+  **The clean-room backup backs up its sandbox's fixture trees in place**, so its paths and
   mtimes are the ones s3cab snapshotted and its rows compare without re-rooting. A copy would
   not do: copying loses the sub-millisecond mtimes the trees keep on purpose.
 - **The macOS restorer waits for a Mac.** Writing a restorer is an agent session that compiles
