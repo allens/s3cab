@@ -929,6 +929,8 @@ describe("renderBackup", () => {
     uploadMs: 132_000,
     skipped: 0,
     errors: [],
+    excludeSuggestions: [],
+    excludePath: "/sets/photos/exclude.txt",
     comparison: result({ since: "2026-07-01T0900", until: "2026-07-04T1000" }),
     ...over,
   });
@@ -1102,6 +1104,27 @@ describe("renderBackup", () => {
       ),
     );
     assert.doesNotMatch(text, /To see the details|s3cab compare/);
+  });
+
+  it("offers the exclude lines for files that failed last time too, after the retry", () => {
+    // Beside the retry, not instead of it: a file locked on every run may still
+    // be one the user wants once whatever holds it is closed.
+    const text = renderBackup(
+      run({ errors: failed(2), excludeSuggestions: ["locked-1.pst"] }),
+    );
+    assert.match(
+      text,
+      /\n\nTo try again:\n {2}s3cab backup photos\n\nTo skip the ones that failed last time too, add to \/sets\/photos\/exclude\.txt:\n {2}locked-1\.pst$/,
+    );
+  });
+
+  it("offers ten exclude lines, then counts the rest", () => {
+    const suggestions = Array.from({ length: 12 }, (_, i) => `f${i + 1}`);
+    const text = renderBackup(
+      run({ errors: failed(12), excludeSuggestions: suggestions }),
+    );
+    assert.match(text, /\n {2}f10\n {2}and 2 more\n/);
+    assert.doesNotMatch(text, /\n {2}f11\n/);
   });
 
   it("drops the path a reason repeats, and leaves any other reason whole", async () => {

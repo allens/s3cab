@@ -915,6 +915,9 @@ function problemDetail(p) {
  * To try again:
  *   s3cab backup onedrive
  *
+ * To skip the ones that failed last time too, add to ~\.s3cab\sets\onedrive\exclude.txt:
+ *   Outlook/archive.pst
+ *
  * To see the details:
  *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206
  * ```
@@ -948,7 +951,15 @@ function problemDetail(p) {
  * @returns {string}
  */
 export function renderBackup(result, { color = false } = {}) {
-  const { set, snapshot, skipped, errors, comparison } = result;
+  const {
+    set,
+    snapshot,
+    skipped,
+    errors,
+    excludeSuggestions,
+    excludePath,
+    comparison,
+  } = result;
   const paint = painter(color);
 
   /** @type {[string, number][]} */
@@ -1014,6 +1025,21 @@ export function renderBackup(result, { color = false } = {}) {
     blocks.push(
       `To try again:\n  ${shellCommand(`s3cab backup ${set}`, color)}`,
     );
+  }
+
+  // Offered beside the retry, never instead of it: a file locked on every run
+  // may still be one the user wants, once whatever holds it is closed.
+  if (excludeSuggestions.length) {
+    const lines = [
+      `To skip the ones that failed last time too, add to ${tildeify(excludePath)}:`,
+      ...excludeSuggestions.slice(0, ERRORS_SHOWN).map((p) => `  ${p}`),
+    ];
+    if (excludeSuggestions.length > ERRORS_SHOWN) {
+      lines.push(
+        `  and ${formatCount(excludeSuggestions.length - ERRORS_SHOWN)} more`,
+      );
+    }
+    blocks.push(lines.join("\n"));
   }
 
   if (hasDetails(result)) {

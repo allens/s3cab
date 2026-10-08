@@ -107,6 +107,13 @@ detail to `compare`.**
    whenever a file failed. `To see the details:` prints when the command has something the report
    didn't show: a change, a skip, or failed files past the tenth.
 
+   **A file that failed in the baseline too is also offered an exclude line** — under
+   `To skip the ones that failed last time too, add to <exclude file>:`, after the retry and never
+   in place of it. The trigger is recurrence, not the error code: EBUSY is both a sync client's
+   lock file nobody wants and an Outlook `.pst` that only needs Outlook closed, and suggesting an
+   exclude for the second loses someone's mail. The baseline's `#ERROR` rows are already in memory,
+   so it costs nothing; a first backup has no baseline and offers none.
+
    Two details settled while building. The verb is **`Scanned`**, not "Hashed": the figure is
    every walked file's bytes, and on a routine run most of those hashes were *reused* from the
    baseline rather than computed — "Hashed 1.8TB in 20 sec" would be a plain untruth. And the
