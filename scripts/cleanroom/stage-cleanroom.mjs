@@ -1,6 +1,7 @@
 /**
- * Build the clean-room fixture corpus: the backup sets a clean-room restorer is
- * measured against, and the `reference/` trees it compares its output to.
+ * Build the clean-room fixture corpus: the trees, and then for a restore room the backup
+ * sets a clean-room restorer is measured against and the `reference/` trees it compares
+ * its output to, or for a backup room each set's `dirs.txt` and `exclude.txt`.
  *
  * WHY THIS IS A SCRIPT AND NOT A CHAT. The first clean-room run
  * (docs/format-spec-audit.md) was staged by hand against real local trees on one
@@ -82,8 +83,8 @@
  * rather than test it.
  *
  * Usage:
- *   node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir>
- *   node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp
+ *   node scripts/cleanroom/stage-cleanroom.mjs [--bucket <name>] [--work <dir>] <dir>
+ *   node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs ~/cleanroom
  *   … --trees-only            build the trees and a backup room's sets/, report what
  *                             this platform managed, stop
  *   … --reference-only        rebuild only reference/, from the corpus already staged
@@ -121,9 +122,15 @@ const valueOf = (/** @type {string} */ flag) => {
   const index = args.indexOf(flag);
   return index === -1 ? undefined : args[index + 1];
 };
+const valueIndices = new Set(
+  ["--bucket", "--work"]
+    .map((flag) => args.indexOf(flag))
+    .filter((index) => index !== -1)
+    .map((index) => index + 1),
+);
 
 /**
- * Expand a leading `~`. Every usage line here writes `~/s3cab-cleanroom-cpp` because
+ * Expand a leading `~`. Every usage line here writes `~/cleanroom` because
  * that is what you type in the shell this exercise is run from — but PowerShell does not
  * expand it, so node is handed the literal `~` and `resolve` makes it a directory named
  * `~` under the cwd. That cwd is the repo, so a documented command quietly wrote a
@@ -137,7 +144,6 @@ const expandHome = (path) =>
     : path;
 
 const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_CLEANROOM;
-const out = valueOf("--out");
 const work = expandHome(
   valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage"),
 );
@@ -145,11 +151,29 @@ const work = expandHome(
 // you then run, rather than a second spelling of it that could drift.
 const treesOnly = args.includes("--trees-only");
 const referenceOnly = args.includes("--reference-only");
-if (!bucket || !out || (treesOnly && referenceOnly)) {
+// Unknown flags are refused, not ignored: a mistyped --trees-only would otherwise run
+// the full stage, which empties the bucket.
+const unknown = args.find(
+  (arg, index) =>
+    arg.startsWith("-") &&
+    !["--bucket", "--work", "--trees-only", "--reference-only"].includes(arg) &&
+    !valueIndices.has(index),
+);
+const positionals = args.filter(
+  (arg, index) => !arg.startsWith("-") && !valueIndices.has(index),
+);
+const [out] = positionals;
+if (
+  unknown !== undefined ||
+  positionals.length !== 1 ||
+  !out ||
+  !bucket ||
+  (treesOnly && referenceOnly)
+) {
   console.error(
-    "usage: node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir>\n" +
-      "                                        [--work <dir>] [--trees-only | --reference-only]\n" +
-      "\ne.g. node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp",
+    "usage: node scripts/cleanroom/stage-cleanroom.mjs [--bucket <name>] [--work <dir>]\n" +
+      "                                        [--trees-only | --reference-only] <dir>\n" +
+      "\ne.g. node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs ~/cleanroom",
   );
   process.exit(2);
 }
@@ -167,12 +191,12 @@ const reference = join(room, "reference");
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
 if (reference.toLowerCase().startsWith(repoRoot.toLowerCase() + sep)) {
   console.error(
-    `--out ${out} puts the reference trees inside the repository, at\n` +
+    `${out} puts the reference trees inside the repository, at\n` +
       `${reference}. That is thousands of files in your working copy, and the\n` +
       "clean room they belong to is required to live outside it. Stage it beside\n" +
       "the room instead:\n" +
       "\n" +
-      "    node scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp\n",
+      "    node scripts/cleanroom/stage-cleanroom.mjs ~/cleanroom\n",
   );
   process.exit(2);
 }
@@ -391,11 +415,8 @@ if (referenceOnly) {
 // it: the suite names its sets for the clock (`rt1755…`), never one of ours. So a bucket
 // holding only our own names is this script's own leftovers and goes; anything else and
 // we stop and say what we found. A flag would have put that judgement on the operator at
-// the moment they are least likely to check.
-//
-// It is a check, not a lock: a suite that *starts* after this reads loses its in-flight
-// objects, which is why the notice below stays. --trees-only never reaches any of this —
-// it is the one mode that touches no network at all.
+// the moment they are least likely to check. --trees-only never reaches any of this — it
+// is the one mode that touches no network at all.
 if (!treesOnly) {
   const listing = await client.send(
     new ListObjectsV2Command({
@@ -426,11 +447,7 @@ if (!treesOnly) {
     const keys = await listAll();
     console.log(
       `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
-        `all of it this script's own (${present.join(", ")})`,
-    );
-    console.log(
-      "  an integration suite running against this bucket right now loses its\n" +
-        "  in-flight objects; nothing else in here outlives a clean-room run",
+        `all of it under this corpus's set names (${present.join(", ")})`,
     );
     // 1000 per request is the API's limit, not a batch size worth tuning.
     for (let index = 0; index < keys.length; index += 1000) {

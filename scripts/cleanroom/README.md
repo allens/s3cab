@@ -45,7 +45,7 @@ A restorer run, end to end:
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
-node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs ~/cleanroom
 # hand the room over, then when it finishes:
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
 ```
@@ -56,7 +56,7 @@ over:
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role backup ~/cleanroom
-node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --trees-only --out ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --trees-only ~/cleanroom
 ```
 
 A Windows run splits staging in two. The corpus is staged from WSL, because
@@ -67,10 +67,10 @@ restores *there*:
 ```powershell
 # in WSL: the bucket and the corpus (its reference/ is thrown away)
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom-wsl
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs ~/cleanroom-wsl
 # in PowerShell: the room, and its references from that corpus
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~\cleanroom
-node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~\cleanroom --reference-only
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --reference-only ~\cleanroom
 ```
 
 ## new-cleanroom.mjs
@@ -257,8 +257,8 @@ The damaged snapshot is backdated a minute so the intact one stays `faults`'s
 latest; it exists only in S3, so the script restores it by name.
 
 ```sh
-node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>] [--trees-only | --reference-only]
-node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom --trees-only
+node scripts/cleanroom/stage-cleanroom.mjs [--bucket <name>] [--work <dir>] [--trees-only | --reference-only] <dir>
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --trees-only ~/cleanroom
 ```
 
 The bucket wants a raised expiry first, or the corpus sweeps out from under the

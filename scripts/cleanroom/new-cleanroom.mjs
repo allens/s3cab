@@ -44,7 +44,7 @@
  *
  * Usage:
  *   node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>] [--force] <dir>
- *   node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/src/cleanroom
+ *   node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
  *
  * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_CLEANROOM from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
@@ -100,7 +100,7 @@ if (
 ) {
   console.error(
     "usage: node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>] [--force] <dir>\n" +
-      "\ne.g. node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/src/cleanroom",
+      "\ne.g. node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom",
   );
   process.exit(2);
 }
@@ -139,7 +139,7 @@ if (contains(repoRoot, target)) {
       "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
       "has to prevent. Stage it somewhere outside the repo instead:\n" +
       "\n" +
-      `    node scripts/cleanroom/new-cleanroom.mjs --role ${role} ~/src/cleanroom\n`,
+      `    node scripts/cleanroom/new-cleanroom.mjs --role ${role} ~/cleanroom\n`,
   );
   process.exit(2);
 }
@@ -474,7 +474,7 @@ console.log(
   `\nStill to do before the run:\n` +
     (backup
       ? `  - build the sets' trees, and their dirs.txt/exclude.txt in ${join(target, "sets")}:\n` +
-        `    stage-cleanroom.mjs --trees-only --out ${target}\n` +
+        `    stage-cleanroom.mjs --trees-only ${target}\n` +
         `  - empty the bucket: the backup's turn starts from nothing.\n` +
         `  - install Python 3 and boto3 if this machine lacks them: the brief tells the\n` +
         `    session not to install anything.\n`
