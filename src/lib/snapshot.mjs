@@ -178,6 +178,7 @@ export async function readBaseline(set, { rehash, resume }) {
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
  * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`): its unsupported types
  * @property {CompareError[]} errors - Files it couldn't hash (`#ERROR`), with the reason each row records
+ * @property {string[]} roots - The member directories as the walk resolved them — the spelling every path above starts with, which `dirs.txt`'s text need not be
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
 
@@ -382,6 +383,7 @@ export async function generateSnapshot(
     hashedBytes,
     skipped: skipped.length,
     errors: errored,
+    roots,
     elapsedMs: performance.now() - startedAt,
   };
 }

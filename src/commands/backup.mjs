@@ -1,3 +1,5 @@
+import { isAbsolute, relative, sep } from "node:path";
+
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
 import { pushSetConfig } from "../lib/set-marker.mjs";
@@ -68,6 +70,8 @@ import {
  * @property {number} uploadMs - Milliseconds spent sending them
  * @property {number} skipped - Entries the walk left out by design (a symlink, a socket)
  * @property {CompareError[]} errors - Files that couldn't be read to be backed up, each with the OS's reason
+ * @property {string[]} excludeSuggestions - An exclude pattern for each failed file the baseline had failed on too: trying again hasn't fixed it, so the report offers leaving it out instead
+ * @property {string} excludePath - The set's exclude file, where those patterns would go
  * @property {CompareResult | null} comparison - What changed since the baseline; `null` on a first backup, which runs no comparison at all (ADR-0078 §7)
  *
  * With no update mode ([ADR-0052](../../docs/adr/0052-retire-setup-update-mode.md)),
@@ -207,8 +211,35 @@ export async function backup(setName, options = {}) {
     uploadMs: sendingMs,
     skipped: pass.skipped,
     errors: pass.errors,
+    // Recurrence, not the error code, is the signal: EBUSY is both a sync
+    // client's lock file nobody wants and an Outlook .pst that only needs Outlook
+    // closed — suggesting an exclude for the second loses someone's mail.
+    excludeSuggestions: pass.errors
+      .filter(({ path }) => previousErrors.has(path))
+      .map(({ path }) => excludePattern(pass.roots, path)),
+    excludePath: set.excludePath,
     comparison,
   };
+}
+
+/**
+ * The exclude pattern naming exactly one file: its path relative to the member
+ * directory holding it, in the platform's own separator, as the starter
+ * `exclude.txt` is written (ADR-0051).
+ * @param {string[]} roots - The member directories as the walk resolved them,
+ *   never `dirs.txt`'s text: a symlinked or differently-cased entry contains
+ *   none of the walk's paths
+ * @param {string} path - A file the walk found beneath one of them
+ * @returns {string}
+ */
+function excludePattern(roots, path) {
+  const root = /** @type {string} */ (
+    roots.find((root) => {
+      const rel = relative(root, path);
+      return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    })
+  );
+  return relative(root, path);
 }
 
 /**
