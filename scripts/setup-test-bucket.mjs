@@ -54,7 +54,7 @@ const conformance = args.includes("--conformance");
 const force = args.includes("--force");
 const daysIndex = args.indexOf("--days");
 /** @param {number} index */
-const isDaysValue = (index) => index === daysIndex + 1;
+const isDaysValue = (index) => daysIndex !== -1 && index === daysIndex + 1;
 const unknown = args.find(
   (arg, index) =>
     arg.startsWith("-") &&
