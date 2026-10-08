@@ -265,9 +265,11 @@ describe("backup (the fused pass)", () => {
 
     const result = await backup("photos");
 
-    // Relative to the member directory holding it, `/`-separated, as
-    // guide/exclude.md says a pattern is written.
-    assert.deepEqual(result.excludeSuggestions, ["Outlook/archive.pst"]);
+    // Relative to the member directory holding it, in the native separator the
+    // starter exclude.txt is written in (ADR-0051).
+    assert.deepEqual(result.excludeSuggestions, [
+      join("Outlook", "archive.pst"),
+    ]);
   });
 
   it("passes --rehash through, so the pass reuses no stored hash", async () => {

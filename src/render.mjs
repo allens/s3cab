@@ -916,7 +916,7 @@ function problemDetail(p) {
  *   s3cab backup onedrive
  *
  * To skip the ones that failed last time too, add to ~\.s3cab\sets\onedrive\exclude.txt:
- *   Outlook/archive.pst
+ *   Outlook\archive.pst
  *
  * To see the details:
  *   s3cab compare onedrive --since 2026-08-01T0846 --until 2026-08-08T0206

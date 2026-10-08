@@ -1,4 +1,4 @@
-import { isAbsolute, posix, relative, sep } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 
 import { compareSnapshots } from "../lib/compare.mjs";
 import { loadSet } from "../lib/env.mjs";
@@ -224,7 +224,8 @@ export async function backup(setName, options = {}) {
 
 /**
  * The exclude pattern naming exactly one file: its path relative to the member
- * directory holding it, with `/` separators (guide/exclude.md).
+ * directory holding it, in the platform's own separator, as the starter
+ * `exclude.txt` is written (ADR-0051).
  * @param {string[]} dirs - The set's member directories
  * @param {string} path - A file the walk found beneath one of them
  * @returns {string}
@@ -234,9 +235,7 @@ function excludePattern(dirs, path) {
     const rel = relative(dir, path);
     return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
   });
-  return relative(dir ?? "", path)
-    .split(sep)
-    .join(posix.sep);
+  return relative(dir ?? "", path);
 }
 
 /**
