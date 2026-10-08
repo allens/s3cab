@@ -153,7 +153,7 @@ jobs:
       #     did, which is a thing you'd want to do to any change to this file.
       - name: Configure AWS credentials (gated real-S3 round-trip)
         if: >-
-          vars.S3CAB_TEST_BUCKET != '' && (github.ref == 'refs/heads/main' ||
+          vars.S3CAB_TEST_BUCKET_INTEGRATION != '' && (github.ref == 'refs/heads/main' ||
           startsWith(github.ref, 'refs/tags/v'))
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -175,11 +175,11 @@ jobs:
       # ref is part of it.
       - name: Real-S3 backup → restore round-trip (gated)
         if: >-
-          vars.S3CAB_TEST_BUCKET != '' && (github.ref == 'refs/heads/main' ||
+          vars.S3CAB_TEST_BUCKET_INTEGRATION != '' && (github.ref == 'refs/heads/main' ||
           startsWith(github.ref, 'refs/tags/v'))
         shell: bash
         env:
-          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
+          S3CAB_TEST_BUCKET_INTEGRATION: ${{ vars.S3CAB_TEST_BUCKET_INTEGRATION }}
         run: |
           set -euo pipefail
           # Paths stay RELATIVE to the workspace (cwd). On the Windows runner the
@@ -200,7 +200,7 @@ jobs:
           printf '%s' "$a" >"$src/file-a.txt"
           printf '%s' "$b" >"$src/nested/file-b.txt"
           setname="rt-$stamp" # [a-z0-9-]+: a valid set name
-          "$bin" setup --set "$setname" "$src" --bucket "$S3CAB_TEST_BUCKET"
+          "$bin" setup --set "$setname" "$src" --bucket "$S3CAB_TEST_BUCKET_INTEGRATION"
           "$bin" backup "$setname"
           # The content now lives only in S3: wipe the originals, then restore.
           rm -rf "$src"

@@ -96,7 +96,7 @@ jobs:
           aws-region: us-east-1 # the conformance bucket's region
       - run: npm run test:conformance
         env:
-          S3CAB_CONFORMANCE_BUCKET: ${{ vars.S3CAB_CONFORMANCE_BUCKET }}
+          S3CAB_TEST_BUCKET_CONFORMANCE: ${{ vars.S3CAB_TEST_BUCKET_CONFORMANCE }}
 
   # The crash/concurrency tier against real S3: real SIGKILLs and real
   # multi-process interleavings (test/crash/). Same sole-owner rule as
@@ -131,4 +131,4 @@ jobs:
           aws-region: us-east-1 # the crash bucket's region
       - run: npm run test:crash
         env:
-          S3CAB_CRASH_BUCKET: ${{ vars.S3CAB_CRASH_BUCKET }}
+          S3CAB_TEST_BUCKET_CRASH: ${{ vars.S3CAB_TEST_BUCKET_CRASH }}

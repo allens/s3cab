@@ -57,12 +57,12 @@
  * production ships; where the peer already closes first it changes no column,
  * which is the point rather than a disappointment.
  *
- * Bucket comes from S3CAB_TEST_BUCKET (the gated-suite bucket) or the first arg.
+ * Bucket comes from S3CAB_TEST_BUCKET_INTEGRATION (the gated-suite bucket) or the first arg.
  * Probe objects go under `probe/idle-socket/` and are deleted at the end; the
  * ~1-day lifecycle rule setup-test-bucket.mjs applies sweeps any that leak.
  *
  * Usage:
- *   S3CAB_TEST_BUCKET=<bucket> node scripts/idle-socket-probe.mjs
+ *   S3CAB_TEST_BUCKET_INTEGRATION=<bucket> node scripts/idle-socket-probe.mjs
  *   node scripts/idle-socket-probe.mjs <bucket> [--bound <ms>] [--gaps 5,30,120]
  *
  * With .env.test set up for the integration suite:
@@ -130,7 +130,7 @@ function refuse(message) {
  * @returns {{ bucket: string | undefined, bound: number, gaps: number[] }}
  */
 function parseArgs(args) {
-  let bucket = env.S3CAB_TEST_BUCKET;
+  let bucket = env.S3CAB_TEST_BUCKET_INTEGRATION;
   let bound = 0;
   let gaps = DEFAULT_GAPS;
   for (let i = 0; i < args.length; i++) {
@@ -231,7 +231,7 @@ async function probe(bucket, gapSeconds, bound) {
 const { bucket, bound, gaps } = parseArgs(argv.slice(2));
 if (!bucket) {
   stderr.write(
-    "Set S3CAB_TEST_BUCKET or pass a bucket name.\n" +
+    "Set S3CAB_TEST_BUCKET_INTEGRATION or pass a bucket name.\n" +
       "Never point this at a real backup bucket.\n",
   );
   exit(2);

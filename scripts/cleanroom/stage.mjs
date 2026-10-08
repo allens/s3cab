@@ -135,7 +135,7 @@ const expandHome = (path) =>
     ? join(homedir(), path.slice(1))
     : path;
 
-const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET;
+const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 const out = valueOf("--out");
 const work = expandHome(
   valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage"),

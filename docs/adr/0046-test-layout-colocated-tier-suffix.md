@@ -48,5 +48,5 @@ A second test file for one module qualifies with a **dotted aspect**
 Adding a real-bucket suite is "name it `*.integration.test.mjs`" — no hand-maintained file
 list. A plain `npm test` still runs every tier (the integration blocks `{ skip }` without a
 bucket); `test:integration` runs just the integration glob. The shared gated-suite harness (the
-`S3CAB_TEST_BUCKET`/`skip` gate, the env-loaded flag, marker teardown) lives in
+`S3CAB_TEST_BUCKET_INTEGRATION`/`skip` gate, the env-loaded flag, marker teardown) lives in
 [test/helpers/integration.mjs](../../test/helpers/integration.mjs).

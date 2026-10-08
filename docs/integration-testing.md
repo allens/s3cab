@@ -4,7 +4,7 @@ s3cab's test suite has a tier of **real-S3 integration tests** — they round-tr
 an actual bucket (backup → restore, listing, verified download). They are **opt-in**: a
 plain `npm test` runs only the hermetic unit + e2e suites and never globs them, so it
 stays green with no credentials. You opt in by running `npm run test:integration` (or
-`test:all`) — and once you do, a real bucket is **required**: with `S3CAB_TEST_BUCKET`
+`test:all`) — and once you do, a real bucket is **required**: with `S3CAB_TEST_BUCKET_INTEGRATION`
 unset the run **fails fast** with an actionable error rather than silently skipping
 (hard-fail > passing off having tested nothing — [ADR-0049](adr/0049-centralize-cross-cutting-test-tiers.md)).
 
@@ -21,7 +21,7 @@ your machine), then **[continuous integration](#continuous-integration-github-ac
 
 | Input | Notes |
 | --- | --- |
-| `S3CAB_TEST_BUCKET` | the bucket to test against — **required** for `test:integration`/`test:all` (an unset value fails the run fast, it does not skip) |
+| `S3CAB_TEST_BUCKET_INTEGRATION` | the bucket to test against — **required** for `test:integration`/`test:all` (an unset value fails the run fast, it does not skip) |
 | AWS credentials | resolved from your AWS config (profile / SSO / env), with `Get/Put/Delete` on objects + `ListBucket` |
 | `AWS_REGION` | the bucket's region (defaults to `us-east-1`) |
 
@@ -61,7 +61,7 @@ Three subtypes exist:
   as it runs (per suite or per test) and asserts on whole-bucket state, so a conformance bucket has exactly
   **one** owner, is never shared, and the run is serial by construction
   (`--test-concurrency=1` is baked into the npm script). Point
-  `S3CAB_CONFORMANCE_BUCKET` at it in `.env.test`; the suite hard-fails without it
+  `S3CAB_TEST_BUCKET_CONFORMANCE` at it in `.env.test`; the suite hard-fails without it
   rather than skipping, and refuses any name not matching
   `test-s3cab-*-conformance`. CI has its own sole-owner bucket
   (`test-s3cab-ci-conformance`): the nightly workflow runs the suite against it,
@@ -72,7 +72,7 @@ Three subtypes exist:
   lifecycle — pass `--conformance` to the script and name it `…-crash`): the tier
   wipes the whole bucket between cases and additionally aborts stranded multipart
   uploads, so the same sole-owner, never-shared, serial-by-construction rules
-  apply. Point `S3CAB_CRASH_BUCKET` at it in `.env.test`; the suite hard-fails
+  apply. Point `S3CAB_TEST_BUCKET_CRASH` at it in `.env.test`; the suite hard-fails
   without it and refuses any name not matching `test-s3cab-*-crash`.
 
 From a clone, the bundled script provisions either subtype in one cross-platform step
@@ -93,12 +93,12 @@ idempotent. Prefer raw `aws` CLI, or not in a clone? See the
 > `s3:PutBucketVersioning`. Provision once with privilege; run the tests with the scoped
 > profile.
 
-> **Never point the script — or `S3CAB_TEST_BUCKET` — at a real backup bucket.** The test
-> lifecycle expires *current* objects after 1 day (the deliberate opposite of a backup
+> **Never point the script — or `S3CAB_TEST_BUCKET_INTEGRATION` — at a real backup bucket.** The
+> test lifecycle expires *current* objects after 1 day (the deliberate opposite of a backup
 > bucket's *noncurrent*-only expiry), and the script applies it even to a bucket you
 > **already own**. The script refuses a name outside the `test-s3cab-` prefix
-> (`--force` overrides), but `S3CAB_TEST_BUCKET` itself is not guarded — the tests
-> write and delete objects wherever it points.
+> (`--force` overrides), but `S3CAB_TEST_BUCKET_INTEGRATION` itself is not guarded — the
+> tests write and delete objects wherever it points.
 
 ---
 
@@ -110,7 +110,7 @@ Put your non-secret settings in a gitignored `.env.test` (copy
 [`.env.test.example`](../.env.test.example)) — **no credentials go here**:
 
 ```ini
-S3CAB_TEST_BUCKET=test-s3cab-yourname-integration
+S3CAB_TEST_BUCKET_INTEGRATION=test-s3cab-yourname-integration
 AWS_REGION=us-east-1
 AWS_PROFILE=your-profile   # the ~/.aws profile to use; omit for the default
 ```
@@ -152,8 +152,8 @@ so the live run is confirmation rather than the only proof. Stand it up when you
 RA path itself.
 
 > **A `NoSuchBucket` on *every* file usually means a typo, not a broken setup.** The harness only
-> checks that `S3CAB_TEST_BUCKET` is *set*, so a misspelling gets all the way to S3 before
-> failing. Check the name against what exists —
+> checks that `S3CAB_TEST_BUCKET_INTEGRATION` is *set*, so a misspelling gets all the way to S3
+> before failing. Check the name against what exists —
 > `aws s3api list-buckets --query "Buckets[].Name"` — before debugging anything else, and be
 > careful choosing among similarly-named buckets: these tests **write and delete objects**, so
 > never point them at a bucket holding real backups.
@@ -313,7 +313,7 @@ aws iam attach-role-policy --role-name s3cab-ci --policy-arn arn:aws:iam::<ACCOU
 In the repo on GitHub: **Settings → Secrets and variables → Actions**:
 
 - **Secret** `AWS_ROLE_ARN` = the role ARN (keeps the account ID out of the workflow file).
-- **Variable** `S3CAB_TEST_BUCKET` = your bucket name (`test-s3cab-ci-integration`).
+- **Variable** `S3CAB_TEST_BUCKET_INTEGRATION` = your bucket name (`test-s3cab-ci-integration`).
 
 > **Want an explicit approval click too?** If you grant push access broadly and don't want
 > every collaborator's PR to spend automatically, add a GitHub **Environment** with required
@@ -347,7 +347,7 @@ s3-integration:
         aws-region: us-east-1
     - run: npm run test:integration
       env:
-        S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
+        S3CAB_TEST_BUCKET_INTEGRATION: ${{ vars.S3CAB_TEST_BUCKET_INTEGRATION }}
 ```
 
 One OS only — the S3 code path doesn't branch on platform.
