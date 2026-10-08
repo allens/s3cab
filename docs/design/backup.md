@@ -717,7 +717,7 @@ config, and test fixtures all move in this PR.
 ### Slice 3 — `backup` + `status` (the milestone) — **built (2026-06-13, PR #39)**
 
 S3 test strategy (decided): S3-touching code is covered by **gated integration tests
-against a real bucket** (`S3CAB_TEST_BUCKET`; originally skipped with a message when
+against a real bucket** (`S3CAB_TEST_BUCKET_INTEGRATION`; originally skipped with a message when
 unset — [ADR-0049](../adr/0049-centralize-cross-cutting-test-tiers.md) later made an
 opt-in run without a bucket hard-fail instead) rather
 than by mocking the `s3.mjs` boundary; the pure diff/cache logic gets ordinary unit

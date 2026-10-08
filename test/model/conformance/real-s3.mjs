@@ -9,13 +9,13 @@
 
 export { REAL_CAPABILITIES, RealS3 } from "../harness/real-inspector.mjs";
 
-const CONFORMANCE_BUCKET = process.env.S3CAB_CONFORMANCE_BUCKET;
+const CONFORMANCE_BUCKET = process.env.S3CAB_TEST_BUCKET_CONFORMANCE;
 
 if (!CONFORMANCE_BUCKET) {
   throw new Error(
     "No conformance bucket configured. Tier 2 conformance tests need a real,\n" +
       "versioned, sole-owner S3 bucket (docs/integration-testing.md):\n\n" +
-      "    export S3CAB_CONFORMANCE_BUCKET=test-s3cab-<you>-conformance\n\n" +
+      "    export S3CAB_TEST_BUCKET_CONFORMANCE=test-s3cab-<you>-conformance\n\n" +
       "  Working in a worktree? `.env.test` is gitignored and stays in the\n" +
       "  main checkout. Copy it across:\n" +
       "    cp ../../../.env.test .env.test\n",

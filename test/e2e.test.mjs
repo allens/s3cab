@@ -241,7 +241,7 @@ describe("cli (e2e)", () => {
   it("setup without --bucket is rejected (a set is bound to a bucket at creation)", async () => {
     // Creating a set now requires a bucket and touches S3 (the collision claim,
     // ADR-0024/0026); the full create → backup → list cloud round-trip is
-    // covered by the gated lib tests (S3CAB_TEST_BUCKET). Offline, `setup`
+    // covered by the gated lib tests (S3CAB_TEST_BUCKET_INTEGRATION). Offline, `setup`
     // without --bucket must fail fast with the usage error, before any S3 touch.
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const home = join(dir.path, "home");

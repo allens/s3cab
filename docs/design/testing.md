@@ -61,7 +61,7 @@ subprocess — and **(B) are external deps real or faked.**
   driving a function — the mock is a technique, not a separate location, so they share the
   unmarked `.test.mjs` name.)
 - **Integration** — drive an internal API with a **real** external dep (real S3). The
-  `test/integration/**/*.test.mjs` files, gated on `S3CAB_TEST_BUCKET`.
+  `test/integration/**/*.test.mjs` files, gated on `S3CAB_TEST_BUCKET_INTEGRATION`.
 - **E2E** — drive the **end-user entry point** (the CLI, `spawn`ed) through the whole stack;
   deps real or stubbed. `test/e2e.test.mjs`.
 
@@ -162,9 +162,9 @@ scenario name where cross-cutting, a module name where clearest:
 
 All tear down via `deleteObject` in a `finally` (a set's marker files via the shared
 `cleanupSetMarker` in [`test/helpers/integration.mjs`](../../test/helpers/integration.mjs),
-which also holds the `S3CAB_TEST_BUCKET` gate — a **hard-fail** when the bucket is unset, not a
-silent skip, since these files run only when integration is explicitly requested); content is
-unique per run so the shared `objects/` store stays isolated and cleanup is exact.
+which also holds the `S3CAB_TEST_BUCKET_INTEGRATION` gate — a **hard-fail** when the bucket is
+unset, not a silent skip, since these files run only when integration is explicitly requested);
+content is unique per run so the shared `objects/` store stays isolated and cleanup is exact.
 
 ## Where real S3 runs (the security model)
 
@@ -211,7 +211,7 @@ rather than by an approval gate.
 
 ### No emulator — and why
 
-The harness is **provider-agnostic by construction**: it reads `S3CAB_TEST_BUCKET` +
+The harness is **provider-agnostic by construction**: it reads `S3CAB_TEST_BUCKET_INTEGRATION` +
 `AWS_*` (+ `AWS_ENDPOINT_URL_S3` for a custom endpoint). A contributor can therefore point
 it at **anything** S3-compatible — AWS, R2, B2, Wasabi, anything with an endpoint —
 *their* choice, *their* account. We **neutrally support** any target without **depending on**
@@ -283,8 +283,8 @@ design-level:
   nothing at test-object volume). Local dev in whatever region is nearest the developer —
   inter-region cost differences are noise.
 - **Region/bucket are read from the environment, never hardcoded:** tests take the region
-  from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET`, so the `us-east-1` CI run and a
-  `eu-west-*` local run are the *same* code path.
+  from `AWS_REGION` and the bucket from `S3CAB_TEST_BUCKET_INTEGRATION`, so the `us-east-1` CI
+  run and a `eu-west-*` local run are the *same* code path.
 - **Which OS runs S3 tests:** the per-PR `s3-integration` job runs on **ubuntu** only — the S3
   code doesn't branch on platform, and the 3-OS `test` matrix exists for the platform-branching
   code (globs, separator normalization). But "the code is the same" removes cipher/cert

@@ -8,7 +8,7 @@ import { useTempHome } from "./temp-home.mjs";
 
 // Shared harness for the gated real-bucket integration tests in test/integration/
 // (see docs/design/testing.md). They round-trip against a real S3 bucket, gated on
-// `S3CAB_TEST_BUCKET` (+ ambient AWS credentials).
+// `S3CAB_TEST_BUCKET_INTEGRATION` (+ ambient AWS credentials).
 //
 // The bucket may hold a co-tenant: fixtures staged for a clean-room restorer
 // (scripts/cleanroom/stage.mjs) live here because this is the one test bucket whose
@@ -26,12 +26,12 @@ import { useTempHome } from "./temp-home.mjs";
 // having tested nothing). Hard-fail > silently-skipped, wherever integration was asked
 // for.
 
-const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET;
+const TEST_BUCKET = process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 
 if (!TEST_BUCKET) {
   throw new Error(
     "No test bucket configured. Integration tests need a real S3 bucket.\n\n" +
-      "    export S3CAB_TEST_BUCKET=your-bucket    # then re-run\n" +
+      "    export S3CAB_TEST_BUCKET_INTEGRATION=your-bucket    # then re-run\n" +
       "    # or run `npm test` for the unit suite (no bucket needed)\n\n" +
       // The recurring cause, and invisible from the error alone: `.env.test` is
       // gitignored, so a fresh worktree (.claude/worktrees/<name>, CLAUDE.md #7)

@@ -97,4 +97,4 @@ jobs:
       # The reason the job exists: real S3, against the SDK a new user would get.
       - run: npm run test:integration
         env:
-          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
+          S3CAB_TEST_BUCKET_INTEGRATION: ${{ vars.S3CAB_TEST_BUCKET_INTEGRATION }}

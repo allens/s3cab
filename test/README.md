@@ -18,7 +18,7 @@ Five tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutti
   real infra. This *includes* the mocked-`s3.mjs`-seam tests (e.g.
   [../src/lib/objects.test.mjs](../src/lib/objects.test.mjs)) — the mock is a technique, not a
   separate location.
-- **Integration** — real S3 round-trips, gated on `S3CAB_TEST_BUCKET`, in
+- **Integration** — real S3 round-trips, gated on `S3CAB_TEST_BUCKET_INTEGRATION`, in
   [integration/](integration/) (e.g. [integration/remote.test.mjs](integration/remote.test.mjs)).
   **The folder is the tier marker** — no `.integration.` suffix; `npm run test:integration`
   globs `test/integration/**/*.test.mjs`, so a new suite auto-enrols by being dropped in. A run
@@ -45,7 +45,7 @@ Five tiers. **Co-locate the module-owned tier (unit); centralize the cross-cutti
   S3-request boundaries by the [crash/killswitch.mjs](crash/killswitch.mjs) `--import` preload.
   Interruption cases tear every multi-step transition and assert the store stays restorable;
   concurrency cases run backup/cleanup/forget/setup from separate processes with separate
-  `S3CAB_HOME`s against one bucket. Gated on `S3CAB_CRASH_BUCKET` (`test-s3cab-<owner>-crash` —
+  `S3CAB_HOME`s against one bucket. Gated on `S3CAB_TEST_BUCKET_CRASH` (`test-s3cab-<owner>-crash` —
   cases wipe the bucket), `npm run test:crash` only, **never** in `test:all`. Assertions go
   through the model tier's independent inspector/parser, never `src/lib/s3.mjs`. The two `PIN`
   tests in [crash/concurrency.test.mjs](crash/concurrency.test.mjs) assert *current wrong*

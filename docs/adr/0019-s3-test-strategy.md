@@ -12,9 +12,9 @@ nightly workflow. The tiering *decision* here still governs where a mock is allo
    the cache dropped by [0045](0045-change-detection-local-baseline-list-fallback.md).)
 2. **Command orchestration + deterministic error injection** → **mock the `s3.mjs` seam**
    (`node:test`'s `mock.module`/`mock.fn`, zero-dep), run everywhere incl. fork PRs.
-3. **Real round-trips** → **real AWS**, gated on `S3CAB_TEST_BUCKET` (+ ambient creds). Offline
-   and fork runs stay green because the gated suites live in their own `test/integration/`
-   directory a plain `npm test` never globs; a run that *opts into* integration without a bucket
+3. **Real round-trips** → **real AWS**, gated on `S3CAB_TEST_BUCKET_INTEGRATION` (+ ambient
+   creds). Offline and fork runs stay green because the gated suites live in their own
+   `test/integration/` directory a plain `npm test` never globs; a run that *opts into* integration without a bucket
    **hard-fails** (not silently skips) — [0049](0049-centralize-cross-cutting-test-tiers.md).
 
 ## Mock at `s3.mjs`, not the AWS SDK

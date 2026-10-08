@@ -17,7 +17,7 @@
  *
  * Usage:
  *   node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>
- *   S3CAB_TEST_BUCKET=<bucket> node scripts/setup-test-bucket.mjs
+ *   S3CAB_TEST_BUCKET_INTEGRATION=<bucket> node scripts/setup-test-bucket.mjs
  *
  * The default is an integration bucket: unversioned, flat 1-day expiry, shareable
  * between concurrent runs. --conformance instead provisions for the model-based
@@ -66,7 +66,7 @@ const unknown = args.find(
 const positionals = args.filter(
   (arg, index) => !arg.startsWith("-") && !isDaysValue(index),
 );
-const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET;
+const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 
 // A day by default: long enough for any suite, short enough that a crashed run's
 // residue is swept before the next one starts. For the tiers that assert whole-bucket
@@ -84,7 +84,7 @@ if (
   days < 1
 ) {
   console.error(
-    "usage: node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>  (or set S3CAB_TEST_BUCKET)",
+    "usage: node scripts/setup-test-bucket.mjs [--conformance] [--force] [--days <n>] <bucket>  (or set S3CAB_TEST_BUCKET_INTEGRATION)",
   );
   process.exit(2);
 }
@@ -210,5 +210,5 @@ console.log(
 );
 
 console.log(
-  `\nNext: set S3CAB_TEST_BUCKET=${bucket} (plus AWS_* credentials) to run the gated S3 suites.`,
+  `\nNext: set S3CAB_TEST_BUCKET_INTEGRATION=${bucket} (plus AWS_* credentials) to run the gated S3 suites.`,
 );

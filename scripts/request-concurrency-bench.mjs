@@ -39,7 +39,7 @@
  *
  * Sampling (interleaved rounds, median and spread) is bench-sampling.mjs's.
  *
- * Bucket comes from S3CAB_TEST_BUCKET (the gated-suite bucket) or the first arg;
+ * Bucket comes from S3CAB_TEST_BUCKET_INTEGRATION (the gated-suite bucket) or the first arg;
  * credentials and region are ambient, as for the integration suite.
  *
  * Usage:
@@ -56,10 +56,10 @@ import { randomUUID } from "node:crypto";
 import { deleteObject, objectSize, putText } from "../src/lib/s3.mjs";
 import { median, numList, positive, shuffle } from "./bench-sampling.mjs";
 
-const bucket = process.argv[2] ?? process.env.S3CAB_TEST_BUCKET;
+const bucket = process.argv[2] ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 if (!bucket) {
   console.error(
-    "usage: node scripts/request-concurrency-bench.mjs <bucket>  (or set S3CAB_TEST_BUCKET)",
+    "usage: node scripts/request-concurrency-bench.mjs <bucket>  (or set S3CAB_TEST_BUCKET_INTEGRATION)",
   );
   process.exit(2);
 }

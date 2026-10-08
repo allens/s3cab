@@ -45,13 +45,13 @@
  * Run it from hosts at different distances against the SAME bucket to watch the
  * optimum move; ADR-0060 records three such runs.
  *
- * Bucket comes from S3CAB_TEST_BUCKET (the gated-suite bucket) or the first arg.
+ * Bucket comes from S3CAB_TEST_BUCKET_INTEGRATION (the gated-suite bucket) or the first arg.
  * Probe objects go under `bench/multipart/` and are deleted after each upload;
  * the ~1-day lifecycle rule setup-test-bucket.mjs applies sweeps any that leak
  * if this crashes.
  *
  * Usage:
- *   S3CAB_TEST_BUCKET=<bucket> node scripts/multipart-bench.mjs
+ *   S3CAB_TEST_BUCKET_INTEGRATION=<bucket> node scripts/multipart-bench.mjs
  *   node scripts/multipart-bench.mjs <bucket> [path/to/file]
  *
  * With no file path it generates incompressible random payloads (so the wire,
@@ -80,10 +80,10 @@ import { writeRandomFile } from "./dd.mjs";
 const MB = 1024 * 1024;
 const MIN_PART = 5 * MB; // S3's hard floor for a non-final part.
 
-const bucket = process.argv[2] ?? process.env.S3CAB_TEST_BUCKET;
+const bucket = process.argv[2] ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 if (!bucket) {
   console.error(
-    "usage: node scripts/multipart-bench.mjs <bucket> [file]  (or set S3CAB_TEST_BUCKET)",
+    "usage: node scripts/multipart-bench.mjs <bucket> [file]  (or set S3CAB_TEST_BUCKET_INTEGRATION)",
   );
   process.exit(2);
 }

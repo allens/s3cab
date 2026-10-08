@@ -131,9 +131,9 @@ jobs:
   # (auto-run), so the OIDC token's `sub` is no longer
   # `...:environment:s3-integration-tests`: the role's trust policy
   # (ci/aws/trust-policy.json) must allow this repo's `pull_request` subject instead,
-  # and AWS_ROLE_ARN / S3CAB_TEST_BUCKET must be repo-level secret/var (no longer
-  # Environment-scoped). Spend stays capped by the tight IAM policy + 1-day bucket
-  # lifecycle + billing alarm (docs/design/testing.md).
+  # and AWS_ROLE_ARN / S3CAB_TEST_BUCKET_INTEGRATION must be repo-level secret/var
+  # (no longer Environment-scoped). Spend stays capped by the tight IAM policy +
+  # 1-day bucket lifecycle + billing alarm (docs/design/testing.md).
   # One OS only — the S3 code path doesn't branch on platform (unlike the matrix above).
   s3-integration:
     name: s3 integration
@@ -176,7 +176,7 @@ jobs:
           aws-region: us-east-1 # the test bucket's region; exported as AWS_REGION
       - run: npm run test:integration
         env:
-          S3CAB_TEST_BUCKET: ${{ vars.S3CAB_TEST_BUCKET }}
+          S3CAB_TEST_BUCKET_INTEGRATION: ${{ vars.S3CAB_TEST_BUCKET_INTEGRATION }}
 
   # The single required check: it passes only when every job it needs actually
   # succeeded. Mark this job — by its display name `ci gate` — as the required
