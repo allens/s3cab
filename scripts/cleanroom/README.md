@@ -34,29 +34,45 @@ three-way proof: a clean-room backup, in Python on every platform, is the
 other. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
-maintained, and improved every run as findings come in: the two build scripts,
-the two modules they share (`cleanroom.mjs`, `fixtures.mjs`), and `compare.py`.
+maintained, and improved every run as findings come in: the seed script, the two
+build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
+`restore-bucket.mjs`), and `compare.py`.
 [restorers/](restorers/) is append-only and frozen — one program per run, never
 updated, because each one's value is being a fixed reading of the spec on a
 given date.
 
-Every run happens in a **sandbox**: one directory outside the repo, built from
-empty and deleted once the run is harvested. The bucket is shared, so there is
-only ever one sandbox: create, run, harvest, destroy, then the next.
+Two buckets, one per role
+([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
+`S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the **golden set** every restorer
+reads, and `S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is emptied for each clean-room
+backup's turn.
+
+The golden set is seeded **once per format change**, on Linux or WSL, since only
+a Linux filesystem holds every fixture. The root must be on that filesystem —
+`~`, not `/mnt/c`:
+
+```sh
+node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <restore-bucket>
+node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs ~/s3cab.sandbox
+rm -r ~/s3cab.sandbox
+```
+
+Every run then happens in a **sandbox**: one directory outside the repo, built
+from empty and deleted once the run is harvested — create, run, harvest,
+destroy, then the next.
 
 ```text
 C:\s3cab.sandbox\
   cleanroom\   the session opens here: spec, brief, credentials,
                and sets\ (backup) or reference\ (restore)
-  fixtures\    the trees that get backed up
-  .s3cab\      s3cab's home while it backs them up (restore only)
+  fixtures\    the trees it backs up (backup only)
+  .s3cab\      s3cab's home while it restores the reference (restore only)
 ```
 
-A restorer run, end to end:
+A restorer run, end to end — the same commands on every OS:
 
 ```powershell
 # create
-node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs C:\s3cab.sandbox
 # run: open a session in C:\s3cab.sandbox\cleanroom and say "go"
 # harvest: its program and report into the repo, and its restore compared
@@ -69,26 +85,14 @@ A backup run is the same sequence with the other script. Its turn starts from
 an empty bucket, which the build leaves for you to empty:
 
 ```powershell
-aws s3 rm s3://<bucket>/ --recursive
+aws s3 rm s3://<backup-bucket>/ --recursive
 node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs C:\s3cab.sandbox
-```
-
-A Windows restorer run builds the bucket from WSL, because Windows can't create
-the POSIX fixtures, and the clean room on Windows, because what a restorer there
-is measured against is what s3cab restores *there*:
-
-```powershell
-# in WSL: the bucket, from the full fixture set; the sandbox is only a means to it
-node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs ~/s3cab.sandbox
-rm -r ~/s3cab.sandbox
-# in PowerShell: the clean room, and its reference trees from that bucket
-node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs --reference-only C:\s3cab.sandbox
 ```
 
 ## cleanroom.mjs
 
-Writes the clean room both build scripts hand over: a byte copy of
+Reads the one root every script here takes, and writes the clean room both
+build scripts hand over: a byte copy of
 [guide/format.md](../../guide/format.md) (plus
 [guide/exclude.md](../../guide/exclude.md) for a backup), a brief naming the
 language, credentials, and nothing else. The language is Python for the backup
@@ -97,15 +101,15 @@ reader and by spec version. The restorer brief is language-neutral apart from on
 sentence — which names no version and no toolchain, leaving the session to find
 "the most modern version that comes as standard" on the machine it's on.
 
-The sandbox has to be **outside the repo**, and both scripts refuse otherwise:
+The sandbox has to be **outside the repo**, and every script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
 anything, and that file discusses the `#SNAPSHOT` header's UTC instant, the
 `#DIR` headers, the drive-letter normalisation and the TSV encoding. Those are
 restore-correctness facts the exercise exists to make someone derive, and the
 contamination is invisible in the result — the ambiguity list simply comes back
 shorter, which reads as a spec that has been fixed. Keep previous runs' reports
-out of the sandbox too: diffing the lists afterwards is the reader's job. Both
-scripts also refuse a sandbox that isn't empty, so nothing from the last run can
+out of the sandbox too: diffing the lists afterwards is the reader's job. They
+also refuse a sandbox that isn't empty, so nothing from the last run can
 ride along beside the new brief.
 
 The brief is written as the clean room's own `CLAUDE.md`, so the run starts from
@@ -119,8 +123,9 @@ whose suites assert whole-bucket state and which hold deliberately torn
 repositories — snapshots published over swept objects, written on purpose by
 `test/crash`. That is the exact signature this exercise hunts, so a session that
 wandered into one would report a real observation as a spec defect. The bucket
-comes only from `S3CAB_TEST_BUCKET_CLEANROOM`, which `--env-file=.env.test`
-supplies with the `AWS_*` settings without the file itself travelling.
+comes only from the role's `S3CAB_TEST_BUCKET_CLEANROOM_*` variable, which
+`--env-file=.env.test` supplies with the `AWS_*` settings without the file itself
+travelling.
 
 Libraries come from the platform's packages, and the brief bars **any AWS SDK or
 S3 client library, packaged or not** — the restorer signs its own requests, and
@@ -166,7 +171,8 @@ The trees both build scripts back up, eight sets of them. Each build makes its
 own, and two builds never match byte for byte (random content, natural mtimes),
 which costs neither proof anything: a backup's rows are checked against
 `s3cab snapshot` of its own sandbox's trees, and a restore against s3cab's
-restore of its own bucket. They share the module so there is one list to keep.
+restore of the same golden set. They share the module so there is one list to
+keep.
 
 It is committed code rather than a chat because run 1's corpus is **gone** —
 staged by hand, and its harness "was a session artifact and is not preserved"
@@ -196,46 +202,48 @@ bytes would test gunzip's own check instead, and the trailer's whole purpose is
 catching a backup killed mid-write.
 
 Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
-in names, strips trailing spaces, and folds case. They are skipped with a loud
-notice naming each one, because a partial corpus that reads as a complete one is
-the same silent-shortening failure the exercise exists to hunt. Keep them in the
-corpus permanently anyway — for a Windows clean-room run they *become* the
-point, where a restorer that refuses them is behaving correctly and one that
-silently strips the trailing space and reports success is not. A symlink, by
-contrast, is attempted everywhere and skipped only on the error: Windows has
-them, it just wants Developer Mode.
+in names, strips trailing spaces, and folds case. A Windows backup build skips
+them with a loud notice naming each one, because a partial corpus that reads as
+a complete one is the same silent-shortening failure the exercise exists to
+hunt; the seed refuses to run without them. Keep them in the corpus permanently
+anyway — for a Windows restorer they *become* the point, where one that refuses
+them is behaving correctly and one that silently strips the trailing space and
+reports success is not. A symlink, by contrast, is attempted everywhere and
+skipped only on the error: Windows has them, it just wants Developer Mode.
 
 ## build-backup-cleanroom.mjs
 
 Builds a backup sandbox: the clean room, with each set's `dirs.txt` and
 `exclude.txt` in its `sets\`, pointing at the trees in `fixtures\`. Nothing of
 s3cab's runs and nothing reaches S3 — the session's backup is the first thing in
-the bucket. The exclude patterns are the ones the restore build gives s3cab in
-place of `setup`'s starter file, so both backups skip the same files and publish
+the bucket. The exclude patterns are the ones the seed gives s3cab in place of
+`setup`'s starter file, so both backups skip the same files and publish
 the same `sets/` markers.
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/build-backup-cleanroom.mjs <root>
 ```
 
-## build-restore-cleanroom.mjs
+## seed-restore-cleanroom-bucket.mjs
 
-Builds a restore sandbox: eight backup sets in the bucket, backed up from
-`fixtures\`, plus the `reference\` trees inside the clean room that a restorer's
-output is compared to.
+Seeds the restore bucket with the **golden set**: eight backup sets made by
+s3cab from the fixtures, then deliberately damaged. It runs only when
+`guide/format.md` changes, and only on Linux: Windows refuses the `[POSIX]`
+names, and macOS's APFS silently folds names that differ only in case or
+Unicode normalization. It builds the fixtures before touching the bucket and
+stops if any group was skipped, since a golden set missing one would be partial
+for every run after it.
 
-`reference\` holds what **s3cab itself restored**, not the fixtures. A correct
-restore legitimately differs from its source — no empty directories, no
-symlinks, no permissions, mtimes rounded to the millisecond
-([guide/format.md](../../guide/format.md)) — so comparing against the sources
-would fail a restorer for being right. The script drives the real CLI as a
-subprocess to produce them, with `S3CAB_HOME` pointed at the sandbox's `.s3cab\`
-so your own `~/.s3cab` is untouched while `~/.aws` keeps working.
+It stamps the bucket with the hash of the `format.md` it was seeded from — as a
+bucket tag, not a key, because a restorer works out the bucket's contents from a
+listing and would report a key the spec doesn't describe. The stamp is removed
+first and written last, so a seed that fails halfway leaves a bucket every
+restore build refuses.
 
-**It empties the bucket for you**, when the bucket is its own to empty. A build
+**It empties the bucket for you**, when the bucket is its own to empty. A seed
 needs an empty repository — snapshots are immutable and a set name belongs to
 whoever claimed it first — and there is never a reason to keep the previous
-run's sets, so the question worth asking is not "may I clear this?" but "is
+golden set, so the question worth asking is not "may I clear this?" but "is
 this bucket mine to clear?": an `.env.test` pointing somewhere forgotten, a live
 integration run. The set names answer it, since the integration suite names its
 sets for the clock (`rt1755…`) and never one of ours. A bucket holding only our
@@ -249,31 +257,49 @@ an object torn out of the store through the SDK with **no** deletion record (the
 unexplained-damage case: report it, carry on, exit nonzero), one file deleted
 *with* a record (the explained one, skipped with its date), and a snapshot
 missing its trailer. `corrupt` has an object whose bytes don't hash to its key.
-Their restores therefore exit nonzero, and the script reports that as expected
-rather than failing — and their reference trees are whatever s3cab wrote before
-it gave up, since a partial tree is the honest reference for a partial restore.
 The damaged snapshot is backdated a minute so the intact one stays `faults`'s
-latest; it exists only in S3, so the script restores it by name.
-
-`--reference-only` is the Windows half of a run whose bucket was filled by a
-full build from WSL. It builds no fixtures and empties nothing: it reattaches
-each set and restores every snapshot in the bucket into `reference\`.
-Snapshots and objects are left as they are, but it is not read-only: `reattach`
-rewrites each set's `info`, naming this machine its owner, so it needs the same
-write credentials a full build does. The Linux trees won't do as the reference
-there: s3cab's Windows restore refuses the case-colliding pair, can't create the
-control-character names, and sets mtimes exactly where Linux carries a
-sub-microsecond error — every one a difference `compare.py` would charge to the
-restorer. Restores that exit nonzero outside `faults` and `corrupt` are printed
-with what s3cab said, since on Windows a short reference tree is expected and
-has to be read before the clean room is handed over.
+latest; it exists only in S3.
 
 ```sh
-node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs [--reference-only] <root>
+node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs <root>
 ```
 
-The bucket wants a raised expiry first, or the sets sweep out from under the
-run: `node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>`.
+The bucket wants an expiry longer than the format is expected to hold still, or
+the golden set sweeps out from under the runs it serves:
+`node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <bucket>`.
+
+## build-restore-cleanroom.mjs
+
+Builds a restore sandbox from the golden set: the clean room, with the
+`reference\` trees a restorer's output is compared to. It refuses a bucket
+stamped from another `format.md`, which is the cue to reseed. The same command
+on every OS, and it has to run on the OS under test: s3cab's Windows restore
+refuses the case-colliding pair, can't create the control-character names, and
+sets mtimes exactly where Linux carries a sub-microsecond error — every one a
+difference `compare.py` would charge a restorer for, against a reference built
+elsewhere.
+
+`reference\` holds what **s3cab itself restored**, not the fixtures. A correct
+restore legitimately differs from its source — no empty directories, no
+symlinks, no permissions, mtimes rounded to the millisecond
+([guide/format.md](../../guide/format.md)) — so comparing against the sources
+would fail a restorer for being right. The script drives the real CLI as a
+subprocess to produce them, with `S3CAB_HOME` pointed at the sandbox's `.s3cab\`
+so your own `~/.s3cab` is untouched while `~/.aws` keeps working. It reattaches
+each set first, which is not read-only: `reattach` rewrites each set's `info`,
+naming this machine its owner.
+
+`faults` and `corrupt` restore with a nonzero exit, which the script reports as
+expected rather than failing — and their reference trees are whatever s3cab
+wrote before it gave up, since a partial tree is the honest reference for a
+partial restore. The damaged snapshot is restored by name. Restores that exit
+nonzero outside those two are printed with what s3cab said, since on Windows a
+short reference tree is expected and has to be read before the clean room is
+handed over.
+
+```sh
+node --env-file=.env.test scripts/cleanroom/build-restore-cleanroom.mjs <root>
+```
 
 ## compare.py
 

@@ -25,7 +25,10 @@ import {
 } from "./cleanroom.mjs";
 import { buildFixtures, excludes, reportFixtures } from "./fixtures.mjs";
 
-const { root, bucket } = readCommandLine("build-backup-cleanroom.mjs");
+const { root, bucket } = readCommandLine(
+  "build-backup-cleanroom.mjs",
+  "S3CAB_TEST_BUCKET_CLEANROOM_BACKUP",
+);
 const credentials = await sessionCredentials(bucket);
 const cleanroom = join(root, "cleanroom");
 const fixtures = join(root, "fixtures");
@@ -47,4 +50,5 @@ handover(root, [
   "empty the bucket: the backup's turn starts from nothing.",
   "install Python 3 and boto3 if this machine lacks them: the brief tells the\n" +
     "    session not to install anything.",
+  "raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days",
 ]);

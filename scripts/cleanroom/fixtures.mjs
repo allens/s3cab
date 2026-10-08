@@ -1,8 +1,8 @@
 /**
  * The clean-room fixtures (ADR-0096): eight backup sets' trees, built the same way into a
- * backup sandbox and a restore sandbox. Shared for upkeep, not for either proof: each run
- * is checked against its own build, and two builds differ anyway (random bytes, the
- * filesystem's own mtimes). A fixture for a new spec finding usually belongs on both
+ * backup sandbox and for the restore bucket's golden set. Shared for upkeep, not for
+ * either proof: each is checked against its own build, and two builds differ anyway
+ * (random bytes, the filesystem's own mtimes). A fixture for a new spec finding usually belongs on both
  * sides, so it is added here once.
  *
  * WHY THIS IS CODE AND NOT A CHAT. The first clean-room run (docs/format-spec-audit.md)
@@ -18,7 +18,7 @@
  * Findings fixtures *cannot* provoke are listed too, honestly, rather than being
  * quietly dropped so the table looks complete. The ones that need damage in the bucket
  * (F5, F7, `deleted`, `corrupt`, the damaged snapshot) get it from
- * build-restore-cleanroom.mjs; the trees here are their raw material.
+ * seed-restore-cleanroom-bucket.mjs; the trees here are their raw material.
  *
  *   F1  encoding             emoji / CJK / accented names, and NFC-vs-NFD pair
  *   F2  never trim the path  leading-space, trailing-space, both-ends names   [POSIX]
@@ -73,9 +73,9 @@
  * permanently even so — for a Windows clean-room run they become the point. A Windows
  * restorer that refuses them, or skips them loudly, is behaving correctly; one that
  * silently strips the trailing space and reports success is the exact failure this
- * whole exercise hunts. Such a restore sandbox is built in two halves: in full from WSL,
- * so every fixture exists, then `build-restore-cleanroom.mjs --reference-only` on
- * Windows, so the comparison target is what s3cab itself restores *there*.
+ * whole exercise hunts. So the restore bucket is seeded on Linux, where every fixture
+ * exists, and a Windows restorer meets them all; a Windows backup build is partial by
+ * nature, measured on what Windows can hold.
  *
  * Paths holding a tab, LF or CR are deliberately absent: guide/format.md refuses them
  * at backup time and the run stops, so a fixture with one would break the build rather
@@ -91,9 +91,9 @@ import {
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
-// The sets, in staging order. Each one's tree is `<fixtures>/<name>`, and each claims
-// that name in the bucket — which is why the restore build can ask about them before a
-// single tree exists.
+// The sets, in backup order. Each one's tree is `<fixtures>/<name>`, and each claims
+// that name in the bucket — which is why the restore build can reattach them with no
+// tree in sight.
 export const setNames = [
   "edge",
   "docs",
@@ -348,8 +348,8 @@ export function reportFixtures(dir, sets, skipped) {
       `\n! this platform could not create ${skipped.length} fixture group${skipped.length === 1 ? "" : "s"}:\n` +
         skipped.map((label) => `    ${label}`).join("\n") +
         "\n  NTFS forbids control characters, strips trailing spaces and folds case, and a\n" +
-        "  symlink needs Developer Mode — so a Windows build is a partial one.\n" +
-        "  Build it from WSL for the full set; those fixtures target Tier 1 findings.",
+        "  symlink needs Developer Mode — so a build here is a partial one, measured on\n" +
+        "  what this platform can hold.",
     );
   }
 }

@@ -134,8 +134,9 @@ indefinitely.
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the clean-room implementations
   against the current spec. `build-backup-cleanroom.mjs` and `build-restore-cleanroom.mjs` each
-  build a sandbox for one run, with the language derived from role and platform. Still to build: a CI workflow that runs the whole
-  matrix, described below.
+  build a sandbox for one run, with the language derived from role and platform;
+  `seed-restore-cleanroom-bucket.mjs` fills the bucket every restorer reads. Still to build: a
+  CI workflow that runs the whole matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are
   committed, each replacing its predecessor; the reports in `docs/` keep the history. After
@@ -144,23 +145,37 @@ indefinitely.
   A session-written program can't be regenerated identically, which is why the outputs are
   committed at all.
 
-  **The bucket is settled: one, `S3CAB_TEST_BUCKET_CLEANROOM`, used in turns.** Every backup
-  in the matrix backs up the same file contents, so they share every hash, and a bucket's
-  `objects/` is shared by all its sets. Two backups in one bucket at once would let one's
-  object stand in for the other's: hiding a bad upload, or leaking
-  `build-restore-cleanroom.mjs`'s deliberate damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the
-  bucket, one backup, every restorer restores it. The turns are s3cab's, on Linux, where every
-  fixture can exist; then the clean-room backup's, once per OS. A second bucket would not remove
-  the turns, since the clean-room backup alone takes three. The bucket is
-  `test-s3cab-<owner>-cleanroom`, and `test-s3cab-ci-cleanroom` in CI; nothing else uses it.
-  The clean room leaves the integration bucket, which CI's integration suite owns outright and
-  expires within a day.
+  **The buckets are settled: two, one per role.** Every backup in the matrix backs up the same
+  file contents, so they share every hash, and a bucket's `objects/` is shared by all its sets.
+  Two backups in one bucket would let one's object stand in for the other's: hiding a bad
+  upload, or leaking the restore bucket's deliberate damage (`faults`, `corrupt`) into the
+  other backup's sets.
+
+  - **`S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the golden set**: s3cab's backup of the
+    fixtures, damage included, which every restorer restores. It is long-lived, and reseeded by
+    `seed-restore-cleanroom-bucket.mjs` only when `guide/format.md` changes; the seed records
+    that file's hash in the bucket, and a restore build refuses a bucket seeded from another
+    spec, since a restorer written from today's spec fails against yesterday's format through
+    no fault of its own. The seed runs **on Linux only**, where every fixture can exist:
+    Windows refuses the `[POSIX]` names, and macOS's APFS silently folds names differing only
+    in case or Unicode normalization into one file. Every restore build is then the same on
+    every OS: reattach the sets and restore s3cab's own reference from them.
+  - **`S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is used in turns**: empty the bucket, one clean-room
+    backup, every restorer restores it. The clean-room backup takes one turn per OS.
+
+  The buckets are `test-s3cab-<owner>-cleanroom-restore` and `-cleanroom-backup`, with `ci` as
+  the owner in CI; nothing else uses them. The clean room leaves the integration bucket, which
+  CI's integration suite owns outright and expires within a day. One bucket is one repository,
+  at its root, so a second major format version after 1.0 would need a second golden bucket
+  (`…_CLEANROOM_RESTORE_V2`) rather than a prefix. Not a tarball of the golden bucket in the
+  repo: it would be a cache of the seed script's output, 40 MB and more added to history on
+  every format change, where the long-lived bucket already is that cache.
 
   **The matrix runs in GitHub Actions**, on Linux, macOS and Windows runners, with the turns
   ordered by job dependencies and a concurrency group. It builds and runs the committed
   programs; it never writes them. On each runner, the reference for a restore is s3cab's own
   restore there, and the clean-room backup's rows are compared with `s3cab snapshot` of the
-  same trees, which is local and needs no bucket. A personal bucket of the same name serves the
+  same trees, which is local and needs no bucket. Personal buckets of the same names serve the
   sessions that write the programs, one session at a time.
 
   **The clean-room backup backs up its sandbox's fixture trees in place**, so its paths and

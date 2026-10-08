@@ -73,8 +73,8 @@ const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 // state that sweep is correctness, not housekeeping — test/crash asserts exact object
 // counts and test/model/conformance resets the whole bucket, so both want the short
 // clock and neither holds anything worth keeping. Raise it only for a bucket holding
-// data meant to outlive a run, which today means the sets built for a clean-room
-// restorer (see cleanroom/build-restore-cleanroom.mjs).
+// data meant to outlive a run, which today means the clean-room restore bucket's golden
+// set (see cleanroom/seed-restore-cleanroom-bucket.mjs).
 const days = daysIndex === -1 ? 1 : Number(args[daysIndex + 1]);
 if (
   unknown !== undefined ||

@@ -1,12 +1,11 @@
 /**
- * What both sandbox builds share (ADR-0096): reading the one root they take, and writing
- * the clean room inside it — a copy of the spec, a brief naming the language, the bucket
- * and its credentials, and nothing else.
+ * What the clean-room scripts share (ADR-0096): reading the one root each takes, and
+ * writing the clean room inside it — a copy of the spec, a brief naming the language,
+ * the bucket and its credentials, and nothing else.
  *
  * A sandbox root holds `cleanroom/`, where the session is opened, beside what the build
- * needs and the session must not see (`fixtures/`, and a restore build's `.s3cab/`). It
- * is built once, from empty, and deleted when the run is harvested; the bucket is shared,
- * so sandboxes take turns rather than coexist.
+ * needs and the session must not see (a backup build's `fixtures/`, a restore build's
+ * `.s3cab/`). It is built once, from empty, and deleted when the run is harvested.
  *
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
@@ -65,31 +64,23 @@ import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 
-/** @import { ParseArgsConfig } from "node:util" */
-
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 /**
- * Read `[--flag…] <root>` and the bucket, or exit 2 saying what was wrong. The root
- * has to be outside the repo, and empty.
+ * Read `<root>` and the bucket, or exit 2 saying what was wrong. The root has to be
+ * outside the repo, and empty.
  * @param {string} script this script's file name, for the usage line
- * @param {string[]} [flags] the boolean flags it takes, without their dashes
+ * @param {string} variable the environment variable naming its bucket
  */
-export function readCommandLine(script, flags = []) {
+export function readCommandLine(script, variable) {
   const command = `node --env-file=.env.test scripts/cleanroom/${script}`;
-  const usage =
-    `usage: ${command} ${flags.map((flag) => `[--${flag}] `).join("")}<root>\n` +
-    `\ne.g. ${command} ~/s3cab.sandbox`;
-  /** @type {ParseArgsConfig["options"]} */
-  const options = Object.fromEntries(
-    flags.map((flag) => [flag, { type: "boolean" }]),
-  );
+  const usage = `usage: ${command} <root>\n\ne.g. ${command} ~/s3cab.sandbox`;
   /** @type {ReturnType<typeof parseArgs>} */
   let parsed;
   try {
-    parsed = parseArgs({ options, allowPositionals: true });
+    parsed = parseArgs({ allowPositionals: true });
   } catch {
     console.error(usage);
     return process.exit(2);
@@ -100,10 +91,10 @@ export function readCommandLine(script, flags = []) {
     return process.exit(2);
   }
 
-  const bucket = process.env.S3CAB_TEST_BUCKET_CLEANROOM;
+  const bucket = process.env[variable];
   if (!bucket) {
     console.error(
-      "No clean-room bucket is set (S3CAB_TEST_BUCKET_CLEANROOM). Run with the test\n" +
+      `No clean-room bucket is set (${variable}). Run with the test\n` +
         "environment, which names it:\n" +
         "\n" +
         `    ${command} ${arg}\n`,
@@ -148,7 +139,7 @@ export function readCommandLine(script, flags = []) {
     return process.exit(2);
   }
 
-  return { root, bucket, values: parsed.values };
+  return { root, bucket };
 }
 
 /**
@@ -467,7 +458,6 @@ export function handover(root, todo) {
   console.log(
     `\nStill to do before the run:\n` +
       todo.map((item) => `  - ${item}\n`).join("") +
-      `  - raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days\n` +
       `\nOpen the session in ${join(root, "cleanroom")} — not in the root beside it, and never\n` +
       `in the repo — and keep the previous run's report out of it. Diffing the two\n` +
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
