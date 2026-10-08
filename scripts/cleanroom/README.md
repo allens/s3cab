@@ -1,13 +1,11 @@
 # The clean-room exercise
 
-> **Target, not yet built:** this folder is to become a bootstrapper that builds the
-> clean-room backup and restorers for the current spec
-> ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)). Before 1.0 it
-> keeps only the latest programs, so [restorers/](restorers/) stops being append-only and the
-> earlier runs' programs go, while their reports in `docs/` stay. Everything below describes
-> the harness as built today. Its operational notes (the Windows build, credential windows,
-> bucket clearing, the fixture matrix, byte-path comparison) are what the bootstrapper should
-> build on.
+> **Partly built** ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
+> the harness that builds each clean room is here, and everything below describes it. Still to
+> come: the clean-room programs for the current spec; the CI matrix that builds and runs them;
+> `compare-restore.mjs` and `compare-backup.mjs` in place of `compare.py`; and, before 1.0,
+> keeping only the latest programs, so [restorers/](restorers/) stops being append-only and the
+> earlier runs' programs go, while their reports in `docs/` stay.
 
 A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'s
 no-lock-in promise: a session that has read
