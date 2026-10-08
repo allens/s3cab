@@ -127,12 +127,17 @@ for (const entry of readdirSync(reference)) {
   console.log(`  ${entry}  (${files(count(join(reference, entry)))})`);
 }
 if (exits.length > 0) {
-  // `faults` and `corrupt` are broken on purpose, so a nonzero exit is theirs to give.
-  // Any other set here is one s3cab could not restore whole on this platform, and the
+  // `faults` and `corrupt` are broken on purpose, so a nonzero exit is theirs to give, and
+  // `edge`'s off Linux, whose disks refuse or fold its [POSIX] names (fixtures.mjs). Any
+  // other set here is one s3cab could not restore whole on this platform, and the
   // difference matters: a refusal it reported and carried past is a valid reference,
   // an abort that stopped the restore halfway is not.
+  const expected =
+    process.platform === "linux"
+      ? "faults and corrupt are"
+      : "faults, corrupt and edge are";
   console.log(
-    "\nnonzero restore exits (faults and corrupt are the behaviour under test; read\n" +
+    `\nnonzero restore exits (${expected} the behaviour under test; read\n` +
       "any other before handing the clean room over):\n  " +
       exits.join("\n  "),
   );
