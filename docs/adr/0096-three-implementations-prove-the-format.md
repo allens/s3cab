@@ -188,6 +188,8 @@ indefinitely.
   written, CI builds and runs it like the others.
 - **Where the clean-room backup lives.** It is a clean-room run, so beside the restorers in
   `scripts/cleanroom/` is the natural home.
-- **Starting point.** A bash spike of the backup side is preserved at
-  [scripts/s3cab-mini.sh](../../scripts/s3cab-mini.sh). The two silent-corruption bugs it hit
-  are a warning about what the clean-room backup must get right.
+- **What to check in its output.** A bash spike of the backup side hit two silent-corruption
+  bugs: a path's trailing space trimmed on read, and an unreadable file shifting every later
+  hash by one row. Either is easy to write in any language. The fixtures' trailing-space names
+  (F2) would catch the first in a clean-room backup's rows; nothing yet stages an unreadable
+  file for the second.
