@@ -147,11 +147,11 @@ indefinitely.
   **The bucket is settled: one, `S3CAB_TEST_BUCKET_CLEANROOM`, used in turns.** Every backup
   in the matrix backs up the same file contents, so they share every hash, and a bucket's
   `objects/` is shared by all its sets. Two backups in one bucket at once would let one's
-  object stand in for the other's: hiding a bad upload, or leaking `stage.mjs`'s deliberate
-  damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the bucket,
-  one backup, every restorer restores it. The turns are s3cab's, on Linux, where every fixture
-  can exist; then the clean-room backup's, once per OS. A second bucket would not remove the
-  turns, since the clean-room backup alone takes three. The bucket is
+  object stand in for the other's: hiding a bad upload, or leaking `stage-cleanroom.mjs`'s
+  deliberate damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the
+  bucket, one backup, every restorer restores it. The turns are s3cab's, on Linux, where every
+  fixture can exist; then the clean-room backup's, once per OS. A second bucket would not remove
+  the turns, since the clean-room backup alone takes three. The bucket is
   `test-s3cab-<owner>-cleanroom`, and `test-s3cab-ci-cleanroom` in CI; nothing else uses it.
   The clean room leaves the integration bucket, which CI's integration suite owns outright and
   expires within a day.
@@ -163,9 +163,9 @@ indefinitely.
   same trees, which is local and needs no bucket. A personal bucket of the same name serves the
   sessions that write the programs, one session at a time.
 
-  **The clean-room backup backs up `stage.mjs`'s trees in place**, so its paths and mtimes are
-  the ones s3cab snapshotted and its rows compare without re-rooting. A copy would not do:
-  copying loses the sub-millisecond mtimes the trees keep on purpose.
+  **The clean-room backup backs up `stage-cleanroom.mjs`'s trees in place**, so its paths and
+  mtimes are the ones s3cab snapshotted and its rows compare without re-rooting. A copy would
+  not do: copying loses the sub-millisecond mtimes the trees keep on purpose.
 - **The macOS restorer waits for a Mac.** Writing a restorer is an agent session that compiles
   and tests against the bucket as it goes, and the brief's CryptoKit and Compression exist only
   on macOS. An agent on a hosted macOS runner is possible but awkward: a job checks out the

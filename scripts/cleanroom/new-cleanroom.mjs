@@ -474,7 +474,7 @@ console.log(
   `\nStill to do before the run:\n` +
     (backup
       ? `  - build the sets' trees, and their dirs.txt/exclude.txt in ${join(target, "sets")}:\n` +
-        `    stage.mjs --trees-only --out ${target}\n` +
+        `    stage-cleanroom.mjs --trees-only --out ${target}\n` +
         `  - empty the bucket: the backup's turn starts from nothing.\n` +
         `  - install Python 3 and boto3 if this machine lacks them: the brief tells the\n` +
         `    session not to install anything.\n`
@@ -484,7 +484,8 @@ console.log(
         `    installing it would put src/ in reach.\n` +
         (windows
           ? `    On Windows that is two halves: stage the corpus from WSL, where every\n` +
-            `    fixture can exist, then build reference/ here with stage.mjs --reference-only.\n` +
+            `    fixture can exist, then build reference/ here with\n` +
+            `    stage-cleanroom.mjs --reference-only.\n` +
             `  - install the toolchain: nothing comes as standard on Windows, and the brief\n` +
             `    tells the session not to install one.\n`
           : "")) +

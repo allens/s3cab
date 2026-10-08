@@ -34,18 +34,18 @@ three-way proof: a clean-room backup, in Python on every platform, is the
 other. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.**
-`new-cleanroom.mjs`, `stage.mjs` and `compare.py` are the harness: ours,
-maintained, and improved every run as findings come in.
-[restorers/](restorers/) is append-only and
-frozen — one program per run, never updated, because each one's value is being a
-fixed reading of the spec on a given date.
+`new-cleanroom.mjs`, `stage-cleanroom.mjs` and `compare.py` are the harness:
+ours, maintained, and improved every run as findings come in.
+[restorers/](restorers/) is append-only and frozen — one program per run, never
+updated, because each one's value is being a fixed reading of the spec on a
+given date.
 
 A restorer run, end to end:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
-node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom
 # hand the room over, then when it finishes:
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
 ```
@@ -56,7 +56,7 @@ over:
 
 ```sh
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role backup ~/cleanroom
-node --env-file=.env.test scripts/cleanroom/stage.mjs --trees-only --out ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --trees-only --out ~/cleanroom
 ```
 
 A Windows run splits staging in two. The corpus is staged from WSL, because
@@ -67,10 +67,10 @@ restores *there*:
 ```powershell
 # in WSL: the bucket and the corpus (its reference/ is thrown away)
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom-wsl
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom-wsl
 # in PowerShell: the room, and its references from that corpus
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~\cleanroom
-node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~\cleanroom --reference-only
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~\cleanroom --reference-only
 ```
 
 ## new-cleanroom.mjs
@@ -145,10 +145,10 @@ session, and one that routes Windows work through WSL would turn a Windows run
 into a Linux one without saying so. The credentials go over as `credentials.ps1`
 for the same reason.
 
-That refresh is why this is a separate script from `stage.mjs` and not a mode of
-one: it runs 1..N times per exercise, mid-run, hours after the corpus is staged
-and while the room is live. `stage.mjs` runs exactly once and would destroy the
-run if a credential refresh dragged it along.
+That refresh is why this is a separate script from `stage-cleanroom.mjs` and not
+a mode of one: it runs 1..N times per exercise, mid-run, hours after the corpus
+is staged and while the room is live. `stage-cleanroom.mjs` runs exactly once
+and would destroy the run if a credential refresh dragged it along.
 
 It warns about files it didn't write, rather than deleting them. A clean room
 that gets moved or renamed can carry an older brief along beside the new one,
@@ -159,7 +159,7 @@ node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>]
 node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
 ```
 
-## stage.mjs
+## stage-cleanroom.mjs
 
 Builds the corpus a clean-room restorer is measured against: eight backup sets
 in the bucket, plus the `reference/` trees inside the clean room, which are what
@@ -257,8 +257,8 @@ The damaged snapshot is backdated a minute so the intact one stays `faults`'s
 latest; it exists only in S3, so the script restores it by name.
 
 ```sh
-node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>] [--trees-only | --reference-only]
-node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom --trees-only
+node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir> [--work <dir>] [--trees-only | --reference-only]
+node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/cleanroom --trees-only
 ```
 
 The bucket wants a raised expiry first, or the corpus sweeps out from under the

@@ -82,8 +82,8 @@
  * rather than test it.
  *
  * Usage:
- *   node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>
- *   node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp
+ *   node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir>
+ *   node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp
  *   … --trees-only            build the trees and a backup room's sets/, report what
  *                             this platform managed, stop
  *   … --reference-only        rebuild only reference/, from the corpus already staged
@@ -147,9 +147,9 @@ const treesOnly = args.includes("--trees-only");
 const referenceOnly = args.includes("--reference-only");
 if (!bucket || !out || (treesOnly && referenceOnly)) {
   console.error(
-    "usage: node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>\n" +
+    "usage: node scripts/cleanroom/stage-cleanroom.mjs --bucket <name> --out <cleanroom-dir>\n" +
       "                                        [--work <dir>] [--trees-only | --reference-only]\n" +
-      "\ne.g. node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp",
+      "\ne.g. node --env-file=.env.test scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp",
   );
   process.exit(2);
 }
@@ -172,7 +172,7 @@ if (reference.toLowerCase().startsWith(repoRoot.toLowerCase() + sep)) {
       "clean room they belong to is required to live outside it. Stage it beside\n" +
       "the room instead:\n" +
       "\n" +
-      "    node scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp\n",
+      "    node scripts/cleanroom/stage-cleanroom.mjs --out ~/s3cab-cleanroom-cpp\n",
   );
   process.exit(2);
 }
