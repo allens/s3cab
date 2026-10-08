@@ -1108,13 +1108,14 @@ describe("renderBackup", () => {
 
   it("offers the exclude lines for files that failed last time too, after the retry", () => {
     // Beside the retry, not instead of it: a file locked on every run may still
-    // be one the user wants once whatever holds it is closed.
+    // be one the user wants once whatever holds it is closed. The caveat is
+    // there because a pattern applies under every member directory.
     const text = renderBackup(
       run({ errors: failed(2), excludeSuggestions: ["locked-1.pst"] }),
     );
     assert.match(
       text,
-      /\n\nTo try again:\n {2}s3cab backup photos\n\nTo skip the ones that failed last time too, add to \/sets\/photos\/exclude\.txt:\n {2}locked-1\.pst$/,
+      /\n\nTo try again:\n {2}s3cab backup photos\n\nTo skip the ones that failed last time too, add to \/sets\/photos\/exclude\.txt\n\(each line applies in every folder this set backs up\):\n {2}locked-1\.pst$/,
     );
   });
 

@@ -915,7 +915,8 @@ function problemDetail(p) {
  * To try again:
  *   s3cab backup onedrive
  *
- * To skip the ones that failed last time too, add to ~\.s3cab\sets\onedrive\exclude.txt:
+ * To skip the ones that failed last time too, add to ~\.s3cab\sets\onedrive\exclude.txt
+ * (each line applies in every folder this set backs up):
  *   Outlook\archive.pst
  *
  * To see the details:
@@ -1028,10 +1029,14 @@ export function renderBackup(result, { color = false } = {}) {
   }
 
   // Offered beside the retry, never instead of it: a file locked on every run
-  // may still be one the user wants, once whatever holds it is closed.
+  // may still be one the user wants, once whatever holds it is closed. The
+  // every-folder caveat is the trap: a pattern is relative to each member
+  // directory, so one written for a file under D:\A also drops E:\B's file at
+  // the same relative path, and nothing reports that.
   if (excludeSuggestions.length) {
     const lines = [
-      `To skip the ones that failed last time too, add to ${tildeify(excludePath)}:`,
+      `To skip the ones that failed last time too, add to ${tildeify(excludePath)}`,
+      `(each line applies in every folder this set backs up):`,
       ...excludeSuggestions.slice(0, ERRORS_SHOWN).map((p) => `  ${p}`),
     ];
     if (excludeSuggestions.length > ERRORS_SHOWN) {

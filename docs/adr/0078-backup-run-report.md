@@ -112,7 +112,10 @@ detail to `compare`.**
    in place of it. The trigger is recurrence, not the error code: EBUSY is both a sync client's
    lock file nobody wants and an Outlook `.pst` that only needs Outlook closed, and suggesting an
    exclude for the second loses someone's mail. The baseline's `#ERROR` rows are already in memory,
-   so it costs nothing; a first backup has no baseline and offers none.
+   so it costs nothing; a first backup has no baseline and offers none. The lead-in says each line
+   applies in every folder the set backs up: a pattern is relative to each member directory, so in
+   a multi-folder set it also drops the file at the same relative path elsewhere — said rather
+   than suppressed, so multi-folder sets keep the offer.
 
    Two details settled while building. The verb is **`Scanned`**, not "Hashed": the figure is
    every walked file's bytes, and on a routine run most of those hashes were *reused* from the
