@@ -17,8 +17,9 @@ verbatim and unedited — including its own top-level heading.
 - **A reproducible corpus.** Run 1's fixtures were staged by hand and its harness "was a
   session artifact and is not preserved", which is why its findings could not be re-tested on
   the same data. Run 2's corpus is built by
-  [scripts/cleanroom/stage.mjs](../scripts/cleanroom/stage.mjs), whose header carries a
-  fixture-per-finding matrix for F1–F16, and its differential verifier is preserved as
+  [scripts/cleanroom/fixtures.mjs](../scripts/cleanroom/fixtures.mjs), whose
+  header carries a fixture-per-finding matrix for F1–F16, and its differential verifier is
+  preserved as
   [scripts/cleanroom/compare.py](../scripts/cleanroom/compare.py).
 
 The session read `guide/format.md` and nothing else — no `src/`, no ADRs, no other guides, and

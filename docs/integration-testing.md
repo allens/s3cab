@@ -195,13 +195,16 @@ can open — while fork PRs get no credentials and skip) is in
 The data-plane core is the **same** least-privilege policy s3cab's onboarding generates —
 `bucketPolicy()` in [`src/lib/s3.mjs`](../src/lib/s3.mjs), which `s3cab aws` embeds as the
 managed policy in the CloudFormation template it writes (ADR-0056), and which the everyday
-backup identity is scoped to. The test policy departs from it in two deliberate ways:
+backup identity is scoped to. The test policy departs from it in three deliberate ways:
 
 - the resource is the **`test-s3cab-ci-*` wildcard**, not one bucket — every bucket inside
   the naming convention's safety boundary, nothing outside it;
 - it adds **version and lifecycle actions** so a versioned conformance bucket works under
   the same role — but *not* `s3:PutBucketVersioning`: whether a bucket is versioned is
-  fixed at provisioning time, and no test identity gets to flip it.
+  fixed at provisioning time, and no test identity gets to flip it;
+- it adds **bucket tagging**, where the clean-room restore bucket records which
+  `guide/format.md` its golden set was seeded from (`PutBucketTagging` also covers
+  deleting the tags).
 
 Save as `policy.json` (substitute your owner segment for `ci` if it differs). The
 two-statement split matters: object actions target `…/*`, bucket-level actions target the
@@ -220,7 +223,9 @@ bare bucket ARN. This is the project's own [`ci/aws/policy.json`](../ci/aws/poli
         "s3:GetBucketVersioning",
         "s3:GetLifecycleConfiguration",
         "s3:PutLifecycleConfiguration",
-        "s3:ListBucketMultipartUploads"
+        "s3:ListBucketMultipartUploads",
+        "s3:GetBucketTagging",
+        "s3:PutBucketTagging"
       ],
       "Resource": "arn:aws:s3:::test-s3cab-ci-*"
     },

@@ -76,3 +76,23 @@ seed of a future "platform / release" epic).
   ordinal and 0001–0075 are already ordinal); or just keep renumbering at review time and accept it
   as a known chore, since the collision is *visible* — two files with the same prefix sort adjacent
   — and the rename is mechanical. Worth deciding only if it happens a second time.
+- **A `CanonicalPath` brand type, so "canonical on the way out" is checked by `tsc`, not by
+  review.** Today the rule (CLAUDE.md, *Canonical on the way out, case-tolerant on the way in*)
+  is held by prose plus the `no-restricted-syntax` ban on bare `realpathSync`; the ban proves
+  *how* a path was canonicalized, nothing proves *that* it was before it reached a path-keyed
+  site. A JSDoc brand — `@typedef {string & { readonly __canonical: true }} CanonicalPath` —
+  minted only by the existing capture points (`resolveWalkRoot` in
+  [src/lib/walk.mjs](../src/lib/walk.mjs), `resolveDirectories` in
+  [src/commands/setup.mjs](../src/commands/setup.mjs), the per-file check in
+  [src/commands/restore.mjs](../src/commands/restore.mjs)), and required by the sites that key
+  on a path: the `#DIR` writer, the snapshot lookup's `entries` Map, the walk's emitted rows.
+  Then a string from `resolve()` or a user's `dirs.txt` reaching one of those is a type error.
+  **Open questions before building it:** (1) the walk derives every file path by joining a
+  dirent name under a canonical root — canonical by construction, but `join` returns `string`,
+  so it needs one `joinCanonical` helper or the brand dies at the first level; (2) the casts at
+  the mint sites are the trust boundary, so they should be the *only* casts — worth a lint rule
+  or a grep in review; (3) paths read back *from* a snapshot are canonical by the format's
+  promise but not by this machine's say-so (`restore --output` reads a Windows snapshot on
+  Linux) — decide whether the parser mints the brand or a second type is needed. Floated in a
+  language-choice discussion (2026-10-07) as the cheapest slice of what a functional language's
+  newtypes would buy.

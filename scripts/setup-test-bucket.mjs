@@ -54,7 +54,7 @@ const conformance = args.includes("--conformance");
 const force = args.includes("--force");
 const daysIndex = args.indexOf("--days");
 /** @param {number} index */
-const isDaysValue = (index) => index === daysIndex + 1;
+const isDaysValue = (index) => daysIndex !== -1 && index === daysIndex + 1;
 const unknown = args.find(
   (arg, index) =>
     arg.startsWith("-") &&
@@ -73,8 +73,8 @@ const bucket = positionals[0] ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
 // state that sweep is correctness, not housekeeping — test/crash asserts exact object
 // counts and test/model/conformance resets the whole bucket, so both want the short
 // clock and neither holds anything worth keeping. Raise it only for a bucket holding
-// data meant to outlive a run, which today means fixtures staged for a clean-room
-// restorer (see cleanroom/stage.mjs).
+// data meant to outlive a run, which today means the clean-room restore bucket's golden
+// set (see cleanroom/seed-restore-cleanroom-bucket.mjs).
 const days = daysIndex === -1 ? 1 : Number(args[daysIndex + 1]);
 if (
   unknown !== undefined ||
@@ -209,6 +209,12 @@ console.log(
     : `applied lifecycle rule: expire objects after ${clock}`,
 );
 
-console.log(
-  `\nNext: set S3CAB_TEST_BUCKET_INTEGRATION=${bucket} (plus AWS_* credentials) to run the gated S3 suites.`,
-);
+// The owner is one segment (a hyphen in it would widen its IAM scope,
+// test-s3cab-<owner>-*, over another owner's), so the rest is the testType,
+// and the testType names the variable. A --force name has neither.
+if (bucket.startsWith("test-s3cab-")) {
+  const testType = bucket.split("-").slice(3).join("_").toUpperCase();
+  console.log(
+    `\nNext: set S3CAB_TEST_BUCKET_${testType}=${bucket} in .env.test.`,
+  );
+}
