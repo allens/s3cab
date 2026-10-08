@@ -315,3 +315,14 @@ The machine-level cluster a Roles Anywhere setup produces — the CA, the client
 and the trust-anchor / role / profile ARNs — stored once under `~/.s3cab/roles-anywhere/`. Every set
 in Roles Anywhere mode shares it, the way sets share a machine-level `AWS_PROFILE` (ADR-0057).
 _Avoid_: certificate store, PKI.
+
+### Proving the format
+
+**Clean-room implementation**:
+A program written from the spec alone (`guide/format.md`, `guide/exclude.md`) by a session that
+has seen nothing else of s3cab's, kept in the repo as evidence that the format is open
+([ADR-0096](docs/adr/0096-three-implementations-prove-the-format.md)). Two kinds: the
+**clean-room backup** (`s3cab-snapshot.py` + `s3cab-upload.py`) and a **clean-room restorer**
+per platform. "Clean-room" is what separates them from s3cab, which backs up and restores too.
+_Avoid_: writer/reader (s3cab is both), reference implementation (`reference/` is the trees s3cab
+restored for a clean room to compare against), port, reimplementation.

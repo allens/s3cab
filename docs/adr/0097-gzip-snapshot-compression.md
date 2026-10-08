@@ -32,8 +32,8 @@ reader most often had to install:
 
 That reaches three other decisions:
 
-- **The clean-room readers** proposed in [0096](0096-three-implementations-prove-the-format.md) lose their only extra install. The
-  Windows reader can target the .NET Framework that ships with Windows, and the macOS reader
+- **The clean-room restorers** proposed in [0096](0096-three-implementations-prove-the-format.md) lose their only extra install. The
+  Windows restorer can target the .NET Framework that ships with Windows, and the macOS restorer
   needs nothing from Homebrew.
 - **The planned `browse` command** can decompress snapshots in the page itself.
 - **[0002](0002-no-lock-in-hard-constraint.md)'s no-lock-in promise gets simpler to keep.**

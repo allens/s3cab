@@ -1,7 +1,7 @@
 # The clean-room exercise
 
 > **Target, not yet built:** this folder is to become a bootstrapper that builds the
-> clean-room writer and readers for the current spec
+> clean-room backup and restorers for the current spec
 > ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)). Before 1.0 it
 > keeps only the latest programs, so [restorers/](restorers/) stops being append-only and the
 > earlier runs' programs go, while their reports in `docs/` stay. Everything below describes
@@ -30,7 +30,7 @@ possible beyond the operating system: on each platform, its own language, its
 own frameworks or system libraries, and nothing of s3cab's. Runs 2 (C++) and 3
 (Go) predate that rule and stay as history. The restorers are one half of
 [ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)'s
-three-way proof: a clean-room writer, in Python on every platform, is the
+three-way proof: a clean-room backup, in Python on every platform, is the
 other. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** `create.mjs`,
