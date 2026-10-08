@@ -137,8 +137,7 @@ indefinitely.
   `compare.py`). It needs:
   - a backup brief beside the restorer brief;
   - the language derived from role and platform, rather than passed as `--lang`;
-  - a step that runs the whole matrix: build the corpus, back it up with s3cab and with the
-    clean-room backup, restore each result with every restorer, then compare.
+  - a CI workflow that runs the whole matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are
   committed, each replacing its predecessor; the reports in `docs/` keep the history. After
@@ -147,11 +146,33 @@ indefinitely.
   A session-written program can't be regenerated identically, which is why the outputs are
   committed at all.
 
-  **Where the clean-room backup runs is settled.** It writes into a bucket of its own, emptied
-  each run: `objects/` is shared by every set in a bucket, so in the corpus bucket an object
-  s3cab had already stored would hide a bad upload. It backs up `stage.mjs`'s trees in place, so
-  its paths and mtimes are the ones s3cab snapshotted and its rows compare without re-rooting. A
-  copy would not do: copying loses the sub-millisecond mtimes the corpus keeps on purpose.
+  **The bucket is settled: one, `S3CAB_TEST_BUCKET_CLEANROOM`, used in turns.** Every backup
+  in the matrix backs up the same file contents, so they share every hash, and a bucket's
+  `objects/` is shared by all its sets. Two backups in one bucket at once would let one's
+  object stand in for the other's: hiding a bad upload, or leaking `stage.mjs`'s deliberate
+  damage (`faults`, `corrupt`) into the other backup's sets. So a turn is: empty the bucket,
+  one backup, every restorer restores it. The turns are s3cab's, on Linux, where every fixture
+  can exist; then the clean-room backup's, once per OS. A second bucket would not remove the
+  turns, since the clean-room backup alone takes three. The bucket is
+  `test-s3cab-<owner>-cleanroom`, and `test-s3cab-ci-cleanroom` in CI; nothing else uses it.
+  The clean room leaves the integration bucket, which CI's integration suite owns outright and
+  expires within a day.
+
+  **The matrix runs in GitHub Actions**, on Linux, macOS and Windows runners, with the turns
+  ordered by job dependencies and a concurrency group. It builds and runs the committed
+  programs; it never writes them. On each runner, the reference for a restore is s3cab's own
+  restore there, and the clean-room backup's rows are compared with `s3cab snapshot` of the
+  same trees, which is local and needs no bucket. A personal bucket of the same name serves the
+  sessions that write the programs, one session at a time.
+
+  **The clean-room backup backs up `stage.mjs`'s trees in place**, so its paths and mtimes are
+  the ones s3cab snapshotted and its rows compare without re-rooting. A copy would not do:
+  copying loses the sub-millisecond mtimes the trees keep on purpose.
+- **The macOS restorer waits for a Mac.** Writing a restorer is an agent session that compiles
+  and tests against the bucket as it goes, and the brief's CryptoKit and Compression exist only
+  on macOS. An agent on a hosted macOS runner is possible but awkward: a job checks out the
+  repo the clean room must not see, can't ask anything mid-run, and stops at six hours. Once
+  written, CI builds and runs it like the others.
 - **Where the clean-room backup lives.** It is a clean-room run, so beside the restorers in
   `scripts/cleanroom/` is the natural home.
 - **Starting point.** A bash spike of the backup side is preserved at
