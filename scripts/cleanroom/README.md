@@ -33,9 +33,10 @@ own frameworks or system libraries, and nothing of s3cab's. Runs 2 (C++) and 3
 three-way proof: a clean-room backup, in Python on every platform, is the
 other. Nothing here is distributed; it lives in the repo as evidence.
 
-**Two kinds of file live here, with opposite lifecycles.** `create.mjs`,
-`stage.mjs` and `compare.py` are the harness: ours, maintained, and improved
-every run as findings come in. [restorers/](restorers/) is append-only and
+**Two kinds of file live here, with opposite lifecycles.**
+`new-cleanroom.mjs`, `stage.mjs` and `compare.py` are the harness: ours,
+maintained, and improved every run as findings come in.
+[restorers/](restorers/) is append-only and
 frozen — one program per run, never updated, because each one's value is being a
 fixed reading of the spec on a given date.
 
@@ -43,7 +44,7 @@ A restorer run, end to end:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom
 # hand the room over, then when it finishes:
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
@@ -54,7 +55,7 @@ nothing of s3cab's output. The bucket has to be empty when the room is handed
 over:
 
 ```sh
-node --env-file=.env.test scripts/cleanroom/create.mjs --role backup ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role backup ~/cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --trees-only --out ~/cleanroom
 ```
 
@@ -68,11 +69,11 @@ restores *there*:
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom-wsl
 # in PowerShell: the room, and its references from that corpus
-node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~\cleanroom
+node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~\cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~\cleanroom --reference-only
 ```
 
-## create.mjs
+## new-cleanroom.mjs
 
 Stages a directory for the *next* clean-room backup or restorer: a byte copy of
 [guide/format.md](../../guide/format.md) (plus
@@ -154,16 +155,16 @@ that gets moved or renamed can carry an older brief along beside the new one,
 and the session reads both as readily.
 
 ```sh
-node scripts/cleanroom/create.mjs --role backup|restore [--bucket <name>] [--force] <dir>
-node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/cleanroom
+node scripts/cleanroom/new-cleanroom.mjs --role backup|restore [--bucket <name>] [--force] <dir>
+node --env-file=.env.test scripts/cleanroom/new-cleanroom.mjs --role restore ~/cleanroom
 ```
 
 ## stage.mjs
 
 Builds the corpus a clean-room restorer is measured against: eight backup sets
 in the bucket, plus the `reference/` trees inside the clean room, which are what
-its output is compared to. Run it after `create.mjs`, before handing the room
-over.
+its output is compared to. Run it after `new-cleanroom.mjs`, before handing the
+room over.
 
 It is a committed script rather than a chat because run 1's corpus is **gone** —
 staged by hand, and its harness "was a session artifact and is not preserved"
@@ -324,8 +325,8 @@ g++ -std=c++23 -O2 -Wall -Wextra -o s3cab-restore \
 
 Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
 `AWS_SESSION_TOKEN` — it has no SDK to read `~/.aws` with, which is why
-`create.mjs` stages static keys. Exit 2 means integrity faults, which it
-enumerates after restoring everything restorable.
+`new-cleanroom.mjs` stages static keys. Exit 2 means integrity faults, which
+it enumerates after restoring everything restorable.
 
 ### gorestore/ — run 3
 

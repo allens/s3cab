@@ -7,8 +7,8 @@ script says so) when needed.
 ## cleanroom/
 
 The clean-room exercise — the literal test of the no-lock-in promise, and the
-restorers preserved from each run. Its harness (`create.mjs`, `stage.mjs`,
-`compare.py`) and its frozen artifacts live together in
+restorers preserved from each run. Its harness (`new-cleanroom.mjs`,
+`stage.mjs`, `compare.py`) and its frozen artifacts live together in
 [cleanroom/](cleanroom/), documented by [its own README](cleanroom/README.md).
 
 ## compression-bench.mjs

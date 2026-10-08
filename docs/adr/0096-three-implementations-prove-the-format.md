@@ -133,8 +133,8 @@ indefinitely.
 ## Open
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the clean-room implementations
-  against the current spec. `create.mjs --role backup|restore` stages either room, with the
-  language derived from role and platform. Still to build: a CI workflow that runs the whole
+  against the current spec. `new-cleanroom.mjs --role backup|restore` stages either room, with
+  the language derived from role and platform. Still to build: a CI workflow that runs the whole
   matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are

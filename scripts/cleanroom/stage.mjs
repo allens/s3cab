@@ -154,11 +154,11 @@ if (!bucket || !out || (treesOnly && referenceOnly)) {
   process.exit(2);
 }
 
-// The same directory `create.mjs` already refuses to put inside the repo, so the two
+// The same directory `new-cleanroom.mjs` already refuses to put inside the repo, so the two
 // commands have to agree about it — a clean room outside the tree whose reference trees
 // land inside it is the worst of both. The reason differs, though: there it is
 // contamination, here it is a four-figure file count dumped in the working copy.
-// Compared case-blind for the same reason create.mjs gives: `realpathSync.native`
+// Compared case-blind for the same reason new-cleanroom.mjs gives: `realpathSync.native`
 // canonicalizes the drive letter (`D:\src\s3cab`) while `resolve` keeps whatever the
 // operator typed (`d:\src\s3cab`), so a literal comparison misses the exact case this
 // guard exists for. On a case-sensitive filesystem it can only over-refuse.
