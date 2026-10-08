@@ -278,6 +278,11 @@ sub-millisecond defect that is run 2's finding 2. And directory mtimes reported
 separately, since both tools create directories implicitly at restore time, so
 those reflect the run rather than the format.
 
+**To be rewritten in JavaScript** alongside the backups' row comparator, when the
+CI matrix is built. It is Python only because run 2's session wrote it that way:
+Node reads byte paths too (`readdir` with `encoding: "buffer"`), and nanosecond
+mtimes (`lstat` with `bigint: true`).
+
 ```sh
 python3 scripts/cleanroom/compare.py <my-restore-dir> <reference-dir>
 ```
