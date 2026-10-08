@@ -216,7 +216,7 @@ export async function backup(setName, options = {}) {
     // closed — suggesting an exclude for the second loses someone's mail.
     excludeSuggestions: pass.errors
       .filter(({ path }) => previousErrors.has(path))
-      .map(({ path }) => excludePattern(set.dirs, path)),
+      .map(({ path }) => excludePattern(pass.roots, path)),
     excludePath: set.excludePath,
     comparison,
   };
@@ -226,16 +226,20 @@ export async function backup(setName, options = {}) {
  * The exclude pattern naming exactly one file: its path relative to the member
  * directory holding it, in the platform's own separator, as the starter
  * `exclude.txt` is written (ADR-0051).
- * @param {string[]} dirs - The set's member directories
+ * @param {string[]} roots - The member directories as the walk resolved them,
+ *   never `dirs.txt`'s text: a symlinked or differently-cased entry contains
+ *   none of the walk's paths
  * @param {string} path - A file the walk found beneath one of them
  * @returns {string}
  */
-function excludePattern(dirs, path) {
-  const dir = dirs.find((dir) => {
-    const rel = relative(dir, path);
-    return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-  });
-  return relative(dir ?? "", path);
+function excludePattern(roots, path) {
+  const root = /** @type {string} */ (
+    roots.find((root) => {
+      const rel = relative(root, path);
+      return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    })
+  );
+  return relative(root, path);
 }
 
 /**

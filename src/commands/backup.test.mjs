@@ -254,7 +254,7 @@ describe("backup (the fused pass)", () => {
     // mailbox that only needs its program closed. Failing twice is the signal.
     const music = resolve("data", "music");
     const docs = resolve("data", "docs");
-    fakeSet.dirs = [music, docs];
+    pass.roots = [music, docs];
     const again = join(docs, "Outlook", "archive.pst");
     const once = join(docs, "draft.docx");
     pass.errors = [
@@ -270,6 +270,21 @@ describe("backup (the fused pass)", () => {
     assert.deepEqual(result.excludeSuggestions, [
       join("Outlook", "archive.pst"),
     ]);
+  });
+
+  it("measures a suggestion from the root the walk resolved, not dirs.txt's text", async () => {
+    // A symlinked or differently-cased dirs.txt entry contains none of the
+    // walk's paths; only the resolved root does.
+    const root = resolve("real", "docs");
+    fakeSet.dirs = [resolve("alias", "docs")];
+    pass.roots = [root];
+    const again = join(root, "a.pst");
+    pass.errors = [{ path: again, reason: "EBUSY" }];
+    baseline.previousErrors = new Map([[again, "EBUSY"]]);
+
+    const result = await backup("photos");
+
+    assert.deepEqual(result.excludeSuggestions, ["a.pst"]);
   });
 
   it("passes --rehash through, so the pass reuses no stored hash", async () => {
