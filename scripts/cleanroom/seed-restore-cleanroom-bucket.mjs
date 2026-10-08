@@ -21,7 +21,6 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
-  ListObjectsV2Command,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -118,25 +117,45 @@ if (skipped.length > 0) {
 // There is never a reason to keep the previous golden set, so the question worth asking
 // is not "may I clear this?" but "is this bucket mine to clear?" — an `.env.test`
 // pointing somewhere forgotten, or other work under other names. The set names answer
-// it: a bucket holding only our own names is the last seed's and goes; anything else and
-// we stop and say what we found. A flag would have put that judgement on the operator at
-// the moment they are least likely to check.
-const listing = await client.send(
-  new ListObjectsV2Command({
-    Bucket: bucket,
-    Prefix: "sets/",
-    Delimiter: "/",
-  }),
-);
-const present = (listing.CommonPrefixes ?? []).map((entry) =>
-  (entry.Prefix ?? "").slice("sets/".length).replace(/\/$/, ""),
-);
-const foreign = present.filter((name) => !setNames.includes(name));
+// it: a bucket that is a repository holding only our own names is the last seed's and
+// goes; anything else and we stop and say what we found. A flag would have put that
+// judgement on the operator at the moment they are least likely to check.
+//
+// Every key is read, not just the `sets/` markers: a clear that died partway leaves
+// `snapshots/` with no marker beside it (keys go in listing order, and `sets/` sorts
+// before `snapshots/`), and those stale snapshots would end up stamped as part of the
+// new seed.
+const keys = await listAll(bucket);
+/** @type {Set<string>} */
+const present = new Set();
+/** @type {string[]} */
+const strays = [];
+for (const key of keys) {
+  const [top, name = ""] = key.split("/");
+  if (top === "sets" || top === "snapshots") {
+    present.add(name);
+  } else if (top !== "objects" && !/^objects\.deleted-\d+\.tsv$/.test(key)) {
+    strays.push(key);
+  }
+}
+const foreign = [...present].filter((name) => !setNames.includes(name));
+/** @type {string[]} */
+const found = [];
 if (foreign.length > 0) {
+  found.push(
+    `${foreign.length} backup set${foreign.length === 1 ? "" : "s"} these ` +
+      `fixtures don't name: ${foreign.join(", ")}`,
+  );
+}
+if (strays.length > 0) {
+  found.push(
+    `${strays.length} key${strays.length === 1 ? "" : "s"} outside an s3cab ` +
+      `repository's layout, such as ${strays[0]}`,
+  );
+}
+if (found.length > 0) {
   console.error(
-    `The bucket '${bucket}' holds ${foreign.length} backup ` +
-      `set${foreign.length === 1 ? "" : "s"} these fixtures don't name: ` +
-      `${foreign.join(", ")}.\n` +
+    `The bucket '${bucket}' holds ${found.join(", and ")}.\n` +
       "Emptying it would take them with it, so nothing in the bucket has been touched.\n" +
       "Clear it yourself once you are sure what is in there:\n" +
       "\n" +
@@ -145,16 +164,17 @@ if (foreign.length > 0) {
   process.exit(2);
 }
 
+// Unstamped first, so a seed that stops anywhere from here leaves a bucket every
+// restore build refuses.
 await stampSpec(bucket, undefined);
-if (present.length > 0) {
-  const keys = await listAll(bucket);
+if (keys.length > 0) {
   console.log(
     `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
-      `all of it under these fixtures' set names (${present.join(", ")})`,
+      `all of it under these fixtures' set names (${[...present].join(", ")})`,
   );
   // 1000 per request is the API's limit, not a batch size worth tuning.
   for (let index = 0; index < keys.length; index += 1000) {
-    await client.send(
+    const { Errors } = await client.send(
       new DeleteObjectsCommand({
         Bucket: bucket,
         Delete: {
@@ -162,6 +182,14 @@ if (present.length > 0) {
         },
       }),
     );
+    // A 200 can still carry per-key failures.
+    const refused = Errors ?? [];
+    if (refused.length > 0) {
+      throw new Error(
+        `could not empty s3://${bucket}/: ${refused.length} key(s) refused, ` +
+          `first ${refused[0]?.Key} (${refused[0]?.Code})`,
+      );
+    }
   }
 }
 
