@@ -38,7 +38,7 @@
  *   F11 metadata payloads    same rows as F9
  *   F12 `info` syntax        free — every set writes one
  *   F13 Windows MAX_PATH     a nested path past 260 characters                 [POSIX]
- *   F14 cross-OS hazards     two paths differing only in case                  [POSIX]
+ *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket
  *   F16 small legalities     `hollow` — a set with no files, so a legal snapshot with
  *                            a header, a trailer and zero file rows
@@ -67,8 +67,10 @@
  *              published under `faults`. The trailer's whole purpose is detecting a
  *              backup killed mid-write, and no corpus had ever staged one missing.
  *
- * [POSIX] fixtures cannot exist on Windows: NTFS forbids control characters in names,
- * strips trailing spaces, and is case-insensitive. They are skipped with a loud notice
+ * [POSIX] fixtures cannot exist on Windows: NTFS forbids control characters in names
+ * and strips trailing spaces. [if kept apart] pairs, and F1's NFC/NFD pair, exist only
+ * where the filesystem keeps both names: not NTFS for case, not APFS for either, which
+ * is why they are probed rather than gated on the OS. All are skipped with a loud notice
  * rather than silently, and a Windows build is a partial one. Keep them in the fixtures
  * permanently even so — for a Windows clean-room run they become the point. A Windows
  * restorer that refuses them, or skips them loudly, is behaving correctly; one that
@@ -84,6 +86,7 @@
 import {
   mkdirSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -108,8 +111,13 @@ export const setNames = [
 // Every set's exclude patterns: s3cab's in a restore sandbox (replacing the starter file
 // setup writes), the clean-room backup's in a backup sandbox (through cleanroom/sets/).
 // ADR-0096 compares the clean-room backup's rows with `s3cab snapshot` of the same trees,
-// and that comparison needs both to skip the same files.
-export const excludes = new Map([["edge", "*.tmp\n"]]);
+// and that comparison needs both to skip the same files. `spread`'s give each rule of
+// guide/exclude.md's grammar a path it drops and a near miss it keeps, so a backup that
+// implements less than the whole grammar backs up a different tree.
+export const excludes = new Map([
+  ["edge", "*.tmp\n"],
+  ["spread", "*.log\n**/cache.bin\nlogs/**\nv?.bak\nbuild/\n"],
+]);
 
 /**
  * Write one fixture file. `mtime` pins the timestamp where the value is itself the
@@ -153,12 +161,34 @@ export function buildFixtures(dir) {
 
   /** `edge`: the crafted adversarial set — one fixture per audit finding. */
   const edge = join(dir, "edge");
+
+  /**
+   * Create two files in `edge` whose names some filesystems fold into one, and record the
+   * pair as skipped where they did. Asked of the filesystem, not the platform: APFS folds
+   * both case and normal form on a "POSIX" OS, NTFS folds case but not normal form, and
+   * the folded file is removed so nothing half-built is backed up.
+   * @param {string} label
+   * @param {[string, string]} first name and content
+   * @param {[string, string]} second
+   */
+  const distinctPair = (label, [a, contentA], [b, contentB]) => {
+    file(join(edge, a), contentA);
+    file(join(edge, b), contentB);
+    const names = readdirSync(edge);
+    if (!names.includes(a) || !names.includes(b)) {
+      rmSync(join(edge, a), { force: true });
+      skipped.push(label);
+    }
+  };
   file(join(edge, "plain.txt"), "an ordinary file\n", 1_500_000_000);
   // Escapes on purpose: these two names look identical in every editor and differ only
   // in normal form, which is why they belong here. A reader that normalises paths merges
-  // them silently; the filesystem treats them as two files.
-  file(join(edge, "café.txt"), "NFC: e-acute as one code point\n");
-  file(join(edge, "café.txt"), "NFD: e + combining acute\n");
+  // them silently, and so does APFS.
+  distinctPair(
+    "NFC/NFD pair of names (F1) — this filesystem folds Unicode normal form",
+    ["caf\u00e9.txt", "NFC: e-acute as one code point\n"],
+    ["cafe\u0301.txt", "NFD: e + combining acute\n"],
+  );
   file(join(edge, "日本語.txt"), "CJK\n");
   file(join(edge, "🎉 emoji 🎉.txt"), "astral plane\n");
   file(join(edge, "empty.txt"), "");
@@ -190,10 +220,11 @@ export function buildFixtures(dir) {
     file(join(edge, "form\ffeed.txt"), "form feed\n");
     file(join(edge, "next\u0085line.txt"), "U+0085 NEXT LINE\n");
   });
-  posixOnly("case-differing sibling paths (F14)", () => {
-    file(join(edge, "Case.txt"), "upper\n");
-    file(join(edge, "case.txt"), "lower\n");
-  });
+  distinctPair(
+    "case-differing sibling paths (F14) — this filesystem folds case",
+    ["Case.txt", "upper\n"],
+    ["case.txt", "lower\n"],
+  );
   posixOnly("path past Windows MAX_PATH (F13)", () => {
     const deep = join(
       edge,
@@ -256,6 +287,24 @@ export function buildFixtures(dir) {
   const spread = join(dir, "spread");
   file(join(spread, "alpha", "from-alpha.txt"), "member directory alpha\n");
   file(join(spread, "beta", "from-beta.txt"), "member directory beta\n");
+  // Matched against `excludes`' patterns, relative to each member directory.
+  file(join(spread, "alpha", "run.log"), "dropped by *.log\n");
+  file(join(spread, "alpha", ".log"), "kept: * is one or more characters\n");
+  file(
+    join(spread, "alpha", "cache.bin"),
+    "dropped: **/ is zero segments too\n",
+  );
+  file(join(spread, "beta", "x", "y", "cache.bin"), "dropped: **/ at depth\n");
+  file(join(spread, "beta", "logs", "top.txt"), "dropped by logs/**\n");
+  file(join(spread, "beta", "logs", "a", "b.txt"), "dropped: ** crosses /\n");
+  file(join(spread, "alpha", "v1.bak"), "dropped by v?.bak\n");
+  file(join(spread, "alpha", "v10.bak"), "kept: ? is exactly one character\n");
+  file(join(spread, "beta", "build", "out.o"), "dropped by build/\n");
+  file(join(spread, "alpha", "build"), "kept: build/ matches a directory\n");
+  file(
+    join(spread, "beta", "src", "build", "in.o"),
+    "kept: build/ is top-level\n",
+  );
 
   /** `faults`: content unique to this set, so tearing its object breaks nothing else. */
   const faults = join(dir, "faults");
@@ -347,9 +396,7 @@ export function reportFixtures(dir, sets, skipped) {
     console.log(
       `\n! this platform could not create ${skipped.length} fixture group${skipped.length === 1 ? "" : "s"}:\n` +
         skipped.map((label) => `    ${label}`).join("\n") +
-        "\n  NTFS forbids control characters, strips trailing spaces and folds case, and a\n" +
-        "  symlink needs Developer Mode — so a build here is a partial one, measured on\n" +
-        "  what this platform can hold.",
+        "\n  So a build here is a partial one, measured on what this filesystem can hold.",
     );
   }
 }

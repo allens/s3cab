@@ -199,8 +199,15 @@ says what to do when it fails. And `faults` gets a second snapshot with its
 bytes would test gunzip's own check instead, and the trailer's whole purpose is
 catching a backup killed mid-write.
 
+`spread` also carries the exclude grammar: each rule in
+[guide/exclude.md](../../guide/exclude.md) gets a pattern, a path it drops and a
+near miss it keeps, so a backup that implements less than the whole grammar
+backs up a different tree.
+
 Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
-in names, strips trailing spaces, and folds case. A Windows backup build skips
+in names, strips trailing spaces, and folds case. On macOS, APFS folds case and
+Unicode normal form, so the case pair and the NFC/NFD pair are lost there; those
+two are probed on the filesystem, not gated on the OS. A backup build skips
 them with a loud notice naming each one, because a partial corpus that reads as
 a complete one is the same silent-shortening failure the exercise exists to
 hunt; the seed refuses to run without them. Keep them in the corpus permanently
