@@ -39,14 +39,23 @@ every run as findings come in. [restorers/](restorers/) is append-only and
 frozen — one program per run, never updated, because each one's value is being a
 fixed reading of the spec on a given date.
 
-A run, end to end:
+A restorer run, end to end:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
-node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom
 # hand the room over, then when it finishes:
 python3 scripts/cleanroom/compare.py <its-restore-dir> ~/cleanroom/reference/<snapshot>
+```
+
+A backup room gets the trees and each set's `dirs.txt`/`exclude.txt`, and
+nothing of s3cab's output. The bucket has to be empty when the room is handed
+over:
+
+```sh
+node --env-file=.env.test scripts/cleanroom/create.mjs --role backup ~/cleanroom
+node --env-file=.env.test scripts/cleanroom/stage.mjs --trees-only --out ~/cleanroom
 ```
 
 A Windows run splits staging in two. The corpus is staged from WSL, because
@@ -59,19 +68,20 @@ restores *there*:
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 30 <bucket>
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/cleanroom-wsl
 # in PowerShell: the room, and its references from that corpus
-node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C#" ~\cleanroom
+node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~\cleanroom
 node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~\cleanroom --reference-only
 ```
 
 ## create.mjs
 
-Stages a directory for the *next* clean-room restorer: a byte copy of
-[guide/format.md](../../guide/format.md), a brief naming the language, and
-nothing else. `--lang` names the platform's canonical language (above), so on
-a given platform it is fixed and runs differ by reader and by spec version. The
-brief is language-neutral apart from one sentence — which names no version and no toolchain, leaving the
-session to find "the most modern version that comes as standard" on the machine
-it's on.
+Stages a directory for the *next* clean-room backup or restorer: a byte copy of
+[guide/format.md](../../guide/format.md) (plus
+[guide/exclude.md](../../guide/exclude.md) for a backup), a brief naming the
+language, and nothing else. `--role` picks the language: Python for the backup,
+the platform's canonical one (above) for a restorer, so runs differ by reader
+and by spec version. The restorer brief is language-neutral apart from one
+sentence — which names no version and no toolchain, leaving the session to find
+"the most modern version that comes as standard" on the machine it's on.
 
 The directory has to be **outside the repo**, and the script refuses otherwise:
 a session opened inside is handed [CLAUDE.md](../../CLAUDE.md) before it reads
@@ -93,7 +103,7 @@ whose suites assert whole-bucket state and which hold deliberately torn
 repositories — snapshots published over swept objects, written on purpose by
 `test/crash`. That is the exact signature this exercise hunts, so a session that
 wandered into one would report a real observation as a spec defect. Pass
-`--bucket`, or let `--env-file=.env.test` supply `S3CAB_TEST_BUCKET_INTEGRATION` and the
+`--bucket`, or let `--env-file=.env.test` supply `S3CAB_TEST_BUCKET_CLEANROOM` and the
 `AWS_*` settings without the file itself travelling.
 
 Libraries come from the platform's packages, and the brief bars **any AWS SDK or
@@ -144,8 +154,8 @@ that gets moved or renamed can carry an older brief along beside the new one,
 and the session reads both as readily.
 
 ```sh
-node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
-node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/cleanroom
+node scripts/cleanroom/create.mjs --role backup|restore [--bucket <name>] [--force] <dir>
+node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/cleanroom
 ```
 
 ## stage.mjs
@@ -227,7 +237,11 @@ that *starts* after the check still loses its in-flight objects.
 before anything reaches S3 — worth it because staging writes well over a
 thousand objects and claims every set name, and on Windows it would claim them
 for a corpus missing every POSIX fixture. It takes the same arguments as the
-real run plus the flag, so what you rehearse is the command you then run.
+real run plus the flag, so what you rehearse is the command you then run. It is
+also how a backup room is staged: it writes each set's `dirs.txt` and
+`exclude.txt` into the room's `sets/`. Those patterns are the same ones a full
+run gives s3cab in place of `setup`'s starter file, so both backups skip the
+same files and publish the same `sets/` markers.
 
 Two sets are deliberately broken, in four different ways, because s3cab's own
 damage handling is the part a corpus most easily leaves untested. `faults` has

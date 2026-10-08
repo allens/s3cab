@@ -133,11 +133,9 @@ indefinitely.
 ## Open
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the clean-room implementations
-  against the current spec. Today it is restore-shaped (`create.mjs`, `stage.mjs`,
-  `compare.py`). It needs:
-  - a backup brief beside the restorer brief;
-  - the language derived from role and platform, rather than passed as `--lang`;
-  - a CI workflow that runs the whole matrix, described below.
+  against the current spec. `create.mjs --role backup|restore` stages either room, with the
+  language derived from role and platform. Still to build: a CI workflow that runs the whole
+  matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are
   committed, each replacing its predecessor; the reports in `docs/` keep the history. After

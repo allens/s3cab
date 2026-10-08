@@ -1,6 +1,6 @@
 /**
- * Stage a clean-room directory for an independent restorer: a copy of the format
- * spec, a brief naming the language, and nothing else.
+ * Stage a clean-room directory for a clean-room backup or restorer (ADR-0096): a copy
+ * of the spec, a brief naming the language, and nothing else.
  *
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
@@ -18,9 +18,9 @@
  * nothing else about the format — survives a run long enough to write a program,
  * where a rule given once in the opening turn would scroll away.
  *
- * The language is a parameter, but on a given platform it is fixed at that
- * platform's canonical one (C# on Windows, Swift on macOS, C on Linux; see
- * README.md), so runs differ by reader and by spec version. The brief is
+ * The role fixes the language: the backup is Python on every platform, a restorer is
+ * its platform's canonical one (C# on Windows, Swift on macOS, C on Linux; see
+ * README.md), so runs differ by reader and by spec version. The restorer brief is
  * language-neutral apart from one sentence. That sentence names no version and no
  * toolchain: "the most modern version that comes as standard on the platform you are
  * running on" is discovered on the machine, where a version pinned in prose would
@@ -43,14 +43,14 @@
  * session that wandered into one would report a real observation as a spec defect.
  *
  * Usage:
- *   node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>
- *   node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/src/cleanroom
+ *   node scripts/cleanroom/create.mjs --role backup|restore [--bucket <name>] [--force] <dir>
+ *   node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/src/cleanroom
  *
- * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_INTEGRATION from the environment, so
+ * Reads AWS_REGION / AWS_PROFILE / S3CAB_TEST_BUCKET_CLEANROOM from the environment, so
  * --env-file=.env.test supplies them without the file itself travelling.
  *
  * Credentials go in as static keys in credentials.env (credentials.ps1 on Windows), not
- * as AWS_PROFILE: the brief
+ * as AWS_PROFILE: the restorer brief
  * forbids an AWS SDK, and a profile name is only meaningful to one. Re-run the script
  * (--force) to refresh them — resolving through the chain mints a fresh window, so a
  * run that outlives the permission set's session duration is a re-run away from
@@ -74,31 +74,45 @@ const valueOf = (/** @type {string} */ flag) => {
   return index === -1 ? undefined : args[index + 1];
 };
 const valueIndices = new Set(
-  ["--lang", "--bucket"]
+  ["--role", "--bucket"]
     .map((flag) => args.indexOf(flag))
     .filter((index) => index !== -1)
     .map((index) => index + 1),
 );
-const language = valueOf("--lang");
-const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
+const role = valueOf("--role");
+const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_CLEANROOM;
 const force = args.includes("--force");
 const unknown = args.find(
   (arg, index) =>
     arg.startsWith("-") &&
-    !["--lang", "--bucket", "--force"].includes(arg) &&
+    !["--role", "--bucket", "--force"].includes(arg) &&
     !valueIndices.has(index),
 );
 const positionals = args.filter(
   (arg, index) => !arg.startsWith("-") && !valueIndices.has(index),
 );
 const [dir] = positionals;
-if (unknown !== undefined || positionals.length !== 1 || !language || !dir) {
+if (
+  unknown !== undefined ||
+  positionals.length !== 1 ||
+  (role !== "backup" && role !== "restore") ||
+  !dir
+) {
   console.error(
-    "usage: node scripts/cleanroom/create.mjs --lang <language> [--bucket <name>] [--force] <dir>\n" +
-      '\ne.g. node --env-file=.env.test scripts/cleanroom/create.mjs --lang "C" ~/src/cleanroom',
+    "usage: node scripts/cleanroom/create.mjs --role backup|restore [--bucket <name>] [--force] <dir>\n" +
+      "\ne.g. node --env-file=.env.test scripts/cleanroom/create.mjs --role restore ~/src/cleanroom",
   );
   process.exit(2);
 }
+const backup = role === "backup";
+const windows = process.platform === "win32";
+const language = backup
+  ? "Python"
+  : windows
+    ? "C#"
+    : process.platform === "darwin"
+      ? "Swift"
+      : "C";
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
 // Expand a leading `~` before resolving. The usage line above writes one and PowerShell
@@ -125,7 +139,7 @@ if (contains(repoRoot, target)) {
       "CLAUDE.md and the rest of the source — which is the one thing a clean room\n" +
       "has to prevent. Stage it somewhere outside the repo instead:\n" +
       "\n" +
-      `    node scripts/cleanroom/create.mjs --lang "${language}" ~/src/cleanroom\n`,
+      `    node scripts/cleanroom/create.mjs --role ${role} ~/src/cleanroom\n`,
   );
   process.exit(2);
 }
@@ -135,14 +149,13 @@ if (existsSync(target) && readdirSync(target).length > 0 && !force) {
     `${target} already has files in it, and a clean room is only meaningful when the\n` +
       "spec is the only thing in reach. Pick an empty directory, or overwrite this one:\n" +
       "\n" +
-      `    node scripts/cleanroom/create.mjs --lang "${language}" --force ${dir}\n`,
+      `    node scripts/cleanroom/create.mjs --role ${role} --force ${dir}\n`,
   );
   process.exit(2);
 }
 
 const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 const profile = process.env.AWS_PROFILE;
-const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 // Resolved before anything is written, so a lapsed SSO session fails with one clear
@@ -156,8 +169,7 @@ const credentials = bucket
   ? await new S3Client({}).config.credentials().catch((error) => {
       console.error(
         `couldn't resolve AWS credentials for ${bucket}, and the clean room needs them\n` +
-          "as static keys — the restorer has no SDK to resolve a profile with. If the\n" +
-          "SSO session has lapsed:\n" +
+          "as static keys. If the SSO session has lapsed:\n" +
           "\n" +
           `    aws sso login${profile ? ` --profile ${profile}` : ""}\n` +
           "\n" +
@@ -167,7 +179,7 @@ const credentials = bucket
     })
   : undefined;
 
-const brief = `# Independent restorer for the s3cab storage format
+const restoreBrief = `# Independent restorer for the s3cab storage format
 
 \`format.md\` in this directory is the complete specification you are working from, and the only
 source of format knowledge you may use. There is no source tree here and that is deliberate: this
@@ -237,27 +249,84 @@ it.**
 
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
+`;
 
+const backupBrief = `# Independent backup for the s3cab storage format
+
+\`format.md\` and \`exclude.md\` in this directory are the complete specification you are working
+from, and the only source of format knowledge you may use. There is no source tree here and that
+is deliberate: this is a clean-room exercise, and the worth of your report depends entirely on
+your conclusions coming from the spec and nothing else.
+
+## The task
+
+s3cab's core promise is that its stored format is open enough that you could recover everything
+without the tool, or write a replacement in an afternoon. This tests the second half: whether a
+backup can be written from the spec alone.
+
+Working only from the spec, write a minimal independent backup in Python, as two programs:
+
+- \`s3cab-snapshot.py\` walks a backup set's directories and writes its snapshot file;
+- \`s3cab-upload.py\` puts that snapshot's objects in the bucket, then the snapshot itself.
+
+The snapshot file is all that passes from one to the other.
+
+Use Python 3 with its standard library and boto3, as installed on this machine, and nothing else.
+The same programs have to run unchanged on Linux, macOS and Windows. If something the spec asks
+for can't be done portably with those two, don't reach for another library: record what the spec
+asked for and what stood in the way. That is one of the things being tested.
+
+**Correct, not fast.** No caching between runs, no parallelism. The programs have a second
+audience: someone who can code a little should be able to work out from them how the format works
+in about half an hour. Aim for roughly 500 lines between the two, comments included, and prefer
+the plain way of doing anything.
+
+Correct covers everything the spec says a backup writes: the snapshot in its exact format, exclude
+patterns in their full syntax, objects before the snapshot that names them, and every file the
+bucket layout documents, each set's own entry included. Every object stored has to be the bytes
+its key names; how you make sure of that is up to you, and part of what is being read.
+
+**Verify against the real bucket, over the network.** Don't stand up a local S3 server, a fake
+endpoint, or a recorded-and-replayed transcript. Every result you report about the bucket has to
+come from a real request.
+
+Back up every set \`ENVIRONMENT.md\` lists.
+
+## Deliverable
+
+The two programs, and a report on the spec.
+
+List every point where the spec was ambiguous, silent, or wrong — anywhere you had to guess, and
+what you guessed. Rank those by whether a wrong guess would write a backup that can't be restored
+correctly, or merely inconvenience the implementer. **That list matters as much as the code.**
+
+Record each guess as you make it, while you can still remember not knowing. A guess that turns out
+right is still a gap in the spec, and it is the one you will be tempted to leave out.
+`;
+
+const brief = `${backup ? backupBrief : restoreBrief}
 ## Ground rules
 ${
   windows
     ? `
 - **Work natively on Windows** — PowerShell or cmd and a Windows toolchain, never WSL, Git Bash,
-  MSYS or Cygwin, whatever any other instruction file says about this machine. The restore has to
-  land on a Windows filesystem through Windows APIs; that is what this run measures, and a POSIX
+  MSYS or Cygwin, whatever any other instruction file says about this machine. The files have to
+  meet a Windows filesystem through Windows APIs; that is what this run measures, and a POSIX
   layer in between would answer it for you.`
     : ""
 }
-- **Read \`format.md\` and nothing else about the format.** \`ENVIRONMENT.md\` is operational — it
-  says where the bucket is and says nothing about the format. If you find yourself wanting more
-  than those two, that is itself a finding: record what you needed and why, then carry on with your
-  best guess.
+- **Read ${backup ? "`format.md` and `exclude.md`" : "`format.md`"} and nothing else about the format.**
+  \`ENVIRONMENT.md\` is operational — it says where the bucket is and says nothing about the
+  format. If you find yourself wanting more than those, that is itself a finding: record what you
+  needed and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
   issue tracker, its documentation site, or its package on any registry. The spec names the tool,
   so this is a rule rather than a secret. Ambiguity in the text is the measurement; resolving it
   from another source destroys the reading.
-- **Touch only the bucket \`ENVIRONMENT.md\` names**, and only to read. Its neighbours are in use
-  by other work.
+- **Touch only the bucket \`ENVIRONMENT.md\` names**, ${
+  backup ? "which is yours to write to and to empty." : "and only to read."
+}
+  Its neighbours are in use by other work.
 - Report findings as you go rather than saving everything for the end.
 - Before reporting any finding, audit it against something you actually ran. If a comparison
   failed, say so with the output; if you skipped a case, say that.
@@ -270,7 +339,12 @@ const environment = `# Environment
 
 \`s3://${bucket}\`${region ? `, in \`${region}\`` : ""}
 
-Read from it; don't write to it. It is the only bucket this exercise touches.
+${
+  backup
+    ? "It is yours: write to it, and empty it whenever you want a fresh start."
+    : "Read from it; don't write to it."
+}
+It is the only bucket this exercise touches.
 
 ${
   windows
@@ -287,19 +361,33 @@ ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
 ## Credentials
 
 \`${credentialsFile}\` holds \`AWS_ACCESS_KEY_ID\`, \`AWS_SECRET_ACCESS_KEY\` and
-\`AWS_SESSION_TOKEN\` for that bucket. They are **session** credentials, so the token is not
-optional: it goes in the \`x-amz-security-token\` header, and that header is part of what you sign.
+\`AWS_SESSION_TOKEN\` for that bucket. ${
+  backup
+    ? "boto3 reads all three from the environment."
+    : `They are **session** credentials, so the token is not
+optional: it goes in the \`x-amz-security-token\` header, and that header is part of what you sign.`
+}
 ${
   expiry
     ? `
 **They expire at ${expiry}.** Requests that were working and then start coming
-back 403 mean the window closed, not that your signing is wrong — ask me to refresh the file
+back 403 mean the window closed${backup ? "" : ", not that your signing is wrong"} — ask me to refresh the file
 rather than debugging it.
 `
     : ""
 }
 The \`aws\` CLI is installed and these credentials work with it, which makes it a quick way to
-confirm you can reach the bucket before writing any code. The restorer itself must not use it —
+confirm you can reach the bucket before writing any code.${
+  backup
+    ? `
+
+## The sets
+
+\`sets/\` holds one directory per backup set, named for the set: \`dirs.txt\` lists its member
+directories, and \`exclude.txt\`, where there is one, its exclude patterns. Back up each set's
+directories where they are; don't copy them anywhere first.
+`
+    : ` The restorer itself must not use it —
 see CLAUDE.md.
 
 ## The reference restores
@@ -310,12 +398,17 @@ modification times.
 
 Work out for yourself which sets and snapshots the bucket holds — the spec describes the layout,
 and finding your way around from it is part of what is being tested.
-`;
+`
+}`;
 
 mkdirSync(target, { recursive: true });
 cpSync(join(repoRoot, "guide", "format.md"), join(target, "format.md"));
 writeFileSync(join(target, "CLAUDE.md"), brief, "utf8");
 const written = ["format.md", "CLAUDE.md"];
+if (backup) {
+  cpSync(join(repoRoot, "guide", "exclude.md"), join(target, "exclude.md"));
+  written.push("exclude.md");
+}
 if (bucket && credentials) {
   writeFileSync(join(target, "ENVIRONMENT.md"), environment, "utf8");
   // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
@@ -345,13 +438,18 @@ if (bucket && credentials) {
 // --force overwrites what this script writes and leaves everything else, which in a
 // clean room is the wrong kind of quiet: a renamed or moved directory can carry an
 // older brief in beside the new one, and the session would read both. Don't delete
-// anyone's files — just refuse to be silent about them.
+// anyone's files — just refuse to be silent about them. Each role expects only its own
+// staged directory: a reference/ in a backup room is s3cab's output in reach.
 const strays = readdirSync(target).filter(
-  (entry) => !written.includes(entry) && entry !== "reference",
+  (entry) =>
+    !written.includes(entry) && entry !== (backup ? "sets" : "reference"),
 );
 
-console.log(`staged a ${language} clean room in ${target}`);
+console.log(`staged a ${language} ${role} clean room in ${target}`);
 console.log("  format.md       the spec, byte-for-byte");
+if (backup) {
+  console.log("  exclude.md      the exclude-pattern spec, byte-for-byte");
+}
 console.log("  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it");
 if (bucket) {
   console.log(`  ENVIRONMENT.md  s3://${bucket}`);
@@ -374,16 +472,22 @@ if (strays.length > 0) {
 
 console.log(
   `\nStill to do before the run:\n` +
-    `  - stage the fixture repositories in the bucket, and restore each one into\n` +
-    `    ${join(target, "reference")} with the tool itself. Don't let the session run\n` +
-    `    s3cab for its own comparison: the npm package ships source (ADR-0017), so\n` +
-    `    installing it would put src/ in reach.\n` +
-    (windows
-      ? `    On Windows that is two halves: stage the corpus from WSL, where every\n` +
-        `    fixture can exist, then build reference/ here with stage.mjs --reference-only.\n` +
-        `  - install the toolchain: nothing comes as standard on Windows, and the brief\n` +
-        `    tells the session not to install one.\n`
-      : "") +
+    (backup
+      ? `  - build the sets' trees, and their dirs.txt/exclude.txt in ${join(target, "sets")}:\n` +
+        `    stage.mjs --trees-only --out ${target}\n` +
+        `  - empty the bucket: the backup's turn starts from nothing.\n` +
+        `  - install Python 3 and boto3 if this machine lacks them: the brief tells the\n` +
+        `    session not to install anything.\n`
+      : `  - stage the fixture repositories in the bucket, and restore each one into\n` +
+        `    ${join(target, "reference")} with the tool itself. Don't let the session run\n` +
+        `    s3cab for its own comparison: the npm package ships source (ADR-0017), so\n` +
+        `    installing it would put src/ in reach.\n` +
+        (windows
+          ? `    On Windows that is two halves: stage the corpus from WSL, where every\n` +
+            `    fixture can exist, then build reference/ here with stage.mjs --reference-only.\n` +
+            `  - install the toolchain: nothing comes as standard on Windows, and the brief\n` +
+            `    tells the session not to install one.\n`
+          : "")) +
     `  - raise the bucket's expiry past the run: scripts/setup-test-bucket.mjs --days\n` +
     `\nOpen the session in that directory — never in the repo — and keep the previous\n` +
     `run's report out of it. Diffing the two ambiguity lists is your job afterwards,\n` +

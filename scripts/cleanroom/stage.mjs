@@ -84,7 +84,8 @@
  * Usage:
  *   node scripts/cleanroom/stage.mjs --bucket <name> --out <cleanroom-dir>
  *   node --env-file=.env.test scripts/cleanroom/stage.mjs --out ~/s3cab-cleanroom-cpp
- *   … --trees-only            build the trees, report what this platform managed, stop
+ *   … --trees-only            build the trees and a backup room's sets/, report what
+ *                             this platform managed, stop
  *   … --reference-only        rebuild only reference/, from the corpus already staged
  *
  * Runs the real CLI as a subprocess, so `reference/` is what the tool itself produces
@@ -135,7 +136,7 @@ const expandHome = (path) =>
     ? join(homedir(), path.slice(1))
     : path;
 
-const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_INTEGRATION;
+const bucket = valueOf("--bucket") ?? process.env.S3CAB_TEST_BUCKET_CLEANROOM;
 const out = valueOf("--out");
 const work = expandHome(
   valueOf("--work") ?? join(tmpdir(), "s3cab-cleanroom-stage"),
@@ -161,7 +162,8 @@ if (!bucket || !out || (treesOnly && referenceOnly)) {
 // canonicalizes the drive letter (`D:\src\s3cab`) while `resolve` keeps whatever the
 // operator typed (`d:\src\s3cab`), so a literal comparison misses the exact case this
 // guard exists for. On a case-sensitive filesystem it can only over-refuse.
-const reference = join(resolve(expandHome(out)), "reference");
+const room = resolve(expandHome(out));
+const reference = join(room, "reference");
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
 if (reference.toLowerCase().startsWith(repoRoot.toLowerCase() + sep)) {
   console.error(
@@ -599,13 +601,30 @@ const sets = setNames.map(
       name === "spread" ? spreadDirs : [join(trees, name)],
     ]),
 );
+// Every set's exclude patterns, for both backups: s3cab's (replacing the starter file
+// setup writes) and the clean-room backup's (via the room's sets/). One source, so the
+// two back up the same files and publish the same sets/ markers.
+const excludes = new Map([["edge", "*.tmp\n"]]);
 
 // --trees-only stops here, before anything reaches S3. Staging the corpus writes well
 // over a thousand objects and claims every set name in the repository, and on Windows it
 // would claim them for a corpus missing every [POSIX] fixture — so seeing what this
 // platform actually built, before any of that, is worth a flag.
 if (treesOnly) {
-  console.log(`\nbuilt the trees under ${trees}, and stopped before S3:`);
+  // The clean-room backup's inputs, in the two files the spec says a set carries. Its
+  // turn never runs s3cab setup, so nothing else would write them.
+  rmSync(join(room, "sets"), { recursive: true, force: true });
+  for (const [name, dirs] of sets) {
+    file(join(room, "sets", name, "dirs.txt"), dirs.join("\n") + "\n");
+    const exclude = excludes.get(name);
+    if (exclude) {
+      file(join(room, "sets", name, "exclude.txt"), exclude);
+    }
+  }
+  console.log(
+    `\nbuilt the trees under ${trees}, each set's config under ${join(room, "sets")},\n` +
+      "and stopped before S3:",
+  );
   for (const [name, dirs] of sets) {
     const total = dirs.reduce((sum, dir) => sum + count(dir), 0);
     const spread = dirs.length > 1 ? `  (${dirs.length} member dirs)` : "";
@@ -622,11 +641,17 @@ for (const [name, dirs] of sets) {
   mustRun(["setup", "--set", name, "--bucket", bucket, ...dirs]);
 }
 
-// The exclude pattern has to be in place before the first backup, or the #EXCLUDED
-// row never appears. setup seeds a starter exclude.txt; append to it rather than
-// replacing it, so the set stays representative of what a real one looks like.
-const excludePath = join(home, "sets", "edge", "exclude.txt");
-writeFileSync(excludePath, "*.tmp\n", { flag: "a" });
+// Before the first backup, or the #EXCLUDED row never appears. A set with no patterns
+// loses setup's starter file, and backup then deletes the remote copy to match.
+for (const [name] of sets) {
+  const excludePath = join(home, "sets", name, "exclude.txt");
+  const exclude = excludes.get(name);
+  if (exclude) {
+    writeFileSync(excludePath, exclude);
+  } else {
+    rmSync(excludePath, { force: true });
+  }
+}
 
 for (const [name] of sets) {
   console.log(`backup ${name}`);
