@@ -30,6 +30,7 @@
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -38,7 +39,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { cli, sandboxPath } from "./cleanroom.mjs";
 
@@ -182,6 +183,10 @@ function parse(gz, problems) {
       }
       continue;
     }
+    if (kind === "#SNAPSHOT") {
+      problems.push(`a second #SNAPSHOT header, on line ${number}`);
+      continue;
+    }
     if (kind.startsWith("#")) {
       const paths = snapshot.metadata.get(kind) ?? new Set();
       paths.add(path);
@@ -217,12 +222,25 @@ function parse(gz, problems) {
 }
 
 /**
- * Whether one path is the other or lies inside it, by whole segments.
- * @param {string} a
- * @param {string} b
+ * The files an `#EXCLUDED` path covers, read from the sandbox's tree: everything under
+ * it if it's a directory, else the path itself. An empty or unreadable directory, or a
+ * path that's gone, covers just itself.
+ * @param {string} path
+ * @returns {string[]}
  */
-const nested = (a, b) =>
-  a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
+function covered(path) {
+  try {
+    if (!lstatSync(path).isDirectory()) {
+      return [path];
+    }
+    const entries = readdirSync(path);
+    return entries.length === 0
+      ? [path]
+      : entries.flatMap((entry) => covered(join(path, entry)));
+  } catch {
+    return [path];
+  }
+}
 
 /**
  * A path or zone as JSON, so what makes two of them differ can be seen: the fixtures'
@@ -402,12 +420,14 @@ try {
             );
             continue;
           }
-          // The same files excluded, written at a different granularity: every path only
-          // one side has sits inside, or around, a path the other side has.
+          // The same files excluded, written at a different granularity: both sides'
+          // rows cover the same files once each directory row is expanded.
+          const coveredHere = new Set([...here].flatMap(covered));
+          const coveredThere = new Set([...there].flatMap(covered));
           const regrained =
             kind === "#EXCLUDED" &&
-            onlyHere.every((path) => [...there].some((t) => nested(path, t))) &&
-            onlyThere.every((path) => [...here].some((h) => nested(path, h)));
+            coveredHere.size === coveredThere.size &&
+            [...coveredHere].every((path) => coveredThere.has(path));
           (regrained ? notes : mismatches).push(
             `${kind} paths differ${regrained ? ", but only in how a directory is written" : ""}: only here${some(onlyHere.map(show))}\n    only in s3cab's${some(onlyThere.map(show))}`,
           );
