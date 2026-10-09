@@ -184,7 +184,7 @@ export async function writeDeletionRecord(bucket, content) {
  * Read every deletion record in the bucket into one hash lookup — the
  * repository's complete "deliberately gone" set, for `verify`'s
  * expected/unexplained partition, `restore`'s graceful skip, the
- * `backup`/`cleanup` subtractions, and `forget`'s preview. A repository that never ran `delete` (the
+ * `backup`/`status`/`cleanup` subtractions, and `forget`'s preview. A repository that never ran `delete` (the
  * common case) costs one LIST returning nothing. A hash recorded twice
  * (re-deleted after a re-backup) keeps the newest row's instant — compared on
  * the rows themselves, since a compacted file holds rows from many runs.
@@ -219,9 +219,10 @@ export async function readDeletionRecords(bucket) {
  * **Trimming is safe** because every consumer reaches the record *through a
  * snapshot that references the hash* — verify computes referenced − stored,
  * restore is reading a snapshot when it hits the absence, cleanup subtracts
- * from its missing-object interlock, and backup trusts a baseline only while
+ * from its missing-object interlock, backup trusts a baseline only while
  * it still exists remotely byte-identical, which makes the baseline itself a
- * live reference. So "no snapshot references H" ⟹ nothing can ever ask about
+ * live reference, and status reads the latest remote snapshot, live by
+ * definition. So "no snapshot references H" ⟹ nothing can ever ask about
  * H ⟹ the row is dead. The caller must have proven `referenced` complete —
  * cleanup's unreadable-snapshot interlock aborts long before this runs, so an
  * unknown reference protects every row.

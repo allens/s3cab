@@ -136,7 +136,6 @@ mock.module("./file-props.mjs", {
   },
 });
 const {
-  baselineHashes,
   fileChangedError,
   planUpload,
   uploadObjects,
@@ -206,21 +205,6 @@ const lookup = (pathToHash) =>
     ]),
   );
 
-describe("baselineHashes", () => {
-  it("is the baseline's content hashes, whatever paths they sit under", () => {
-    const baseline = lookup({ "a.txt": "h1", "copy.txt": "h1", "b.txt": "h2" });
-    assert.deepEqual(baselineHashes(baseline), new Set(["h1", "h2"]));
-  });
-
-  it("drops a hash the deletion record marks deleted (ADR-0064)", () => {
-    // The baseline honestly says h1 was stored when it uploaded — but a later
-    // `delete` removed it, so its word is punched through and the content is no
-    // longer treated as stored. h2's skip survives untouched.
-    const baseline = lookup({ "a.txt": "h1", "b.txt": "h2" });
-    assert.deepEqual(baselineHashes(baseline, ["h1"]), new Set(["h2"]));
-  });
-});
-
 describe("planUpload", () => {
   it("plans hashes in the target that aren't stored", () => {
     const target = lookup({ "a.txt": "h1", "b.txt": "h2", "c.txt": "h3" });
@@ -248,7 +232,7 @@ describe("planUpload", () => {
 
   it("matches on content — a file that only moved or was renamed is not re-uploaded", () => {
     const target = lookup({ "new/place.txt": "h1" });
-    const stored = baselineHashes(lookup({ "old/place.txt": "h1" }));
+    const stored = new Set(["h1"]); // stored from old/place.txt
     assert.equal(planUpload(target, stored).size, 0);
   });
 
