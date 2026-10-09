@@ -17,6 +17,7 @@ import { EXIT_INTERRUPTED, InterruptedError, isENOENT } from "./error.mjs";
 import { completionInstant, localMoment, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
+import { UNREPRESENTABLE_IN_TSV } from "./walk.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
@@ -579,11 +580,19 @@ export async function writeSnapshot(
         signal.addEventListener("abort", onStop, { once: true });
       }
       writeStream.write(snapshotHeader({ moment, identity, dirs }));
+      // A name the walk would refuse to keep can still be excluded or skipped,
+      // and excluding it is the fix the refusal suggests (ADR-0073). Written
+      // raw, its line break would split the row and make the snapshot
+      // unreadable. `excludedLine` spells it out, which is safe only because
+      // nothing reads an `#EXCLUDED` path back; `compareSnapshots` matches
+      // `#SKIPPED` paths against real ones, so a skipped one gets no row.
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
       }
       for (const { fileType, reason, path } of skipped) {
-        writeStream.write(skippedLine(fileType, reason, path));
+        if (!UNREPRESENTABLE_IN_TSV.test(path)) {
+          writeStream.write(skippedLine(fileType, reason, path));
+        }
       }
       const rows = propsRows(getProps, signal);
       await pipeline(
@@ -1201,10 +1210,6 @@ function snapshotHeader({ moment, identity, dirs }) {
  * An `#EXCLUDED` row: a file or directory the walk dropped because it matched a
  * user-specified exclude pattern. Recorded for transparency; ignored on read.
  * Module-private: `writeSnapshot` formats the walk's `excluded` records with it.
- *
- * The path goes through `showControlChars`, as the `#SKIPPED` one does: the walk
- * refuses a tab or line break only in a kept name, and excluding such a name is
- * the fix its refusal suggests (ADR-0073), so this row is where one turns up.
  * @param {string} fileType - The dirent type (File, Directory, …)
  * @param {string} reason - The matching exclude pattern
  * @param {string} path - The excluded path
@@ -1225,7 +1230,7 @@ const excludedLine = (fileType, reason, path) =>
  * @returns {string}
  */
 const skippedLine = (fileType, reason, path) =>
-  formatLine(SKIPPED, fileType, reason, showControlChars(path));
+  formatLine(SKIPPED, fileType, reason, path);
 
 /**
  * An `#ERROR` row: a file the walk couldn't hash (e.g. permission denied),

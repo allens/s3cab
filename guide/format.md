@@ -187,7 +187,9 @@ content is still stored.
   hand different readers different answers.) Such names are legal only on Linux and macOS
   (Windows forbids them outright) and are almost always a script bug rather than a choice.
   A file with one is **not backed up**: the run stops and names it, so you can rename it,
-  or exclude it with a pattern like `odd*name.jpg` and run again. Every other character
+  or exclude it with a pattern like `odd*name.jpg` and run again. Its `#EXCLUDED` row then
+  spells the three out as `<TAB>`, `<CR>` and `<NL>`, and a symlink with one in its name gets
+  no `#SKIPPED` row. Every other character
   — including control characters that are *not* those three — is stored as-is.
 - **Regular files only.** Snapshots record file content, size, and modification time —
   no symlinks or junctions, no hardlink identity, no empty directories, no permissions or

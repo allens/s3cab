@@ -83,9 +83,8 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   walks it adds rows, which the harness catches. Loud.
 - **A tab, LF or CR in an excluded or skipped name**: `edge/odd\nname.jpg` and
   `edge/odd\rname.jpg` with the pattern `odd*name.jpg`, and a symlink named `odd\nlink`. s3cab
-  writes these rows with the characters spelled out (`odd<NL>name.jpg`). A backup that writes
-  them raw splits the row, and the second half reads as a malformed file row. Loud. Whether a
-  backup must spell them s3cab's way is the excluded-paths question below.
+  spells the excluded ones out (`odd<NL>name.jpg`) and writes no row for the symlink. A backup
+  that writes them raw splits the row, and the second half reads as a malformed file row. Loud.
 - **Hard links and a FIFO** (`linkSync`, `execFileSync("mkfifo")`). A backup that deduplicates by
   inode drops a path. **Silent.** A backup that opens the FIFO hangs. Loud.
 - **"Two snapshots of an unchanged folder differ only in `#SNAPSHOT` and `#END`" costs no new

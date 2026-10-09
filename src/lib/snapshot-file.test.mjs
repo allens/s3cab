@@ -610,13 +610,13 @@ describe("writeSnapshot", () => {
     );
   });
 
-  it("keeps an excluded or skipped name holding a line break on one row", async () => {
+  it("spells out a line break in an excluded name, and drops a skipped one", async () => {
     // Excluding such a name is the escape hatch the walk's refusal points to
-    // (ADR-0073), so it must reach the snapshot without splitting its row.
+    // (ADR-0073), so the snapshot must stay readable when one turns up.
     await using dir = await mkTmpDir();
     const kept = resolve(dir.path, "kept.txt");
 
-    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       identity: "photos",
       dirs: [dir.path],
       files: [kept],
@@ -639,14 +639,15 @@ describe("writeSnapshot", () => {
 
     const snap = await readSnapshot(dir.path, "2026-06-23T1000");
     assert.deepEqual([...snap.entries.keys()], [kept]);
+    assert.equal(snap.skipped.size, 0);
+
+    const metadata = gunzipSync(readFileSync(path))
+      .toString()
+      .split("\n")
+      .filter((line) => /^#(EXCLUDED|SKIPPED)/.test(line));
     assert.deepEqual(
-      [...snap.skipped],
-      [
-        [
-          resolve(dir.path, "odd<CR>link"),
-          { fileType: "Symbolic Link", reason: "Unsupported file type" },
-        ],
-      ],
+      metadata.map((line) => line.split("\t").at(-1)),
+      [resolve(dir.path, "odd<NL>name.jpg")],
     );
   });
 
