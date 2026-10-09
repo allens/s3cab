@@ -41,6 +41,9 @@ test/zblob.bin
 /dist/
 # Cross-build cache: downloaded + extracted node binaries for other platforms.
 /build/
+# The docs site's build output and VitePress's cache (site/, proposals/docs-site.md).
+/site/.vitepress/dist/
+/site/.vitepress/cache/
 
 # npm pack output
 *.tgz

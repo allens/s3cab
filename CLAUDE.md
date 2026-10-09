@@ -239,7 +239,7 @@ S3/backup descriptions as the _target_ and `src/` as _what works now_. Licensing
 standard-credential-chain model are
 [ADR-0015](docs/adr/0015-standard-aws-credential-chain.md) — **don't rebuild the login.**
 
-Three layout notes the README and code don't carry:
+Four layout notes the README and code don't carry:
 
 - **Standalone dev utilities live in [scripts/](scripts/)** — ad-hoc tools run by hand with
   `node`, outside the package and the test suite: benchmarks, `setup-test-bucket.mjs`, preserved
@@ -260,6 +260,13 @@ Three layout notes the README and code don't carry:
 - **The repo dogfoods itself via a set** — [.s3cab/exclude.txt](.s3cab/exclude.txt) is a
   ready-made exclude template: `s3cab setup --set s3cab --bucket <bucket> .`, then copy those
   patterns into `~/.s3cab/sets/s3cab/exclude.txt`.
+- **The docs site ([site/](site/)) renders README.md and `guide/*.md` in place** — nothing is
+  copied, so `guide/` stays the one source and still ships in the npm tarball as plain markdown.
+  Keep writing those pages for GitHub; the site config makes them read the same there (GitHub's
+  heading anchors, links out of the site pointed at GitHub). The build fails on a dead link *or*
+  a dead `#anchor`, and on one trap worth knowing by name: **no line may start with `<`**, not
+  even the second half of a code span that wrapped (`` `s3cab list `` / `` <set>` ``) — VitePress
+  reads it as an HTML tag and fails with *Element is missing end tag*. Rewrap the line.
 
 **Vendored skills.** [`cli-design`](.claude/skills/cli-design/) and
 [`over-engineering`](.claude/skills/over-engineering/) travel with the repo. `/over-engineering`

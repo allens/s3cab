@@ -40,6 +40,9 @@
     "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info \"src/**/*.test.mjs\" \"test/*.test.mjs\"",
     "test:coverage:report": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-coverage-exclude=\"**/*.test.mjs\" --test-coverage-exclude=\"scripts/**\" \"src/**/*.test.mjs\" \"test/*.test.mjs\"",
     "build": "node build.mjs",
+    "docs:dev": "vitepress dev site",
+    "docs:build": "vitepress build site",
+    "docs:preview": "vitepress preview site",
     "build:win": "npm run build && node --build-sea=sea/win-x64.json",
     "build:linux": "npm run build && node --build-sea=sea/linux-x64.json"
   },
@@ -59,7 +62,8 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.11.0",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitepress": "2.0.0-alpha.20"
   },
   "engines": {
     "node": ">=26.10.0"
