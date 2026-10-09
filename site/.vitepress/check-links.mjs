@@ -13,6 +13,7 @@ import { join, posix } from "node:path";
  * @param {string} outDir
  */
 function readPages(outDir) {
+  const root = outDir.replaceAll("\\", "/");
   /** @type {Map<string, string>} */
   const pages = new Map();
   /** @param {string} dir */
@@ -22,7 +23,7 @@ function readPages(outDir) {
       if (entry.isDirectory()) {
         walk(path);
       } else if (entry.name.endsWith(".html")) {
-        const file = posix.relative(outDir, path.replaceAll("\\", "/"));
+        const file = posix.relative(root, path.replaceAll("\\", "/"));
         pages.set(
           "/" + file.replace(/(index)?\.html$/, ""),
           readFileSync(path, "utf8"),
@@ -30,7 +31,7 @@ function readPages(outDir) {
       }
     }
   };
-  walk(outDir.replaceAll("\\", "/"));
+  walk(root);
   return pages;
 }
 
