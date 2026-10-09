@@ -116,9 +116,14 @@ export const setNames = [
 // (through cleanroom/sets/). ADR-0096 compares the clean-room snapshot's rows with `s3cab
 // snapshot` of the same trees, and that comparison needs both to skip the same files. `spread`'s give each rule of
 // guide/exclude.md's grammar a path it drops and a near miss it keeps, so a backup that
-// implements less than the whole grammar backs up a different tree.
+// implements less than the whole grammar backs up a different tree. `edge`'s is the file a
+// Windows editor leaves: CRLF endings and no newline after the last line. guide/format.md
+// says both travel into the bucket byte for byte, and that the lines are trimmed when read,
+// so a snapshot that keeps the CR in a pattern backs up `ignored.tmp`, one that drops an
+// unterminated last line backs up `ignored.swp`, and an upload that rewrites the file has
+// changed it.
 export const excludes = new Map([
-  ["edge", "*.tmp\n"],
+  ["edge", "*.tmp\r\n*.swp"],
   ["spread", "*.log\n**/cache.bin\nlogs/**\nv?.bak\nbuild/\n"],
 ]);
 
@@ -245,8 +250,10 @@ export function buildFixtures(dir) {
     const reason = error instanceof Error ? error.message : String(error);
     skipped.push(`a symlink, for the #SKIPPED row (F9/F11) — ${reason}`);
   }
-  // F9/F11: an #EXCLUDED row needs a file that matches a pattern we then install.
+  // F9/F11: an #EXCLUDED row needs a file that matches a pattern we then install. Two,
+  // one per line of `edge`'s exclude file (see `excludes`).
   file(join(edge, "ignored.tmp"), "excluded by pattern\n");
+  file(join(edge, "ignored.swp"), "excluded by the unterminated last line\n");
 
   /** `docs`: ordinary data, so the run can find things the crafted set can't. */
   const docs = join(dir, "docs");

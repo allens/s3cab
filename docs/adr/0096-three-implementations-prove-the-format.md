@@ -248,4 +248,6 @@ indefinitely.
   bugs: a path's trailing space trimmed on read, and an unreadable file shifting every later
   hash by one row. Either is easy to write in any language. The fixtures' trailing-space names
   (F2) would catch the first in a clean-room snapshot's rows; nothing yet stages an unreadable
-  file for the second.
+  file for the second. `edge`'s `exclude.txt` is a Windows editor's, with CRLF endings and no
+  final newline, so a snapshot that keeps the CR or drops the last line excludes the wrong files,
+  and an upload that rewrites the file no longer stores the byte copy the spec promises.

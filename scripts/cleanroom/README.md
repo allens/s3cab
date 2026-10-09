@@ -219,7 +219,11 @@ catching a backup killed mid-write.
 `spread` also carries the exclude grammar: each rule in
 [guide/exclude.md](../../guide/exclude.md) gets a pattern, a path it drops and a
 near miss it keeps, so a snapshot that implements less than the whole grammar
-records a different tree.
+records a different tree. `edge`'s exclude file is the one a Windows editor
+leaves, CRLF endings and no final newline, which the spec says travel into the
+bucket byte for byte and are trimmed when read: a snapshot that keeps the CR or
+drops the unterminated last line backs up a file it should exclude, and an upload
+that rewrites the file no longer stores a byte copy.
 
 Four fixture groups **cannot exist on Windows**: NTFS forbids control characters
 in names, strips trailing spaces, and folds case. On macOS, APFS folds case and
