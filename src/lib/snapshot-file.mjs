@@ -14,9 +14,10 @@ import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { constants, createGunzip, createGzip } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError, isENOENT } from "./error.mjs";
-import { completionInstant, localMoment } from "./format.mjs";
+import { completionInstant, localMoment, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
+import { UNREPRESENTABLE_IN_TSV } from "./walk.mjs";
 
 /** @import { ExclusionRecord } from "./walk.mjs" */
 /** @import { Writable, Readable } from "node:stream" */
@@ -579,11 +580,19 @@ export async function writeSnapshot(
         signal.addEventListener("abort", onStop, { once: true });
       }
       writeStream.write(snapshotHeader({ moment, identity, dirs }));
+      // A name the walk would refuse to keep can still be excluded or skipped,
+      // and excluding it is the fix the refusal suggests (ADR-0073). Written
+      // raw, its line break would split the row and make the snapshot
+      // unreadable. `excludedLine` spells it out, which is safe only because
+      // nothing reads an `#EXCLUDED` path back; `compareSnapshots` matches
+      // `#SKIPPED` paths against real ones, so a skipped one gets no row.
       for (const { fileType, reason, path } of excluded) {
         writeStream.write(excludedLine(fileType, reason, path));
       }
       for (const { fileType, reason, path } of skipped) {
-        writeStream.write(skippedLine(fileType, reason, path));
+        if (!UNREPRESENTABLE_IN_TSV.test(path)) {
+          writeStream.write(skippedLine(fileType, reason, path));
+        }
       }
       const rows = propsRows(getProps, signal);
       await pipeline(
@@ -1207,7 +1216,7 @@ function snapshotHeader({ moment, identity, dirs }) {
  * @returns {string}
  */
 const excludedLine = (fileType, reason, path) =>
-  formatLine(EXCLUDED, fileType, reason, path);
+  formatLine(EXCLUDED, fileType, reason, showControlChars(path));
 
 /**
  * A `#SKIPPED` row: a file the walk omitted by design because its type is not

@@ -9,7 +9,12 @@ import { isAbsolute, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
-import { countOf, formatCount, secondsSince } from "./format.mjs";
+import {
+  countOf,
+  formatCount,
+  secondsSince,
+  showControlChars,
+} from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
@@ -38,26 +43,14 @@ import { readLines } from "./read-lines.mjs";
  * end a line ([ADR-0073](../../docs/adr/0073-refuse-tab-newline-paths.md)). The
  * TSV deliberately has no escaping — that plainness is the point of
  * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name is
- * refused rather than encoded. A carriage return counts with the line feed: the
+ * refused rather than encoded; `writeSnapshot` handles an excluded or skipped
+ * one. A carriage return counts with the line feed: the
  * snapshot parser reads lines with `crlfDelay: Infinity`, which strips a
  * trailing one, so the path would come back *changed* — worse than refused.
  * Windows forbids all three (it excludes characters 1-31), so this can only ever
  * fire on Linux or macOS.
  */
-const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
-
-/**
- * Render a path's control characters visibly, so an error can name a file whose
- * name would otherwise mangle the message it appears in — a raw line break would
- * split one entry across two lines of the list. Display only: nothing written to
- * a snapshot passes through here, because such a path never reaches one.
- * @param {string} path
- */
-const showControlChars = (path) =>
-  path
-    .replaceAll("\t", "<TAB>")
-    .replaceAll("\r", "<CR>")
-    .replaceAll("\n", "<NL>");
+export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
