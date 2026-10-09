@@ -170,9 +170,19 @@ const clockSeamSelector = {
 };
 
 export default defineConfig([
-  // Not linted: generated build artifacts (esbuild bundle, coverage, dist) and
-  // nested Claude Code worktrees (.claude/worktrees/ — see CLAUDE.md's worktree convention).
-  { ignores: ["build/", "coverage/", "dist/", ".claude/worktrees/"] },
+  // Not linted: generated build artifacts (esbuild bundle, coverage, dist, the
+  // docs site's output and cache) and nested Claude Code worktrees
+  // (.claude/worktrees/ — see CLAUDE.md's worktree convention).
+  {
+    ignores: [
+      "build/",
+      "coverage/",
+      "dist/",
+      "site/.vitepress/dist/",
+      "site/.vitepress/cache/",
+      ".claude/worktrees/",
+    ],
+  },
   {
     files: ["**/*.{js,mjs,cjs}"],
     plugins: { js, local },

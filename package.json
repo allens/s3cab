@@ -6,7 +6,7 @@
     "backup",
     "s3"
   ],
-  "homepage": "https://github.com/allens/s3cab#readme",
+  "homepage": "https://s3cab.plantegral.com",
   "bugs": {
     "url": "https://github.com/allens/s3cab/issues"
   },
@@ -29,17 +29,20 @@
     "typecheck": "tsc -p jsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test --experimental-test-module-mocks \"src/**/*.test.mjs\" \"test/*.test.mjs\" \"test/model/*.test.mjs\"",
+    "test": "node --test --experimental-test-module-mocks \"src/**/*.test.mjs\" \"test/*.test.mjs\" \"test/model/*.test.mjs\" \"site/.vitepress/*.test.mjs\"",
     "test:model": "node --test --experimental-test-module-mocks \"test/model/*.test.mjs\"",
     "test:integration": "node --test --env-file-if-exists=.env.test \"test/integration/**/*.test.mjs\"",
     "test:conformance": "node --test --test-concurrency=1 --env-file-if-exists=.env.test \"test/model/conformance/**/*.test.mjs\"",
     "test:crash": "node --test --test-concurrency=1 --env-file-if-exists=.env.test \"test/crash/**/*.test.mjs\"",
-    "test:all": "node --test --experimental-test-module-mocks --env-file-if-exists=.env.test \"src/**/*.test.mjs\" \"test/*.test.mjs\" \"test/model/*.test.mjs\" \"test/integration/**/*.test.mjs\"",
+    "test:all": "node --test --experimental-test-module-mocks --env-file-if-exists=.env.test \"src/**/*.test.mjs\" \"test/*.test.mjs\" \"test/model/*.test.mjs\" \"site/.vitepress/*.test.mjs\" \"test/integration/**/*.test.mjs\"",
     "test:watch": "npm run test -- --watch",
     "test:snapshot": "npm run test -- --test-update-snapshots",
     "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info \"src/**/*.test.mjs\" \"test/*.test.mjs\"",
     "test:coverage:report": "node --test --experimental-test-module-mocks --experimental-test-coverage --test-coverage-exclude=\"**/*.test.mjs\" --test-coverage-exclude=\"scripts/**\" \"src/**/*.test.mjs\" \"test/*.test.mjs\"",
     "build": "node build.mjs",
+    "docs:dev": "vitepress dev site",
+    "docs:build": "vitepress build site",
+    "docs:preview": "vitepress preview site",
     "build:win": "npm run build && node --build-sea=sea/win-x64.json",
     "build:linux": "npm run build && node --build-sea=sea/linux-x64.json"
   },
@@ -59,7 +62,8 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.11.0",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitepress": "2.0.0-alpha.20"
   },
   "engines": {
     "node": ">=26.10.0"

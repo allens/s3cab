@@ -1,7 +1,8 @@
 # Backing up
 
-`s3cab backup <set>` is the whole routine job. This page covers the one thing about it you
-might need to act on: how s3cab decides a file hasn't changed, and the rare edits that fool it.
+`s3cab backup <set>` is the whole routine job. This page covers the two things about it you
+might need to act on: how s3cab decides a file hasn't changed (and the rare edits that fool
+it), and what happens when a backup stops part way.
 
 ## How s3cab spots an unchanged file
 
@@ -62,3 +63,27 @@ It's off by default because it costs a lot in the wrong place:
 - **Expect one slow backup after restoring files onto this disk, or moving them to a new
   disk.** Both give every file a new change time, so that backup reads everything once. The
   backups after it are fast again.
+
+## Stopping part way
+
+A first backup of a large set can take hours, mostly spent reading files. You don't have to
+finish it in one sitting:
+
+- **Press Ctrl+C whenever you like.** The file hashes worked out so far are saved, and files
+  already uploaded stay uploaded, so the next `s3cab backup` carries on from there instead of
+  starting over. Stop and restart as often as you want — each run gets further.
+  (`s3cab snapshot` works the same way.)
+- **If the run was killed outright** — the machine lost power, or the process was ended
+  without a chance to tidy up — it leaves its work file behind, and the next run stops and
+  says so. From the outside, that file looks exactly like a backup still running, so s3cab
+  won't guess. Once you're sure nothing is running, run the same command again with
+  `--resume` to carry on from the hashes the dead run had already worked out:
+
+  ```
+  s3cab backup <set> --resume
+  ```
+
+  The message also prints the command to delete the work file instead, if you'd rather read
+  everything again from scratch.
+
+(The work file itself is described in the [format spec](format.md#the-local-side-s3cab).)

@@ -13,8 +13,8 @@ structured JSON value instead:
 {
   "setName": "photos",
   "dirs": ["/home/me/Pictures"],
-  "since": "2026-11-11T0830",
-  "until": "2026-11-12T0915",
+  "since": "2025-11-11T0830",
+  "until": "2025-11-12T0915",
   "added": [
     { "path": "/home/me/Pictures/2025/new.jpg", "size": 812043, "duplicates": [], "wasUnreadable": false }
   ],

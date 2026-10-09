@@ -193,6 +193,7 @@ network, no bucket needed.
 | `s3cab snapshot [<set>]` | Take a snapshot of the set, then show what changed since the previous one. `--rehash` re-hashes every file instead of reusing unchanged files' hashes. |
 | `s3cab list [<set>]`     | List your backup sets and their snapshots — name a set for its detail, `-r`/`--remote` for its cloud backups, `-l`/`--latest` for just the newest. |
 | `s3cab compare [<set>]`  | Show what changed between two snapshots — added / renamed / moved / modified / deleted; `--since` and `--until` choose which two ([guide](guide/compare.md)). |
+| `s3cab find <pattern>…`  | Search your backups for a file: which snapshots hold it and the hash it's stored under, ready to hand to `delete` ([guide](guide/find.md)). |
 | `s3cab status [<set>]`   | Show what is backed up already, and what the next `backup` would upload. |
 
 ### Setup

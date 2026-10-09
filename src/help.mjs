@@ -32,8 +32,8 @@ import {
 // Placement doctrine (see CLAUDE.md → Documentation discipline): a topic earns
 // its place here only if a user needs it mid-task in a terminal; each topic
 // ends with a link to the fuller online guide. The links are frozen into every
-// shipped binary — pre-release GitHub URLs are fine, but settle stable doc
-// URLs before release.
+// shipped binary, so they are always https://s3cab.plantegral.com/guide/<topic>
+// (CLAUDE.md → Coding conventions).
 /** @type {Record<string, string>} */
 export const helpTopics = {
   exclude: `Excluding files
@@ -208,7 +208,7 @@ export function usage(commands, commandName, style) {
   const lines = [];
 
   if (command && commandName) {
-    const { args, options, summary, details, examples } = command;
+    const { args, options, summary, details, guide, examples } = command;
 
     lines.push(synopsis(commands, commandName), "");
 
@@ -245,6 +245,12 @@ export function usage(commands, commandName, style) {
 
     if (details) {
       lines.push(heading("Description:"), details, "");
+    }
+
+    // Last, where the eye lands after the reference tables: the way out to the
+    // sit-down read, for a command whose detail outgrows a terminal.
+    if (guide) {
+      lines.push(`Full guide: https://s3cab.plantegral.com/guide/${guide}`, "");
     }
   } else {
     // Align summaries past the widest command name (+ 2-space indent + gutter).

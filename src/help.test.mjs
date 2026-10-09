@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { describe, it } from "node:test";
 import { commands } from "./commands.mjs";
 import { errorMessage, helpTopics, synopsis, usage } from "./help.mjs";
@@ -24,6 +25,7 @@ const fakeRegistry = {
       mode: { type: "string", description: "How to do it" },
     },
     details: "Longer prose about doing the thing.",
+    guide: "exclude",
     exec: () => undefined,
     render: String,
   },
@@ -125,6 +127,30 @@ describe("usage", () => {
     const text = usage(fakeRegistry, "later"); // declares no options
     assert.match(text, /Usage: s3cab later \[options\]/);
     assert.match(text, /-h, --help\s+Show this help/);
+  });
+
+  it("ends a command's help with its guide link on our own domain", () => {
+    assert.match(
+      usage(fakeRegistry, "go"),
+      /Full guide: https:\/\/s3cab\.plantegral\.com\/guide\/exclude\n*$/,
+    );
+    assert.doesNotMatch(usage(fakeRegistry, "later"), /Full guide:/);
+  });
+
+  it("links every real command's guide to a page that exists", () => {
+    // The URL is frozen into each shipped binary and redirects to
+    // guide/<topic>.md, so a typo'd or renamed page is a dead link nobody can
+    // fix after release.
+    const guides = Object.entries(commands).flatMap(([name, { guide }]) =>
+      guide ? [[name, guide]] : [],
+    );
+    assert.ok(guides.length > 0);
+    for (const [name, guide] of guides) {
+      assert.ok(
+        existsSync(new URL(`../guide/${guide}.md`, import.meta.url)),
+        `'${name}' links guide '${guide}', but guide/${guide}.md doesn't exist`,
+      );
+    }
   });
 
   it("renders every real command in the top-level help", () => {
