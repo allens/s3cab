@@ -6,7 +6,7 @@ import { readDeletionRecords } from "./deletion-record.mjs";
 import { ContentMismatchError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
-import { listObjectHashes, putObject } from "./objects.mjs";
+import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
 import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
@@ -78,17 +78,9 @@ export async function storedHashes({
   if (since && baseline) {
     const match = await matchRemoteSnapshot(bucket, set, since, snapshotDir);
     if (match === "identical") {
-      // The PR-A interlock's other half (ADR-0090): existing remotely proves the
-      // baseline's objects were stored *then*; the deletion record says which of
-      // them a later `delete` removed since. Subtract those, or the baseline
-      // wrongly vouches for deleted content and the published snapshot
-      // references missing objects. This byte-identical check is also what makes
-      // record *trimming* safe: while the baseline exists remotely it is itself a
-      // live snapshot referencing its hashes, so cleanup cannot drop the record
-      // rows this subtraction needs. One LIST of the record files — empty, and
-      // free, for the repositories that never ran `delete`.
-      const deleted = await readDeletionRecords(bucket);
-      return baselineHashes(baseline, deleted.keys());
+      // Byte-identical means this baseline exists remotely — the precondition
+      // `getUndeletedHashes` needs for the deletion record to be complete for it.
+      return getUndeletedHashes(bucket, baseline);
     }
     console.warn(
       match === "absent"
@@ -146,22 +138,42 @@ export async function storedHashes({
 }
 
 /**
- * A snapshot's content hashes as a skip-list, minus any the repository's
- * deletion record marks deliberately removed (ADR-0064). Pure — the baseline
- * half of `storedHashes`, split out because `status` wants exactly this over a
- * remote snapshot, with no network read of its own.
- * @param {SnapshotEntries} baseline - The snapshot to trust
- * @param {Iterable<string>} [deleted] - Hashes a later `delete` removed from the store
- * @returns {Set<string>}
+ * The hashes a snapshot that exists remotely still vouches for as stored: its
+ * content hashes, minus those a later `delete` removed (ADR-0064, ADR-0090).
+ * Existing remotely proves the snapshot's objects were stored *then*; the
+ * deletion record says which may be gone since. Without the subtraction the
+ * snapshot wrongly vouches for deleted content — `backup` would publish a
+ * snapshot referencing missing objects, and `status` would undercount what a
+ * backup uploads.
+ *
+ * **Presence wins** (guide/format.md): a recorded hash is subtracted only if
+ * its object is really absent, so each one the snapshot references is HEADed.
+ * Not the record alone — deleted content re-uploads on the next backup and its
+ * row stays, never trimmed while a snapshot references it, so every later
+ * backup would re-PUT it and `status` would count it forever.
+ *
+ * **Only for a snapshot that still exists remotely.** That is what keeps the
+ * record complete for it: a remote snapshot is a live reference to its hashes,
+ * so `cleanup` cannot trim the rows this subtraction needs. One LIST of the
+ * record files — empty, and free, for repositories that never ran `delete`.
+ * @param {string} bucket - The repository's S3 bucket
+ * @param {SnapshotEntries} entries - The remote snapshot's entries
+ * @returns {Promise<Set<string>>}
  */
-export function baselineHashes(baseline, deleted) {
+export async function getUndeletedHashes(bucket, entries) {
+  const deleted = await readDeletionRecords(bucket);
   /** @type {Set<string>} */
   const stored = new Set();
-  for (const { hash } of baseline.values()) {
+  for (const { hash } of entries.values()) {
     stored.add(hash);
   }
-  for (const hash of deleted ?? []) {
-    stored.delete(hash);
+  const sizes = await storedObjectSizes(bucket, [
+    ...stored.intersection(deleted),
+  ]);
+  for (const [hash, size] of sizes) {
+    if (size === undefined) {
+      stored.delete(hash);
+    }
   }
   return stored;
 }

@@ -169,8 +169,8 @@ export async function matchRemoteSnapshot(bucket, set, name, snapshotDir) {
 /**
  * Read a set's remote snapshot by name, straight from S3 — the `.tsv.gz` object
  * is streamed through gunzip and parsed in flight, no temp file (a remote snapshot file
- * is byte-identical to its local form, docs/design/backup.md). The `backup`/`status`
- * diff fetches the latest already-backed-up snapshot this way (taking `.entries`);
+ * is byte-identical to its local form, docs/design/backup.md). `status`'s diff
+ * fetches the latest already-backed-up snapshot this way (taking `.entries`);
  * `restore` reads its chosen one the same way and uses the `#DIR` headers for
  * `--output` re-rooting — so this surfaces the whole `Snapshot`, not just
  * the lookup (a remote snapshot file is the one a recoverer finds alone).
