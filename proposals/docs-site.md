@@ -22,18 +22,22 @@ URLs: on Cloudflare a moved page is a reviewed line in `_redirects`, forever.
 
 **Split ownership so Terraform and deploys never fight over the same thing:**
 
-- **Terraform (infra repo)** owns everything that changes rarely: the Pages project, the
-  `s3cab.plantegral.com` custom domain + DNS, and a deploy-only API token scoped to that one
-  project (minted by Terraform, stored as GitHub secrets here). It never owns the site's
-  *content* — if it did, every deploy would show up as drift.
+- **Terraform (infra repo)** owns everything that changes rarely: the Pages project with its
+  GitHub source and build settings, and the `s3cab.plantegral.com` custom domain + DNS. It never
+  owns the site's *content* — if it did, every deploy would show up as drift.
 - **This repo** owns what changes with the docs: the VitePress build, `_redirects` (in the
-  build's `public/`, reviewed like code), and a GitHub Actions job running `wrangler pages
-  deploy` — production from `main`, a preview URL per PR branch.
+  build's `public/`, reviewed like code), and a CI job that only builds, so a broken page fails
+  the PR.
+
+**Cloudflare builds and deploys, through Pages' own GitHub connection** — production from
+`main`, a preview URL per branch. Not `wrangler pages deploy` from Actions: a Cloudflare API
+token can't be scoped to one Pages project (*Cloudflare Pages Edit* is account-wide), so a deploy
+secret in GitHub could edit every Pages project in the account. With the Git connection GitHub
+holds no Cloudflare credential at all. The build image runs any Node version via `NODE_VERSION`.
 
 Pages rather than Workers static assets, though Cloudflare now steers new sites to Workers: Pages
-gives the cleaner Terraform order (create an empty project, *then* deploy into it — a Workers
-custom domain needs the script to exist first) and per-branch previews out of the box. Moving
-later changes the deploy target, not the content.
+gives per-branch previews out of the box, and its Terraform resource carries the Git source and
+build settings in one place. Moving later changes the deploy target, not the content.
 
 **Cutover — the order matters.** Today `/guide/<topic>` is redirected, presumably by a
 Terraform-managed redirect rule; a hostname redirect rule runs *before* the Pages origin, so the
@@ -51,9 +55,8 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
   dev deps). Why VitePress over Starlight: `cleanUrls` serves `/guide/exclude` from
   `guide/exclude.md` in place, so the frozen URLs need no redirect map and nothing moves; it
   renders GitHub's `> [!TIP]` alert syntax, which also renders on GitHub/npm, so the raw files
-  stay first-class; local search is built in. Starlight wants content under its own
-  `src/content/docs`. Avoid VitePress-only `:::` containers in `guide/` — they read as literal
-  text in the tarball. Hosting is settled below.
+  stay first-class; local search is built in. Avoid VitePress-only `:::` containers in
+  `guide/` — they read as literal text in the tarball. Hosting is settled above.
 - **Examples that can't drift.** A doc-test script that runs each `console` block against a
   fixture `~/.s3cab` and a frozen clock and diffs the output against the page. The local
   commands (`snapshot`, `compare`, `list`, `tree`, `find`, `prop`) need no bucket; the cloud
