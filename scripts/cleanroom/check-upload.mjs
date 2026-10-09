@@ -19,8 +19,9 @@
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
  *   row names, and `faults`'s with no `#END` trailer.
  * - **Objects first**: every object a published snapshot names is stored.
- * - **`sets/<set>/`**: `info` is two `KEY=value` lines, `OWNER` then `CREATED`; `dirs.txt`
- *   is the parsed list with LF endings; `exclude.txt` is a byte copy of the set's own.
+ * - **`sets/<set>/`**, for every set: `info` is two `KEY=value` lines, `OWNER` then
+ *   `CREATED`; `dirs.txt` is the parsed list with LF endings; `exclude.txt` is a byte copy
+ *   of the set's own, and absent if it has none.
  * - **s3cab accepts it**: each set reattaches, and each published snapshot restores.
  *
  * `reattach` writes to the bucket (it re-stamps each set's `info` with this machine as
@@ -261,10 +262,9 @@ for (const set of new Set([...sets, ...published.keys()])) {
 
 for (const set of sets) {
   const prefix = `sets/${set}/`;
+  // `corrupt` included: the spec's `sets/<set>/` marks a set that has no snapshots too.
   if (![...setFiles].some((key) => key.startsWith(prefix))) {
-    // `corrupt` publishes nothing, so a program that leaves the whole set alone has a
-    // reading the spec allows; every other set has a snapshot to mark.
-    (set === "corrupt" ? notes : mismatches).push(`${prefix} doesn't exist`);
+    mismatches.push(`${prefix} doesn't exist`);
     continue;
   }
 
@@ -317,7 +317,9 @@ for (const set of sets) {
       }
     }
   } else if (remoteExclude) {
-    notes.push(`${prefix}exclude.txt exists for a set that has none`);
+    mismatches.push(
+      `${prefix}exclude.txt exists for a set that has none, and reattach would adopt it`,
+    );
   }
 }
 
