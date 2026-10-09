@@ -29,12 +29,13 @@ import { join } from "node:path";
 import {
   cli,
   handover,
+  listAll,
   readCommandLine,
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
 import { count, files, setNames } from "./fixtures.mjs";
-import { listAll, seedHash, seededHash } from "./restore-bucket.mjs";
+import { seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",

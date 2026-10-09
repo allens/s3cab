@@ -54,7 +54,7 @@
  * as AWS_PROFILE: the restorer brief forbids an AWS SDK, and a profile name is only
  * meaningful to one. Resolving through the chain mints a fresh window at every build.
  */
-import { S3Client } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import {
   cpSync,
   existsSync,
@@ -69,6 +69,9 @@ import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
+
+/** One client for every script's own requests, through the standard credential chain. */
+export const client = new S3Client({});
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
@@ -174,7 +177,7 @@ export function readCommandLine(script, variable) {
  */
 export async function sessionCredentials(bucket) {
   const profile = process.env.AWS_PROFILE;
-  return await new S3Client({}).config.credentials().catch((error) => {
+  return await client.config.credentials().catch((error) => {
     console.error(
       `couldn't resolve AWS credentials for ${bucket}, and the clean room needs them\n` +
         "as static keys. If the SSO session has lapsed:\n" +
@@ -608,4 +611,30 @@ export function cli(home) {
     return result;
   };
   return { run, mustRun };
+}
+
+/**
+ * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —
+ * the very hazard `bulk` exists to expose in a restorer — so a whole listing has to
+ * follow the continuation token itself.
+ * @param {string} bucket
+ * @param {string} [prefix]
+ */
+export async function listAll(bucket, prefix) {
+  /** @type {string[]} */
+  const keys = [];
+  /** @type {string | undefined} */
+  let token;
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    );
+    keys.push(...(page.Contents ?? []).map(({ Key }) => Key ?? ""));
+    token = page.NextContinuationToken;
+  } while (token);
+  return keys;
 }

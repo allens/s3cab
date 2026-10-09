@@ -1,7 +1,6 @@
 /**
- * What both sides of the clean-room restore bucket share (ADR-0096): the seed that fills
- * it with the golden set, and the build that restores s3cab's reference from it. Both
- * drive the real CLI to do it, through `cli` in cleanroom.mjs.
+ * The restore bucket's stamp (ADR-0096), shared by the seed that writes it and the build
+ * that refuses a golden set made from anything but this checkout.
  *
  * The golden set is stamped with a hash of what made it, as a bucket tag rather than a key:
  * a restorer works out the bucket's contents from a listing, and a key the spec doesn't
@@ -10,15 +9,12 @@
 import {
   DeleteBucketTaggingCommand,
   GetBucketTaggingCommand,
-  ListObjectsV2Command,
   PutBucketTaggingCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
-export const client = new S3Client({});
+import { client } from "./cleanroom.mjs";
 
 const seedTag = "s3cab-cleanroom-seed";
 
@@ -32,32 +28,6 @@ const seedInputs = [
   join("scripts", "cleanroom", "fixtures.mjs"),
   join("scripts", "cleanroom", "seed-restore-cleanroom-bucket.mjs"),
 ];
-
-/**
- * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —
- * the very hazard `bulk` exists to expose in a restorer — so a whole listing has to
- * follow the continuation token itself.
- * @param {string} bucket
- * @param {string} [prefix]
- */
-export async function listAll(bucket, prefix) {
-  /** @type {string[]} */
-  const keys = [];
-  /** @type {string | undefined} */
-  let token;
-  do {
-    const page = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: token,
-      }),
-    );
-    keys.push(...(page.Contents ?? []).map(({ Key }) => Key ?? ""));
-    token = page.NextContinuationToken;
-  } while (token);
-  return keys;
-}
 
 /** The hash of this checkout's seed inputs: the spec, the fixtures and the seed. */
 export function seedHash() {

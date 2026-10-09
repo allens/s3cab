@@ -27,7 +27,7 @@ import {
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { cli, readCommandLine } from "./cleanroom.mjs";
+import { cli, client, listAll, readCommandLine } from "./cleanroom.mjs";
 import {
   buildFixtures,
   excludes,
@@ -36,7 +36,7 @@ import {
   setNames,
   withoutTrailer,
 } from "./fixtures.mjs";
-import { client, listAll, seedHash, stampSeed } from "./restore-bucket.mjs";
+import { seedHash, stampSeed } from "./restore-bucket.mjs";
 
 if (process.platform !== "linux") {
   console.error(
