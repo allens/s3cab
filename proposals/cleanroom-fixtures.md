@@ -56,12 +56,14 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   - `.a.log`, which s3cab drops. `glob.glob` skips hidden names by default.
   - `LOUD.LOG`, excluded only on Windows. A Windows backup using the case-sensitive
     `fnmatchcase` keeps it.
-- **`exclude.txt` and `dirs.txt` the way people write them.** The backup build writes both clean,
-  with LF endings. Instead, give one set an `exclude.txt` with CRLF, no final newline, an indented
-  `#` line, a blank line and a pattern with a trailing space. Give it a `dirs.txt` with a comment,
-  a member directory reached through a symlink, and one written with a trailing `/`. A pattern
-  ending in `\r` matches nothing, so the backup takes files s3cab excludes. **Silent.** A member
-  directory kept as typed rather than resolved changes every path, which the harness catches.
+- **The rest of `exclude.txt` and `dirs.txt` the way people write them.** `edge`'s
+  `exclude.txt` already has CRLF and no final newline. Still missing: an indented `#` line, a
+  blank line and a pattern with a trailing space in an `exclude.txt`, and a `dirs.txt` with a
+  comment, a member directory reached through a symlink, and one written with a trailing `/`. The
+  snapshot and upload builds write every `dirs.txt` clean, with LF endings. A pattern that keeps
+  its trailing space matches nothing, so the backup takes files s3cab excludes. **Silent.** A
+  member directory kept as typed rather than resolved changes every path, which the harness
+  catches.
 - **Nested member directories separated by an exclude.** Use `dirs` set to
   `[nest/outer, nest/outer/inner]` with the pattern `inner/`. s3cab accepts this and writes
   nested `#DIR`s, which exercises "the **longest wins**". A restorer that takes the first match

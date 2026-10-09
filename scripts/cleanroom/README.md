@@ -3,7 +3,8 @@
 > **Partly built** ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
 > the harness that builds each clean room is here, and everything below describes it. Still to
 > come: the clean-room programs for the current spec; the CI matrix that builds and runs them;
-> `compare-restore.mjs` and `compare-snapshot.mjs` in place of `compare.py`; and, before 1.0,
+> `compare-restore.mjs` in place of `compare.py`, beside `compare-snapshot.mjs` and
+> `check-upload.mjs` for the two halves of the backup; and, before 1.0,
 > keeping only the latest programs, so [restorers/](restorers/) stops being append-only and the
 > earlier runs' programs go, while their reports in `docs/` stay.
 
@@ -372,10 +373,13 @@ sub-millisecond defect that is run 2's finding 2. And directory mtimes reported
 separately, since both tools create directories implicitly at restore time, so
 those reflect the run rather than the format.
 
-**To be rewritten in JavaScript as `compare-restore.mjs`**, alongside the
-snapshot's row comparator, `compare-snapshot.mjs`, when the CI matrix is built:
-one comparator per kind of output. An upload needs none of its own, because its
-output is a bucket, and the check of a bucket is restoring it. It is Python only because run 2's session wrote it that
+**To be rewritten in JavaScript as `compare-restore.mjs`**, alongside a checker
+for each half of the backup, when the CI matrix is built. The snapshot's is
+`compare-snapshot.mjs`, its rows against s3cab's. The upload's is
+`check-upload.mjs`, and restoring the bucket is not enough to stand in for it:
+no restore reads `dirs.txt` or `exclude.txt`, so a CRLF `dirs.txt` or a rewritten
+`exclude.txt` passes, and a restore can't tell whether the room refused the two
+damaged snapshots. It is Python only because run 2's session wrote it that
 way: Node reads byte paths too (`readdir` with `encoding: "buffer"`), and
 nanosecond mtimes (`lstat` with `bigint: true`).
 

@@ -55,8 +55,8 @@ findings: the same silent shortening the fixtures' skip notice exists to prevent
 have such findings. A snapshot has to spell a Windows path as the filesystem reports it,
 uppercase the drive letter, name the IANA zone where Python can't, and reach paths past
 `MAX_PATH`. An upload that writes `dirs.txt` through Python's text mode on Windows writes CRLF,
-which the spec forbids, and nothing downstream reads that file strictly enough to notice. The
-seed is different in kind: it produces the golden set rather than reading the spec, and is
+which the spec forbids. Neither s3cab nor any restorer reads that file strictly enough to notice,
+so the upload's own checker has to. The seed is different in kind: it produces the golden set rather than reading the spec, and is
 Linux-only because only Linux holds every fixture.
 
 The language stays one, and so does the portability rule below: every program, wherever it was
