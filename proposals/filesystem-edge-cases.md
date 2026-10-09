@@ -62,23 +62,37 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
-- **Replace `#SKIPPED`: a link that leads out of the backup is an `#ERROR`, every other non-file
-  gets no row.** Decided 2026-10-09: `#SKIPPED` goes. All it records that nothing else does is
-  where links were, and restore never uses that. A symlinked folder whose contents aren't backed
-  up becomes an `#ERROR` instead, and only an exclude pattern silences it. The rest is a
-  suggested shape, not yet agreed:
+- **Replace `#SKIPPED`: follow file links, record every link in a `link` row, and make a folder link
+  that leads out of the backup an `#ERROR`.** Decided 2026-10-09: `#SKIPPED` goes. It records an
+  event (what was left out, and why) but not the link's target, so it can't say what the link
+  was. A `link` row records the link itself, target included; its layout is in
+  [snapshot-format.md](snapshot-format.md). A symlinked folder whose contents aren't backed up
+  becomes an `#ERROR`, and only an exclude pattern silences it. The rest is a suggested shape,
+  not yet agreed:
 
   | Entry | Proposed |
   | --- | --- |
-  | Link, to a file or a folder, whose target is outside every member directory | `#ERROR`; exit 1 until excluded |
-  | Link whose target is inside a member directory | no row: the target is backed up under its real path |
-  | Link whose target doesn't exist | no row |
+  | Link to a file, wherever it points | followed: an ordinary file row under the link's path, plus `link` |
+  | Link to a folder whose target is inside a member directory | not followed; `link` only, since the target is backed up under its real path |
+  | Link to a folder whose target is outside every member directory | `#ERROR`; exit 1 until excluded |
+  | Link whose target doesn't exist | `link` only |
   | Link whose target exists but can't be resolved | `#ERROR` |
   | FIFO, socket, device | no row |
   | Entry that vanished between listing and checking | no row |
   | Entry that couldn't be checked for any other reason | `#ERROR` |
 
-  - **The check** runs only on links, so the cost is negligible. `stat` (which follows the link)
+  - **Why files are followed and folders aren't.** A file link is bounded and can't loop, and
+    there is no other way to back up a lone file outside the member directories; git-annex keeps
+    every file as a symlink into `.git/annex/objects/`. A folder link can loop, can lead anywhere
+    (a drive root, a share, the Personal Vault), and on Windows the profile's compatibility
+    junctions refuse listing: measured 2026-10-09, `readdirSync` on `Application Data`,
+    `Local Settings` and `Documents\My Pictures` throws `EPERM` while their targets list fine.
+    Following would turn a profile backup's dozen junctions into a dozen `#ERROR`s.
+  - **Restore writes a followed file link back as a regular file**, the way
+    [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md) already restores hard links: two
+    links to one file come back as two copies.
+
+  - **The check** runs only on folder links, so the cost is negligible. `stat` (which follows the link)
     tells a missing target from a present one, then `realpathSync.native`, then the containment
     test restore already uses (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The
     walk handles one member directory at a time, so it needs the whole member list passed in. A
@@ -101,10 +115,8 @@ independent of it: different mechanism, different code, different fix.
   - **Exclude patterns must apply to links.** Today the walk tests them only against files and
     directories. Open: a pattern ending in `/` should match a link to a folder, or `My Music/`
     won't silence it.
-  - **A file replaced by a link** shows in `compare` as deleted. That's accurate, since the
-    regular file is gone; `#SKIPPED` used to hide it.
   - **What changes:** supersede [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md)'s
-    `#SKIPPED` recording and the skipped parts of
+    "a symlink is never followed", its `#SKIPPED` recording, and the skipped parts of
     [ADR-0078](../docs/adr/0078-backup-run-report.md). Drop the `#SKIPPED` line type from
     [guide/format.md](../guide/format.md), which means reseeding the clean-room golden set.
     Remove the reader branch, the writer, `compareSnapshots`' skipped reconciliation, and the
