@@ -22,21 +22,27 @@ URLs: on Cloudflare a moved page is a reviewed line in `_redirects`, forever.
 
 **Split ownership so Terraform and deploys never fight over the same thing:**
 
-- **Terraform (infra repo)** owns everything that changes rarely: the Pages project, the
-  `s3cab.plantegral.com` custom domain + DNS, and a deploy-only API token scoped to that one
-  project (minted by Terraform, stored as GitHub secrets here). It never owns the site's
-  *content* — if it did, every deploy would show up as drift. What `docs.yml` expects: a
-  Pages project named `s3cab` with production branch `main`, and repo secrets
-  `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`. The deploy step stays skipped until the
-  token exists, so Terraform can land in either order.
+- **Terraform (infra repo)** owns everything that changes rarely: the Pages project with its
+  GitHub source and build settings, and the `s3cab.plantegral.com` custom domain + DNS. It never
+  owns the site's *content* — if it did, every deploy would show up as drift.
 - **This repo** owns what changes with the docs: the VitePress build, `_redirects` (in the
-  build's `public/`, reviewed like code), and a GitHub Actions job running `wrangler pages
-  deploy` — production from `main`, a preview URL per PR branch.
+  build's `public/`, reviewed like code), and a CI job that only builds, so a broken page fails
+  the PR.
+
+**Cloudflare builds and deploys, through Pages' own GitHub connection** — production from
+`main`, a preview URL per branch. Not `wrangler pages deploy` from Actions: a Cloudflare API
+token can't be scoped to one Pages project (*Cloudflare Pages Edit* is account-wide), so a deploy
+secret in GitHub could edit every Pages project in the account. With the Git connection GitHub
+holds no Cloudflare credential at all. The build image runs any Node version via `NODE_VERSION`.
+
+What the Pages project needs: source `allens/s3cab`, production branch `main`, build command
+`npm run docs:build`, output directory `site/.vitepress/dist`, and `NODE_VERSION=26.10.0` (the
+engines floor, as in `ci.yml`; the image defaults to 22). The Cloudflare GitHub app
+must be installed on the repo first — a one-time click Terraform can't make.
 
 Pages rather than Workers static assets, though Cloudflare now steers new sites to Workers: Pages
-gives the cleaner Terraform order (create an empty project, *then* deploy into it — a Workers
-custom domain needs the script to exist first) and per-branch previews out of the box. Moving
-later changes the deploy target, not the content.
+gives per-branch previews out of the box, and its Terraform resource carries the Git source and
+build settings in one place. Moving later changes the deploy target, not the content.
 
 **Cutover — the order matters.** Today `/guide/<topic>` is redirected, presumably by a
 Terraform-managed redirect rule; a hostname redirect rule runs *before* the Pages origin, so the
@@ -50,13 +56,6 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 
 ## Ordered by payoff
 
-- ~~**A real site over `guide/`**~~ — **built** in [site/](../site/) (VitePress, dev-only):
-  `guide/*.md` render in place at `/guide/<topic>` through a dynamic route, the README is the
-  home page, the sidebar is read from `guide/README.md`, search is local, and the build fails on
-  a dead link or `#anchor`. `.github/workflows/docs.yml` builds every PR and deploys once the
-  Cloudflare secrets exist. What remains is the Terraform side and the cutover below. Avoid
-  VitePress-only `:::` containers in `guide/` — they read as literal text in the tarball; GitHub's
-  `> [!TIP]` alerts render in both.
 - **Examples that can't drift.** A doc-test script that runs each `console` block against a
   fixture `~/.s3cab` and a frozen clock and diffs the output against the page. The local
   commands (`snapshot`, `compare`, `list`, `tree`, `find`, `prop`) need no bucket; the cloud
