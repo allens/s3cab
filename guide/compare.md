@@ -104,8 +104,8 @@ two snapshots, that change shows up in the report as files **added** or **delete
 
 This is expected: the report faithfully shows the difference between the two snapshots, and the
 set genuinely covered different directories in each. If a comparison shows a surprising wave of
-deletions, check whether the set's directories changed between the two snapshots (`s3cab list
-<set>` shows the current directories). Restoring either snapshot still recovers exactly what
+deletions, check whether the set's directories changed between the two snapshots
+(`s3cab list <set>` shows the current directories). Restoring either snapshot still recovers exactly what
 that snapshot contained.
 
 ## Files that weren't backed up

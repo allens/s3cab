@@ -202,8 +202,8 @@ Record of this removal — verify and restore read it to tell deliberate removal
 my-backups: deleted 297 objects (48.1GB). Snapshots were not modified.
 ```
 
-Hashes can also go straight on the command line (`s3cab delete --bucket my-backups
-<hash>...`) when there are only a few. Either way the operands must *be* hashes — a path or
+Hashes can also go straight on the command line
+(`s3cab delete --bucket my-backups <hash>...`) when there are only a few. Either way the operands must *be* hashes — a path or
 anything else is an error pointing you at `find`, never a guess.
 
 This is the most destructive thing s3cab can do — it removes content that your snapshots
