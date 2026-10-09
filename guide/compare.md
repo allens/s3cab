@@ -20,8 +20,8 @@ bytes that changed. (`s3cab snapshot` prints the same report after taking a
 snapshot, showing what changed since the previous one.)
 
 ```console
-> s3cab compare photos --since 2026-11-11T0830
-photos: ~/Pictures  2026-11-11T0830 → 2026-11-12T0915
+> s3cab compare photos --since 2025-11-11T0830
+photos: ~/Pictures  2025-11-11T0830 → 2025-11-12T0915
 
 Added (2)
   2025/new.jpg
@@ -146,7 +146,7 @@ newer one, is listed under `Added` with a note saying so:
 
 ```console
 Added (1)
-  X.doc  (was unreadable in 2026-11-11T0830)
+  X.doc  (was unreadable in 2025-11-11T0830)
 ```
 
 It is an addition to the **backup**, not a new file: because the older snapshot couldn't read it,

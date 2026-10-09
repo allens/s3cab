@@ -6,7 +6,7 @@
     "backup",
     "s3"
   ],
-  "homepage": "https://github.com/allens/s3cab#readme",
+  "homepage": "https://s3cab.plantegral.com",
   "bugs": {
     "url": "https://github.com/allens/s3cab/issues"
   },
