@@ -99,6 +99,21 @@ export const plural = (n, word) => (n === 1 ? word : `${word}s`);
 export const countOf = (n, word) => `${formatCount(n)} ${plural(n, word)}`;
 
 /**
+ * A path with its tab and line-ending characters spelled out (`<TAB>`, `<CR>`,
+ * `<NL>`), so one path stays on one line: one entry of an error's list, or one
+ * `#EXCLUDED`/`#SKIPPED` row of a snapshot. Not for a file entry — those must
+ * restore to the real name, so the walk refuses such a path instead
+ * (ADR-0073).
+ * @param {string} path
+ * @returns {string}
+ */
+export const showControlChars = (path) =>
+  path
+    .replaceAll("\t", "<TAB>")
+    .replaceAll("\r", "<CR>")
+    .replaceAll("\n", "<NL>");
+
+/**
  * A headed `label / count / size` table with the numbers right-aligned and the
  * last row ruled off as the total:
  *

@@ -14,7 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { constants, createGunzip, createGzip } from "node:zlib";
 import { EXIT_INTERRUPTED, InterruptedError, isENOENT } from "./error.mjs";
-import { completionInstant, localMoment } from "./format.mjs";
+import { completionInstant, localMoment, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 
@@ -1201,13 +1201,17 @@ function snapshotHeader({ moment, identity, dirs }) {
  * An `#EXCLUDED` row: a file or directory the walk dropped because it matched a
  * user-specified exclude pattern. Recorded for transparency; ignored on read.
  * Module-private: `writeSnapshot` formats the walk's `excluded` records with it.
+ *
+ * The path goes through `showControlChars`, as the `#SKIPPED` one does: the walk
+ * refuses a tab or line break only in a kept name, and excluding such a name is
+ * the fix its refusal suggests (ADR-0073), so this row is where one turns up.
  * @param {string} fileType - The dirent type (File, Directory, …)
  * @param {string} reason - The matching exclude pattern
  * @param {string} path - The excluded path
  * @returns {string}
  */
 const excludedLine = (fileType, reason, path) =>
-  formatLine(EXCLUDED, fileType, reason, path);
+  formatLine(EXCLUDED, fileType, reason, showControlChars(path));
 
 /**
  * A `#SKIPPED` row: a file the walk omitted by design because its type is not
@@ -1221,7 +1225,7 @@ const excludedLine = (fileType, reason, path) =>
  * @returns {string}
  */
 const skippedLine = (fileType, reason, path) =>
-  formatLine(SKIPPED, fileType, reason, path);
+  formatLine(SKIPPED, fileType, reason, showControlChars(path));
 
 /**
  * An `#ERROR` row: a file the walk couldn't hash (e.g. permission denied),

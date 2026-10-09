@@ -610,6 +610,46 @@ describe("writeSnapshot", () => {
     );
   });
 
+  it("keeps an excluded or skipped name holding a line break on one row", async () => {
+    // Excluding such a name is the escape hatch the walk's refusal points to
+    // (ADR-0073), so it must reach the snapshot without splitting its row.
+    await using dir = await mkTmpDir();
+    const kept = resolve(dir.path, "kept.txt");
+
+    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
+      identity: "photos",
+      dirs: [dir.path],
+      files: [kept],
+      excluded: [
+        {
+          fileType: "File",
+          reason: "odd*name.jpg",
+          path: resolve(dir.path, "odd\nname.jpg"),
+        },
+      ],
+      skipped: [
+        {
+          fileType: "Symbolic Link",
+          reason: "Unsupported file type",
+          path: resolve(dir.path, "odd\rlink"),
+        },
+      ],
+      getProps: props,
+    });
+
+    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
+    assert.deepEqual([...snap.entries.keys()], [kept]);
+    assert.deepEqual(
+      [...snap.skipped],
+      [
+        [
+          resolve(dir.path, "odd<CR>link"),
+          { fileType: "Symbolic Link", reason: "Unsupported file type" },
+        ],
+      ],
+    );
+  });
+
   it("passes rows through `through` and writes the identical file (the fusion seam)", async (t) => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the

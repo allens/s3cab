@@ -9,7 +9,12 @@ import { isAbsolute, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
-import { countOf, formatCount, secondsSince } from "./format.mjs";
+import {
+  countOf,
+  formatCount,
+  secondsSince,
+  showControlChars,
+} from "./format.mjs";
 import { tildeify } from "./home.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
@@ -45,19 +50,6 @@ import { readLines } from "./read-lines.mjs";
  * fire on Linux or macOS.
  */
 const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
-
-/**
- * Render a path's control characters visibly, so an error can name a file whose
- * name would otherwise mangle the message it appears in — a raw line break would
- * split one entry across two lines of the list. Display only: nothing written to
- * a snapshot passes through here, because such a path never reaches one.
- * @param {string} path
- */
-const showControlChars = (path) =>
-  path
-    .replaceAll("\t", "<TAB>")
-    .replaceAll("\r", "<CR>")
-    .replaceAll("\n", "<NL>");
 
 /**
  * Walk a resolved backup set: every member directory, with the set's
