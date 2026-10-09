@@ -1,0 +1,33 @@
+# The docs site (site/, proposals/docs-site.md): build it on every push and PR.
+# The build is the check: VitePress fails on a link to a page that doesn't
+# exist, and site/.vitepress/check-links.mjs on a `#anchor` that doesn't.
+#
+# Not a deploy: Cloudflare Pages builds and deploys through its own GitHub
+# connection (Terraform, outside this repo). Not `wrangler pages deploy` from
+# here, because a Pages API token can't be scoped to one project.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Match ci.yml: the engines floor.
+          node-version: "26.10.0"
+      - run: npm ci
+      - run: npm run docs:build

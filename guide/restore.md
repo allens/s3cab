@@ -18,10 +18,9 @@ why there is no `--remote` flag — there is nothing else it could mean.
 
 The set is **required** — `s3cab restore --set photos …`, never a bare `s3cab restore`, even
 if you only have one set. Every other command defaults to your only set; restore deliberately
-doesn't ([ADR-0040](https://github.com/allens/s3cab/blob/main/docs/adr/0040-restore-requires-set-name.md)):
-a destructive-adjacent command shouldn't guess its target. It is named by `--set` because the
-paths are what you list — a command's bulk operand takes the positionals, and its addressing
-moves to a flag ([ADR-0062](https://github.com/allens/s3cab/blob/main/docs/adr/0062-bulk-operands-positional-addressing-by-flag.md)).
+doesn't: a command that writes into your folders shouldn't guess which backup to write from.
+It's a flag, `--set`, rather than the first word after `restore`, because those words are the
+paths you want back.
 
 ## Choosing what to restore
 

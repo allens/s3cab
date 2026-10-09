@@ -265,8 +265,7 @@ marginally better than an access key.** If someone steals `client.key`, they can
 mint fresh short-lived credentials repeatedly for the certificate's life (or until
 you disable the trust anchor) — "short-lived credentials" does not rescue a
 long-lived _signing key_. True machine-binding would need an OS keystore/TPM, which
-s3cab deliberately doesn't require (see
-[ADR-0058](https://github.com/allens/s3cab/blob/main/docs/adr/0058-roles-anywhere-cert-generation.md)).
+s3cab deliberately doesn't require.
 
 What actually bounds the damage is the same backstop as everywhere in s3cab: the
 least-privilege policy is **soft-delete-only** (`DeleteObject`, never
@@ -299,8 +298,7 @@ That is an admin task s3cab deliberately leaves to the standard AWS tooling. See
 S3-compatible services — Cloudflare R2, Backblaze B2, Wasabi, and so on —
 have no AWS IAM, so there is no policy JSON to attach and no `aws` CLI to
 install. Onboarding reduces to three strings (endpoint, access key, secret key)
-plus a region label, all recorded by the **`provider`** command
-([ADR-0047](https://github.com/allens/s3cab/blob/main/docs/adr/0047-provider-command-neutral-config-door.md)).
+plus a region label, all recorded by the **`provider`** command.
 The steps (also available offline via `s3cab help provider`):
 
 1. **Create the bucket** in your provider's console (or its CLI).

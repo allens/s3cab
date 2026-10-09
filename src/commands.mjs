@@ -76,6 +76,7 @@ import {
  * @property {(result: any, context: RenderContext) => Promise<string | undefined>} [offer] - Follow-up output the command has to **ask** about, run by the dispatcher once `render`'s text is already on stdout and never under `--json`. `backup` is the only one: its report ends with an offer to show the full diff ([ADR-0078](../docs/adr/0078-backup-run-report.md) §5), and a prompt asking "show what changed?" *above* the summary of what changed would be asking the user to answer blind. It is a hook rather than a step inside the command because ordering is the dispatcher's — it owns the stream and the `--json` toggle, and a command that printed its own report would print it under `--json` too.
  * @property {string} summary
  * @property {string} [details] - The long-form `--help` body, rendered under "Description:" (lives in command-details.mjs). Distinct from an arg/option's one-line `description`.
+ * @property {string} [guide] - The `guide/<topic>.md` page that covers this command, rendered as a `Full guide:` link at the foot of its `--help` (help.mjs). The topic, not a URL: the page must exist (test-enforced), and the URL shape is frozen into every shipped binary (CLAUDE.md), so it is spelled once
  * @property {string[]} [examples] - Example invocations, one per line, shown right after the summary in `--help` (lead with examples — clig.dev)
  * @property {string} [group] - Top-level help section heading; sticks for the commands that follow, so only the first command of each section sets it
  */
@@ -86,6 +87,7 @@ export const commands = {
   snapshot: {
     group: "Snapshots",
     summary: "Take a snapshot of a backup set",
+    guide: "backup",
     examples: ["s3cab snapshot", "s3cab snapshot photos"],
     details: snapshotDetails,
     args: {
@@ -134,6 +136,7 @@ export const commands = {
   },
   compare: {
     summary: "Show what changed between two snapshots",
+    guide: "compare",
     examples: ["s3cab compare", "s3cab compare photos --since 2025-11-11T0830"],
     details: compareDetails,
     args: {
@@ -158,6 +161,7 @@ export const commands = {
   },
   find: {
     summary: "Search your backups for a file, and show what backs it",
+    guide: "find",
     examples: [
       "s3cab find aws-keys.txt",
       "s3cab find '*.mov' --set photos",
@@ -206,6 +210,7 @@ export const commands = {
   aws: {
     group: "Setup",
     summary: "Show the steps to set up an AWS S3 bucket for backups",
+    guide: "aws",
     examples: [
       "s3cab aws my-backups",
       "s3cab aws my-backups --region eu-west-1 --profile admin",
@@ -250,6 +255,7 @@ export const commands = {
   },
   provider: {
     summary: "Set, clear, or show how s3cab connects to your storage provider",
+    guide: "auth",
     examples: [
       "s3cab provider --endpoint https://<account>.r2.cloudflarestorage.com --region auto",
       "s3cab provider --profile s3cab-backup",
@@ -349,6 +355,7 @@ export const commands = {
   },
   reattach: {
     summary: "Reattach this machine to an existing backup set",
+    guide: "restore",
     examples: ["s3cab reattach photos --bucket my-backups"],
     args: {
       set: {
@@ -372,6 +379,7 @@ export const commands = {
   backup: {
     group: "Backup & restore",
     summary: "Back up a set to the cloud",
+    guide: "backup",
     examples: ["s3cab backup", "s3cab backup photos"],
     details: backupDetails,
     args: {
@@ -395,6 +403,7 @@ export const commands = {
   },
   restore: {
     summary: "Restore files from a backup",
+    guide: "restore",
     examples: [
       "s3cab restore --set photos",
       "s3cab restore --set photos C:\\Users\\me\\Photos\\beach.jpg",
@@ -433,6 +442,7 @@ export const commands = {
   },
   verify: {
     summary: "Check that a repository's backups are complete and undamaged",
+    guide: "maintenance",
     examples: ["s3cab verify my-backups"],
     args: {
       bucket: {
@@ -445,6 +455,7 @@ export const commands = {
   },
   forget: {
     summary: "Remove snapshots from a backup",
+    guide: "maintenance",
     examples: [
       "s3cab forget --set photos 2026-06-12T0915",
       "s3cab forget --set photos 2026-06-12T0915 2026-06-19T0902",
@@ -475,6 +486,7 @@ export const commands = {
   },
   delete: {
     summary: "Delete objects from every backup by content hash, permanently",
+    guide: "maintenance",
     examples: [
       "s3cab find secretsdir/ > hashes.txt",
       "s3cab delete --bucket my-backups --from-file hashes.txt",
@@ -516,6 +528,7 @@ export const commands = {
   },
   cleanup: {
     summary: "Reclaim storage held by objects no snapshot references",
+    guide: "maintenance",
     examples: [
       "s3cab cleanup my-backups",
       "s3cab cleanup my-backups --dry-run",
@@ -613,6 +626,7 @@ export const commands = {
   },
   tree: {
     summary: "List the files a snapshot of a backup set would include",
+    guide: "exclude",
     examples: ["s3cab tree", "s3cab tree photos", "s3cab tree --excluded"],
     details: treeDetails,
     args: {

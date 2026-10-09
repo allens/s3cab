@@ -4,6 +4,8 @@
 build
 dist
 coverage
+site/.vitepress/dist
+site/.vitepress/cache
 
 # Never let Prettier touch snapshot files or the on-disk store
 .s3cab
