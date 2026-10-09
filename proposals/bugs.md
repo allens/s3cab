@@ -115,7 +115,34 @@ nanosecond was never corroboration — run 1's Python restorer went through the 
 they shared the flaw. Only a comparison against the *stored* value could show it, which is the
 argument for `compare.py` reading `st_mtime_ns`.</sub>
 
-**Open:** none.
+**Open:**
+
+- **An excluded or skipped name holding a line break makes the snapshot unreadable.** Excluding
+  a tab/LF/CR name with a pattern like `odd*name.jpg` — the escape hatch the walk's refusal
+  message and [guide/format.md](../guide/format.md) both recommend
+  ([ADR-0073](../docs/adr/0073-refuse-tab-newline-paths.md)) — writes the raw path into the
+  `#EXCLUDED` row (`excludedLine` in `src/lib/snapshot-file.mjs`), and a symlink with such a name
+  does the same in `#SKIPPED`. The LF or CR starts a new line, so `parseSnapshotStream` throws
+  `Malformed snapshot line` as an unhandled `AssertionError`. Reproduced on Linux at `bed5e19`:
+  the `snapshot` that writes the file crashes reading it back for its own report, and every later
+  one crashes reading it as the baseline. `backup` uploads the snapshot before its report reads it
+  (`uploadSnapshotFile` comes before `compareSnapshots` in `src/commands/backup.mjs`), so the
+  bucket would keep a snapshot s3cab can't read — not run against a bucket. A tab alone only adds
+  a field to a `#` row, which readers skip. Until fixed, the clean-room golden set can't carry a
+  fixture for it: the seed's reference restore would fail on the same assertion.
+- **A filename that isn't valid UTF-8 is reported as missing, and two of them abort the run
+  with a false diagnosis.** `readdirSync` decodes such a name with U+FFFD replacements, so the
+  walk then asks for a file that isn't there. One such file becomes an `#ERROR` row reading
+  `ENOENT: no such file or directory` under the replacement spelling and is never backed up.
+  Two in one directory (`bad-\xff.txt`, `bad-\xfe.txt`) decode to the same string and abort the
+  whole run with "File found under more than one of the set's directories … The set's
+  directories overlap" — on a set with one directory. Reproduced on Linux at `bed5e19`; only
+  Linux filesystems hold such names. [guide/format.md](../guide/format.md) doesn't say what
+  happens to one.
+- **[guide/format.md](../guide/format.md) misstates how a deletion record is numbered.** It says
+  each run "takes the lowest index not already in use"; `writeDeletionRecord`
+  (`src/lib/deletion-record.mjs`) takes one past the highest, so after `cleanup` leaves only
+  `-3`, the next record is `-4`, not `-1`. Readers are unaffected, since they union every record.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.
