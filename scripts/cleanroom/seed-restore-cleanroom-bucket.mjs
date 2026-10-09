@@ -26,21 +26,16 @@ import {
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
-import { readCommandLine } from "./cleanroom.mjs";
+import { cli, readCommandLine } from "./cleanroom.mjs";
 import {
   buildFixtures,
   excludes,
+  oneMinuteBefore,
   reportFixtures,
   setNames,
+  withoutTrailer,
 } from "./fixtures.mjs";
-import {
-  cli,
-  client,
-  listAll,
-  specHash,
-  stampSpec,
-} from "./restore-bucket.mjs";
+import { client, listAll, specHash, stampSpec } from "./restore-bucket.mjs";
 
 if (process.platform !== "linux") {
   console.error(
@@ -77,24 +72,6 @@ const waitForNextMinute = async () => {
     process.stdout.write(".");
   }
   process.stdout.write("\n");
-};
-
-/**
- * The snapshot name one minute before this one. Used once, to name the damaged copy
- * staged below: a snapshot name is a timestamp, so a *later* one would make the damaged
- * snapshot `faults`'s newest and a bare `restore --set faults` would stop there — hiding
- * F7, which is the same set's point. Backdating leaves the intact snapshot as the latest
- * and the damaged one reachable only by asking for it by name.
- *
- * Snapshot names are *local* time, so this parses and prints as UTC throughout: both
- * ends of the arithmetic use the same zone, so the answer is the local name one minute
- * back, and no offset is ever applied.
- * @param {string} name e.g. `2026-08-20T1432`
- */
-const oneMinuteBefore = (name) => {
-  const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
-  stamp.setUTCMinutes(stamp.getUTCMinutes() - 1);
-  return stamp.toISOString().slice(0, 16).replace(":", "");
 };
 
 // Built before the bucket is touched: a golden set missing a fixture would be partial for
@@ -275,11 +252,10 @@ await client.send(
 // A snapshot with its `#END` trailer cut off. The trailer is the format's answer to a
 // backup killed mid-write (ADR-0082), and it has only ever been staged *present* — so
 // nothing has tested the one thing it exists for, and run 2 could only note that its
-// own completeness check went unexercised. Truncating the *compressed* bytes would test
-// gunzip's own check instead, so this decompresses, drops the trailer line, and
-// recompresses: a well-formed gzip stream missing its last line, which is precisely what a
-// reader has to notice. It is published under `faults` as a second snapshot, backdated
-// so the intact one stays the set's latest.
+// own completeness check went unexercised. It is published under `faults` as a second
+// snapshot (`withoutTrailer`, fixtures.mjs), backdated so the intact one stays the set's
+// latest: a *later* name would make the damaged snapshot the newest, and a bare
+// `restore --set faults` would stop there — hiding F7, which is the same set's point.
 const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
   .filter((entry) => entry.endsWith(".tsv.gz"))
   .sort()
@@ -297,14 +273,11 @@ const whole = await client.send(
 const wholeBytes = await /** @type {NonNullable<typeof whole.Body>} */ (
   whole.Body
 ).transformToByteArray();
-const text = gunzipSync(wholeBytes).toString("utf8");
 await client.send(
   new PutObjectCommand({
     Bucket: bucket,
     Key: `snapshots/faults/${damagedName}.tsv.gz`,
-    Body: gzipSync(
-      Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"),
-    ),
+    Body: withoutTrailer(wholeBytes),
   }),
 );
 

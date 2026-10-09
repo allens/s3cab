@@ -1,11 +1,7 @@
 /**
  * What both sides of the clean-room restore bucket share (ADR-0096): the seed that fills
- * it with the golden set, and the build that restores s3cab's reference from it.
- *
- * Both drive the real CLI as a subprocess, so the bucket and the reference are what the
- * tool itself produces and neither script has privileged access to s3cab's internals.
- * S3CAB_HOME points into the sandbox, so your own ~/.s3cab is untouched while ~/.aws
- * credentials keep working.
+ * it with the golden set, and the build that restores s3cab's reference from it. Both
+ * drive the real CLI to do it, through `cli` in cleanroom.mjs.
  *
  * The golden set is stamped with the hash of the guide/format.md it was seeded from, as a
  * bucket tag rather than a key: a restorer works out the bucket's contents from a listing,
@@ -21,43 +17,10 @@ import {
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 export const client = new S3Client({});
 
-const s3cab = join(import.meta.dirname, "..", "..", "src", "s3cab.mjs");
 const specTag = "s3cab-cleanroom-spec";
-
-/**
- * The real CLI, with s3cab's home at `home`. `run` returns the exit code rather than
- * throwing: `faults` restores from a deliberately torn repository, where a nonzero exit
- * is the behaviour under test.
- * @param {string} home
- */
-export function cli(home) {
-  /** @param {string[]} argv */
-  const run = (argv) => {
-    const result = spawnSync(process.execPath, [s3cab, ...argv], {
-      env: { ...process.env, S3CAB_HOME: home },
-      encoding: "utf8",
-    });
-    if (result.error) {
-      throw result.error;
-    }
-    return { code: result.status ?? 1, out: result.stdout, err: result.stderr };
-  };
-  /** @param {string[]} argv */
-  const mustRun = (argv) => {
-    const result = run(argv);
-    if (result.code !== 0) {
-      throw new Error(
-        `s3cab ${argv.join(" ")} exited ${result.code}\n${result.out}\n${result.err}`,
-      );
-    }
-    return result;
-  };
-  return { run, mustRun };
-}
 
 /**
  * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —

@@ -322,7 +322,8 @@ _Avoid_: certificate store, PKI.
 A program written from the spec alone (`guide/format.md`, `guide/exclude.md`) by a session that
 has seen nothing else of s3cab's, kept in the repo as evidence that the format is open
 ([ADR-0096](docs/adr/0096-three-implementations-prove-the-format.md)). Two kinds: the
-**clean-room backup** (`s3cab-snapshot.py` + `s3cab-upload.py`) and a **clean-room restorer**
-per platform. "Clean-room" is what separates them from s3cab, which backs up and restores too.
+**clean-room backup** (`s3cab-snapshot.py` + `s3cab-upload.py`, each from its own clean room) and
+a **clean-room restorer** per platform. "Clean-room" is what separates them from s3cab, which
+backs up and restores too.
 _Avoid_: writer/reader (s3cab is both), reference implementation (`reference/` is the trees s3cab
 restored for a clean room to compare against), port, reimplementation.

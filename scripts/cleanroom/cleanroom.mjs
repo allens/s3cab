@@ -1,11 +1,13 @@
 /**
- * What the clean-room scripts share (ADR-0096): reading the one root each takes, and
+ * What the clean-room scripts share (ADR-0096): reading the one root each takes,
  * writing the clean room inside it — a copy of the spec, a brief naming the language,
- * the bucket and its credentials, and nothing else.
+ * the bucket and its credentials where the role has one, and nothing else — and driving
+ * the real CLI for the builds that need s3cab's own output.
  *
  * A sandbox root holds `cleanroom/`, where the session is opened, beside what the build
- * needs and the session must not see (a backup build's `fixtures/`, a restore build's
- * `.s3cab/`). It is built once, from empty, and deleted when the run is harvested.
+ * needs and the session must not see (`fixtures/`, the trees a snapshot or upload build
+ * backs up, and `.s3cab/`, s3cab's home while a build runs it). It is built once, from
+ * empty, and deleted when the run is harvested.
  *
  * The clean-room premise is that every conclusion the implementer reaches came from
  * guide/format.md. Telling a session not to read the rest of the repo does not secure
@@ -23,8 +25,9 @@
  * nothing else about the format — survives a run long enough to write a program,
  * where a rule given once in the opening turn would scroll away.
  *
- * The role fixes the language: the backup is Python on every platform, a restorer is
- * its platform's canonical one (C# on Windows, Swift on macOS, C on Linux; see
+ * There are three roles, one per pillar of the format: snapshot, upload, restore. The
+ * role fixes the language: the two halves of the backup are Python on every platform, a
+ * restorer is its platform's canonical one (C# on Windows, Swift on macOS, C on Linux; see
  * README.md), so runs differ by reader and by spec version. The restorer brief is
  * language-neutral apart from one sentence. That sentence names no version and no
  * toolchain: "the most modern version that comes as standard on the platform you are
@@ -40,7 +43,7 @@
  * written as PowerShell for the same reason — a `.env` of `export` lines invites a shell
  * that isn't Windows.
  *
- * ENVIRONMENT.md names ONE bucket. Copying .env.test across would be handier and is
+ * ENVIRONMENT.md names ONE bucket, or none for the snapshot room. Copying .env.test across would be handier and is
  * the wrong shape: it also names the crash and conformance buckets, whose suites
  * assert whole-bucket state (so a visitor breaks them) and which hold deliberately
  * torn repositories — snapshots published over swept objects, written on purpose by
@@ -62,6 +65,7 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
@@ -69,13 +73,16 @@ const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 /**
- * Read `<root>` and the bucket, or exit 2 saying what was wrong. The root has to be
- * outside the repo, and empty.
+ * Read `<root>`, or exit 2 saying what was wrong. The root has to be outside the repo,
+ * and empty. On its own, for the one build that never leaves the machine (the snapshot
+ * room has no bucket); every other script reads its bucket too, with
+ * {@link readCommandLine}.
  * @param {string} script this script's file name, for the usage line
- * @param {string} variable the environment variable naming its bucket
+ * @param {boolean} [env] whether the script runs with `--env-file=.env.test`, for the
+ *   usage line
  */
-export function readCommandLine(script, variable) {
-  const command = `node --env-file=.env.test scripts/cleanroom/${script}`;
+export function readRoot(script, env = false) {
+  const command = `node${env ? " --env-file=.env.test" : ""} scripts/cleanroom/${script}`;
   const usage = `usage: ${command} <root>\n\ne.g. ${command} ~/s3cab.sandbox`;
   /** @type {ReturnType<typeof parseArgs>} */
   let parsed;
@@ -88,17 +95,6 @@ export function readCommandLine(script, variable) {
   const [arg] = parsed.positionals;
   if (parsed.positionals.length !== 1 || !arg) {
     console.error(usage);
-    return process.exit(2);
-  }
-
-  const bucket = process.env[variable];
-  if (!bucket) {
-    console.error(
-      `No clean-room bucket is set (${variable}). Run with the test\n` +
-        "environment, which names it:\n" +
-        "\n" +
-        `    ${command} ${arg}\n`,
-    );
     return process.exit(2);
   }
 
@@ -139,6 +135,26 @@ export function readCommandLine(script, variable) {
     return process.exit(2);
   }
 
+  return root;
+}
+
+/**
+ * Read `<root>` and the bucket, or exit 2 saying what was wrong.
+ * @param {string} script this script's file name, for the usage line
+ * @param {string} variable the environment variable naming its bucket
+ */
+export function readCommandLine(script, variable) {
+  const root = readRoot(script, true);
+  const bucket = process.env[variable];
+  if (!bucket) {
+    console.error(
+      `No clean-room bucket is set (${variable}). Run with the test\n` +
+        "environment, which names it:\n" +
+        "\n" +
+        `    node --env-file=.env.test scripts/cleanroom/${script} ${root}\n`,
+    );
+    return process.exit(2);
+  }
   return { root, bucket };
 }
 
@@ -165,21 +181,26 @@ export async function sessionCredentials(bucket) {
 }
 
 /**
- * Write the clean room: the spec, the brief, ENVIRONMENT.md and the credentials.
+ * Write the clean room: the spec, the brief, ENVIRONMENT.md and, for a role that has a
+ * bucket, its credentials. The snapshot room has none: it never leaves the machine.
  * @param {string} dir
- * @param {"backup" | "restore"} role
- * @param {string} bucket
- * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} credentials
+ * @param {"snapshot" | "upload" | "restore"} role
+ * @param {string} [bucket]
+ * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string, expiration?: Date }} [credentials]
  */
 export function writeCleanroom(dir, role, bucket, credentials) {
-  const backup = role === "backup";
-  const language = backup
+  const python = role !== "restore";
+  const language = python
     ? "Python"
     : windows
       ? "C#"
       : process.platform === "darwin"
         ? "Swift"
         : "C";
+  // The exclude grammar decides what a walk records, so only the snapshot room reads it;
+  // the upload room copies a set's exclude.txt verbatim and needs nothing of its syntax.
+  const spec =
+    role === "snapshot" ? ["format.md", "exclude.md"] : ["format.md"];
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 
   const restoreBrief = `# Independent restorer for the s3cab storage format
@@ -254,7 +275,12 @@ Record each guess as you make it, while you can still remember not knowing. A gu
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
 
-  const backupBrief = `# Independent backup for the s3cab storage format
+  // The two halves of the clean-room backup are written in separate rooms, by sessions
+  // that never see each other's program: the snapshot file is the interface, and only
+  // two readers of the spec, one on each side of it, test that the spec alone defines
+  // it. One session writing both could misread a row the same way in each half, and
+  // the backup would work while the report stayed silent.
+  const snapshotBrief = `# Independent snapshot for the s3cab storage format
 
 \`format.md\` and \`exclude.md\` in this directory are the complete specification you are working
 from, and the only source of format knowledge you may use. There is no source tree here and that
@@ -264,50 +290,101 @@ your conclusions coming from the spec and nothing else.
 ## The task
 
 s3cab's core promise is that its stored format is open enough that you could recover everything
-without the tool, or write a replacement in an afternoon. This tests the second half: whether a
-backup can be written from the spec alone.
+without the tool, or write a replacement in an afternoon. This tests the second half at its first
+step: whether a snapshot can be written from the spec alone.
 
-Working only from the spec, write a minimal independent backup in Python, as two programs:
+Working only from the spec, write \`s3cab-snapshot.py\`: a Python program that walks a backup set's
+member directories and writes the set's snapshot file. Another program, written separately from
+the same spec and without sight of yours, uploads what yours writes. The snapshot file is the whole
+of your program's output, and the spec is the whole of the contract between the two.
 
-- \`s3cab-snapshot.py\` walks a backup set's directories and writes its snapshot file;
-- \`s3cab-upload.py\` puts that snapshot's objects in the bucket, then the snapshot itself.
-
-The snapshot file is all that passes from one to the other.
-
-Use Python 3 with its standard library and boto3, as installed on this machine, and nothing else.
-The same programs have to run unchanged on Linux, macOS and Windows. If something the spec asks
-for can't be done portably with those two, don't reach for another library: record what the spec
+Use Python 3 and its standard library, as installed on this machine, and nothing else. The same
+program has to run unchanged on Linux, macOS and Windows. If something the spec asks for can't be
+done portably with the standard library, don't reach for another library: record what the spec
 asked for and what stood in the way. That is one of the things being tested.
 
-**Correct, not fast.** No caching between runs, no parallelism. The programs have a second
-audience: someone who can code a little should be able to work out from them how the format works
-in about half an hour. Aim for roughly 500 lines between the two, comments included, and prefer
-the plain way of doing anything.
+**Correct, not fast.** No caching between runs, no parallelism. The program has a second
+audience: someone who can code a little should be able to work out from it, and the upload
+program beside it, how the format works in about half an hour. Aim for roughly 250 lines,
+comments included, and prefer the plain way of doing anything.
 
-Correct covers everything the spec says a backup writes: the snapshot in its exact format, exclude
-patterns in their full syntax, objects before the snapshot that names them, and every file the
-bucket layout documents, each set's own entry included. Every object stored has to be the bytes
-its key names; how you make sure of that is up to you, and part of what is being read.
+Correct covers everything the spec says a snapshot holds: its exact bytes, padding included;
+exclude patterns in their full syntax; and a row for everything the spec says is recorded, what
+was left out included.
+
+Nothing here touches the network: there is no bucket, and uploading is the other program's job.
+Write each set's snapshot into that set's directory in \`sets/\`, laid out as the spec's local side
+describes, and check it by reading it back the way a stranger working from the spec would.
+
+Snapshot every set \`ENVIRONMENT.md\` lists.
+
+## Deliverable
+
+The program, and a report on the spec.
+
+List every point where the spec was ambiguous, silent, or wrong — anywhere you had to guess, and
+what you guessed. Rank those by whether a wrong guess would write a snapshot that can't be
+restored correctly, or merely inconvenience the implementer. **That list matters as much as the
+code.**
+
+Record each guess as you make it, while you can still remember not knowing. A guess that turns out
+right is still a gap in the spec, and it is the one you will be tempted to leave out.
+`;
+
+  const uploadBrief = `# Independent upload for the s3cab storage format
+
+\`format.md\` in this directory is the complete specification you are working from, and the only
+source of format knowledge you may use. There is no source tree here and that is deliberate: this
+is a clean-room exercise, and the worth of your report depends entirely on your conclusions coming
+from the spec and nothing else.
+
+## The task
+
+s3cab's core promise is that its stored format is open enough that you could recover everything
+without the tool, or write a replacement in an afternoon. This tests the second half at its last
+step: whether a backup can be put in a bucket from the spec alone, so that any reader of the spec
+can restore it.
+
+Working only from the spec, write \`s3cab-upload.py\`: a Python program that takes a set's
+snapshot, puts the files it names in the bucket, then the snapshot itself. The snapshots were
+written by another program, separately, from the same spec. The spec is the whole of the contract
+between the two, so read what you are handed as the spec describes it, not as the files you were
+given happen to look.
+
+Use Python 3 with its standard library and boto3, as installed on this machine, and nothing else.
+The same program has to run unchanged on Linux, macOS and Windows. If something the spec asks for
+can't be done portably with those two, don't reach for another library: record what the spec
+asked for and what stood in the way. That is one of the things being tested.
+
+**Correct, not fast.** No caching between runs, no parallelism. The program has a second
+audience: someone who can code a little should be able to work out from it, and the snapshot
+program beside it, how the format works in about half an hour. Aim for roughly 250 lines,
+comments included, and prefer the plain way of doing anything.
+
+Correct covers everything the spec says a backup writes to the bucket: objects before the
+snapshot that names them, the snapshot itself, and every file the bucket layout documents, each
+set's own entry included. Every object stored has to be the bytes its key names; how you make
+sure of that is up to you, and part of what is being read.
 
 **Verify against the real bucket, over the network.** Don't stand up a local S3 server, a fake
 endpoint, or a recorded-and-replayed transcript. Every result you report about the bucket has to
 come from a real request.
 
-Back up every set \`ENVIRONMENT.md\` lists.
+Upload every snapshot in \`sets/\`.
 
 ## Deliverable
 
-The two programs, and a report on the spec.
+The program, and a report on the spec.
 
 List every point where the spec was ambiguous, silent, or wrong — anywhere you had to guess, and
-what you guessed. Rank those by whether a wrong guess would write a backup that can't be restored
+what you guessed. Rank those by whether a wrong guess would leave a backup that can't be restored
 correctly, or merely inconvenience the implementer. **That list matters as much as the code.**
 
 Record each guess as you make it, while you can still remember not knowing. A guess that turns out
 right is still a gap in the spec, and it is the one you will be tempted to leave out.
 `;
 
-  const brief = `${backup ? backupBrief : restoreBrief}
+  const brief = `${{ snapshot: snapshotBrief, upload: uploadBrief, restore: restoreBrief }[role]}
 ## Ground rules
 ${
   windows
@@ -318,34 +395,55 @@ ${
   layer in between would answer it for you.`
     : ""
 }
-- **Read ${backup ? "`format.md` and `exclude.md`" : "`format.md`"} and nothing else about the format.**
-  \`ENVIRONMENT.md\` is operational — it says where the bucket is and says nothing about the
+- **Read ${spec.map((name) => `\`${name}\``).join(" and ")} and nothing else about the format.**
+  \`ENVIRONMENT.md\` is operational — it says where the ${bucket ? "bucket is" : "sets are"} and says nothing about the
   format. If you find yourself wanting more than those, that is itself a finding: record what you
   needed and why, then carry on with your best guess.
 - **Don't go looking for the tool this format belongs to** — not its repository, its source, its
   issue tracker, its documentation site, or its package on any registry. The spec names the tool,
   so this is a rule rather than a secret. Ambiguity in the text is the measurement; resolving it
-  from another source destroys the reading.
+  from another source destroys the reading.${
+    bucket
+      ? `
 - **Touch only the bucket \`ENVIRONMENT.md\` names**, ${
-    backup ? "which is yours to write to and to empty." : "and only to read."
+          role === "upload"
+            ? "which is yours to write to and to empty."
+            : "and only to read."
+        }
+  Its neighbours are in use by other work.`
+      : ""
   }
-  Its neighbours are in use by other work.
 - Report findings as you go rather than saving everything for the end.
 - Before reporting any finding, audit it against something you actually ran. If a comparison
   failed, say so with the output; if you skipped a case, say that.
 `;
 
-  const expiry = credentials.expiration
+  const sets =
+    role === "snapshot"
+      ? `## The sets
+
+\`sets/\` holds one directory per backup set, named for the set: \`dirs.txt\` lists its member
+directories, and \`exclude.txt\`, where there is one, its exclude patterns. Snapshot each set's
+directories where they are; don't copy them anywhere first.
+`
+      : `## The sets
+
+\`sets/\` holds one directory per backup set, named for the set: \`dirs.txt\` lists its member
+directories, \`exclude.txt\`, where there is one, its exclude patterns, and \`snapshots/\` the
+snapshots to upload. The files a snapshot names are where it says they are; read them there.
+`;
+  const expiry = credentials?.expiration
     ?.toISOString()
     .replace(/\.\d{3}Z$/, "Z");
-  const environment = `# Environment
+  const environment = bucket
+    ? `# Environment
 
 ## The bucket
 
 \`s3://${bucket}\`${region ? `, in \`${region}\`` : ""}
 
 ${
-  backup
+  role === "upload"
     ? "It is yours: write to it, and empty it whenever you want a fresh start."
     : "Read from it; don't write to it."
 }
@@ -367,32 +465,27 @@ ${region ? `export AWS_REGION=${region}\n` : ""}export BUCKET=${bucket}
 
 \`${credentialsFile}\` holds \`AWS_ACCESS_KEY_ID\`, \`AWS_SECRET_ACCESS_KEY\` and
 \`AWS_SESSION_TOKEN\` for that bucket. ${
-    backup
-      ? "boto3 reads all three from the environment."
-      : `They are **session** credentials, so the token is not
+        python
+          ? "boto3 reads all three from the environment."
+          : `They are **session** credentials, so the token is not
 optional: it goes in the \`x-amz-security-token\` header, and that header is part of what you sign.`
-  }
+      }
 ${
   expiry
     ? `
 **They expire at ${expiry}.** Requests that were working and then start coming
-back 403 mean the window closed${backup ? "" : ", not that your signing is wrong"} — stop and tell me
+back 403 mean the window closed${python ? "" : ", not that your signing is wrong"} — stop and tell me
 rather than debugging it.
 `
     : ""
 }
 The \`aws\` CLI is installed and these credentials work with it, which makes it a quick way to
 confirm you can reach the bucket before writing any code.${
-    backup
-      ? `
+        python
+          ? `
 
-## The sets
-
-\`sets/\` holds one directory per backup set, named for the set: \`dirs.txt\` lists its member
-directories, and \`exclude.txt\`, where there is one, its exclude patterns. Back up each set's
-directories where they are; don't copy them anywhere first.
-`
-      : ` The restorer itself must not use it —
+${sets}`
+          : ` The restorer itself must not use it —
 see CLAUDE.md.
 
 ## The reference restores
@@ -404,49 +497,59 @@ modification times.
 Work out for yourself which sets and snapshots the bucket holds — the spec describes the layout,
 and finding your way around from it is part of what is being tested.
 `
-  }`;
+      }`
+    : `# Environment
+
+There is no bucket and no network in this exercise.
+
+${sets}`;
 
   mkdirSync(dir, { recursive: true });
-  cpSync(join(repoRoot, "guide", "format.md"), join(dir, "format.md"));
-  if (backup) {
-    cpSync(join(repoRoot, "guide", "exclude.md"), join(dir, "exclude.md"));
+  for (const name of spec) {
+    cpSync(join(repoRoot, "guide", name), join(dir, name));
   }
   writeFileSync(join(dir, "CLAUDE.md"), brief, "utf8");
   writeFileSync(join(dir, "ENVIRONMENT.md"), environment, "utf8");
-  // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
-  // rather than inside prose the session may quote back into a report. Single-quoted
-  // because a session token is base64 and a shell would otherwise be free to read it.
-  const assign = windows
-    ? (/** @type {string} */ name, /** @type {string} */ value) =>
-        `$env:${name} = '${value}'`
-    : (/** @type {string} */ name, /** @type {string} */ value) =>
-        `export ${name}='${value}'`;
-  writeFileSync(
-    join(dir, credentialsFile),
-    [
-      assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
-      assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
-      ...(credentials.sessionToken
-        ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
-        : []),
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  if (bucket && credentials) {
+    // Separate from ENVIRONMENT.md so the secret sits in one obviously-disposable file
+    // rather than inside prose the session may quote back into a report. Single-quoted
+    // because a session token is base64 and a shell would otherwise be free to read it.
+    const assign = windows
+      ? (/** @type {string} */ name, /** @type {string} */ value) =>
+          `$env:${name} = '${value}'`
+      : (/** @type {string} */ name, /** @type {string} */ value) =>
+          `export ${name}='${value}'`;
+    writeFileSync(
+      join(dir, credentialsFile),
+      [
+        assign("AWS_ACCESS_KEY_ID", credentials.accessKeyId),
+        assign("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey),
+        ...(credentials.sessionToken
+          ? [assign("AWS_SESSION_TOKEN", credentials.sessionToken)]
+          : []),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
 
   const profile = process.env.AWS_PROFILE;
   console.log(`wrote a ${language} ${role} clean room in ${dir}`);
   console.log("  format.md       the spec, byte-for-byte");
-  if (backup) {
+  if (spec.includes("exclude.md")) {
     console.log("  exclude.md      the exclude-pattern spec, byte-for-byte");
   }
   console.log(
     "  CLAUDE.md       the task, auto-loaded so a bare 'go' starts it",
   );
-  console.log(`  ENVIRONMENT.md  s3://${bucket}`);
   console.log(
-    `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
+    `  ENVIRONMENT.md  ${bucket ? `s3://${bucket}` : "the sets, and no bucket"}`,
   );
+  if (bucket) {
+    console.log(
+      `  ${credentialsFile} static keys${profile ? ` from ${profile}` : ""}${expiry ? `, good until ${expiry}` : ""}`,
+    );
+  }
 }
 
 /**
@@ -463,4 +566,39 @@ export function handover(root, todo) {
       `ambiguity lists is your job afterwards, not the session's: a reappearing item is a\n` +
       `fix that didn't land.`,
   );
+}
+
+/**
+ * The real CLI, with s3cab's home at `home`. A subprocess, so what a build hands over or
+ * compares against is what the tool itself produces, and no script here has privileged
+ * access to s3cab's internals. S3CAB_HOME points into the sandbox, so your own ~/.s3cab
+ * is untouched while ~/.aws credentials keep working. `run` returns the exit code rather
+ * than throwing: `faults` restores from a deliberately torn repository, where a nonzero
+ * exit is the behaviour under test.
+ * @param {string} home
+ */
+export function cli(home) {
+  const s3cab = join(repoRoot, "src", "s3cab.mjs");
+  /** @param {string[]} argv */
+  const run = (argv) => {
+    const result = spawnSync(process.execPath, [s3cab, ...argv], {
+      env: { ...process.env, S3CAB_HOME: home },
+      encoding: "utf8",
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    return { code: result.status ?? 1, out: result.stdout, err: result.stderr };
+  };
+  /** @param {string[]} argv */
+  const mustRun = (argv) => {
+    const result = run(argv);
+    if (result.code !== 0) {
+      throw new Error(
+        `s3cab ${argv.join(" ")} exited ${result.code}\n${result.out}\n${result.err}`,
+      );
+    }
+    return result;
+  };
+  return { run, mustRun };
 }

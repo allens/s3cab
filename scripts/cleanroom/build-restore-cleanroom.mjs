@@ -27,13 +27,14 @@
 import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
+  cli,
   handover,
   readCommandLine,
   sessionCredentials,
   writeCleanroom,
 } from "./cleanroom.mjs";
 import { count, files, setNames } from "./fixtures.mjs";
-import { cli, listAll, seededSpec, specHash } from "./restore-bucket.mjs";
+import { listAll, seededSpec, specHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",

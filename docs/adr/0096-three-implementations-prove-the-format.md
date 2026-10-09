@@ -1,6 +1,7 @@
 # Clean-room implementations prove the format: s3cab, a clean-room backup, clean-room restorers
 
-**Status:** proposed (2026-10-07). The model is settled. The clean-room backup is not built, and
+**Status:** proposed (2026-10-07; amended 2026-10-09: the clean-room backup's two programs are
+written in separate clean rooms). The model is settled. The clean-room backup is not built, and
 the restorers exist only as frozen clean-room runs.
 
 **s3cab is the tool.** It both backs up and restores. Beside it sit two kinds of **clean-room
@@ -12,9 +13,9 @@ own.
 |---|---|---|
 | **Proves** | a backup can be *written* from the spec | a backup can be *read* from the spec |
 | **Second goal** | education: shows how s3cab works | a restore path that needs nothing of s3cab's |
-| **Programs** | `s3cab-snapshot.py` and `s3cab-upload.py`, with full exclude syntax | one restorer per platform |
-| **Language** | Python; one program, run on every platform | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
-| **Libraries** | the standard library and boto3, nothing else | **no AWS SDK**; requests signed by hand |
+| **Programs** | `s3cab-snapshot.py` and `s3cab-upload.py`, each from its own clean room; full exclude syntax | one restorer per platform |
+| **Language** | Python; each program written once, run on every platform | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
+| **Libraries** | the standard library, plus boto3 for the upload; nothing else | **no AWS SDK**; requests signed by hand |
 
 "Clean-room" is what separates these from s3cab, which backs up and restores too.
 
@@ -26,6 +27,26 @@ from it in about half an hour.** That is s3cab's founding readability test, whic
 outgrew as features and robustness were added. It means two programs, `s3cab-snapshot.py` and
 `s3cab-upload.py`, roughly 500 lines between them including comments. The snapshot file is all
 that passes from one to the other, so the format itself is their interface.
+
+**Each program is written in its own clean room**, by a session that never sees the other's.
+One session writing both could misread the row grammar the same way in each half: the
+snapshotter writes the misreading, the uploader reads it back, the backup works, and the report
+never mentions it. Comparing rows with `s3cab snapshot` catches the snapshot's half; the
+uploader's matching half would go unrecorded. Two readers, one on each side of the file, are what
+make the spec alone define the interface. The split also fits each room to its job:
+
+- **The snapshot room has no bucket.** A snapshot is a local file, so the room needs no
+  credentials, no expiry window and no boto3, and its check, rows against `s3cab snapshot` of
+  the same trees, is local too.
+- **The upload room gets inputs the harness controls.** It is handed snapshots rather than
+  writing its own, so a build can stage what a single room never could: a file changed after
+  its snapshot, which tests "every object stored is the bytes its key names" directly, and a
+  snapshot missing its `#END` trailer.
+- **A failure names one program.** s3cab's snapshot uploaded by the clean-room upload, and the
+  clean-room snapshot uploaded by `s3cab upload --snapshot`, each isolate one side.
+
+What it costs is coherence as a teaching pair (two authors, two styles), which the half-hour
+test still has to survive, and one exception to the rule below, for the upload room's input.
 
 It is **correct but unoptimised**: no hash reuse, no fused pipeline, no parallelism. Slow but
 right is the point. Correctness covers:
@@ -39,14 +60,15 @@ right is the point. Correctness covers:
   key. The brief prescribes no way of ensuring it: how the program does is part of its reading
   of the spec.
 
-The SDK is allowed because boto3's `upload_file` hides multipart, retries and the credential
-chain, none of which is the format. Python is chosen because it is the most widely readable
+The SDK is allowed, in the upload room, because boto3's `upload_file` hides multipart, retries
+and the credential chain, none of which is the format. The snapshot room needs nothing beyond the
+standard library. Python is chosen because it is the most widely readable
 language for a short program.
 
-**It is also the test of what the spec may demand.** One program, written once, has to run on
-Linux, macOS and Windows with the standard library and boto3 alone. If it can't do something
+**It is also the test of what the spec may demand.** Each program, written once, has to run on
+Linux, macOS and Windows with the standard library alone, and boto3 for the upload. If it can't do something
 portably, that requirement has to be justified as *essential*, or it becomes *optional* in the
-spec. A wider dependency rule would hide exactly these gaps. Expected first cases:
+spec. A wider dependency rule would hide exactly these gaps. Expected first cases, both the snapshot room's:
 
 - the IANA time zone in the `#SNAPSHOT` header, which Python's standard library can't name for
   the local machine on any platform, and can't resolve on Windows without the `tzdata` package;
@@ -57,10 +79,18 @@ spec. A wider dependency rule would hide exactly these gaps. Expected first case
 small: four tokens and a trailing `/`. It also carries a trap: `*` matches one *or more*
 characters.
 
-**Nothing of s3cab's output reaches its clean room.** It checks itself against the spec and the
-bucket only. Comparing its rows with s3cab's happens afterwards, outside the room: given s3cab's
-snapshots to diff against, it could converge by imitation, and every ambiguity resolved that way
-would vanish from its report.
+**Nothing of s3cab's output reaches the snapshot room.** It checks itself against the spec only.
+Comparing its rows with s3cab's happens afterwards, outside the room: given s3cab's snapshots to
+diff against, it could converge by imitation, and every ambiguity resolved that way would vanish
+from its report.
+
+**The upload room is the exception, for input only.** It is handed s3cab's snapshots of its
+trees, because an upload has to start from a snapshot and s3cab's is the one known to match the
+spec; the clean-room snapshot's would make this room's result hang on that room's reading. Input
+is not a target to converge on, and every restorer already reads s3cab's snapshots the same way.
+The price is that an encoding question the examples settle drops out of the upload room's
+report, so its brief says to read what it is handed as the spec describes it, and the snapshot
+room, which has to write those bytes, is where such questions are raised.
 
 ## The clean-room restorers
 
@@ -133,8 +163,9 @@ indefinitely.
 ## Open
 
 - **`scripts/cleanroom/` becomes a bootstrapper** for building the clean-room implementations
-  against the current spec. `build-backup-cleanroom.mjs` and `build-restore-cleanroom.mjs` each
-  build a sandbox for one run, with the language derived from role and platform;
+  against the current spec. `build-snapshot-cleanroom.mjs`, `build-upload-cleanroom.mjs` and
+  `build-restore-cleanroom.mjs` each build a sandbox for one run, with the language derived from
+  role and platform;
   `seed-restore-cleanroom-bucket.mjs` fills the bucket every restorer reads. Still to build: a
   CI workflow that runs the whole matrix, described below.
 
@@ -161,7 +192,8 @@ indefinitely.
     in case or Unicode normalization into one file. Every restore build is then the same on
     every OS: reattach the sets and restore s3cab's own reference from them.
   - **`S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is used in turns**: empty the bucket, one clean-room
-    backup, every restorer restores it. The clean-room backup takes one turn per OS.
+    upload, every restorer restores it. The clean-room upload takes one turn per OS. The
+    snapshot room uses no bucket.
 
   The buckets are `test-s3cab-<owner>-cleanroom-restore` and `-cleanroom-backup`, with `ci` as
   the owner in CI; nothing else uses them. The clean room leaves the integration bucket, which
@@ -174,11 +206,11 @@ indefinitely.
   **The matrix runs in GitHub Actions**, on Linux, macOS and Windows runners, with the turns
   ordered by job dependencies and a concurrency group. It builds and runs the committed
   programs; it never writes them. On each runner, the reference for a restore is s3cab's own
-  restore there, and the clean-room backup's rows are compared with `s3cab snapshot` of the
+  restore there, and the clean-room snapshot's rows are compared with `s3cab snapshot` of the
   same trees, which is local and needs no bucket. Personal buckets of the same names serve the
   sessions that write the programs, one session at a time.
 
-  **The clean-room backup backs up its sandbox's fixture trees in place**, so its paths and
+  **The clean-room backup reads its sandbox's fixture trees in place**, so its paths and
   mtimes are the ones s3cab snapshotted and its rows compare without re-rooting. A copy would
   not do: copying loses the sub-millisecond mtimes the trees keep on purpose.
 - **The macOS restorer waits for a Mac.** Writing a restorer is an agent session that compiles
@@ -191,5 +223,5 @@ indefinitely.
 - **What to check in its output.** A bash spike of the backup side hit two silent-corruption
   bugs: a path's trailing space trimmed on read, and an unreadable file shifting every later
   hash by one row. Either is easy to write in any language. The fixtures' trailing-space names
-  (F2) would catch the first in a clean-room backup's rows; nothing yet stages an unreadable
+  (F2) would catch the first in a clean-room snapshot's rows; nothing yet stages an unreadable
   file for the second.
