@@ -54,7 +54,7 @@
  * as AWS_PROFILE: the restorer brief forbids an AWS SDK, and a profile name is only
  * meaningful to one. Resolving through the chain mints a fresh window at every build.
  */
-import { S3Client } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import {
   cpSync,
   existsSync,
@@ -69,8 +69,26 @@ import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const repoRoot = realpathSync.native(join(import.meta.dirname, "..", ".."));
+
+/** One client for every script's own requests, through the standard credential chain. */
+export const client = new S3Client({});
 const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
+
+/**
+ * A sandbox root as typed, made absolute. A leading `~` is expanded here: every usage
+ * line writes one and PowerShell does not expand it, so node would take it literally and
+ * `resolve` would make a directory named `~` under the cwd — which is the repo, the one
+ * place a sandbox must never be, reported as a path the operator never typed.
+ * @param {string} arg
+ */
+export function sandboxPath(arg) {
+  return resolve(
+    arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
+      ? join(homedir(), arg.slice(1))
+      : arg,
+  );
+}
 
 /**
  * Read `<root>`, or exit 2 saying what was wrong. The root has to be outside the repo,
@@ -98,15 +116,7 @@ export function readRoot(script, env = false) {
     return process.exit(2);
   }
 
-  // Expand a leading `~` before resolving. The usage line writes one and PowerShell
-  // does not expand it, so node would take it literally and `resolve` would make a
-  // directory named `~` under the cwd — which is the repo, and so exactly the placement
-  // the guard below exists to refuse, reported as a path the operator never typed.
-  const root = resolve(
-    arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
-      ? join(homedir(), arg.slice(1))
-      : arg,
-  );
+  const root = sandboxPath(arg);
 
   // The one guard that matters: a clean room inside the repo is not a clean room, since
   // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
@@ -167,7 +177,7 @@ export function readCommandLine(script, variable) {
  */
 export async function sessionCredentials(bucket) {
   const profile = process.env.AWS_PROFILE;
-  return await new S3Client({}).config.credentials().catch((error) => {
+  return await client.config.credentials().catch((error) => {
     console.error(
       `couldn't resolve AWS credentials for ${bucket}, and the clean room needs them\n` +
         "as static keys. If the SSO session has lapsed:\n" +
@@ -601,4 +611,30 @@ export function cli(home) {
     return result;
   };
   return { run, mustRun };
+}
+
+/**
+ * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —
+ * the very hazard `bulk` exists to expose in a restorer — so a whole listing has to
+ * follow the continuation token itself.
+ * @param {string} bucket
+ * @param {string} [prefix]
+ */
+export async function listAll(bucket, prefix) {
+  /** @type {string[]} */
+  const keys = [];
+  /** @type {string | undefined} */
+  let token;
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    );
+    keys.push(...(page.Contents ?? []).map(({ Key }) => Key ?? ""));
+    token = page.NextContinuationToken;
+  } while (token);
+  return keys;
 }

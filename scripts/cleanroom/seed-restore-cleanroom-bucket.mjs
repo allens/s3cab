@@ -1,8 +1,9 @@
 /**
  * Seed the clean-room restore bucket with the golden set (ADR-0096): s3cab's backup of
- * the fixtures, then deliberate damage, stamped with the guide/format.md it was made
- * from. Every restore build reads this bucket and refuses one stamped from another spec,
- * so this runs when the format changes, not once per clean-room run.
+ * the fixtures, then deliberate damage, stamped with a hash of the guide/format.md, the
+ * fixtures and the seed it was made from. Every restore build reads this bucket and
+ * refuses one stamped from anything else, so this runs when the format or the fixtures
+ * change, not once per clean-room run.
  *
  *   <root>/fixtures/   the trees s3cab backs up (fixtures.mjs)
  *   <root>/.s3cab/     s3cab's home while it does
@@ -26,7 +27,7 @@ import {
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { cli, readCommandLine } from "./cleanroom.mjs";
+import { cli, client, listAll, readCommandLine } from "./cleanroom.mjs";
 import {
   buildFixtures,
   excludes,
@@ -35,7 +36,7 @@ import {
   setNames,
   withoutTrailer,
 } from "./fixtures.mjs";
-import { client, listAll, specHash, stampSpec } from "./restore-bucket.mjs";
+import { seedHash, stampSeed } from "./restore-bucket.mjs";
 
 if (process.platform !== "linux") {
   console.error(
@@ -54,7 +55,7 @@ const { root, bucket } = readCommandLine(
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
 const { mustRun } = cli(home);
-const spec = specHash();
+const stamp = seedHash();
 
 /** @param {string} path */
 const sha256 = (path) =>
@@ -143,7 +144,7 @@ if (found.length > 0) {
 
 // Unstamped first, so a seed that stops anywhere from here leaves a bucket every
 // restore build refuses.
-await stampSpec(bucket, undefined);
+await stampSeed(bucket, undefined);
 if (keys.length > 0) {
   console.log(
     `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
@@ -282,9 +283,9 @@ await client.send(
 );
 
 // Last, so only a seed that finished is ever stamped.
-await stampSpec(bucket, spec);
+await stampSeed(bucket, stamp);
 console.log(
-  `\nseeded s3://${bucket} from guide/format.md ${spec.slice(0, 12)}…\n` +
+  `\nseeded s3://${bucket}, stamped ${stamp.slice(0, 12)}…\n` +
     "\nStill to do:\n" +
     `  - delete ${root}: the bucket is all that is needed from here.\n` +
     "  - raise the bucket's expiry past the runs it has to serve, or it sweeps out from\n" +

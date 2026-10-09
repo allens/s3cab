@@ -56,8 +56,8 @@ have such findings. A snapshot has to spell a Windows path as the filesystem rep
 uppercase the drive letter, name the IANA zone where Python can't, and reach paths past
 `MAX_PATH`. An upload that writes `dirs.txt` through Python's text mode on Windows writes CRLF,
 which the spec forbids. Neither s3cab nor any restorer reads that file strictly enough to notice,
-so the upload's own checker has to. The seed is different in kind: it produces the golden set rather than reading the spec, and is
-Linux-only because only Linux holds every fixture.
+so the upload's own checker has to. The seed is different in kind: it produces the golden set
+rather than reading the spec, and is Linux-only because only Linux holds every fixture.
 
 The language stays one, and so does the portability rule below: every program, wherever it was
 written, must run unchanged on all three platforms. So the portability test gets three programs
@@ -161,8 +161,12 @@ What comparing two backups must allow for, because these aren't defects:
 - **Metadata payloads are "context"**, so `#EXCLUDED`/`#SKIPPED`/`#ERROR` rows are compared by
   path, not wording.
 - **Timestamps and snapshot names** differ by run.
+- **An excluded directory** may be one `#EXCLUDED` row or a row for each file in it. The spec
+  doesn't say which, so until it does a difference of that kind is reported, not failed.
+- **The header's time zone** is reported, not failed, until the spec says whether the field is
+  a commitment (the first expected case above).
 
-File rows (hash, size, mtime, path) and the excluded paths must match exactly.
+File rows (hash, size, mtime, path) and the excluded paths must otherwise match exactly.
 
 ## Frozen, and timed to 1.0
 
@@ -182,8 +186,10 @@ indefinitely.
   against the current spec. `build-snapshot-cleanroom.mjs`, `build-upload-cleanroom.mjs` and
   `build-restore-cleanroom.mjs` each build a sandbox for one run, with the language derived from
   role and platform;
-  `seed-restore-cleanroom-bucket.mjs` fills the bucket every restorer reads. Still to build: a
-  CI workflow that runs the whole matrix, described below.
+  `seed-restore-cleanroom-bucket.mjs` fills the bucket every restorer reads;
+  `compare-snapshot.mjs` and `check-upload.mjs` check the two backup rooms' work, the upload's
+  beyond what a restore can see (`sets/` files, and the snapshots it should have refused).
+  Still to build: a CI workflow that runs the whole matrix, described below.
 
   **What it keeps is settled.** Before 1.0, only the latest clean-room implementations are
   committed, each replacing its predecessor; the reports in `docs/` keep the history. After
@@ -200,13 +206,14 @@ indefinitely.
 
   - **`S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the golden set**: s3cab's backup of the
     fixtures, damage included, which every restorer restores. It is long-lived, and reseeded by
-    `seed-restore-cleanroom-bucket.mjs` only when `guide/format.md` changes; the seed records
-    that file's hash in the bucket, and a restore build refuses a bucket seeded from another
-    spec, since a restorer written from today's spec fails against yesterday's format through
-    no fault of its own. The seed runs **on Linux only**, where every fixture can exist:
-    Windows refuses the `[POSIX]` names, and macOS's APFS silently folds names differing only
-    in case or Unicode normalization into one file. Every restore build is then the same on
-    every OS: reattach the sets and restore s3cab's own reference from them.
+    `seed-restore-cleanroom-bucket.mjs` only when `guide/format.md` or the fixtures change; the
+    seed stamps the bucket with a hash of the spec, the fixtures and itself, and a restore build
+    refuses any other stamp, since a restorer written from today's spec fails against
+    yesterday's format through no fault of its own, and passes against yesterday's fixtures
+    without meeting what was added since. The seed runs **on Linux only**, where every fixture
+    can exist: Windows refuses the `[POSIX]` names, and macOS's APFS silently folds names
+    differing only in case or Unicode normalization into one file. Every restore build is then
+    the same on every OS: reattach the sets and restore s3cab's own reference from them.
   - **`S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is used in turns**: empty the bucket, one clean-room
     upload, every restorer restores it. Every upload program takes a turn on every runner:
     nine turns once macOS has its own. The snapshot rooms use no bucket.
@@ -242,8 +249,10 @@ indefinitely.
   An agent on a hosted macOS runner is possible but awkward: a job checks out the repo the
   clean room must not see, can't ask anything mid-run, and stops at six hours. Once written, CI
   builds and runs them like the others.
-- **Where the clean-room backup lives.** It is a clean-room run, so beside the restorers in
-  `scripts/cleanroom/` is the natural home.
+- **Where the clean-room backup lives is settled**: beside the restorers, in
+  `scripts/cleanroom/backup/<platform>/`, one snapshot and one upload program per platform.
+  Each run's report continues the `docs/format-spec-audit-<n>.md` numbering, its title naming
+  the role and the platform.
 - **What to check in its output.** A bash spike of the backup side hit two silent-corruption
   bugs: a path's trailing space trimmed on read, and an unreadable file shifting every later
   hash by one row. Either is easy to write in any language. The fixtures' trailing-space names
