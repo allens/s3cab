@@ -22,6 +22,9 @@
  * publish its `sets/` entry. Writing that entry is the session's job, and the bucket
  * starts its turn empty.
  *
+ * Built on every platform, as the snapshot sandbox is: Windows alone would show an upload
+ * writing `dirs.txt` through Python's text mode, which turns its LFs into CRLFs.
+ *
  * Two sets are damaged once s3cab has snapshotted them, each the upload side of the
  * restore bucket's damage under the same name (seed-restore-cleanroom-bucket.mjs):
  *

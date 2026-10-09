@@ -15,6 +15,9 @@
  * cleanroom/ although the session reads them, so the session's own files are never mixed
  * in with what it walks.
  *
+ * Built on every platform, as a restore sandbox is: the session can only test its program
+ * on the machine it runs on, and each platform changes what a snapshot has to get right.
+ *
  * Usage:
  *   node scripts/cleanroom/build-snapshot-cleanroom.mjs <root>
  */

@@ -1,8 +1,8 @@
 # Clean-room implementations prove the format: s3cab, a clean-room backup, clean-room restorers
 
 **Status:** proposed (2026-10-07; amended 2026-10-09: the clean-room backup's two programs are
-written in separate clean rooms). The model is settled. The clean-room backup is not built, and
-the restorers exist only as frozen clean-room runs.
+written in separate clean rooms, on every platform). The model is settled. The clean-room
+backup is not built, and the restorers exist only as frozen clean-room runs.
 
 **s3cab is the tool.** It both backs up and restores. Beside it sit two kinds of **clean-room
 implementation**, each derived from the spec alone (`guide/format.md` and `guide/exclude.md`,
@@ -13,8 +13,8 @@ own.
 |---|---|---|
 | **Proves** | a backup can be *written* from the spec | a backup can be *read* from the spec |
 | **Second goal** | education: shows how s3cab works | a restore path that needs nothing of s3cab's |
-| **Programs** | `s3cab-snapshot.py` and `s3cab-upload.py`, each from its own clean room; full exclude syntax | one restorer per platform |
-| **Language** | Python; each program written once, run on every platform | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
+| **Programs** | `s3cab-snapshot.py` and `s3cab-upload.py`, each from its own clean room, one of each per platform; full exclude syntax | one restorer per platform |
+| **Language** | Python everywhere; each program written on its platform and run on all three | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
 | **Libraries** | the standard library, plus boto3 for the upload; nothing else | **no AWS SDK**; requests signed by hand |
 
 "Clean-room" is what separates these from s3cab, which backs up and restores too.
@@ -48,6 +48,21 @@ make the spec alone define the interface. The split also fits each room to its j
 What it costs is coherence as a teaching pair (two authors, two styles), which the half-hour
 test still has to survive, and one exception to the rule below, for the upload room's input.
 
+**Both are written on every platform, like the restorers.** A session can only test on the
+machine it runs on, so a program written on Linux meets Windows for the first time in CI. A
+failure there arrives without the guesses behind it, and the report never holds that platform's
+findings: the same silent shortening the fixtures' skip notice exists to prevent. Both pillars
+have such findings. A snapshot has to spell a Windows path as the filesystem reports it,
+uppercase the drive letter, name the IANA zone where Python can't, and reach paths past
+`MAX_PATH`. An upload that writes `dirs.txt` through Python's text mode on Windows writes CRLF,
+which the spec forbids, and nothing downstream reads that file strictly enough to notice. The
+seed is different in kind: it produces the golden set rather than reading the spec, and is
+Linux-only because only Linux holds every fixture.
+
+The language stays one, and so does the portability rule below: every program, wherever it was
+written, must run unchanged on all three platforms. So the portability test gets three programs
+per pillar instead of one, each tested first-hand where it was written and by CI everywhere else.
+
 It is **correct but unoptimised**: no hash reuse, no fused pipeline, no parallelism. Slow but
 right is the point. Correctness covers:
 
@@ -65,10 +80,11 @@ and the credential chain, none of which is the format. The snapshot room needs n
 standard library. Python is chosen because it is the most widely readable
 language for a short program.
 
-**It is also the test of what the spec may demand.** Each program, written once, has to run on
-Linux, macOS and Windows with the standard library alone, and boto3 for the upload. If it can't do something
-portably, that requirement has to be justified as *essential*, or it becomes *optional* in the
-spec. A wider dependency rule would hide exactly these gaps. Expected first cases, both the snapshot room's:
+**It is also the test of what the spec may demand.** Each program, wherever it was written, has
+to run on Linux, macOS and Windows with the standard library alone, and boto3 for the upload. If
+it can't do something portably, that requirement has to be justified as *essential*, or it
+becomes *optional* in the spec. A wider dependency rule would hide exactly these gaps. Expected
+first cases, both the snapshot room's:
 
 - the IANA time zone in the `#SNAPSHOT` header, which Python's standard library can't name for
   the local machine on any platform, and can't resolve on Windows without the `tzdata` package;
@@ -192,8 +208,8 @@ indefinitely.
     in case or Unicode normalization into one file. Every restore build is then the same on
     every OS: reattach the sets and restore s3cab's own reference from them.
   - **`S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is used in turns**: empty the bucket, one clean-room
-    upload, every restorer restores it. The clean-room upload takes one turn per OS. The
-    snapshot room uses no bucket.
+    upload, every restorer restores it. Every upload program takes a turn on every runner:
+    nine turns once macOS has its own. The snapshot rooms use no bucket.
 
   The buckets are `test-s3cab-<owner>-cleanroom-restore` and `-cleanroom-backup`, with `ci` as
   the owner in CI; nothing else uses them. The clean room leaves the integration bucket, which
@@ -210,14 +226,22 @@ indefinitely.
   same trees, which is local and needs no bucket. Personal buckets of the same names serve the
   sessions that write the programs, one session at a time.
 
+  **The upload turns are the matrix's cost.** Snapshot runs are local, so every snapshot program
+  runs on every runner almost for free. Upload turns share one bucket, so they run one after
+  another, each followed by every restorer. That is the price of testing each upload's
+  portability rather than assuming it. If it proves too slow, the lever is a backup bucket per
+  runner, so each platform's turns run beside the others' with still one backup per bucket, not
+  fewer turns.
+
   **The clean-room backup reads its sandbox's fixture trees in place**, so its paths and
   mtimes are the ones s3cab snapshotted and its rows compare without re-rooting. A copy would
   not do: copying loses the sub-millisecond mtimes the trees keep on purpose.
-- **The macOS restorer waits for a Mac.** Writing a restorer is an agent session that compiles
-  and tests against the bucket as it goes, and the brief's CryptoKit and Compression exist only
-  on macOS. An agent on a hosted macOS runner is possible but awkward: a job checks out the
-  repo the clean room must not see, can't ask anything mid-run, and stops at six hours. Once
-  written, CI builds and runs it like the others.
+- **The macOS programs wait for a Mac.** Writing one is an agent session that tests as it goes,
+  on the machine it runs on: the restorer's CryptoKit and Compression exist only on macOS, and
+  the backup rooms are there to meet APFS's folding of case and Unicode normal form first-hand.
+  An agent on a hosted macOS runner is possible but awkward: a job checks out the repo the
+  clean room must not see, can't ask anything mid-run, and stops at six hours. Once written, CI
+  builds and runs them like the others.
 - **Where the clean-room backup lives.** It is a clean-room run, so beside the restorers in
   `scripts/cleanroom/` is the natural home.
 - **What to check in its output.** A bash spike of the backup side hit two silent-corruption

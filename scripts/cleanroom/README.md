@@ -31,7 +31,11 @@ own frameworks or system libraries, and nothing of s3cab's. Runs 2 (C++) and 3
 three-way proof: a clean-room backup is the other. That is two Python programs,
 one per pillar of a backup, each written in its own clean room by a session that
 never sees the other's, so the snapshot file between them is defined by the spec
-alone. Nothing here is distributed; it lives in the repo as evidence.
+alone. Like the restorers, both are written on every platform: a session can only
+test where it runs, and each platform changes what a backup has to get right —
+Windows path casing and drive letters, a time zone Python can't name there, text
+mode writing CRLF. They stay Python everywhere, and each has to run unchanged on
+all three. Nothing here is distributed; it lives in the repo as evidence.
 
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
 maintained, and improved every run as findings come in: the seed script, the three
@@ -81,8 +85,9 @@ python3 scripts/cleanroom/compare.py <its-restore-dir> C:\s3cab.sandbox\cleanroo
 Remove-Item -Recurse C:\s3cab.sandbox
 ```
 
-The two halves of the backup are the same sequence with their own scripts. A
-snapshot run needs no bucket, and so no test environment:
+The two halves of the backup are the same sequence with their own scripts, and
+like a restorer, each is built and run on every OS. A snapshot run needs no
+bucket, and so no test environment:
 
 ```powershell
 node scripts/cleanroom/build-snapshot-cleanroom.mjs C:\s3cab.sandbox
@@ -237,6 +242,8 @@ describes. Nothing of s3cab's runs and nothing touches the network: there is no
 bucket and no credentials, so the snapshot brief is the one that needs only
 Python's standard library. The exclude patterns are the ones the seed gives
 s3cab in place of `setup`'s starter file, so both snapshots skip the same files.
+Run it on each platform in turn, as with a restorer: the session writes and tests
+its program on the machine the sandbox is built on.
 
 ```sh
 node scripts/cleanroom/build-snapshot-cleanroom.mjs <root>
@@ -254,7 +261,7 @@ examples settle drops out of this room's report, which is the snapshot room's to
 raise. s3cab snapshots offline once a set exists, so the build writes each set
 straight into `.s3cab\` rather than running `setup`, which would publish the
 `sets/` entry that is the session's to write. The session's upload is the first
-thing in the bucket.
+thing in the bucket. Like the snapshot build, it runs on each platform in turn.
 
 Then two sets are damaged, each the upload side of the golden set's damage
 under the same name. `corrupt`'s `b-corrupt.txt` is rewritten after its
