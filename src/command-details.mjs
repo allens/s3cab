@@ -16,22 +16,17 @@ A graceful stop saves itself. If the machine loses power, or the run is
 killed outright, its work file is left where it lay and stops the next run,
 because from the outside that file looks exactly like a run still going.
 Once you know none is, '--resume' takes it over and keeps its hashes; s3cab
-prints both that and the command to throw it away instead.
-
-Full guide: https://s3cab.plantegral.com/guide/format`;
+prints both that and the command to throw it away instead.`;
 
 export const backupDetails = `A backup is a snapshot followed by an upload of whatever the bucket does
 not already hold. Both halves are safe to interrupt: Ctrl+C during the
 snapshot saves the file hashes worked out so far ('s3cab snapshot --help'),
 and files already uploaded stay uploaded, so the next backup picks up where
-this one stopped rather than starting over.
-
-Full guide: https://s3cab.plantegral.com/guide/format`;
+this one stopped rather than starting over.`;
 
 export const compareDetails = `The report compares file content (SHA-256 hashes), never timestamps.
 Renamed and Moved entries read 'old.txt → new.txt'; an added file whose
-content already existed elsewhere is noted '(duplicate of ...)'.
-Full guide: https://s3cab.plantegral.com/guide/compare`;
+content already existed elsewhere is noted '(duplicate of ...)'.`;
 
 export const findDetails = `Patterns work like the Unix 'find' command, NOT like your exclude file:
 
@@ -53,9 +48,7 @@ be redirected to a file, edited down to the objects you care about, and
 handed to 's3cab delete --from-file' to remove them for good.
 Because backups store one copy of identical content, a hash can back more
 than one path — the report warns when it does, since anything done to that
-object affects every path it backs.
-
-Full guide: https://s3cab.plantegral.com/guide/find`;
+object affects every path it backs.`;
 
 export const treeDetails = `--excluded turns the listing around: instead of the files that would be
 backed up, it shows what the set's exclude file is leaving out, and which
@@ -67,9 +60,7 @@ so that line stands for everything it contains.
 
 Both listings are read from the directories themselves, not from a
 snapshot — edit the exclude file and run this again to see the effect
-straight away.
-
-Full guide: https://s3cab.plantegral.com/guide/exclude`;
+straight away.`;
 
 export const deleteDetails = `Removes stored objects from the repository by content hash — the
 destructive half of the pair with 'find': the read-only search decides
@@ -87,9 +78,7 @@ Hashes the bucket doesn't hold are reported and skipped, not fatal. The
 empty file's hash is refused outright — it backs every zero-byte file.
 
 On a terminal you confirm by typing the bucket name; scripts must pass
---force (the prompt is never required).
-
-Full guide: https://s3cab.plantegral.com/guide/maintenance`;
+--force (the prompt is never required).`;
 
 export const awsDetails = `It only PRINTS the steps — it never touches your account and needs no
 credentials to run, so you can read the whole plan first. It emits a
@@ -114,9 +103,7 @@ with AWS IAM Identity Center (SSO)? It works through the standard credential
 chain — no separate setup; see 's3cab help provider'.
 
 Then create a backup set in it:
-  s3cab setup --set <name> --bucket <bucket> <directory>...
-
-Full guide: https://s3cab.plantegral.com/guide/aws`;
+  s3cab setup --set <name> --bucket <bucket> <directory>...`;
 
 export const providerDetails = `Changes or shows how a set signs in to its storage provider — an AWS
 profile, a custom S3 endpoint (any S3-compatible provider), a region,
@@ -216,6 +203,4 @@ s3cab names the cause and shows the raw error. By cause:
     S3 rejects requests whose time drifts too far. Sync your clock:
     - Windows: Settings > Time & language > Date & time > Sync now
     - macOS:   sudo sntp -sS time.apple.com
-    - Linux:   sudo timedatectl set-ntp true
-
-Full guide: https://s3cab.plantegral.com/guide/auth`;
+    - Linux:   sudo timedatectl set-ntp true`;
