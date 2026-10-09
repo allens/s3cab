@@ -136,7 +136,8 @@ export default defineConfig({
     "Open, tool-independent S3 content-addressable backup — your data is never locked in.",
   lang: "en-GB",
   cleanUrls: true,
-  lastUpdated: true,
+  // Not `lastUpdated`: VitePress dates a page by its wrapper (site/index.md,
+  // guide/[topic].md), not the README or guide file it renders.
   markdown: {
     anchor: { slugify },
     // The docs' terminal transcripts use a `> ` prompt and Windows paths, which
