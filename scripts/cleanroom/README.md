@@ -52,9 +52,9 @@ Two buckets, one per role
 reads, and `S3CAB_TEST_BUCKET_CLEANROOM_BACKUP` is emptied for each clean-room
 upload's turn. The snapshot room has no bucket at all: a snapshot is a local file.
 
-The golden set is seeded **once per format change**, on Linux or WSL, since only
-a Linux filesystem holds every fixture. The root must be on that filesystem —
-`~`, not `/mnt/c`:
+The golden set is seeded **once per format or fixture change**, on Linux or WSL,
+since only a Linux filesystem holds every fixture. The root must be on that
+filesystem — `~`, not `/mnt/c`:
 
 ```sh
 node --env-file=.env.test scripts/setup-test-bucket.mjs --days 365 <restore-bucket>
@@ -292,9 +292,12 @@ Unicode normalization. It builds the fixtures before touching the bucket and
 stops if any group was skipped, since a golden set missing one would be partial
 for every run after it.
 
-It stamps the bucket with the hash of the `format.md` it was seeded from — as a
-bucket tag, not a key, because a restorer works out the bucket's contents from a
-listing and would report a key the spec doesn't describe. The stamp is removed
+It stamps the bucket with a hash of what made it: `format.md`, `fixtures.mjs`
+and the seed script itself. Hashing the spec alone let a build accept a golden
+set from older fixtures, and a run measured against a corpus missing what was
+added since passes without saying so. The stamp is a bucket tag, not a key,
+because a restorer works out the bucket's contents from a listing and would
+report a key the spec doesn't describe. The stamp is removed
 first and written last, so a seed that fails halfway leaves a bucket every
 restore build refuses.
 
@@ -330,7 +333,7 @@ the golden set sweeps out from under the runs it serves:
 
 Builds a restore sandbox from the golden set: the clean room, with the
 `reference\` trees a restorer's output is compared to. It refuses a bucket
-stamped from another `format.md`, which is the cue to reseed. The same command
+stamped from another spec or other fixtures, which is the cue to reseed. The same command
 on every OS, and it has to run on the OS under test: s3cab's Windows restore
 refuses the case-colliding pair, can't create the control-character names, and
 sets mtimes exactly where Linux carries a sub-microsecond error — every one a

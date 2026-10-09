@@ -200,10 +200,11 @@ indefinitely.
 
   - **`S3CAB_TEST_BUCKET_CLEANROOM_RESTORE` holds the golden set**: s3cab's backup of the
     fixtures, damage included, which every restorer restores. It is long-lived, and reseeded by
-    `seed-restore-cleanroom-bucket.mjs` only when `guide/format.md` changes; the seed records
-    that file's hash in the bucket, and a restore build refuses a bucket seeded from another
-    spec, since a restorer written from today's spec fails against yesterday's format through
-    no fault of its own. The seed runs **on Linux only**, where every fixture can exist:
+    `seed-restore-cleanroom-bucket.mjs` only when `guide/format.md` or the fixtures change; the
+    seed stamps the bucket with a hash of the spec, the fixtures and itself, and a restore build
+    refuses any other stamp, since a restorer written from today's spec fails against
+    yesterday's format through no fault of its own, and passes against yesterday's fixtures
+    without meeting what was added since. The seed runs **on Linux only**, where every fixture can exist:
     Windows refuses the `[POSIX]` names, and macOS's APFS silently folds names differing only
     in case or Unicode normalization into one file. Every restore build is then the same on
     every OS: reattach the sets and restore s3cab's own reference from them.

@@ -7,11 +7,6 @@ fixture here is buildable on Linux by a Node script, with no root and no special
 by what a wrong reading costs: **silent** (a restore or backup that looks right and isn't) before
 **loud** (it fails, or the harness compare catches it).
 
-- **The spec-hash stamp can't tell that fixtures have changed.** `specHash` hashes only
-  `guide/format.md`, so after a fixture lands in `fixtures.mjs` or the seed script, the build
-  scripts still accept the old golden set. Reseed by hand until the stamp covers the fixtures
-  too.
-
 ## Gaps
 
 - **An unreadable file, which gives an `#ERROR` row.** ADR-0096 names this open. Use

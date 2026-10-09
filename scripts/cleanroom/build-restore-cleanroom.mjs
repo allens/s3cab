@@ -34,7 +34,7 @@ import {
   writeCleanroom,
 } from "./cleanroom.mjs";
 import { count, files, setNames } from "./fixtures.mjs";
-import { listAll, seededSpec, specHash } from "./restore-bucket.mjs";
+import { listAll, seedHash, seededHash } from "./restore-bucket.mjs";
 
 const { root, bucket } = readCommandLine(
   "build-restore-cleanroom.mjs",
@@ -47,16 +47,17 @@ const { run, mustRun } = cli(join(root, ".s3cab"));
 
 // A restorer written from today's spec fails against a golden set in yesterday's format
 // through no fault of its own, and the session would spend its run reporting that as
-// spec gaps.
-const seeded = await seededSpec(bucket);
-if (seeded !== specHash()) {
+// spec gaps. Yesterday's fixtures are subtler: the run passes, measured against a corpus
+// missing whatever was added since.
+const seeded = await seededHash(bucket);
+if (seeded !== seedHash()) {
   console.error(
     `The restore bucket '${bucket}' ${
       seeded
-        ? "was seeded from a different guide/format.md than this checkout's"
-        : "has no golden set seeded from any guide/format.md"
+        ? "was seeded from a different spec or fixtures than this checkout's"
+        : "carries no stamp from a finished seed"
     }, so a\n` +
-      "restorer written from the spec here would be measured against another format.\n" +
+      "restorer written from the spec here would be measured against another golden set.\n" +
       "Reseed it from Linux or WSL first:\n" +
       "\n" +
       "    node --env-file=.env.test scripts/cleanroom/seed-restore-cleanroom-bucket.mjs ~/s3cab.sandbox\n",

@@ -3,9 +3,9 @@
  * it with the golden set, and the build that restores s3cab's reference from it. Both
  * drive the real CLI to do it, through `cli` in cleanroom.mjs.
  *
- * The golden set is stamped with the hash of the guide/format.md it was seeded from, as a
- * bucket tag rather than a key: a restorer works out the bucket's contents from a listing,
- * and a key the spec doesn't describe would reach its report as a finding.
+ * The golden set is stamped with a hash of what made it, as a bucket tag rather than a key:
+ * a restorer works out the bucket's contents from a listing, and a key the spec doesn't
+ * describe would reach its report as a finding.
  */
 import {
   DeleteBucketTaggingCommand,
@@ -20,7 +20,18 @@ import { join } from "node:path";
 
 export const client = new S3Client({});
 
-const specTag = "s3cab-cleanroom-spec";
+const seedTag = "s3cab-cleanroom-seed";
+
+// What decides the golden set's contents: the spec it is written to, the trees backed up,
+// and the damage done to them. A change to any of them makes a new golden set, so the
+// stamp covers all three. Each is hashed under its name, so moving a line from one file
+// to another still changes the stamp. Every one is checked out with LF endings on every
+// platform (.gitattributes), so a Windows build agrees with the Linux seed.
+const seedInputs = [
+  join("guide", "format.md"),
+  join("scripts", "cleanroom", "fixtures.mjs"),
+  join("scripts", "cleanroom", "seed-restore-cleanroom-bucket.mjs"),
+];
 
 /**
  * Every key in the bucket, paged. `ListObjectsV2` truncates at 1000 without saying so —
@@ -48,34 +59,40 @@ export async function listAll(bucket, prefix) {
   return keys;
 }
 
-/** The hash of this checkout's guide/format.md. */
-export function specHash() {
-  const spec = join(import.meta.dirname, "..", "..", "guide", "format.md");
-  return createHash("sha256").update(readFileSync(spec)).digest("hex");
+/** The hash of this checkout's seed inputs: the spec, the fixtures and the seed. */
+export function seedHash() {
+  const repo = join(import.meta.dirname, "..", "..");
+  const hash = createHash("sha256");
+  for (const input of seedInputs) {
+    hash.update(`${input.replaceAll("\\", "/")}\0`);
+    hash.update(readFileSync(join(repo, input)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 /**
- * The spec hash the bucket was seeded from, or undefined if it carries none.
+ * The seed hash the bucket was stamped with, or undefined if it carries none.
  * @param {string} bucket
  */
-export async function seededSpec(bucket) {
+export async function seededHash(bucket) {
   const tags = await bucketTags(bucket);
-  return tags.find(({ Key }) => Key === specTag)?.Value;
+  return tags.find(({ Key }) => Key === seedTag)?.Value;
 }
 
 /**
- * Stamp the bucket with a spec hash, or remove the stamp. The seed removes it before it
+ * Stamp the bucket with a seed hash, or remove the stamp. The seed removes it before it
  * empties the bucket and stamps it last, so a seed that fails halfway leaves a bucket
  * every restore build refuses. Other tags on the bucket are kept: a put replaces the
  * whole set.
  * @param {string} bucket
  * @param {string | undefined} hash
  */
-export async function stampSpec(bucket, hash) {
+export async function stampSeed(bucket, hash) {
   const others = (await bucketTags(bucket)).filter(
-    ({ Key }) => Key !== specTag,
+    ({ Key }) => Key !== seedTag,
   );
-  const tagSet = hash ? [...others, { Key: specTag, Value: hash }] : others;
+  const tagSet = hash ? [...others, { Key: seedTag, Value: hash }] : others;
   if (tagSet.length === 0) {
     await client.send(new DeleteBucketTaggingCommand({ Bucket: bucket }));
     return;
