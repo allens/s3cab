@@ -73,6 +73,21 @@ const windows = process.platform === "win32";
 const credentialsFile = windows ? "credentials.ps1" : "credentials.env";
 
 /**
+ * A sandbox root as typed, made absolute. A leading `~` is expanded here: every usage
+ * line writes one and PowerShell does not expand it, so node would take it literally and
+ * `resolve` would make a directory named `~` under the cwd — which is the repo, the one
+ * place a sandbox must never be, reported as a path the operator never typed.
+ * @param {string} arg
+ */
+export function sandboxPath(arg) {
+  return resolve(
+    arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
+      ? join(homedir(), arg.slice(1))
+      : arg,
+  );
+}
+
+/**
  * Read `<root>`, or exit 2 saying what was wrong. The root has to be outside the repo,
  * and empty. On its own, for the one build that never leaves the machine (the snapshot
  * room has no bucket); every other script reads its bucket too, with
@@ -98,15 +113,7 @@ export function readRoot(script, env = false) {
     return process.exit(2);
   }
 
-  // Expand a leading `~` before resolving. The usage line writes one and PowerShell
-  // does not expand it, so node would take it literally and `resolve` would make a
-  // directory named `~` under the cwd — which is the repo, and so exactly the placement
-  // the guard below exists to refuse, reported as a path the operator never typed.
-  const root = resolve(
-    arg === "~" || arg.startsWith("~/") || arg.startsWith("~\\")
-      ? join(homedir(), arg.slice(1))
-      : arg,
-  );
+  const root = sandboxPath(arg);
 
   // The one guard that matters: a clean room inside the repo is not a clean room, since
   // the session would inherit the repo's CLAUDE.md from a parent directory. Compared
