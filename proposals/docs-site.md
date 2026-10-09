@@ -25,7 +25,10 @@ URLs: on Cloudflare a moved page is a reviewed line in `_redirects`, forever.
 - **Terraform (infra repo)** owns everything that changes rarely: the Pages project, the
   `s3cab.plantegral.com` custom domain + DNS, and a deploy-only API token scoped to that one
   project (minted by Terraform, stored as GitHub secrets here). It never owns the site's
-  *content* — if it did, every deploy would show up as drift.
+  *content* — if it did, every deploy would show up as drift. What `docs.yml` expects: a
+  Pages project named `s3cab` with production branch `main`, and repo secrets
+  `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`. The deploy step stays skipped until the
+  token exists, so Terraform can land in either order.
 - **This repo** owns what changes with the docs: the VitePress build, `_redirects` (in the
   build's `public/`, reviewed like code), and a GitHub Actions job running `wrangler pages
   deploy` — production from `main`, a preview URL per PR branch.
@@ -47,13 +50,13 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 
 ## Ordered by payoff
 
-- **A real site over `guide/` — VitePress, dev-dependency only** (ADR-0005's relaxed bar for
-  dev deps). Why VitePress over Starlight: `cleanUrls` serves `/guide/exclude` from
-  `guide/exclude.md` in place, so the frozen URLs need no redirect map and nothing moves; it
-  renders GitHub's `> [!TIP]` alert syntax, which also renders on GitHub/npm, so the raw files
-  stay first-class; local search is built in. Starlight wants content under its own
-  `src/content/docs`. Avoid VitePress-only `:::` containers in `guide/` — they read as literal
-  text in the tarball. Hosting is settled below.
+- ~~**A real site over `guide/`**~~ — **built** in [site/](../site/) (VitePress, dev-only):
+  `guide/*.md` render in place at `/guide/<topic>` through a dynamic route, the README is the
+  home page, the sidebar is read from `guide/README.md`, search is local, and the build fails on
+  a dead link or `#anchor`. `.github/workflows/docs.yml` builds every PR and deploys once the
+  Cloudflare secrets exist. What remains is the Terraform side and the cutover below. Avoid
+  VitePress-only `:::` containers in `guide/` — they read as literal text in the tarball; GitHub's
+  `> [!TIP]` alerts render in both.
 - **Examples that can't drift.** A doc-test script that runs each `console` block against a
   fixture `~/.s3cab` and a frozen clock and diffs the output against the page. The local
   commands (`snapshot`, `compare`, `list`, `tree`, `find`, `prop`) need no bucket; the cloud
