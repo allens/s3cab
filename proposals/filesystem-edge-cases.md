@@ -62,3 +62,53 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
+- **Replace `#SKIPPED`: a link that leads out of the backup is an `#ERROR`, every other non-file
+  gets no row.** Decided 2026-10-09: `#SKIPPED` goes. All it records that nothing else does is
+  where links were, and restore never uses that. A symlinked folder whose contents aren't backed
+  up becomes an `#ERROR` instead, and only an exclude pattern silences it. The rest is a
+  suggested shape, not yet agreed:
+
+  | Entry | Proposed |
+  | --- | --- |
+  | Link, to a file or a folder, whose target is outside every member directory | `#ERROR`; exit 1 until excluded |
+  | Link whose target is inside a member directory | no row: the target is backed up under its real path |
+  | Link whose target doesn't exist | no row |
+  | Link whose target exists but can't be resolved | `#ERROR` |
+  | FIFO, socket, device | no row |
+  | Entry that vanished between listing and checking | no row |
+  | Entry that couldn't be checked for any other reason | `#ERROR` |
+
+  - **The check** runs only on links, so the cost is negligible. `stat` (which follows the link)
+    tells a missing target from a present one, then `realpathSync.native`, then the containment
+    test restore already uses (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The
+    walk handles one member directory at a time, so it needs the whole member list passed in. A
+    target inside a member directory but excluded there counts as inside; not worth running the
+    exclude patterns on targets too.
+  - **`stat` must come before `realpath`.** Measured 2026-10-09: `realpathSync.native` throws
+    `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with
+    no `Music` folder) and for the unlocked Personal Vault above, whose target exists but can't
+    be canonicalized. Reading every `ENOENT` as "missing" drops the vault silently, which is the
+    case this change exists to catch. As an `#ERROR` the vault is named by path, which also
+    answers that entry's complaint about the skip message.
+  - **Windows profile junctions.** Node sees junctions as symlinks, and every profile has the
+    same compatibility set: 10 at the profile root (`Application Data`, `Cookies`,
+    `Start Menu`, …) and `My Music`, `My Pictures`, `My Videos` in `Documents`. The ten all point
+    inside the profile, so a profile backup raises nothing. A `Documents`-only set raises the
+    three `My …` ones when their targets exist, which is correct: those folders aren't backed up.
+    Rejected: adding them to the starter `exclude.txt`. A pattern can't say "only if it's a
+    link", so `Cookies/` or `Templates/` would silently drop a real folder of that name at the
+    top of a member directory.
+  - **Exclude patterns must apply to links.** Today the walk tests them only against files and
+    directories. Open: a pattern ending in `/` should match a link to a folder, or `My Music/`
+    won't silence it.
+  - **A file replaced by a link** shows in `compare` as deleted. That's accurate, since the
+    regular file is gone; `#SKIPPED` used to hide it.
+  - **What changes:** supersede [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md)'s
+    `#SKIPPED` recording and the skipped parts of
+    [ADR-0078](../docs/adr/0078-backup-run-report.md). Drop the `#SKIPPED` line type from
+    [guide/format.md](../guide/format.md), which means reseeding the clean-room golden set.
+    Remove the reader branch, the writer, `compareSnapshots`' skipped reconciliation, and the
+    skipped sections and counts in `render.mjs`, `snapshot` and `backup`. The no-row case
+    [PR #388](https://github.com/allens/s3cab/pull/388) added for a skipped name with a line
+    break goes too. In [cleanroom-fixtures.md](cleanroom-fixtures.md), the dangling-symlink,
+    line-break and FIFO gaps change shape.
