@@ -1,0 +1,58 @@
+# The docs site (site/, proposals/docs-site.md): build it on every push and PR,
+# and deploy it to Cloudflare Pages — production from main, a preview per PR.
+#
+# The build is the check: VitePress fails on a link to a page that doesn't
+# exist, and site/.vitepress/check-links.mjs on a `#anchor` that doesn't.
+#
+# The Pages project, the s3cab.plantegral.com domain and the deploy-only API
+# token live in Terraform outside this repo. Until the token is a repo secret,
+# and on fork and Dependabot PRs (which GitHub gives no secrets), the deploy step
+# is skipped rather than failed — the build still runs.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Match ci.yml: the engines floor.
+  NODE_VERSION: "26.10.0"
+  PAGES_PROJECT: s3cab
+  # Pinned and invoked by npx rather than installed as a devDependency: wrangler
+  # brings a ~100MB runtime that every `npm ci` would otherwise download. Dependabot
+  # can't see a version here, so bump it by hand.
+  WRANGLER_VERSION: "4.139.0"
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    env:
+      # A step's `if:` can't read `secrets`, so test for the token here.
+      CAN_DEPLOY: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npm run docs:build
+      - name: Deploy to Cloudflare Pages
+        if: env.CAN_DEPLOY == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Via env, not interpolated into the script: a PR's branch name is
+          # text its author chose.
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: >-
+          npx --yes "wrangler@$WRANGLER_VERSION" pages deploy site/.vitepress/dist
+          --project-name="$PAGES_PROJECT" --branch="$BRANCH"
