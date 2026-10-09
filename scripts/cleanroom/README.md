@@ -3,9 +3,8 @@
 > **Partly built** ([ADR-0096](../../docs/adr/0096-three-implementations-prove-the-format.md)):
 > the harness that builds each clean room is here, and everything below describes it. Still to
 > come: the clean-room programs for the current spec; the CI matrix that builds and runs them;
-> `compare-restore.mjs` in place of `compare.py`, beside `compare-snapshot.mjs` and
-> `check-upload.mjs` for the two halves of the backup; and, before 1.0,
-> keeping only the latest programs, so [restorers/](restorers/) stops being append-only and the
+> `compare-restore.mjs` in place of `compare.py`; and, before 1.0, keeping only the latest
+> programs, so [restorers/](restorers/) stops being append-only and the
 > earlier runs' programs go, while their reports in `docs/` stay.
 
 A literal test of [ADR-0002](../../docs/adr/0002-no-lock-in-hard-constraint.md)'s
@@ -41,7 +40,8 @@ all three. Nothing here is distributed; it lives in the repo as evidence.
 **Two kinds of file live here, with opposite lifecycles.** The harness is ours,
 maintained, and improved every run as findings come in: the seed script, the three
 build scripts, the modules they share (`cleanroom.mjs`, `fixtures.mjs`,
-`restore-bucket.mjs`), and `compare.py`.
+`restore-bucket.mjs`), and the checkers, `compare-snapshot.mjs`, `check-upload.mjs`
+and `compare.py`.
 [restorers/](restorers/) is append-only and frozen — one program per run, never
 updated, because each one's value is being a fixed reading of the spec on a
 given date.
@@ -92,6 +92,8 @@ bucket, and so no test environment:
 
 ```powershell
 node scripts/cleanroom/build-snapshot-cleanroom.mjs C:\s3cab.sandbox
+# run, then harvest: its program and report, and its snapshots checked
+node scripts/cleanroom/compare-snapshot.mjs C:\s3cab.sandbox
 ```
 
 An upload run's turn starts from an empty bucket, which the build leaves for you
@@ -100,7 +102,16 @@ to empty:
 ```powershell
 aws s3 rm s3://<backup-bucket>/ --recursive
 node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs C:\s3cab.sandbox
+# run, then harvest: its program and report, and the bucket it left checked
+node --env-file=.env.test scripts/cleanroom/check-upload.mjs C:\s3cab.sandbox
 ```
+
+Both checkers run before the sandbox is destroyed, on the machine that built it:
+they read its trees, and the upload checker reads what the room was handed. A
+harvested backup program goes in `backup/<platform>/` here (`linux`, `windows`,
+`macos`), beside [restorers/](restorers/), and each run's report continues the
+`docs/format-spec-audit-<n>.md` numbering, its title naming the role and the
+platform.
 
 ## cleanroom.mjs
 
@@ -282,6 +293,51 @@ with `corrupt` is a reading to report, not a rule to check.
 node --env-file=.env.test scripts/cleanroom/build-upload-cleanroom.mjs <root>
 ```
 
+## compare-snapshot.mjs
+
+Checks a snapshot room's work: each set's latest snapshot in
+`cleanroom\sets\<set>\snapshots\` against `s3cab snapshot` of the same trees,
+taken there and then in a throwaway home, so s3cab's output never exists while
+the session could read it. It compares what ADR-0096 lists: file rows exact by
+path, the `#DIR`, `#EXCLUDED`, `#SKIPPED` and `#ERROR` paths, and nothing of the
+names and instants that differ by run. And because the brief asks for the exact
+bytes, it holds the session's file to the padded columns, LF endings, UTF-8 with
+no BOM, the header block and a `COMPLETE` trailer on the last line.
+
+Two differences come back as notes rather than mismatches, because the spec
+hasn't decided them: the time zone in the header, which Python's standard library
+can't name, and an excluded directory written as one row where the other side
+wrote a row for each file in it. Paths print JSON-quoted, so a stray CR or one of
+the fixtures' control characters shows instead of printing as nothing.
+
+```sh
+node scripts/cleanroom/compare-snapshot.mjs <root>
+```
+
+## check-upload.mjs
+
+Checks the bucket an upload room left. Restoring it can't stand in: no restore
+reads `dirs.txt` or `exclude.txt`, and a restore can't say whether the room
+refused the two snapshots it should have. So, in order:
+
+- every key is in the layout the spec documents, with no deletion record;
+- every object hashes to its key, which means downloading every one;
+- every published snapshot is byte-identical to the one handed over, none is
+  missing, and neither `corrupt`'s nor the trailerless `faults` one is published;
+- every object a published snapshot names is stored;
+- `sets\<set>\` holds `info` as `OWNER` then `CREATED`, `dirs.txt` as the parsed
+  list with LF endings, and `exclude.txt` as a byte copy;
+- s3cab reattaches every set and restores every published snapshot.
+
+That last step writes to the bucket, since `reattach` re-stamps each set's
+`info`, so it comes after `info` has been read. An `OWNER` other than this
+machine's hostname is a note, since what "raw hostname" means is itself a
+reading.
+
+```sh
+node --env-file=.env.test scripts/cleanroom/check-upload.mjs <root>
+```
+
 ## seed-restore-cleanroom-bucket.mjs
 
 Seeds the restore bucket with the **golden set**: eight backup sets made by
@@ -376,14 +432,9 @@ sub-millisecond defect that is run 2's finding 2. And directory mtimes reported
 separately, since both tools create directories implicitly at restore time, so
 those reflect the run rather than the format.
 
-**To be rewritten in JavaScript as `compare-restore.mjs`**, alongside a checker
-for each half of the backup, when the CI matrix is built. The snapshot's is
-`compare-snapshot.mjs`, its rows against s3cab's. The upload's is
-`check-upload.mjs`, and restoring the bucket is not enough to stand in for it:
-no restore reads `dirs.txt` or `exclude.txt`, so a CRLF `dirs.txt` or a rewritten
-`exclude.txt` passes, and a restore can't tell whether the room refused the two
-damaged snapshots. It is Python only because run 2's session wrote it that
-way: Node reads byte paths too (`readdir` with `encoding: "buffer"`), and
+**To be rewritten in JavaScript as `compare-restore.mjs`** when the CI matrix is
+built, beside the two backup checkers above. It is Python only because run 2's
+session wrote it that way: Node reads byte paths too (`readdir` with `encoding: "buffer"`), and
 nanosecond mtimes (`lstat` with `bigint: true`).
 
 ```sh

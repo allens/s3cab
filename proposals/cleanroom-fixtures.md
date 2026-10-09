@@ -94,10 +94,10 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
 
 ## Questions the fixtures raise
 
-- **Does the harness compare excluded paths too strictly?** s3cab writes a single `#EXCLUDED`
-  row for a whole directory (for example `logs/**` matching `logs/`). A backup that writes one
-  row per file fails ADR-0096's "excluded paths must match exactly", yet format.md calls those
-  payloads context, not commitment.
+- **Does the spec require one `#EXCLUDED` row for a whole directory?** s3cab writes a single
+  row for one (for example `logs/**` matching `logs/`), and format.md calls those payloads
+  context, not commitment. Until it says, `compare-snapshot.mjs` reports a backup that writes a
+  row per file as a note, not a mismatch.
 - **What should a restorer do with a `PARTIAL` trailer found in the bucket?** format.md says only
   the local lookup file carries one.
 - **Unwritten rules that s3cab enforces:**
