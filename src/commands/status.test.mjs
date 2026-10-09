@@ -16,6 +16,9 @@ let keys = [];
 /** Text objects (the deletion record), by URI. */
 /** @type {Record<string, string>} */
 let textByUri = {};
+/** Stored objects' sizes, by URI — what a HEAD finds. */
+/** @type {Record<string, number>} */
+let sizeByUri = {};
 /** Where the remote snapshot's bytes come from. */
 /** @type {string} */
 let remoteSnapshotPath;
@@ -29,6 +32,7 @@ mock.module("../lib/s3.mjs", {
         .map((Key) => ({ Key }));
     },
     getText: async (/** @type {string} */ uri) => textByUri[uri],
+    objectSize: async (/** @type {string} */ uri) => sizeByUri[uri],
     getStream: async () => createReadStream(remoteSnapshotPath),
   }),
 });
@@ -48,6 +52,7 @@ beforeEach(() => {
   savedEnv = { ...process.env };
   keys = [];
   textByUri = {};
+  sizeByUri = {};
 });
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
@@ -73,6 +78,17 @@ const backedUpSet = async (root) => {
   keys.push(`snapshots/photos/${NAME}.tsv.gz`);
 };
 
+/**
+ * A deletion record naming `hash`.
+ * @param {string} hash
+ */
+const recordDeleted = (hash) => {
+  keys.push("objects.deleted-1.tsv");
+  textByUri["s3://b/objects.deleted-1.tsv"] =
+    "#DELETED\t\t2026-10-09T11:04:55.120Z\tgone on purpose\n" +
+    `${hash}\t5\t2026-10-09T11:04:55.120Z\tallen@DESKTOP\n#END\n`;
+};
+
 describe("status", () => {
   it("tells you to snapshot first when the set has no local snapshot", async () => {
     await using dir = await mkTmpDir();
@@ -95,16 +111,24 @@ describe("status", () => {
     assert.equal(report.toUpload, 0);
   });
 
-  it("counts content a delete removed as to upload, as backup would (ADR-0064)", async () => {
+  it("counts content a delete removed as needing upload, as backup would (ADR-0064)", async () => {
     await using dir = await mkTmpDir();
     await backedUpSet(dir.path);
-    keys.push("objects.deleted-1.tsv");
-    textByUri["s3://b/objects.deleted-1.tsv"] =
-      "#DELETED\t\t2026-10-09T11:04:55.120Z\tgone on purpose\n" +
-      `${HELLO_HASH}\t5\t2026-10-09T11:04:55.120Z\tallen@DESKTOP\n#END\n`;
+    recordDeleted(HELLO_HASH);
 
     const report = await status("photos");
 
     assert.equal(report.toUpload, 1);
+  });
+
+  it("trusts a deleted object a later backup stored again — presence wins", async () => {
+    await using dir = await mkTmpDir();
+    await backedUpSet(dir.path);
+    recordDeleted(HELLO_HASH);
+    sizeByUri[`s3://b/objects/${HELLO_HASH}`] = 5;
+
+    const report = await status("photos");
+
+    assert.equal(report.toUpload, 0);
   });
 });

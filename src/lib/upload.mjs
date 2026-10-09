@@ -6,7 +6,7 @@ import { readDeletionRecords } from "./deletion-record.mjs";
 import { ContentMismatchError, isENOENT } from "./error.mjs";
 import { fileProps } from "./file-props.mjs";
 import { plural } from "./format.mjs";
-import { listObjectHashes, putObject } from "./objects.mjs";
+import { listObjectHashes, putObject, storedObjectSizes } from "./objects.mjs";
 import { countedPass } from "./progress.mjs";
 import { matchRemoteSnapshot, remoteSnapshotUri } from "./remote.mjs";
 import { putFile } from "./s3.mjs";
@@ -139,12 +139,18 @@ export async function storedHashes({
 
 /**
  * The hashes a snapshot that exists remotely still vouches for as stored: its
- * content hashes, minus those the deletion record says a later `delete` removed
- * (ADR-0064, ADR-0090). Existing remotely proves the snapshot's objects were
- * stored *then*; the record says which are gone since. Without the subtraction
- * the snapshot wrongly vouches for deleted content — `backup` would publish a
+ * content hashes, minus those a later `delete` removed (ADR-0064, ADR-0090).
+ * Existing remotely proves the snapshot's objects were stored *then*; the
+ * deletion record says which may be gone since. Without the subtraction the
+ * snapshot wrongly vouches for deleted content — `backup` would publish a
  * snapshot referencing missing objects, and `status` would undercount what a
  * backup uploads.
+ *
+ * **Presence wins** (guide/format.md): a recorded hash is subtracted only if
+ * its object is really absent, so each one the snapshot references is HEADed.
+ * Not the record alone — deleted content re-uploads on the next backup and its
+ * row stays, never trimmed while a snapshot references it, so every later
+ * backup would re-PUT it and `status` would count it forever.
  *
  * **Only for a snapshot that still exists remotely.** That is what keeps the
  * record complete for it: a remote snapshot is a live reference to its hashes,
@@ -159,8 +165,14 @@ export async function getUndeletedHashes(bucket, entries) {
   /** @type {Set<string>} */
   const stored = new Set();
   for (const { hash } of entries.values()) {
-    if (!deleted.has(hash)) {
-      stored.add(hash);
+    stored.add(hash);
+  }
+  const sizes = await storedObjectSizes(bucket, [
+    ...stored.intersection(deleted),
+  ]);
+  for (const [hash, size] of sizes) {
+    if (size === undefined) {
+      stored.delete(hash);
     }
   }
   return stored;
