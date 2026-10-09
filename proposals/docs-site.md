@@ -35,6 +35,11 @@ token can't be scoped to one Pages project (*Cloudflare Pages Edit* is account-w
 secret in GitHub could edit every Pages project in the account. With the Git connection GitHub
 holds no Cloudflare credential at all. The build image runs any Node version via `NODE_VERSION`.
 
+What the Pages project needs: source `allens/s3cab`, production branch `main`, build command
+`npm run docs:build`, output directory `site/.vitepress/dist`, and `NODE_VERSION=26.10.0` (the
+engines floor, as in `ci.yml`; the image defaults to 22). The Cloudflare GitHub app
+must be installed on the repo first — a one-time click Terraform can't make.
+
 Pages rather than Workers static assets, though Cloudflare now steers new sites to Workers: Pages
 gives per-branch previews out of the box, and its Terraform resource carries the Git source and
 build settings in one place. Moving later changes the deploy target, not the content.
@@ -51,12 +56,6 @@ When built, this section becomes an ADR (the frozen-URL constraint now depends o
 
 ## Ordered by payoff
 
-- **A real site over `guide/` — VitePress, dev-dependency only** (ADR-0005's relaxed bar for
-  dev deps). Why VitePress over Starlight: `cleanUrls` serves `/guide/exclude` from
-  `guide/exclude.md` in place, so the frozen URLs need no redirect map and nothing moves; it
-  renders GitHub's `> [!TIP]` alert syntax, which also renders on GitHub/npm, so the raw files
-  stay first-class; local search is built in. Avoid VitePress-only `:::` containers in
-  `guide/` — they read as literal text in the tarball. Hosting is settled above.
 - **Examples that can't drift.** A doc-test script that runs each `console` block against a
   fixture `~/.s3cab` and a frozen clock and diffs the output against the page. The local
   commands (`snapshot`, `compare`, `list`, `tree`, `find`, `prop`) need no bucket; the cloud
