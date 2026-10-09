@@ -12,6 +12,39 @@ in the npm tarball, so every page must stay readable as raw GitHub-flavoured mar
 help-vs-guide placement doctrine stands (terminal help is mid-task, the site is the sit-down
 read).
 
+## Hosting: Cloudflare, infrastructure in Terraform (settled 2026-10-09)
+
+The domain already lives in Cloudflare, managed by Terraform outside this repo. Weighed against
+GitHub Pages (meta-refresh stubs only, no real redirects, no PR previews) and S3 + CloudFront
+(clean URLs and redirects need a hand-written CloudFront Function; previews are DIY). An R2
+bucket alone is not a web host — no index or `.html` resolution. What decided it is the frozen
+URLs: on Cloudflare a moved page is a reviewed line in `_redirects`, forever.
+
+**Split ownership so Terraform and deploys never fight over the same thing:**
+
+- **Terraform (infra repo)** owns everything that changes rarely: the Pages project, the
+  `s3cab.plantegral.com` custom domain + DNS, and a deploy-only API token scoped to that one
+  project (minted by Terraform, stored as GitHub secrets here). It never owns the site's
+  *content* — if it did, every deploy would show up as drift.
+- **This repo** owns what changes with the docs: the VitePress build, `_redirects` (in the
+  build's `public/`, reviewed like code), and a GitHub Actions job running `wrangler pages
+  deploy` — production from `main`, a preview URL per PR branch.
+
+Pages rather than Workers static assets, though Cloudflare now steers new sites to Workers: Pages
+gives the cleaner Terraform order (create an empty project, *then* deploy into it — a Workers
+custom domain needs the script to exist first) and per-branch previews out of the box. Moving
+later changes the deploy target, not the content.
+
+**Cutover — the order matters.** Today `/guide/<topic>` is redirected, presumably by a
+Terraform-managed redirect rule; a hostname redirect rule runs *before* the Pages origin, so the
+site would never see traffic while it exists. So: deploy to the `*.pages.dev` URL and check every
+`/guide/<topic>` the registry names (plus `/`, which the CLI prints as "Full documentation");
+then, in **one** apply, attach the custom domain and delete the rule; re-check every topic on
+the real domain. Afterwards, a nightly job fetching each registry topic's live URL guards what
+`help.test.mjs` can't (it proves the page exists in `guide/`, not that the URL resolves).
+
+When built, this section becomes an ADR (the frozen-URL constraint now depends on it).
+
 ## Ordered by payoff
 
 - **A real site over `guide/` — VitePress, dev-dependency only** (ADR-0005's relaxed bar for
@@ -20,8 +53,7 @@ read).
   renders GitHub's `> [!TIP]` alert syntax, which also renders on GitHub/npm, so the raw files
   stay first-class; local search is built in. Starlight wants content under its own
   `src/content/docs`. Avoid VitePress-only `:::` containers in `guide/` — they read as literal
-  text in the tarball. Deploy to `s3cab.plantegral.com` (GitHub Pages or Cloudflare Pages) and
-  check the domain keeps resolving (load-bearing for released binaries).
+  text in the tarball. Hosting is settled below.
 - **Examples that can't drift.** A doc-test script that runs each `console` block against a
   fixture `~/.s3cab` and a frozen clock and diffs the output against the page. The local
   commands (`snapshot`, `compare`, `list`, `tree`, `find`, `prop`) need no bucket; the cloud
