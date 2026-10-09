@@ -193,8 +193,9 @@ for the same reason.
 
 ## fixtures.mjs
 
-The trees every build backs up, eight sets of them. Each build makes its
-own, and two builds never match byte for byte (random content, natural mtimes),
+The trees the restore seed and the snapshot and upload builds back up, eight
+sets of them. Each makes its own, and no two match byte for byte (random
+content, natural mtimes),
 which costs no proof anything: a clean-room snapshot's rows are checked against
 `s3cab snapshot` of its own sandbox's trees, an upload is handed s3cab's
 snapshot of its own, and a restore is checked against s3cab's restore of the
