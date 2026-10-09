@@ -1,8 +1,9 @@
 /**
  * Seed the clean-room restore bucket with the golden set (ADR-0096): s3cab's backup of
- * the fixtures, then deliberate damage, stamped with the guide/format.md it was made
- * from. Every restore build reads this bucket and refuses one stamped from another spec,
- * so this runs when the format changes, not once per clean-room run.
+ * the fixtures, then deliberate damage, stamped with a hash of the guide/format.md, the
+ * fixtures and the seed it was made from. Every restore build reads this bucket and
+ * refuses one stamped from anything else, so this runs when the format or the fixtures
+ * change, not once per clean-room run.
  *
  *   <root>/fixtures/   the trees s3cab backs up (fixtures.mjs)
  *   <root>/.s3cab/     s3cab's home while it does
@@ -26,21 +27,16 @@ import {
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
-import { readCommandLine } from "./cleanroom.mjs";
+import { cli, client, listAll, readCommandLine } from "./cleanroom.mjs";
 import {
   buildFixtures,
   excludes,
+  oneMinuteBefore,
   reportFixtures,
   setNames,
+  withoutTrailer,
 } from "./fixtures.mjs";
-import {
-  cli,
-  client,
-  listAll,
-  specHash,
-  stampSpec,
-} from "./restore-bucket.mjs";
+import { seedHash, stampSeed } from "./restore-bucket.mjs";
 
 if (process.platform !== "linux") {
   console.error(
@@ -59,7 +55,7 @@ const { root, bucket } = readCommandLine(
 const fixtures = join(root, "fixtures");
 const home = join(root, ".s3cab");
 const { mustRun } = cli(home);
-const spec = specHash();
+const stamp = seedHash();
 
 /** @param {string} path */
 const sha256 = (path) =>
@@ -77,24 +73,6 @@ const waitForNextMinute = async () => {
     process.stdout.write(".");
   }
   process.stdout.write("\n");
-};
-
-/**
- * The snapshot name one minute before this one. Used once, to name the damaged copy
- * staged below: a snapshot name is a timestamp, so a *later* one would make the damaged
- * snapshot `faults`'s newest and a bare `restore --set faults` would stop there — hiding
- * F7, which is the same set's point. Backdating leaves the intact snapshot as the latest
- * and the damaged one reachable only by asking for it by name.
- *
- * Snapshot names are *local* time, so this parses and prints as UTC throughout: both
- * ends of the arithmetic use the same zone, so the answer is the local name one minute
- * back, and no offset is ever applied.
- * @param {string} name e.g. `2026-08-20T1432`
- */
-const oneMinuteBefore = (name) => {
-  const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
-  stamp.setUTCMinutes(stamp.getUTCMinutes() - 1);
-  return stamp.toISOString().slice(0, 16).replace(":", "");
 };
 
 // Built before the bucket is touched: a golden set missing a fixture would be partial for
@@ -166,7 +144,7 @@ if (found.length > 0) {
 
 // Unstamped first, so a seed that stops anywhere from here leaves a bucket every
 // restore build refuses.
-await stampSpec(bucket, undefined);
+await stampSeed(bucket, undefined);
 if (keys.length > 0) {
   console.log(
     `emptying s3://${bucket}/ — ${keys.length} object${keys.length === 1 ? "" : "s"}, ` +
@@ -275,11 +253,10 @@ await client.send(
 // A snapshot with its `#END` trailer cut off. The trailer is the format's answer to a
 // backup killed mid-write (ADR-0082), and it has only ever been staged *present* — so
 // nothing has tested the one thing it exists for, and run 2 could only note that its
-// own completeness check went unexercised. Truncating the *compressed* bytes would test
-// gunzip's own check instead, so this decompresses, drops the trailer line, and
-// recompresses: a well-formed gzip stream missing its last line, which is precisely what a
-// reader has to notice. It is published under `faults` as a second snapshot, backdated
-// so the intact one stays the set's latest.
+// own completeness check went unexercised. It is published under `faults` as a second
+// snapshot (`withoutTrailer`, fixtures.mjs), backdated so the intact one stays the set's
+// latest: a *later* name would make the damaged snapshot the newest, and a bare
+// `restore --set faults` would stop there — hiding F7, which is the same set's point.
 const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
   .filter((entry) => entry.endsWith(".tsv.gz"))
   .sort()
@@ -297,21 +274,18 @@ const whole = await client.send(
 const wholeBytes = await /** @type {NonNullable<typeof whole.Body>} */ (
   whole.Body
 ).transformToByteArray();
-const text = gunzipSync(wholeBytes).toString("utf8");
 await client.send(
   new PutObjectCommand({
     Bucket: bucket,
     Key: `snapshots/faults/${damagedName}.tsv.gz`,
-    Body: gzipSync(
-      Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"),
-    ),
+    Body: withoutTrailer(wholeBytes),
   }),
 );
 
 // Last, so only a seed that finished is ever stamped.
-await stampSpec(bucket, spec);
+await stampSeed(bucket, stamp);
 console.log(
-  `\nseeded s3://${bucket} from guide/format.md ${spec.slice(0, 12)}…\n` +
+  `\nseeded s3://${bucket}, stamped ${stamp.slice(0, 12)}…\n` +
     "\nStill to do:\n" +
     `  - delete ${root}: the bucket is all that is needed from here.\n` +
     "  - raise the bucket's expiry past the runs it has to serve, or it sweeps out from\n" +

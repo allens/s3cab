@@ -18,7 +18,9 @@
  * Findings fixtures *cannot* provoke are listed too, honestly, rather than being
  * quietly dropped so the table looks complete. The ones that need damage in the bucket
  * (F5, F7, `deleted`, `corrupt`, the damaged snapshot) get it from
- * seed-restore-cleanroom-bucket.mjs; the trees here are their raw material.
+ * seed-restore-cleanroom-bucket.mjs; the trees here are their raw material. The upload
+ * room damages two of the same sets on its own side (build-upload-cleanroom.mjs), with
+ * the two helpers at the foot of this file that it shares with the seed.
  *
  *   F1  encoding             emoji / CJK / accented names, and NFC-vs-NFD pair
  *   F2  never trim the path  leading-space, trailing-space, both-ends names   [POSIX]
@@ -93,6 +95,7 @@ import {
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 // The sets, in backup order. Each one's tree is `<fixtures>/<name>`, and each claims
 // that name in the bucket — which is why the restore build can reattach them with no
@@ -108,14 +111,19 @@ export const setNames = [
   "corrupt",
 ];
 
-// Every set's exclude patterns: s3cab's in a restore sandbox (replacing the starter file
-// setup writes), the clean-room backup's in a backup sandbox (through cleanroom/sets/).
-// ADR-0096 compares the clean-room backup's rows with `s3cab snapshot` of the same trees,
-// and that comparison needs both to skip the same files. `spread`'s give each rule of
+// Every set's exclude patterns: s3cab's wherever it snapshots the trees (in the seed,
+// replacing the starter file setup writes), the clean-room snapshot's in its sandbox
+// (through cleanroom/sets/). ADR-0096 compares the clean-room snapshot's rows with `s3cab
+// snapshot` of the same trees, and that comparison needs both to skip the same files. `spread`'s give each rule of
 // guide/exclude.md's grammar a path it drops and a near miss it keeps, so a backup that
-// implements less than the whole grammar backs up a different tree.
+// implements less than the whole grammar backs up a different tree. `edge`'s is the file a
+// Windows editor leaves: CRLF endings and no newline after the last line. guide/format.md
+// says both travel into the bucket byte for byte, and that the lines are trimmed when read,
+// so a snapshot that keeps the CR in a pattern backs up `ignored.tmp`, one that drops an
+// unterminated last line backs up `ignored.swp`, and an upload that rewrites the file has
+// changed it.
 export const excludes = new Map([
-  ["edge", "*.tmp\n"],
+  ["edge", "*.tmp\r\n*.swp"],
   ["spread", "*.log\n**/cache.bin\nlogs/**\nv?.bak\nbuild/\n"],
 ]);
 
@@ -242,8 +250,10 @@ export function buildFixtures(dir) {
     const reason = error instanceof Error ? error.message : String(error);
     skipped.push(`a symlink, for the #SKIPPED row (F9/F11) — ${reason}`);
   }
-  // F9/F11: an #EXCLUDED row needs a file that matches a pattern we then install.
+  // F9/F11: an #EXCLUDED row needs a file that matches a pattern we then install. Two,
+  // one per line of `edge`'s exclude file (see `excludes`).
   file(join(edge, "ignored.tmp"), "excluded by pattern\n");
+  file(join(edge, "ignored.swp"), "excluded by the unterminated last line\n");
 
   /** `docs`: ordinary data, so the run can find things the crafted set can't. */
   const docs = join(dir, "docs");
@@ -355,6 +365,23 @@ export function buildFixtures(dir) {
   return { sets, skipped };
 }
 
+/**
+ * Write a set's own files into `dir`: `dirs.txt`, and `exclude.txt` where the set has
+ * patterns. The spec lays a set out the same way on the local side as under `sets/` in a
+ * bucket, so a clean room's `sets/` and s3cab's home are written alike.
+ * @param {string} dir
+ * @param {string} name
+ * @param {string[]} dirs the set's member directories
+ */
+export function writeSetFiles(dir, name, dirs) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "dirs.txt"), dirs.join("\n") + "\n");
+  const exclude = excludes.get(name);
+  if (exclude) {
+    writeFileSync(join(dir, "exclude.txt"), exclude);
+  }
+}
+
 /** @param {string} dir */
 export const count = (dir) => {
   let total = 0;
@@ -399,4 +426,35 @@ export function reportFixtures(dir, sets, skipped) {
         "\n  So a build here is a partial one, measured on what this filesystem can hold.",
     );
   }
+}
+
+/**
+ * A snapshot with its `#END` trailer cut off: the damage a backup killed mid-write leaves
+ * (ADR-0082). Truncating the *compressed* bytes would test gunzip's own check instead, so
+ * this decompresses, drops the trailer line, and recompresses — a well-formed gzip stream
+ * missing its last line, which is precisely what a reader has to notice. The seed
+ * publishes one for every restorer to refuse; the upload build hands one to the upload
+ * room, whose program should refuse to publish it.
+ * @param {Uint8Array} snapshot a whole `.tsv.gz`
+ */
+export function withoutTrailer(snapshot) {
+  const text = gunzipSync(snapshot).toString("utf8");
+  return gzipSync(Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"));
+}
+
+/**
+ * The snapshot name one minute before this one, for naming a damaged copy beside the
+ * intact snapshot it was made from. Backdated, never later, so the intact one stays the
+ * set's latest: a tool that reaches for the newest snapshot finds a sound one, and the
+ * damaged one is met only by a reader that looks at every snapshot it is given.
+ *
+ * Snapshot names are *local* time, so this parses and prints as UTC throughout: both
+ * ends of the arithmetic use the same zone, so the answer is the local name one minute
+ * back, and no offset is ever applied.
+ * @param {string} name e.g. `2026-08-20T1432`
+ */
+export function oneMinuteBefore(name) {
+  const stamp = new Date(`${name.slice(0, 13)}:${name.slice(13)}:00Z`);
+  stamp.setUTCMinutes(stamp.getUTCMinutes() - 1);
+  return stamp.toISOString().slice(0, 16).replace(":", "");
 }
