@@ -10,17 +10,21 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   | Col | Heading | Width | File row | Other rows |
   | --- | --- | --- | --- | --- |
   | 1 | `#S3CAB` | 6 | `object` | the row's type |
-  | 2 | | 64 | the hash | the property (`#SET`, `#SNAPSHOT`), or a per-path row's wide text: a pattern, an error, a link target |
+  | 2 | | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), or a per-path row's wide text: a pattern, an error, a link target |
   | 3 | `size` | 12, right-aligned | size in bytes | always blank |
   | 4 | `time` | 24 | mtime | an instant, where the row has one |
   | 5 | | ragged | the path | the path, or the property's value |
 
   ```
   #S3CAB                 size          time
+  #S3CAB     VERSION                                           0.14.0
+  #S3CAB     HOME                                              C:\Users\allen\.s3cab\
   #SET       NAME                                              onedrive
+  #SET       BUCKET                                            s3://my-backups
   #SET       DIR                                               D:\OneDrive\
   #SET       EXCLUDE                                           ~$*
   #SNAPSHOT  NAME                                              2026-10-08T1656
+  #SNAPSHOT  BY                                                allen@DESKTOP-7Q2K
   #SNAPSHOT  START                   2026-10-08T15:56:00.000Z  Europe/London
   #excluded  ~$*                                               D:\OneDrive\~$budget.xlsx
   #error     EPERM: operation not permitted, …                 D:\OneDrive\locked.docx
@@ -63,15 +67,26 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   - **`#SKIPPED` goes** ([filesystem-edge-cases.md](filesystem-edge-cases.md)). A link row
     records a link, with its target in the wide column so the path stays the ragged edge. No
     separate junction type.
-  - **Two whole-snapshot types, one fact per row.** Column 2 is the property; the value goes in
-    the last column, the instant in the time column.
-    - **`#SET`** is the set's configuration as this snapshot saw it: `NAME`, `DIR` once per
-      member directory, and `EXCLUDE` once per exclude pattern in force. The bucket's copy of
-      `exclude.txt` is only the latest; these rows say which patterns applied to this run,
-      including ones that matched nothing.
-    - **`#SNAPSHOT`** is the run: `NAME`, `START`, `FILES`, `SIZE`, `END`. `START`'s last
-      column is the time zone. The name is local wall-clock time, so the zone is what ties it
-      to the instant: `1656` in London in October is `15:56Z`.
+  - **Three whole-snapshot types, one fact per row**, so that a snapshot found on its own says
+    where it came from. Column 2 is the property; the value goes in the last column, the
+    instant in the time column. Each records things as this run saw them, so a value can go
+    stale later without the row being wrong.
+    - **`#S3CAB`** is the software that wrote the file: `VERSION`, and `HOME`, the s3cab home
+      on that machine. The set's directory and this snapshot's local path follow from `HOME`
+      and the names, so neither is recorded.
+    - **`#SET`** is the set's configuration: `NAME`, `BUCKET`, `ENDPOINT` (only for a provider
+      other than AWS, where a bucket name alone doesn't say where it is), `DIR` once per
+      member directory, and `EXCLUDE` once per exclude pattern in force. The bucket's paths
+      follow from `BUCKET` and the layout the spec fixes. The bucket's copy of `exclude.txt`
+      is only the latest; these rows say which patterns applied to this run, including ones
+      that matched nothing. Not the set's `info` marker: `OWNER` is whoever claimed the set,
+      not necessarily who ran, and both it and `CREATED` would cost a bucket read per run.
+    - **`#SNAPSHOT`** is the run: `NAME`, `BY`, `START`, `FILES`, `SIZE`, `END`. `BY` is
+      `user@machine`, the form deletion records use. `START`'s last column is the time zone.
+      The name is local wall-clock time, so the zone is what ties it to the instant: `1656`
+      in London in October is `15:56Z`.
+  - **A reader ignores a sub-type it doesn't know**, under any of the three. That keeps a new
+    property an additive change after 1.0.
   - **`#SNAPSHOT END` is the last line, and it means the snapshot is complete.** A file without
     it was cut short, whatever the cause. So the lookup file parked on Ctrl+C
     ([ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)) stops after its last object row,
@@ -90,7 +105,11 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     trailing (measured 2026-10-09: a type padded to 9 imports as `sha256   `, so
     `=COUNTIF(A:A,"sha256")` is 0), and a padded column would put it on every object row.
     `#SNAPSHOT` and `#excluded` overflow instead, which pushes the rest of their row one tab
-    stop right in Notepad: in the real set's snapshot, 37 rows (32 exclusions and the five
+    stop right in Notepad: in the real set's snapshot, 38 rows (32 exclusions and the six
     `#SNAPSHOT` rows) beside 281,785 object rows.
-  - **Excel's ascending sort** puts `#…` before words: `#error`, `#excluded`, `#SET`,
+  - **Excel's ascending sort** puts `#…` before words: `#error`, `#excluded`, `#S3CAB`, `#SET`,
     `#SNAPSHOT`, `link`, `object`. Padded sizes import as numbers, and `SUM` is right.
+
+- **Review the deletion-record format** ([ADR-0090](../docs/adr/0090-deletion-record-format-compaction.md))
+  once this layout and the refactor that builds it have landed. `#SNAPSHOT BY` copies its
+  `user@machine` for now, and follows it if that changes.
