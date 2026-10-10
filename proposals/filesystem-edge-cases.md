@@ -72,7 +72,7 @@ independent of it: different mechanism, different code, different fix.
 
   | Entry | Proposed |
   | --- | --- |
-  | Link to a file, wherever it points | followed: an ordinary file row under the link's path, plus `link` |
+  | Link to a file, wherever it points | followed: an ordinary `object` row under the link's path, plus `link` |
   | Link to a folder whose target is inside a member directory | not followed; `link` only, since the target is backed up under its real path |
   | Link to a folder whose target is outside every member directory | `#error`; exit 1 until excluded |
   | Link whose target doesn't exist | `link` only |
