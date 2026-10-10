@@ -150,5 +150,46 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   - **`#deleted` is 8 characters, so it overflows column 1 on every row.** The rows still line
     up with one another; only the `#S3CAB` rows sit one tab stop left.
 
+- **Who reads each property.** Traced through `src/` 2026-10-10, mapping today's fields onto
+  the new rows.
+
+  | Read by the code | What reads it |
+  | --- | --- |
+  | `object`: hash, size, time, path | restore, compare, backup's hash reuse and upload |
+  | `link`: target, path | compare, so a link isn't reported deleted; restore, if it recreates links (not decided) |
+  | `#error`: message, path | compare ([ADR-0079](../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)); backup's exclude suggestions |
+  | `#SET DIR` | `restore --output`, which re-roots by it |
+  | `#SNAPSHOT START`'s instant | compare's out-of-order warning; ignoring a stale parked lookup; the change-time check's boundary |
+  | `#S3CAB END`, being there | the completeness check |
+  | `#deleted`: hash, instant | verify, restore, backup, status, forget, cleanup; the instant keeps the newest of repeated rows and is shown as a date |
+
+  - **Read only by people:** `#S3CAB HOME`, `#SET NAME` (deliberately not checked, see
+    `readParkedLookup`), `#SET BUCKET`/`ENDPOINT`/`EXCLUDE`, `#SNAPSHOT NAME` (the code takes
+    the filename), `BY`, `START`'s zone, `FILES` and `SIZE` (a hand edit can change either, so a
+    mismatch isn't damage), `#S3CAB END`'s instant, every `#excluded` row, and a `#deleted`
+    row's size and `user@machine`.
+  - **A reader skips the people-only rows the way it skips an unknown sub-type**, so it needn't
+    parse them. Today's parser reads the set name, zone, status and end instant, and nothing
+    uses any of them. Promoting a row to the code later is a feature change, not a format one.
+  - **Not built; a program could use these:**
+    - the opening `#S3CAB`, to refuse a file that isn't s3cab's before parsing it;
+    - `#S3CAB VERSION`, to name the release that wrote a file the unknown-type rule refuses, so
+      the error says what to upgrade to;
+    - `#excluded` rows, so `compare` reports a path a newly added pattern drops as excluded,
+      not deleted. That reopens the choice `snapshot-file.mjs` records as settled (only
+      `tree --excluded` answers "what are my patterns dropping?"), though it answers a
+      different question;
+    - `#SET BUCKET`/`ENDPOINT`, to restore from a lone snapshot with no set configured. The
+      most speculative of the four.
+
+- **Who did something is always `user@machine`, and the set's `info` `OWNER` follows.** Today
+  `#deleted` rows (and `#SNAPSHOT BY`, as proposed) are `user@machine`, while `OWNER` is the
+  bare hostname. Not split into two fields: a `#deleted` row has only its last column free.
+  The user belongs in `OWNER` because the collision rule is "first person wins"
+  ([ADR-0024](../docs/adr/0024-set-name-is-the-whole-identity.md)), and `OWNER` is advisory,
+  so this doesn't put the user back into the set's identity. `reattach` compares `OWNER` with
+  `user@machine` too, so another user on the same machine now also counts as a change of
+  owner. The keys stay distinct: `OWNER` claimed the set, `BY` ran the snapshot.
+
 - **Hold the fourth clean-room run (Windows, C#) until this revision lands.** Run now, it would
   prove a format about to be replaced.
