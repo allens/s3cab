@@ -149,3 +149,6 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     matters because a lost row lets `backup` trust a baseline that vouches for deleted content.
   - **`#deleted` is 8 characters, so it overflows column 1 on every row.** The rows still line
     up with one another; only the `#S3CAB` rows sit one tab stop left.
+
+- **Hold the fourth clean-room run (Windows, C#) until this revision lands.** Run now, it would
+  prove a format about to be replaced.
