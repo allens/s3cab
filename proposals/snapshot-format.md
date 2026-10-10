@@ -22,8 +22,8 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   #SET       EXCLUDE                                           ~$*
   #SNAPSHOT  NAME                                              2026-10-08T1656
   #SNAPSHOT  START                   2026-10-08T15:56:00.000Z  Europe/London
-  #EXCLUDED  ~$*                                               D:\OneDrive\~$budget.xlsx
-  #ERROR     EPERM: operation not permitted, …                 D:\OneDrive\locked.docx
+  #excluded  ~$*                                               D:\OneDrive\~$budget.xlsx
+  #error     EPERM: operation not permitted, …                 D:\OneDrive\locked.docx
   link       ..\2026\img.jpg                                   D:\OneDrive\Photos\latest.jpg
   file       9f86d0…    15463758036  2026-08-27T19:11:12.000Z  D:\OneDrive\backup\…\pack-5a31….pack
   #SNAPSHOT  FILES                                             281785
@@ -37,10 +37,13 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     Measured 2026-10-09: blank headings still get a dropdown, and filter the same as named
     ones.
   - **A lowercase type is something restore could act on; a `#` type is not.** `file` and
-    `link` are the backup's content: a link is recorded as itself, even though it has no object. `#EXCLUDED`
-    and `#ERROR` record paths that weren't saved, alongside `#SET` and `#SNAPSHOT`. So a reader
-    that skips `#` lines is left with exactly what a restore writes. Each per-path row can name
-    a file or a folder; the trailing separator says which.
+    `link` are the backup's content: a link is recorded as itself, even though it has no
+    object. `#excluded` and `#error` record paths that weren't saved, alongside `#SET` and
+    `#SNAPSHOT`. So a reader that skips `#` lines is left with exactly what a restore writes.
+    Each per-path row can name a file or a folder; the trailing separator says which.
+  - **Case says the scope: lowercase is one path from inside the walk, uppercase is the whole
+    snapshot from outside it.** So `file`, `link`, `#excluded` and `#error` against `#S3CAB`,
+    `#SET` and `#SNAPSHOT`. Types are case-sensitive; Excel's sort and filter ignore case.
   - **Hash first** because it is the primary key; then the fixed-width fields, and the path last
     as the ragged edge ([ADR-0004](../docs/adr/0004-tsv-snapshot-manifests.md)). Size and time
     stay in that order: hash and size describe the stored object, time and path the file at
@@ -78,13 +81,13 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     file rows, `SIZE` against `=SUM` of the size column. `SIZE` carries a readable form in
     parentheses, which also keeps it text; a bare 13-digit number shows as `1.23E+12` in a
     column of default width.
-  - **A folder that can't be listed stops the walk**; it gets no `#ERROR` row.
+  - **A folder that can't be listed stops the walk**; it gets no `#error` row.
   - **Column 1 is 4 wide, the length of `file`**, so a file row carries no padding: its hash
     and mtime are exactly their widths too. Excel keeps padding in the cell, leading or
     trailing (measured 2026-10-09: a type padded to 9 imports as `sha256   `, so
     `=COUNTIF(A:A,"sha256")` is 0), and a padded column would put it on every file row.
-    `#ERROR`, `#S3CAB`, `#SNAPSHOT` and `#EXCLUDED` overflow instead, which pushes the rest of
+    `#error`, `#S3CAB`, `#SNAPSHOT` and `#excluded` overflow instead, which pushes the rest of
     their row one tab stop right in Notepad: in the real set's snapshot, 39 rows (32
     exclusions, five `#SNAPSHOT` rows, one error and the heading) beside 281,785 file rows.
-  - **Excel's ascending sort** puts `#…` before words: `#ERROR`, `#EXCLUDED`, `#SET`,
+  - **Excel's ascending sort** puts `#…` before words: `#error`, `#excluded`, `#SET`,
     `#SNAPSHOT`, `file`, `link`. Padded sizes import as numbers, and `SUM` is right.

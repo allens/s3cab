@@ -63,23 +63,23 @@ independent of it: different mechanism, different code, different fix.
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
 - **Replace `#SKIPPED`: follow file links, record every link in a `link` row, and make a folder link
-  that leads out of the backup an `#ERROR`.** Decided 2026-10-09: `#SKIPPED` goes. It records an
+  that leads out of the backup an `#error`.** Decided 2026-10-09: `#SKIPPED` goes. It records an
   event (what was left out, and why) but not the link's target, so it can't say what the link
   was. A `link` row records the link itself, target included; its layout is in
   [snapshot-format.md](snapshot-format.md). A symlinked folder whose contents aren't backed up
-  becomes an `#ERROR`, and only an exclude pattern silences it. The rest is a suggested shape,
+  becomes an `#error`, and only an exclude pattern silences it. The rest is a suggested shape,
   not yet agreed:
 
   | Entry | Proposed |
   | --- | --- |
   | Link to a file, wherever it points | followed: an ordinary file row under the link's path, plus `link` |
   | Link to a folder whose target is inside a member directory | not followed; `link` only, since the target is backed up under its real path |
-  | Link to a folder whose target is outside every member directory | `#ERROR`; exit 1 until excluded |
+  | Link to a folder whose target is outside every member directory | `#error`; exit 1 until excluded |
   | Link whose target doesn't exist | `link` only |
-  | Link whose target exists but can't be resolved | `#ERROR` |
+  | Link whose target exists but can't be resolved | `#error` |
   | FIFO, socket, device | no row |
   | Entry that vanished between listing and checking | no row |
-  | Entry that couldn't be checked for any other reason | `#ERROR` |
+  | Entry that couldn't be checked for any other reason | `#error` |
 
   - **Why files are followed and folders aren't.** A file link is bounded and can't loop, and
     there is no other way to back up a lone file outside the member directories; git-annex keeps
@@ -87,7 +87,7 @@ independent of it: different mechanism, different code, different fix.
     (a drive root, a share, the Personal Vault), and on Windows the profile's compatibility
     junctions refuse listing: measured 2026-10-09, `readdirSync` on `Application Data`,
     `Local Settings` and `Documents\My Pictures` throws `EPERM` while their targets list fine.
-    Following would turn a profile backup's dozen junctions into a dozen `#ERROR`s.
+    Following would turn a profile backup's dozen junctions into a dozen `#error`s.
   - **Restore writes a followed file link back as a regular file**, the way
     [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md) already restores hard links: two
     links to one file come back as two copies.
@@ -102,7 +102,7 @@ independent of it: different mechanism, different code, different fix.
     `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with
     no `Music` folder) and for the unlocked Personal Vault above, whose target exists but can't
     be canonicalized. Reading every `ENOENT` as "missing" drops the vault silently, which is the
-    case this change exists to catch. As an `#ERROR` the vault is named by path, which also
+    case this change exists to catch. As an `#error` the vault is named by path, which also
     answers that entry's complaint about the skip message.
   - **Windows profile junctions.** Node sees junctions as symlinks, and every profile has the
     same compatibility set: 10 at the profile root (`Application Data`, `Cookies`,
