@@ -75,7 +75,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     column `#EXCLUDED` and `#SKIPPED` carry today.
   - **`#SKIPPED` goes** ([filesystem-edge-cases.md](filesystem-edge-cases.md)). A link row
     records a link, with its target in the wide column so the path stays the ragged edge. No
-    separate junction type.
+    separate junction type. A link is never followed, so no path has two rows.
   - **Three whole-snapshot types, one fact per row**, so that a snapshot found on its own says
     where it came from. Column 2 is the property; the value goes in the last column, the
     instant in the time column. Each records things as this run saw them, so a value can go
@@ -172,7 +172,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   | Read by the code | What reads it |
   | --- | --- |
   | `object`: hash, size, time, path | restore, compare, backup's hash reuse and upload |
-  | `link`: target, path | compare, so a link isn't reported deleted; restore, if it recreates links (not decided) |
+  | `link`: target, path | compare, so a link isn't reported deleted; a future restore that recreates links |
   | `#error`: message, path | compare ([ADR-0079](../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)); backup's exclude suggestions |
   | `#SET DIR` | `restore --output`, which re-roots by it |
   | `#SNAPSHOT START`'s instant | compare's out-of-order warning; ignoring a stale parked lookup; the change-time check's boundary |

@@ -62,48 +62,49 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
-- **Replace `#SKIPPED`: follow file links, record every link in a `link` row, and warn about a
-  folder link that leads out of the backup.** Decided 2026-10-09: `#SKIPPED` goes. It records an
-  event (what was left out, and why) but not the link's target, so it can't say what the link
-  was. A `link` row records the link itself, target included; its layout is in
-  [snapshot-format.md](snapshot-format.md). Folder links decided 2026-10-11: never followed,
-  never an error, and the walk warns about each one whose contents aren't backed up. File links
-  are still a suggested shape, not yet agreed:
+- **Replace `#SKIPPED`: record every link in a `link` row, never follow one, and warn about a
+  link that leads out of the backup.** Decided 2026-10-09: `#SKIPPED` goes. It records an event
+  (what was left out, and why) but not the link's target, so it can't say what the link was. A
+  `link` row records the link itself, its target as written; its layout is in
+  [snapshot-format.md](snapshot-format.md). Links decided 2026-10-11, file and folder alike:
 
   | Entry | Proposed |
   | --- | --- |
-  | Link to a file, wherever it points | followed: an ordinary `object` row under the link's path, plus `link` |
-  | Link to a folder, wherever it points | not followed; `link` only, and warned about if its target is outside every member directory |
-  | Link whose target doesn't exist | `link` only |
+  | Link to a file or folder | `link` only, never followed; warned about if its target is outside every member directory |
+  | Link that is broken, loops, or leads to a pipe, socket or device | `link` only, no warning |
+  | Link to a link | judged by where the chain ends |
   | FIFO, socket, device | no row |
   | Entry that vanished between listing and checking | no row |
   | Entry that couldn't be checked for any other reason | `#error` |
 
-  - **Why files are followed and folders aren't.** A file link is bounded and can't loop, and
-    there is no other way to back up a lone file outside the member directories; git-annex keeps
-    every file as a symlink into `.git/annex/objects/`. A folder link can loop, can lead anywhere
-    (a drive root, a share, the Personal Vault), and on Windows the profile's compatibility
-    junctions refuse listing: measured 2026-10-09, `readdirSync` on `Application Data`,
-    `Local Settings` and `Documents\My Pictures` throws `EPERM` while their targets list fine.
-    Following would turn a profile backup's dozen junctions into a dozen `#error`s.
-  - **Restore writes a followed file link back as a regular file**, the way
-    [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md) already restores hard links: two
-    links to one file come back as two copies.
-  - **A folder link that leads out of the backup is a warning, not an error.** At the end of the
-    walk, one loud warning lists each folder link whose target is outside every member directory
-    or can't be resolved, one per line with its target, and the run still succeeds. An `#error`
-    is too harsh for a link saved faithfully as itself, but silence is wrong too: one such link
-    can hide a whole tree, and a grouped `1 Symbolic Link` is how the vault above went
-    unnoticed. The warning's fix is adding the link's path to the set, since a member directory
-    that is a link is resolved and walked, as now. A link whose target is inside a member
-    directory isn't listed: its contents are saved under their real path, and adding it would
-    fail as overlapping directories. An exclude pattern drops the link's row and its warning.
-  - **The check** runs only on folder links, so the cost is negligible. `stat` (which follows the link)
-    tells a missing target from a present one, then `realpathSync.native`, then the containment
-    test restore already uses (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The
-    walk handles one member directory at a time, so it needs the whole member list passed in. A
-    target inside a member directory but excluded there counts as inside; not worth running the
-    exclude patterns on targets too.
+  - **Never followed, because a link can lead anywhere**: a drive root, a share, the Personal
+    Vault, or arbitrary files the user never chose to back up. A folder link can also loop, and
+    on Windows the profile's compatibility junctions refuse listing: measured 2026-10-09,
+    `readdirSync` on `Application Data`, `Local Settings` and `Documents\My Pictures` throws
+    `EPERM` while their targets list fine. Content the user wants is backed up by adding its
+    folder to the set. A member directory that is itself a link is resolved and walked, as now.
+    Rejected: following file links. It doubled a non-link restore for every link into the
+    backup, and put two rows at one path.
+  - **A link that leads out of the backup is a warning, not an error.** At the end of the walk,
+    one loud warning lists each link whose target is a file or folder outside every member
+    directory, or can't be resolved, one per line with its target, and the run still succeeds.
+    An `#error` is too harsh for a link saved faithfully as itself, but silence is wrong too: a
+    folder link can hide a whole tree, and a grouped `1 Symbolic Link` is how the vault above
+    went unnoticed. The warning's fix is adding the target's folder to the set. A link whose
+    target is inside a member directory isn't listed: its target is saved under its real path,
+    and adding it would fail as overlapping directories. An exclude pattern drops the link's
+    row and its warning. A broken link, a loop and a link to `/dev/null` lose nothing, so they
+    stay quiet.
+  - **Restore doesn't recreate links yet**; that is a future feature, and the spec allows for it:
+    a `link` row records enough to make the link.
+  - **The check** runs once per link, so the cost is negligible. `stat` (which follows the link)
+    tells a missing target from a present one and says whether it ends at a file or folder,
+    then `realpathSync.native`, then the containment test restore already uses
+    (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The walk handles one member
+    directory at a time, so it needs the whole member list passed in. A target inside a member
+    directory but excluded there counts as inside: that is a target the user chose not to back
+    up, and the one case that would lose real content, git-annex with `.git` excluded, isn't
+    worth the patterns run on every target.
   - **`stat` must come before `realpath`.** Measured 2026-10-09: `realpathSync.native` throws
     `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with
     no `Music` folder) and for the unlocked Personal Vault above, whose target exists but can't
@@ -122,7 +123,7 @@ independent of it: different mechanism, different code, different fix.
     directories. Open: a pattern ending in `/` should match a link to a folder, or `My Music/`
     won't silence it.
   - **What changes:** supersede [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md)'s
-    "a symlink is never followed", its `#SKIPPED` recording, and the skipped parts of
+    `#SKIPPED` recording (its "a symlink is never followed" stands), and the skipped parts of
     [ADR-0078](../docs/adr/0078-backup-run-report.md). Drop the `#SKIPPED` line type from
     [guide/format.md](../guide/format.md), which means reseeding the clean-room golden set.
     Remove the reader branch, the writer, `compareSnapshots`' skipped reconciliation, and the
