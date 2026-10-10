@@ -98,6 +98,22 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     doesn't know.** An unknown `#` row is information a newer s3cab added; an unknown lowercase
     row is content a restore would miss. So a new property stays additive after 1.0, and new
     content is a format break that says so.
+  - **No row holds a real tab, CR or LF, and each field is fixed as either refusing them or
+    spelling them out.** Keyed on what s3cab refuses, not on who reads a field, so it still
+    holds when a field only people read today becomes one the code reads.
+    - **Refused:** an `object` path, and a link's path and its target. The walk's check
+      ([ADR-0073](../docs/adr/0073-refuse-tab-newline-paths.md)) extends to links, so an
+      offending link stops the run like an offending file, and an exclude pattern is the way
+      past. A `␉` in these fields is only a character of the name, and restores as itself.
+    - **Spelled out, everywhere else:** as the Unicode Control Pictures `␉` (U+2409), `␍`
+      (U+240D) and `␊` (U+240A), and the spec says a reader may read them as the characters they
+      stand for. In practice that is an `#excluded` path, since excluding is how such a file
+      gets past the refusal, and pathologically `HOME`. A real `␉` in an excluded name would
+      read back as a tab; accepted, because these characters exist to stand for those. They
+      replace `showControlChars`'s `<TAB>`/`<CR>`/`<NL>`, in error messages too. Measured
+      2026-10-10: Cascadia Mono and Segoe UI Symbol carry all three, Consolas and Calibri none.
+    - **An exclude pattern may not contain a tab or CR**: refused when the file is read, with
+      `*` as the fix. Today one is kept and matched literally.
   - **`#S3CAB END` is the last line of every s3cab file, and it means the file is complete.** A
     file without it was cut short, whatever the cause, so one check reads every kind. Its
     instant is when the file was finished, which for a snapshot is when the run finished.
