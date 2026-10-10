@@ -62,21 +62,19 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
-- **Replace `#SKIPPED`: follow file links, record every link in a `link` row, and make a folder link
-  that leads out of the backup an `#error`.** Decided 2026-10-09: `#SKIPPED` goes. It records an
+- **Replace `#SKIPPED`: follow file links, record every link in a `link` row, and warn about a
+  folder link that leads out of the backup.** Decided 2026-10-09: `#SKIPPED` goes. It records an
   event (what was left out, and why) but not the link's target, so it can't say what the link
   was. A `link` row records the link itself, target included; its layout is in
-  [snapshot-format.md](snapshot-format.md). A symlinked folder whose contents aren't backed up
-  becomes an `#error`, and only an exclude pattern silences it. The rest is a suggested shape,
-  not yet agreed:
+  [snapshot-format.md](snapshot-format.md). Folder links decided 2026-10-11: never followed,
+  never an error, and the walk warns about each one whose contents aren't backed up. File links
+  are still a suggested shape, not yet agreed:
 
   | Entry | Proposed |
   | --- | --- |
   | Link to a file, wherever it points | followed: an ordinary `object` row under the link's path, plus `link` |
-  | Link to a folder whose target is inside a member directory | not followed; `link` only, since the target is backed up under its real path |
-  | Link to a folder whose target is outside every member directory | `#error`; exit 1 until excluded |
+  | Link to a folder, wherever it points | not followed; `link` only, and warned about if its target is outside every member directory |
   | Link whose target doesn't exist | `link` only |
-  | Link whose target exists but can't be resolved | `#error` |
   | FIFO, socket, device | no row |
   | Entry that vanished between listing and checking | no row |
   | Entry that couldn't be checked for any other reason | `#error` |
@@ -91,7 +89,15 @@ independent of it: different mechanism, different code, different fix.
   - **Restore writes a followed file link back as a regular file**, the way
     [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md) already restores hard links: two
     links to one file come back as two copies.
-
+  - **A folder link that leads out of the backup is a warning, not an error.** At the end of the
+    walk, one loud warning lists each folder link whose target is outside every member directory
+    or can't be resolved, one per line with its target, and the run still succeeds. An `#error`
+    is too harsh for a link saved faithfully as itself, but silence is wrong too: one such link
+    can hide a whole tree, and a grouped `1 Symbolic Link` is how the vault above went
+    unnoticed. The warning's fix is adding the link's path to the set, since a member directory
+    that is a link is resolved and walked, as now. A link whose target is inside a member
+    directory isn't listed: its contents are saved under their real path, and adding it would
+    fail as overlapping directories. An exclude pattern drops the link's row and its warning.
   - **The check** runs only on folder links, so the cost is negligible. `stat` (which follows the link)
     tells a missing target from a present one, then `realpathSync.native`, then the containment
     test restore already uses (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The
@@ -102,12 +108,12 @@ independent of it: different mechanism, different code, different fix.
     `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with
     no `Music` folder) and for the unlocked Personal Vault above, whose target exists but can't
     be canonicalized. Reading every `ENOENT` as "missing" drops the vault silently, which is the
-    case this change exists to catch. As an `#error` the vault is named by path, which also
+    case this change exists to catch. In the warning the vault is named by path, which also
     answers that entry's complaint about the skip message.
   - **Windows profile junctions.** Node sees junctions as symlinks, and every profile has the
     same compatibility set: 10 at the profile root (`Application Data`, `Cookies`,
     `Start Menu`, …) and `My Music`, `My Pictures`, `My Videos` in `Documents`. The ten all point
-    inside the profile, so a profile backup raises nothing. A `Documents`-only set raises the
+    inside the profile, so a profile backup warns about none. A `Documents`-only set lists the
     three `My …` ones when their targets exist, which is correct: those folders aren't backed up.
     Rejected: adding them to the starter `exclude.txt`. A pattern can't say "only if it's a
     link", so `Cookies/` or `Templates/` would silently drop a real folder of that name at the
@@ -122,5 +128,7 @@ independent of it: different mechanism, different code, different fix.
     Remove the reader branch, the writer, `compareSnapshots`' skipped reconciliation, and the
     skipped sections and counts in `render.mjs`, `snapshot` and `backup`. The no-row case
     [PR #388](https://github.com/allens/s3cab/pull/388) added for a skipped name with a line
-    break goes too. In [cleanroom-fixtures.md](cleanroom-fixtures.md), the dangling-symlink,
-    line-break and FIFO gaps change shape.
+    break goes too: a link's path and target are refused like any path
+    ([snapshot-format.md](snapshot-format.md)). In
+    [cleanroom-fixtures.md](cleanroom-fixtures.md), the dangling-symlink, line-break and FIFO
+    gaps change shape.
