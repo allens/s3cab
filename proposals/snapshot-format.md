@@ -16,7 +16,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   | 5 | | ragged | the path | the path, or the property's value |
 
   ```
-  #S3CAB                 size          time
+  #S3CAB                 size          time                      https://s3cab.plantegral.com/guide/format
   #S3CAB     VERSION                                           0.14.0
   #S3CAB     HOME                                              C:\Users\allen\.s3cab\
   #SET       NAME                                              onedrive
@@ -32,14 +32,23 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   object     9f86d0…    15463758036  2026-08-27T19:11:12.000Z  D:\OneDrive\backup\…\pack-5a31….pack
   #SNAPSHOT  FILES                                             281785
   #SNAPSHOT  SIZE                                              1234567890123 (1.1 TiB)
-  #SNAPSHOT  END                     2026-10-08T17:42:10.123Z
+  #S3CAB     END                     2026-10-08T17:42:10.123Z
   ```
 
   - **Row 1 is a fixed heading row**, so AutoFilter's dropdowns have names. Its first string,
     `#S3CAB`, is the first thing in the file and says what the file is. Only `size` and `time`
-    are named: columns 2 and 5 hold different things on different rows, so they stay blank.
-    Measured 2026-10-09: blank headings still get a dropdown, and filter the same as named
-    ones.
+    are named: columns 2 and 5 hold different things on different rows, so column 2 stays
+    blank. Measured 2026-10-09: blank headings still get a dropdown, and filter the same as
+    named ones. Measured 2026-10-10: AutoFilter always takes row 1 as its heading, so without
+    this row the first property row would play it, showing through every filter and never
+    sorting. Data › Sort guesses there is no heading and sorts this row in with the rest,
+    unless "My data has headers" is ticked.
+  - **The heading's last column is the format spec's URL**, the same in every s3cab file, so a
+    file found on its own says where it is explained. Unversioned: after 1.0 the format only
+    changes additively, so the current spec describes every older file, and `#S3CAB VERSION`
+    says which release wrote it. It freezes the URL into every stored file, so keeping the
+    domain and not renaming `guide/format.md` (CLAUDE.md) now protect data, not just
+    binaries. Measured 2026-10-10: Excel imports it as text, not a hyperlink.
   - **A lowercase type is something restore could act on; a `#` type is not.** `object`
     and `link` are the backup's content: a link is recorded as itself, even though it has no
     object. `#excluded` and `#error` record paths that weren't saved, alongside `#SET` and
@@ -71,9 +80,9 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     where it came from. Column 2 is the property; the value goes in the last column, the
     instant in the time column. Each records things as this run saw them, so a value can go
     stale later without the row being wrong.
-    - **`#S3CAB`** is the software that wrote the file: `VERSION`, and `HOME`, the s3cab home
-      on that machine. The set's directory and this snapshot's local path follow from `HOME`
-      and the names, so neither is recorded.
+    - **`#S3CAB`** is the file itself and the software that wrote it: `VERSION`, `HOME` (the
+      s3cab home on that machine) and `END`. The set's directory and this snapshot's local
+      path follow from `HOME` and the names, so neither is recorded.
     - **`#SET`** is the set's configuration: `NAME`, `BUCKET`, `ENDPOINT` (only for a provider
       other than AWS, where a bucket name alone doesn't say where it is), `DIR` once per
       member directory, and `EXCLUDE` once per exclude pattern in force. The bucket's paths
@@ -81,14 +90,18 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
       is only the latest; these rows say which patterns applied to this run, including ones
       that matched nothing. Not the set's `info` marker: `OWNER` is whoever claimed the set,
       not necessarily who ran, and both it and `CREATED` would cost a bucket read per run.
-    - **`#SNAPSHOT`** is the run: `NAME`, `BY`, `START`, `FILES`, `SIZE`, `END`. `BY` is
+    - **`#SNAPSHOT`** is the run: `NAME`, `BY`, `START`, `FILES`, `SIZE`. `BY` is
       `user@machine`, the form deletion records use. `START`'s last column is the time zone.
       The name is local wall-clock time, so the zone is what ties it to the instant: `1656`
       in London in October is `15:56Z`.
-  - **A reader ignores a sub-type it doesn't know**, under any of the three. That keeps a new
-    property an additive change after 1.0.
-  - **`#SNAPSHOT END` is the last line, and it means the snapshot is complete.** A file without
-    it was cut short, whatever the cause. So the lookup file parked on Ctrl+C
+  - **A reader skips a `#` type or sub-type it doesn't know, and refuses a lowercase type it
+    doesn't know.** An unknown `#` row is information a newer s3cab added; an unknown lowercase
+    row is content a restore would miss. So a new property stays additive after 1.0, and new
+    content is a format break that says so.
+  - **`#S3CAB END` is the last line of every s3cab file, and it means the file is complete.** A
+    file without it was cut short, whatever the cause, so one check reads every kind. Its
+    instant is when the file was finished, which for a snapshot is when the run finished.
+    So the lookup file parked on Ctrl+C
     ([ADR-0067](../docs/adr/0067-park-hashes-on-interrupt.md)) stops after its last object row,
     with no `FILES`, `SIZE` or `END`, and the `COMPLETE`/`PARTIAL` status goes. That file is
     only read back by the tolerant read of
@@ -105,11 +118,34 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     trailing (measured 2026-10-09: a type padded to 9 imports as `sha256   `, so
     `=COUNTIF(A:A,"sha256")` is 0), and a padded column would put it on every object row.
     `#SNAPSHOT` and `#excluded` overflow instead, which pushes the rest of their row one tab
-    stop right in Notepad: in the real set's snapshot, 38 rows (32 exclusions and the six
+    stop right in Notepad: in the real set's snapshot, 37 rows (32 exclusions and the five
     `#SNAPSHOT` rows) beside 281,785 object rows.
   - **Excel's ascending sort** puts `#…` before words: `#error`, `#excluded`, `#S3CAB`, `#SET`,
     `#SNAPSHOT`, `link`, `object`. Padded sizes import as numbers, and `SUM` is right.
 
-- **Review the deletion-record format** ([ADR-0090](../docs/adr/0090-deletion-record-format-compaction.md))
-  once this layout and the refactor that builds it have landed. `#SNAPSHOT BY` copies its
-  `user@machine` for now, and follows it if that changes.
+- **The deletion record takes the same layout.** Discussed 2026-10-10. What
+  [ADR-0090](../docs/adr/0090-deletion-record-format-compaction.md) decided about its job stays:
+  no paths, numbered files at the bucket root, uncompressed, compacted by `cleanup`. Only the
+  rows change: today's unpadded `hash / size / instant / user@machine` become `#deleted` rows
+  in the five columns, the deletion instant in the time column and `user@machine` last, the
+  form `#SNAPSHOT BY` uses.
+
+  ```
+  #S3CAB                 size          time                      https://s3cab.plantegral.com/guide/format
+  #S3CAB     VERSION                                           0.14.0
+  #S3CAB     HOME                                              C:\Users\allen\.s3cab\
+  #deleted   a3f9c21e…60d         1204  2026-08-14T09:31:07.412Z  allen@DESKTOP
+  #deleted   5e21ab7f…c93          892  2026-08-19T22:10:41.006Z  allen@LAPTOP
+  #S3CAB     END                        2026-10-10T09:12:00.000Z
+  ```
+
+  - **`#deleted`, lowercase with a `#`**: one object, and nothing restore can act on, like
+    `#excluded` and `#error`. The type replaces ADR-0090's test of a 64-hex first field as what
+    makes a row count.
+  - **The `#DELETED` header goes.** Its instant repeats the rows', and its sentence ("absence
+    here is not damage") is now said by every row's type; the spec says the rest.
+  - **No `#SET`, `#SNAPSHOT`, bucket or count rows.** A record belongs to the bucket, not a set
+    or a run, and only means anything inside it; `#S3CAB END` already proves it whole, which
+    matters because a lost row lets `backup` trust a baseline that vouches for deleted content.
+  - **`#deleted` is 8 characters, so it overflows column 1 on every row.** The rows still line
+    up with one another; only the `#S3CAB` rows sit one tab stop left.
