@@ -120,8 +120,9 @@ independent of it: different mechanism, different code, different fix.
     link", so `Cookies/` or `Templates/` would silently drop a real folder of that name at the
     top of a member directory.
   - **Exclude patterns must apply to links.** Today the walk tests them only against files and
-    directories. Open: a pattern ending in `/` should match a link to a folder, or `My Music/`
-    won't silence it.
+    directories. A pattern ending in `/` matches a link whose target is a folder, so `My Music/`
+    silences one; a broken link has no target, so only a pattern without `/` matches it. Not
+    git's rule, where `foo/` never matches a link: the spec names the difference.
   - **What changes:** supersede [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md)'s
     `#SKIPPED` recording (its "a symlink is never followed" stands), and the skipped parts of
     [ADR-0078](../docs/adr/0078-backup-run-report.md). Drop the `#SKIPPED` line type from
