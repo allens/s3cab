@@ -9,7 +9,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
 
   | Col | Heading | Width | File row | Other rows |
   | --- | --- | --- | --- | --- |
-  | 1 | `#S3CAB` | 6 | `sha256` | the row's type |
+  | 1 | `#S3CAB` | 4 | `file` | the row's type |
   | 2 | | 64 | the hash | the property (`#SET`, `#SNAPSHOT`), or a per-path row's wide text: a pattern, an error, a link target |
   | 3 | `size` | 12, right-aligned | size in bytes | always blank |
   | 4 | `time` | 24 | mtime | an instant, where the row has one |
@@ -25,7 +25,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   #EXCLUDED  ~$*                                               D:\OneDrive\~$budget.xlsx
   #ERROR     EPERM: operation not permitted, …                 D:\OneDrive\locked.docx
   link       ..\2026\img.jpg                                   D:\OneDrive\Photos\latest.jpg
-  sha256     9f86d0…    15463758036  2026-08-27T19:11:12.000Z  D:\OneDrive\backup\…\pack-5a31….pack
+  file       9f86d0…    15463758036  2026-08-27T19:11:12.000Z  D:\OneDrive\backup\…\pack-5a31….pack
   #SNAPSHOT  FILES                                             281785
   #SNAPSHOT  SIZE                                              1234567890123 (1.1 TiB)
   #SNAPSHOT  END                     2026-10-08T17:42:10.123Z
@@ -36,8 +36,8 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     are named: columns 2 and 5 hold different things on different rows, so they stay blank.
     Measured 2026-10-09: blank headings still get a dropdown, and filter the same as named
     ones.
-  - **A lowercase type is something saved; a `#` type is not.** `sha256` and `link` are the
-    backup's content: a link is recorded as itself, even though it has no object. `#EXCLUDED`
+  - **A lowercase type is something restore could act on; a `#` type is not.** `file` and
+    `link` are the backup's content: a link is recorded as itself, even though it has no object. `#EXCLUDED`
     and `#ERROR` record paths that weren't saved, alongside `#SET` and `#SNAPSHOT`. So a reader
     that skips `#` lines is left with exactly what a restore writes. Each per-path row can name
     a file or a folder; the trailing separator says which.
@@ -45,8 +45,10 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     as the ragged edge ([ADR-0004](../docs/adr/0004-tsv-snapshot-manifests.md)). Size and time
     stay in that order: hash and size describe the stored object, time and path the file at
     that path.
-  - **`sha256` names the algorithm**, so a second one would be a second type, and a file row
-    needs no other label.
+  - **`file`, not `sha256`.** The hash is SHA-256 by design
+    ([ADR-0001](../docs/adr/0001-file-level-content-addressable-dedup.md)) and names the stored
+    objects, so another algorithm would be a format change anyway; the spec says so once.
+    `file` and `link` read as a pair to someone who doesn't know what SHA-256 is.
   - **Size holds file sizes only**, so `=SUM` over it is the backup's total. A total stored in
     that column would double it. 12 wide because the largest file in a real set has an
     11-digit size (a 14.4 GiB git pack).
@@ -77,12 +79,12 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     parentheses, which also keeps it text; a bare 13-digit number shows as `1.23E+12` in a
     column of default width.
   - **A folder that can't be listed stops the walk**; it gets no `#ERROR` row.
-  - **Column 1 is 6 wide, the length of `sha256`**, so a file row carries no padding: its hash
+  - **Column 1 is 4 wide, the length of `file`**, so a file row carries no padding: its hash
     and mtime are exactly their widths too. Excel keeps padding in the cell, leading or
     trailing (measured 2026-10-09: a type padded to 9 imports as `sha256   `, so
     `=COUNTIF(A:A,"sha256")` is 0), and a padded column would put it on every file row.
-    `#SNAPSHOT` and `#EXCLUDED` overflow instead, which pushes the rest of their row one tab
-    stop right in Notepad: in the real set's snapshot, 37 rows
-    (32 exclusions and the five `#SNAPSHOT` rows) beside 281,785 file rows.
+    `#ERROR`, `#S3CAB`, `#SNAPSHOT` and `#EXCLUDED` overflow instead, which pushes the rest of
+    their row one tab stop right in Notepad: in the real set's snapshot, 39 rows (32
+    exclusions, five `#SNAPSHOT` rows, one error and the heading) beside 281,785 file rows.
   - **Excel's ascending sort** puts `#…` before words: `#ERROR`, `#EXCLUDED`, `#SET`,
-    `#SNAPSHOT`, `link`, `sha256`. Padded sizes import as numbers, and `SUM` is right.
+    `#SNAPSHOT`, `file`, `link`. Padded sizes import as numbers, and `SUM` is right.
