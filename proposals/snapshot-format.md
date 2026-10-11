@@ -10,8 +10,8 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   | Col | Heading | Width | File row | Other rows |
   | --- | --- | --- | --- | --- |
   | 1 | `#S3CAB` | 6 | `object` | the row's type |
-  | 2 | | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), or a per-path row's wide text: a pattern, an error, a link target |
-  | 3 | `size` | 12, right-aligned | size in bytes | always blank |
+  | 2 | | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), a per-path row's wide text (a pattern, an error, a link target), or a `#deleted` row's hash |
+  | 3 | `size` | 12, right-aligned | size in bytes | a `#deleted` row's size; otherwise blank |
   | 4 | `time` | 24 | mtime | an instant, where the row has one |
   | 5 | | ragged | the path | the path, or the property's value |
 
@@ -149,13 +149,17 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     absolute, with no `.` or `..` segment and no tab, CR or LF, under a `#SET DIR`; each path in
     at most one per-path row, whatever its type; and each `object` row's hash 64 lowercase hex,
     its size decimal, its time the 24-character form.
-  - **Refuse the whole file** when it isn't UTF-8, has no heading row, has no `END`, or holds an
-    unknown lowercase type: each means the file isn't what it claims, or comes from a newer
-    s3cab, and restoring part of it would pass for a full restore.
+  - **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
+    end with `END`, or holds an unknown lowercase type: each means the file isn't what it
+    claims, or comes from a newer s3cab, and restoring part of it would pass for a full
+    restore. Rows after an `END` refuse the file, where
+    [ADR-0082](../docs/adr/0082-snapshot-end-trailer.md) parses them: an `END` that isn't last
+    no longer proves the file whole.
   - **Refuse one path, restore the rest, exit nonzero** for a malformed `object` or `link` row,
-    a `..` segment, a path under no `DIR`, or a path that appears twice, where both rows are
-    refused so no reader guesses. A reader need only check for repeats among the rows it reads,
-    so one that skips `#` rows never parses `#excluded` for this. This is the spec's "restore
+    a `..` segment, a path under no `DIR`, or a path in two `object` or `link` rows, where both
+    rows are refused so no reader guesses. A `#` row repeating a content row's path makes the
+    file invalid but changes nothing a reader restores, since only one row carries content, so
+    a reader that skips `#` rows never parses them for this. This is the spec's "restore
     everything you can, then report", which already governs a missing object; rows are
     independent lines, so one can't damage its neighbours. Elsewhere a refused path is one with
     no row: `backup` re-hashes it, `compare` lists it as unreadable, as for `#error`, and
@@ -169,8 +173,10 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     destination, never writes bytes that don't hash to the row, never chooses between
     conflicting rows, and never lets a partial restore pass for a full one. What it can't
     promise is that a valid but edited file is true: a hash changed to another stored object
-    restores the wrong content faithfully. Whole-file integrity is the store's ETag, not the
-    TSV's.
+    restores the wrong content faithfully. Whole-file integrity is gzip's CRC-32 and length
+    check, which a snapshot's decompression verifies; the uncompressed deletion record has
+    only its `END`. Not the store's ETag: it is a content hash only for single-part uploads to
+    AWS, which is why `matchRemoteSnapshot` compares bytes.
   - **s3cab's reader changes:** a row with an empty field refuses its path, not the file; a
     repeated path refuses both rows, not last-wins; and the hash, size and time are checked,
     where today a 63-digit hash is accepted and fails later.
@@ -212,7 +218,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   | `#error`: message, path | compare ([ADR-0079](../docs/adr/0079-previously-unreadable-file-is-an-annotated-addition.md)); backup's exclude suggestions |
   | `#SET DIR` | `restore --output`, which re-roots by it |
   | `#SNAPSHOT START`'s instant | compare's out-of-order warning; ignoring a stale parked lookup; the change-time check's boundary |
-  | `#S3CAB END`, being there | the completeness check |
+  | the opening `#S3CAB`, and `#S3CAB END` as the last line | the validity check, refusing a file that isn't s3cab's or isn't whole |
   | `#deleted`: hash, instant | verify, restore, backup, status, forget, cleanup; the instant keeps the newest of repeated rows and is shown as a date |
 
   - **Read only by people:** `#S3CAB HOME`, `#SET NAME` (deliberately not checked, see
@@ -224,7 +230,6 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
     parse them. Today's parser reads the set name, zone, status and end instant, and nothing
     uses any of them. Promoting a row to the code later is a feature change, not a format one.
   - **Not built; a program could use these:**
-    - the opening `#S3CAB`, to refuse a file that isn't s3cab's before parsing it;
     - `#S3CAB VERSION`, to name the release that wrote a file the unknown-type rule refuses, so
       the error says what to upgrade to;
     - `#excluded` rows, so `compare` reports a path a newly added pattern drops as excluded,
@@ -232,7 +237,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
       `tree --excluded` answers "what are my patterns dropping?"), though it answers a
       different question;
     - `#SET BUCKET`/`ENDPOINT`, to restore from a lone snapshot with no set configured. The
-      most speculative of the four.
+      most speculative of the three.
 
 - **Who did something is always `user@machine`, and the set's `info` `OWNER` follows.** Today
   `#deleted` rows (and `#SNAPSHOT BY`, as proposed) are `user@machine`, while `OWNER` is the

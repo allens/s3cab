@@ -100,8 +100,8 @@ independent of it: different mechanism, different code, different fix.
     a `link` row records the target and, by its trailing separator, whether it is a folder.
   - **The check** runs once per link, so the cost is negligible. `stat` (which follows the link)
     tells a missing target from a present one and says whether it ends at a file or folder,
-    then `realpathSync.native`, then the containment test restore already uses
-    (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The walk handles one member
+    then `realpathSync.native`, then the containment test in restore's `pathMatcher`, which
+    `normalize`s both sides (case folded for a Windows-shaped path) and joins on `/`. The walk handles one member
     directory at a time, so it needs the whole member list passed in. A target inside a member
     directory but excluded there counts as inside: that is a target the user chose not to back
     up, and the one case that would lose real content, git-annex with `.git` excluded, isn't
