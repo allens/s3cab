@@ -647,7 +647,7 @@ describe("writeSnapshot", () => {
       .filter((line) => /^#(EXCLUDED|SKIPPED)/.test(line));
     assert.deepEqual(
       metadata.map((line) => line.split("\t").at(-1)),
-      [resolve(dir.path, "odd<NL>name.jpg")],
+      [resolve(dir.path, "odd␊name.jpg")],
     );
   });
 
