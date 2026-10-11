@@ -2,7 +2,10 @@
 
 **Status:** accepted, amended four times (2026-08-21, twice on 2026-10-02, then 2026-10-07); partly
 superseded by [0094](0094-change-time-check-opt-in.md) — the `#END` instant is no longer a
-boundary for any check, and is kept for people reading the file. Extends
+boundary for any check, and is kept for people reading the file. Once built, partly superseded by
+[0098](0098-snapshot-row-layout.md) (proposed; the trailer becomes `#S3CAB END`, the last line of
+every s3cab file, and `COMPLETE`/`PARTIAL` goes) and [0101](0101-valid-and-invalid-files.md)
+(proposed; rows after `END` refuse the file, reversing point 3). Extends
 [0004](0004-tsv-snapshot-manifests.md)'s row grammar; the classification of the failure rides
 [0074](0074-referenced-enumeration-vocabulary-module.md)'s unreadable-snapshot channel.
 

@@ -1,7 +1,9 @@
 # Timestamps: UTC inside files, local wall clock in names
 
 **Status:** accepted & implemented — except the pre-0072 compatibility reader, **withdrawn
-2026-08-08** (see "Both layouts were read"). Settles the timezone/precision question the
+2026-08-08** (see "Both layouts were read"). Once built, "The `#SNAPSHOT` line" is superseded by
+[0098](0098-snapshot-row-layout.md) (proposed): one fact per row, the instant and zone on
+`#SNAPSHOT START`; UTC inside files and local names stand. Settles the timezone/precision question the
 snapshot-format proposal carried. Extends
 [0004](0004-tsv-snapshot-manifests.md) (the row grammar) and applies
 [0012](0012-consumer-vocabulary-naming.md) (who the user surface is for).

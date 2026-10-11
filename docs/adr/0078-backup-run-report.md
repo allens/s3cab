@@ -1,7 +1,8 @@
 # What a completed backup reports
 
 **Status:** accepted — designed 2026-08-08, implemented 2026-08-09 (`compare`'s skipped listing,
-§3, landed first). Extends [0043](0043-human-first-output.md)'s human-first rendering and
+§3, landed first). Once built, partly superseded by [0099](0099-links-recorded-never-followed.md)
+(proposed): `#SKIPPED` goes, taking §3 and the `Skipped` count with it. Extends [0043](0043-human-first-output.md)'s human-first rendering and
 [0076](0076-one-progress-line-driven-by-a-clock.md)'s *live* line to the **finished run**, and
 depends on [0027](0027-compare-local-only-adoption-syncs-manifests.md) keeping `compare` local.
 
