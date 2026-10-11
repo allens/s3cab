@@ -165,9 +165,9 @@ export async function reattach(name, directories = [], options = {}) {
     console.warn(
       `Reattaching doesn't stop '${priorOwner}' backing up '${name}'` +
         (latest ? ` (last backed up ${latest})` : "") +
-        `. If both computers keep backing up this set, their snapshots ` +
-        `interleave and can collide on a name — s3cab allows it, but it is ` +
-        `meant for succession. Nothing to do if you're replacing that computer.`,
+        `. If both keep backing up this set, their snapshots interleave and ` +
+        `can collide on a name — s3cab allows it, but it is meant for ` +
+        `succession. Nothing to do if this replaces '${priorOwner}'.`,
     );
   }
 
