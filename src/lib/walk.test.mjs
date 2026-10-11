@@ -3,7 +3,7 @@ import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
-import { walkDirs, walkSet } from "./walk.mjs";
+import { readExcludePatterns, walkDirs, walkSet } from "./walk.mjs";
 
 /**
  * @import { PathLike } from "node:fs"
@@ -286,6 +286,48 @@ describe("walkDirs", () => {
   );
 });
 
+describe("readExcludePatterns (ADR-0100)", () => {
+  it("refuses a pattern holding a tab or CR, naming each with * as the fix", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\nodd\tname.jpg\ncr\rhere\n");
+    assert.throws(
+      () => readExcludePatterns(excludePath),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes("because these patterns contain a tab") &&
+        error.message.includes("  odd␉name.jpg\n") &&
+        error.message.includes("  cr␍here\n") &&
+        error.message.includes("  odd*name.jpg\n") &&
+        error.message.endsWith("  cr*here") &&
+        !error.message.includes("*.tmp"),
+    );
+  });
+
+  it("says 'this pattern' for a single offender", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\nodd\tname.jpg\n");
+    assert.throws(
+      () => readExcludePatterns(excludePath),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes("because this pattern contains a tab") &&
+        error.message.endsWith("  odd*name.jpg"),
+    );
+  });
+
+  it("reads a file with CRLF line endings", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\r\ncache/\r\n");
+    assert.deepStrictEqual(readExcludePatterns(excludePath), [
+      "*.tmp",
+      "cache/",
+    ]);
+  });
+});
+
 describe("walkSet dirs guard (ADR-0054)", () => {
   it("walks a set whose directories all exist", async () => {
     await using dir = await mkTmpDir();
@@ -477,8 +519,8 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
         (error) =>
           error instanceof Error &&
           // every offender, never truncated (ADR-0010) …
-          error.message.includes("odd<TAB>name.jpg") &&
-          error.message.includes("another<TAB>one.jpg") &&
+          error.message.includes("odd␉name.jpg") &&
+          error.message.includes("another␉one.jpg") &&
           // … rendered visibly, so a raw tab can't silently indent the list …
           !error.message.includes("odd\tname.jpg") &&
           // … and the way out is named.
@@ -493,13 +535,13 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
     async () => {
       await using dir = await mkTmpDir();
       write(dir.path, "two\nlines.jpg");
-      assert.throws(() => walkDirs([dir.path], []), /two<NL>lines\.jpg/);
+      assert.throws(() => walkDirs([dir.path], []), /two␊lines\.jpg/);
 
       await using other = await mkTmpDir();
       // Not idle strictness: the snapshot parser reads with `crlfDelay: Infinity`,
       // so a trailing \r would be stripped and the path would come back changed.
       write(other.path, "trailing\r.jpg");
-      assert.throws(() => walkDirs([other.path], []), /trailing<CR>\.jpg/);
+      assert.throws(() => walkDirs([other.path], []), /trailing␍\.jpg/);
     },
   );
 
@@ -543,7 +585,7 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
       // kept files, which is what keeps it out of the walk callback entirely. An
       // offending but empty directory therefore passes unremarked — correct, since
       // an empty directory is not backed up at all (ADR-0070).
-      assert.throws(() => walkDirs([dir.path], []), /bad<TAB>dir.inside\.txt/);
+      assert.throws(() => walkDirs([dir.path], []), /bad␉dir.inside\.txt/);
     },
   );
 });

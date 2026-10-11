@@ -74,6 +74,23 @@ export function walkSet(set) {
  */
 export function readExcludePatterns(excludePath) {
   const patterns = existsSync(excludePath) ? readLines(excludePath) : [];
+  // ADR-0100. After `readLines`' trim, so a CRLF file's line endings never get here.
+  const unusable = patterns.filter((pattern) => /[\t\r]/.test(pattern));
+  if (unusable.length) {
+    const these =
+      unusable.length === 1
+        ? "this pattern contains"
+        : "these patterns contain";
+    throw new Error(
+      `Can't use the set's exclude file, because ${these} a tab or a carriage ` +
+        `return (${tildeify(excludePath)}):\n` +
+        unusable.map((pattern) => `  ${showControlChars(pattern)}`).join("\n") +
+        `\nWrite * in place of the character, which still matches it:\n` +
+        unusable
+          .map((pattern) => `  ${pattern.replaceAll(/[\t\r]+/g, "*")}`)
+          .join("\n"),
+    );
+  }
   if (patterns.length) {
     console.warn("Using exclude file", `'${tildeify(excludePath)}'`);
   }
