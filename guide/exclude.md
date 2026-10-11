@@ -43,6 +43,9 @@ walker doesn't descend into an excluded directory).
 
 Matching is case-insensitive on Windows and case-sensitive elsewhere.
 
+A pattern can't contain a tab or a carriage return: s3cab stops and names it.
+Write `*` in place of the character, which still matches it.
+
 ## Examples
 
 - `Tests/**/*.js` — `.js` files anywhere under the `Tests` directory:

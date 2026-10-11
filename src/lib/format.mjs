@@ -99,19 +99,16 @@ export const plural = (n, word) => (n === 1 ? word : `${word}s`);
 export const countOf = (n, word) => `${formatCount(n)} ${plural(n, word)}`;
 
 /**
- * A path with its tab and line-ending characters spelled out (`<TAB>`, `<CR>`,
- * `<NL>`), so one path stays on one line: one entry of an error's list, or one
- * `#EXCLUDED` row of a snapshot. Not for any path s3cab reads back as a real
- * one (a file entry, `#SKIPPED`, `#ERROR`): there the spelled-out form could
- * collide with a real name containing `<CR>`.
+ * A path with its tab and line-ending characters spelled out as the Unicode
+ * Control Pictures `␉` `␍` `␊` (ADR-0100), so one path stays on one line: one
+ * entry of an error's list, or one `#EXCLUDED` row of a snapshot. Not for any
+ * path s3cab reads back as a real one (a file entry, `#SKIPPED`, `#ERROR`):
+ * there a real `␉` in a name is only a character of it.
  * @param {string} path
  * @returns {string}
  */
 export const showControlChars = (path) =>
-  path
-    .replaceAll("\t", "<TAB>")
-    .replaceAll("\r", "<CR>")
-    .replaceAll("\n", "<NL>");
+  path.replaceAll("\t", "␉").replaceAll("\r", "␍").replaceAll("\n", "␊");
 
 /**
  * A headed `label / count / size` table with the numbers right-aligned and the
