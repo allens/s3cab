@@ -52,7 +52,7 @@ s3://my-backup-bucket/
   objects/<sha256>                  # every backed-up file, stored once, named by content hash
   snapshots/<set>/<name>.tsv.gz     # each backup set's snapshot files
   sets/<set>/                       # each set's config + ownership marker
-    info                            # owner machine + created date (the name-claim marker)
+    info                            # owner (user@machine) + created date (the name-claim marker)
     dirs.txt                        # the set's member directories, one per line
     exclude.txt                     # the set's exclude patterns (if it has any)
   objects.deleted-<n>.tsv           # deliberate-deletion records (only if `delete` has run)

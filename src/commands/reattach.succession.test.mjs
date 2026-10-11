@@ -142,7 +142,7 @@ describe("reattach names the machine it is taking over from", () => {
   it("warns when another user on this machine holds the set (ADR-0098)", async () => {
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    owner = `someone-else@${hostname()}`;
+    owner = `not-${userInfo().username}@${hostname()}`;
 
     await reattach("photos", [], { bucket: "my-bucket" });
 

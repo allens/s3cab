@@ -332,7 +332,7 @@ refused the two snapshots it should have. So, in order:
 
 That last step writes to the bucket, since `reattach` re-stamps each set's
 `info`, so it comes after `info` has been read. An `OWNER` other than this
-machine's hostname is a note, since what "raw hostname" means is itself a
+`user@machine` is a note, since what "user" and "machine" mean is itself a
 reading.
 
 ```sh
