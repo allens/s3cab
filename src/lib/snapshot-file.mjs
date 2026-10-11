@@ -1018,7 +1018,8 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
   // this same AssertionError, but it can't stand in for this check: an
   // uncompressed `.tsv` has no gzip trailer at all, and the `tolerant` read below
   // is *allowed* to end mid-stream (ADR-0082 amendment 3). Whole-object integrity
-  // is the store's ETag, not the TSV's job.
+  // is gzip's CRC-32, not the TSV's job — and not the store's ETag, a content
+  // hash only for single-part uploads to AWS.
   // An AssertionError on purpose, matching the malformed-line assert
   // above — `isCorruptSnapshotError` (lib/referenced.mjs) classifies both as
   // snapshot damage, so verify records the finding and cleanup/delete refuse.

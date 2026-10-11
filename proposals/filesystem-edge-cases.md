@@ -29,7 +29,8 @@ independent of it: different mechanism, different code, different fix.
     exists for), the fallback would call it a directory and walk straight into an unlocked vault.
     Nothing about the skip knows it is a vault, or that it is sensitive — it is skipped because a
     junction happens to be an unsupported type. Worth a deliberate decision, and a test, rather
-    than leaving it to that ordering.
+    than leaving it to that ordering — more so now that never following a link (below) rests on
+    the vault being classified as one.
   - **The skip message is the weak part, and the fixable one.** A vault holding 74 items reports
     as `1 Symbolic Link`, and learning *which* path means decompressing the snapshot. Grouping by
     type is right for a thousand sockets and wrong here — this is the skip a user most needs
@@ -62,53 +63,75 @@ independent of it: different mechanism, different code, different fix.
 - **Windows long paths** (`\\?\` prefix, >260 chars) and reserved device names (`CON`,
   `NUL`…) — a photo/video archive will eventually hit one. _(Moved here from
   [misc.md](misc.md) 2026-08-11 — same theme as the entry above.)_
-- **Replace `#SKIPPED`: a link that leads out of the backup is an `#ERROR`, every other non-file
-  gets no row.** Decided 2026-10-09: `#SKIPPED` goes. All it records that nothing else does is
-  where links were, and restore never uses that. A symlinked folder whose contents aren't backed
-  up becomes an `#ERROR` instead, and only an exclude pattern silences it. The rest is a
-  suggested shape, not yet agreed:
+- **Replace `#SKIPPED`: record every link in a `link` row, never follow one, and warn about a
+  link that leads out of the backup.** Decided 2026-10-09: `#SKIPPED` goes. It records an event
+  (what was left out, and why) but not the link's target, so it can't say what the link was. A
+  `link` row records the link itself, its target as written; its layout is in
+  [snapshot-format.md](snapshot-format.md). Links decided 2026-10-11, file and folder alike:
 
   | Entry | Proposed |
   | --- | --- |
-  | Link, to a file or a folder, whose target is outside every member directory | `#ERROR`; exit 1 until excluded |
-  | Link whose target is inside a member directory | no row: the target is backed up under its real path |
-  | Link whose target doesn't exist | no row |
-  | Link whose target exists but can't be resolved | `#ERROR` |
+  | Link to a file or folder | `link` only, never followed; warned about if its target is outside every member directory |
+  | Link that is broken, loops, or leads to a pipe, socket or device | `link` only, no warning |
+  | Link to a link | judged by where the chain ends |
   | FIFO, socket, device | no row |
   | Entry that vanished between listing and checking | no row |
-  | Entry that couldn't be checked for any other reason | `#ERROR` |
+  | Entry that couldn't be checked for any other reason | `#error` |
 
-  - **The check** runs only on links, so the cost is negligible. `stat` (which follows the link)
-    tells a missing target from a present one, then `realpathSync.native`, then the containment
-    test restore already uses (`hay === n || hay.startsWith(n + sep)` after `preparePath`). The
-    walk handles one member directory at a time, so it needs the whole member list passed in. A
-    target inside a member directory but excluded there counts as inside; not worth running the
-    exclude patterns on targets too.
+  - **Never followed, because a link can lead anywhere**: a drive root, a share, the Personal
+    Vault, or arbitrary files the user never chose to back up. A folder link can also loop, and
+    on Windows the profile's compatibility junctions refuse listing: measured 2026-10-09,
+    `readdirSync` on `Application Data`, `Local Settings` and `Documents\My Pictures` throws
+    `EPERM` while their targets list fine. Content the user wants is backed up by adding its
+    folder to the set. A member directory that is itself a link is resolved and walked, as now.
+    Rejected: following file links. It doubled a non-link restore for every link into the
+    backup, and put two rows at one path.
+  - **A link that leads out of the backup is a warning, not an error.** At the end of the walk,
+    one loud warning lists each link whose target is a file or folder outside every member
+    directory, or can't be resolved, one per line with its target, and the run still succeeds.
+    An `#error` is too harsh for a link saved faithfully as itself, but silence is wrong too: a
+    folder link can hide a whole tree, and a grouped `1 Symbolic Link` is how the vault above
+    went unnoticed. The warning's fix is adding the target's folder to the set. A link whose
+    target is inside a member directory isn't listed: its target is saved under its real path,
+    and adding it would fail as overlapping directories. An excluded link becomes an
+    `#excluded` row, like any excluded entry, with no warning. A broken link, a loop and a link to `/dev/null` lose nothing, so they
+    stay quiet.
+  - **Restore doesn't recreate links yet**; that is a future feature, and the spec allows for it:
+    a `link` row records the target and, by its trailing separator, whether it is a folder.
+  - **The check** runs once per link, so the cost is negligible. `stat` (which follows the link)
+    tells a missing target from a present one and says whether it ends at a file or folder,
+    then `realpathSync.native`, then the containment test in restore's `pathMatcher`, which
+    `normalize`s both sides (case folded for a Windows-shaped path) and joins on `/`. The walk handles one member
+    directory at a time, so it needs the whole member list passed in. A target inside a member
+    directory but excluded there counts as inside: that is a target the user chose not to back
+    up, and the one case that would lose real content, git-annex with `.git` excluded, isn't
+    worth the patterns run on every target.
   - **`stat` must come before `realpath`.** Measured 2026-10-09: `realpathSync.native` throws
     `ENOENT` both for a junction whose target is missing (`Documents\My Music` on a machine with
     no `Music` folder) and for the unlocked Personal Vault above, whose target exists but can't
     be canonicalized. Reading every `ENOENT` as "missing" drops the vault silently, which is the
-    case this change exists to catch. As an `#ERROR` the vault is named by path, which also
+    case this change exists to catch. In the warning the vault is named by path, which also
     answers that entry's complaint about the skip message.
   - **Windows profile junctions.** Node sees junctions as symlinks, and every profile has the
     same compatibility set: 10 at the profile root (`Application Data`, `Cookies`,
     `Start Menu`, …) and `My Music`, `My Pictures`, `My Videos` in `Documents`. The ten all point
-    inside the profile, so a profile backup raises nothing. A `Documents`-only set raises the
+    inside the profile, so a profile backup warns about none. A `Documents`-only set lists the
     three `My …` ones when their targets exist, which is correct: those folders aren't backed up.
     Rejected: adding them to the starter `exclude.txt`. A pattern can't say "only if it's a
     link", so `Cookies/` or `Templates/` would silently drop a real folder of that name at the
     top of a member directory.
   - **Exclude patterns must apply to links.** Today the walk tests them only against files and
-    directories. Open: a pattern ending in `/` should match a link to a folder, or `My Music/`
-    won't silence it.
-  - **A file replaced by a link** shows in `compare` as deleted. That's accurate, since the
-    regular file is gone; `#SKIPPED` used to hide it.
+    directories. A pattern ending in `/` matches a link whose target is a folder, so `My Music/`
+    silences one; a broken link has no target, so only a pattern without `/` matches it. Not
+    git's rule, where `foo/` never matches a link: the spec names the difference.
   - **What changes:** supersede [ADR-0070](../docs/adr/0070-snapshot-restore-fidelity.md)'s
-    `#SKIPPED` recording and the skipped parts of
+    `#SKIPPED` recording (its "a symlink is never followed" stands), and the skipped parts of
     [ADR-0078](../docs/adr/0078-backup-run-report.md). Drop the `#SKIPPED` line type from
     [guide/format.md](../guide/format.md), which means reseeding the clean-room golden set.
     Remove the reader branch, the writer, `compareSnapshots`' skipped reconciliation, and the
     skipped sections and counts in `render.mjs`, `snapshot` and `backup`. The no-row case
     [PR #388](https://github.com/allens/s3cab/pull/388) added for a skipped name with a line
-    break goes too. In [cleanroom-fixtures.md](cleanroom-fixtures.md), the dangling-symlink,
-    line-break and FIFO gaps change shape.
+    break goes too: a link's path and target are refused like any path
+    ([snapshot-format.md](snapshot-format.md)). In
+    [cleanroom-fixtures.md](cleanroom-fixtures.md), the dangling-symlink, line-break and FIFO
+    gaps change shape.

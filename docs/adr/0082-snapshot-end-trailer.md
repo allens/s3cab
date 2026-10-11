@@ -105,8 +105,8 @@ having seen it throws.**
    hand-assembled manifest (the no-lock-in story) stays easy to extend.
 4. **The trailer is bare** — no entry count, no checksum. Truncation is the failure mode being
    closed, and a prefix cut either loses the trailer or tears a row (the four-field assert catches
-   a torn row). Whole-file integrity against *arbitrary* corruption is S3's ETag and the object
-   store's job, not the TSV's.
+   a torn row). Whole-file integrity against *arbitrary* corruption is gzip's CRC-32, not the
+   TSV's — and not the store's ETag, a content hash only for single-part uploads to AWS.
 
 A recovery reader that skips every `#` line (the [format spec](../../guide/format.md)'s standing
 promise) is unaffected; checking for the trailer first is what tells it the rows it read are all

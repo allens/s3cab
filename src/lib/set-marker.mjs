@@ -10,6 +10,9 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 //   sets/<set>/exclude.txt  the exclude patterns (optional), verbatim
 //   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (UTC instant, ms)
 //
+// `info` is KEY=value, not TSV rows like a snapshot: it holds a few scalars, and TSV
+// is the grammar for files of many records.
+//
 // `info` doubles as the collision-registration marker and the atomic claim token:
 // `setup` claims a name by conditional-PUTting `info` (first writer wins), and the
 // presence of `info` is how the collision check and `reattach` learn a name is
