@@ -295,11 +295,25 @@ describe("readExcludePatterns (ADR-0100)", () => {
       () => readExcludePatterns(excludePath),
       (error) =>
         error instanceof Error &&
+        error.message.includes("because these patterns contain a tab") &&
         error.message.includes("  odd␉name.jpg\n") &&
         error.message.includes("  cr␍here\n") &&
         error.message.includes("  odd*name.jpg\n") &&
         error.message.endsWith("  cr*here") &&
         !error.message.includes("*.tmp"),
+    );
+  });
+
+  it("says 'this pattern' for a single offender", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\nodd\tname.jpg\n");
+    assert.throws(
+      () => readExcludePatterns(excludePath),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes("because this pattern contains a tab") &&
+        error.message.endsWith("  odd*name.jpg"),
     );
   });
 
