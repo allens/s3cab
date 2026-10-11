@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { hostname, userInfo } from "node:os";
 import {
   formatDeletionRecord,
   writeDeletionRecord,
@@ -11,6 +10,7 @@ import { promptLine } from "../lib/prompt.mjs";
 import { parseLines } from "../lib/read-lines.mjs";
 import { validateBucketName } from "../lib/sets.mjs";
 import { isInteractive, shellCommand } from "../lib/style.mjs";
+import { userAtMachine } from "../lib/user-at-machine.mjs";
 
 /**
  * The SHA-256 of zero bytes — the object backing every empty file in the
@@ -263,7 +263,7 @@ export async function deleteHashes(hashes = [], options = {}) {
   // so every row agrees by construction. The record is named by index, not by
   // a moment, so only the instant is wanted — the precision names nothing.
   const { instant } = localMoment("seconds");
-  const by = `${userInfo().username}@${hostname()}`;
+  const by = userAtMachine();
   const recordUri = await writeDeletionRecord(
     bucket,
     formatDeletionRecord(

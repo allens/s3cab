@@ -112,8 +112,8 @@ directory.
 
 **Identity**:
 What names a backup set: its **name**, and nothing more — there is no separate machine or user
-component. (An advisory "created-on machine" is recorded for collision warnings only, never as
-part of the identity.)
+component. (An advisory `OWNER`, the `user@machine` holding the set, is recorded for collision
+warnings only, never as part of the identity.)
 _Avoid_: owner, source, origin; `user@machine:set` (the retired form).
 
 **Snapshot**:

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, realpathSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { hostname } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { readRemoteInfo, readSetConfig } from "../../src/lib/set-marker.mjs";
@@ -21,6 +21,9 @@ import { bucket, cleanupSetMarker } from "../helpers/integration.mjs";
 // on teardown. The gate/harness lives in the shared integration helper.
 
 const mkTmpDir = async () => mkdtempDisposable(join("test", ".tmp"));
+
+/** This user on this machine, built here rather than by the helper under test. */
+const me = `${userInfo().username}@${hostname()}`;
 
 /** @type {NodeJS.ProcessEnv} */
 let savedEnv;
@@ -63,10 +66,10 @@ describe("setup (real bucket)", () => {
       assert.equal(set?.bucket, bucket);
       assert.deepEqual(set?.dirs, [realpathSync.native(content)]);
 
-      // The remote marker is claimed (owner = this machine) and the config is
+      // The remote marker is claimed (owner = this user@machine) and the config is
       // published.
       const info = await readRemoteInfo(bucket, name);
-      assert.equal(info?.owner, hostname());
+      assert.equal(info?.owner, me);
       // A full UTC instant (ADR-0072), not the naive local minute this used to
       // write — it is a record, never typed and never sorted, so qualifying it
       // costs nothing. `collisionError` renders it down to a date for humans.
@@ -145,12 +148,10 @@ describe("setup (real bucket)", () => {
       // creating machine and may need editing before a backup (ADR-0054) —
       // naming it from the marker's outgoing OWNER, read here against the live
       // provider rather than a mock.
-      // A literal containment check, not a built RegExp: a hostname may legally
-      // contain `.` and `-`, and an FQDN's dots would silently become wildcards.
+      // A literal containment check, not a built RegExp: a user or hostname may
+      // legally contain `.` and `-`, and an FQDN's dots would silently become wildcards.
       assert.ok(
-        warnings
-          .join("\n")
-          .includes(`directory list came from '${hostname()}'`),
+        warnings.join("\n").includes(`directory list came from '${me}'`),
         "the nudge names this machine, read from the live marker's OWNER",
       );
       // The co-existence warning stays silent: both "machines" are temp homes on

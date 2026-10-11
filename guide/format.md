@@ -77,14 +77,14 @@ s3://my-backup-bucket/
   can hold credentials. `info` is two `KEY=value` lines, in this order:
 
   ```
-  OWNER=DESKTOP
+  OWNER=allen@DESKTOP
   CREATED=2026-06-12T08:15:32.123Z
   ```
 
-  `OWNER` is the raw hostname of the machine the set is attached to — stamped at creation
-  and re-stamped by `s3cab reattach`, so it names the current holder, not necessarily the
-  creator; `CREATED` is a UTC instant in the same form as a snapshot row's `mtime`, and is
-  preserved across reattaches.
+  `OWNER` is the user and machine the set is attached to, as `user@machine` — stamped at
+  creation and re-stamped by `s3cab reattach`, so it names the current holder, not
+  necessarily the creator; `CREATED` is a UTC instant in the same form as a snapshot row's
+  `mtime`, and is preserved across reattaches.
 - **`objects.deleted-<n>.tsv`** — the repository's only root-level keys — are its
   [deletion records](#the-deletion-record): small plain-text files marking content as
   *deliberately* removed. A repository where `delete` has never run simply has none.

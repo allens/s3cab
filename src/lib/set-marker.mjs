@@ -8,7 +8,7 @@ import { deleteObject, getText, listObjects, putText } from "./s3.mjs";
 //
 //   sets/<set>/dirs.txt     the member directories (DR hint), one absolute path per line
 //   sets/<set>/exclude.txt  the exclude patterns (optional), verbatim
-//   sets/<set>/info         KEY=value: OWNER (raw hostname), CREATED (UTC instant, ms)
+//   sets/<set>/info         KEY=value: OWNER (user@machine), CREATED (UTC instant, ms)
 //
 // `info` is KEY=value, not TSV rows like a snapshot: it holds a few scalars, and TSV
 // is the grammar for files of many records.
@@ -43,7 +43,7 @@ const fileUri = (bucket, set, file) =>
 /**
  * A set's remote ownership marker (the `info` file's fields).
  * @typedef {Object} SetInfo
- * @property {string} owner - The machine that owns the set (raw hostname)
+ * @property {string} owner - Who holds the set, as `user@machine`
  * @property {string} created - When the set was first created: a UTC instant at millisecond precision
  */
 

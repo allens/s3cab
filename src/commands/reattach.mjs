@@ -1,4 +1,3 @@
-import { hostname } from "node:os";
 import { MissingArgError, ParseArgsError } from "../lib/error.mjs";
 import { plural } from "../lib/format.mjs";
 import { downloadRemoteSnapshots } from "../lib/remote.mjs";
@@ -17,6 +16,7 @@ import {
   writeSetExclude,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
+import { userAtMachine } from "../lib/user-at-machine.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 
@@ -25,7 +25,7 @@ import { shellCommand } from "../lib/style.mjs";
  * (docs/design/backup.md, ADR-0053) — the succession path for a replacement or
  * recovery machine, or a second machine joining a set. Pulls the set's published
  * config (`dirs.txt`/`exclude.txt`) *and* its snapshot history down, recreates
- * the set locally, and re-stamps `OWNER` to this machine while preserving the
+ * the set locally, and re-stamps `OWNER` to this user@machine while preserving the
  * original `CREATED`.
  *
  * It does **not** download the backed-up file *contents* — those stay in
@@ -160,7 +160,7 @@ export async function reattach(name, directories = [], options = {}) {
   // identical (recency is the only signal, and a weekly backup looks dead on day
   // three), and succession is the *dominant* reattach case — gating it to police
   // co-existence would have the common path pay for the rare one.
-  if (priorOwner && priorOwner !== hostname()) {
+  if (priorOwner && priorOwner !== userAtMachine()) {
     const latest = listSnapshotNames(set.snapshotsDir).at(0);
     console.warn(
       `Reattaching doesn't stop '${priorOwner}' backing up '${name}'` +
@@ -171,9 +171,9 @@ export async function reattach(name, directories = [], options = {}) {
     );
   }
 
-  // Re-stamp ownership to this machine; preserve the original CREATED.
+  // Re-stamp ownership to this user and machine; preserve the original CREATED.
   await writeRemoteInfo(bucket, name, {
-    owner: hostname(),
+    owner: userAtMachine(),
     created: info.created,
   });
   return set;
