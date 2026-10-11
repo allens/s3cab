@@ -29,7 +29,8 @@ independent of it: different mechanism, different code, different fix.
     exists for), the fallback would call it a directory and walk straight into an unlocked vault.
     Nothing about the skip knows it is a vault, or that it is sensitive — it is skipped because a
     junction happens to be an unsupported type. Worth a deliberate decision, and a test, rather
-    than leaving it to that ordering.
+    than leaving it to that ordering — more so now that never following a link (below) rests on
+    the vault being classified as one.
   - **The skip message is the weak part, and the fixable one.** A vault holding 74 items reports
     as `1 Symbolic Link`, and learning *which* path means decompressing the snapshot. Grouping by
     type is right for a thousand sockets and wrong here — this is the skip a user most needs
@@ -92,11 +93,11 @@ independent of it: different mechanism, different code, different fix.
     folder link can hide a whole tree, and a grouped `1 Symbolic Link` is how the vault above
     went unnoticed. The warning's fix is adding the target's folder to the set. A link whose
     target is inside a member directory isn't listed: its target is saved under its real path,
-    and adding it would fail as overlapping directories. An exclude pattern drops the link's
-    row and its warning. A broken link, a loop and a link to `/dev/null` lose nothing, so they
+    and adding it would fail as overlapping directories. An excluded link becomes an
+    `#excluded` row, like any excluded entry, with no warning. A broken link, a loop and a link to `/dev/null` lose nothing, so they
     stay quiet.
   - **Restore doesn't recreate links yet**; that is a future feature, and the spec allows for it:
-    a `link` row records enough to make the link.
+    a `link` row records the target and, by its trailing separator, whether it is a folder.
   - **The check** runs once per link, so the cost is negligible. `stat` (which follows the link)
     tells a missing target from a present one and says whether it ends at a file or folder,
     then `realpathSync.native`, then the containment test restore already uses

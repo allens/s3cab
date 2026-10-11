@@ -5,7 +5,7 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
 
 - **A new row layout.** Discussed 2026-10-09. Pre-1.0, so nothing existing constrains it: not old
   snapshots, not the clean-room golden set or its restorers. The aims are that it reads well in
-  Notepad, and that Excel's AutoFilter, sorting and `SUM` all work on it. Agreed so far:
+  Notepad, and that Excel's AutoFilter, sorting and `SUM` all work on it. Agreed:
 
   | Col | Heading | Width | File row | Other rows |
   | --- | --- | --- | --- | --- |
@@ -52,8 +52,11 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   - **A lowercase type is something restore could act on; a `#` type is not.** `object`
     and `link` are the backup's content: a link is recorded as itself, even though it has no
     object. `#excluded` and `#error` record paths that weren't saved, alongside `#SET` and
-    `#SNAPSHOT`. So a reader that skips `#` lines is left with exactly what a restore writes.
-    Each per-path row can name a file or a folder; the trailing separator says which.
+    `#SNAPSHOT`. So a reader that skips `#` lines is left with exactly what a restore could
+    write. Each per-path row can name a file or a folder; the trailing separator says which. A
+    `link` row's path takes one when its target is a folder, which the walk's `stat` already
+    knows; a broken link takes none. Junction or symlink isn't recorded: a restorer that
+    recreates links on Windows chooses, and the spec says so.
   - **Case says the scope: lowercase is one path from inside the walk, uppercase is the whole
     snapshot from outside it.** So `object`, `link`, `#excluded` and `#error` against `#S3CAB`,
     `#SET` and `#SNAPSHOT`. Types are case-sensitive; Excel's sort and filter ignore case.
@@ -152,10 +155,14 @@ records. The spec is [guide/format.md](../guide/format.md); this is what might c
   - **Refuse one path, restore the rest, exit nonzero** for a malformed `object` or `link` row,
     a `..` segment, a path under no `DIR`, or a path that appears twice, where both rows are
     refused so no reader guesses. A reader need only check for repeats among the rows it reads,
-    so one that skips `#` rows never parses `#excluded` for this. The spec's "restore everything you can, then report", which
-    already governs a missing object; rows are independent lines, so one can't damage its
-    neighbours. Elsewhere a refused path is one with no row: `backup` re-hashes it, `compare`
-    lists it as unreadable, as for `#error`, and `verify` reports damage.
+    so one that skips `#` rows never parses `#excluded` for this. This is the spec's "restore
+    everything you can, then report", which already governs a missing object; rows are
+    independent lines, so one can't damage its neighbours. Elsewhere a refused path is one with
+    no row: `backup` re-hashes it, `compare` lists it as unreadable, as for `#error`, and
+    `verify` reports damage.
+  - **A malformed `#deleted` row is refused**, so its object counts as not deleted, and its
+    absence is reported as unexplained damage with a nonzero exit. The safe direction: a
+    damaged deletion record can never make missing content look intentional.
   - **Ignore** an unknown `#` type or sub-type, and a people-only row that's wrong (`FILES`
     against the row count).
   - **What a reader promises, even for an invalid file:** it never writes outside the
