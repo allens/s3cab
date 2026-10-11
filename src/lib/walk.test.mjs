@@ -477,8 +477,8 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
         (error) =>
           error instanceof Error &&
           // every offender, never truncated (ADR-0010) …
-          error.message.includes("odd<TAB>name.jpg") &&
-          error.message.includes("another<TAB>one.jpg") &&
+          error.message.includes("odd␉name.jpg") &&
+          error.message.includes("another␉one.jpg") &&
           // … rendered visibly, so a raw tab can't silently indent the list …
           !error.message.includes("odd\tname.jpg") &&
           // … and the way out is named.
@@ -493,13 +493,13 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
     async () => {
       await using dir = await mkTmpDir();
       write(dir.path, "two\nlines.jpg");
-      assert.throws(() => walkDirs([dir.path], []), /two<NL>lines\.jpg/);
+      assert.throws(() => walkDirs([dir.path], []), /two␊lines\.jpg/);
 
       await using other = await mkTmpDir();
       // Not idle strictness: the snapshot parser reads with `crlfDelay: Infinity`,
       // so a trailing \r would be stripped and the path would come back changed.
       write(other.path, "trailing\r.jpg");
-      assert.throws(() => walkDirs([other.path], []), /trailing<CR>\.jpg/);
+      assert.throws(() => walkDirs([other.path], []), /trailing␍\.jpg/);
     },
   );
 
@@ -543,7 +543,7 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
       // kept files, which is what keeps it out of the walk callback entirely. An
       // offending but empty directory therefore passes unremarked — correct, since
       // an empty directory is not backed up at all (ADR-0070).
-      assert.throws(() => walkDirs([dir.path], []), /bad<TAB>dir.inside\.txt/);
+      assert.throws(() => walkDirs([dir.path], []), /bad␉dir.inside\.txt/);
     },
   );
 });
