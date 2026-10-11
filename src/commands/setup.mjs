@@ -1,5 +1,4 @@
 import { realpathSync, statSync } from "node:fs";
-import { hostname } from "node:os";
 import { updateEnvFile } from "../lib/env-file.mjs";
 import { isENOENT, MissingArgError, requireArg } from "../lib/error.mjs";
 import { localMoment } from "../lib/format.mjs";
@@ -21,6 +20,7 @@ import {
   writeSet,
 } from "../lib/sets.mjs";
 import { shellCommand } from "../lib/style.mjs";
+import { userAtMachine } from "../lib/user-at-machine.mjs";
 
 /** @import { BackupSet } from "../lib/sets.mjs" */
 /** @import { SetInfo } from "../lib/set-marker.mjs" */
@@ -263,7 +263,7 @@ async function create(name, directories, options) {
   // claim loses, nothing local was written — the gathered config lives only in
   // this process's environment, so there is nothing to roll back.
   const won = await claimRemoteSet(bucket, name, {
-    owner: hostname(),
+    owner: userAtMachine(),
     created: nowStamp(),
   });
   if (!won) {

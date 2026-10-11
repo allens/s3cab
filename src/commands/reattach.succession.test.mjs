@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { hostname } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { useTempHome } from "../../test/helpers/temp-home.mjs";
@@ -16,6 +16,8 @@ import { useTempHome } from "../../test/helpers/temp-home.mjs";
 
 /** @type {string} the OWNER the mocked marker reports */
 let owner = "desktop-pc";
+/** @type {string | undefined} the OWNER the command re-stamps */
+let restamped;
 /** @type {string[]} snapshot names the mocked pull lands in the set directory */
 let remoteSnapshots = [];
 /** @type {string} the set directory the pull writes into */
@@ -28,7 +30,13 @@ mock.module("../lib/set-marker.mjs", {
       created: "2026-01-01T00:00:00.000Z",
     }),
     readSetConfig: async () => ({ dirs: ["D:\\Photos"], exclude: undefined }),
-    writeRemoteInfo: async () => {},
+    writeRemoteInfo: async (
+      /** @type {string} */ _bucket,
+      /** @type {string} */ _set,
+      /** @type {{ owner: string }} */ info,
+    ) => {
+      restamped = info.owner;
+    },
     listRemoteSets: async () => [],
   },
 });
@@ -63,6 +71,7 @@ let realWarn;
 beforeEach(() => {
   savedEnv = { ...process.env };
   owner = "desktop-pc";
+  restamped = undefined;
   remoteSnapshots = [];
   snapshotsDir = "";
   warnings = [];
@@ -82,6 +91,9 @@ afterEach(() => {
 
 /** All stderr as one blob — the warnings are a sequence, not a contract on order. */
 const said = () => warnings.join("\n");
+
+/** This user on this machine, built here rather than by the helper under test. */
+const me = `${userInfo().username}@${hostname()}`;
 
 describe("reattach names the machine it is taking over from", () => {
   it("warns that the prior machine keeps backing up, naming it and the last backup", async () => {
@@ -114,7 +126,7 @@ describe("reattach names the machine it is taking over from", () => {
     // reattach. There is no other machine, so the warning would be noise.
     await using dir = await mkTmpDir();
     useTempHome(dir.path);
-    owner = hostname();
+    owner = me;
     remoteSnapshots = ["2026-08-18T1432"];
 
     await reattach("photos", [], { bucket: "my-bucket" });
@@ -125,6 +137,25 @@ describe("reattach names the machine it is taking over from", () => {
       /The directory list came from/,
       "the other nudge still fires",
     );
+  });
+
+  it("warns when another user on this machine holds the set (ADR-0098)", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+    owner = `not-${userInfo().username}@${hostname()}`;
+
+    await reattach("photos", [], { bucket: "my-bucket" });
+
+    assert.ok(said().includes(`Reattaching doesn't stop '${owner}'`));
+  });
+
+  it("re-stamps OWNER as this user@machine", async () => {
+    await using dir = await mkTmpDir();
+    useTempHome(dir.path);
+
+    await reattach("photos", [], { bucket: "my-bucket" });
+
+    assert.equal(restamped, me);
   });
 
   it("drops the machine's name rather than printing an empty one, on a partial marker", async () => {

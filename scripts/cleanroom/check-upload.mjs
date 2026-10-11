@@ -24,8 +24,8 @@
  *   of the set's own, and absent if it has none.
  * - **s3cab accepts it**: each set reattaches, and each published snapshot restores.
  *
- * `reattach` writes to the bucket (it re-stamps each set's `info` with this machine as
- * OWNER), which is why it comes after `info` has been read.
+ * `reattach` writes to the bucket (it re-stamps each set's `info` with this user@machine
+ * as OWNER), which is why it comes after `info` has been read.
  *
  * Exits 1 if anything mismatched, 0 if only notes or nothing.
  *
@@ -41,7 +41,7 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { cli, client, listAll, sandboxPath } from "./cleanroom.mjs";
@@ -76,6 +76,7 @@ if (!existsSync(handed)) {
 
 const instant = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
 const info = new RegExp(`^OWNER=([^\\n]+)\\nCREATED=${instant}\\n$`);
+const me = `${userInfo().username}@${hostname()}`;
 
 /** @type {string[]} */
 const mismatches = [];
@@ -276,10 +277,10 @@ for (const set of sets) {
         `${prefix}info isn't 'OWNER=…' then 'CREATED=<instant>', each ending LF: ` +
           JSON.stringify(text),
       );
-    } else if (match[1] !== hostname()) {
+    } else if (match[1] !== me) {
       notes.push(
-        `${prefix}info names OWNER ${JSON.stringify(match[1])}, where this machine's ` +
-          `hostname is ${JSON.stringify(hostname())}`,
+        `${prefix}info names OWNER ${JSON.stringify(match[1])}, where this ` +
+          `user@machine is ${JSON.stringify(me)}`,
       );
     }
   } else {

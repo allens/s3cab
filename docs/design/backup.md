@@ -138,7 +138,7 @@ still work after a one-time online set-up; only creating a set — or `reattach`
 connectivity.)
 
 `setup <name> <dir>... --bucket <b>` collision-checks the remote `sets/<name>/` marker; if it
-already exists, it errors naming the owning machine and suggesting `reattach`; otherwise it claims
+already exists, it errors naming the owner and suggesting `reattach`; otherwise it claims
 the marker (a conditional PUT — first writer wins), writes the local set, and publishes its
 `dirs.txt`/`exclude.txt` to the marker.
 
@@ -147,9 +147,9 @@ the marker (a conditional PUT — first writer wins), writes the local set, and 
 `s3cab reattach <set> --bucket <bucket>` ([ADR-0053](../adr/0053-reattach-command.md)) is the
 path for a **replacement or recovery machine** — it adopts a set that already exists remotely.
 Requires `sets/<name>/` to exist in the bucket; pulls its `dirs.txt`/`exclude.txt` **and its
-snapshot history** down, recreates the local set, and re-stamps the owning machine. Takes no
-directories (they come from the remote). It does **not** download the backed-up file contents —
-that is `restore`; only the config + snapshot manifests come down, which is what lets
+snapshot history** down, recreates the local set, and re-stamps `OWNER` as this `user@machine`.
+Takes no directories (they come from the remote). It does **not** download the backed-up file
+contents — that is `restore`; only the config + snapshot manifests come down, which is what lets
 `list`/`compare` run offline afterwards ([ADR-0027](../adr/0027-compare-local-only-adoption-syncs-manifests.md)).
 
 Split out of the old `setup --inherit` ([ADR-0053](../adr/0053-reattach-command.md)): `setup`
