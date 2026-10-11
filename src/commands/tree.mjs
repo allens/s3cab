@@ -7,10 +7,7 @@ import { walkSet } from "../lib/walk.mjs";
 
 /**
  * One entry the set's exclude patterns dropped, with the pattern that dropped
- * it. The walk's own `ExclusionRecord` calls that field `reason` because it
- * carries two different things (a pattern for `excluded`, a sentence for
- * `skipped`); by the time it reaches a user it is only ever a pattern, so it is
- * named one.
+ * it.
  * @typedef {{ path: string, pattern: string }} ExcludedEntry
  */
 
@@ -21,7 +18,7 @@ import { walkSet } from "../lib/walk.mjs";
  *
  * `--excluded` answers the inverse question from the same walk: *what are my
  * patterns dropping, and which pattern dropped it* — the one exclude question a
- * user had no way to ask, since `#EXCLUDED` snapshot rows are written but never
+ * user had no way to ask, since `#excluded` snapshot rows are written but never
  * read back (`lib/snapshot-file.mjs`). It is computed from the directories
  * rather than from a snapshot on purpose: you can edit `exclude.txt` and re-run
  * to see the effect immediately, which reading a stored snapshot could never do.
@@ -40,15 +37,14 @@ export function tree(setName, options = {}) {
   }
 
   reportExclusionTally(excluded, set.excludePath);
-  return excluded.map(({ path, reason }) => ({ path, pattern: reason }));
+  return excluded.map(({ path, pattern }) => ({ path, pattern }));
 }
 
 /**
  * Summarize the exclusions on stderr, so the listing on stdout stays a clean
  * one-record-per-line stream to pipe or redirect (ADR-0010). The tally is what
  * makes this a *review* — "what is really going on" is answered by a dozen
- * lines of pattern → count, not by scrolling forty thousand paths — and it
- * mirrors the walk's own by-type skip notice rather than inventing a shape.
+ * lines of pattern → count, not by scrolling forty thousand paths.
  *
  * The parenthetical only appears when a directory is among them, because that
  * is the one way the counts can mislead: the walk doesn't descend into an
@@ -79,8 +75,8 @@ function reportExclusionTally(excluded, excludePath) {
 
   /** @type {Map<string, number>} */
   const byPattern = new Map();
-  for (const { reason } of excluded) {
-    byPattern.set(reason, (byPattern.get(reason) ?? 0) + 1);
+  for (const { pattern } of excluded) {
+    byPattern.set(pattern, (byPattern.get(pattern) ?? 0) + 1);
   }
   // Biggest first — the pattern doing the most work is the one worth reviewing
   // — with the name as a tiebreak so the order is stable rather than walk-order.
@@ -90,7 +86,7 @@ function reportExclusionTally(excluded, excludePath) {
   );
   const width = Math.max(...rows.map(([, count]) => formatCount(count).length));
 
-  const containsDir = excluded.some(({ fileType }) => fileType === "Directory");
+  const containsDir = excluded.some(({ isDir }) => isDir);
   console.warn(
     `Excluded ${formatCount(excluded.length)} ` +
       `${plural(excluded.length, "item")}` +

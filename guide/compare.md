@@ -63,7 +63,6 @@ touching a file without changing it does not show up.
 | `Moved`    | content that moved to a different directory              |
 | `Modified` | the same path with different content                     |
 | `Deleted`  | a path that is gone from the newer snapshot              |
-| `Skipped`  | a path in the set that wasn't backed up, and why         |
 | `Errors`   | a path the newer snapshot couldn't read (e.g. no access) |
 
 `Renamed` and `Moved` are the same underlying event — content that left one path
@@ -108,27 +107,10 @@ deletions, check whether the set's directories changed between the two snapshots
 (`s3cab list <set>` shows the current directories). Restoring either snapshot still recovers exactly what
 that snapshot contained.
 
-## Files that weren't backed up
-
-`Skipped` lists everything in the set that s3cab found and did not store, with the
-reason in parentheses. Unlike the other sections it is **not** a diff — every skip
-is listed on every run, because "what *was* that thing?" is a question you ask on
-whichever report you happen to be reading, not only on the run where it first
-appeared. Something that keeps reappearing here is its own argument for an
-[exclude pattern](exclude.md).
-
-```console
-Skipped (1)
-  photos/link-to-nas  (Symbolic Link)
-```
-
-These are things a backup can't meaningfully store — a symlink, a socket, an entry
-the filesystem wouldn't classify.
-
 ## Files that couldn't be read
 
 A file the snapshot couldn't hash (for example, permission denied) is recorded
-in the snapshot file as an `#ERROR` row carrying the error message, and reported
+in the snapshot file as an `#error` row carrying the error message, and reported
 under the `Errors` section. It is **not** mistaken for `Deleted` — the file is
 still on disk, just unreadable — nor dropped from the report. Each entry is the
 path followed by the reason in parentheses; the same reason is also kept in the

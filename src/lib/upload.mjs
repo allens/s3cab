@@ -265,7 +265,7 @@ export function planUpload(target, stored) {
  * never *what* the snapshot records.
  *
  * One PUT per distinct hash (`seen` dedups within the run, first path wins), and
- * nothing already `stored` is attempted. An `#ERROR` row — a file the hash pass
+ * nothing already `stored` is attempted. An `#error` row — a file the hash pass
  * couldn't read — has no object to store and simply passes through.
  *
  * **Nothing here ever throws mid-stream** (ADR-0069). A throw inside a pipeline
@@ -433,7 +433,7 @@ export function uploadObjects({ bucket, stored, ownProgress = false }) {
  * pipeline link, where a throw would destroy the chain and truncate the snapshot
  * being written (ADR-0069). A file we cannot stat is one we cannot confirm, which
  * is reason enough not to store it — and it matches the hash pass, where an
- * unreadable file becomes an `#ERROR` row and the run carries on.
+ * unreadable file becomes an `#error` row and the run carries on.
  * @param {string} path - The file about to be uploaded
  * @param {Props} recorded - What the row says about it
  * @returns {Promise<FileChange | undefined>}

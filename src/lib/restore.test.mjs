@@ -172,13 +172,13 @@ describe("reroot", () => {
     );
   });
 
-  // A `#DIR` header and the rows under it can disagree in case once someone
+  // A `#SET DIR` row and the rows under it can disagree in case once someone
   // edits the snapshot — a supported thing to do to a file we promise is plain
   // text. On Windows the two spellings are one path, so re-rooting must not read
   // the difference as "this file is under no backed-up directory". Folding keys
   // on the drive letter, not on the running platform, because these snapshots
   // get restored on other operating systems — which is what `--output` is for.
-  it("folds case in a Windows root, so an edited #DIR still re-roots", () => {
+  it("folds case in a Windows root, so an edited #SET DIR still re-roots", () => {
     const map = reroot(["c:\\Users\\me\\Photos"], "out");
     assert.equal(
       map("C:\\Users\\me\\Photos\\beach.jpg"),
@@ -229,11 +229,11 @@ describe("reroot", () => {
     },
   );
 
-  // A `#DIR` header can carry a trailing separator once someone edits the
-  // snapshot by hand. `preparePath`'s `base` answers "what comes after the
+  // A `#SET DIR` row ends with the separator, as every folder path in a
+  // snapshot does. `preparePath`'s `base` answers "what comes after the
   // last separator", which is empty there — `reroot` must derive the root's
   // basename from its trimmed segments instead, the way it derives `path`'s.
-  it("re-roots correctly when a #DIR header has a trailing separator", () => {
+  it("re-roots correctly under a #SET DIR's trailing separator", () => {
     const map = reroot(["/home/me/Photos/"], "out");
     assert.equal(
       map("/home/me/Photos/beach.jpg"),

@@ -1,7 +1,7 @@
 import assert from "node:assert";
 
 // Besides the formatters, this module is the **clock seam**: every instant an
-// artifact *records* — a snapshot's name, header and `#END` trailer, a
+// artifact *records* — a snapshot's name, `START` and `END`, a
 // deletion record's or forget audit's stamp, a set marker's CREATED — is read
 // here, by `localMoment` or `completionInstant`, and nowhere else. The model
 // harness mocks this module to run every command on a virtual clock
@@ -101,8 +101,8 @@ export const countOf = (n, word) => `${formatCount(n)} ${plural(n, word)}`;
 /**
  * A path with its tab and line-ending characters spelled out as the Unicode
  * Control Pictures `␉` `␍` `␊` (ADR-0100), so one path stays on one line: one
- * entry of an error's list, or one `#EXCLUDED` row of a snapshot. Not for any
- * path s3cab reads back as a real one (a file entry, `#SKIPPED`, `#ERROR`):
+ * entry of an error's list, or one `#excluded` row of a snapshot. Not for any
+ * path s3cab reads back as a real one (an `object` or `link` row):
  * there a real `␉` in a name is only a character of it.
  * @param {string} path
  * @returns {string}
@@ -300,7 +300,7 @@ export function localMoment(smallestUnit) {
 
 /**
  * The instant that vouches for everything written before it — a snapshot's
- * `#END` trailer ([ADR-0082](../../docs/adr/0082-snapshot-end-trailer.md)),
+ * `#S3CAB END` row ([ADR-0082](../../docs/adr/0082-snapshot-end-trailer.md)),
  * which the ctime cross-check weighs a file against on the next pass
  * ([ADR-0085](../../docs/adr/0085-ctime-cross-check-on-hash-reuse.md)). UTC at
  * millisecond precision like `localMoment`'s `instant`, but **rounded up, not

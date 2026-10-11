@@ -200,15 +200,15 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
     // Fabricated rather than walked: 20k real files would slow the suite for
     // nothing — only the bytes on the wire matter here. Chained sha256 hashes
     // keep the rows incompressible, so the object stays large after gzip.
-    const rows = [
-      `#SNAPSHOT\t${set}\t2025-05-05T06:00:00.000Z\t${name} Etc/UTC`,
-    ];
+    const rows = [`#SET\tDIR\t\t\t/data/`];
     let hash = set;
     for (let i = 0; i < fileCount; i++) {
       hash = createHash("sha256").update(hash).digest("hex");
-      rows.push(`${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`);
+      rows.push(
+        `object\t${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`,
+      );
     }
-    rows.push("#END");
+    rows.push("#S3CAB\tEND\t\t2025-05-05T06:01:00.000Z\t");
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),
@@ -222,8 +222,8 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
   });
 
   it("reads a multi-chunk body to completion — teardown must not abort the live request (#171)", async () => {
-    const { entries, identity } = await readRemoteSnapshot(bucket, set, name);
-    assert.equal(identity, set);
+    const { entries, dirs } = await readRemoteSnapshot(bucket, set, name);
+    assert.deepEqual(dirs, ["/data/"]);
     assert.equal(entries.size, fileCount);
   });
 

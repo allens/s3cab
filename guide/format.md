@@ -9,9 +9,9 @@ must always match.
 
 Everything on this page is a **commitment**, not an implementation detail. If a future
 s3cab needs to change any of it, that is a breaking format change, treated accordingly.
-One exception, flagged again where it arises: the *text inside* `#` comment lines is
-human context and may change freely. What is committed is that skipping those lines
-leaves exactly the data.
+One exception, flagged again where it arises: a snapshot may gain new `#` row types and
+properties, and a reader skips the ones it doesn't know. What is committed is that skipping
+every `#` row leaves exactly what a restore could write.
 
 ## Reading the text: four rules that hold everywhere
 
@@ -33,14 +33,16 @@ needs special handling.
   missing final newline, travels into the bucket intact. Harmless, because its lines (and
   `dirs.txt`'s) are trimmed when read.
 - **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
-  naive `split("\t")` safe, and it is why a path can never contain a tab, LF or CR (all
-  three are [refused at backup time](#what-is-deliberately-not-stored)). Every other
+  naive `split("\t")` safe, and it is why no field in a snapshot holds a real tab, LF or CR
+  (a path with one is [refused at backup time](#what-is-deliberately-not-stored), and
+  anywhere else [they are spelled out](#no-row-holds-a-tab-or-a-line-ending)). Every other
   character, control characters included, is fair game in a path.
-- **Trim the leading fields; never trim the path.** The leading fields are padded with
-  spaces so the raw file reads as columns. The path is always last, is never padded, and
-  must be taken **verbatim** from the final tab to the end of the line. On Linux and macOS
-  a filename may legitimately begin or end with a space, and a parser that strips every
-  field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing reported.
+- **Trim the leading fields; never trim the last.** The leading fields are padded with
+  spaces so the raw file reads as columns. The last field — a path, or a property's value —
+  is never padded, and must be taken **verbatim** from the final tab to the end of the line.
+  On Linux and macOS a filename may legitimately begin or end with a space, and a parser that
+  strips every field restores `" notes.txt "` as `"notes.txt"` — the wrong file, with nothing
+  reported.
 
 ## The remote repository (the keystone)
 
@@ -134,9 +136,8 @@ carries **no paths** — whoever meets the absence is already holding a snapshot
 path in front of them; what the record adds is that the absence is deliberate, when, and by
 whom.
 
-A record is a plain, uncompressed TSV whose rows line up with a snapshot's column types: a
-hash where a snapshot row has one, then a size, a timestamp, and text at the ragged end —
-here *who* ran the delete, as `user@machine`:
+A record is a plain, uncompressed TSV: the deleted object's hash, its size, a timestamp,
+and text at the ragged end — here *who* ran the delete, as `user@machine`:
 
 ```
 #DELETED		2026-08-22T11:04:55.120Z	These objects were removed on purpose. Absence here is not damage.
@@ -150,9 +151,9 @@ hex characters** — the deleted object's hash, its old key under `objects/`. Th
 the object's stored size in bytes, the third the UTC instant the delete ran, and everything
 after the third tab is who ran it. Skip every other line: the `#DELETED` header's third
 column repeats the record's instant and its last column is prose for a human, and the
-trailer is a bare `#END`, closing the file the way a snapshot's trailer does. It carries no
-status columns because a record lands in one atomic PUT — a partial record cannot exist.
-Record rows are **not** column-padded the way a snapshot's are.
+trailer is a bare `#END`, which says the file is whole the way `#S3CAB END` does for a
+snapshot. It carries no status columns because a record lands in one atomic PUT — a partial
+record cannot exist. Record rows are **not** column-padded the way a snapshot's are.
 
 **Records are compacted, not kept forever.** `s3cab cleanup` merges every record file into
 one fresh file (at the next free index) and drops rows whose hash **no snapshot anywhere
@@ -186,15 +187,15 @@ content is still stored.
   bare CR counts: plenty of line-splitters treat it as a line ending, so allowing one would
   hand different readers different answers.) Such names are legal only on Linux and macOS
   (Windows forbids them outright) and are almost always a script bug rather than a choice.
-  A file with one is **not backed up**: the run stops and names it, so you can rename it,
-  or exclude it with a pattern like `odd*name.jpg` and run again. Its `#EXCLUDED` row then
-  spells the three out as the Unicode Control Pictures `␉` (U+2409), `␍` (U+240D) and `␊`
-  (U+240A), which a reader may read as the characters they stand for, and a symlink with one
-  in its name gets no `#SKIPPED` row. Every other character
-  — including control characters that are *not* those three — is stored as-is.
-- **Regular files only.** Snapshots record file content, size, and modification time —
-  no symlinks or junctions, no hardlink identity, no empty directories, no permissions or
-  ACLs. s3cab backs up *data* (documents, photos, video); it is not a system backup tool.
+  A file with one is **not backed up**, and neither is a link whose name or target has one:
+  the run stops and names it, so you can rename it, or exclude it with a pattern like
+  `odd*name.jpg` and run again. Every other character — including control characters that
+  are *not* those three — is stored as-is.
+- **File content, not the filesystem around it.** Snapshots record each file's content,
+  size, and modification time, and each link as itself — not what a link leads to, no
+  hardlink identity, no empty directories, no permissions or ACLs. Pipes, sockets and
+  devices get no row at all. s3cab backs up *data* (documents, photos, video); it is not a
+  system backup tool.
 
 ## Snapshot files
 
@@ -202,37 +203,183 @@ A snapshot is a point-in-time record of every file in a backup set: a plain-text
 tab-separated (TSV) table, gzip-compressed on disk and in the bucket (`.tsv.gz` —
 decompress with any gzip tool: `gunzip`, or the gzip support built into every mainstream
 language). How hard it is compressed is s3cab's choice and may change; what is promised is
-plain, single-stream gzip. Lines whose first field starts with `#` are metadata, not file
-rows — **check for that before checking anything structural**, because the four-field
-grammar below describes file rows only, and the metadata lines do not all obey it.
+plain, single-stream gzip.
 
 The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) apply here in
-full — encoding, LF splitting, no escaping, and never trimming the path. This section adds
-only what is specific to snapshots.
+full — encoding, LF splitting, no escaping, and never trimming the last field. This section
+adds only what is specific to snapshots.
 
-The file opens with a header naming the set and its member directories, so it is
-self-describing even found alone in a bucket; then one row per file:
+Every line has the same five columns, and the first says what kind of row it is. The file
+says where it came from before it lists anything, so it is self-describing even found alone
+in a bucket:
 
 ```
-#SNAPSHOT	photos	2026-06-12T08:15:32.123Z	2026-06-12T0915 Europe/London
-#DIR			C:\Users\me\Photos
-#DIR			D:\Pics
-3b8e…c0a1	4915200	2026-06-01T12:00:00.000Z	C:\Users\me\Photos\beach.jpg
+#S3CAB                                size  time                      https://s3cab.plantegral.com/guide/format
+#S3CAB    VERSION                                                     0.14.0
+#S3CAB    HOME                                                        C:\Users\me\.s3cab\
+#SET      NAME                                                        photos
+#SET      BUCKET                                                      s3://my-backup-bucket
+#SET      DIR                                                         C:\Users\me\Photos\
+#SET      DIR                                                         D:\Pics\
+#SET      EXCLUDE                                                     *.tmp
+#SNAPSHOT NAME                                                        2026-06-12T0915
+#SNAPSHOT BY                                                          me@DESKTOP
+#SNAPSHOT START                             2026-06-12T08:15:32.123Z  Europe/London
+#excluded *.tmp                                                       C:\Users\me\Photos\upload.tmp
+#error    EPERM: operation …                                          D:\Pics\locked.jpg
+link      2025\beach.jpg                                              C:\Users\me\Photos\latest.jpg
+object    3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
+object    e3b0…b855                      0  2024-01-01T00:00:00.000Z  D:\Pics\empty.txt
+#SNAPSHOT FILES                                                       2
+#SNAPSHOT SIZE                                                        4915200 (4.9MB)
+#S3CAB    END                               2026-06-12T08:15:40.871Z
 ```
 
-- **`hash`** — the SHA-256 of the file's contents, lowercase hex: both the file's identity
-  and its key under `objects/`.
-- **`size`** — bytes, in decimal (right-aligned).
-- **`mtime`** — the file's modification time as exactly `YYYY-MM-DDTHH:MM:SS.sssZ`: 24
+That example collapses the padding to stay readable; [the real widths](#the-columns) are
+below.
+
+### The columns
+
+| Col | Width | An `object` row | Other rows |
+| --- | --- | --- | --- |
+| 1 | 6 | `object` | the row's type |
+| 2 | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), or a per-path row's text: the pattern, the error, the link's target |
+| 3 | 12, right-aligned | the size in bytes | blank |
+| 4 | 24 | the modification time | an instant, where the row has one |
+| 5 | ragged | the path | the path, or the property's value |
+
+For an `object` row:
+
+- **hash** — the SHA-256 of the file's contents, lowercase hex: both the file's identity
+  and its key under `objects/`. Two paths with the same content are two `object` rows naming
+  one object, which is what deduplication means.
+- **size** — bytes, in decimal. This column holds file sizes and nothing else, so its sum is
+  the backup's total.
+- **mtime** — the file's modification time as exactly `YYYY-MM-DDTHH:MM:SS.sssZ`: 24
   characters, always three fractional digits, always a literal trailing `Z`. Never a
   `+00:00` offset, never a comma for the decimal point, never a different digit count.
-- **`path`** — absolute, in the OS's native style, last on the line so the padded columns
+- **path** — absolute, in the OS's native style, last on the line so the padded columns
   stay aligned and so it can hold spaces without ambiguity.
+
+Each column is space-padded to its width, and the columns are separated by tabs, so the
+file reads as a table in an editor and parses as clean TSV in a script. Column 1 is exactly
+as wide as `object`, so an `object` row has no padding at all. A value longer than its
+column simply overflows it — `#SNAPSHOT` and `#excluded` are wider than 6, and an error
+message can be wider than 64 — so these are *minimum* widths, not a fixed-width record
+layout. The last column is never padded. A parser that trims the first four fields can
+ignore all of this; anyone writing a snapshot, building a golden test, or matching a line
+against a literal needs the real bytes.
+
+**The first row is a heading**, the same in every snapshot: `#S3CAB`, then the names of
+the size and time columns, then the address of this page, so a file found on its own says
+where it is explained. Spreadsheets are why it names the columns: Excel's AutoFilter takes
+row 1 as its headings.
+
+### Row types
+
+A lowercase type is something a restore could act on; a `#` type is not.
+
+| Type | Column 2 | Column 4 | Last column |
+| --- | --- | --- | --- |
+| `object` | the hash | the modification time | the file's path |
+| `link` | the link's target, as the link holds it | | the link's path |
+| `#excluded` | the exclude pattern that matched | | the path |
+| `#error` | the operating system's message | | the path |
+| `#S3CAB`, `#SET`, `#SNAPSHOT` | the property | the instant, if it has one | the value |
+
+- **`object`** is a file, and the only row with content to fetch.
+- **`link`** is a symbolic link or junction, recorded as itself and **never followed** — a
+  link can lead anywhere, including somewhere you never chose to back up. Its target is
+  written as the link holds it, relative or absolute. s3cab's own restore doesn't recreate
+  links ([a restorer may](#if-you-are-writing-a-restorer)).
+- **`#excluded`** is an entry an exclude pattern matched, and **`#error`** one s3cab couldn't
+  check or read. Neither is in the backup; the row says why.
+
+**A path ending with a separator is a folder** (`C:\Users\me\Photos\cache\`): an excluded
+folder, a link whose target is a folder, a member directory. A link whose target is missing
+has no separator, since nothing says what it was.
+
+**A reader skips a `#` type or property it doesn't know, and refuses a lowercase type it
+doesn't know.** An unknown `#` row is information a newer s3cab added; an unknown lowercase
+row is content a restore would miss, so reading on would pass off part of a backup as all
+of it. The test, concretely: take the first tab-separated field and trim it, and compare it
+case-sensitively — `#SET` and `#set` are different types, though a spreadsheet's sort and
+filter ignore case.
+
+### The whole-snapshot rows
+
+`#S3CAB` is the file and the software that wrote it, `#SET` the set's configuration, and
+`#SNAPSHOT` this run. Each row is one fact, and records it as this run saw it, so a value
+can go stale later without the row being wrong.
+
+| Row | What it records |
+| --- | --- |
+| `#S3CAB VERSION` | the s3cab release that wrote the file |
+| `#S3CAB HOME` | the [s3cab home](#the-local-side-s3cab) on that machine |
+| `#SET NAME` | the set's name |
+| `#SET BUCKET` | the bucket, as `s3://<bucket>` |
+| `#SET ENDPOINT` | the S3 endpoint, only for a provider other than AWS, where a bucket name alone doesn't say where it is |
+| `#SET DIR` | a member directory, one row each |
+| `#SET EXCLUDE` | an exclude pattern in force for this run, one row each, including any that matched nothing |
+| `#SNAPSHOT NAME` | the snapshot's name |
+| `#SNAPSHOT BY` | who took it, as `user@machine` |
+| `#SNAPSHOT START` | the instant the run started (column 4), and the time zone the name was minted in |
+| `#SNAPSHOT FILES` | the number of `object` rows |
+| `#SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses |
+| `#S3CAB END` | the instant the file was finished (column 4) |
+
+`START` carries the zone because snapshot names are local wall-clock time, so the zone is
+what makes one resolvable to an instant: `0915` in London in June is `08:15Z`. Naming the
+zone (`Europe/London`) rather than just its offset says *where*, which explains a
+daylight-saving shift rather than merely recording one.
+
+`FILES` and `SIZE` are exact, so each checks something: `FILES` against the count of
+`object` rows, `SIZE` against the sum of the size column. Its readable form also keeps the
+cell text, since a spreadsheet shows a bare 13-digit number as `1.23E+12`. s3cab doesn't
+read either back: a hand edit can change them, so a mismatch isn't damage.
+
+s3cab writes the rows in this order: the heading; the `#S3CAB`, `#SET` and `#SNAPSHOT`
+rows above; every `#excluded`, `#error` and `link` row, so the answer to "why wasn't this
+backed up?" is near the top; one `object` row per file (with an `#error` in among them for
+a file that failed while being read); then `FILES`, `SIZE` and `END`. A reader goes by each
+row's type, not its position — except for `END`, below.
+
+The set's directory and this snapshot's local path follow from `HOME` and the names, and
+its key in the bucket from `BUCKET` and the
+[repository layout](#the-remote-repository-the-keystone), so none of them is recorded. The `exclude.txt` in the bucket is only the latest; the `EXCLUDE` rows say which
+patterns applied to this run.
+
+One omission is silent by design: a directory named `.s3cab` is never walked and gets no
+row — it is s3cab's own, and a member directory containing one would otherwise back up the
+tool's working files. An entry that vanishes between being listed and being checked gets no
+row either, since there is nothing left to record; a folder that can't be listed stops the
+backup.
+
+### No row holds a tab or a line ending
+
+No field in a snapshot holds a real tab, CR or LF, and each field either refuses them or
+spells them out:
+
+- **Refused:** an `object` row's path, and a link's path and target. s3cab stops the backup
+  rather than write one ([above](#what-is-deliberately-not-stored)). A `␉` in these fields is
+  only a character of the name, and restores as itself.
+- **Spelled out, everywhere else:** as the Unicode Control Pictures `␉` (U+2409), `␍`
+  (U+240D) and `␊` (U+240A), which a reader may read as the characters they stand for. In
+  practice that is an `#excluded` path, since excluding a file is how it gets past the
+  refusal, or an error message.
+
+So every line has exactly five fields. One thing still trips a parser that counts them
+after trimming the line: `#S3CAB END`'s last field is empty, so stripping trailing
+whitespace leaves four.
+
+### Paths
 
 **A path appears at most once in a snapshot.** s3cab never writes a repeat, and a reader
 may treat one as a malformed file. The commitment matters because there is no safe way to
 guess: a first-wins reader and a last-wins reader would restore *different bytes* from the
-same snapshot, neither of them reporting anything wrong.
+same snapshot, neither of them reporting anything wrong. s3cab's own reader doesn't reject
+a hand-damaged file that does — it takes the **last** row for a path; a stricter reader is
+free to reject the duplicate instead.
 
 **Paths are written with the casing the filesystem itself reports** — the spelling you see
 in File Explorer or Finder, not the spelling anything was typed in. If a folder is on disk
@@ -243,20 +390,20 @@ canonical case for it. So `C:` is what you get, whichever way you wrote it.
 
 That is a promise about what s3cab *writes*. Reading is more forgiving, because these files
 are yours to edit: on Windows paths (a drive letter, or a network share starting `\\` or
-`//`), where two spellings name one file, `#DIR` headers are matched against paths
-case-insensitively — so hand-editing a snapshot's headers, or a set's `dirs.txt`, won't stop
-`restore --output` finding where a file belongs. Every other path is matched exactly, since a
-case-sensitive filesystem really can hold both `Photos` and `photos`.
+`//`), where two spellings name one file, `#SET DIR` rows are matched against paths
+case-insensitively — so hand-editing a snapshot's `DIR` rows, or a set's `dirs.txt`, won't
+stop `restore --output` finding where a file belongs. Every other path is matched exactly,
+since a case-sensitive filesystem really can hold both `Photos` and `photos`.
 
-**How a `#DIR` matches a path**, since anything re-rooting a tree depends on getting this
-right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
-claim `…\trees\edgeX\file.txt`. Split both the header and the path into segments and drop
-empty ones, which is what makes a trailing separator or a doubled one harmless. Which
+**How a `#SET DIR` matches a path**, since anything re-rooting a tree depends on getting
+this right. Compare **whole path segments, never a string prefix** — `…\trees\edge` must not
+claim `…\trees\edgeX\file.txt`. Split both the directory and the path into segments and drop
+empty ones, which is what makes the trailing separator, or a doubled one, harmless. Which
 separators count depends on the path, not the machine reading it: a Windows path splits on
 `/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary character in a
 filename — so a Windows snapshot reads correctly on a POSIX machine, and the reverse. Where
-several headers match, the **longest wins**, so a member directory nested inside another
-takes precedence over its parent. A path under no header at all has nowhere to land: s3cab
+several directories match, the **longest wins**, so a member directory nested inside another
+takes precedence over its parent. A path under no `DIR` at all has nowhere to land: s3cab
 reports it rather than guessing, and a hand-edited snapshot is the only way to produce one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
@@ -265,12 +412,11 @@ the recorded paths, to a chosen directory, or anywhere else. What s3cab itself d
 written down here for one reason only: so that *"does my restore agree with s3cab's?"* is a
 question with an answer, rather than something you can settle only by running the tool and
 looking. Restoring to a chosen directory, it writes each file to
-`<output>/<basename of the #DIR that matched>/<the rest of the path below that #DIR>`. So
-under a `#DIR` header naming `C:\Users\me\Photos`, a row for
-`C:\Users\me\Photos\2024\beach.jpg` lands at
+`<output>/<name of the DIR that matched>/<the rest of the path below that DIR>`. So under a
+`#SET DIR` of `C:\Users\me\Photos\`, a row for `C:\Users\me\Photos\2024\beach.jpg` lands at
 `<output>\Photos\2024\beach.jpg` — the member directory's *name*, not a rebuilt
-`C\Users\me\…` chain. Two `#DIR` headers whose basenames collide (`C:\a\Photos` and
-`D:\b\Photos`) both want the same destination directory; s3cab refuses that snapshot rather
+`C\Users\me\…` chain. Two `DIR` rows whose names collide (`C:\a\Photos\` and
+`D:\b\Photos\`) both want the same destination directory; s3cab refuses that snapshot rather
 than merging them. **None of this binds you.** A different layout is a different tool making
 a different decision, not a misreading of the format.
 
@@ -288,94 +434,32 @@ disagree without either being wrong. But a restored file can also sit up to half
 millisecond either side of a *surviving original*, which any mtime-sensitive tool will report
 as a difference.
 
-**The columns are space-padded, and the example above collapses that padding to stay
-readable.** In a real file the first field is padded to 64 characters (so `#SNAPSHOT` is
-followed by 55 spaces), the second is right-aligned in 10, and the third is padded to 24. A
-value longer than its column simply overflows it — a 14-digit size makes that one row's
-second field 14 wide — so these are *minimum* widths, not a fixed-width record layout. The
-path, being last, is never padded. Any parser that trims the leading fields can ignore all
-of this; anyone writing a snapshot, building a golden test, or matching a line against
-`#SNAPSHOT\t` needs the real bytes.
+### The last line: `#S3CAB END`
 
-After its marker, the `#SNAPSHOT` line carries three fields: the **set** name, the **instant the
-snapshot started** (UTC, the same form as `mtime`, so it lines up in the same column), and
-the snapshot's **own name followed by the time zone that name was minted in**. Snapshot
-names are local wall-clock time, so the zone is what makes one resolvable to an instant —
-and naming the zone (`Europe/London`) rather than just its offset says *where*, which
-explains a daylight-saving shift rather than merely recording one.
+**`#S3CAB END` is the last line of every snapshot, and it means the file is complete.** A
+file without it was cut short, whatever the cause, so one check catches every kind. gzip
+does notice a cut-short file, but only at the end: `gunzip -c` and Python's `gzip` module
+both hand over every line they can decompress *before* reporting the cut, so a reader that
+processes rows as they arrive has already seen a byte *prefix* of the original, which would
+otherwise read as a valid, smaller snapshot. A snapshot without `END` is damaged goods —
+treat it as truncated, not as complete. Concretely: **don't restore from it**. The rows that
+survive a cut are a valid-looking prefix, so restoring them produces a tree that looks
+finished and silently isn't; refuse the snapshot, say why, and let the reader reach for an
+intact one. (A reader that only wants the `object` rows can still skip every `#` line;
+checking for `END` first is what tells it the rows it read are all of them.)
 
-Besides `#SNAPSHOT`/`#DIR`, a snapshot may carry `#EXCLUDED` (matched an exclude pattern),
-`#SKIPPED` (present but not stored — an unsupported type such as a symlink), and `#ERROR`
-(a file that could not be read)
-metadata rows recording what the snapshot does *not* include and why. A reader wanting only
-the file rows can simply skip every `#` line. (One omission is silent by design: a directory
-named `.s3cab` is never walked and gets no row — it is s3cab's own, and a member directory
-containing one would otherwise back up the tool's working files.)
+Its instant is when the file was finished — for a snapshot, when the run finished. s3cab
+itself doesn't read it back. It's there for you: with `START`'s instant, it's the only
+record of how long the run took. Read it as an upper bound: the column holds milliseconds
+and the clock is finer, so the figure is rounded **up** — everything in the file was written
+at or before the moment it names, never after. Two snapshots of an unchanged set, taken on
+the same machine by the same s3cab, therefore differ in `#SNAPSHOT NAME`, `START` and
+`#S3CAB END`, and nowhere else.
 
-What those rows carry, for anyone reading a snapshot by hand:
-
-| Row | Column 2 | Column 3 | Column 4 |
-| --- | --- | --- | --- |
-| `#SNAPSHOT` | the set name | the instant the snapshot started | `<name> <zone>` |
-| `#DIR` | *(blank)* | *(blank)* | a member directory |
-| `#EXCLUDED` | the entry's type | the exclude pattern that matched | the path |
-| `#SKIPPED` | the entry's type | why it was skipped | the path |
-| `#ERROR` | *(blank)* | the operating system's error text | the path |
-| `#END` | `COMPLETE` or `PARTIAL` | the instant the last row was written | *(blank)* |
-
-Those payloads are **context, not commitment**: new metadata kinds may appear and existing
-ones may change what they carry. The guarantee is the one above — skip every `#` line and
-what remains is exactly the file rows. Two details matter before writing a parser, and both
-are why the `#` test has to come first. `#ERROR`'s third column is a raw operating-system
-message and `#EXCLUDED`'s is a pattern copied from your `exclude.txt`, so neither carries a
-path's promise of being tab-free and either may push its line past four fields; and `#END`
-ends on an empty fourth column, so a reader trimming trailing whitespace sees three fields
-rather than four. Neither troubles a reader that tests for `#` before counting fields, and
-both break one that counts first.
-
-The last line of every snapshot is the trailer `#END`. It exists to make truncation
-detectable. gzip does notice a cut-short file, but only at the end: `gunzip -c` and
-Python's `gzip` module both hand over every line they can decompress *before* reporting the
-cut, so a reader that processes rows as they arrive has already seen a byte *prefix* of the
-original, which would otherwise read as a valid, smaller snapshot. A snapshot without the `#END`
-trailer is damaged goods — treat it as truncated, not as complete. Concretely: **don't
-restore from it**. The rows that survive a cut are a valid-looking prefix, so restoring
-them produces a tree that looks finished and silently isn't; refuse the snapshot, say why,
-and let the reader reach for an intact one. (A reader that only
-wants the file rows can still skip every `#` line; checking for the trailer first is what
-tells it the rows it read are all of them.)
-
-Its two columns say how the run ended, and they answer different questions. The trailer
-being **there** means s3cab ended the file deliberately, so the last row is whole — a
-killed process leaves no trailer at all. The **status** then says whether the rows are all
-of them: `COMPLETE` for a finished snapshot, `PARTIAL` for the hashes a run stopped with
-Ctrl+C left behind (the `.snapshot.lookup.tsv.gz` file described below — the only file
-s3cab writes `PARTIAL` into). The **instant** is when the last row was written, in the same
-UTC form and the same column as `#SNAPSHOT`'s, so the two line up under each other.
-s3cab itself doesn't read it back. It's there for you: with `#SNAPSHOT`'s instant, stamped
-when the run started, it's the only record of how long the run took. Read it as an upper
-bound: the column holds milliseconds and the clock is finer, so the figure is rounded
-**up** — everything in the
-file was written at or before the moment it names, never after. Two snapshots of an
-unchanged folder therefore differ in this line and the `#SNAPSHOT` header — which carries
-its own instant and the snapshot's name — and nowhere else: every file row is identical.
-
-Match the marker and **ignore anything after it** on that line: no truncation can add
-fields — a cut only ever removes bytes — so a trailer carrying extra columns is not damage,
-and tolerating them leaves room to add a column later without breaking readers already
-written against this spec. (That room has been used once already: the trailer was a bare
-`#END` before the two columns above.) The test, concretely, is the one every other marker
-gets: take the **first tab-separated field and trim it**, and the line is the trailer when
-that equals `#END`. So a bare `#END` and `#END<TAB>2026-06-12` are both trailers, and
-`#ENDX` is not one.
-
-Three smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
+Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's **name** is
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
-and the file is that name plus `.tsv.gz`. A snapshot holding a header, a trailer and
-**no file rows at all** is perfectly legal: an empty backup set, not a damaged file. And
-s3cab never writes the same path twice in one snapshot, but its own reader doesn't reject a
-hand-damaged file that does — it silently takes the **last** row for a path; a stricter
-reader is free to reject the duplicate instead.
+and the file is that name plus `.tsv.gz`. And a snapshot with **no `object` rows at all** is
+perfectly legal: an empty backup set, not a damaged file.
 
 ## The local side (`~/.s3cab/`)
 
@@ -413,20 +497,21 @@ CloudFormation stack by `s3cab aws --roles-anywhere --save`. It is machine ident
 config — leave it out of any backup you share.
 
 Two temporary files can appear in `snapshots/` while s3cab is working. Both start with a
-dot, neither is ever uploaded, and both are safe to delete when nothing is running:
+dot, neither is ever uploaded, and both are safe to delete when nothing is running. Neither
+ends with `#S3CAB END`, so neither can pass for a finished snapshot; s3cab reads each only
+for its file hashes, and drops its last line unread, since nothing vouches that the line is
+whole. That costs one file hashed again.
 
 - `.snapshot.tsv.gz` — the snapshot being written right now. It becomes the finished
   snapshot when the run completes. One left behind means a run was killed part-way; s3cab
-  says so, and names it, the next time you snapshot that set. It has no trailer, because the
-  run never reached one, and its last line stops wherever the kill landed — so once you know
-  nothing is running, `--resume` carries on from the rows before it instead of reading all
-  those files again. That last line is dropped unread: a row cut off part-way can still look
-  complete, so the one row s3cab cannot vouch for is one file it hashes again.
+  says so, and names it, the next time you snapshot that set. Its last line stops wherever
+  the kill landed — so once you know nothing is running, `--resume` carries on from the rows
+  before it instead of reading all those files again.
 - `.snapshot.lookup.tsv.gz` — the file hashes from a snapshot you stopped with Ctrl+C,
   kept so the next run doesn't have to work them out again. Structurally it is a snapshot
-  like any other, closed with a `PARTIAL` trailer that says so. It is read as a lookup only
-  — every hash in it is re-checked against the file's current size and modification time
-  before being trusted — and it is deleted as soon as a snapshot completes.
+  that stops after its last `object` row, with no `FILES`, `SIZE` or `END`. Every hash in it
+  is re-checked against the file's current size and modification time before being trusted,
+  and it is deleted as soon as a snapshot completes.
 
 Editing a set *is* editing these files; deleting the directory deletes the set. In both
 `dirs.txt` and `exclude.txt`, blank lines are ignored and a line starting with `#` is a
@@ -446,7 +531,7 @@ back down and syncs the snapshot history — whereas nothing can rebuild a lost 
    $gz = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($f), [IO.Compression.CompressionMode]::Decompress)
    $out = [IO.File]::Create(($f -replace "\.gz$", "")); $gz.CopyTo($out); $out.Close(); $gz.Close()
    ```
-3. Open the `.tsv` — a text editor or a spreadsheet — and find your file's row.
+3. Open the `.tsv` — a text editor or a spreadsheet — and find your file's `object` row.
 4. Download `objects/<its-hash>` from the bucket. That is your file, byte for byte; the row
    tells you its original path and modification time.
 
@@ -484,6 +569,9 @@ once you try to restore from it.
   forbids outright; both collide or fail on a Windows target. The format records what was
   there faithfully — deciding what to do on arrival is a choice your tool has to make and
   should state.
+- **Recreating links is your choice too.** A `link` row records the target as the link held
+  it and, by its trailing separator, whether it led to a folder — enough to recreate it. On
+  Windows, pick a symlink or a junction; the row doesn't say which it was.
 - **Keep `objects/` in a storage class you can actually GET.** Step 4 assumes a plain
   download works. A bucket lifecycle rule that archives `objects/` to a cold tier breaks that
   for every tool including s3cab, turning recovery into a restore-from-archive wait — worth

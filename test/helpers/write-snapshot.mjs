@@ -11,9 +11,9 @@ import {
 
 // Test fixture builder: write a snapshot file from a list of paths or `File`
 // objects, in the real `.tsv.gz` form (so a snapshot lister sees it when the
-// name is datestamped). It writes file rows only — no `#SNAPSHOT`/`#DIR`
-// headers — which is all the compare/remote tests need; production snapshots
-// (with headers) are written by `snapshot()`. On-disk paths go through the lib
+// name is datestamped). It writes the heading, object rows and trailer only — no
+// `#SET`/`#SNAPSHOT` header rows — which is all the compare/remote tests need;
+// production snapshots (with headers) are written by `snapshot()`. On-disk paths go through the lib
 // `fileProps`; a `File` carries its own in-memory bytes, so it is hashed inline
 // here — production `fileProps`/`prop` are path-only, and synthesizing props
 // from in-memory bytes is a test-only convenience that stays in the test layer.

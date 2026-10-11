@@ -1,21 +1,8 @@
 import { join, posix, resolve, win32 } from "node:path";
 
-import { foldsCase, preparePath } from "./path-match.mjs";
+import { foldsCase, pathMatcher, preparePath } from "./path-match.mjs";
 
 /** @import { Props, SnapshotEntries } from "./snapshot-file.mjs" */
-
-/**
- * Normalize a path for filter matching: separators to `/` and case folded for a
- * Windows-shaped path, both left alone for a POSIX one. Judged by the path's
- * shape (`preparePath`), not by `process.platform`, because `restore --output`
- * puts a Windows backup on Linux, and its paths are still Windows paths there.
- * @param {string} p
- * @returns {string}
- */
-const normalize = (p) => {
-  const { path, foldCase } = preparePath(p);
-  return foldCase ? path.toLowerCase() : path;
-};
 
 /**
  * Whether `dest` puts a `:` in a name on Windows. NTFS doesn't refuse one, it
@@ -99,33 +86,10 @@ export function selectEntries(paths, filters) {
 }
 
 /**
- * Build the "does this path fall under any of these filters?" predicate that
- * `selectEntries` applies — a filter matches a path that equals it or lies under
- * it (a `/`-boundary prefix), separators unified and case folded for a
- * Windows-shaped path (`normalize`), a trailing separator ignored.
- * @param {string[]} filters - Path filters, as the user gave them
- * @returns {((path: string) => boolean) | undefined} `undefined` when no filter
- *   survives normalization: none given, or all blank or separator-only
- */
-function pathMatcher(filters) {
-  const needles = filters
-    .map(normalize)
-    .map((n) => n.replace(/\/+$/, ""))
-    .filter(Boolean);
-  if (needles.length === 0) {
-    return undefined;
-  }
-  return (path) => {
-    const hay = normalize(path);
-    return needles.some((n) => hay === n || hay.startsWith(n + posix.sep));
-  };
-}
-
-/**
  * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
  * under `<output>/<member-root-basename>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
- * taken (docs/design/backup.md). The member roots are the snapshot's `#DIR` headers.
+ * taken (docs/design/backup.md). The member roots are the snapshot's `#SET DIR` rows.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split by `path-match.mjs`'s `preparePath` — both
@@ -149,7 +113,7 @@ function pathMatcher(filters) {
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
  * with a path filter, or to their original locations. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The snapshot's member roots (its `#DIR` headers)
+ * @param {string[]} dirs - The snapshot's member roots (its `#SET DIR` rows)
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string} Maps a snapshot path to its destination
  */
@@ -165,8 +129,8 @@ export function reroot(dirs, output) {
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
       // Not `preparePath`'s own `base`: that answers "what follows the last
-      // separator", which is empty for a `#DIR` header carrying a trailing
-      // one (a hand-edited snapshot). `segments` already trims those.
+      // separator", which is empty for a `#SET DIR` row, written with a
+      // trailing one (ADR-0098). `segments` already trims those.
       const segments = path.split(posix.sep).filter(Boolean);
       return {
         segments,

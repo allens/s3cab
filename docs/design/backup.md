@@ -224,9 +224,8 @@ change-detection baseline) → `storedHashes` (what needs no upload, settled *be
 so a credentials or network problem surfaces in seconds) → `generateSnapshot` with
 `uploadObjects` spliced into its pipeline → `uploadSnapshotFile` (the manifest, last). The
 uploader is a pass-through transform, so the snapshot a backup writes is row-for-row identical to
-the one a plain `snapshot` would have written. (Not byte-identical any more: the `#END` trailer
-records when its last row landed, so two runs differ in that one line —
-[ADR-0082](../adr/0082-snapshot-end-trailer.md).)
+the one a plain `snapshot` would have written. (Not byte-identical: `#S3CAB END` records when
+its last row landed — [ADR-0082](../adr/0082-snapshot-end-trailer.md).)
 
 **The hash lookup is one map**: the previous snapshot's rows with an interrupted run's parked
 hashes laid over them. Under the opt-in change-time check, one boundary judges both — the
@@ -335,22 +334,23 @@ snapshots need no command: the files are the API — delete the file.)
 
 ## Snapshot files
 
-The file grammar — the `#SNAPSHOT`/`#DIR` header, the TSV rows, the metadata-row types —
-is the format spec's to state ([guide/format.md](../../guide/format.md)). The decisions
+The file grammar — the five columns, the row types, the `#S3CAB`/`#SET`/`#SNAPSHOT`
+properties — is the format spec's to state ([guide/format.md](../../guide/format.md)). The decisions
 behind it:
 
 **One snapshot per set per run** — all member directories in a single TSV (the line
 format is multi-root-safe: paths are absolute). This buys cross-directory move/dedup
 detection in `compare` and makes the snapshot-last invariant a **set-level** atomicity
-guarantee; the header naming the set and its member dirs as captured at snapshot time is
-what makes the file self-describing even found alone in a bucket.
+guarantee; the `#SET` rows naming the set and its member dirs as captured at snapshot time
+are what make the file self-describing even found alone in a bucket.
 
-**Scope: regular files only (decided 2026-06).** A deliberate product-scope decision, not
+**Scope: regular files, and links as themselves (decided 2026-06; links
+[ADR-0099](../adr/0099-links-recorded-never-followed.md)).** A deliberate product-scope decision, not
 an accident of implementation: s3cab is **not a system backup tool** (commercial tools, OS
 built-ins, and git all serve that need). It exists for a user to back up their documents,
 pictures, and video efficiently, where what matters is that **the content is recoverable**.
-Content, size, and mtime are the contract; everything else is out of scope, stated to
-users in the format spec.
+Content, size, and mtime are the contract, plus a `link` row recording each link without
+following it; everything else is out of scope, stated to users in the format spec.
 
 **Snapshot names: collisions error, snapshots never overwrite.** Names stay
 minute-precision local timestamps. A second snapshot of the same set in the same minute is

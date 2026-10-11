@@ -182,8 +182,8 @@ ADRs [0021](docs/adr/0021-lf-line-endings-prettier-code-only.md),
   JS binding would make a test agree with a broken implementation, and a fixture that keys a mock
   on `resolve()`'s spelling fails only under a lowercase-drive cwd, where it reads as a flake.
 - **Canonical on the way out, case-tolerant on the way in.** Every path s3cab *writes* is
-  canonical (`resolveWalkRoot`, so a snapshot's `#DIR` headers are spelled like the rows beneath
-  them); every path s3cab *reads back* from a file a user may have edited — `dirs.txt`,
+  canonical (`resolveWalkRoot`, so a snapshot's `#SET DIR` rows are spelled like the paths
+  beneath them); every path s3cab *reads back* from a file a user may have edited — `dirs.txt`,
   `exclude.txt`, a snapshot — tolerates a case difference where the OS does, because on Windows
   the two spellings are one file. Tolerance keys on the **path's shape** (`foldsCase`: is the
   root a drive letter or a UNC share?), never on `process.platform` — `restore --output` exists

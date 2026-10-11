@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
+import { customEndpoint } from "./env.mjs";
 import { fileProps } from "./file-props.mjs";
 import {
   ELAPSED_COLUMNS,
@@ -50,9 +51,9 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
  * @typedef {Object} SnapshotBaseline
  * @property {string} [name] - The previous snapshot's name (absent on a first run)
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
- * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#ERROR` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
+ * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#error` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
  * @property {HashSource} [lookup] - Where a stored hash may be reused from: the previous snapshot's entries with the parked ones laid over them. Absent under `--rehash`, or when there is neither
- * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT` header
+ * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT START` row
  */
 
 /**
@@ -165,10 +166,10 @@ export async function readBaseline(set, { rehash, resume }) {
  * the rest on the floor, so `backup` had nothing to report but an object count
  * ([ADR-0078](../../docs/adr/0078-backup-run-report.md)).
  *
- * `skipped` and `errors` come from **here**, not from the diff that follows,
- * even though the diff carries them too: they are facts about the snapshot just
- * written rather than about the comparison, and a first backup — which runs no
- * diff at all (ADR-0078 §7) — still has to report them.
+ * `errors` come from **here**, not from the diff that follows, even though the
+ * diff carries them too: they are facts about the snapshot just written rather
+ * than about the comparison, and a first backup — which runs no diff at all
+ * (ADR-0078 §7) — still has to report them.
  * @typedef {Object} SnapshotPass
  * @property {string} name - The snapshot's name
  * @property {string} path - Where it landed locally
@@ -176,8 +177,7 @@ export async function readBaseline(set, { rehash, resume }) {
  * @property {number} bytes - The scanned files' total size — **not** bytes read off the disk, since an unchanged file reuses its stored hash and is never opened. It is the figure the progress line counts up to, so the closing report and the line the user watched agree
  * @property {number} hashedFiles - How many of those files were really read and hashed; the rest reused a stored hash
  * @property {number} hashedBytes - Their bytes — the disk work the elapsed time actually went on, and the difference between a routine pass and one that re-read the whole set
- * @property {number} skipped - Entries the walk left out by design (`#SKIPPED`): its unsupported types
- * @property {CompareError[]} errors - Files it couldn't hash (`#ERROR`), with the reason each row records
+ * @property {CompareError[]} errors - Paths it couldn't check or hash (`#error`), with the reason each row records
  * @property {string[]} roots - The member directories as the walk resolved them — the spelling every path above starts with, which `dirs.txt`'s text need not be
  * @property {number} elapsedMs - How long the whole pass took, walking included
  */
@@ -240,8 +240,8 @@ export async function generateSnapshot(
     console.warn(`Storing objects in 's3://${set.bucket}'`);
   }
 
-  const { files, excluded, skipped } = walkSet(set);
-  // The `#DIR` headers, canonicalized the same way the walk canonicalized the
+  const { files, excluded, links, errors: walkErrors, patterns } = walkSet(set);
+  // The `#SET DIR` rows, canonicalized the same way the walk canonicalized the
   // roots it yielded these files from — `dirs.txt` is hand-edited (ADR-0052), so
   // its text can name a directory in any casing Windows accepts while the rows
   // below carry the on-disk spelling. Writing the raw text made a header that
@@ -253,10 +253,7 @@ export async function generateSnapshot(
   // just stat-ed every file under them.
   const roots = set.dirs.map(resolveWalkRoot);
 
-  // The set's name — its whole identity (ADR-0024) — heads the snapshot, with
-  // one #DIR line per member directory, so the file is self-describing even when
-  // found alone in a bucket (docs/design/backup.md). Hashing is handed in as
-  // `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
+  // Hashing is handed in as `getProps` — `writeSnapshot`'s injected hashing seam (so tests can drive it
   // without disk) — here bound to the lib `fileProps` with the lookup assembled
   // by `readBaseline`, so an unchanged file reuses its stored hash.
   // The hash in flight, published by `fileProps` and cleared the moment it
@@ -308,7 +305,7 @@ export async function generateSnapshot(
   let hashedFiles = 0;
   let hashedBytes = 0;
   // Files the pass couldn't hash. Collected at the one place that learns of them
-  // — `getProps` throwing is what `writeSnapshot` turns into an `#ERROR` row — so
+  // — `getProps` throwing is what `writeSnapshot` turns into an `#error` row — so
   // the list cannot drift from the rows actually written.
   /** @type {CompareError[]} */
   const errored = [];
@@ -318,8 +315,13 @@ export async function generateSnapshot(
   }
 
   const path = await writeSnapshot(set.snapshotsDir, moment, {
-    identity: set.name,
-    dirs: roots,
+    set: {
+      name: set.name,
+      bucket: set.bucket,
+      endpoint: customEndpoint(),
+      dirs: roots,
+      patterns,
+    },
     onStop: () => (stopping = true),
     files: withProgress({
       total: files.length,
@@ -331,7 +333,8 @@ export async function generateSnapshot(
       stopping: () => stopping,
     })(files),
     excluded,
-    skipped,
+    links,
+    errors: walkErrors,
     getProps: async (file) => {
       currentFile = file;
       try {
@@ -354,7 +357,7 @@ export async function generateSnapshot(
         }
         return props;
       } catch (error) {
-        // The same text the `#ERROR` row records (see `propsRows`).
+        // The same text the `#error` row records (see `propsRows`).
         const reason = Error.isError(error) ? error.message : String(error);
         errored.push({ path: file, reason });
         throw error;
@@ -381,8 +384,7 @@ export async function generateSnapshot(
     bytes: bytesDone,
     hashedFiles,
     hashedBytes,
-    skipped: skipped.length,
-    errors: errored,
+    errors: [...walkErrors, ...errored],
     roots,
     elapsedMs: performance.now() - startedAt,
   };
@@ -757,7 +759,7 @@ function fitPath(path, room) {
  *
  * Silent whenever the predecessor cannot answer — the condition is
  * `previousInstant`, not "is this a first run". Usually there is no predecessor
- * at all; a predecessor whose file carries no `#SNAPSHOT` header reaches here
+ * at all; a predecessor whose file carries no `#SNAPSHOT START` row reaches here
  * the same way, since `Snapshot` leaves the instant absent rather than guessing
  * it. Guessing from the names instead would reintroduce exactly the ambiguity
  * this check exists to see through.

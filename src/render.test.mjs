@@ -23,7 +23,7 @@ import {
   renderUpload,
   renderVerify,
 } from "./render.mjs";
-import { bold, red, yellow } from "./lib/style.mjs";
+import { bold, red } from "./lib/style.mjs";
 
 /** @import { BackupSet } from "./lib/sets.mjs" */
 /** @import { AddedEntry, CompareError, CompareResult } from "./lib/compare.mjs" */
@@ -54,7 +54,6 @@ const result = (over) => ({
   modified: [],
   deleted: [],
   errors: [],
-  skipped: [],
   ...over,
 });
 
@@ -360,60 +359,19 @@ describe("renderCompareResult", () => {
     assert.match(text, /\n {2}locked\.bin {2}\(EACCES: permission denied\)/);
   });
 
-  it("names each skipped path with its file type", () => {
-    // The FUD this exists to kill: "Skipped 1 item" told you a symlink was left
-    // out but never which one. The type is printed exactly as the snapshot
-    // stored it — the walk writes it readable, so nothing restyles it here.
-    const text = renderCompareResult(
-      result({
-        skipped: [
-          {
-            path: under("Personal Vault"),
-            fileType: "Symbolic Link",
-            reason: "Unsupported file type",
-          },
-        ],
-      }),
-    );
-
-    assert.match(
-      text,
-      /\nSkipped \(1\)\n {2}Personal Vault {2}\(Symbolic Link\)/,
-    );
-    // The one-size-fits-all reason stays in the data, off the line.
-    assert.doesNotMatch(text, /Unsupported file type/);
-    // Skipped alone is still news, so the summary cannot say "No changes."
-    assert.doesNotMatch(text, /No changes/);
-    assert.match(
-      text,
-      /0 added, 0 renamed, 0 moved, 0 modified, 0 deleted · .* changed, 1 skipped$/,
-    );
-  });
-
-  it("puts Skipped before Errors, after every change section", () => {
+  it("puts Errors after every change section", () => {
     const text = renderCompareResult(
       result({
         deleted: [{ path: under("gone.txt"), size: 10 }],
-        skipped: [
-          {
-            path: under("pipe"),
-            fileType: "Named Pipe",
-            reason: "Unsupported file type",
-          },
-        ],
         errors: [{ path: under("locked.bin"), reason: "EACCES" }],
       }),
     );
 
-    assert.ok(text.indexOf("Deleted") < text.indexOf("Skipped"));
-    assert.ok(text.indexOf("Skipped") < text.indexOf("Errors"));
-    // Printed exactly as stored — nothing between the snapshot and the screen
-    // is entitled to reword a type.
-    assert.match(text, /\n {2}pipe {2}\(Named Pipe\)/);
-    assert.match(text, /, 1 skipped, 1 error$/);
+    assert.ok(text.indexOf("Deleted") < text.indexOf("Errors"));
+    assert.match(text, /, 1 error$/);
   });
 
-  it("keeps the skipped list on a first snapshot, where the listing is collapsed", () => {
+  it("keeps the errors list on a first snapshot, where the listing is collapsed", () => {
     // `since: null` collapses the all-added listing to a count — but what
     // *couldn't* go in is the one thing that collapse can't tell you, and a
     // first run is when you find out (ADR-0078).
@@ -428,21 +386,12 @@ describe("renderCompareResult", () => {
             wasUnreadable: false,
           },
         ],
-        skipped: [
-          {
-            path: under("Personal Vault"),
-            fileType: "Symbolic Link",
-            reason: "Unsupported file type",
-          },
-        ],
+        errors: [{ path: under("locked.bin"), reason: "EACCES" }],
       }),
     );
 
     assert.match(text, /First snapshot: 1 file/);
-    assert.match(
-      text,
-      /\nSkipped \(1\)\n {2}Personal Vault {2}\(Symbolic Link\)/,
-    );
+    assert.match(text, /\n {2}locked\.bin {2}\(EACCES\)/);
   });
 
   it("shortens against the common ancestor of multiple roots", () => {
@@ -927,7 +876,6 @@ describe("renderBackup", () => {
     uploaded: 426,
     uploadedBytes: 14_900_000_000,
     uploadMs: 132_000,
-    skipped: 0,
     errors: [],
     excludeSuggestions: [],
     excludePath: "/sets/photos/exclude.txt",
@@ -952,7 +900,6 @@ describe("renderBackup", () => {
   it("reports the whole run: files scanned, objects sent, what changed, and what couldn't go", () => {
     const text = renderBackup(
       run({
-        skipped: 1,
         errors: failed(1),
         comparison: result({
           since: "2026-07-01T0900",
@@ -976,7 +923,6 @@ describe("renderBackup", () => {
         "  Moved       0\n" +
         "\n" +
         "Couldn't be backed up:\n" +
-        "  Skipped     1\n" +
         "  Errors      1\n" +
         `    ${under("locked-1.pst")}  (EBUSY: resource busy or locked)\n` +
         "\n" +
@@ -1075,8 +1021,8 @@ describe("renderBackup", () => {
   it("still reports what couldn't be backed up on a first backup, with the command to see it", () => {
     // It matters *more* here: a first run is when you find out what your set
     // can't hold (ADR-0078 §7). With no baseline the command names one side.
-    const text = renderBackup(run({ comparison: null, skipped: 2 }));
-    assert.match(text, /\nCouldn't be backed up:\n {2}Skipped {2}2$/m);
+    const text = renderBackup(run({ comparison: null, errors: failed(12) }));
+    assert.match(text, /\nCouldn't be backed up:\n {2}Errors {2}12\n/);
     assert.match(
       text,
       /\nTo see the details:\n {2}s3cab compare photos --until 2026-07-04T1000$/,
@@ -1163,7 +1109,7 @@ describe("renderBackup", () => {
     assert.match(text, new RegExp(`${RegExp.escape(under("locked-10.pst"))} `));
     assert.doesNotMatch(text, /locked-11/);
     assert.match(text, /\n {4}and 2 more\n/);
-    // Nothing changed and nothing was skipped, but the command is printed: it
+    // Nothing changed, but the command is printed: it
     // is now the only way to see the other two.
     assert.match(
       text,
@@ -1171,9 +1117,9 @@ describe("renderBackup", () => {
     );
   });
 
-  it("styles only when colour is on: commands bold, Errors bold red, Skipped yellow", () => {
+  it("styles only when colour is on: commands bold, Errors bold red", () => {
     const ESC = "\x1b";
-    const failing = run({ skipped: 1, errors: failed(1) });
+    const failing = run({ errors: failed(11) });
     assert.ok(!renderBackup(failing, { color: false }).includes(ESC));
 
     const text = renderBackup(failing, { color: true });
@@ -1183,8 +1129,7 @@ describe("renderBackup", () => {
         `  ${bold("s3cab compare photos --since 2026-07-01T0900 --until 2026-07-04T1000")}`,
       ),
     );
-    assert.ok(text.includes(bold(red("  Errors   1"))));
-    assert.ok(text.includes(yellow("  Skipped  1")));
+    assert.ok(text.includes(bold(red("  Errors  11"))));
   });
 });
 
@@ -1195,8 +1140,8 @@ describe("offerBackupChanges", () => {
   });
 
   /**
-   * A finished run carrying `comparison`, nothing skipped and nothing failed
-   * unless `over` says so.
+   * A finished run carrying `comparison`, nothing failed unless `over` says
+   * so.
    * @param {CompareResult | null} comparison
    * @param {Partial<BackupResult>} [over]
    * @returns {BackupResult}
@@ -1205,7 +1150,6 @@ describe("offerBackupChanges", () => {
     /** @type {BackupResult} */ ({
       set: "photos",
       snapshot: "2026-07-04T1000",
-      skipped: 0,
       errors: [],
       comparison,
       ...over,
@@ -1270,8 +1214,7 @@ describe("offerBackupChanges", () => {
   });
 
   it("asks nothing on a first backup, which has no diff at all", async () => {
-    // Even with something skipped, which prints the command to see it.
-    const { text, asked } = await answer(run(null, { skipped: 1 }), "y");
+    const { text, asked } = await answer(run(null), "y");
     assert.equal(text, undefined);
     assert.deepEqual(asked, []);
   });
@@ -1287,22 +1230,6 @@ describe("offerBackupChanges", () => {
     );
     assert.equal(text, undefined);
     assert.deepEqual(asked, []);
-  });
-
-  it("offers the detail when the only news is a skipped entry", async () => {
-    // No change, but something the user has never been shown: the skipped list
-    // is exactly what the offer exists to surface.
-    const onlySkipped = result({
-      skipped: [
-        {
-          path: under("link"),
-          fileType: "Symbolic Link",
-          reason: "Unsupported file type",
-        },
-      ],
-    });
-    const { text } = await answer(run(onlySkipped, { skipped: 1 }), "y");
-    assert.equal(text, renderCompareResult(onlySkipped));
   });
 
   it("offers the detail when the report named only some of the failed files", async () => {

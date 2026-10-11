@@ -58,7 +58,7 @@ import {
 /** @import { FindResult } from "./lib/find.mjs" */
 /**
  * @import {
- *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError, SkippedEntry,
+ *   CompareResult, AddedEntry, MovedEntry, PathSize, CompareError,
  * } from "./lib/compare.mjs"
  */
 
@@ -133,9 +133,6 @@ export function renderCompareResult(result, { color = false } = {}) {
     // are the files that *didn't* go in, which is the one thing a collapsed
     // listing can't tell you — and it matters more here than later, since a
     // first run is when you find out what your set can't hold (ADR-0078).
-    if (result.skipped.length) {
-      parts.push(skippedSection(result.skipped, shorten, paint));
-    }
     if (result.errors.length) {
       parts.push(errorSection(result.errors, shorten, paint));
     }
@@ -171,11 +168,8 @@ export function renderCompareResult(result, { color = false } = {}) {
   if (result.deleted.length) {
     sections.push(pathSection("Deleted", result.deleted, red, shorten, paint));
   }
-  // Skipped then Errors last, both after the change sections: neither is a
-  // change, and the fault is the one that should be left on screen.
-  if (result.skipped.length) {
-    sections.push(skippedSection(result.skipped, shorten, paint));
-  }
+  // Errors last, after the change sections: not a change, and the fault is the
+  // one that should be left on screen.
   if (result.errors.length) {
     sections.push(errorSection(result.errors, shorten, paint));
   }
@@ -339,61 +333,27 @@ function errorSection(errors, shorten, paint) {
 }
 
 /**
- * What the walk left out by design — a symlink, a socket, an entry the
- * filesystem couldn't classify (ADR-0078). Named in full, every time, not
- * diffed against the older snapshot: the question this answers is "what *is*
- * that thing?", which a reader asks on whatever run they happen to be looking
- * at, not only on the one where it first appeared. An entry that keeps
- * reappearing is then its own argument for an exclude pattern.
- *
- * The line carries the **file type**, not the recorded reason: the walk writes
- * one reason for every skip (`Unsupported file type`), so it would repeat down
- * the column while `Symbolic Link` is the part that answers the question. The
- * reason stays in the data for `--json` and for snapshots that recorded another.
- *
- * The type is printed as stored. The walk writes it in its readable form, so
- * there is no token to un-camel-case on the way out — see `getFileType`.
- *
- * Yellow, not the errors' bold red: a skipped entry is by design, and colouring
- * it like a fault would say something untrue about it.
- * @param {SkippedEntry[]} skipped
- * @param {(path: string) => string} shorten
- * @param {(colourise: (t: string) => string) => (t: string) => string} paint
- */
-function skippedSection(skipped, shorten, paint) {
-  return section(
-    "Skipped",
-    skipped,
-    yellow,
-    paint,
-    (entry) => `  ${shorten(entry.path)}  (${entry.fileType})`,
-  );
-}
-
-/**
- * Whether a diff has anything at all to report. Skipped is in the test alongside
- * errors, so a snapshot whose only news is an unbacked-up symlink can't print
- * `No changes.` directly beneath the section that just listed it — and so a
- * backup with nothing but a skip still has something to offer showing.
+ * Whether a diff has anything at all to report. Errors are in the test, so a
+ * snapshot whose only news is an unreadable file can't print `No changes.`
+ * directly beneath the section that just listed it.
  * @param {CompareResult} result
  * @returns {boolean}
  */
-const hasFindings = ({ added, moved, modified, deleted, errors, skipped }) =>
+const hasFindings = ({ added, moved, modified, deleted, errors }) =>
   Boolean(
     added.length ||
     moved.length ||
     modified.length ||
     deleted.length ||
-    errors.length ||
-    skipped.length,
+    errors.length,
   );
 
 /**
  * The closing summary: every category with its count (stable width, zeros
  * included) plus the bytes that changed — added + modified + deleted content
  * (rename and move both relocate the same bytes, so both are excluded).
- * Collapses to `No changes.` when nothing differs; appends the skipped and
- * error counts only when > 0. `renamed`/`moved` counts are the human split of
+ * Collapses to `No changes.` when nothing differs; appends the error count only
+ * when > 0. `renamed`/`moved` counts are the human split of
  * the one `moved` category (passed in so the summary and its sections can't
  * disagree).
  * @param {CompareResult} result
@@ -402,7 +362,7 @@ const hasFindings = ({ added, moved, modified, deleted, errors, skipped }) =>
  * @returns {string}
  */
 function summaryLine(result, renamedCount, movedCount) {
-  const { added, modified, deleted, errors, skipped } = result;
+  const { added, modified, deleted, errors } = result;
   if (!hasFindings(result)) {
     return "No changes.";
   }
@@ -412,9 +372,6 @@ function summaryLine(result, renamedCount, movedCount) {
     `${formatCount(movedCount)} moved, ${formatCount(modified.length)} modified, ` +
     `${formatCount(deleted.length)} deleted` +
     ` · ${formatByteValue(bytes)} changed`;
-  if (skipped.length) {
-    line += `, ${formatCount(skipped.length)} skipped`;
-  }
   if (errors.length) {
     line += `, ${countOf(errors.length, "error")}`;
   }
@@ -908,7 +865,6 @@ function problemDetail(p) {
  *   Moved       0
  *
  * Couldn't be backed up:
- *   Skipped     1
  *   Errors      1
  *     D:\OneDrive\Outlook\archive.pst  (EBUSY: resource busy or locked)
  *
@@ -937,7 +893,7 @@ function problemDetail(p) {
  * moment another backup lands.
  *
  * **Two blocks, because they are different in kind** (§4): a diff against the
- * baseline, and facts about this snapshot. A symlink skipped on every run since
+ * baseline, and facts about this snapshot. A file locked on every run since
  * March under `Changes since` would read as news every time. **`Moved` is a
  * row** so a large reorganisation cannot read as "nothing happened" beside
  * `uploaded 0 objects`. **The heading is `Couldn't`**, not "Not backed up" —
@@ -945,22 +901,15 @@ function problemDetail(p) {
  * distinction that matters is *didn't choose to* versus *couldn't*.
  *
  * Every figure is read off the result, never derived here (§10) — including
- * `skipped`/`errors`, which the *pass* collected rather than the diff, so a
- * first backup (which runs no diff) still reports them.
+ * `errors`, which the *pass* collected rather than the diff, so a first backup
+ * (which runs no diff) still reports them.
  * @param {BackupResult} result
  * @param {RenderContext} [context]
  * @returns {string}
  */
 export function renderBackup(result, { color = false } = {}) {
-  const {
-    set,
-    snapshot,
-    skipped,
-    errors,
-    excludeSuggestions,
-    excludePath,
-    comparison,
-  } = result;
+  const { set, snapshot, errors, excludeSuggestions, excludePath, comparison } =
+    result;
   const paint = painter(color);
 
   /** @type {[string, number][]} */
@@ -975,9 +924,6 @@ export function renderBackup(result, { color = false } = {}) {
       : [];
   /** @type {[string, number][]} */
   const failures = [];
-  if (skipped) {
-    failures.push(["Skipped", skipped]);
-  }
   if (errors.length) {
     failures.push(["Errors", errors.length]);
   }
@@ -1003,9 +949,6 @@ export function renderBackup(result, { color = false } = {}) {
 
   if (failures.length) {
     const lines = ["Couldn't be backed up:"];
-    if (skipped) {
-      lines.push(paint(yellow)(row(["Skipped", skipped])));
-    }
     if (errors.length) {
       lines.push(
         paint((text) => bold(red(text)))(row(["Errors", errors.length])),
@@ -1069,24 +1012,20 @@ const ERRORS_SHOWN = 10;
 
 /**
  * Whether the report's `compare` command has anything behind it the report
- * didn't already show: a change, a skipped item, or failed files past
- * `ERRORS_SHOWN`. Shared with `offerBackupChanges`, whose prompt is that same
- * command run on the spot — so the two appear together or not at all.
+ * didn't already show: a change, or failed files past `ERRORS_SHOWN`. Shared
+ * with `offerBackupChanges`, whose prompt is that same command run on the spot
+ * — so the two appear together or not at all.
  * @param {BackupResult} result
  * @returns {boolean}
  */
-const hasDetails = ({ comparison, skipped, errors }) =>
-  Boolean(
-    (comparison && changed(comparison)) ||
-    skipped ||
-    errors.length > ERRORS_SHOWN,
-  );
+const hasDetails = ({ comparison, errors }) =>
+  Boolean((comparison && changed(comparison)) || errors.length > ERRORS_SHOWN);
 
 /**
  * A failed file's reason, minus the path it repeats. Node words a failed fs call
  * `<CODE>: <description>, <syscall> '<path>'` and `fileProps`' own throw ends
  * `: <path>`, while every line that prints a reason shows the path beside it.
- * The snapshot's `#ERROR` row keeps the full text (guide/format.md promises the
+ * The snapshot's `#error` row keeps the full text (guide/format.md promises the
  * operating system's), so this is display only. Anything else is left as is.
  * @param {CompareError} error
  * @returns {string}
@@ -1183,9 +1122,8 @@ const changesLine = (comparison) =>
 
 /**
  * Whether a diff found any *change* — the four categories the changes block
- * counts. Skipped and errored entries are deliberately not in it: they have
- * their own block, and a symlink that has been skipped on every run since March
- * is not news about this one.
+ * counts. Errored entries are deliberately not in it: they have their own
+ * block, and a file locked on every run since March is not news about this one.
  * @param {CompareResult} comparison
  * @returns {boolean}
  */

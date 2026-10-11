@@ -397,7 +397,7 @@ describe("uploadObjects (the streaming PUT transform)", () => {
     assert.equal(uploaded, 1);
   });
 
-  it("passes an #ERROR row through without an upload", async () => {
+  it("passes an #error row through without an upload", async () => {
     await using dir = await mkTmpDir();
     const unreadable = join(dir.path, "locked.bin");
     /** @type {[string, Error]} */

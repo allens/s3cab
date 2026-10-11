@@ -14,7 +14,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { join, normalize, relative, resolve } from "node:path";
+import { join, normalize, relative, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { writeSet } from "../lib/sets.mjs";
@@ -52,6 +52,22 @@ function copyFixtureToWorkDir(fixtureName, t) {
   }
   return inWorkDir;
 }
+
+/**
+ * The rows of the uncompressed copy `--debug` leaves beside the snapshot, each
+ * split into its five columns with the first four's padding trimmed.
+ * @param {string} home
+ */
+const debugRows = (home) =>
+  readFileSync(
+    join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
+    "utf8",
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((line) =>
+      line.split("\t").map((column, i) => (i < 4 ? column.trim() : column)),
+    );
 
 // The set store derives its paths from s3cabDir(); point S3CAB_HOME at a temp
 // dir (via the shared useTempHome) so a snapshot can't touch the real `~/.s3cab`,
@@ -153,7 +169,7 @@ describe("snapshot", () => {
     );
   });
 
-  it("writes the set identity and a #DIR line per member directory", async (t) => {
+  it("writes the set's identity, a #SET DIR row per member directory, and the moment", async (t) => {
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.PlainDateTime.from("2025-02-01T09:00:00").toZonedDateTime(
         "Europe/London",
@@ -166,35 +182,33 @@ describe("snapshot", () => {
 
     await snapshot("photos", { rehash: true, debug: true });
 
-    // --debug leaves an uncompressed copy beside the snapshot; read its header.
-    const decompressed = readFileSync(
-      join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
-      "utf8",
+    // The moment (ADR-0072): the name, then the UTC instant it started and the
+    // zone the name was minted in. February in Europe/London is GMT, so the
+    // instant matches the wall clock.
+    const wanted = new Set(["NAME", "BUCKET", "DIR", "START"]);
+    assert.deepEqual(
+      debugRows(home).filter(
+        ([type, name]) =>
+          (type === "#SET" || type === "#SNAPSHOT") && wanted.has(name ?? ""),
+      ),
+      [
+        ["#SET", "NAME", "", "", "photos"],
+        ["#SET", "BUCKET", "", "", "s3://b"],
+        ["#SET", "DIR", "", "", `${realpathSync.native(workDir())}${sep}`],
+        ["#SNAPSHOT", "NAME", "", "", "2025-02-01T0900"],
+        ["#SNAPSHOT", "START", "", "2025-02-01T09:00:00.000Z", "Europe/London"],
+      ],
     );
-    const [snapshotLine, dirLine] = decompressed
-      .split("\n")
-      .filter((line) => line.startsWith("#"));
-    assert.ok(snapshotLine && dirLine, "expected #SNAPSHOT and #DIR headers");
-
-    // All four columns (ADR-0072): the set, the UTC instant of the moment the
-    // snapshot started, then its own name and the zone that name was minted in.
-    // February in Europe/London is GMT, so the instant matches the wall clock.
-    assert.match(
-      snapshotLine,
-      /^#SNAPSHOT\s+photos\s+2025-02-01T09:00:00\.000Z\s+2025-02-01T0900 Europe\/London\s*$/,
-    );
-    assert.match(dirLine, /^#DIR\s/);
-    assert.ok(dirLine.includes(realpathSync.native(workDir())));
   });
 
   // `dirs.txt` is hand-edited (ADR-0052), so a member directory can be spelled
   // in any casing Windows accepts, while the rows are canonical — the walk
-  // realpaths each root. Recording the raw text gave a header that disagreed
+  // realpaths each root. A `#SET DIR` row in the raw spelling would disagree
   // with every row beneath it, and `restore --output` reads that disagreement as
   // "this file is under no backed-up directory". win32-only: a drive letter is
   // the component whose case the user can vary without naming another file.
   it(
-    "canonicalizes the #DIR header, so it agrees with the rows beneath it",
+    "canonicalizes the #SET DIR row, so it agrees with the rows beneath it",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
     async (t) => {
       const workDir = copyFixtureToWorkDir("before", t);
@@ -207,23 +221,20 @@ describe("snapshot", () => {
 
       await snapshot("photos", { rehash: true, debug: true });
 
-      const decompressed = readFileSync(
-        join(home, ".s3cab", "sets", "photos", "snapshots", ".snapshot.tsv"),
-        "utf8",
+      const rows = debugRows(home);
+      const dir = rows.find(
+        ([type, name]) => type === "#SET" && name === "DIR",
       );
-      const lines = decompressed.split("\n").filter(Boolean);
-      const dirLine = lines.find((line) => line.startsWith("#DIR"));
-      assert.ok(dirLine?.endsWith(canonical), `#DIR kept dirs.txt: ${dirLine}`);
+      assert.equal(dir?.[4], `${canonical}${sep}`, `#SET DIR kept dirs.txt`);
 
-      // The point of canonicalizing: every row now sits under that header, which
-      // is exactly what `restore --output` needs to place them.
-      const rows = lines.filter((line) => !line.startsWith("#"));
-      assert.ok(rows.length, "expected the fixture to produce file rows");
-      for (const row of rows) {
-        const path = row.split("\t").at(-1) ?? "";
+      // The point of canonicalizing: every row now sits under that directory,
+      // which is exactly what `restore --output` needs to place them.
+      const objects = rows.filter(([type]) => type === "object");
+      assert.ok(objects.length, "expected the fixture to produce object rows");
+      for (const [, , , , path = ""] of objects) {
         assert.ok(
           path.startsWith(canonical),
-          `row is not under the #DIR header: ${path}`,
+          `row is not under the #SET DIR row: ${path}`,
         );
       }
     },
@@ -251,11 +262,18 @@ describe("snapshot", () => {
 });
 
 // Hash reuse after an interrupted snapshot (ADR-0067). The parked lookup is
-// planted by hand — structurally it *is* a snapshot TSV, so a real snapshot
-// renamed to the parked name is exactly what an interrupted run leaves — with
-// every hash replaced by a sentinel. A sentinel that survives into the new
-// snapshot can only have come from the parked file: it is nowhere on disk.
+// planted by hand — structurally it *is* a snapshot TSV less its trailer, so a
+// real snapshot cut that way and renamed to the parked name is exactly what an
+// interrupted run leaves — with every hash replaced by a sentinel. A sentinel
+// that survives into the new snapshot can only have come from the parked file:
+// it is nowhere on disk.
 const SENTINEL_HASH = "f".repeat(64);
+
+/** A snapshot row's hash, behind its type. */
+const HASH = /^(object\t)[0-9a-f]{64}/gm;
+
+/** The rows only a finished run writes: `#SNAPSHOT FILES`, `SIZE`, `#S3CAB END`. */
+const TRAILER = /^(?:#SNAPSHOT\t(?:FILES|SIZE)|#S3CAB\tEND) .*\n?/gm;
 
 /**
  * Turn the set's newest snapshot into a parked lookup holding sentinel hashes,
@@ -263,33 +281,25 @@ const SENTINEL_HASH = "f".repeat(64);
  * whatever came before it is the previous snapshot (none, for the
  * interrupted-first-seed state).
  *
- * Only the hashes and the status are rewritten. The `#SNAPSHOT` instant is kept
- * as the run minted it, because with no previous snapshot it is the
- * change-time boundary those rows are judged by (ADR-0094) — a test that needs
- * the boundary somewhere in particular puts the *clock* there (`setUp`'s
- * `tick`) rather than re-stamping the file.
+ * The trailer goes, as a stopped run never writes one — so the tolerant read
+ * drops the last object row, which nothing vouches for (ADR-0098). The
+ * `#SNAPSHOT START` instant is kept as the run minted it, because with no
+ * previous snapshot it is the change-time boundary those rows are judged by
+ * (ADR-0094) — a test that needs the boundary somewhere in particular puts the
+ * *clock* there (`setUp`'s `tick`) rather than re-stamping the file.
  * @param {string} snapshotsDir
- * @param {object} [options]
- * @param {boolean} [options.dropLastRow] - Leave the last file row out, as a run stopped before it got there would
  */
-function parkSentinelHashes(snapshotsDir, { dropLastRow } = {}) {
+function parkSentinelHashes(snapshotsDir) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = gunzipSync(readFileSync(path)).toString("utf8");
-  const lines = text
-    .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
-    .replace(/^(#END\s+)COMPLETE/m, "$1PARTIAL")
-    .split("\n");
-  if (dropLastRow) {
-    lines.splice(
-      lines.findLastIndex((line) => line.startsWith(SENTINEL_HASH)),
-      1,
-    );
-  }
+  const text = gunzipSync(readFileSync(path))
+    .toString("utf8")
+    .replace(HASH, `$1${SENTINEL_HASH}`)
+    .replace(TRAILER, "");
   writeFileSync(
     join(snapshotsDir, ".snapshot.lookup.tsv.gz"),
-    gzipSync(Buffer.from(lines.join("\n"), "utf8")),
+    gzipSync(Buffer.from(text, "utf8")),
   );
   unlinkSync(path);
 }
@@ -299,23 +309,22 @@ function parkSentinelHashes(snapshotsDir, { dropLastRow } = {}) {
  * (ADR-0092) — `parkSentinelHashes`'s violent twin, and the difference is the
  * whole point of `--resume`. A parked file was renamed aside on the way out by a
  * run that got to say goodbye; this one is still sitting at the lock name,
- * because nothing ran on the way out. So the trailer is cut off rather than
- * restamped `PARTIAL`, and the last line is left a prefix of a row: the process
- * died between the compressor's last flushed block and the end of the row it was
- * writing.
+ * because nothing ran on the way out. Neither has a trailer, but this one's last
+ * line is a prefix of a row: the process died between the compressor's last
+ * flushed block and the end of the row it was writing.
  * @param {string} snapshotsDir
  */
 function killSentinelRun(snapshotsDir) {
   const name = listSnapshotNames(snapshotsDir).at(0);
   assert.ok(name, "expected the snapshot just taken");
   const path = join(snapshotsDir, snapshotFileName(name));
-  const text = gunzipSync(readFileSync(path)).toString("utf8");
-  const rows = text
-    .replace(/^[0-9a-f]{64}/gm, SENTINEL_HASH)
-    .replace(/^#END.*\n?/m, "");
+  const rows = gunzipSync(readFileSync(path))
+    .toString("utf8")
+    .replace(HASH, `$1${SENTINEL_HASH}`)
+    .replace(TRAILER, "");
   writeFileSync(
     join(snapshotsDir, ".snapshot.tsv.gz"),
-    gzipSync(Buffer.from(`${rows}${SENTINEL_HASH}\t12`, "utf8")),
+    gzipSync(Buffer.from(`${rows}object\t${SENTINEL_HASH}\t12`, "utf8")),
   );
   unlinkSync(path);
 }
@@ -328,7 +337,7 @@ function killSentinelRun(snapshotsDir) {
  * @param {string} snapshotsDir
  * @param {object} [options]
  * @param {string} [options.hash] - The sentinel to plant, when a test needs to tell this source from the parked one
- * @param {string} [options.finished] - An instant to restamp the `#END` trailer with
+ * @param {string} [options.finished] - An instant to restamp the `#S3CAB END` row with
  */
 function plantSentinelSnapshot(
   snapshotsDir,
@@ -339,9 +348,9 @@ function plantSentinelSnapshot(
   const path = join(snapshotsDir, snapshotFileName(name));
   let text = gunzipSync(readFileSync(path))
     .toString("utf8")
-    .replace(/^[0-9a-f]{64}/gm, hash);
+    .replace(HASH, `$1${hash}`);
   if (finished) {
-    text = text.replace(/^(#END[^\t]*\t[^\t]*\t)[^\t]*/m, `$1${finished}`);
+    text = text.replace(/^(#S3CAB\tEND *\t *\t)\S+/m, `$1${finished}`);
   }
   writeFileSync(path, gzipSync(Buffer.from(text, "utf8")));
 }
@@ -424,10 +433,11 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     await snapshot("photos", {});
 
     // Every unchanged file took its hash from the parked lookup rather than
-    // being read again — the whole point of parking.
+    // being read again — the whole point of parking — bar the last row, which
+    // no `#S3CAB END` vouches for (ADR-0098).
     const hashes = await hashesIn(snapshotsDir);
-    assert.ok(hashes.length, "expected file rows in the new snapshot");
-    assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
+    assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
+    assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
 
     // Consumed on success: the new snapshot re-records every parked row.
     assert.ok(
@@ -480,7 +490,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges parked hashes by the stopped run's start when there is no previous snapshot", async (t) => {
     // An interrupted first seed: nothing earlier to take a boundary from, so the
-    // parked file's own `#SNAPSHOT` instant is it. Ticked ahead of the fixture's
+    // parked file's own `#SNAPSHOT START` instant is it. Ticked ahead of the fixture's
     // ctimes, it vouches for them; behind, it would veto every one — the half
     // below that proves the check is really on.
     const { snapshotsDir, tick } = setUp(t);
@@ -494,8 +504,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     await snapshot("photos", {});
 
     const hashes = await hashesIn(snapshotsDir);
-    assert.ok(hashes.length, "expected file rows in the new snapshot");
-    assert.deepEqual([...new Set(hashes)], [SENTINEL_HASH]);
+    assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
+    assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
   });
 
   it("re-hashes parked rows a run that started before the touch can't vouch for", async (t) => {
@@ -517,7 +527,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges by when the previous run started, not when it finished", async (t) => {
     // A file edited mid-run, after it was hashed: its ctime falls between the
-    // run's `#SNAPSHOT` and `#END`, and only the start can veto it.
+    // run's `#SNAPSHOT START` and `#S3CAB END`, and only the start can veto it.
     const { snapshotsDir, workDir, tick } = setUp(t);
     process.env.S3CAB_CHECK_CHANGE_TIME = "1";
 
@@ -539,8 +549,8 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
     const PREVIOUS_HASH = "e".repeat(64);
 
     /**
-     * Two runs: a finished one, then a later one stopped one row short of the
-     * end. The previous snapshot carries one sentinel and the parked file
+     * Two runs: a finished one, then a later one parked, whose last row the
+     * tolerant read drops (ADR-0098). The previous snapshot carries one sentinel and the parked file
      * another, so every reused row names the source it came from.
      * @param {TestContext} t
      */
@@ -551,7 +561,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       fixture.tick(1);
       await snapshot("photos", { rehash: true });
       const before = await hashesIn(fixture.snapshotsDir);
-      parkSentinelHashes(fixture.snapshotsDir, { dropLastRow: true });
+      parkSentinelHashes(fixture.snapshotsDir);
       plantSentinelSnapshot(fixture.snapshotsDir, { hash: PREVIOUS_HASH });
       fixture.tick(2);
       return { ...fixture, before };
@@ -566,7 +576,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
       assert.equal(
         hashes.filter((hash) => hash === PREVIOUS_HASH).length,
         1,
-        "the row the stopped run never reached comes from the previous snapshot",
+        "the row the parked file can't vouch for comes from the previous snapshot",
       );
       assert.ok(
         hashes.length > 1 &&

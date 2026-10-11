@@ -2,6 +2,7 @@ import {
   existsSync,
   lstatSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   statSync,
 } from "node:fs";
@@ -9,13 +10,9 @@ import { isAbsolute, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
 import { compileExcludePatterns } from "./exclude.mjs";
-import {
-  countOf,
-  formatCount,
-  secondsSince,
-  showControlChars,
-} from "./format.mjs";
+import { formatCount, secondsSince, showControlChars } from "./format.mjs";
 import { tildeify } from "./home.mjs";
+import { pathMatcher } from "./path-match.mjs";
 import { shellCommand } from "./style.mjs";
 import { countedPass } from "./progress.mjs";
 import { readLines } from "./read-lines.mjs";
@@ -26,25 +23,35 @@ import { readLines } from "./read-lines.mjs";
  */
 
 /**
- * One entry the walk skipped, carried back as data (not a formatted line) so
- * the walk stays ignorant of the snapshot grammar — `writeSnapshot` turns these
- * into `#EXCLUDED` rows. `fileType` is the dirent type (`File`/`Directory`/…);
- * `reason` is the matching exclude pattern, or why the entry was skipped (e.g.
- * an unsupported file type). Both come from the `Dirent` the walk already has —
- * no `stat` per file, and none at all on a filesystem that reports entry types
- * (the exception is `resolveFileType`'s fallback for one that doesn't).
- * @typedef {{ fileType: string, reason: string, path: string }} ExclusionRecord
+ * One entry an exclude pattern dropped, carried back as data (not a formatted
+ * line) so the walk stays ignorant of the snapshot grammar — `writeSnapshot`
+ * turns these into `#excluded` rows. `isDir` is what the pattern was tested
+ * against: a directory, or a link whose target is one (ADR-0099).
+ * @typedef {{ pattern: string, path: string, isDir: boolean }} ExclusionRecord
  */
 
-/** @typedef {{ files: string[], excluded: ExclusionRecord[], skipped: ExclusionRecord[] }} WalkResult */
+/**
+ * A link the walk recorded and did not follow
+ * ([ADR-0099](../../docs/adr/0099-links-recorded-never-followed.md)): its
+ * target as written, and whether that target is a folder.
+ * @typedef {{ path: string, target: string, isDir: boolean }} LinkRecord
+ */
+
+/**
+ * An entry the walk couldn't check, with the error's message — an `#error` row,
+ * the same shape as a file that couldn't be hashed.
+ * @typedef {{ path: string, reason: string }} WalkError
+ */
+
+/** @typedef {{ files: string[], excluded: ExclusionRecord[], links: LinkRecord[], errors: WalkError[] }} WalkResult */
 
 /**
  * Characters a snapshot row cannot hold: the field separator, and the two that
  * end a line ([ADR-0073](../../docs/adr/0073-refuse-tab-newline-paths.md)). The
  * TSV deliberately has no escaping — that plainness is the point of
- * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name is
- * refused rather than encoded; `writeSnapshot` handles an excluded or skipped
- * one. A carriage return counts with the line feed: the
+ * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name, or
+ * a link target, is refused rather than encoded; an excluded one is spelled out
+ * (ADR-0100). A carriage return counts with the line feed: the
  * snapshot parser reads lines with `crlfDelay: Infinity`, which strips a
  * trailing one, so the path would come back *changed* — worse than refused.
  * Windows forbids all three (it excludes characters 1-31), so this can only ever
@@ -57,11 +64,12 @@ export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
  * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
  * core behind both the `tree` and `snapshot` commands.
  * @param {BackupSet} set - Resolved backup set
- * @returns {WalkResult} The kept file paths and the records of what was skipped
+ * @returns {WalkResult & { patterns: string[] }} What the walk found, and the exclude patterns it applied (a snapshot's `#SET EXCLUDE` rows)
  */
 export function walkSet(set) {
   assertWalkableDirs(set);
-  return walkDirs(set.dirs, readExcludePatterns(set.excludePath));
+  const patterns = readExcludePatterns(set.excludePath);
+  return { ...walkDirs(set.dirs, patterns), patterns };
 }
 
 /**
@@ -182,7 +190,7 @@ function assertWalkableDirs(set) {
  * it is keyed on one stable path.
  *
  * Exported for `snapshot`, which records these same canonical roots as the
- * snapshot's `#DIR` headers rather than the raw `dirs.txt` text — so the header
+ * snapshot's `#SET DIR` rows rather than the raw `dirs.txt` text — so the header
  * and the rows beneath it are spelled the same way (guide/format.md, "Path
  * casing"). It re-resolves rather than the walk handing its roots back: this is
  * one call per member directory, against a walk that stats tens of thousands of
@@ -236,12 +244,16 @@ export function resolveWalkRoot(dir) {
  * exclude pattern matches (patterns apply relative to *each* directory). A
  * directory's contents are accumulated into one list — the same line format
  * works across roots because snapshot paths are absolute.
+ *
+ * Every root is resolved before the first is walked, because a link under any
+ * of them is judged against all of them (ADR-0099).
  * @param {string[]} dirs - Directories to walk
  * @param {string[]} patterns - Exclude glob patterns (guide/exclude.md)
- * @returns {WalkResult} The kept file paths and the records of what was skipped
+ * @returns {WalkResult} What the walk found
  */
 export function walkDirs(dirs, patterns) {
   const start = Temporal.Now.instant();
+  const roots = dirs.map(resolveWalkRoot);
 
   /** @type {string[]} */
   const files = [];
@@ -251,19 +263,18 @@ export function walkDirs(dirs, patterns) {
   // full walk (minutes, on a big set).
   /** @type {Set<string>} */
   const seen = new Set();
-  /** @type {ExclusionRecord[]} */
-  const excluded = [];
-  /** @type {ExclusionRecord[]} */
-  const skipped = [];
-  // Paths the snapshot TSV cannot hold (ADR-0073). Collected rather than thrown
-  // on sight: the one person who ever hits this is the one whose script made
-  // hundreds of them, and fixing those an error at a time would be its own
-  // ordeal — the same reasoning as `assertWalkableDirs` listing every offender.
-  /** @type {string[]} */
-  const unrepresentable = [];
+  /** @type {Found} */
+  const found = {
+    excluded: [],
+    links: [],
+    errors: [],
+    leadOut: [],
+    unrepresentable: [],
+    // No matcher means a root of `/`, which everything is under.
+    inBackup: pathMatcher(roots) ?? (() => true),
+  };
 
-  for (let dir of dirs) {
-    dir = resolveWalkRoot(dir);
+  for (const dir of roots) {
     const before = files.length;
     // Which directory, its running count, and its final tally are all one line
     // — the announce used to be its own `console.warn` above a separate counter,
@@ -282,7 +293,7 @@ export function walkDirs(dirs, patterns) {
       () => files.length - before,
     );
 
-    const visit = createWalkCallbackFn(dir, patterns, excluded, skipped);
+    const visit = createWalkCallbackFn(dir, patterns, found);
     // The walk is synchronous end to end, so the line's timer never fires
     // during it (ADR-0093): the clock is ticked from here instead. Per entry
     // *visited*, not per file kept — the callback sees every entry, excluded and
@@ -306,11 +317,11 @@ export function walkDirs(dirs, patterns) {
       }
       seen.add(path);
       // Only a path that would otherwise be *kept* reaches this loop — the walk
-      // callback drops excluded entries and unsupported types before yielding —
-      // so a pattern in exclude.txt keeps its match from ever being refused,
-      // which is what makes exclude.txt the escape hatch (ADR-0073).
+      // callback drops excluded entries and other types before yielding — so a
+      // pattern in exclude.txt keeps its match from ever being refused, which is
+      // what makes exclude.txt the escape hatch (ADR-0073).
       if (UNREPRESENTABLE_IN_TSV.test(path)) {
-        unrepresentable.push(path);
+        found.unrepresentable.push(showControlChars(path));
       }
       files.push(path);
     }
@@ -324,14 +335,16 @@ export function walkDirs(dirs, patterns) {
 
   // After the walk, so one failure names every offender, never truncated
   // (ADR-0010). ADR-0030 shape: the user's goal first, then the exact fix.
+  const { unrepresentable, leadOut } = found;
   if (unrepresentable.length) {
     const count =
       unrepresentable.length === 1
         ? "This file can't"
         : `These ${formatCount(unrepresentable.length)} files can't`;
     throw new Error(
-      `${count} be backed up, because the name contains a tab or a line ending:\n` +
-        unrepresentable.map((p) => `  ${showControlChars(p)}`).join("\n") +
+      `${count} be backed up, because the name, or a link's target, contains a ` +
+        `tab or a line ending:\n` +
+        unrepresentable.map((p) => `  ${p}`).join("\n") +
         `\nA snapshot is a table with one line per file and a tab between ` +
         `columns, so a name using either can't be written into it. ` +
         `Rename them, or leave them out by adding a pattern to the set's ` +
@@ -340,30 +353,25 @@ export function walkDirs(dirs, patterns) {
     );
   }
 
-  // What the walk left out, said out loud. These are recorded as `#SKIPPED` rows
-  // in the snapshot, but that is a file you have to decompress to read — so until
-  // now a symlinked folder, or a whole subtree the filesystem couldn't classify,
-  // simply wasn't in the backup and nothing ever said so. A backup quietly
-  // holding less than you think is the failure this tool can least afford, and
-  // it is the same reasoning that makes a missing member directory abort
-  // outright (ADR-0054); this one only *reports*, because skipping these types
-  // is by design rather than a fault to fix.
-  //
-  // Grouped by type and counted, not listed: the type is the whole explanation
-  // (a symlink is expected, a socket is noise, a thousand of either is a set
-  // that wants an exclude pattern), and one line beats thousands. The counts and
-  // the paths both remain in the snapshot for anyone who wants them.
-  if (skipped.length) {
-    /** @type {Map<string, number>} */
-    const byType = new Map();
-    for (const { fileType } of skipped) {
-      byType.set(fileType, (byType.get(fileType) ?? 0) + 1);
-    }
-    const kinds = [...byType]
-      .map(([fileType, count]) => countOf(count, fileType))
-      .join(", ");
+  // Listed one per line, never grouped: a grouped count of links is how an
+  // unlocked Personal Vault's whole tree once went unnoticed (ADR-0099).
+  if (leadOut.length) {
+    const these =
+      leadOut.length === 1
+        ? "This link leads"
+        : `These ${formatCount(leadOut.length)} links lead`;
     console.warn(
-      `Skipped ${countOf(skipped.length, "item")} that can't be backed up: ${kinds}`,
+      `${these} outside the backup, so only the link is saved, not what it leads to:\n` +
+        leadOut
+          .map(
+            ({ link, resolved }) =>
+              `  ${link.path} → ${link.target}` +
+              (resolved ? "" : "  (can't tell where it leads)"),
+          )
+          .join("\n") +
+        `\nTo back up what a link leads to, add that folder to the set. To see ` +
+        `which folders a set backs up, and the file that lists them:\n` +
+        `  ${shellCommand("s3cab list <set>")}`,
     );
   }
 
@@ -375,91 +383,180 @@ export function walkDirs(dirs, patterns) {
     );
   }
 
-  return { files, excluded, skipped };
+  const { excluded, links, errors } = found;
+  return { files, excluded, links, errors };
 }
 
 /**
- * Create a predicate function to exclude files based on patterns. Skipped
- * entries are pushed onto `excluded` as data; the walk no longer knows the
- * snapshot grammar (`writeSnapshot` formats them into `#EXCLUDED` rows).
+ * What the walk callback records as it goes, beyond the files it keeps.
+ * @typedef {Object} Found
+ * @property {ExclusionRecord[]} excluded
+ * @property {LinkRecord[]} links
+ * @property {WalkError[]} errors
+ * @property {{ link: LinkRecord, resolved: boolean }[]} leadOut - Links whose target is outside every member directory, or can't be resolved
+ * @property {string[]} unrepresentable - Entries the snapshot TSV cannot hold (ADR-0073), spelled out for the error. Collected rather than thrown on sight: the one person who ever hits this is the one whose script made hundreds of them, and fixing those an error at a time would be its own ordeal — the same reasoning as `assertWalkableDirs` listing every offender
+ * @property {(path: string) => boolean} inBackup - Whether a canonical path is in or under a member directory
+ */
+
+/**
+ * Create the walk callback: whether to keep an entry (a file to back up, or a
+ * directory to descend into), recording everything else into `found` as data —
+ * the walk doesn't know the snapshot grammar (`writeSnapshot` writes the rows).
+ *
+ * Takes the resolved type rather than the `Dirent` it came from: `walkFiles` has
+ * already paid for it (possibly with an `lstat`), and asking the dirent again
+ * here would read the *unresolved* answer — the bug `resolveFileType` exists to
+ * fix.
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
- * @param {ExclusionRecord[]} excluded - Receives a record per pattern-matched entry
- * @param {ExclusionRecord[]} skipped - Receives a record per by-design unsupported entry
- * @returns {(path: string, fileType: string) => boolean} walk callback function
+ * @param {Found} found - Receives what isn't kept
+ * @returns {(path: string, fileType: string | Error) => boolean} walk callback function
  */
-function createWalkCallbackFn(baseDir, patterns, excluded, skipped) {
+function createWalkCallbackFn(baseDir, patterns, found) {
   const excludedBy = compileExcludePatterns(baseDir, patterns);
 
-  // Takes the resolved type rather than the `Dirent` it came from: `walkFiles`
-  // has already paid for it (possibly with an `lstat`), and asking the dirent
-  // again here would read the *unresolved* answer — the bug `resolveFileType`
-  // exists to fix.
   return (path, fileType) => {
-    if (fileType === "File" || fileType === "Directory") {
-      const reason = excludedBy(path, fileType === "Directory");
-
-      if (reason) {
-        excluded.push({ fileType, reason, path });
-        return false;
+    if (Error.isError(fileType)) {
+      // Vanished between listing and checking: there is nothing to record.
+      if (!isENOENT(fileType)) {
+        found.errors.push({ path, reason: fileType.message });
       }
-    } else {
-      skipped.push({ fileType, reason: "Unsupported file type", path });
       return false;
     }
-
+    if (fileType === LINK) {
+      recordLink(path, excludedBy, found);
+      return false;
+    }
+    // A pipe, socket or device holds nothing to back up, and gets no row.
+    if (fileType !== FILE && fileType !== DIRECTORY) {
+      return false;
+    }
+    const isDir = fileType === DIRECTORY;
+    const pattern = excludedBy(path, isDir);
+    if (pattern) {
+      found.excluded.push({ pattern, path, isDir });
+      return false;
+    }
     return true;
   };
 }
 
 /**
- * The type `readdir` reports for an entry it could not classify — every one of
- * the seven predicates below answers `false`, so `getFileType` falls through to
- * this. It is a real answer from some filesystems, not a corrupt one: the type
- * simply doesn't travel with the directory entry there (see `resolveFileType`).
+ * Why `stat` fails on a link that leads nowhere: its target is missing, or a
+ * path through it isn't a folder, or the chain loops. Such a link loses
+ * nothing, so it is recorded without a warning (ADR-0099).
  */
-const UNKNOWN = "Unknown File Type";
+const BROKEN = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
 
 /**
- * Get the file type of a directory entry or a stat.
+ * Record one link, never following it
+ * ([ADR-0099](../../docs/adr/0099-links-recorded-never-followed.md)): a `link`
+ * row, an `#excluded` one when a pattern matches, and a place in the warning
+ * when its target is a file or folder outside every member directory or can't
+ * be resolved.
  *
- * Takes either because a `Dirent` and a `Stats` answer the same seven questions
- * — which is what lets `resolveFileType` fall back from one to the other without
- * a second way of naming a type. Seven is the whole set Node offers, so the
- * `UNKNOWN` fallback is reached only when every predicate answers false.
- *
- * **These strings are stored, in the snapshot's `dirent_type` column, and shown
- * to the user verbatim** — the walk's skip notice and `compare`'s Skipped list
- * both print them as-is. Two rules they have to keep obeying:
- *
- * - **Plain words, no niche acronyms** ([ADR-0012](../../docs/adr/0012-consumer-vocabulary-naming.md)):
- *   which is why a FIFO is a `Named Pipe` — the term both Unix (`mkfifo`) and
- *   Windows use for the same thing, where `FIFO` is exactly the unexplained
- *   acronym that ADR bars from user-facing text.
- * - **Pluralizable by appending `s`**, because the skip notice counts them
- *   (`2 Named Pipes`) through `plural`, which is naive by design. Every type
- *   here is a regular noun — except `Directory`, which is never *skipped* (the
- *   walk recurses into directories and only records one as excluded, and
- *   excluded entries are never counted into a sentence). Anything added here
- *   must be regular, or `plural` needs to grow first.
- * @param {Dirent | Stats} dirent - Directory entry, or the stat of one
+ * **`stat` before `realpath`, deliberately.** `realpathSync.native` throws
+ * `ENOENT` both for a junction whose target is missing and for an unlocked
+ * OneDrive Personal Vault, whose target is there but can't be canonicalized
+ * (measured). Only `stat` tells the two apart, and reading both as "missing"
+ * would drop the vault silently.
+ * @param {string} path - The link's own path
+ * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
+ * @param {Found} found
+ */
+function recordLink(path, excludedBy, found) {
+  /** @type {string} */
+  let target;
+  try {
+    target = readlinkSync(path);
+  } catch (error) {
+    if (!isENOENT(error)) {
+      found.errors.push({
+        path,
+        reason: Error.isError(error) ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  /** @type {Stats | undefined} */
+  let stats;
+  let broken = false;
+  try {
+    stats = statSync(path);
+  } catch (error) {
+    broken = BROKEN.has(
+      String(/** @type {NodeJS.ErrnoException} */ (error).code),
+    );
+  }
+
+  const isDir = Boolean(stats?.isDirectory());
+  const pattern = excludedBy(path, isDir);
+  if (pattern) {
+    found.excluded.push({ pattern, path, isDir });
+    return;
+  }
+  // After the exclude check, which is the way past the refusal (ADR-0100).
+  if (
+    UNREPRESENTABLE_IN_TSV.test(path) ||
+    UNREPRESENTABLE_IN_TSV.test(target)
+  ) {
+    found.unrepresentable.push(
+      `${showControlChars(path)} → ${showControlChars(target)}`,
+    );
+    return;
+  }
+
+  const link = { path, target, isDir };
+  found.links.push(link);
+  if (broken) {
+    return;
+  }
+  if (!stats) {
+    found.leadOut.push({ link, resolved: false });
+  } else if (stats.isFile() || isDir) {
+    try {
+      if (!found.inBackup(realpathSync.native(path))) {
+        found.leadOut.push({ link, resolved: true });
+      }
+    } catch {
+      found.leadOut.push({ link, resolved: false });
+    }
+  }
+}
+
+const FILE = "File";
+const DIRECTORY = "Directory";
+const LINK = "Link";
+const OTHER = "Other";
+/**
+ * The type `readdir` reports for an entry it could not classify. It is a real
+ * answer from some filesystems, not a corrupt one: the type simply doesn't
+ * travel with the directory entry there (see `resolveFileType`).
+ */
+const UNKNOWN = "Unknown";
+
+/**
+ * Get the file type of a directory entry or a stat. Takes either because a
+ * `Dirent` and a `Stats` answer the same questions — which is what lets
+ * `resolveFileType` fall back from one to the other.
+ * @param {Dirent | Stats} entry - Directory entry, or the stat of one
  * @returns {string} File type
  */
-function getFileType(dirent) {
-  if (dirent.isFile()) {
-    return "File";
-  } else if (dirent.isDirectory()) {
-    return "Directory";
-  } else if (dirent.isSymbolicLink()) {
-    return "Symbolic Link";
-  } else if (dirent.isBlockDevice()) {
-    return "Block Device";
-  } else if (dirent.isCharacterDevice()) {
-    return "Character Device";
-  } else if (dirent.isFIFO()) {
-    return "Named Pipe";
-  } else if (dirent.isSocket()) {
-    return "Socket";
+function getFileType(entry) {
+  if (entry.isFile()) {
+    return FILE;
+  } else if (entry.isDirectory()) {
+    return DIRECTORY;
+  } else if (entry.isSymbolicLink()) {
+    return LINK;
+  } else if (
+    entry.isBlockDevice() ||
+    entry.isCharacterDevice() ||
+    entry.isFIFO() ||
+    entry.isSocket()
+  ) {
+    return OTHER;
   }
   return UNKNOWN;
 }
@@ -474,8 +571,7 @@ function getFileType(dirent) {
  * server without READDIRPLUS, or a directory large enough that the client backs
  * off), as do FUSE filesystems whose author left the field unset. There the
  * whole set would otherwise go missing — silently, which is the failure a backup
- * tool least affords: an unclassified *file* was recorded as an unsupported type
- * and left out, and an unclassified *directory* was never descended into at all,
+ * tool least affords: an unclassified *directory* would never be descended into,
  * taking its entire subtree with it.
  *
  * So: one `lstat`, and **only** for an entry `readdir` couldn't classify. On
@@ -486,14 +582,13 @@ function getFileType(dirent) {
  * recursion test below), because resolving it separately for each is precisely
  * the double-`lstat` that turns a rare fallback into that pass.
  *
- * `lstat`, not `stat`, so a symlink stays a symlink: following one here would
- * both change what the walk skips and open the door to cycles. An entry that
- * can't be stat-ed either (it vanished mid-walk, or is unreadable) keeps the
- * unknown type and is recorded as skipped — the walk's existing answer for
- * "can't back this up", and one that names the path rather than dying on it.
+ * `lstat`, not `stat`, so a link stays a link: following one here would both
+ * change what the walk records and open the door to cycles. An entry that can't
+ * be stat-ed comes back as the error, for the callback to judge (ADR-0099:
+ * vanished is no row, anything else an `#error`).
  * @param {Dirent} dirent - Directory entry
  * @param {string} path - Its resolved absolute path
- * @returns {string} File type
+ * @returns {string | Error} File type, or why it couldn't be checked
  */
 function resolveFileType(dirent, path) {
   const fileType = getFileType(dirent);
@@ -502,18 +597,19 @@ function resolveFileType(dirent, path) {
   }
   try {
     return getFileType(lstatSync(path));
-  } catch {
-    return UNKNOWN;
+  } catch (error) {
+    return Error.isError(error) ? error : new Error(String(error));
   }
 }
 
 /**
- * Recursively walk through a directory and yield file paths.
+ * Recursively walk through a directory and yield file paths. A folder that
+ * can't be listed throws, stopping the walk (ADR-0098).
  *
  * The entry's type is resolved here, once, and passed down — see
  * `resolveFileType` for why it cannot be re-derived per consumer.
  * @param {string} dir - Directory to walk through
- * @param {(path: string, fileType: string) => boolean} callbackFn - Whether to keep the entry
+ * @param {(path: string, fileType: string | Error) => boolean} callbackFn - Whether to keep the entry
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
@@ -526,7 +622,7 @@ function* walkFiles(dir, callbackFn) {
       continue;
     }
 
-    if (fileType === "Directory") {
+    if (fileType === DIRECTORY) {
       if (dirent.name === ".s3cab") {
         continue;
       }

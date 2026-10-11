@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { setTimeout } from "node:timers/promises";
@@ -15,7 +15,6 @@ import {
   parseSnapshotStream,
   readParkedLookup,
   readSnapshot,
-  readSnapshotFile,
   recoverWorkFile,
   snapshotFileName,
   snapshotMoment,
@@ -24,14 +23,13 @@ import {
   writeSnapshot,
 } from "./snapshot-file.mjs";
 
-/** @import { Props } from "./snapshot-file.mjs" */
+/** @import { Props, SnapshotSet } from "./snapshot-file.mjs" */
 
 // `parseSnapshotStream` is the pure line-parser behind every snapshot read. It
-// turns a decompressed TSV stream into `{ entries, errors, dirs, identity }` —
-// the file lookup, the paths that failed hashing, plus the `#SNAPSHOT`/`#DIR`
-// headers that keep a snapshot self-describing (and that `restore --output`
-// re-roots by). Build streams from strings so these run without S3 or a temp
-// file.
+// turns a decompressed TSV stream into what the code reads of a snapshot
+// (ADR-0098): `{ entries, errors, links, dirs, instant }`. Build streams from
+// strings so these run without S3 or a temp file. The fixtures leave the
+// columns unpadded, which a reader takes as readily as the writer's padding.
 // Wrap the text in an array so it streams as a single chunk; a bare string is
 // an iterable of characters, which Readable.from would emit one char at a time.
 const parse = (/** @type {string} */ text) =>
@@ -40,21 +38,36 @@ const parse = (/** @type {string} */ text) =>
 const hashA = "a".repeat(64);
 const hashB = "b".repeat(64);
 
+const HEADING =
+  "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format";
+const START = "#SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
+const END = "#S3CAB\tEND\t\t2026-06-12T08:20:44.500Z\t";
+
+/**
+ * An `object` row, unpadded.
+ * @param {string} hash
+ * @param {number} size
+ * @param {string} path
+ */
+const object = (hash, size, path) =>
+  `object\t${hash}\t${size}\t2026-06-01T12:00:00.000Z\t${path}`;
+
 describe("parseSnapshotStream", () => {
-  it("parses entries and the #SNAPSHOT/#DIR headers", async () => {
+  it("parses object rows, #SET DIR and #SNAPSHOT START's instant", async () => {
     const text = [
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-      "#DIR\t\t\tC:\\Users\\me\\Photos",
-      "#DIR\t\t\tD:\\Pics",
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\tC:\\Users\\me\\Photos\\beach.jpg`,
-      `${hashB}\t34\t2026-06-02T08:30:00.000Z\tD:\\Pics\\ski.jpg`,
-      "#END",
+      HEADING,
+      "#SET\tDIR\t\t\tC:\\Users\\me\\Photos\\",
+      "#SET\tDIR\t\t\tD:\\Pics\\",
+      START,
+      object(hashA, 12, "C:\\Users\\me\\Photos\\beach.jpg"),
+      object(hashB, 34, "D:\\Pics\\ski.jpg"),
+      END,
     ].join("\n");
 
-    const { entries, dirs, identity } = await parse(text);
+    const { entries, dirs, instant } = await parse(text);
 
-    assert.equal(identity, "photos");
-    assert.deepEqual(dirs, ["C:\\Users\\me\\Photos", "D:\\Pics"]);
+    assert.equal(instant, "2026-06-12T08:15:32.123Z");
+    assert.deepEqual(dirs, ["C:\\Users\\me\\Photos\\", "D:\\Pics\\"]);
     assert.deepEqual(
       [...entries.keys()],
       ["C:\\Users\\me\\Photos\\beach.jpg", "D:\\Pics\\ski.jpg"],
@@ -62,40 +75,84 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual(entries.get("D:\\Pics\\ski.jpg"), {
       hash: hashB,
       size: 34,
-      mtime: "2026-06-02T08:30:00.000Z",
+      mtime: "2026-06-01T12:00:00.000Z",
     });
   });
 
-  it("yields empty headers for a snapshot without #SNAPSHOT/#DIR lines", async () => {
-    const text = `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt\n#END`;
-    const { entries, dirs, identity } = await parse(text);
+  it("yields no dirs or instant for a snapshot without #SET or #SNAPSHOT rows", async () => {
+    const text = [object(hashA, 12, "/home/me/a.txt"), END].join("\n");
+    const { entries, dirs, instant } = await parse(text);
     assert.equal(entries.size, 1);
     assert.deepEqual(dirs, []);
-    assert.equal(identity, undefined);
+    assert.equal(instant, undefined);
   });
 
-  it("skips unknown comment lines without treating them as headers", async () => {
+  it("skips the # rows only people read, and # types it doesn't know", async () => {
+    // An unknown `#` row is information a newer s3cab added, so skipping it is
+    // what keeps a new property additive (ADR-0098).
     const text = [
-      "#DIR\t\t\t/home/me/Docs",
-      "#some hand-written note\t\t\t/home/me/Docs/whatever",
-      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
-      "#END",
+      HEADING,
+      "#S3CAB\tVERSION\t\t\t0.14.0",
+      "#SET\tNAME\t\t\tphotos",
+      "#SET\tEXCLUDE\t\t\t*.tmp",
+      "#SNAPSHOT\tCOLOUR\t\t\tblue",
+      "#excluded\t*.tmp\t\t\t/home/me/Docs/scratch.tmp",
+      "#future\tsomething\t\t\t/home/me/Docs/ok.txt",
+      object(hashA, 5, "/home/me/Docs/ok.txt"),
+      "#SNAPSHOT\tFILES\t\t\t1",
+      END,
     ].join("\n");
-    const { entries, dirs, errors } = await parse(text);
-    assert.deepEqual(dirs, ["/home/me/Docs"]);
+    const { entries, errors, links, dirs } = await parse(text);
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
     assert.equal(errors.size, 0);
+    assert.equal(links.size, 0);
+    assert.deepEqual(dirs, []);
   });
 
-  it("surfaces #ERROR rows into errors (with reason), not entries", async () => {
-    // An #ERROR row carries its reason in col3 and is read back into `errors`,
-    // kept out of `entries` so compare reports the path rather than mistaking
+  it("refuses a lowercase type it doesn't know, which is content a restore would miss", async () => {
+    const text = [HEADING, "xattr\tuser.tag\t\t\t/home/me/a.txt", END].join(
+      "\n",
+    );
+    await assert.rejects(parse(text), {
+      name: "AssertionError",
+      message: /Unknown row type 'xattr'/,
+    });
+  });
+
+  it("reads link rows into links, keyed without a folder link's separator", async () => {
+    // A link is in the backup as itself (ADR-0099), so compare must find it
+    // rather than report its path deleted. The trailing separator marks a
+    // folder link, and what separates is the path's own shape: a backslash ends
+    // a Windows folder link, but is a character of a POSIX name.
+    const text = [
+      HEADING,
+      "link\t../2026/img.jpg\t\t\t/home/me/latest.jpg",
+      "link\t/mnt/archive\t\t\t/home/me/archive/",
+      "link\tD:\\Archive\t\t\tC:\\Users\\me\\archive\\",
+      "link\tother\t\t\t/home/me/odd\\",
+      END,
+    ].join("\n");
+    const { links, entries } = await parse(text);
+    assert.deepEqual(
+      [...links],
+      [
+        ["/home/me/latest.jpg", "../2026/img.jpg"],
+        ["/home/me/archive", "/mnt/archive"],
+        ["C:\\Users\\me\\archive", "D:\\Archive"],
+        ["/home/me/odd\\", "other"],
+      ],
+    );
+    assert.equal(entries.size, 0);
+  });
+
+  it("surfaces #error rows into errors (with the message), not entries", async () => {
+    // Kept out of `entries` so compare reports the path rather than mistaking
     // it for deleted. (writeSnapshot's round-trip test covers the writer side.)
     const text = [
-      "#DIR\t\t\t/home/me/Docs",
-      "#ERROR\t\tEACCES: permission denied\t/home/me/Docs/locked.bin",
-      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/Docs/ok.txt`,
-      "#END",
+      HEADING,
+      "#error\tEACCES: permission denied\t\t\t/home/me/Docs/locked.bin",
+      object(hashA, 5, "/home/me/Docs/ok.txt"),
+      END,
     ].join("\n");
     const { entries, errors } = await parse(text);
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
@@ -106,12 +163,11 @@ describe("parseSnapshotStream", () => {
   });
 
   it("preserves paths with leading/trailing whitespace verbatim", async () => {
-    // Only the hash/size/mtime columns are trimmed; the path column must be
-    // taken verbatim so a file whose name contains leading/trailing spaces
+    // Only the padded columns are trimmed; the path column must be taken
+    // verbatim so a file whose name contains leading/trailing spaces
     // round-trips correctly (hand-editing is the no-lock-in story).
     const path = " /home/me/ a file with spaces .txt ";
-    const text = `${hashA}\t5\t2026-06-01T12:00:00.000Z\t${path}\n#END`;
-    const { entries } = await parse(text);
+    const { entries } = await parse([object(hashA, 5, path), END].join("\n"));
     assert.ok(
       entries.has(path),
       "path with surrounding spaces must be kept verbatim",
@@ -119,17 +175,16 @@ describe("parseSnapshotStream", () => {
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
   });
 
-  it("rejects a stream that ends without the #END trailer as truncated", async () => {
+  it("rejects a stream that ends without #S3CAB END as truncated", async () => {
     // ADR-0082: this parser takes an already-decompressed stream, so it has no
     // gzip trailer to lean on — for an uncompressed `.tsv` there is none, and
-    // `#END` is the only thing standing between a destroyed manifest and a
+    // `END` is the only thing standing between a destroyed manifest and a
     // clean parse. An AssertionError on purpose — isCorruptSnapshotError
     // classifies it as snapshot damage, so verify records the finding instead
     // of vouching for the wreck.
-    const text = [
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-    ].join("\n");
+    const text = [HEADING, START, object(hashA, 12, "/home/me/a.txt")].join(
+      "\n",
+    );
     await assert.rejects(parse(text), {
       name: "AssertionError",
       message: /Truncated snapshot/,
@@ -137,39 +192,39 @@ describe("parseSnapshotStream", () => {
   });
 
   it("reads a work file's whole rows, dropping the one it died mid-write", async () => {
-    // ADR-0092: a hard-killed run's file has no trailer — it never reached one
-    // — and its last row is a prefix, cut between the compressor's last flushed
+    // ADR-0092: a hard-killed run's file has no `END` — it never reached one —
+    // and its last row is a prefix, cut between the compressor's last flushed
     // block and the end of the line. Both are the *expected* state here, where
     // for a snapshot they are damage. The torn row is the shape measured on a
     // real work file: hash and size intact, the mtime cut in half, no path.
     const text = [
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      `${hashA}\t34\t2026-06-01T12:00:00.000Z\t/home/me/b.txt`,
-      `${hashA}\t2806546623\t2026-07-26T17:21:28`,
+      HEADING,
+      START,
+      object(hashA, 12, "/home/me/a.txt"),
+      object(hashA, 34, "/home/me/b.txt"),
+      `object\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
     ].join("\n");
 
-    const { entries, completed } = await parseSnapshotStream(
+    const { entries, instant } = await parseSnapshotStream(
       Readable.from([text]),
       { tolerant: true },
     );
 
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
-    // No trailer means no completion instant.
-    assert.equal(completed, undefined);
+    assert.equal(instant, "2026-06-12T08:15:32.123Z");
   });
 
   it("drops a last row torn inside the path, which looks whole but isn't", async () => {
-    // The dangerous tear, and the reason the last line is taken on the
-    // trailer's word rather than on its own looks: cut after the fourth tab and
-    // all four columns are populated, so the row parses — filing a real hash
-    // under a *prefix* of the real path. A live file matching that prefix whose
-    // size and mtime agree with the row would then be stored under another
-    // file's content hash. The cost of the rule is visible here too: with no
-    // trailer, a final row that *was* whole is dropped as well.
+    // The dangerous tear, and the reason the last line is taken on `END`'s word
+    // rather than on its own looks: cut inside the path and all five columns
+    // are populated, so the row parses — filing a real hash under a *prefix* of
+    // the real path. A live file matching that prefix whose size and mtime
+    // agree with the row would then be stored under another file's content
+    // hash. The cost of the rule is visible here too: with no `END`, a final
+    // row that *was* whole is dropped as well — which is every parked file's.
     const text = [
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      `${hashB}\t34\t2026-06-01T12:00:00.000Z\t/home/me/photo`,
+      object(hashA, 12, "/home/me/a.txt"),
+      object(hashB, 34, "/home/me/photo"),
     ].join("\n");
 
     const { entries } = await parseSnapshotStream(Readable.from([text]), {
@@ -179,25 +234,21 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
   });
 
-  it("keeps a parked file's last row, which its trailer vouches for", async () => {
-    // So the lookbehind costs a *gracefully* parked file nothing (ADR-0067):
-    // its last line is the `#END` trailer, which is the one line nothing can
-    // follow and so the one line that vouches for itself. Only a hard-killed
-    // file pays a dropped row.
+  it("keeps a work file's last row when #S3CAB END follows it", async () => {
+    // A run killed after writing `END` but before the rename that lands the
+    // snapshot. `END` is the one line nothing can follow, so it vouches for
+    // itself and for the row before it.
     const text = [
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      `${hashB}\t34\t2026-06-01T12:00:00.000Z\t/home/me/b.txt`,
-      "#END\tPARTIAL\t2026-06-12T08:20:44.500Z\t",
+      object(hashA, 12, "/home/me/a.txt"),
+      object(hashB, 34, "/home/me/b.txt"),
+      END,
     ].join("\n");
 
-    const { entries, status, completed } = await parseSnapshotStream(
-      Readable.from([text]),
-      { tolerant: true },
-    );
+    const { entries } = await parseSnapshotStream(Readable.from([text]), {
+      tolerant: true,
+    });
 
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt", "/home/me/b.txt"]);
-    assert.equal(status, "PARTIAL");
-    assert.equal(completed, "2026-06-12T08:20:44.500Z");
   });
 
   it("tolerates a torn row only as the file's last line", async () => {
@@ -205,9 +256,9 @@ describe("parseSnapshotStream", () => {
     // *body* is something else entirely, and forgiving it would quietly drop
     // rows from the middle of a lookup, so the tolerance stops at the last line.
     const text = [
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      `${hashA}\t34\t2026-06-01T12:00:00.000Z`,
-      `${hashA}\t56\t2026-06-01T12:00:00.000Z\t/home/me/c.txt`,
+      object(hashA, 12, "/home/me/a.txt"),
+      `object\t${hashA}\t34\t2026-06-01T12:00:00.000Z`,
+      object(hashA, 56, "/home/me/c.txt"),
     ].join("\n");
 
     await assert.rejects(
@@ -216,44 +267,16 @@ describe("parseSnapshotStream", () => {
     );
   });
 
-  it("reads the trailer's status and completion instant", async () => {
-    const text = [
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      "#END\t   PARTIAL\t2026-06-12T08:20:44.500Z\t",
-    ].join("\n");
-
-    const { status, completed } = await parse(text);
-
-    assert.equal(status, "PARTIAL");
-    assert.equal(completed, "2026-06-12T08:20:44.500Z");
-  });
-
-  it("reads a bare trailer as a file that names neither", async () => {
-    // A trailer written before the columns existed. `undefined` is the honest
-    // reading: a caller wanting a trust boundary falls back to the `#SNAPSHOT`
-    // instant, which is earlier and so only ever more cautious (ADR-0085).
-    const text = [
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-      "#END",
-    ].join("\n");
-
-    const { status, completed, entries } = await parse(text);
-
-    assert.equal(status, undefined);
-    assert.equal(completed, undefined);
-    assert.equal(entries.size, 1, "the rows still parse");
-  });
-
   it("skips blank lines without throwing", async () => {
     // A hand-edited snapshot file may have blank lines (e.g. trailing newline).
     // The parser must skip them gracefully rather than asserting.
     const text = [
       "",
-      `${hashA}\t5\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
+      object(hashA, 5, "/home/me/a.txt"),
       "",
-      `${hashB}\t7\t2026-06-02T08:00:00.000Z\t/home/me/b.txt`,
+      object(hashB, 7, "/home/me/b.txt"),
       "",
-      "#END",
+      END,
       "",
     ].join("\n");
     const { entries } = await parse(text);
@@ -269,11 +292,9 @@ describe("parseSnapshotStream", () => {
 // read without aborting the live S3 request (#171) — needs a real body and is
 // covered in test/integration/remote.test.mjs.
 describe("parseCompressedSnapshotStream", () => {
-  const text = [
-    "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-    `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/a.txt`,
-    "#END",
-  ].join("\n");
+  const text = [HEADING, START, object(hashA, 12, "/home/me/a.txt"), END].join(
+    "\n",
+  );
 
   it(
     "parses a compressed stream arriving in arbitrary chunks",
@@ -284,10 +305,10 @@ describe("parseCompressedSnapshotStream", () => {
       for (let i = 0; i < compressed.length; i += 7) {
         chunks.push(compressed.subarray(i, i + 7));
       }
-      const { entries, identity } = await parseCompressedSnapshotStream(
+      const { entries, instant } = await parseCompressedSnapshotStream(
         Readable.from(chunks),
       );
-      assert.equal(identity, "photos");
+      assert.equal(instant, "2026-06-12T08:15:32.123Z");
       assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
     },
   );
@@ -297,7 +318,7 @@ describe("parseCompressedSnapshotStream", () => {
     { timeout: 5000 },
     async () => {
       // gunzip rejects the cut stream itself (`Z_BUF_ERROR`) where the parser
-      // would otherwise have missed `#END` — measured on 26.11 at every cut
+      // would otherwise have missed `#S3CAB END` — measured on 26.11 at every cut
       // point of a small snapshot, the empty stream included. Either way it must surface as the same
       // AssertionError, the one isCorruptSnapshotError files as damage
       // (ADR-0082 amendments 2 and 3).
@@ -356,6 +377,21 @@ const momentOf = (name) => ({
   instant: "2026-06-23T09:00:00.000Z",
   zone: "Europe/London",
 });
+
+/**
+ * The set a written snapshot records in its `#SET` rows.
+ * @param {string[]} dirs
+ * @returns {SnapshotSet}
+ */
+const setOf = (dirs) => ({
+  name: "photos",
+  bucket: "my-backups",
+  dirs,
+  patterns: [],
+});
+
+/** A walk that found nothing but files. */
+const nothingElse = { excluded: [], links: [], errors: [] };
 
 // listSnapshotNames is the storage core behind the `list` command — a temp dir
 // stands in for a set's `~/.s3cab/sets/<set>/snapshots/`. The set resolution
@@ -463,13 +499,7 @@ describe("readSnapshot", () => {
   const writeRealSnapshot = (snapshotDir) =>
     writeFileSync(
       join(snapshotDir, snapshotFileName(name)),
-      gzipSync(
-        [
-          "#SNAPSHOT\tphotos\t2026-06-23T09:00:00.000Z\t2026-06-23T1000 Europe/London",
-          `${hashA}\t3\t2026-06-23T10:00:00.000Z\t${file}`,
-          "#END",
-        ].join("\n"),
-      ),
+      gzipSync([HEADING, START, object(hashA, 3, file), END].join("\n")),
     );
 
   it("reads the snapshot even with a same-named directory beside it", async () => {
@@ -497,10 +527,9 @@ describe("readSnapshot", () => {
 
 // writeSnapshot is the single production seam for "files → snapshot file". It is
 // driven here with an injected getProps (so no disk hashing and no `prop` — the
-// writer's own logic is what's under test): the #SNAPSHOT/#DIR header, the
-// #EXCLUDED rows, the #ERROR-on-hashing-failure path, and the round-trip back
-// through readSnapshot are all asserted at the writer's interface — the write
-// path that previously had no single seam to test through.
+// writer's own logic is what's under test): the rows and their layout, the
+// #error-on-hashing-failure path, and the round-trip back through readSnapshot
+// are all asserted at the writer's interface.
 describe("writeSnapshot", () => {
   /** @type {(p: string) => Promise<Props>} */
   const props = async () => ({
@@ -509,20 +538,41 @@ describe("writeSnapshot", () => {
     hash: hashA,
   });
 
-  it("writes header + entries + #EXCLUDED + #ERROR and round-trips via readSnapshot", async () => {
+  /**
+   * A written snapshot's rows, each split into its five columns: the four
+   * padded ones trimmed, the last as written.
+   * @param {string} path
+   */
+  const rowsOf = (path) =>
+    gunzipSync(readFileSync(path))
+      .toString("utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) =>
+        line.split("\t").map((column, i) => (i < 4 ? column.trim() : column)),
+      );
+
+  it("writes object, #excluded, #error and link rows, and round-trips via readSnapshot", async () => {
     await using dir = await mkTmpDir();
     const a = resolve(dir.path, "a.txt");
     const b = resolve(dir.path, "b.txt");
     const bad = resolve(dir.path, "bad.bin");
-    const skipped = resolve(dir.path, "scratch.tmp");
+    const scratch = resolve(dir.path, "scratch.tmp");
+    const locked = resolve(dir.path, "locked");
+    const latest = resolve(dir.path, "latest.jpg");
+    const archive = resolve(dir.path, "archive");
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
+      set: setOf([dir.path]),
       files: [a, b, bad],
-      excluded: [{ fileType: "File", reason: "*.tmp", path: skipped }],
+      excluded: [{ pattern: "*.tmp", path: scratch, isDir: false }],
+      links: [
+        { path: latest, target: "a.txt", isDir: false },
+        { path: archive, target: "/mnt/archive", isDir: true },
+      ],
+      errors: [{ path: locked, reason: "EACCES: permission denied, lstat" }],
       getProps: async (p) => {
-        // A file the walk can't hash becomes an #ERROR row, not an entry.
+        // A file the walk can't hash becomes an #error row, not an entry.
         if (p === bad) {
           throw new Error("EACCES: permission denied");
         }
@@ -532,131 +582,191 @@ describe("writeSnapshot", () => {
 
     assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
 
-    const { entries, errors, dirs, identity } = await readSnapshot(
+    const { entries, errors, links, dirs, instant } = await readSnapshot(
       dir.path,
       "2026-06-23T1000",
     );
 
-    // The #SNAPSHOT/#DIR header round-trips.
-    assert.equal(identity, "photos");
-    assert.deepEqual(dirs, [dir.path]);
-
-    // Hashed files are entries; the #EXCLUDED row is skipped on read; the
-    // unhashable file is surfaced under errors (not an entry, not "deleted").
-    assert.deepEqual([...entries.keys()].sort(), [a, b].sort());
+    assert.equal(instant, momentOf("2026-06-23T1000").instant);
+    assert.deepEqual(dirs, [dir.path + sep]);
+    assert.deepEqual([...entries.keys()], [a, b]);
     assert.equal(entries.get(a)?.hash, hashA);
-    assert.ok(!entries.has(bad), "errored file must not be an entry");
-    assert.ok(!entries.has(skipped), "#EXCLUDED row must not be an entry");
-    assert.deepEqual([...errors], [[bad, "EACCES: permission denied"]]);
+    assert.ok(!entries.has(scratch), "#excluded row must not be an entry");
+    // The walk's #error and the hashing one both come back, so compare reports
+    // each path rather than mistaking it for deleted.
+    assert.deepEqual(
+      [...errors],
+      [
+        [locked, "EACCES: permission denied, lstat"],
+        [bad, "EACCES: permission denied"],
+      ],
+    );
+    // A folder link's trailing separator is dropped on read, so it keys like
+    // the same path everywhere else.
+    assert.deepEqual(
+      [...links],
+      [
+        [latest, "a.txt"],
+        [archive, "/mnt/archive"],
+      ],
+    );
   });
 
-  it("writes one #DIR line per member directory (header round-trips)", async () => {
+  it("lays the rows out as ADR-0098 does, closed by a trailer it counts and times itself", async (t) => {
+    // `END` times *itself*, through format.mjs's clock seam — the one door the
+    // model harness mocks — so pinning that clock pins it, rounded up to the
+    // millisecond (`completionInstant`'s rule, pinned in format.test.mjs).
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.Instant.from(
+        "2026-06-23T10:30:00.123456789Z",
+      ).toZonedDateTimeISO("Europe/London"),
+    );
     await using dir = await mkTmpDir();
-    // Mixed separators across roots, no file entries: pins the writer/reader
-    // pair for the #SNAPSHOT identity and the per-directory #DIR lines.
-    const dirs = ["C:\\Users\\me\\Photos", "/home/me/Docs"];
-
-    await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs,
-      files: [],
-      excluded: [],
-      getProps: props,
-    });
-
-    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
-    assert.equal(snap.identity, "photos");
-    assert.deepEqual(snap.dirs, dirs);
-    assert.equal(snap.entries.size, 0);
-  });
-
-  it("writes #SKIPPED rows for by-design unsupported entries and round-trips them", async () => {
-    await using dir = await mkTmpDir();
-    const regular = resolve(dir.path, "regular.txt");
-    const link = resolve(dir.path, "link.txt");
+    const a = resolve(dir.path, "a.txt");
+    const cache = resolve(dir.path, "cache");
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
-      files: [regular],
-      excluded: [],
-      skipped: [
-        {
-          fileType: "Symbolic Link",
-          reason: "Unsupported file type",
-          path: link,
-        },
-      ],
-      getProps: async () => ({
-        size: 3,
+      set: {
+        name: "photos",
+        bucket: "my-backups",
+        endpoint: "https://s3.example.com",
+        dirs: [dir.path],
+        patterns: ["*.tmp", "cache"],
+      },
+      files: [a, resolve(dir.path, "b.bin")],
+      excluded: [{ pattern: "cache", path: cache, isDir: true }],
+      links: [],
+      errors: [],
+      getProps: async (p) => ({
+        size: p === a ? 3 : 15463758036,
         mtime: "2026-06-23T10:00:00.000Z",
         hash: hashA,
       }),
     });
 
-    assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
-
-    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
-
-    // The skipped entry must not appear as an entry or an error.
-    assert.ok(!snap.entries.has(link), "#SKIPPED row must not be an entry");
-    assert.ok(!snap.errors.has(link), "#SKIPPED row must not be an error");
-    // It must be surfaced in skipped with *both* written columns. The file type
-    // is the one that answers "what was that?" — the reason is the same string
-    // for every skip the walk records — and it used to be dropped on read.
+    const rows = rowsOf(path);
     assert.deepEqual(
-      [...snap.skipped],
-      [[link, { fileType: "Symbolic Link", reason: "Unsupported file type" }]],
+      rows.map(([type, col2]) => `${type} ${col2}`),
+      [
+        "#S3CAB ",
+        "#S3CAB VERSION",
+        "#S3CAB HOME",
+        "#SET NAME",
+        "#SET BUCKET",
+        "#SET ENDPOINT",
+        "#SET DIR",
+        "#SET EXCLUDE",
+        "#SET EXCLUDE",
+        "#SNAPSHOT NAME",
+        "#SNAPSHOT BY",
+        "#SNAPSHOT START",
+        "#excluded cache",
+        `object ${hashA}`,
+        `object ${hashA}`,
+        "#SNAPSHOT FILES",
+        "#SNAPSHOT SIZE",
+        "#S3CAB END",
+      ],
+    );
+    assert.ok(
+      rows.every((row) => row.length === 5),
+      "five columns on every row",
+    );
+
+    /**
+     * The time and last columns of the rows with this type and col2.
+     * @param {string} key - The type and col2, space-separated
+     */
+    const tail = (key) =>
+      rows
+        .filter(([type, col2]) => `${type} ${col2}` === key)
+        .map(([, , , time, last]) => [time, last]);
+
+    assert.deepEqual(rows[0], [
+      "#S3CAB",
+      "",
+      "size",
+      "time",
+      "https://s3cab.plantegral.com/guide/format",
+    ]);
+    assert.match(tail("#S3CAB VERSION")[0]?.[1] ?? "", /^\d+\.\d+\.\d+/);
+    assert.ok(tail("#S3CAB HOME")[0]?.[1]?.endsWith(sep));
+    assert.deepEqual(tail("#SET NAME"), [["", "photos"]]);
+    assert.deepEqual(tail("#SET BUCKET"), [["", "s3://my-backups"]]);
+    assert.deepEqual(tail("#SET ENDPOINT"), [["", "https://s3.example.com"]]);
+    assert.deepEqual(tail("#SET EXCLUDE"), [
+      ["", "*.tmp"],
+      ["", "cache"],
+    ]);
+    // A folder's path ends with a separator: a member directory, and an
+    // excluded folder alike.
+    assert.deepEqual(tail("#SET DIR"), [["", dir.path + sep]]);
+    assert.deepEqual(tail("#excluded cache"), [["", cache + sep]]);
+    assert.deepEqual(tail("#SNAPSHOT NAME"), [["", "2026-06-23T1000"]]);
+    assert.match(tail("#SNAPSHOT BY")[0]?.[1] ?? "", /^.+@.+$/);
+    // Every spelling of the moment comes from the one `snapshotMoment` read the
+    // caller made (ADR-0072), so the filename and these rows cannot disagree.
+    assert.deepEqual(tail("#SNAPSHOT START"), [
+      ["2026-06-23T09:00:00.000Z", "Europe/London"],
+    ]);
+    assert.deepEqual(tail("#SNAPSHOT FILES"), [["", "2"]]);
+    assert.match(tail("#SNAPSHOT SIZE")[0]?.[1] ?? "", /^15463758039 \(.+\)$/);
+    assert.deepEqual(tail("#S3CAB END"), [["2026-06-23T10:30:00.124Z", ""]]);
+
+    // Column 1 is exactly `object`'s width, so an object row carries no padding
+    // but its size's.
+    const text = gunzipSync(readFileSync(path)).toString("utf8");
+    assert.ok(
+      text.includes(
+        `\nobject\t${hashA}\t           3\t2026-06-23T10:00:00.000Z\t${a}\n`,
+      ),
     );
   });
 
-  it("spells out a line break in an excluded name, and drops a skipped one", async () => {
+  it("spells out a control character in what only people read", async () => {
     // Excluding such a name is the escape hatch the walk's refusal points to
-    // (ADR-0073), so the snapshot must stay readable when one turns up.
+    // (ADR-0073), and an error message can span lines, so the snapshot must
+    // stay one row per line when either turns up (ADR-0100).
     await using dir = await mkTmpDir();
-    const kept = resolve(dir.path, "kept.txt");
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
-      files: [kept],
+      set: setOf([dir.path]),
+      files: [],
       excluded: [
         {
-          fileType: "File",
-          reason: "odd*name.jpg",
+          pattern: "odd*name.jpg",
           path: resolve(dir.path, "odd\nname.jpg"),
+          isDir: false,
         },
       ],
-      skipped: [
-        {
-          fileType: "Symbolic Link",
-          reason: "Unsupported file type",
-          path: resolve(dir.path, "odd\rlink"),
-        },
-      ],
+      links: [],
+      errors: [{ path: resolve(dir.path, "bad\rname"), reason: "EACCES:\tno" }],
       getProps: props,
     });
 
-    const snap = await readSnapshot(dir.path, "2026-06-23T1000");
-    assert.deepEqual([...snap.entries.keys()], [kept]);
-    assert.equal(snap.skipped.size, 0);
-
-    const metadata = gunzipSync(readFileSync(path))
-      .toString()
-      .split("\n")
-      .filter((line) => /^#(EXCLUDED|SKIPPED)/.test(line));
     assert.deepEqual(
-      metadata.map((line) => line.split("\t").at(-1)),
-      [resolve(dir.path, "odd␊name.jpg")],
+      rowsOf(path).filter(
+        ([type]) => type === "#excluded" || type === "#error",
+      ),
+      [
+        [
+          "#excluded",
+          "odd*name.jpg",
+          "",
+          "",
+          resolve(dir.path, "odd␊name.jpg"),
+        ],
+        ["#error", "EACCES:␉no", "", "", resolve(dir.path, "bad␍name")],
+      ],
     );
   });
 
   it("passes rows through `through` and writes the identical file (the fusion seam)", async (t) => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the
-    // snapshot says — so the two files must be byte-identical. The `#END`
-    // trailer times itself, so the clock is pinned for both writes; nothing
-    // else in the file can differ.
+    // snapshot says — so the two files must be byte-identical. `#S3CAB END`
+    // times itself, so the clock is pinned for both writes; nothing else in the
+    // file can differ.
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.Instant.from("2026-06-23T10:30:00.000Z").toZonedDateTimeISO(
         "Europe/London",
@@ -665,16 +775,15 @@ describe("writeSnapshot", () => {
     await using dir = await mkTmpDir();
     const files = [resolve(dir.path, "a.txt"), resolve(dir.path, "b.txt")];
     const args = {
-      identity: "photos",
-      dirs: [dir.path],
+      set: setOf([dir.path]),
       files,
-      excluded: [],
+      ...nothingElse,
       getProps: props,
     };
 
     /** @type {string[]} */
     const seen = [];
-    // The same name both times (the header carries it), so only the transform differs.
+    // The same name both times (the rows carry it), so only the transform differs.
     const plain = await writeSnapshot(
       dir.path,
       momentOf("2026-06-23T1000"),
@@ -709,10 +818,9 @@ describe("writeSnapshot", () => {
       resolve(dir.path, `photo-${i}.jpg`),
     );
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
+      set: setOf([dir.path]),
       files,
-      excluded: [],
+      ...nothingElse,
       getProps: async (file) => ({
         size: 3,
         mtime: "2026-06-23T10:00:00.000Z",
@@ -731,71 +839,13 @@ describe("writeSnapshot", () => {
     assert.ok(!written.equals(gzipSync(text)), "distinct from zlib's defaults");
   });
 
-  it("derives the #SNAPSHOT header datetime from the snapshot name", async () => {
-    await using dir = await mkTmpDir();
-
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [],
-      files: [],
-      excluded: [],
-      getProps: props,
-    });
-
-    // Every spelling of the moment comes from the one `snapshotMoment` read the
-    // caller made (ADR-0072), so the filename and the header cannot disagree.
-    // The row keeps four columns: set, UTC instant, then the name and its zone.
-    const text = gunzipSync(readFileSync(path)).toString("utf8");
-    const [header = ""] = text.split("\n");
-    const [marker, identity, instant, nameAndZone] = header
-      .split("\t")
-      .map((field) => field.trim());
-
-    assert.equal(marker, "#SNAPSHOT");
-    assert.equal(identity, "photos");
-    assert.equal(instant, "2026-06-23T09:00:00.000Z");
-    assert.equal(nameAndZone, "2026-06-23T1000 Europe/London");
-    // The instant lands in `mtime`'s own column, which is why it fits: an ISO
-    // instant at millisecond precision is exactly the 24 characters col3 pads to.
-    assert.equal(instant.length, 24);
-  });
-
-  it("closes a finished snapshot COMPLETE, timed by the clock seam as the last row lands", async (t) => {
-    // The trailer times *itself*, which is the whole reason it is worth a
-    // column: the header's instant is minted before the pass reads anything, so
-    // it cannot vouch for a file whose ctime the reading moved (ADR-0085). The
-    // read goes through format.mjs's clock seam — the one door the model
-    // harness mocks — so pinning that clock pins the trailer, rounded up to the
-    // millisecond (`completionInstant`'s rule, pinned in format.test.mjs). An
-    // earlier shape compared against a real clock read and raced on macOS.
-    await using dir = await mkTmpDir();
-    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
-      Temporal.Instant.from(
-        "2026-06-23T10:30:00.123456789Z",
-      ).toZonedDateTimeISO("Europe/London"),
-    );
-
-    const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
-      files: [resolve(dir.path, "a.txt")],
-      excluded: [],
-      getProps: props,
-    });
-
-    const { status, completed } = await readSnapshotFile(path);
-    assert.equal(status, "COMPLETE");
-    assert.equal(completed, "2026-06-23T10:30:00.124Z");
-  });
-
   it("refuses an existing same-name snapshot unless overwrite is set", async () => {
     await using dir = await mkTmpDir();
     /** @type {Parameters<typeof writeSnapshot>[2]} */
     const args = {
-      identity: "photos",
-      dirs: [dir.path],
+      set: setOf([dir.path]),
       files: [],
-      excluded: [],
+      ...nothingElse,
       getProps: props,
     };
 
@@ -944,10 +994,9 @@ describe("withSnapshotFile (park on interrupt)", () => {
    */
   const write = (snapshotDir, name, files, getProps) =>
     writeSnapshot(snapshotDir, momentOf(name), {
-      identity: "photos",
-      dirs: [snapshotDir],
+      set: setOf([snapshotDir]),
       files,
-      excluded: [],
+      ...nothingElse,
       getProps,
     });
 
@@ -979,17 +1028,19 @@ describe("withSnapshotFile (park on interrupt)", () => {
       "the hashes computed so far must be parked",
     );
 
-    // Exactly the rows hashed before the stop, and nothing half-written.
+    // The rows hashed before the stop, less the last: a parked file has no
+    // `#S3CAB END` to vouch for its final row, so the tolerant read drops it
+    // (ADR-0098) — one file re-hashed, as after a hard kill.
     const parked = await readParkedLookup(dir.path);
     assert.ok(parked);
-    assert.deepEqual([...parked.entries.keys()], files.slice(0, 2));
+    assert.deepEqual([...parked.entries.keys()], files.slice(0, 1));
     assert.equal(parked.entries.get(files[0] ?? "")?.hash, hashA);
     // The stopped run's start comes back with them — the change-time boundary
     // when there is no previous snapshot (ADR-0094).
     assert.equal(parked.instant, momentOf("2026-06-23T1000").instant);
   });
 
-  it("ends the parked file on a whole row, never a torn one", async () => {
+  it("stops the parked file after its last object row, with no trailer", async () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
@@ -998,20 +1049,17 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // A clean `end()` flushes whole writes only, so the last byte is the
-    // newline of the last complete row — a truncated row would not parse. The
-    // trailer says PARTIAL: it is there because the stop was controlled, and it
-    // must not read as a finished snapshot (ADR-0082).
+    // newline of the last complete row. No `FILES`, `SIZE` or `END`: `END`
+    // means the file is complete, and a parked one isn't (ADR-0098).
     const text = gunzipSync(readFileSync(parkedPath(dir.path))).toString(
       "utf8",
     );
-    const trailer = text.split("\n").at(-2) ?? "";
-    assert.match(
-      trailer,
-      /^#END\s+PARTIAL\t\d{4}-\d\d-\d\dT[\d:.]+Z\s*\t$/,
-      `parked file must close with a PARTIAL #END trailer, got: ${JSON.stringify(trailer)}`,
-    );
-    for (const line of text.split("\n").filter(Boolean).slice(0, -1)) {
-      assert.equal(line.split("\t").length, 4, `whole row expected: ${line}`);
+    assert.ok(text.endsWith("\n"));
+    const lines = text.split("\n").filter(Boolean);
+    assert.match(lines.at(-1) ?? "", /^object\t/);
+    for (const line of lines) {
+      assert.equal(line.split("\t").length, 5, `whole row expected: ${line}`);
+      assert.doesNotMatch(line, /^(#S3CAB\tEND|#SNAPSHOT\t(FILES|SIZE))\s/);
     }
   });
 
@@ -1026,7 +1074,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
 
     // A *failed* run must leave the parked work alone — it is the only copy.
     // (A walk that dies mid-stream, not a getProps failure: an unhashable file
-    // is recorded as an #ERROR row and does not fail the run.)
+    // is recorded as an `#error` row and does not fail the run.)
     async function* vanishing() {
       yield files[0] ?? "";
       throw new Error("member directory vanished");
@@ -1055,7 +1103,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     const files = paths(dir.path);
 
     await assert.rejects(
-      write(dir.path, "2026-06-23T1000", files, interruptAfter(1)),
+      write(dir.path, "2026-06-23T1000", files, interruptAfter(2)),
       InterruptedError,
     );
     const first = await readParkedLookup(dir.path);
@@ -1069,7 +1117,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
       InterruptedError,
     );
     const second = await readParkedLookup(dir.path);
-    assert.deepEqual([...(second?.entries.keys() ?? [])], files.slice(0, 3));
+    assert.deepEqual([...(second?.entries.keys() ?? [])], files.slice(0, 2));
   });
 
   it("leaves no signal listeners behind after the write", async () => {
@@ -1148,16 +1196,17 @@ describe("readParkedLookup", () => {
     resolve(dir, ".snapshot.lookup.tsv.gz");
 
   /**
-   * Park one row as a run that started at `instant` and was stopped with
-   * Ctrl+C leaves it.
+   * Park a file as a run that started at `instant` and was stopped with Ctrl+C
+   * leaves it: no trailer, so its last row is dropped on read.
    * @param {string} dir
    * @param {string} instant
    */
   const parkRunStartedAt = (dir, instant) => {
     const text = [
-      `#SNAPSHOT\tphotos\t${instant}\t2026-06-12T0915 Europe/London`,
-      `${hashA}\t1\t2026-06-01T12:00:00.000Z\t${resolve(dir, "a.txt")}`,
-      "#END\tPARTIAL\t2026-06-12T08:20:44.500Z\t",
+      HEADING,
+      `#SNAPSHOT\tSTART\t\t${instant}\tEurope/London`,
+      object(hashA, 1, resolve(dir, "a.txt")),
+      object(hashA, 2, resolve(dir, "b.txt")),
     ].join("\n");
     writeFileSync(parkedPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
@@ -1195,7 +1244,7 @@ describe("readParkedLookup", () => {
 
 // Recovering a hard-killed run's work file (ADR-0092). A second Ctrl+C, a power
 // cut or a kill runs no handler, so the file is left at the *lock* name with no
-// trailer and a torn last row — where a graceful park leaves a closed file under
+// trailer and a torn last row — where a graceful park leaves whole rows under
 // the other name. `--resume` adopts it instead of throwing it away.
 describe("recoverWorkFile", () => {
   const lockPath = (/** @type {string} */ dir) =>
@@ -1204,20 +1253,20 @@ describe("recoverWorkFile", () => {
     resolve(dir, ".snapshot.lookup.tsv.gz");
 
   /**
-   * Leave a work file exactly as a hard kill leaves one: header, whole rows,
-   * then a row cut off mid-write. Built as bytes rather than by killing a real
-   * write, so the artifact under test is pinned to the shape measured on a real
-   * 280,277-file set — 272,692 whole rows, one torn line, no `#END`.
+   * Leave a work file exactly as a hard kill leaves one: the opening rows,
+   * whole object rows, then a row cut off mid-write. Built as bytes rather than
+   * by killing a real write, so the artifact under test is pinned to the shape
+   * measured on a real 280,277-file set — 272,692 whole rows, one torn line, no
+   * `#S3CAB END`.
    * @param {string} dir
    * @param {string[]} files
    */
   const killedRun = (dir, files) => {
     const text = [
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-      ...files.map(
-        (path, i) => `${hashA}\t${i + 1}\t2026-06-01T12:00:00.000Z\t${path}`,
-      ),
-      `${hashA}\t2806546623\t2026-07-26T17:21:28`,
+      HEADING,
+      START,
+      ...files.map((path, i) => object(hashA, i + 1, path)),
+      `object\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
     ].join("\n");
     writeFileSync(lockPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
@@ -1269,7 +1318,7 @@ describe("recoverWorkFile", () => {
   });
 
   it("keeps the start instant of the run that never finished", async () => {
-    // No trailer, but the header is the first line a run writes, so the
+    // No trailer, but `#SNAPSHOT START` is written before any object, so the
     // change-time boundary (ADR-0094) survives the kill.
     await using dir = await mkTmpDir();
     killedRun(dir.path, [resolve(dir.path, "a.txt")]);
@@ -1288,10 +1337,9 @@ describe("recoverWorkFile", () => {
     // Before: the lock is held by a run that no longer exists.
     await assert.rejects(
       writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-        identity: "photos",
-        dirs: [dir.path],
+        set: setOf([dir.path]),
         files,
-        excluded: [],
+        ...nothingElse,
         getProps: async () => ({
           size: 3,
           mtime: "2026-06-23T10:00:00.000Z",
@@ -1304,10 +1352,9 @@ describe("recoverWorkFile", () => {
     await recoverWorkFile(dir.path);
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
-      identity: "photos",
-      dirs: [dir.path],
+      set: setOf([dir.path]),
       files,
-      excluded: [],
+      ...nothingElse,
       getProps: async () => ({
         size: 3,
         mtime: "2026-06-23T10:00:00.000Z",
@@ -1354,10 +1401,9 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
    */
   const seed = (dir, name) =>
     writeSnapshot(dir, momentOf(name), {
-      identity: "photos",
-      dirs: [dir],
+      set: setOf([dir]),
       files: [resolve(dir, "a.txt")],
-      excluded: [],
+      ...nothingElse,
       getProps: async () => ({
         size: 1,
         mtime: "2026-06-01T00:00:00.000Z",
@@ -1403,7 +1449,7 @@ describe("readSnapshot names the alternatives on a miss (ADR-0030)", () => {
   });
 });
 
-describe("the snapshot moment and its header (ADR-0072)", () => {
+describe("the snapshot moment (ADR-0072)", () => {
   it("mints three spellings of one instant that agree with each other", () => {
     const { name, instant, zone } = snapshotMoment();
 
@@ -1421,49 +1467,5 @@ describe("the snapshot moment and its header (ADR-0072)", () => {
     assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{4}$/);
     assert.equal(instant.length, 24, "must fit mtime's own 24-wide column");
     assert.match(instant, /Z$/);
-  });
-
-  it("reads the current header: set, instant, then name and zone", async () => {
-    const text = [
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915 Europe/London",
-      "#DIR\t\t\t/home/me/Photos",
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
-      "#END",
-    ].join("\n");
-
-    const { identity, instant, zone, dirs, entries } = await parse(text);
-    assert.equal(identity, "photos");
-    assert.equal(instant, "2026-06-12T08:15:32.123Z");
-    assert.equal(zone, "Europe/London");
-    assert.deepEqual(dirs, ["/home/me/Photos"]);
-    assert.equal(entries.size, 1);
-  });
-
-  it("leaves the header fields absent when a snapshot carries no #SNAPSHOT line", async () => {
-    // The row-only form the test fixture builder writes. Absent, not guessed —
-    // which is why a consumer has to treat all three as optional.
-    const text = [
-      "#DIR\t\t\t/home/me/Photos",
-      `${hashA}\t12\t2026-06-01T12:00:00.000Z\t/home/me/Photos/beach.jpg`,
-      "#END",
-    ].join("\n");
-
-    const { identity, instant, zone, dirs, entries } = await parse(text);
-    assert.equal(identity, undefined);
-    assert.equal(instant, undefined);
-    assert.equal(zone, undefined);
-    assert.deepEqual(dirs, ["/home/me/Photos"]);
-    assert.equal(entries.size, 1);
-  });
-
-  it("survives a header whose zone is missing", async () => {
-    // A hand-edited file, or one truncated at col4. The name is the filename
-    // anyway, so a missing zone costs the reader nothing it cannot recover.
-    const text =
-      "#SNAPSHOT\tphotos\t2026-06-12T08:15:32.123Z\t2026-06-12T0915\n#END";
-    const { identity, instant, zone } = await parse(text);
-    assert.equal(identity, "photos");
-    assert.equal(instant, "2026-06-12T08:15:32.123Z");
-    assert.equal(zone, undefined);
   });
 });

@@ -9,7 +9,7 @@ import {
   stringifySnapshot,
   withSnapshotFile,
   // The production writer, aliased: the local `writeSnapshot` is the file-rows
-  // test helper, and `#SKIPPED` rows only come out of the real one.
+  // test helper, and `link` rows only come out of the real one.
   writeSnapshot as writeFullSnapshot,
 } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -167,7 +167,7 @@ describe("diff", () => {
   });
 
   it("never pairs a move into a path the previous snapshot couldn't hash", () => {
-    // X.doc was in the previous snapshot as an `#ERROR` row — there, just
+    // X.doc was in the previous snapshot as an `#error` row — there, just
     // unreadable — so nothing can have moved *to* it, however the content pairs
     // up. Without the bar this prints `Y.doc → X.doc`: a rename that never
     // happened, invented for a file that sat there the whole time. It reports as
@@ -326,7 +326,6 @@ function summarize(result, base) {
     modified: result.modified.map((m) => r(m.path)),
     deleted: result.deleted.map((d) => r(d.path)),
     errors: result.errors.map((e) => `${r(e.path)} (${e.reason})`),
-    skipped: result.skipped.map((s) => `${r(s.path)} (${s.fileType})`),
   };
 }
 
@@ -336,7 +335,6 @@ const EMPTY = {
   modified: [],
   deleted: [],
   errors: [],
-  skipped: [],
 };
 
 /**
@@ -481,7 +479,7 @@ describe("compareSnapshots", () => {
     ]);
 
     // A file that errors during snapshot (e.g. permission denied) is written
-    // as an #ERROR row — exactly what the snapshot pipeline produces for an
+    // as an #error row — exactly what the snapshot pipeline produces for an
     // unreadable file. The path existed in the previous snapshot, so before
     // the errors category it was mis-reported as deleted; it must now surface
     // under `errors` and stay out of `deleted` (the file is still on disk).
@@ -507,68 +505,60 @@ describe("compareSnapshots", () => {
     });
   });
 
-  it("lists what the walk skipped, naming the file type that explains it", async () => {
-    await using dir = await mkTmpDir();
-    const vault = resolve(dir.path, "Personal Vault");
-
-    await writeSnapshot(dir.path, PREVIOUS, []);
-    await writeFullSnapshot(dir.path, momentOf(CURRENT), {
-      identity: "photos",
-      dirs: [dir.path],
+  /**
+   * Write CURRENT with the production writer: no files, just these links.
+   * @param {string} dir
+   * @param {{ path: string, target: string, isDir: boolean }[]} links
+   */
+  const writeLinksOnly = (dir, links) =>
+    writeFullSnapshot(dir, momentOf(CURRENT), {
+      set: { name: "photos", bucket: "my-backups", dirs: [dir], patterns: [] },
       files: [],
       excluded: [],
-      skipped: [
-        {
-          fileType: "Symbolic Link",
-          reason: "Unsupported file type",
-          path: vault,
-        },
-      ],
+      links,
+      errors: [],
       getProps: async () => assert.fail("no files to hash"),
     });
 
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    // The whole point of the category: before this, a `#SKIPPED` row was parsed
-    // and then read by nobody, so a symlink the backup left out was invisible in
-    // every command. The type travels with it — "Symbolic Link", not just the
-    // one-size-fits-all "Unsupported file type" reason.
-    assert.deepStrictEqual(summarize(result, dir.path), {
-      ...EMPTY,
-      skipped: ["Personal Vault (Symbolic Link)"],
-    });
-  });
-
-  it("reports a file that became a symlink as skipped, not deleted", async () => {
+  it("reports nothing for a file that became a link, which the backup still holds", async () => {
     await using dir = await mkTmpDir();
 
-    // file1.txt was a real file in the baseline and is a symlink now, so it is
-    // absent from `entries` and would otherwise read as a deletion — the same
-    // trap the errors category exists to avoid. It didn't go away; s3cab just
-    // stopped being able to store it.
+    // file1.txt was a real file in the baseline and is a link now, so it is
+    // absent from `entries` and would otherwise read as a deletion. It didn't
+    // go away: the backup holds the link itself (ADR-0099).
     await writeSnapshot(dir.path, PREVIOUS, [
       new File(["contents1"], "file1.txt"),
     ]);
-    await writeFullSnapshot(dir.path, momentOf(CURRENT), {
-      identity: "photos",
-      dirs: [dir.path],
-      files: [],
-      excluded: [],
-      skipped: [
-        {
-          fileType: "Symbolic Link",
-          reason: "Unsupported file type",
-          path: resolve(dir.path, "file1.txt"),
-        },
-      ],
-      getProps: async () => assert.fail("no files to hash"),
-    });
+    await writeLinksOnly(dir.path, [
+      {
+        path: resolve(dir.path, "file1.txt"),
+        target: "other.txt",
+        isDir: false,
+      },
+    ]);
+
+    const result = await compareSnapshots(dir.path, [dir.path]);
+
+    assert.deepStrictEqual(summarize(result, dir.path), EMPTY);
+  });
+
+  it("reports the files under a folder that became a link as deleted", async () => {
+    await using dir = await mkTmpDir();
+
+    // The link stands in for the folder's own path, and is never followed, so
+    // what was under it really is gone from the backup.
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], join("sub", "a.txt")),
+    ]);
+    await writeLinksOnly(dir.path, [
+      { path: resolve(dir.path, "sub"), target: "/mnt/sub", isDir: true },
+    ]);
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
-      skipped: ["file1.txt (Symbolic Link)"],
+      deleted: [join("sub", "a.txt")],
     });
   });
 
@@ -601,7 +591,7 @@ describe("compareSnapshots", () => {
   it("annotates a file the older snapshot couldn't hash as an addition, not a new file", async () => {
     await using dir = await mkTmpDir();
 
-    // X.doc was locked when PREVIOUS was taken, so it is an `#ERROR` row there
+    // X.doc was locked when PREVIOUS was taken, so it is an `#error` row there
     // and in no manifest; CURRENT hashes it fine. Reported as added — the
     // content really did reach the backup on this run, and the counts have to
     // match what was stored — but flagged, because the file itself sat there the
@@ -631,7 +621,7 @@ describe("compareSnapshots", () => {
     await using dir = await mkTmpDir();
 
     // The fourth combination, and deliberately silent: the backup never held
-    // X.doc (an `#ERROR` row is in no manifest) and still doesn't, so nothing
+    // X.doc (an `#error` row is in no manifest) and still doesn't, so nothing
     // about it changed. Calling it deleted would claim a loss that never
     // happened. kept.txt is here, unchanged, so the comparison is a real one
     // that still finds nothing to say (ADR-0079).
@@ -805,15 +795,15 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
    * @param {string | undefined} instant
    */
   function plant(dir, name, instant) {
-    // No instant means no `#SNAPSHOT` line at all — the row-only form a fused
-    // snapshot's pre-parsed baseline arrives as.
-    const header = instant
-      ? `#SNAPSHOT\tphotos\t${instant}\t${name} Europe/London\n`
+    // No instant means no `#SNAPSHOT START` row at all — the row-only form a
+    // fused snapshot's pre-parsed baseline arrives as.
+    const start = instant
+      ? `#SNAPSHOT\tSTART\t\t${instant}\tEurope/London\n`
       : ``;
-    const row = `${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
+    const row = `object\t${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     writeFileSync(
       join(dir, `${name}.tsv.gz`),
-      gzipSync(Buffer.from(header + row + "#END\n", "utf8")),
+      gzipSync(Buffer.from(start + row + "#S3CAB\tEND\t\t\t\n", "utf8")),
     );
   }
 
