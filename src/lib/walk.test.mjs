@@ -3,7 +3,7 @@ import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
-import { walkDirs, walkSet } from "./walk.mjs";
+import { readExcludePatterns, walkDirs, walkSet } from "./walk.mjs";
 
 /**
  * @import { PathLike } from "node:fs"
@@ -284,6 +284,34 @@ describe("walkDirs", () => {
       );
     },
   );
+});
+
+describe("readExcludePatterns (ADR-0100)", () => {
+  it("refuses a pattern holding a tab or CR, naming each with * as the fix", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\nodd\tname.jpg\ncr\rhere\n");
+    assert.throws(
+      () => readExcludePatterns(excludePath),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes("  odd␉name.jpg\n") &&
+        error.message.includes("  cr␍here\n") &&
+        error.message.includes("  odd*name.jpg\n") &&
+        error.message.endsWith("  cr*here") &&
+        !error.message.includes("*.tmp"),
+    );
+  });
+
+  it("reads a file with CRLF line endings", async () => {
+    await using dir = await mkTmpDir();
+    const excludePath = join(dir.path, "exclude.txt");
+    writeFileSync(excludePath, "*.tmp\r\ncache/\r\n");
+    assert.deepStrictEqual(readExcludePatterns(excludePath), [
+      "*.tmp",
+      "cache/",
+    ]);
+  });
 });
 
 describe("walkSet dirs guard (ADR-0054)", () => {
