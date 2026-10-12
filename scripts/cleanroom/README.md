@@ -116,28 +116,36 @@ node scripts/cleanroom/audit-transcript.mjs $HOME/s3cab.sandbox
 The checkers run before the sandbox is destroyed, on the machine that built it:
 they read its trees, and the upload checker reads what the clean room was handed.
 
-**Every run is the same; whether it is recorded is decided at the end.** A run is
-recorded only if it used Fable 5.1 at `xhigh`, against the spec as it still stands,
-and its transcript audit came back clean. Its report then continues the
-`docs/format-spec-audit-<n>.md` numbering, its title naming the role and the
-platform, the model and the effort; a backup program goes in `backup/<platform>/`
-here (`linux`, `windows`, `macos`), beside [restorers/](restorers/). Any other
-run's findings are fixed in the harness or the spec, and the rest is thrown away.
-One model across the recorded series is the point: a weaker reader lists fewer
-ambiguities, which would read as a spec that improved. The effort is `xhigh`
-rather than `high` because too shallow a reading fails silently: an ambiguity the
-session never noticed looks like a spec without one, and no checker catches it.
+Every run is built, run and checked the same way, and the audit reports its
+token cost by model. What differs is whether it is recorded, and that is decided
+at the end.
 
-**Start a revision on a cheaper model**, to catch harness faults and glaring spec
-errors before Fable pays for them: the snapshot role on both Opus 5.5 at `medium`
-and Sonnet 5.5 at `high`, then the other roles on whichever did better, judged by
-report and token cost. A quiet cheap run proves nothing about the spec.
+**Experiment first, on any model at any effort**, until the process runs
+smoothly: to catch harness faults and glaring spec errors cheaply, or to see
+which model writes the nicest program. Nothing is recorded. Findings are fixed
+in the harness or the spec, and a report worth comparing is kept outside the
+repo with its token cost. A quiet experiment proves nothing about the spec.
 
-**The same role on two or three models**, their ambiguity lists diffed, shows
-roughly how much a single run misses, which is what says whether one reading per
-role is enough. Keep those reports outside the repo and judge them with the model
-names hidden. Every reader is still Claude, as was s3cab's author, so a gap they
-all fill the same way can still pass the byte-for-byte comparison.
+**Then a real set: every role on every platform you have, start to finish, on
+one model at `xhigh`**, the best model you have when the set starts. A run in a
+real set is recorded if its transcript audit came back clean. Its report
+continues the `docs/format-spec-audit-<n>.md` numbering, its title naming the
+role and the platform, the model and the effort; a backup program goes in
+`backup/<platform>/` here (`linux`, `windows`, `macos`), beside
+[restorers/](restorers/). The spec is frozen for the length of the set: each
+run's findings are collected, and fixed only after the last run, so every run in
+the set reads the same spec.
+
+One model across the set is the point: a weaker reader lists fewer ambiguities,
+which would read as a spec that improved. The effort is `xhigh` because too
+shallow a reading fails silently: an ambiguity the session never noticed looks
+like a spec without one, and no checker catches it. A better model, when you
+have one, means the whole real set again, even on an unchanged spec; its lists
+diffed against the last set's show how much depends on the reader. Across sets
+the reader may differ, so a list that shrinks across a change of model is not
+evidence the spec got better. Every reader is still Claude, as was s3cab's
+author, so a gap they all fill the same way can still pass the byte-for-byte
+comparison.
 
 ## cleanroom.mjs
 

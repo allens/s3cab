@@ -59,7 +59,7 @@ One thing to know before you run it: the model suite does **not** exercise this.
 
 ## 2. Independent restorer built from the spec alone
 
-**Not a pasted prompt; model and effort are the README's recording rule.** A clean-room run is built by [scripts/cleanroom/build-restore-cleanroom.mjs](../../scripts/cleanroom/build-restore-cleanroom.mjs), which writes the brief as the clean room's own `CLAUDE.md` in a sandbox outside the repo — open a fresh session in its `cleanroom` directory and say "go". [scripts/cleanroom/README.md](../../scripts/cleanroom/README.md) has the procedure, on Linux and on Windows, and links every run's report. When the run reports, diff its ambiguity list against the last report yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap.
+**Not a pasted prompt; the README says which model and effort, and which runs are recorded.** A clean-room run is built by [scripts/cleanroom/build-restore-cleanroom.mjs](../../scripts/cleanroom/build-restore-cleanroom.mjs), which writes the brief as the clean room's own `CLAUDE.md` in a sandbox outside the repo — open a fresh session in its `cleanroom` directory and say "go". [scripts/cleanroom/README.md](../../scripts/cleanroom/README.md) has the procedure, on Linux and on Windows, and links every run's report. When the run reports, diff its ambiguity list against the last report yourself: a reappearing item is a fix that didn't land, a new one is a fresh gap.
 
 ---
 
