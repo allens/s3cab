@@ -87,7 +87,9 @@ mock.module("../lib/remote.mjs", {
   },
 });
 mock.module("../lib/deletion-record.mjs", {
-  exports: { readDeletionRecords: async () => recorded },
+  exports: {
+    readDeletionRecords: async () => ({ deleted: recorded, invalid: [] }),
+  },
 });
 mock.module("../lib/objects.mjs", {
   exports: {

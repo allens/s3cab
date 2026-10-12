@@ -832,18 +832,22 @@ function setFindings(report, paint) {
  * @returns {string}
  */
 const problemLabel = (problem) =>
-  problem === "missing" ? "missing" : "wrong size";
+  problem === "wrong-size" ? "wrong size" : problem;
 
 /**
  * The parenthetical detail for a problem row: which snapshots reference a
- * `missing` file (it can't be restored), or the recorded-vs-stored byte counts
- * for a `wrong-size` one (a truncated/overwritten upload or a torn snapshot file).
+ * `missing` file (it can't be restored), why an `invalid` row was refused and
+ * in which snapshot, or the recorded-vs-stored byte counts for a `wrong-size`
+ * one (a truncated/overwritten upload or a torn snapshot file).
  * @param {SetReport["problems"][number]} p
  * @returns {string}
  */
 function problemDetail(p) {
   if (p.problem === "missing") {
     return `(in ${plural(p.snapshots.length, "snapshot")} ${p.snapshots.join(", ")})`;
+  }
+  if (p.problem === "invalid") {
+    return `(${p.reason}, in snapshot ${p.snapshots.join(", ")})`;
   }
   return `(recorded ${formatCount(p.recordedSize ?? 0)} bytes, stored ${formatCount(p.storedSize ?? 0)})`;
 }
@@ -1258,7 +1262,8 @@ export function renderUpload(result, { color = false } = {}) {
  * lists are given in full, never truncated: each entry is a file the user asked
  * for and didn't get, so name them all and say what to do about it
  * (`--overwrite` for the skipped, a separate `--output` for the collided and the
- * refused, `upload --force` of a surviving copy for the corrupt, `verify` for
+ * refused, an earlier `--snapshot` for the invalid rows, `upload --force` of a
+ * surviving copy for the corrupt, `verify` for
  * the missing — ADR-0030's constructive fix). The deliberately deleted need no
  * fix: the deletion record explains them. The missing block comes last so it is
  * what remains on screen after a long run, and its exit code is set by the
@@ -1279,6 +1284,7 @@ export function renderRestore(
     missing,
     corrupt,
     refused,
+    invalid,
     deleted,
   },
   { color = false } = {},
@@ -1295,6 +1301,7 @@ export function renderRestore(
     missing.length ||
     corrupt.length ||
     refused.length ||
+    invalid.length ||
     deleted.length
   ) {
     sections.push(
@@ -1365,6 +1372,28 @@ export function renderRestore(
         "",
         "Restore them onto a disk that allows the names:",
         `  ${shellCommand(`s3cab restore --set ${set} <path> --output <directory>`, color)}`,
+      ].join("\n"),
+    );
+  }
+  if (invalid.length) {
+    // The snapshot itself is damaged or edited here (ADR-0101): the reader
+    // won't guess at a row it can't trust, so each path says why.
+    const heading =
+      `Could not restore ${formatCount(invalid.length)} ` +
+      `${plural(invalid.length, "file")} — the snapshot's ` +
+      `${invalid.length === 1 ? "row for it isn't" : "rows for them aren't"} ` +
+      `valid:`;
+    sections.push(
+      [
+        heading,
+        ...invalid.map(
+          ({ path, reason }) => `  ${withVisibleControls(path)}  (${reason})`,
+        ),
+        "",
+        `An earlier snapshot may hold a good row for ${invalid.length === 1 ? "it" : "them"}. ` +
+          `List the snapshots, then restore from one:`,
+        `  ${shellCommand(`s3cab list ${set} --remote`, color)}`,
+        `  ${shellCommand(`s3cab restore --set ${set} <path> --snapshot <name>`, color)}`,
       ].join("\n"),
     );
   }

@@ -76,9 +76,10 @@ _Avoid_: repo (the git sense), archive, vault.
 
 **Deletion record**:
 The repository-level record of deliberate content removal: root-level indexed TSVs
-(`objects.deleted-1.tsv`, `-2`, …), rows of `hash / size / instant / user@machine` — no
-paths, since the reader meeting the absence is already holding a snapshot
-([ADR-0090](docs/adr/0090-deletion-record-format-compaction.md), format spec). It is what
+(`objects.deleted-1.tsv`, `-2`, …), one `#deleted` row per object with its hash, size,
+instant and `user@machine` — no paths, since the reader meeting the absence is already
+holding a snapshot ([ADR-0090](docs/adr/0090-deletion-record-format-compaction.md),
+[ADR-0102](docs/adr/0102-deletion-record-takes-the-snapshot-layout.md), format spec). It is what
 lets the tooling tell *deliberately gone* from *corrupted*: `verify` reports a recorded hash
 as **expected-missing** (context, exit 0) rather than damage, `restore` skips it gracefully
 with its date, `backup`/`status`/`cleanup` subtract recorded hashes from their baselines and
@@ -126,6 +127,14 @@ name pastes straight after `s3://<bucket>/snapshots/`. Used where several snapsh
 several sets are listed together; a single one named in a sentence stays prose (`'work-laptop'
 (snapshot …)`).
 _Avoid_: commit, version, generation; manifest (loses the point-in-time meaning), index, listing, catalog, metadata file.
+
+**Invalid** (a file or a row):
+Breaking the format spec's validity rules
+([ADR-0101](docs/adr/0101-valid-and-invalid-files.md)), which a snapshot or deletion record
+does only when cut short or hand-edited. An invalid *file* is refused whole; an invalid *row*
+refuses just its path, which `restore` and `verify` report as **invalid**. Not **corrupt**:
+that is an object whose bytes don't hash to its key.
+_Avoid_: malformed as the category (fine for what is wrong with a row), corrupt.
 
 **Namespace**:
 The set name as the `snapshots/<set>/` path segment that isolates one set's snapshots from every

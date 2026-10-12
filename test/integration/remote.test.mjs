@@ -12,6 +12,7 @@ import {
   putText,
 } from "../../src/lib/s3.mjs";
 import {
+  HEADING,
   parseCompressedSnapshotStream,
   readSnapshot,
   snapshotFileName,
@@ -212,7 +213,7 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),
-      gzipSync(rows.join("\n")),
+      gzipSync(HEADING + rows.join("\n")),
     );
     await uploadSnapshotFile({ bucket, set, snapshotDir: dir.path, name });
   });

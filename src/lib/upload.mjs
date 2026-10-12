@@ -77,21 +77,39 @@ export async function storedHashes({
 }) {
   if (since && baseline) {
     const match = await matchRemoteSnapshot(bucket, set, since, snapshotDir);
-    if (match === "identical") {
-      // Byte-identical means this baseline exists remotely — the precondition
-      // `getUndeletedHashes` needs for the deletion record to be complete for it.
-      return getUndeletedHashes(bucket, baseline);
+    // Byte-identical means this baseline exists remotely — the precondition
+    // `getUndeletedHashes` needs for the deletion record to be complete for it.
+    const undeleted =
+      match === "identical"
+        ? await getUndeletedHashes(bucket, baseline)
+        : undefined;
+    if (undeleted) {
+      return undeleted;
     }
     console.warn(
       match === "absent"
         ? `Baseline snapshot '${since}' is no longer in the cloud — ` +
             `checking what's stored instead.`
-        : `The cloud's snapshot '${since}' isn't the one on this computer — ` +
+        : match === "different"
+          ? `The cloud's snapshot '${since}' isn't the one on this computer — ` +
             `another machine backing up the set '${set}' may have taken it. ` +
-            `Checking what's stored instead.`,
+            `Checking what's stored instead.`
+          : `The deletion record in 's3://${bucket}' is damaged, so it can't ` +
+            `say what's been deleted since '${since}' — checking what's ` +
+            `stored instead.`,
     );
   }
 
+  return listStoredHashes(bucket);
+}
+
+/**
+ * Every hash in the store, from one LIST — what a run treats as already stored
+ * when no baseline can vouch for it.
+ * @param {string} bucket - The repository's S3 bucket
+ * @returns {Promise<Set<string>>}
+ */
+export async function listStoredHashes(bucket) {
   // No trustworthy baseline — LIST the store once instead. This is the one step
   // of a backup's preamble whose cost nothing on screen predicts: it is sized by
   // the whole bucket, not by the set being backed up, and it used to print its
@@ -156,12 +174,19 @@ export async function storedHashes({
  * record complete for it: a remote snapshot is a live reference to its hashes,
  * so `cleanup` cannot trim the rows this subtraction needs. One LIST of the
  * record files — empty, and free, for repositories that never ran `delete`.
+ *
+ * **Only while the record is valid** (ADR-0101): a file with a refused row may
+ * have lost a deletion, which would leave the snapshot vouching for deleted
+ * content — so this returns `undefined`, and the caller lists the store.
  * @param {string} bucket - The repository's S3 bucket
  * @param {SnapshotEntries} entries - The remote snapshot's entries
- * @returns {Promise<Set<string>>}
+ * @returns {Promise<Set<string> | undefined>}
  */
 export async function getUndeletedHashes(bucket, entries) {
-  const deleted = await readDeletionRecords(bucket);
+  const { deleted, invalid } = await readDeletionRecords(bucket);
+  if (invalid.length > 0) {
+    return undefined;
+  }
   /** @type {Set<string>} */
   const stored = new Set();
   for (const { hash } of entries.values()) {

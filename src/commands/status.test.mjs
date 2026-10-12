@@ -79,14 +79,16 @@ const backedUpSet = async (root) => {
 };
 
 /**
- * A deletion record naming `hash`.
+ * A deletion record naming `hash` — whole, or cut short of its END row.
  * @param {string} hash
+ * @param {{ torn?: boolean }} [options]
  */
-const recordDeleted = (hash) => {
+const recordDeleted = (hash, { torn = false } = {}) => {
   keys.push("objects.deleted-1.tsv");
   textByUri["s3://b/objects.deleted-1.tsv"] =
-    "#DELETED\t\t2026-10-09T11:04:55.120Z\tgone on purpose\n" +
-    `${hash}\t5\t2026-10-09T11:04:55.120Z\tallen@DESKTOP\n#END\n`;
+    "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+    `#deleted\t${hash}\t5\t2026-10-09T11:04:55.120Z\tallen@DESKTOP\n` +
+    (torn ? "" : "#S3CAB\tEND\t\t2026-10-09T11:04:55.120Z\t\n");
 };
 
 describe("status", () => {
@@ -126,6 +128,19 @@ describe("status", () => {
     await backedUpSet(dir.path);
     recordDeleted(HELLO_HASH);
     sizeByUri[`s3://b/objects/${HELLO_HASH}`] = 5;
+
+    const report = await status("photos");
+
+    assert.equal(report.toUpload, 0);
+  });
+
+  it("checks what's stored when the deletion record is damaged (ADR-0101)", async () => {
+    // A damaged record can't say everything that was deleted, so the store's
+    // own LIST answers instead — and it holds the content.
+    await using dir = await mkTmpDir();
+    await backedUpSet(dir.path);
+    recordDeleted("c".repeat(64), { torn: true });
+    keys.push(`objects/${HELLO_HASH}`);
 
     const report = await status("photos");
 

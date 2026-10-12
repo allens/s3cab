@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import { resolve } from "node:path";
+import { parse, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileProps } from "../../src/lib/file-props.mjs";
 import {
+  formatLine,
   stringifySnapshot,
   withSnapshotFile,
 } from "../../src/lib/snapshot-file.mjs";
@@ -11,9 +12,10 @@ import {
 
 // Test fixture builder: write a snapshot file from a list of paths or `File`
 // objects, in the real `.tsv.gz` form (so a snapshot lister sees it when the
-// name is datestamped). It writes the heading, object rows and trailer only — no
-// `#SET`/`#SNAPSHOT` header rows — which is all the compare/remote tests need;
-// production snapshots (with headers) are written by `snapshot()`. On-disk paths go through the lib
+// name is datestamped). It writes the heading, a `#SET DIR` row per filesystem
+// root the paths sit on — a reader refuses a path under none (ADR-0101) — then
+// the object rows and trailer; no other `#SET`/`#SNAPSHOT` rows, which is all the
+// compare/remote tests need. Production snapshots are written by `snapshot()`. On-disk paths go through the lib
 // `fileProps`; a `File` carries its own in-memory bytes, so it is hashed inline
 // here — production `fileProps`/`prop` are path-only, and synthesizing props
 // from in-memory bytes is a test-only convenience that stays in the test layer.
@@ -26,7 +28,7 @@ import {
  */
 const propsOfFile = async (file) => ({
   size: file.size,
-  mtime: Temporal.Instant.fromEpochMilliseconds(file.lastModified).toString(),
+  mtime: new Date(file.lastModified).toISOString(),
   // Hash the raw bytes (not `file.text()`, which UTF-8-decodes), so a `File`
   // hashes byte-identically to its on-disk twin (`fileProps` reads bytes too).
   hash: crypto.hash("sha256", await file.bytes(), "hex"),
@@ -61,7 +63,11 @@ export async function writeSnapshot(
       snapshot.set(resolve(base, file.name), await propsOfFile(file));
     }
   }
+  const roots = new Set([...snapshot.keys()].map((path) => parse(path).root));
+  const preamble = [...roots]
+    .map((root) => formatLine("#SET", "DIR", "", "", root))
+    .join("");
   return withSnapshotFile(snapshotDir, name, (stream) =>
-    pipeline(stringifySnapshot(snapshot), stream),
+    pipeline(stringifySnapshot(snapshot, { preamble }), stream),
   );
 }

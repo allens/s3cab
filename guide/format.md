@@ -136,24 +136,28 @@ carries **no paths** — whoever meets the absence is already holding a snapshot
 path in front of them; what the record adds is that the absence is deliberate, when, and by
 whom.
 
-A record is a plain, uncompressed TSV: the deleted object's hash, its size, a timestamp,
-and text at the ragged end — here *who* ran the delete, as `user@machine`:
+A record is plain, uncompressed text in a snapshot's [five columns](#the-columns): the same
+heading row and `#S3CAB` rows first, then one `#deleted` row per deleted object, and
+`#S3CAB END` last:
 
 ```
-#DELETED		2026-08-22T11:04:55.120Z	These objects were removed on purpose. Absence here is not damage.
-a3f9c21e…60d	1204	2026-08-14T09:31:07.412Z	allen@DESKTOP
-5e21ab7f…c93	892	2026-08-19T22:10:41.006Z	allen@LAPTOP
-#END
+#S3CAB                                size  time                      https://s3cab.plantegral.com/guide/format
+#S3CAB    VERSION                                                     0.14.0
+#S3CAB    HOME                                                        C:\Users\me\.s3cab\
+#deleted  a3f9…c60d                   1204  2026-08-14T09:31:07.412Z  me@DESKTOP
+#deleted  5e21…ac93                    892  2026-08-19T22:10:41.006Z  me@LAPTOP
+#S3CAB    END                               2026-10-10T09:12:00.000Z
 ```
 
-Rules for a reader: a line is a row only if its first tab-separated field is **64 lowercase
-hex characters** — the deleted object's hash, its old key under `objects/`. The second field is
-the object's stored size in bytes, the third the UTC instant the delete ran, and everything
-after the third tab is who ran it. Skip every other line: the `#DELETED` header's third
-column repeats the record's instant and its last column is prose for a human, and the
-trailer is a bare `#END`, which says the file is whole the way `#S3CAB END` does for a
-snapshot. It carries no status columns because a record lands in one atomic PUT — a partial
-record cannot exist. Record rows are **not** column-padded the way a snapshot's are.
+That example collapses the padding the way the [snapshot example](#snapshot-files) does.
+
+Rules for a reader: each `#deleted` row is one deleted object. Its second field is the
+object's hash — 64 lowercase hex characters, its old key under `objects/` — the third its
+stored size in bytes, the fourth the UTC instant the delete ran, and the last who ran it, as
+`user@machine`. Skip every other `#` row. `#S3CAB END` says the file is whole, as it does for
+a snapshot, and [valid and invalid files](#valid-and-invalid-files) covers a record that
+isn't. A record has no `#SET` or `#SNAPSHOT` rows: it belongs to the bucket, not to one
+set or one backup run.
 
 **Records are compacted, not kept forever.** `s3cab cleanup` merges every record file into
 one fresh file (at the next free index) and drops rows whose hash **no snapshot anywhere
@@ -243,8 +247,8 @@ below.
 | Col | Width | An `object` row | Other rows |
 | --- | --- | --- | --- |
 | 1 | 6 | `object` | the row's type |
-| 2 | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), or a per-path row's text: the pattern, the error, the link's target |
-| 3 | 12, right-aligned | the size in bytes | blank |
+| 2 | 64 | the hash | the property (`#S3CAB`, `#SET`, `#SNAPSHOT`), a per-path row's text (the pattern, the error, the link's target), or a `#deleted` row's hash |
+| 3 | 12, right-aligned | the size in bytes | a `#deleted` row's size; otherwise blank |
 | 4 | 24 | the modification time | an instant, where the row has one |
 | 5 | ragged | the path | the path, or the property's value |
 
@@ -264,8 +268,8 @@ For an `object` row:
 Each column is space-padded to its width, and the columns are separated by tabs, so the
 file reads as a table in an editor and parses as clean TSV in a script. Column 1 is exactly
 as wide as `object`, so an `object` row has no padding at all. A value longer than its
-column simply overflows it — `#SNAPSHOT` and `#excluded` are wider than 6, and an error
-message can be wider than 64 — so these are *minimum* widths, not a fixed-width record
+column simply overflows it — `#SNAPSHOT`, `#excluded` and `#deleted` are wider than 6, and
+an error message can be wider than 64 — so these are *minimum* widths, not a fixed-width record
 layout. The last column is never padded. A parser that trims the first four fields can
 ignore all of this; anyone writing a snapshot, building a golden test, or matching a line
 against a literal needs the real bytes.
@@ -299,8 +303,8 @@ A lowercase type is something a restore could act on; a `#` type is not.
 folder, a link whose target is a folder, a member directory. A link whose target is missing
 has no separator, since nothing says what it was.
 
-**A reader skips a `#` type or property it doesn't know, and refuses a lowercase type it
-doesn't know.** An unknown `#` row is information a newer s3cab added; an unknown lowercase
+**A reader skips a `#` type or property it doesn't know, and refuses a file holding a
+lowercase type it doesn't know.** An unknown `#` row is information a newer s3cab added; an unknown lowercase
 row is content a restore would miss, so reading on would pass off part of a backup as all
 of it. The test, concretely: take the first tab-separated field and trim it, and compare it
 case-sensitively — `#SET` and `#set` are different types, though a spreadsheet's sort and
@@ -374,13 +378,6 @@ whitespace leaves four.
 
 ### Paths
 
-**A path appears at most once in a snapshot.** s3cab never writes a repeat, and a reader
-may treat one as a malformed file. The commitment matters because there is no safe way to
-guess: a first-wins reader and a last-wins reader would restore *different bytes* from the
-same snapshot, neither of them reporting anything wrong. s3cab's own reader doesn't reject
-a hand-damaged file that does — it takes the **last** row for a path; a stricter reader is
-free to reject the duplicate instead.
-
 **Paths are written with the casing the filesystem itself reports** — the spelling you see
 in File Explorer or Finder, not the spelling anything was typed in. If a folder is on disk
 as `Photos` and the set's `dirs.txt` names it `PHOTOS`, the snapshot says `Photos`. The one
@@ -403,8 +400,9 @@ separators count depends on the path, not the machine reading it: a Windows path
 `/` *and* `\`, any other on `/` alone, since there a `\` is an ordinary character in a
 filename — so a Windows snapshot reads correctly on a POSIX machine, and the reverse. Where
 several directories match, the **longest wins**, so a member directory nested inside another
-takes precedence over its parent. A path under no `DIR` at all has nowhere to land: s3cab
-reports it rather than guessing, and a hand-edited snapshot is the only way to produce one.
+takes precedence over its parent. A path under no `DIR` at all has nowhere to land, so its
+row is [refused](#valid-and-invalid-files) rather than guessed at; only a hand-edited
+snapshot can hold one.
 
 **Where a restored file lands is the tool's decision, not the format's.** Nothing in a
 snapshot says where the bytes must go back, and a restorer is free to choose — restoring to
@@ -460,6 +458,62 @@ Two smaller legalities, so a reader knows they weren't forgotten. A snapshot's *
 always `YYYY-MM-DDTHHMM` — local wall-clock time to the minute, with the colon dropped —
 and the file is that name plus `.tsv.gz`. And a snapshot with **no `object` rows at all** is
 perfectly legal: an empty backup set, not a damaged file.
+
+### Valid and invalid files
+
+A valid file is what s3cab writes, and that goes for a [deletion record](#the-deletion-record)
+as much as a snapshot:
+
+- UTF-8 with LF endings, the heading row first and `#S3CAB END` last;
+- only lowercase types this version knows;
+- every per-path row's path absolute, with no `.` or `..` segment and no tab, CR or LF, under
+  a `#SET DIR`;
+- each path in at most one per-path row, whatever its type;
+- each `object` row's hash 64 lowercase hex characters, its size decimal, its time the
+  24-character form, and the same for a `#deleted` row.
+
+A reader meets files that aren't, since these are text files anyone can edit, and does one
+of three things:
+
+- **Refuse the whole file** when it isn't UTF-8, doesn't start with the heading row, doesn't
+  end with `END`, has rows after `END`, or holds an unknown lowercase type. Each means the
+  file isn't what it claims, was cut short, or comes from a newer s3cab, and restoring part
+  of it would pass for a full restore.
+- **Refuse one path, restore the rest, and exit nonzero** for a malformed `object` or `link`
+  row, a path that isn't absolute, a `.` or `..` segment, a path under no `#SET DIR`, or a
+  path in two `object` or `link` rows. **Both of those rows are refused, so no reader
+  guesses**: a first-wins and a last-wins reader would restore different bytes from one
+  file, and neither would report anything wrong. A `..` segment matters most, since a
+  hand-added one would walk a naive restorer out of its output directory. A `#` row repeating
+  a content row's path also makes the file invalid, but changes nothing a restore writes, so
+  a reader that skips `#` rows needn't check for it. This is the same
+  ["restore everything you can, then report"](#if-you-are-writing-a-restorer) that governs a
+  missing object: rows are independent lines, so one can't damage its neighbours.
+- **Ignore** an unknown `#` type or property, and a people-only row that's wrong, such as
+  `FILES` disagreeing with the row count.
+
+Outside a restore, s3cab reads a refused path as one with no row: `backup` hashes the file
+again, `compare` lists it as unreadable, as it does for an `#error` row, and `verify` reports
+it as damage. `cleanup` won't run at all while a snapshot has one, since content only that row
+names would look unused and be deleted.
+
+**A deletion record is judged the same way, and distrusted while it's invalid.** A malformed
+`#deleted` row is refused, so its object counts as not deleted, and its absence is reported
+as unexplained damage with a nonzero exit. That is the safe direction: a damaged record can
+never make missing content look intentional. While any record file is invalid, `backup` and
+`status` check what the bucket actually holds rather than trust an earlier snapshot's word,
+and `cleanup` refuses to run, since compacting would rewrite only the rows it could read and
+lose the rest for good.
+
+**What a reader promises, even for an invalid file:** it never writes outside the
+destination, never writes bytes that don't hash to the row, never chooses between
+conflicting rows, and never lets a partial restore pass for a full one. What it can't
+promise is that a valid but edited file is true: a hash changed to another stored object
+restores the wrong content, faithfully.
+
+Whole-file integrity is gzip's CRC-32 and length check, which decompressing a snapshot
+verifies; the uncompressed deletion record has only its `END`. The store's ETag is no
+substitute: it is a content hash only for single-part uploads to AWS.
 
 ## The local side (`~/.s3cab/`)
 
@@ -555,11 +609,10 @@ once you try to restore from it.
   an integrity fault exactly like a missing object nothing explains — report it, carry on
   with the rest, exit nonzero. Whether the mismatched bytes are still worth writing (clearly
   flagged) or better withheld is a choice your tool makes and states.
-- **Refuse `.` and `..` path segments.** Snapshots are editable text, and this spec tells
-  people so — a hand-added row whose path holds a `..` segment would walk a naive restorer
-  out of its output directory and overwrite whatever it lands on. s3cab never writes such a
-  path (walked paths are resolved), so one in a snapshot is malformed: refuse the row and
-  report it.
+- **Check each file and row as [valid and invalid files](#valid-and-invalid-files) sets
+  out.** Snapshots are editable text, and this spec tells people so; a restorer that trusts
+  every row will one day follow a hand-added `..` out of its output directory and overwrite
+  whatever it lands on.
 - **On Windows, go through the `\\?\` prefix.** Snapshot paths are absolute, so re-rooting
   them under an output directory makes an already-deep tree deeper, and the 260-character
   `MAX_PATH` limit arrives sooner than you would guess. It fails loudly rather than

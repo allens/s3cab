@@ -20,8 +20,12 @@ describe("selectEntries", () => {
     assert.deepEqual(selectEntries(paths, []), paths);
   });
 
-  it("treats blank/separator-only filters as no filter", () => {
-    assert.deepEqual(selectEntries(paths, ["", "/"]), paths);
+  it("treats blank filters as no filter", () => {
+    assert.deepEqual(selectEntries(paths, ["", " "]), paths);
+  });
+
+  it("matches everything under the root", () => {
+    assert.deepEqual(selectEntries(paths, ["/"]), paths);
   });
 
   it("matches a path exactly", () => {

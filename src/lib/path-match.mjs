@@ -94,17 +94,18 @@ const normalize = (p) => {
  * Build the "does this path fall under any of these folders?" predicate — a
  * folder matches a path that equals it or lies under it (a `/`-boundary prefix),
  * separators unified and case folded for a Windows-shaped path, a trailing
- * separator ignored. `restore`'s path filters, and the walk's test of whether a
- * link leads outside the backup (ADR-0099).
+ * separator ignored — so `/` is the root, and every absolute POSIX path is under
+ * it. `restore`'s path filters, the walk's test of whether a link leads outside
+ * the backup (ADR-0099), and the snapshot reader's test that a row's path is
+ * under a `#SET DIR` (ADR-0101).
  * @param {string[]} folders - Paths to match under
  * @returns {((path: string) => boolean) | undefined} `undefined` when no folder
- *   survives normalization: none given, or all blank or separator-only
+ *   is given, or all are blank
  */
 export function pathMatcher(folders) {
   const needles = folders
-    .map(normalize)
-    .map((n) => n.replace(/\/+$/, ""))
-    .filter(Boolean);
+    .filter((folder) => folder.trim() !== "")
+    .map((folder) => normalize(folder).replace(/\/+$/, ""));
   if (needles.length === 0) {
     return undefined;
   }

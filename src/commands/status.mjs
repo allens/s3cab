@@ -1,7 +1,11 @@
 import { loadSet } from "../lib/env.mjs";
 import { readLatestRemoteSnapshot } from "../lib/remote.mjs";
 import { listSnapshotNames, readSnapshot } from "../lib/snapshot-file.mjs";
-import { getUndeletedHashes, planUpload } from "../lib/upload.mjs";
+import {
+  getUndeletedHashes,
+  listStoredHashes,
+  planUpload,
+} from "../lib/upload.mjs";
 
 /**
  * Show what is backed up and what a backup would upload (docs/design/backup.md): the
@@ -49,7 +53,11 @@ export async function status(setName) {
     set.name,
   );
 
-  const plan = planUpload(target, await getUndeletedHashes(set.bucket, remote));
+  // A damaged deletion record can't vouch for the remote snapshot, so the store
+  // is listed instead — what `backup` does too.
+  let stored = await getUndeletedHashes(set.bucket, remote);
+  stored ??= await listStoredHashes(set.bucket);
+  const plan = planUpload(target, stored);
 
   return {
     set: set.name,

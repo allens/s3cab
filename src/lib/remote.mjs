@@ -277,6 +277,8 @@ async function readSetReferenced(bucket, set, names) {
   const referenced = new Map();
   /** @type {ReferencedResult["unreadable"]} */
   const unreadable = [];
+  /** @type {ReferencedResult["invalid"]} */
+  const invalid = [];
   let snapshotsChecked = 0;
 
   for (const name of names) {
@@ -308,9 +310,12 @@ async function readSetReferenced(bucket, set, names) {
     }
     snapshotsChecked++;
     addSnapshotReferences(referenced, name, snapshot.entries);
+    for (const [path, reason] of snapshot.refused) {
+      invalid.push({ snapshot: name, path, reason });
+    }
   }
 
-  return { referenced, snapshotsChecked, unreadable };
+  return { referenced, snapshotsChecked, unreadable, invalid };
 }
 
 /**

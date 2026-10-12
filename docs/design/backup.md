@@ -548,12 +548,14 @@ the [format spec](../../guide/format.md)), not implementation choice:
   window is what makes concurrent backups safe without locks. Any tool that deletes from
   `objects/` must honour it. No tuning knob: a `--grace` foot-gun buys nothing, and
   loosening a fixed floor later is additive.
-- **Damage interlock:** an **unreadable snapshot aborts both modes** — its references
+- **Damage interlock:** an **unreadable snapshot, or one with a refused row
+  ([ADR-0101](../adr/0101-valid-and-invalid-files.md)), aborts both modes** — its references
   are unknown, so every object only it references would masquerade as an orphan (the
   report's numbers would be lies). **Missing objects** (verify's core finding) are
   reported, and the **act path refuses**: the repository is already losing data — triage
-  with `verify` first, then clean up. `--force` skips only the confirmation, never these
-  interlocks (like `delete`'s).
+  with `verify` first, then clean up. So does an **invalid deletion record**: compacting
+  it would keep only the rows it could read. `--force` skips only the confirmation, never
+  these interlocks (like `delete`'s).
   (Wrong-size objects only warn and point at `verify`; orphanhood is hash-level.
   Objects the **deletion record** explains — removed on purpose by `delete`
   ([ADR-0090](../adr/0090-deletion-record-format-compaction.md)) — are *not* missing:

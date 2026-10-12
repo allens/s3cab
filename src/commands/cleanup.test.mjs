@@ -7,7 +7,7 @@ import { enumeration } from "../../test/helpers/enumeration.mjs";
 // Offline tests for the `cleanup` *command shell*: the bucket scan
 // (scanBucket), the S3 writes (deleteStoredObjects, compactDeletionRecords) and
 // the prompt are faked at the lib seam, so these cover what the command adds
-// around the pure plan — the two abort interlocks, the act-by-default / `-n`
+// around the pure plan — the abort interlocks, the act-by-default / `-n`
 // split, the non-interactive `--force` gate, the TTY prompt, and the deletes
 // (ADR-0064's destructive-command pattern). The scan's referenced
 // enumeration is built by the shared `enumeration` fixture (paths spelled
@@ -27,6 +27,8 @@ let promptCalls = 0;
 let promptMessage = "";
 /** @type {Map<string, { deletedOn: string }>} the bucket's deletion records */
 let deletionRecords = new Map();
+/** @type {{ uri: string, reason: string }[]} the record files that aren't valid */
+let invalidRecords = [];
 /** @type {{ referenced: Set<string>, deletesSoFar: number }[]} compaction calls, with how many object deletes preceded each */
 let compactCalls = [];
 /** What the mocked compaction reports back to the command. */
@@ -40,6 +42,7 @@ mock.module("../lib/bucket-scan.mjs", {
         storedObjects.map(({ hash, ...object }) => [hash, object]),
       ),
       deleted: deletionRecords,
+      invalidRecords,
     }),
   },
 });
@@ -92,6 +95,7 @@ beforeEach(() => {
   promptCalls = 0;
   promptMessage = "";
   deletionRecords = new Map();
+  invalidRecords = [];
   compactCalls = [];
   compactResult = { files: 0, rows: 0, trimmed: 0 };
 });
@@ -243,6 +247,30 @@ describe("cleanup command", () => {
     assert.deepEqual(deleteCalls, []);
   });
 
+  it("aborts both modes on a snapshot with a refused row, naming it once (ADR-0101)", async () => {
+    // The refused row references nothing, so its content looks orphaned — the
+    // one place it is stored would otherwise be deleted.
+    referencedBySet = enumeration({ photos: { s1: { "/kept": ["kept"] } } });
+    const photos = referencedBySet.get("photos");
+    assert.ok(photos);
+    photos.invalid = [
+      { snapshot: "s1", path: "/torn-1", reason: "its size isn't decimal" },
+      { snapshot: "s1", path: "/torn-2", reason: "its size isn't decimal" },
+    ];
+    storedObjects = [
+      { hash: "kept", size: 10, lastModified: daysAgo(30) },
+      { hash: "torn", size: 1, lastModified: daysAgo(9) },
+    ];
+
+    await assert.rejects(
+      () => cleanup("b", { "dry-run": true }),
+      /Can't clean up safely — this snapshot has rows that aren't valid[^\n]*\n {2}photos\/s1\n\nCheck it with:\n {2}s3cab verify b$/,
+    );
+    await assert.rejects(() => cleanup("b", { force: true }), /aren't valid/);
+    assert.deepEqual(deleteCalls, []);
+    assert.deepEqual(compactCalls, []);
+  });
+
   it("a bare run on a TTY deletes nothing when the user declines", async () => {
     stdin.isTTY = true;
     promptAnswer = false;
@@ -324,5 +352,29 @@ describe("cleanup command", () => {
     });
     await assert.rejects(() => cleanup("b", { force: true }));
     assert.deepEqual(compactCalls, []);
+  });
+
+  it("the act path refuses when the deletion record is damaged (ADR-0101)", async () => {
+    // A refused row's content counts as not deleted, so the record can't be
+    // trusted whole — and compaction would lose the row for good.
+    referencedBySet = enumeration({ photos: { s1: {} } });
+    storedObjects = [{ hash: "orphan", size: 1, lastModified: daysAgo(9) }];
+    invalidRecords = [
+      {
+        uri: "s3://b/objects.deleted-2.tsv",
+        reason: "the closing #S3CAB END row is missing",
+      },
+    ];
+
+    await assert.rejects(
+      () => cleanup("b", { force: true }),
+      /deletion record is damaged[\s\S]*objects\.deleted-2\.tsv \(the closing #S3CAB END row is missing\)/,
+    );
+    assert.deepEqual(deleteCalls, []);
+    assert.deepEqual(compactCalls, []);
+
+    // A dry run still reports: it deletes and compacts nothing.
+    const result = await cleanup("b", { "dry-run": true });
+    assert.equal(result.orphanObjects, 1);
   });
 });

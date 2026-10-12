@@ -45,12 +45,15 @@ import { shellCommand } from "./style.mjs";
 /**
  * The result of enumerating a set's referenced objects (built by `referencedObjects`
  * in remote.mjs): the `referenced` map, how many snapshots were read successfully
- * (`snapshotsChecked`), and the `unreadable` snapshots — those that failed to
- * decompress/parse, a finding in their own right (their references went unchecked).
+ * (`snapshotsChecked`), the `unreadable` snapshots — those that failed to
+ * decompress/parse, a finding in their own right (their references went
+ * unchecked) — and the `invalid` rows of the ones that read, each refused with
+ * its path (ADR-0101) and referencing nothing.
  * @typedef {Object} ReferencedResult
  * @property {Map<string, ReferencedObject>} referenced
  * @property {number} snapshotsChecked
  * @property {{ snapshot: string, reason: string }[]} unreadable
+ * @property {{ snapshot: string, path: string, reason: string }[]} invalid
  */
 
 /**

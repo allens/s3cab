@@ -74,8 +74,9 @@ describe("scanBucket", () => {
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
     textByUri["s3://b/objects.deleted-1.tsv"] =
-      "#DELETED\t\t2026-08-22T11:04:55.120Z\tgone on purpose\n" +
-      `${"b".repeat(64)}\t7\t2026-08-22T11:04:55.120Z\tallen@DESKTOP\n#END\n`;
+      "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+      `#deleted\t${"b".repeat(64)}\t7\t2026-08-22T11:04:55.120Z\tallen@DESKTOP\n` +
+      "#S3CAB\tEND\t\t2026-08-22T11:04:55.120Z\t\n";
 
     const scan = await scanBucket("b");
 
@@ -89,6 +90,7 @@ describe("scanBucket", () => {
       scan.deleted,
       new Map([["b".repeat(64), { deletedOn: "2026-08-22T11:04:55.120Z" }]]),
     );
+    assert.deepEqual(scan.invalidRecords, []);
   });
 
   it("does not start the objects LIST until every snapshot has been read", async () => {
@@ -147,6 +149,7 @@ describe("scanBucket", () => {
       referencedBySet: new Map(),
       stored: new Map(),
       deleted: new Map(),
+      invalidRecords: [],
     });
   });
 });

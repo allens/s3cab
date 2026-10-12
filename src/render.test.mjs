@@ -743,6 +743,32 @@ describe("renderVerify", () => {
     );
   });
 
+  it("gives an invalid row its reason and the snapshot it's in (ADR-0101)", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "music",
+            problems: [
+              {
+                path: "/a.txt",
+                problem: "invalid",
+                snapshots: ["2026-06-01"],
+                reason: "its path has a . or .. segment",
+              },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.match(
+      text,
+      /\/a\.txt {3}invalid {3}\(its path has a \. or \.\. segment, in snapshot 2026-06-01\)/,
+    );
+  });
+
   it("reports an unreadable snapshot as its own finding line", () => {
     const text = renderVerify(
       {
@@ -1388,6 +1414,7 @@ const restoreResult = (over) => ({
   missing: [],
   corrupt: [],
   refused: [],
+  invalid: [],
   deleted: [],
   ...over,
 });
@@ -1561,6 +1588,29 @@ describe("renderRestore", () => {
     assert.match(text, /\n {2}s3cab upload photos --file <path> --force\n/);
     // Ahead of the missing block, which stays last on screen.
     assert.match(text, /\n {2}s3cab verify my-backups$/);
+  });
+
+  it("names every file whose snapshot row isn't valid, with why, and where to look instead (ADR-0101)", () => {
+    const text = renderRestore(
+      restoreResult({
+        restored: ["/home/me/a.jpg"],
+        invalid: [
+          {
+            path: "/home/me/b\tc.jpg",
+            reason: "its hash isn't 64 lowercase hex digits",
+          },
+        ],
+      }),
+    );
+    assert.ok(
+      text.includes(
+        "\nCould not restore 1 file — the snapshot's row for it isn't valid:\n" +
+          "  /home/me/b\\x09c.jpg  (its hash isn't 64 lowercase hex digits)\n\n" +
+          "An earlier snapshot may hold a good row for it. List the snapshots, then restore from one:\n" +
+          "  s3cab list photos --remote\n" +
+          "  s3cab restore --set photos <path> --snapshot <name>",
+      ),
+    );
   });
 
   it("keeps the set/snapshot context when every requested file was damaged", () => {

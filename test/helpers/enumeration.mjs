@@ -57,6 +57,7 @@ export function enumeration(spec, unreadable = {}) {
           ? { snapshot: entry, reason: "incorrect header check" }
           : entry,
       ),
+      invalid: [],
     });
   }
   for (const set of Object.keys(unreadable)) {

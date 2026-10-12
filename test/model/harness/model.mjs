@@ -172,9 +172,8 @@ export function parseManifest(key, bytes) {
 }
 
 /**
- * Parse a deletion record (root-level `objects.deleted-<n>.tsv`): skip `#`
- * lines (the `#DELETED` header and `#END` trailer), first field of a row is
- * the deleted hash.
+ * Parse a deletion record (root-level `objects.deleted-<n>.tsv`): the second
+ * field of each `#deleted` row is the deleted hash; every other row is skipped.
  * @param {Buffer} bytes
  * @returns {Set<string>}
  */
@@ -182,12 +181,9 @@ export function parseDeletionRecord(bytes) {
   /** @type {Set<string>} */
   const hashes = new Set();
   for (const line of bytes.toString("utf8").split("\n")) {
-    if (line === "" || line.trimStart().startsWith("#")) {
-      continue;
-    }
-    const hash = (line.split("\t")[0] ?? "").trim();
-    if (hash !== "") {
-      hashes.add(hash);
+    const [type = "", hash = ""] = line.split("\t");
+    if (type.trim() === "#deleted" && hash.trim() !== "") {
+      hashes.add(hash.trim());
     }
   }
   return hashes;

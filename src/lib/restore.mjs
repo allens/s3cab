@@ -174,14 +174,8 @@ export function reroot(dirs, output) {
         `Path is not under any backed-up directory, so --output cannot place it: ${path}`,
       );
     }
-    // No `.`/`..` sandbox guard here on purpose: snapshot paths are first-party
-    // (written by `snapshot` walking the real filesystem, which never emits `.`
-    // or `..` segments), and a `..` could only arrive in a hand-crafted snapshot
-    // — outside the trust model (your own bucket, your own backups, #2). Guarding
-    // only `--output` would also be inconsistent: plain `restore` writes straight
-    // to the snapshot's absolute paths, so it already trusts the snapshot to
-    // direct writes anywhere. (Reviewers re-flag this as path traversal; it is a
-    // deliberate non-guard, not an oversight — see PR #55.)
+    // No `.`/`..` guard here: the snapshot reader refuses any row whose path
+    // has one (ADR-0101), so none reaches a restore.
     return join(outDir, root.base, ...segments.slice(root.segments.length));
   };
 }

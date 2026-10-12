@@ -3,7 +3,7 @@ import { listStoredObjects } from "./objects.mjs";
 import { referencedObjects } from "./remote.mjs";
 
 /** @import { ReferencedResult } from "./referenced.mjs" */
-/** @import { RecordedDeletion } from "./deletion-record.mjs" */
+/** @import { InvalidRecord, RecordedDeletion } from "./deletion-record.mjs" */
 
 // The read-side composition of a repository's three layouts — `snapshots/`
 // (remote.mjs), `objects/` (objects.mjs) and the root-level deletion record
@@ -48,6 +48,7 @@ import { referencedObjects } from "./remote.mjs";
  * @property {Map<string, ReferencedResult>} referencedBySet - The referenced enumeration per set name (`referencedObjects`)
  * @property {Map<string, { size: number, lastModified?: Date }>} stored - Every stored object: hash → LIST size and age
  * @property {Map<string, RecordedDeletion>} deleted - The deletion record: hash → when it was deliberately deleted
+ * @property {InvalidRecord[]} invalidRecords - The deletion record files that aren't valid (ADR-0101)
  */
 
 /**
@@ -69,7 +70,7 @@ export async function scanBucket(bucket) {
     stored.set(hash, { size, lastModified });
   }
 
-  const deleted = await readDeletionRecords(bucket);
+  const { deleted, invalid } = await readDeletionRecords(bucket);
 
-  return { referencedBySet, stored, deleted };
+  return { referencedBySet, stored, deleted, invalidRecords: invalid };
 }

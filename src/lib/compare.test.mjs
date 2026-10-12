@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, it } from "node:test";
 import { gzipSync } from "node:zlib";
 import {
+  formatLine,
+  HEADING,
   stringifySnapshot,
   withSnapshotFile,
   // The production writer, aliased: the local `writeSnapshot` is the file-rows
@@ -512,7 +514,12 @@ describe("compareSnapshots", () => {
    */
   const writeLinksOnly = (dir, links) =>
     writeFullSnapshot(dir, momentOf(CURRENT), {
-      set: { name: "photos", bucket: "my-backups", dirs: [dir], patterns: [] },
+      set: {
+        name: "photos",
+        bucket: "my-backups",
+        dirs: [resolve(dir)],
+        patterns: [],
+      },
       files: [],
       excluded: [],
       links,
@@ -639,11 +646,13 @@ describe("compareSnapshots", () => {
       [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
       [kept, keptProps],
     ];
+    // A reader refuses a path under no `#SET DIR` (ADR-0101).
+    const preamble = formatLine("#SET", "DIR", "", "", resolve(dir.path) + sep);
     await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
-      pipeline(stringifySnapshot(before), stream),
+      pipeline(stringifySnapshot(before, { preamble }), stream),
     );
     await withSnapshotFile(dir.path, CURRENT, (stream) =>
-      pipeline(stringifySnapshot([[kept, keptProps]]), stream),
+      pipeline(stringifySnapshot([[kept, keptProps]], { preamble }), stream),
     );
 
     const result = await compareSnapshots(dir.path, [dir.path]);
@@ -801,10 +810,13 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
       ? `#SNAPSHOT\tSTART\t\t${instant}\tEurope/London\n`
       : ``;
     const row = `object\t${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
-    writeFileSync(
-      join(dir, `${name}.tsv.gz`),
-      gzipSync(Buffer.from(start + row + "#S3CAB\tEND\t\t\t\n", "utf8")),
-    );
+    const text =
+      HEADING +
+      "#SET\tDIR\t\t\t/home/me/\n" +
+      start +
+      row +
+      "#S3CAB\tEND\t\t\t\n";
+    writeFileSync(join(dir, `${name}.tsv.gz`), gzipSync(text));
   }
 
   /** @param {() => Promise<unknown>} run */

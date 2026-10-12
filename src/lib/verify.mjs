@@ -39,6 +39,8 @@ import { sizeDisagreements } from "./referenced.mjs";
  *    "conflicting rows" case) surfaces as a wrong-size problem on exactly the
  *    file(s) that disagree with storage — no separate category, no ambiguous
  *    skip. When both apply the object is missing, so wrong-size is moot.
+ *  - **invalid** — a snapshot row the reader refused (ADR-0101), with its
+ *    `reason`: no restore will produce this path from that snapshot.
  * @param {string} name - The set's name
  * @param {ReferencedResult} referencedResult - This set's referenced enumeration
  * @param {Map<string, { size: number }>} stored - Bucket's stored objects (hash → LIST size; `scanBucket`'s map, whose age this diff ignores)
@@ -47,10 +49,16 @@ import { sizeDisagreements } from "./referenced.mjs";
  * @returns {SetReport}
  */
 export function verifySet(name, referencedResult, stored, deleted = new Map()) {
-  const { referenced, snapshotsChecked, unreadable } = referencedResult;
+  const { referenced, snapshotsChecked, unreadable, invalid } =
+    referencedResult;
 
   /** @type {SetReport["problems"]} */
-  const problems = [];
+  const problems = invalid.map(({ snapshot, path, reason }) => ({
+    path,
+    problem: /** @type {const} */ ("invalid"),
+    snapshots: [snapshot],
+    reason,
+  }));
   /** @type {SetReport["expectedMissing"]} */
   const expectedMissing = [];
 
@@ -136,7 +144,7 @@ export function verifySet(name, referencedResult, stored, deleted = new Map()) {
  * @property {string} set
  * @property {number} snapshotsChecked - Snapshots read successfully
  * @property {number} referencedObjects - Distinct object hashes referenced
- * @property {{ path: string, problem: "missing" | "wrong-size", snapshots: string[], recordedSize?: number, storedSize?: number }[]} problems
+ * @property {{ path: string, problem: "missing" | "wrong-size" | "invalid", snapshots: string[], recordedSize?: number, storedSize?: number, reason?: string }[]} problems
  * @property {{ path: string, snapshots: string[], deletedOn: string }[]} expectedMissing
  * @property {{ snapshot: string, reason: string }[]} unreadableSnapshots
  */

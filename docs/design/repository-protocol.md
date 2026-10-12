@@ -145,10 +145,11 @@ Steps 1, 3, 4-without-uploads, 5. **Purely local — it performs no bucket trans
 4. Plan: orphan = stored − referenced, minus anything younger than `GRACE_MS`
    (7 days, [cleanup.mjs](../../src/lib/cleanup.mjs)); an object with no `LastModified` is treated
    as brand new and therefore protected.
-5. Interlocks: an unreadable snapshot aborts **both** modes; missing objects refuse the acting path.
+5. Interlocks: an unreadable snapshot, or one with a refused row, aborts **both** modes; missing
+   objects and an invalid deletion record refuse the acting path.
 6. Prompt, then DELETE each orphan. **[multi-step]**, and the scan→prompt→delete window is the
    race surface.
-7. Compact the deletion record (acting runs only, and only past both interlocks): union every
+7. Compact the deletion record (acting runs only, and only past every interlock): union every
    record file, drop rows no snapshot references, conditional PUT of the merge at a fresh index
    **before** deleting the absorbed files. **[multi-step]**; a crash between the write and the
    deletes leaves duplicate rows, which readers dedupe and the next compaction collapses.
