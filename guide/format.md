@@ -265,14 +265,18 @@ For a file row:
 - **path** — absolute, in the OS's native style, last on the line so the padded columns
   stay aligned and so it can hold spaces without ambiguity.
 
-Columns 2 to 4 are space-padded to their widths even when blank, and the columns are
-separated by tabs, so the file reads as a table in an editor and parses as clean TSV in a
-script. Column 1 is never padded, so a spreadsheet keeps a file row's type as exactly `-`
-and `=COUNTIF(A:A,"-")` counts them; rows of one type still line up with each other. A value
-longer than its column simply overflows it — an error message can be wider than 64 — so
-these are *minimum* widths, not a fixed-width record layout. The last column is never
-padded. A parser that trims the first four fields can ignore all of this; anyone writing a
-snapshot, building a golden test, or matching a line against a literal needs the real bytes.
+Columns 2 to 4 are space-padded to their widths, and the columns are separated by tabs, so
+the file reads as a table in an editor and parses as clean TSV in a script. Column 1 is
+never padded, so a spreadsheet keeps a file row's type as exactly `-` and
+`=COUNTIF(A:A,"-")` counts them. A value longer than its column simply overflows it — an
+error message can be wider than 64 — so these are *minimum* widths, not a fixed-width record
+layout.
+
+**Rules and recommendations.** A reader relies only on the rules: UTF-8 lines of five
+tab-separated fields, each read trimmed but the last, the row types, and `END` last. The
+padding, the unpadded column 1, the heading row and `SIZE`'s readable form are how s3cab
+writes the file so it reads well in an editor and works in a spreadsheet. Another writer
+should do the same, and a reader must not depend on them.
 
 **The first row is a heading**, the same in every snapshot: `@S3CAB FORMAT`, then the names
 of the size and time columns, then the address of this page, so a file found on its own
@@ -345,10 +349,10 @@ can go stale later without the row being wrong.
 | `@SET DIR` | a member directory, one row each, always ending in a separator |
 | `@SET EXCLUDE` | an exclude pattern in force for this run, one row each, including any that matched nothing |
 | `@SNAPSHOT NAME` | the snapshot's name |
-| `@SNAPSHOT BY` | who took it, as `user@machine`: the user name and host name the operating system reports |
+| `@SNAPSHOT BY` | who took it, as `user@machine` |
 | `@SNAPSHOT START` | the instant the run started (column 4), and the time zone the name was minted in |
 | `@SNAPSHOT FILES` | the number of file rows |
-| `@SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses: decimal units (`kB`, `MB`, `GB`, …) to one decimal place, bytes as a whole number (`171B`) |
+| `@SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses |
 | `@S3CAB END` | the instant the file was finished (column 4) |
 
 `START` carries the zone because snapshot names are local wall-clock time, so the zone is

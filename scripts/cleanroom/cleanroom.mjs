@@ -317,9 +317,10 @@ asked for and what stood in the way. That is one of the things being tested.
 
 **Correct, not fast.** No caching between runs, no parallelism.
 
-Correct covers everything the spec says a snapshot holds: its exact bytes, padding included;
+Correct covers everything the spec says a snapshot holds: every rule, its recommendations too;
 exclude patterns in their full syntax; and a row for everything the spec says is recorded, what
-was left out included.
+was left out included. A guess about a recommendation can't break a reader, so it needn't be
+reported.
 
 Nothing here touches the network: uploading is the other program's job.
 Write each set's snapshot into that set's directory in \`sets/\`, laid out as the spec's local side

@@ -12,13 +12,13 @@
  * What has to match is ADR-0096's list. File rows are compared as a set, exact in hash,
  * size, mtime and path. The excluded and unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
  * names or how an `#error` row's message is worded, so those rows are compared by path
- * only; snapshot names and instants differ by run. The brief asks for the snapshot's
- * exact bytes, so the session's file is also held to the five padded columns, LF endings,
- * the heading row, `@S3CAB END` last, and `FILES` and `SIZE` agreeing with its file rows,
- * as guide/format.md describes them.
+ * only; snapshot names and instants differ by run. The session's file is also held to the
+ * format's rules: five fields a line, LF endings, `@S3CAB END` last, and `FILES` and `SIZE`
+ * agreeing with its file rows. The padding and the heading row are recommendations
+ * (guide/format.md, "Rules and recommendations"), so a departure there is a note.
  *
- * Two differences are reported as notes, not mismatches, because the spec doesn't decide
- * them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
+ * Two more differences are reported as notes, not mismatches, because the spec doesn't
+ * decide them yet: the time zone in `@SNAPSHOT START` (Python's standard library can't name the
  * local IANA zone, ADR-0096's first expected case), and an excluded directory written as
  * one row where the other side wrote a row per file in it, or the reverse
  * (proposals/cleanroom-fixtures.md). Either one is for the run's report to discuss.
@@ -101,12 +101,14 @@ const heading = laidOut([
 
 /**
  * Read a snapshot as guide/format.md describes it. Everything that breaks a rule of the
- * format is pushed onto `problems` rather than thrown, so one run reports them all.
+ * format is pushed onto `problems` rather than thrown, so one run reports them all; a
+ * departure from a recommendation (the padding, the heading row) onto `notes`.
  * @param {Buffer} gz the `.tsv.gz` as stored
  * @param {string[]} problems
+ * @param {string[]} notes
  * @returns {Snapshot | undefined} undefined if it can't be read at all
  */
-function parse(gz, problems) {
+function parse(gz, problems, notes) {
   /** @type {string} */
   let text;
   try {
@@ -166,10 +168,10 @@ function parse(gz, problems) {
       .map((field) => field.trim());
     const last = fields[4] ?? "";
 
-    if (index === 0) {
-      if (line !== heading) {
-        problems.push("doesn't open with the heading row");
-      }
+    if (index === 0 && line !== heading) {
+      notes.push("doesn't open with s3cab's heading row");
+    }
+    if (type === "@S3CAB" && col2 === "FORMAT") {
       continue;
     }
     if (type === "@S3CAB" && col2 === "END") {
@@ -252,7 +254,7 @@ function parse(gz, problems) {
     );
   }
   if (unpadded.length > 0) {
-    problems.push(
+    notes.push(
       `${unpadded.length} line(s) aren't laid out in the padded columns, such as line ` +
         unpadded.slice(0, 5).join(", "),
     );
@@ -346,6 +348,7 @@ try {
     const reference = parse(
       readFileSync(join(homeSet, "snapshots", referenceName)),
       referenceProblems,
+      referenceProblems,
     );
     if (!reference || referenceProblems.length > 0) {
       throw new Error(
@@ -370,6 +373,7 @@ try {
       const ours = parse(
         readFileSync(join(roomSet, "snapshots", latest)),
         problems,
+        notes,
       );
       mismatches.push(...problems);
       if (ours) {

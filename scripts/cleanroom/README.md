@@ -356,13 +356,13 @@ Checks a snapshot clean room's work: each set's latest snapshot in
 taken there and then in a throwaway home, so s3cab's output never exists while
 the session could read it. It compares what ADR-0096 lists: file rows exact by
 path, the `@SET DIR` rows, the `#excluded` and `#error` paths, and
-nothing of the names and instants that differ by run. And because the brief asks
-for the exact bytes, it holds the session's file to the five padded columns, LF
-endings, UTF-8 with no BOM, the heading row first, `@S3CAB END` last, and
-`FILES` and `SIZE` agreeing with the file rows where it writes them.
+nothing of the names and instants that differ by run. It holds the session's file
+to the format's rules: five fields a line, LF endings, UTF-8 with no BOM,
+`@S3CAB END` last, and `FILES` and `SIZE` agreeing with the file rows where it
+writes them. The padding and the heading row are the format's recommendations,
+so a file that departs from them gets a note, not a mismatch.
 
-Two differences come back as notes rather than mismatches, because the spec
-hasn't decided them: the time zone in `@SNAPSHOT START`, which Python's standard library
+Two more differences come back as notes, because the spec hasn't decided them: the time zone in `@SNAPSHOT START`, which Python's standard library
 can't name, and an excluded directory written as one row where the other side
 wrote a row for each file in it. Paths print JSON-quoted, so a stray CR or one of
 the fixtures' control characters shows instead of printing as nothing.
