@@ -11,12 +11,12 @@
  *
  * What has to match is ADR-0096's list. `object` rows are compared as a set, exact in
  * hash, size, mtime and path, and `link` rows exact in path and target. The excluded and
- * unreadable paths must match, but an `#excluded` row's pattern and an `#error` row's
- * message are context, so those rows are compared by path only; snapshot names and
- * instants differ by run. The brief asks for the snapshot's exact bytes, so the session's
- * file is also held to the five padded columns, LF endings, the heading row, `#S3CAB END`
- * last, and `FILES` and `SIZE` agreeing with its `object` rows, as guide/format.md
- * describes them.
+ * unreadable paths must match, but the spec doesn't fix which pattern an `#excluded` row
+ * names or how an `#error` row's message is worded, so those rows are compared by path
+ * only; snapshot names and instants differ by run. The brief asks for the snapshot's
+ * exact bytes, so the session's file is also held to the five padded columns, LF endings,
+ * the heading row, `#S3CAB END` last, and `FILES` and `SIZE` agreeing with its `object`
+ * rows, as guide/format.md describes them.
  *
  * Two differences are reported as notes, not mismatches, because the spec doesn't decide
  * them yet: the time zone in `#SNAPSHOT START` (Python's standard library can't name the
@@ -238,8 +238,8 @@ function parse(gz, problems) {
   if (endType.trim() !== "#S3CAB" || endProperty.trim() !== "END") {
     problems.push("has no #S3CAB END as its last line");
   }
-  // Only when present: whether the whole-snapshot rows are commitments at all is
-  // ADR-0096's open question, but the spec says these two are exact.
+  // Only when present, like every whole-snapshot row: what a snapshot room can write in
+  // them is ADR-0096's open question, but the spec says these two are exact.
   if (declared.FILES !== undefined && declared.FILES !== String(objects)) {
     problems.push(
       `#SNAPSHOT FILES says ${declared.FILES}, where there are ${objects} object rows`,
