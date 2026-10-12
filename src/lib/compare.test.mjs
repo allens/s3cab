@@ -11,7 +11,7 @@ import {
   stringifySnapshot,
   withSnapshotFile,
   // The production writer, aliased: the local `writeSnapshot` is the file-rows
-  // test helper, and `link` rows only come out of the real one.
+  // test helper, and a walk's `#error` rows only come out of the real one.
   writeSnapshot as writeFullSnapshot,
 } from "./snapshot-file.mjs";
 import { writeSnapshot } from "../../test/helpers/write-snapshot.mjs";
@@ -507,65 +507,35 @@ describe("compareSnapshots", () => {
     });
   });
 
-  /**
-   * Write CURRENT with the production writer: no files, just these links.
-   * @param {string} dir
-   * @param {{ path: string, target: string, isDir: boolean }[]} links
-   */
-  const writeLinksOnly = (dir, links) =>
-    writeFullSnapshot(dir, momentOf(CURRENT), {
+  it("reports a folder that became a link out of the backup as an error, and its files as deleted", async () => {
+    await using dir = await mkTmpDir();
+
+    // The link is never followed, so what was under it really is gone from
+    // the backup; the link itself is an `#error` until it is dealt with
+    // (ADR-0103).
+    await writeSnapshot(dir.path, PREVIOUS, [
+      new File(["contents1"], join("sub", "a.txt")),
+    ]);
+    const reason = "link to a folder outside the backup: /mnt/sub";
+    await writeFullSnapshot(dir.path, momentOf(CURRENT), {
       set: {
         name: "photos",
         bucket: "my-backups",
-        dirs: [resolve(dir)],
+        dirs: [resolve(dir.path)],
         patterns: [],
       },
       files: [],
       excluded: [],
-      links,
-      errors: [],
+      errors: [{ path: resolve(dir.path, "sub"), reason, isDir: true }],
       getProps: async () => assert.fail("no files to hash"),
     });
-
-  it("reports nothing for a file that became a link, which the backup still holds", async () => {
-    await using dir = await mkTmpDir();
-
-    // file1.txt was a real file in the baseline and is a link now, so it is
-    // absent from `entries` and would otherwise read as a deletion. It didn't
-    // go away: the backup holds the link itself (ADR-0099).
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], "file1.txt"),
-    ]);
-    await writeLinksOnly(dir.path, [
-      {
-        path: resolve(dir.path, "file1.txt"),
-        target: "other.txt",
-        isDir: false,
-      },
-    ]);
-
-    const result = await compareSnapshots(dir.path, [dir.path]);
-
-    assert.deepStrictEqual(summarize(result, dir.path), EMPTY);
-  });
-
-  it("reports the files under a folder that became a link as deleted", async () => {
-    await using dir = await mkTmpDir();
-
-    // The link stands in for the folder's own path, and is never followed, so
-    // what was under it really is gone from the backup.
-    await writeSnapshot(dir.path, PREVIOUS, [
-      new File(["contents1"], join("sub", "a.txt")),
-    ]);
-    await writeLinksOnly(dir.path, [
-      { path: resolve(dir.path, "sub"), target: "/mnt/sub", isDir: true },
-    ]);
 
     const result = await compareSnapshots(dir.path, [dir.path]);
 
     assert.deepStrictEqual(summarize(result, dir.path), {
       ...EMPTY,
       deleted: [join("sub", "a.txt")],
+      errors: [`sub (${reason})`],
     });
   });
 
@@ -646,8 +616,8 @@ describe("compareSnapshots", () => {
       [resolve(dir.path, "X.doc"), new Error("EBUSY: resource busy")],
       [kept, keptProps],
     ];
-    // A reader refuses a path under no `#SET DIR` (ADR-0101).
-    const preamble = formatLine("#SET", "DIR", "", "", resolve(dir.path) + sep);
+    // A reader refuses a path under no `@SET DIR` (ADR-0101).
+    const preamble = formatLine("@SET", "DIR", "", "", resolve(dir.path) + sep);
     await withSnapshotFile(dir.path, PREVIOUS, (stream) =>
       pipeline(stringifySnapshot(before, { preamble }), stream),
     );
@@ -804,18 +774,18 @@ describe("out-of-order warning (ADR-0072 check B)", () => {
    * @param {string | undefined} instant
    */
   function plant(dir, name, instant) {
-    // No instant means no `#SNAPSHOT START` row at all — the row-only form a
+    // No instant means no `@SNAPSHOT START` row at all — the row-only form a
     // fused snapshot's pre-parsed baseline arrives as.
     const start = instant
-      ? `#SNAPSHOT\tSTART\t\t${instant}\tEurope/London\n`
+      ? `@SNAPSHOT\tSTART\t\t${instant}\tEurope/London\n`
       : ``;
-    const row = `object\t${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
+    const row = `-\t${HASH}\t1\t2026-01-01T00:00:00.000Z\t/home/me/a.txt\n`;
     const text =
       HEADING +
-      "#SET\tDIR\t\t\t/home/me/\n" +
+      "@SET\tDIR\t\t\t/home/me/\n" +
       start +
       row +
-      "#S3CAB\tEND\t\t\t\n";
+      "@S3CAB\tEND\t\t\t\n";
     writeFileSync(join(dir, `${name}.tsv.gz`), gzipSync(text));
   }
 

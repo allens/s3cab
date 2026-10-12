@@ -53,7 +53,7 @@ import { resolveWalkRoot, walkSet } from "./walk.mjs";
  * @property {SnapshotEntries} [previous] - Its entries — the compare/upload baseline
  * @property {SnapshotErrors} previousErrors - The paths it *couldn't* hash (`#error` rows) — the compare baseline's other half, without which a file that was merely unreadable last time reads as brand new (ADR-0079). Always a Map, empty when there is no previous snapshot, so a caller that has a baseline has both halves of it
  * @property {HashSource} [lookup] - Where a stored hash may be reused from: the previous snapshot's entries with the parked ones laid over them. Absent under `--rehash`, or when there is neither
- * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `#SNAPSHOT START` row
+ * @property {string} [instant] - When it was taken, as a UTC instant. Absent when there is no previous snapshot, or its file carries no `@SNAPSHOT START` row
  */
 
 /**
@@ -240,8 +240,8 @@ export async function generateSnapshot(
     console.warn(`Storing objects in 's3://${set.bucket}'`);
   }
 
-  const { files, excluded, links, errors: walkErrors, patterns } = walkSet(set);
-  // The `#SET DIR` rows, canonicalized the same way the walk canonicalized the
+  const { files, excluded, errors: walkErrors, patterns } = walkSet(set);
+  // The `@SET DIR` rows, canonicalized the same way the walk canonicalized the
   // roots it yielded these files from — `dirs.txt` is hand-edited (ADR-0052), so
   // its text can name a directory in any casing Windows accepts while the rows
   // below carry the on-disk spelling. Writing the raw text made a header that
@@ -333,7 +333,6 @@ export async function generateSnapshot(
       stopping: () => stopping,
     })(files),
     excluded,
-    links,
     errors: walkErrors,
     getProps: async (file) => {
       currentFile = file;
@@ -759,7 +758,7 @@ function fitPath(path, room) {
  *
  * Silent whenever the predecessor cannot answer — the condition is
  * `previousInstant`, not "is this a first run". Usually there is no predecessor
- * at all; a predecessor whose file carries no `#SNAPSHOT START` row reaches here
+ * at all; a predecessor whose file carries no `@SNAPSHOT START` row reaches here
  * the same way, since `Snapshot` leaves the instant absent rather than guessing
  * it. Guessing from the names instead would reintroduce exactly the ambiguity
  * this check exists to see through.

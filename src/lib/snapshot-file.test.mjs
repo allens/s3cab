@@ -37,38 +37,38 @@ const hashA = "a".repeat(64);
 const hashB = "b".repeat(64);
 
 const HEADING =
-  "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format";
-const DIR = "#SET\tDIR\t\t\t/home/me/";
-const START = "#SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
-const END = "#S3CAB\tEND\t\t2026-06-12T08:20:44.500Z\t";
+  "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format";
+const DIR = "@SET\tDIR\t\t\t/home/me/";
+const START = "@SNAPSHOT\tSTART\t\t2026-06-12T08:15:32.123Z\tEurope/London";
+const END = "@S3CAB\tEND\t\t2026-06-12T08:20:44.500Z\t";
 
 /**
- * An `object` row, unpadded.
+ * A `-` row, a file's.
  * @param {string} hash
  * @param {number | string} size
  * @param {string} path
  * @param {string} [mtime]
  */
-const object = (hash, size, path, mtime = "2026-06-01T12:00:00.000Z") =>
-  `object\t${hash}\t${size}\t${mtime}\t${path}`;
+const fileRow = (hash, size, path, mtime = "2026-06-01T12:00:00.000Z") =>
+  `-\t${hash}\t${size}\t${mtime}\t${path}`;
 
-/** The `#SET DIR` row for a real directory, such as a test's temp dir. */
+/** The `@SET DIR` row for a real directory, such as a test's temp dir. */
 const dirRow = (/** @type {string} */ dir) =>
-  `#SET\tDIR\t\t\t${resolve(dir)}${sep}`;
+  `@SET\tDIR\t\t\t${resolve(dir)}${sep}`;
 
 /** A snapshot whose files are all under `/home/me/`, around `rows`. */
 const snapshotOf = (/** @type {string[]} */ ...rows) =>
   [HEADING, DIR, START, ...rows, END].join("\n");
 
 describe("parseSnapshotStream", () => {
-  it("parses object rows, #SET DIR and #SNAPSHOT START's instant", async () => {
+  it("parses - rows, @SET DIR and @SNAPSHOT START's instant", async () => {
     const text = [
       HEADING,
-      "#SET\tDIR\t\t\tC:\\Users\\me\\Photos\\",
-      "#SET\tDIR\t\t\tD:\\Pics\\",
+      "@SET\tDIR\t\t\tC:\\Users\\me\\Photos\\",
+      "@SET\tDIR\t\t\tD:\\Pics\\",
       START,
-      object(hashA, 12, "C:\\Users\\me\\Photos\\beach.jpg"),
-      object(hashB, 34, "D:\\Pics\\ski.jpg"),
+      fileRow(hashA, 12, "C:\\Users\\me\\Photos\\beach.jpg"),
+      fileRow(hashB, 34, "D:\\Pics\\ski.jpg"),
       END,
     ].join("\n");
 
@@ -88,53 +88,25 @@ describe("parseSnapshotStream", () => {
     assert.equal(refused.size, 0);
   });
 
-  it("skips the # rows only people read, and # types it doesn't know", async () => {
-    // An unknown `#` row is information a newer s3cab added, so skipping it is
-    // what keeps a new property additive (ADR-0098) — and a `#` row repeating a
-    // content row's path changes nothing a reader restores (ADR-0101).
-    const { entries, errors, links } = await parse(
+  it("skips the @ and # rows only people read, and @ and # types it doesn't know", async () => {
+    // An unknown `@` or `#` row is information a newer s3cab added, so skipping
+    // it is what keeps a new property additive (ADR-0103) — and a `#` row
+    // repeating a file row's path changes nothing a reader restores (ADR-0101).
+    const { entries, errors } = await parse(
       snapshotOf(
-        "#S3CAB\tVERSION\t\t\t0.14.0",
-        "#SET\tNAME\t\t\tphotos",
-        "#SET\tEXCLUDE\t\t\t*.tmp",
-        "#SNAPSHOT\tCOLOUR\t\t\tblue",
+        "@S3CAB\tVERSION\t\t\t0.14.0",
+        "@SET\tNAME\t\t\tphotos",
+        "@SET\tEXCLUDE\t\t\t*.tmp",
+        "@SNAPSHOT\tCOLOUR\t\t\tblue",
+        "@FUTURE\tTHING\t\t\tvalue",
         "#excluded\t*.tmp\t\t\t/home/me/Docs/scratch.tmp",
         "#future\tsomething\t\t\t/home/me/Docs/ok.txt",
-        object(hashA, 5, "/home/me/Docs/ok.txt"),
-        "#SNAPSHOT\tFILES\t\t\t99",
+        fileRow(hashA, 5, "/home/me/Docs/ok.txt"),
+        "@SNAPSHOT\tFILES\t\t\t99",
       ),
     );
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
     assert.equal(errors.size, 0);
-    assert.equal(links.size, 0);
-  });
-
-  it("reads link rows into links, keyed without a folder link's separator", async () => {
-    // A link is in the backup as itself (ADR-0099), so compare must find it
-    // rather than report its path deleted. The trailing separator marks a
-    // folder link, and what separates is the path's own shape: a backslash ends
-    // a Windows folder link, but is a character of a POSIX name.
-    const text = [
-      HEADING,
-      DIR,
-      "#SET\tDIR\t\t\tC:\\Users\\me\\",
-      "link\t../2026/img.jpg\t\t\t/home/me/latest.jpg",
-      "link\t/mnt/archive\t\t\t/home/me/archive/",
-      "link\tD:\\Archive\t\t\tC:\\Users\\me\\archive\\",
-      "link\tother\t\t\t/home/me/odd\\",
-      END,
-    ].join("\n");
-    const { links, entries } = await parse(text);
-    assert.deepEqual(
-      [...links],
-      [
-        ["/home/me/latest.jpg", "../2026/img.jpg"],
-        ["/home/me/archive", "/mnt/archive"],
-        ["C:\\Users\\me\\archive", "D:\\Archive"],
-        ["/home/me/odd\\", "other"],
-      ],
-    );
-    assert.equal(entries.size, 0);
   });
 
   it("surfaces #error rows into errors (with the message), not entries", async () => {
@@ -143,7 +115,7 @@ describe("parseSnapshotStream", () => {
     const { entries, errors } = await parse(
       snapshotOf(
         "#error\tEACCES: permission denied\t\t\t/home/me/Docs/locked.bin",
-        object(hashA, 5, "/home/me/Docs/ok.txt"),
+        fileRow(hashA, 5, "/home/me/Docs/ok.txt"),
       ),
     );
     assert.deepEqual([...entries.keys()], ["/home/me/Docs/ok.txt"]);
@@ -158,7 +130,7 @@ describe("parseSnapshotStream", () => {
     // verbatim so a file whose name begins or ends with a space round-trips
     // correctly (hand-editing is the no-lock-in story).
     const path = "/home/me/ a file with spaces .txt ";
-    const { entries } = await parse(snapshotOf(object(hashA, 5, path)));
+    const { entries } = await parse(snapshotOf(fileRow(hashA, 5, path)));
     assert.ok(entries.has(path), "the path must be kept verbatim");
     assert.ok(!entries.has(path.trim()), "trimmed form must not be present");
   });
@@ -169,9 +141,9 @@ describe("parseSnapshotStream", () => {
         HEADING,
         DIR,
         "",
-        object(hashA, 5, "/home/me/a.txt"),
+        fileRow(hashA, 5, "/home/me/a.txt"),
         "",
-        object(hashB, 7, "/home/me/b.txt"),
+        fileRow(hashB, 7, "/home/me/b.txt"),
         END,
         "",
       ].join("\n"),
@@ -192,12 +164,12 @@ describe("parseSnapshotStream", () => {
 
     it("when it doesn't open with the heading row", async () => {
       await refuses(
-        [DIR, object(hashA, 12, "/home/me/a.txt"), END].join("\n"),
-        /first line isn't the #S3CAB heading row/,
+        [DIR, fileRow(hashA, 12, "/home/me/a.txt"), END].join("\n"),
+        /first line isn't the @S3CAB FORMAT heading row/,
       );
       // Not even after a blank line: the heading is the first line.
       await refuses(
-        `\n${snapshotOf(object(hashA, 12, "/home/me/a.txt"))}`,
+        `\n${snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))}`,
         /heading row/,
       );
     });
@@ -205,7 +177,7 @@ describe("parseSnapshotStream", () => {
     it("when its line endings are CRLF", async () => {
       // The heading's URL then ends in a CR, so the file isn't what s3cab writes.
       await refuses(
-        snapshotOf(object(hashA, 12, "/home/me/a.txt")).replaceAll(
+        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replaceAll(
           "\n",
           "\r\n",
         ),
@@ -215,13 +187,13 @@ describe("parseSnapshotStream", () => {
 
     it("when it isn't UTF-8", async () => {
       const bytes = Buffer.concat([
-        Buffer.from(snapshotOf(object(hashA, 12, "/home/me/a.txt"))),
+        Buffer.from(snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))),
         Buffer.from([0xff, 0xfe]),
       ]);
       await refuses(bytes, /isn't UTF-8/);
     });
 
-    it("when it ends without #S3CAB END, as truncated", async () => {
+    it("when it ends without @S3CAB END, as truncated", async () => {
       // ADR-0082: this parser takes an already-decompressed stream, so it has no
       // gzip trailer to lean on — for an uncompressed `.tsv` there is none, and
       // `END` is the only thing standing between a destroyed manifest and a
@@ -229,22 +201,32 @@ describe("parseSnapshotStream", () => {
       // classifies it as snapshot damage, so verify records the finding instead
       // of vouching for the wreck.
       await refuses(
-        [HEADING, DIR, START, object(hashA, 12, "/home/me/a.txt")].join("\n"),
+        [HEADING, DIR, START, fileRow(hashA, 12, "/home/me/a.txt")].join("\n"),
         /Truncated snapshot/,
       );
     });
 
-    it("when rows follow #S3CAB END, which then no longer proves it whole", async () => {
+    it("when rows follow @S3CAB END, which then no longer proves it whole", async () => {
       await refuses(
-        `${snapshotOf(object(hashA, 12, "/home/me/a.txt"))}\n${object(hashB, 7, "/home/me/b.txt")}`,
-        /rows follow the closing #S3CAB END row/,
+        `${snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"))}\n${fileRow(hashB, 7, "/home/me/b.txt")}`,
+        /rows follow the closing @S3CAB END row/,
       );
     });
 
-    it("when it holds a lowercase type it doesn't know, which is content a restore would miss", async () => {
+    it("when it holds a type starting with neither @ nor #, which may be content a restore would miss", async () => {
       await refuses(
         snapshotOf("xattr\tuser.tag\t\t\t/home/me/a.txt"),
         /Unknown row type 'xattr'/,
+      );
+    });
+
+    it("when the heading row's column 2 isn't FORMAT", async () => {
+      await refuses(
+        snapshotOf(fileRow(hashA, 12, "/home/me/a.txt")).replace(
+          "\tFORMAT\t",
+          "\t\t",
+        ),
+        /heading row/,
       );
     });
   });
@@ -253,84 +235,77 @@ describe("parseSnapshotStream", () => {
     for (const [what, row, path, reason] of [
       [
         "a hash that isn't 64 lowercase hex digits",
-        object("A".repeat(64), 12, "/home/me/x"),
+        fileRow("A".repeat(64), 12, "/home/me/x"),
         "/home/me/x",
         /hash/,
       ],
       [
         "a 63-digit hash",
-        object("a".repeat(63), 12, "/home/me/x"),
+        fileRow("a".repeat(63), 12, "/home/me/x"),
         "/home/me/x",
         /hash/,
       ],
       [
         "a size that isn't a whole number",
-        object(hashA, "12.5", "/home/me/x"),
+        fileRow(hashA, "12.5", "/home/me/x"),
         "/home/me/x",
         /size/,
       ],
       [
         "a time that isn't the 24-character instant",
-        object(hashA, 12, "/home/me/x", "2026-06-01T12:00:00Z"),
+        fileRow(hashA, 12, "/home/me/x", "2026-06-01T12:00:00Z"),
         "/home/me/x",
         /time/,
       ],
       [
         "an empty field",
-        `object\t${hashA}\t\t2026-06-01T12:00:00.000Z\t/home/me/x`,
+        `-\t${hashA}\t\t2026-06-01T12:00:00.000Z\t/home/me/x`,
         "/home/me/x",
         /size/,
       ],
-      ["no path at all", object(hashA, 12, ""), "", /no path/],
+      ["no path at all", fileRow(hashA, 12, ""), "", /no path/],
       [
         "a path that isn't absolute",
-        object(hashA, 12, "home/me/x"),
+        fileRow(hashA, 12, "home/me/x"),
         "home/me/x",
         /isn't absolute/,
       ],
       [
         "a .. segment",
-        object(hashA, 12, "/home/me/../../etc/passwd"),
+        fileRow(hashA, 12, "/home/me/../../etc/passwd"),
         "/home/me/../../etc/passwd",
         /\.\. segment/,
       ],
       [
         "a . segment, in a Windows-shaped path",
-        object(hashA, 12, "C:\\Users\\.\\x"),
+        fileRow(hashA, 12, "C:\\Users\\.\\x"),
         "C:\\Users\\.\\x",
         /\.\. segment/,
       ],
       [
         "a carriage return in the path",
-        object(hashA, 12, "/home/me/x\r"),
+        fileRow(hashA, 12, "/home/me/x\r"),
         "/home/me/x\r",
         /carriage return/,
       ],
       [
         "a tab in the path, which must not cut it short at the tab",
-        object(hashA, 12, "/home/me/x\ty"),
+        fileRow(hashA, 12, "/home/me/x\ty"),
         "/home/me/x\ty",
         /holds a tab/,
       ],
       [
-        "a path under no #SET DIR",
-        object(hashA, 12, "/srv/other/x"),
+        "a path under no @SET DIR",
+        fileRow(hashA, 12, "/srv/other/x"),
         "/srv/other/x",
-        /none of the snapshot's #SET DIR rows/,
-      ],
-      [
-        "a link with no target",
-        "link\t\t\t\t/home/me/x",
-        "/home/me/x",
-        /no link target/,
+        /none of the snapshot's @SET DIR rows/,
       ],
     ]) {
       it(`for ${what}`, async () => {
-        const { entries, links, errors, refused } = await parse(
-          snapshotOf(object(hashB, 7, "/home/me/ok.txt"), String(row)),
+        const { entries, errors, refused } = await parse(
+          snapshotOf(fileRow(hashB, 7, "/home/me/ok.txt"), String(row)),
         );
         assert.deepEqual([...entries.keys()], ["/home/me/ok.txt"]);
-        assert.equal(links.size, 0);
         assert.deepEqual([...refused.keys()], [path]);
         assert.match(
           String(refused.get(String(path))),
@@ -344,23 +319,17 @@ describe("parseSnapshotStream", () => {
     it("for a path two rows name, refusing both so no reader guesses", async () => {
       // Not last-wins: a first-wins reader and a last-wins one would restore
       // different bytes from the same file.
-      const { entries, links, refused } = await parse(
+      const { entries, refused } = await parse(
         snapshotOf(
-          "link\t/mnt/a\t\t\t/home/me/both/",
-          object(hashA, 12, "/home/me/a.txt"),
-          object(hashA, 12, "/home/me/twice.txt"),
-          object(hashB, 34, "/home/me/twice.txt"),
-          object(hashB, 34, "/home/me/both"),
+          fileRow(hashA, 12, "/home/me/a.txt"),
+          fileRow(hashA, 12, "/home/me/twice.txt"),
+          fileRow(hashB, 34, "/home/me/twice.txt"),
         ),
       );
       assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
-      assert.equal(links.size, 0);
       assert.deepEqual(
         [...refused],
-        [
-          ["/home/me/twice.txt", "it appears in two rows of the snapshot"],
-          ["/home/me/both", "it appears in two rows of the snapshot"],
-        ],
+        [["/home/me/twice.txt", "it appears in two rows of the snapshot"]],
       );
     });
   });
@@ -375,9 +344,9 @@ describe("parseSnapshotStream", () => {
       HEADING,
       DIR,
       START,
-      object(hashA, 12, "/home/me/a.txt"),
-      object(hashA, 34, "/home/me/b.txt"),
-      `object\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
+      fileRow(hashA, 12, "/home/me/a.txt"),
+      fileRow(hashA, 34, "/home/me/b.txt"),
+      `-\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
     ].join("\n");
 
     const { entries, instant, refused } = await parseSnapshotStream(
@@ -401,8 +370,8 @@ describe("parseSnapshotStream", () => {
     const text = [
       HEADING,
       DIR,
-      object(hashA, 12, "/home/me/a.txt"),
-      object(hashB, 34, "/home/me/photo"),
+      fileRow(hashA, 12, "/home/me/a.txt"),
+      fileRow(hashB, 34, "/home/me/photo"),
     ].join("\n");
 
     const { entries } = await parseSnapshotStream(
@@ -413,15 +382,15 @@ describe("parseSnapshotStream", () => {
     assert.deepEqual([...entries.keys()], ["/home/me/a.txt"]);
   });
 
-  it("keeps a work file's last row when #S3CAB END follows it", async () => {
+  it("keeps a work file's last row when @S3CAB END follows it", async () => {
     // A run killed after writing `END` but before the rename that lands the
     // snapshot. `END` is the one line nothing can follow, so it vouches for
     // itself and for the row before it.
     const text = [
       HEADING,
       DIR,
-      object(hashA, 12, "/home/me/a.txt"),
-      object(hashB, 34, "/home/me/b.txt"),
+      fileRow(hashA, 12, "/home/me/a.txt"),
+      fileRow(hashB, 34, "/home/me/b.txt"),
       END,
     ].join("\n");
 
@@ -442,7 +411,7 @@ describe("parseSnapshotStream", () => {
 // read without aborting the live S3 request (#171) — needs a real body and is
 // covered in test/integration/remote.test.mjs.
 describe("parseCompressedSnapshotStream", () => {
-  const text = snapshotOf(object(hashA, 12, "/home/me/a.txt"));
+  const text = snapshotOf(fileRow(hashA, 12, "/home/me/a.txt"));
 
   it(
     "parses a compressed stream arriving in arbitrary chunks",
@@ -466,7 +435,7 @@ describe("parseCompressedSnapshotStream", () => {
     { timeout: 5000 },
     async () => {
       // gunzip rejects the cut stream itself (`Z_BUF_ERROR`) where the parser
-      // would otherwise have missed `#S3CAB END` — measured on 26.11 at every cut
+      // would otherwise have missed `@S3CAB END` — measured on 26.11 at every cut
       // point of a small snapshot, the empty stream included. Either way it must surface as the same
       // AssertionError, the one isCorruptSnapshotError files as damage
       // (ADR-0082 amendments 2 and 3).
@@ -527,7 +496,7 @@ const momentOf = (name) => ({
 });
 
 /**
- * The set a written snapshot records in its `#SET` rows — absolute, as
+ * The set a written snapshot records in its `@SET` rows — absolute, as
  * `setup` canonicalizes them, or no path would be under one.
  * @param {string[]} dirs
  * @returns {SnapshotSet}
@@ -540,7 +509,7 @@ const setOf = (dirs) => ({
 });
 
 /** A walk that found nothing but files. */
-const nothingElse = { excluded: [], links: [], errors: [] };
+const nothingElse = { excluded: [], errors: [] };
 
 // listSnapshotNames is the storage core behind the `list` command — a temp dir
 // stands in for a set's `~/.s3cab/sets/<set>/snapshots/`. The set resolution
@@ -648,7 +617,7 @@ describe("readSnapshot", () => {
   const writeRealSnapshot = (snapshotDir) =>
     writeFileSync(
       join(snapshotDir, snapshotFileName(name)),
-      gzipSync(snapshotOf(object(hashA, 3, file))),
+      gzipSync(snapshotOf(fileRow(hashA, 3, file))),
     );
 
   it("reads the snapshot even with a same-named directory beside it", async () => {
@@ -701,25 +670,25 @@ describe("writeSnapshot", () => {
         line.split("\t").map((column, i) => (i < 4 ? column.trim() : column)),
       );
 
-  it("writes object, #excluded, #error and link rows, and round-trips via readSnapshot", async () => {
+  it("writes -, #excluded and #error rows, and round-trips via readSnapshot", async () => {
     await using dir = await mkTmpDir();
     const a = resolve(dir.path, "a.txt");
     const b = resolve(dir.path, "b.txt");
     const bad = resolve(dir.path, "bad.bin");
     const scratch = resolve(dir.path, "scratch.tmp");
     const locked = resolve(dir.path, "locked");
-    const latest = resolve(dir.path, "latest.jpg");
     const archive = resolve(dir.path, "archive");
+    const outside = "link to a folder outside the backup: /mnt/archive";
 
     const path = await writeSnapshot(dir.path, momentOf("2026-06-23T1000"), {
       set: setOf([dir.path]),
       files: [a, b, bad],
       excluded: [{ pattern: "*.tmp", path: scratch, isDir: false }],
-      links: [
-        { path: latest, target: "a.txt", isDir: false },
-        { path: archive, target: "/mnt/archive", isDir: true },
+      errors: [
+        { path: locked, reason: "EACCES: permission denied, lstat" },
+        // A folder link's `#error` ends its path with a separator (ADR-0098).
+        { path: archive, reason: outside, isDir: true },
       ],
-      errors: [{ path: locked, reason: "EACCES: permission denied, lstat" }],
       getProps: async (p) => {
         // A file the walk can't hash becomes an #error row, not an entry.
         if (p === bad) {
@@ -731,7 +700,7 @@ describe("writeSnapshot", () => {
 
     assert.match(path, /2026-06-23T1000\.tsv\.gz$/);
 
-    const { entries, errors, links, dirs, instant } = await readSnapshot(
+    const { entries, errors, dirs, instant } = await readSnapshot(
       dir.path,
       "2026-06-23T1000",
     );
@@ -747,16 +716,8 @@ describe("writeSnapshot", () => {
       [...errors],
       [
         [locked, "EACCES: permission denied, lstat"],
+        [archive + sep, outside],
         [bad, "EACCES: permission denied"],
-      ],
-    );
-    // A folder link's trailing separator is dropped on read, so it keys like
-    // the same path everywhere else.
-    assert.deepEqual(
-      [...links],
-      [
-        [latest, "a.txt"],
-        [archive, "/mnt/archive"],
       ],
     );
   });
@@ -784,7 +745,6 @@ describe("writeSnapshot", () => {
       },
       files: [a, resolve(dir.path, "b.bin")],
       excluded: [{ pattern: "cache", path: cache, isDir: true }],
-      links: [],
       errors: [],
       getProps: async (p) => ({
         size: p === a ? 3 : 15463758036,
@@ -797,24 +757,24 @@ describe("writeSnapshot", () => {
     assert.deepEqual(
       rows.map(([type, col2]) => `${type} ${col2}`),
       [
-        "#S3CAB ",
-        "#S3CAB VERSION",
-        "#S3CAB HOME",
-        "#SET NAME",
-        "#SET BUCKET",
-        "#SET ENDPOINT",
-        "#SET DIR",
-        "#SET EXCLUDE",
-        "#SET EXCLUDE",
-        "#SNAPSHOT NAME",
-        "#SNAPSHOT BY",
-        "#SNAPSHOT START",
+        "@S3CAB FORMAT",
+        "@S3CAB VERSION",
+        "@S3CAB HOME",
+        "@SET NAME",
+        "@SET BUCKET",
+        "@SET ENDPOINT",
+        "@SET DIR",
+        "@SET EXCLUDE",
+        "@SET EXCLUDE",
+        "@SNAPSHOT NAME",
+        "@SNAPSHOT BY",
+        "@SNAPSHOT START",
         "#excluded cache",
-        `object ${hashA}`,
-        `object ${hashA}`,
-        "#SNAPSHOT FILES",
-        "#SNAPSHOT SIZE",
-        "#S3CAB END",
+        `- ${hashA}`,
+        `- ${hashA}`,
+        "@SNAPSHOT FILES",
+        "@SNAPSHOT SIZE",
+        "@S3CAB END",
       ],
     );
     assert.ok(
@@ -832,44 +792,45 @@ describe("writeSnapshot", () => {
         .map(([, , , time, last]) => [time, last]);
 
     assert.deepEqual(rows[0], [
-      "#S3CAB",
-      "",
+      "@S3CAB",
+      "FORMAT",
       "size",
       "time",
       "https://s3cab.plantegral.com/guide/format",
     ]);
-    assert.match(tail("#S3CAB VERSION")[0]?.[1] ?? "", /^\d+\.\d+\.\d+/);
-    assert.ok(tail("#S3CAB HOME")[0]?.[1]?.endsWith(sep));
-    assert.deepEqual(tail("#SET NAME"), [["", "photos"]]);
-    assert.deepEqual(tail("#SET BUCKET"), [["", "s3://my-backups"]]);
-    assert.deepEqual(tail("#SET ENDPOINT"), [["", "https://s3.example.com"]]);
-    assert.deepEqual(tail("#SET EXCLUDE"), [
+    assert.match(tail("@S3CAB VERSION")[0]?.[1] ?? "", /^\d+\.\d+\.\d+/);
+    assert.ok(tail("@S3CAB HOME")[0]?.[1]?.endsWith(sep));
+    assert.deepEqual(tail("@SET NAME"), [["", "photos"]]);
+    assert.deepEqual(tail("@SET BUCKET"), [["", "s3://my-backups"]]);
+    assert.deepEqual(tail("@SET ENDPOINT"), [["", "https://s3.example.com"]]);
+    assert.deepEqual(tail("@SET EXCLUDE"), [
       ["", "*.tmp"],
       ["", "cache"],
     ]);
     // A folder's path ends with a separator: a member directory, and an
     // excluded folder alike.
-    assert.deepEqual(tail("#SET DIR"), [["", dir.path + sep]]);
+    assert.deepEqual(tail("@SET DIR"), [["", dir.path + sep]]);
     assert.deepEqual(tail("#excluded cache"), [["", cache + sep]]);
-    assert.deepEqual(tail("#SNAPSHOT NAME"), [["", "2026-06-23T1000"]]);
-    assert.match(tail("#SNAPSHOT BY")[0]?.[1] ?? "", /^.+@.+$/);
+    assert.deepEqual(tail("@SNAPSHOT NAME"), [["", "2026-06-23T1000"]]);
+    assert.match(tail("@SNAPSHOT BY")[0]?.[1] ?? "", /^.+@.+$/);
     // Every spelling of the moment comes from the one `snapshotMoment` read the
     // caller made (ADR-0072), so the filename and these rows cannot disagree.
-    assert.deepEqual(tail("#SNAPSHOT START"), [
+    assert.deepEqual(tail("@SNAPSHOT START"), [
       ["2026-06-23T09:00:00.000Z", "Europe/London"],
     ]);
-    assert.deepEqual(tail("#SNAPSHOT FILES"), [["", "2"]]);
-    assert.match(tail("#SNAPSHOT SIZE")[0]?.[1] ?? "", /^15463758039 \(.+\)$/);
-    assert.deepEqual(tail("#S3CAB END"), [["2026-06-23T10:30:00.124Z", ""]]);
+    assert.deepEqual(tail("@SNAPSHOT FILES"), [["", "2"]]);
+    assert.match(tail("@SNAPSHOT SIZE")[0]?.[1] ?? "", /^15463758039 \(.+\)$/);
+    assert.deepEqual(tail("@S3CAB END"), [["2026-06-23T10:30:00.124Z", ""]]);
 
-    // Column 1 is exactly `object`'s width, so an object row carries no padding
-    // but its size's.
+    // Column 1 is unpadded (ADR-0103), so a file row's type cell is exactly
+    // `-` and the row carries no padding but its size's.
     const text = gunzipSync(readFileSync(path)).toString("utf8");
     assert.ok(
       text.includes(
-        `\nobject\t${hashA}\t           3\t2026-06-23T10:00:00.000Z\t${a}\n`,
+        `\n-\t${hashA}\t           3\t2026-06-23T10:00:00.000Z\t${a}\n`,
       ),
     );
+    assert.ok(text.includes("\n@SNAPSHOT\tSTART "));
   });
 
   it("spells out a control character in what only people read", async () => {
@@ -888,7 +849,6 @@ describe("writeSnapshot", () => {
           isDir: false,
         },
       ],
-      links: [],
       errors: [{ path: resolve(dir.path, "bad\rname"), reason: "EACCES:\tno" }],
       getProps: props,
     });
@@ -913,7 +873,7 @@ describe("writeSnapshot", () => {
   it("passes rows through `through` and writes the identical file (the fusion seam)", async (t) => {
     // ADR-0069: `backup` PUTs each object from this transform. The promise the seam
     // rests on is that inserting it changes *when* work happens, never what the
-    // snapshot says — so the two files must be byte-identical. `#S3CAB END`
+    // snapshot says — so the two files must be byte-identical. `@S3CAB END`
     // times itself, so the clock is pinned for both writes; nothing else in the
     // file can differ.
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
@@ -1178,7 +1138,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
 
     // The rows hashed before the stop, less the last: a parked file has no
-    // `#S3CAB END` to vouch for its final row, so the tolerant read drops it
+    // `@S3CAB END` to vouch for its final row, so the tolerant read drops it
     // (ADR-0098) — one file re-hashed, as after a hard kill.
     const parked = await readParkedLookup(dir.path);
     assert.ok(parked);
@@ -1189,7 +1149,7 @@ describe("withSnapshotFile (park on interrupt)", () => {
     assert.equal(parked.instant, momentOf("2026-06-23T1000").instant);
   });
 
-  it("stops the parked file after its last object row, with no trailer", async () => {
+  it("stops the parked file after its last - row, with no trailer", async () => {
     await using dir = await mkTmpDir();
 
     await assert.rejects(
@@ -1205,10 +1165,10 @@ describe("withSnapshotFile (park on interrupt)", () => {
     );
     assert.ok(text.endsWith("\n"));
     const lines = text.split("\n").filter(Boolean);
-    assert.match(lines.at(-1) ?? "", /^object\t/);
+    assert.match(lines.at(-1) ?? "", /^-\t/);
     for (const line of lines) {
       assert.equal(line.split("\t").length, 5, `whole row expected: ${line}`);
-      assert.doesNotMatch(line, /^(#S3CAB\tEND|#SNAPSHOT\t(FILES|SIZE))\s/);
+      assert.doesNotMatch(line, /^(@S3CAB\tEND|@SNAPSHOT\t(FILES|SIZE))\s/);
     }
   });
 
@@ -1354,9 +1314,9 @@ describe("readParkedLookup", () => {
     const text = [
       HEADING,
       dirRow(dir),
-      `#SNAPSHOT\tSTART\t\t${instant}\tEurope/London`,
-      object(hashA, 1, resolve(dir, "a.txt")),
-      object(hashA, 2, resolve(dir, "b.txt")),
+      `@SNAPSHOT\tSTART\t\t${instant}\tEurope/London`,
+      fileRow(hashA, 1, resolve(dir, "a.txt")),
+      fileRow(hashA, 2, resolve(dir, "b.txt")),
     ].join("\n");
     writeFileSync(parkedPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
@@ -1404,10 +1364,10 @@ describe("recoverWorkFile", () => {
 
   /**
    * Leave a work file exactly as a hard kill leaves one: the opening rows,
-   * whole object rows, then a row cut off mid-write. Built as bytes rather than
+   * whole file rows, then a row cut off mid-write. Built as bytes rather than
    * by killing a real write, so the artifact under test is pinned to the shape
    * measured on a real 280,277-file set — 272,692 whole rows, one torn line, no
-   * `#S3CAB END`.
+   * `@S3CAB END`.
    * @param {string} dir
    * @param {string[]} files
    */
@@ -1416,8 +1376,8 @@ describe("recoverWorkFile", () => {
       HEADING,
       dirRow(dir),
       START,
-      ...files.map((path, i) => object(hashA, i + 1, path)),
-      `object\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
+      ...files.map((path, i) => fileRow(hashA, i + 1, path)),
+      `-\t${hashA}\t2806546623\t2026-07-26T17:21:28`,
     ].join("\n");
     writeFileSync(lockPath(dir), gzipSync(Buffer.from(text, "utf8")));
   };
@@ -1469,7 +1429,7 @@ describe("recoverWorkFile", () => {
   });
 
   it("keeps the start instant of the run that never finished", async () => {
-    // No trailer, but `#SNAPSHOT START` is written before any object, so the
+    // No trailer, but `@SNAPSHOT START` is written before any object, so the
     // change-time boundary (ADR-0094) survives the kill.
     await using dir = await mkTmpDir();
     killedRun(dir.path, [resolve(dir.path, "a.txt")]);

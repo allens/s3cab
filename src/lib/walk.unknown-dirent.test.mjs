@@ -88,7 +88,7 @@ describe("walk on a filesystem that reports no entry types", () => {
     mkdirSync(join(root, "sub"));
     writeFileSync(join(root, "sub", "nested.txt"), "nested");
 
-    const { files, excluded, links, errors } = walkDirs([root], []);
+    const { files, excluded, errors } = walkDirs([root], []);
 
     // Both halves at once. `top.txt` proves a file is classified as one;
     // `sub/nested.txt` proves `sub` was recognised as a directory and descended
@@ -102,10 +102,9 @@ describe("walk on a filesystem that reports no entry types", () => {
     // The phantom vanished between listing and checking, so it leaves no row
     // of any kind (ADR-0099), and doesn't take the walk down with it.
     assert.deepEqual(
-      { excluded, links, errors },
+      { excluded, errors },
       {
         excluded: [],
-        links: [],
         errors: [],
       },
     );

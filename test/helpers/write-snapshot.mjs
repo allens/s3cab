@@ -12,9 +12,9 @@ import {
 
 // Test fixture builder: write a snapshot file from a list of paths or `File`
 // objects, in the real `.tsv.gz` form (so a snapshot lister sees it when the
-// name is datestamped). It writes the heading, a `#SET DIR` row per filesystem
+// name is datestamped). It writes the heading, a `@SET DIR` row per filesystem
 // root the paths sit on — a reader refuses a path under none (ADR-0101) — then
-// the object rows and trailer; no other `#SET`/`#SNAPSHOT` rows, which is all the
+// the object rows and trailer; no other `@SET`/`@SNAPSHOT` rows, which is all the
 // compare/remote tests need. Production snapshots are written by `snapshot()`. On-disk paths go through the lib
 // `fileProps`; a `File` carries its own in-memory bytes, so it is hashed inline
 // here — production `fileProps`/`prop` are path-only, and synthesizing props
@@ -65,7 +65,7 @@ export async function writeSnapshot(
   }
   const roots = new Set([...snapshot.keys()].map((path) => parse(path).root));
   const preamble = [...roots]
-    .map((root) => formatLine("#SET", "DIR", "", "", root))
+    .map((root) => formatLine("@SET", "DIR", "", "", root))
     .join("");
   return withSnapshotFile(snapshotDir, name, (stream) =>
     pipeline(stringifySnapshot(snapshot, { preamble }), stream),

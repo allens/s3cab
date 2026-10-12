@@ -169,15 +169,6 @@ export async function compareSnapshots(snapshotDir, dirs, options = {}) {
     deleted.delete(path);
   }
 
-  // Link paths get the same treatment, for a different reason: a file replaced
-  // by a link is still in the backup, as the link (ADR-0099). Only the path
-  // itself is reconciled — when the link leads to a *folder*, the files that
-  // were under that path are gone from the backup, since a link is never
-  // followed, so reporting them as deleted is the truth.
-  for (const path of untilSnapshot.links.keys()) {
-    deleted.delete(path);
-  }
-
   // The *older* snapshot's errored paths need no reconciliation of their own,
   // only the marking below: such a path is in neither of that snapshot's maps,
   // so it can only ever turn up as an addition (`diff` also bars it from being a
@@ -284,10 +275,6 @@ function getPathsByHash(snapshotLookup) {
  *   `errors` map, not `currentSnapshot` — so `diff` never sees them.
  *   `compareSnapshots` reports them under its own `errors` category and keeps
  *   them out of `deleted`.
- * - Links (`link` rows) aren't entries either, so a file that became one reads
- *   as deleted here. `compareSnapshots` takes the path itself back out of
- *   `deleted`, but not the files under a link to a folder; why is the comment
- *   at its loop.
  * - A path in `previousErrors` was *there* in the previous snapshot, unreadable
  *   rather than absent, so nothing can have moved *to* it: it is barred from
  *   being a move destination and reports as added, however its content pairs up

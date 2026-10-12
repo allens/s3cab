@@ -362,13 +362,13 @@ describe("cleanup command", () => {
     invalidRecords = [
       {
         uri: "s3://b/objects.deleted-2.tsv",
-        reason: "the closing #S3CAB END row is missing",
+        reason: "the closing @S3CAB END row is missing",
       },
     ];
 
     await assert.rejects(
       () => cleanup("b", { force: true }),
-      /deletion record is damaged[\s\S]*objects\.deleted-2\.tsv \(the closing #S3CAB END row is missing\)/,
+      /deletion record is damaged[\s\S]*objects\.deleted-2\.tsv \(the closing @S3CAB END row is missing\)/,
     );
     assert.deepEqual(deleteCalls, []);
     assert.deepEqual(compactCalls, []);

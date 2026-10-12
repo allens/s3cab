@@ -1,6 +1,7 @@
 # The deletion record takes the snapshot's layout: `#deleted` rows
 
-**Status:** accepted & implemented (proposed 2026-10-11). Partly supersedes
+**Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
+[0103](0103-row-marks-and-unrecorded-links.md): the property rows are `@S3CAB`. Partly supersedes
 [0090](0090-deletion-record-format-compaction.md)'s Rows section. What 0090 decided about the
 record's job stays: no paths, numbered files at the bucket root, uncompressed, compacted by
 `cleanup`. The layout is [0098](0098-snapshot-row-layout.md); what a reader does with a malformed

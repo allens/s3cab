@@ -89,7 +89,7 @@ export function selectEntries(paths, filters) {
  * Build the path re-rooter for `restore --output <dir>`: each file in the snapshot lands
  * under `<output>/<member-root-basename>/<path-below-that-root>` — shallow and
  * human-readable, and valid on *this* machine regardless of where the backup was
- * taken (docs/design/backup.md). The member roots are the snapshot's `#SET DIR` rows.
+ * taken (docs/design/backup.md). The member roots are the snapshot's `@SET DIR` rows.
  *
  * Separator-agnostic, so a Windows snapshot re-roots correctly on POSIX and vice
  * versa: roots and paths are split by `path-match.mjs`'s `preparePath` — both
@@ -113,7 +113,7 @@ export function selectEntries(paths, filters) {
  * wanting `<output>/Photos`) are rejected up front: restore them one at a time
  * with a path filter, or to their original locations. Pure and side-effect-free
  * (unit-testable without S3), like `selectEntries`.
- * @param {string[]} dirs - The snapshot's member roots (its `#SET DIR` rows)
+ * @param {string[]} dirs - The snapshot's member roots (its `@SET DIR` rows)
  * @param {string} output - The `--output` directory
  * @returns {(path: string) => string} Maps a snapshot path to its destination
  */
@@ -129,7 +129,7 @@ export function reroot(dirs, output) {
     .map((dir) => {
       const { path, foldCase } = preparePath(dir);
       // Not `preparePath`'s own `base`: that answers "what follows the last
-      // separator", which is empty for a `#SET DIR` row, written with a
+      // separator", which is empty for a `@SET DIR` row, written with a
       // trailing one (ADR-0098). `segments` already trims those.
       const segments = path.split(posix.sep).filter(Boolean);
       return {

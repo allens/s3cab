@@ -201,15 +201,15 @@ describe("snapshot read stream lifecycle (real bucket)", () => {
     // Fabricated rather than walked: 20k real files would slow the suite for
     // nothing — only the bytes on the wire matter here. Chained sha256 hashes
     // keep the rows incompressible, so the object stays large after gzip.
-    const rows = [`#SET\tDIR\t\t\t/data/`];
+    const rows = [`@SET\tDIR\t\t\t/data/`];
     let hash = set;
     for (let i = 0; i < fileCount; i++) {
       hash = createHash("sha256").update(hash).digest("hex");
       rows.push(
-        `object\t${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`,
+        `-\t${hash}\t${i}\t2025-05-05T06:00:00.000Z\t/data/file-${i}.bin`,
       );
     }
-    rows.push("#S3CAB\tEND\t\t2025-05-05T06:01:00.000Z\t");
+    rows.push("@S3CAB\tEND\t\t2025-05-05T06:01:00.000Z\t");
     dir = await mkTmpDir();
     writeFileSync(
       join(dir.path, snapshotFileName(name)),

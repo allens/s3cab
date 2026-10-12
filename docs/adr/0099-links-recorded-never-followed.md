@@ -1,6 +1,9 @@
 # Every link gets a `link` row, is never followed, and is warned about if it leads out of the backup
 
-**Status:** accepted & implemented (proposed 2026-10-11). Partly supersedes
+**Status:** accepted & implemented (proposed 2026-10-11); mostly superseded by
+[0103](0103-row-marks-and-unrecorded-links.md): links are no longer recorded, and one leading out
+of the backup is an `#error`, not a warning; "never followed", the `stat`-before-`realpath` check
+and the profile junctions stand. Partly supersedes
 [0070](0070-snapshot-restore-fidelity.md) (its `#SKIPPED` recording; "a symlink is never
 followed" stands) and the skipped parts of [0078](0078-backup-run-report.md) (§3, and the
 `Skipped` count in §4's `Couldn't be backed up` block). The `link` row's layout is

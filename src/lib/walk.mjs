@@ -31,27 +31,21 @@ import { readLines } from "./read-lines.mjs";
  */
 
 /**
- * A link the walk recorded and did not follow
- * ([ADR-0099](../../docs/adr/0099-links-recorded-never-followed.md)): its
- * target as written, and whether that target is a folder.
- * @typedef {{ path: string, target: string, isDir: boolean }} LinkRecord
+ * An entry the walk couldn't check, or a link leading out of the backup
+ * (ADR-0103), with the message — an `#error` row, the same shape as a file that
+ * couldn't be hashed. `isDir` marks a folder link, whose path the row ends with
+ * a separator.
+ * @typedef {{ path: string, reason: string, isDir?: boolean }} WalkError
  */
 
-/**
- * An entry the walk couldn't check, with the error's message — an `#error` row,
- * the same shape as a file that couldn't be hashed.
- * @typedef {{ path: string, reason: string }} WalkError
- */
-
-/** @typedef {{ files: string[], excluded: ExclusionRecord[], links: LinkRecord[], errors: WalkError[] }} WalkResult */
+/** @typedef {{ files: string[], excluded: ExclusionRecord[], errors: WalkError[] }} WalkResult */
 
 /**
  * Characters a snapshot row cannot hold: the field separator, and the two that
  * end a line ([ADR-0073](../../docs/adr/0073-refuse-tab-newline-paths.md)). The
  * TSV deliberately has no escaping — that plainness is the point of
- * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name, or
- * a link target, is refused rather than encoded; an excluded one is spelled out
- * (ADR-0100). A carriage return counts with the line feed: the
+ * [ADR-0004](../../docs/adr/0004-tsv-snapshot-manifests.md) — so such a name is
+ * refused rather than encoded; an excluded one is spelled out (ADR-0100). A carriage return counts with the line feed: the
  * snapshot parser reads lines with `crlfDelay: Infinity`, which strips a
  * trailing one, so the path would come back *changed* — worse than refused.
  * Windows forbids all three (it excludes characters 1-31), so this can only ever
@@ -64,7 +58,7 @@ export const UNREPRESENTABLE_IN_TSV = /[\t\n\r]/;
  * `exclude.txt` patterns applied relative to each (docs/design/backup.md). The shared
  * core behind both the `tree` and `snapshot` commands.
  * @param {BackupSet} set - Resolved backup set
- * @returns {WalkResult & { patterns: string[] }} What the walk found, and the exclude patterns it applied (a snapshot's `#SET EXCLUDE` rows)
+ * @returns {WalkResult & { patterns: string[] }} What the walk found, and the exclude patterns it applied (a snapshot's `@SET EXCLUDE` rows)
  */
 export function walkSet(set) {
   assertWalkableDirs(set);
@@ -190,7 +184,7 @@ function assertWalkableDirs(set) {
  * it is keyed on one stable path.
  *
  * Exported for `snapshot`, which records these same canonical roots as the
- * snapshot's `#SET DIR` rows rather than the raw `dirs.txt` text — so the header
+ * snapshot's `@SET DIR` rows rather than the raw `dirs.txt` text — so the header
  * and the rows beneath it are spelled the same way (guide/format.md, "Path
  * casing"). It re-resolves rather than the walk handing its roots back: this is
  * one call per member directory, against a walk that stats tens of thousands of
@@ -246,7 +240,7 @@ export function resolveWalkRoot(dir) {
  * works across roots because snapshot paths are absolute.
  *
  * Every root is resolved before the first is walked, because a link under any
- * of them is judged against all of them (ADR-0099).
+ * of them is judged against all of them (ADR-0103).
  * @param {string[]} dirs - Directories to walk
  * @param {string[]} patterns - Exclude glob patterns (guide/exclude.md)
  * @returns {WalkResult} What the walk found
@@ -266,9 +260,7 @@ export function walkDirs(dirs, patterns) {
   /** @type {Found} */
   const found = {
     excluded: [],
-    links: [],
     errors: [],
-    leadOut: [],
     unrepresentable: [],
     // No matcher means a root of `/`, which everything is under.
     inBackup: pathMatcher(roots) ?? (() => true),
@@ -335,43 +327,20 @@ export function walkDirs(dirs, patterns) {
 
   // After the walk, so one failure names every offender, never truncated
   // (ADR-0010). ADR-0030 shape: the user's goal first, then the exact fix.
-  const { unrepresentable, leadOut } = found;
+  const { unrepresentable } = found;
   if (unrepresentable.length) {
     const count =
       unrepresentable.length === 1
         ? "This file can't"
         : `These ${formatCount(unrepresentable.length)} files can't`;
     throw new Error(
-      `${count} be backed up, because the name, or a link's target, contains a ` +
-        `tab or a line ending:\n` +
+      `${count} be backed up, because the name contains a tab or a line ending:\n` +
         unrepresentable.map((p) => `  ${p}`).join("\n") +
         `\nA snapshot is a table with one line per file and a tab between ` +
         `columns, so a name using either can't be written into it. ` +
         `Rename them, or leave them out by adding a pattern to the set's ` +
         `exclude file:\n` +
         `  odd*name.jpg`,
-    );
-  }
-
-  // Listed one per line, never grouped: a grouped count of links is how an
-  // unlocked Personal Vault's whole tree once went unnoticed (ADR-0099).
-  if (leadOut.length) {
-    const these =
-      leadOut.length === 1
-        ? "This link leads"
-        : `These ${formatCount(leadOut.length)} links lead`;
-    console.warn(
-      `${these} outside the backup, so only the link is saved, not what it leads to:\n` +
-        leadOut
-          .map(
-            ({ link, resolved }) =>
-              `  ${link.path} → ${link.target}` +
-              (resolved ? "" : "  (can't tell where it leads)"),
-          )
-          .join("\n") +
-        `\nTo back up what a link leads to, add that folder to the set. To see ` +
-        `which folders a set backs up, and the file that lists them:\n` +
-        `  ${shellCommand("s3cab list <set>")}`,
     );
   }
 
@@ -383,17 +352,15 @@ export function walkDirs(dirs, patterns) {
     );
   }
 
-  const { excluded, links, errors } = found;
-  return { files, excluded, links, errors };
+  const { excluded, errors } = found;
+  return { files, excluded, errors };
 }
 
 /**
  * What the walk callback records as it goes, beyond the files it keeps.
  * @typedef {Object} Found
  * @property {ExclusionRecord[]} excluded
- * @property {LinkRecord[]} links
  * @property {WalkError[]} errors
- * @property {{ link: LinkRecord, resolved: boolean }[]} leadOut - Links whose target is outside every member directory, or can't be resolved
  * @property {string[]} unrepresentable - Entries the snapshot TSV cannot hold (ADR-0073), spelled out for the error. Collected rather than thrown on sight: the one person who ever hits this is the one whose script made hundreds of them, and fixing those an error at a time would be its own ordeal — the same reasoning as `assertWalkableDirs` listing every offender
  * @property {(path: string) => boolean} inBackup - Whether a canonical path is in or under a member directory
  */
@@ -424,7 +391,7 @@ function createWalkCallbackFn(baseDir, patterns, found) {
       return false;
     }
     if (fileType === LINK) {
-      recordLink(path, excludedBy, found);
+      checkLink(path, excludedBy, found);
       return false;
     }
     // A pipe, socket or device holds nothing to back up, and gets no row.
@@ -444,16 +411,16 @@ function createWalkCallbackFn(baseDir, patterns, found) {
 /**
  * Why `stat` fails on a link that leads nowhere: its target is missing, or a
  * path through it isn't a folder, or the chain loops. Such a link loses
- * nothing, so it is recorded without a warning (ADR-0099).
+ * nothing, so it gets no row (ADR-0103).
  */
 const BROKEN = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
 
 /**
- * Record one link, never following it
- * ([ADR-0099](../../docs/adr/0099-links-recorded-never-followed.md)): a `link`
- * row, an `#excluded` one when a pattern matches, and a place in the warning
- * when its target is a file or folder outside every member directory or can't
- * be resolved.
+ * Check one link, never following it and never recording it
+ * ([ADR-0103](../../docs/adr/0103-row-marks-and-unrecorded-links.md)): an
+ * `#excluded` row when a pattern matches, an `#error` naming the target when
+ * that is a file or folder outside every member directory or can't be
+ * resolved, and nothing otherwise.
  *
  * **`stat` before `realpath`, deliberately.** `realpathSync.native` throws
  * `ENOENT` both for a junction whose target is missing and for an unlocked
@@ -464,7 +431,7 @@ const BROKEN = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
  * @param {(path: string, isDir: boolean) => string | undefined} excludedBy
  * @param {Found} found
  */
-function recordLink(path, excludedBy, found) {
+function checkLink(path, excludedBy, found) {
   /** @type {string} */
   let target;
   try {
@@ -496,32 +463,33 @@ function recordLink(path, excludedBy, found) {
     found.excluded.push({ pattern, path, isDir });
     return;
   }
-  // After the exclude check, which is the way past the refusal (ADR-0100).
-  if (
-    UNREPRESENTABLE_IN_TSV.test(path) ||
-    UNREPRESENTABLE_IN_TSV.test(target)
-  ) {
-    found.unrepresentable.push(
-      `${showControlChars(path)} → ${showControlChars(target)}`,
-    );
+  if (broken || (stats && !stats.isFile() && !isDir)) {
     return;
   }
 
-  const link = { path, target, isDir };
-  found.links.push(link);
-  if (broken) {
+  const unresolved = {
+    path,
+    reason: `link to a place this computer can't resolve: ${target}`,
+    isDir,
+  };
+  if (!stats) {
+    found.errors.push(unresolved);
     return;
   }
-  if (!stats) {
-    found.leadOut.push({ link, resolved: false });
-  } else if (stats.isFile() || isDir) {
-    try {
-      if (!found.inBackup(realpathSync.native(path))) {
-        found.leadOut.push({ link, resolved: true });
-      }
-    } catch {
-      found.leadOut.push({ link, resolved: false });
-    }
+  /** @type {string} */
+  let resolved;
+  try {
+    resolved = realpathSync.native(path);
+  } catch {
+    found.errors.push(unresolved);
+    return;
+  }
+  if (!found.inBackup(resolved)) {
+    found.errors.push({
+      path,
+      reason: `link to a ${isDir ? "folder" : "file"} outside the backup: ${target}`,
+      isDir,
+    });
   }
 }
 

@@ -169,7 +169,7 @@ describe("snapshot", () => {
     );
   });
 
-  it("writes the set's identity, a #SET DIR row per member directory, and the moment", async (t) => {
+  it("writes the set's identity, a @SET DIR row per member directory, and the moment", async (t) => {
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
       Temporal.PlainDateTime.from("2025-02-01T09:00:00").toZonedDateTime(
         "Europe/London",
@@ -189,26 +189,26 @@ describe("snapshot", () => {
     assert.deepEqual(
       debugRows(home).filter(
         ([type, name]) =>
-          (type === "#SET" || type === "#SNAPSHOT") && wanted.has(name ?? ""),
+          (type === "@SET" || type === "@SNAPSHOT") && wanted.has(name ?? ""),
       ),
       [
-        ["#SET", "NAME", "", "", "photos"],
-        ["#SET", "BUCKET", "", "", "s3://b"],
-        ["#SET", "DIR", "", "", `${realpathSync.native(workDir())}${sep}`],
-        ["#SNAPSHOT", "NAME", "", "", "2025-02-01T0900"],
-        ["#SNAPSHOT", "START", "", "2025-02-01T09:00:00.000Z", "Europe/London"],
+        ["@SET", "NAME", "", "", "photos"],
+        ["@SET", "BUCKET", "", "", "s3://b"],
+        ["@SET", "DIR", "", "", `${realpathSync.native(workDir())}${sep}`],
+        ["@SNAPSHOT", "NAME", "", "", "2025-02-01T0900"],
+        ["@SNAPSHOT", "START", "", "2025-02-01T09:00:00.000Z", "Europe/London"],
       ],
     );
   });
 
   // `dirs.txt` is hand-edited (ADR-0052), so a member directory can be spelled
   // in any casing Windows accepts, while the rows are canonical — the walk
-  // realpaths each root. A `#SET DIR` row in the raw spelling would disagree
+  // realpaths each root. A `@SET DIR` row in the raw spelling would disagree
   // with every row beneath it, and `restore --output` reads that disagreement as
   // "this file is under no backed-up directory". win32-only: a drive letter is
   // the component whose case the user can vary without naming another file.
   it(
-    "canonicalizes the #SET DIR row, so it agrees with the rows beneath it",
+    "canonicalizes the @SET DIR row, so it agrees with the rows beneath it",
     { skip: process.platform !== "win32" ? "win32-only behaviour" : false },
     async (t) => {
       const workDir = copyFixtureToWorkDir("before", t);
@@ -223,18 +223,18 @@ describe("snapshot", () => {
 
       const rows = debugRows(home);
       const dir = rows.find(
-        ([type, name]) => type === "#SET" && name === "DIR",
+        ([type, name]) => type === "@SET" && name === "DIR",
       );
-      assert.equal(dir?.[4], `${canonical}${sep}`, `#SET DIR kept dirs.txt`);
+      assert.equal(dir?.[4], `${canonical}${sep}`, `@SET DIR kept dirs.txt`);
 
       // The point of canonicalizing: every row now sits under that directory,
       // which is exactly what `restore --output` needs to place them.
-      const objects = rows.filter(([type]) => type === "object");
-      assert.ok(objects.length, "expected the fixture to produce object rows");
+      const objects = rows.filter(([type]) => type === "-");
+      assert.ok(objects.length, "expected the fixture to produce file rows");
       for (const [, , , , path = ""] of objects) {
         assert.ok(
           path.startsWith(canonical),
-          `row is not under the #SET DIR row: ${path}`,
+          `row is not under the @SET DIR row: ${path}`,
         );
       }
     },
@@ -270,10 +270,10 @@ describe("snapshot", () => {
 const SENTINEL_HASH = "f".repeat(64);
 
 /** A snapshot row's hash, behind its type. */
-const HASH = /^(object\t)[0-9a-f]{64}/gm;
+const HASH = /^(-\t)[0-9a-f]{64}/gm;
 
-/** The rows only a finished run writes: `#SNAPSHOT FILES`, `SIZE`, `#S3CAB END`. */
-const TRAILER = /^(?:#SNAPSHOT\t(?:FILES|SIZE)|#S3CAB\tEND) .*\n?/gm;
+/** The rows only a finished run writes: `@SNAPSHOT FILES`, `SIZE`, `@S3CAB END`. */
+const TRAILER = /^(?:@SNAPSHOT\t(?:FILES|SIZE)|@S3CAB\tEND) .*\n?/gm;
 
 /**
  * Turn the set's newest snapshot into a parked lookup holding sentinel hashes,
@@ -282,8 +282,8 @@ const TRAILER = /^(?:#SNAPSHOT\t(?:FILES|SIZE)|#S3CAB\tEND) .*\n?/gm;
  * interrupted-first-seed state).
  *
  * The trailer goes, as a stopped run never writes one — so the tolerant read
- * drops the last object row, which nothing vouches for (ADR-0098). The
- * `#SNAPSHOT START` instant is kept as the run minted it, because with no
+ * drops the last file row, which nothing vouches for (ADR-0098). The
+ * `@SNAPSHOT START` instant is kept as the run minted it, because with no
  * previous snapshot it is the change-time boundary those rows are judged by
  * (ADR-0094) — a test that needs the boundary somewhere in particular puts the
  * *clock* there (`setUp`'s `tick`) rather than re-stamping the file.
@@ -324,7 +324,7 @@ function killSentinelRun(snapshotsDir) {
     .replace(TRAILER, "");
   writeFileSync(
     join(snapshotsDir, ".snapshot.tsv.gz"),
-    gzipSync(Buffer.from(`${rows}object\t${SENTINEL_HASH}\t12`, "utf8")),
+    gzipSync(Buffer.from(`${rows}-\t${SENTINEL_HASH}\t12`, "utf8")),
   );
   unlinkSync(path);
 }
@@ -337,7 +337,7 @@ function killSentinelRun(snapshotsDir) {
  * @param {string} snapshotsDir
  * @param {object} [options]
  * @param {string} [options.hash] - The sentinel to plant, when a test needs to tell this source from the parked one
- * @param {string} [options.finished] - An instant to restamp the `#S3CAB END` row with
+ * @param {string} [options.finished] - An instant to restamp the `@S3CAB END` row with
  */
 function plantSentinelSnapshot(
   snapshotsDir,
@@ -350,7 +350,7 @@ function plantSentinelSnapshot(
     .toString("utf8")
     .replace(HASH, `$1${hash}`);
   if (finished) {
-    text = text.replace(/^(#S3CAB\tEND *\t *\t)\S+/m, `$1${finished}`);
+    text = text.replace(/^(@S3CAB\tEND *\t *\t)\S+/m, `$1${finished}`);
   }
   writeFileSync(path, gzipSync(Buffer.from(text, "utf8")));
 }
@@ -434,7 +434,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
     // Every unchanged file took its hash from the parked lookup rather than
     // being read again — the whole point of parking — bar the last row, which
-    // no `#S3CAB END` vouches for (ADR-0098).
+    // no `@S3CAB END` vouches for (ADR-0098).
     const hashes = await hashesIn(snapshotsDir);
     assert.ok(hashes.length > 1, "expected file rows in the new snapshot");
     assert.equal(hashes.filter((hash) => hash !== SENTINEL_HASH).length, 1);
@@ -490,7 +490,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges parked hashes by the stopped run's start when there is no previous snapshot", async (t) => {
     // An interrupted first seed: nothing earlier to take a boundary from, so the
-    // parked file's own `#SNAPSHOT START` instant is it. Ticked ahead of the fixture's
+    // parked file's own `@SNAPSHOT START` instant is it. Ticked ahead of the fixture's
     // ctimes, it vouches for them; behind, it would veto every one — the half
     // below that proves the check is really on.
     const { snapshotsDir, tick } = setUp(t);
@@ -527,7 +527,7 @@ describe("snapshot (hashes an interrupted run left behind)", () => {
 
   it("judges by when the previous run started, not when it finished", async (t) => {
     // A file edited mid-run, after it was hashed: its ctime falls between the
-    // run's `#SNAPSHOT START` and `#S3CAB END`, and only the start can veto it.
+    // run's `@SNAPSHOT START` and `@S3CAB END`, and only the start can veto it.
     const { snapshotsDir, workDir, tick } = setUp(t);
     process.env.S3CAB_CHECK_CHANGE_TIME = "1";
 

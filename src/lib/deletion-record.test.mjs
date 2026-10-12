@@ -69,7 +69,7 @@ const T3 = "2026-08-22T11:04:55.120Z";
 
 /**
  * Pins the clock seam's one read (format.mjs), so the instant a merge stamps on
- * its `#S3CAB END` is `instant` — the only way to steer it, as for every
+ * its `@S3CAB END` is `instant` — the only way to steer it, as for every
  * recorded instant. Pinned in a zone that is not UTC, so an `END` that leaked
  * local time would show.
  * @param {TestContext} t
@@ -93,9 +93,9 @@ const deletedRow = (
 
 /** A record file around hand-built `rows`: the heading first, END last. */
 const fileOf = (/** @type {string[]} */ ...rows) =>
-  "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+  "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
   rows.join("") +
-  `#S3CAB\tEND\t\t${T3}\t\n`;
+  `@S3CAB\tEND\t\t${T3}\t\n`;
 
 const puts = () => ops.filter((o) => o.op === "put");
 const deletes = () => ops.filter((o) => o.op === "delete");
@@ -120,12 +120,15 @@ describe("formatDeletionRecord", () => {
     { hash: HASH_A, size: 1204, instant: T1, by: "allen@DESKTOP" },
   ];
 
-  it("writes the snapshot's heading and #S3CAB rows, a padded #deleted row per object, and #S3CAB END", (t) => {
+  it("writes the snapshot's heading and @S3CAB rows, a padded #deleted row per object, and @S3CAB END", (t) => {
     pinClock(t, T3);
     const lines = formatDeletionRecord(rows).split("\n");
-    assert.match(lines[0] ?? "", /^#S3CAB\t +\t {8}size\ttime {20}\thttps:/);
-    assert.match(lines[1] ?? "", /^#S3CAB\tVERSION +\t +\t +\t\d/);
-    assert.match(lines[2] ?? "", /^#S3CAB\tHOME +\t +\t +\t.+[\\/]$/);
+    assert.match(
+      lines[0] ?? "",
+      /^@S3CAB\tFORMAT +\t {8}size\ttime {20}\thttps:/,
+    );
+    assert.match(lines[1] ?? "", /^@S3CAB\tVERSION +\t +\t +\t\d/);
+    assert.match(lines[2] ?? "", /^@S3CAB\tHOME +\t +\t +\t.+[\\/]$/);
     // `#deleted` overflows column 1's six; the columns after it still pad.
     assert.equal(
       lines[3],
@@ -137,7 +140,7 @@ describe("formatDeletionRecord", () => {
     );
     assert.equal(
       lines[5],
-      `#S3CAB\t${"END".padEnd(64)}\t${" ".repeat(12)}\t${T3}\t`,
+      `@S3CAB\t${"END".padEnd(64)}\t${" ".repeat(12)}\t${T3}\t`,
     );
     assert.equal(lines[6], "", "ends with a newline");
     assert.equal(lines.length, 7);
@@ -176,9 +179,12 @@ describe("parseDeletionRecord", () => {
     });
   });
 
-  it("skips the # rows it doesn't know", () => {
+  it("skips the @ and # rows it doesn't know", () => {
     const { rows, invalid } = parseDeletionRecord(
-      fileOf(`#S3CAB\tNEWS\t\t\tsomething\n`, deletedRow(HASH_C, 1, T1, "x")),
+      fileOf(
+        `@S3CAB\tNEWS\t\t\tsomething\n#future\tthing\n`,
+        deletedRow(HASH_C, 1, T1, "x"),
+      ),
     );
     assert.deepEqual(
       rows.map((row) => row.hash),
@@ -221,7 +227,7 @@ describe("parseDeletionRecord", () => {
     ],
     [
       "has no END",
-      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/#S3CAB\tEND.*\n$/, ""),
+      fileOf(deletedRow(HASH_A, 1, T1, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
       /END row is missing/,
     ],
     [
@@ -230,9 +236,9 @@ describe("parseDeletionRecord", () => {
       /rows follow/,
     ],
     [
-      "holds a lowercase type",
-      fileOf(`object\t${HASH_A}\t1\t${T1}\t/a.txt\n`),
-      /unknown row type 'object'/,
+      "holds a type starting with neither @ nor #",
+      fileOf(`-\t${HASH_A}\t1\t${T1}\t/a.txt\n`),
+      /unknown row type '-'/,
     ],
   ])) {
     it(`calls a file that ${name} invalid`, () => {
@@ -309,7 +315,7 @@ describe("readDeletionRecords", () => {
     record(1, fileOf(deletedRow(HASH_A, 1, T1, "x")));
     record(
       2,
-      fileOf(deletedRow(HASH_B, 1, T2, "x")).replace(/#S3CAB\tEND.*\n$/, ""),
+      fileOf(deletedRow(HASH_B, 1, T2, "x")).replace(/@S3CAB\tEND.*\n$/, ""),
     );
 
     const { deleted, invalid } = await readDeletionRecords("b");
@@ -318,7 +324,7 @@ describe("readDeletionRecords", () => {
     assert.deepEqual(invalid, [
       {
         uri: "s3://b/objects.deleted-2.tsv",
-        reason: "the closing #S3CAB END row is missing",
+        reason: "the closing @S3CAB END row is missing",
       },
     ]);
   });

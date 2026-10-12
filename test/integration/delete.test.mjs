@@ -135,11 +135,11 @@ describe("delete → record → verify/restore/backup (real bucket)", () => {
       // ── the record itself, through a real GET ───────────────────────────
       const text = await getText(uri);
       assert.ok(text, "the record is readable");
-      assert.match(text, /^#S3CAB\t/, "the heading row names the format");
+      assert.match(text, /^@S3CAB\t/, "the heading row names the format");
       assert.match(
         text,
-        /\n#S3CAB\tEND +\t +\t\S+\t\n$/,
-        "complete — the last line is #S3CAB END",
+        /\n@S3CAB\tEND +\t +\t\S+\t\n$/,
+        "complete — the last line is @S3CAB END",
       );
       const { rows, invalid } = parseDeletionRecord(text);
       assert.equal(invalid, undefined, "the record it wrote is valid");

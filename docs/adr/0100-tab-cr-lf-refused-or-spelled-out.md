@@ -1,6 +1,8 @@
 # No row holds a real tab, CR or LF: each field either refuses them or spells them out
 
-**Status:** accepted & implemented (proposed 2026-10-11). Partly supersedes
+**Status:** accepted & implemented (proposed 2026-10-11); partly superseded by
+[0103](0103-row-marks-and-unrecorded-links.md): links are no longer recorded, so a link's target is
+no longer refused. Partly supersedes
 [0073](0073-refuse-tab-newline-paths.md): the refusal extends to links, the `<TAB>`/`<CR>`/`<NL>`
 spelling becomes control pictures, and an exclude pattern may no longer hold a tab or CR. 0073's
 abort-not-skip reasoning stands. Row layout is [0098](0098-snapshot-row-layout.md), links

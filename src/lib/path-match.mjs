@@ -96,8 +96,8 @@ const normalize = (p) => {
  * separators unified and case folded for a Windows-shaped path, a trailing
  * separator ignored — so `/` is the root, and every absolute POSIX path is under
  * it. `restore`'s path filters, the walk's test of whether a link leads outside
- * the backup (ADR-0099), and the snapshot reader's test that a row's path is
- * under a `#SET DIR` (ADR-0101).
+ * the backup (ADR-0103), and the snapshot reader's test that a row's path is
+ * under a `@SET DIR` (ADR-0101).
  * @param {string[]} folders - Paths to match under
  * @returns {((path: string) => boolean) | undefined} `undefined` when no folder
  *   is given, or all are blank

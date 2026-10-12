@@ -224,7 +224,7 @@ change-detection baseline) → `storedHashes` (what needs no upload, settled *be
 so a credentials or network problem surfaces in seconds) → `generateSnapshot` with
 `uploadObjects` spliced into its pipeline → `uploadSnapshotFile` (the manifest, last). The
 uploader is a pass-through transform, so the snapshot a backup writes is row-for-row identical to
-the one a plain `snapshot` would have written. (Not byte-identical: `#S3CAB END` records when
+the one a plain `snapshot` would have written. (Not byte-identical: `@S3CAB END` records when
 its last row landed — [ADR-0082](../adr/0082-snapshot-end-trailer.md).)
 
 **The hash lookup is one map**: the previous snapshot's rows with an interrupted run's parked
@@ -334,23 +334,24 @@ snapshots need no command: the files are the API — delete the file.)
 
 ## Snapshot files
 
-The file grammar — the five columns, the row types, the `#S3CAB`/`#SET`/`#SNAPSHOT`
+The file grammar — the five columns, the row types, the `@S3CAB`/`@SET`/`@SNAPSHOT`
 properties — is the format spec's to state ([guide/format.md](../../guide/format.md)). The decisions
 behind it:
 
 **One snapshot per set per run** — all member directories in a single TSV (the line
 format is multi-root-safe: paths are absolute). This buys cross-directory move/dedup
 detection in `compare` and makes the snapshot-last invariant a **set-level** atomicity
-guarantee; the `#SET` rows naming the set and its member dirs as captured at snapshot time
+guarantee; the `@SET` rows naming the set and its member dirs as captured at snapshot time
 are what make the file self-describing even found alone in a bucket.
 
-**Scope: regular files, and links as themselves (decided 2026-06; links
-[ADR-0099](../adr/0099-links-recorded-never-followed.md)).** A deliberate product-scope decision, not
+**Scope: regular files only (decided 2026-06; links
+[ADR-0103](../adr/0103-row-marks-and-unrecorded-links.md)).** A deliberate product-scope decision, not
 an accident of implementation: s3cab is **not a system backup tool** (commercial tools, OS
 built-ins, and git all serve that need). It exists for a user to back up their documents,
 pictures, and video efficiently, where what matters is that **the content is recoverable**.
-Content, size, and mtime are the contract, plus a `link` row recording each link without
-following it; everything else is out of scope, stated to users in the format spec.
+Content, size, and mtime are the contract. A link is never followed or recorded, and one
+leading out of the backup is an `#error`; everything else is out of scope, stated to users in
+the format spec.
 
 **Snapshot names: collisions error, snapshots never overwrite.** Names stay
 minute-precision local timestamps. A second snapshot of the same set in the same minute is
@@ -744,7 +745,7 @@ fresh-machine adoption; `compare --remote`.
 `--snapshot <name>`, `paths…` prefix filters (`selectEntries`), per-object SHA-256
 verification on download (`getObject`, in `objects.mjs`), download-once/copy for repeated content, and
 mtime restoration; `setup` is now uniformly async. `--output` re-rooting **is now
-built** (`parseSnapshotStream` surfaces the `#DIR`/`#SNAPSHOT` headers it used to drop;
+built** (`parseSnapshotStream` surfaces the `#DIR`/`@SNAPSHOT` headers it used to drop;
 `readRemoteSnapshot` returns the whole `Snapshot`, and `reroot` maps each member dir
 under `<output>/<basename>/…`, rejecting basename clashes up front). Fresh-machine adoption
 first shipped as `setup --from` (pinning a remote namespace), then the 2026-06-20 redesign

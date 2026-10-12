@@ -307,7 +307,7 @@ describe("seeded-bug proof (the harness catches, then shrinks)", () => {
        * @param {string} line
        */
       const mangleRow = (line) => {
-        if (line === "" || line.trimStart().startsWith("#")) {
+        if (line === "" || line.startsWith("@") || line.startsWith("#")) {
           return line;
         }
         const fields = line.split("\t");

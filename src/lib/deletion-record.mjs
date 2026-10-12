@@ -56,7 +56,7 @@ const DELETED = "#deleted";
 /**
  * One `#deleted` row: what was deleted, how big it was (the preflight HEAD's
  * ContentLength), when (full UTC instant), and by whom (`user@machine`) — in
- * the columns a snapshot's `object` row puts its hash, size, time and path.
+ * the columns a snapshot's `-` row puts its hash, size, time and path.
  * @typedef {Object} DeletionRow
  * @property {string} hash - The deleted object's SHA-256
  * @property {number} size - The object's stored size in bytes
@@ -65,8 +65,8 @@ const DELETED = "#deleted";
  */
 
 /**
- * The record file's body (ADR-0102): the heading and `#S3CAB` rows every s3cab
- * file opens with, one `#deleted` row per object, and `#S3CAB END`. Rows sort
+ * The record file's body (ADR-0102): the heading and `@S3CAB` rows every s3cab
+ * file opens with, one `#deleted` row per object, and `@S3CAB END`. Rows sort
  * by instant then hash, so a compacted file reads chronologically.
  * @param {DeletionRow[]} rows
  * @returns {string}
@@ -89,8 +89,8 @@ export function formatDeletionRecord(rows) {
  * its object counts as not deleted, the safe direction, since a damaged record
  * must never make missing content look intentional. The file is invalid when a
  * row was refused, or it doesn't open with the heading row, doesn't end with
- * `#S3CAB END`, or holds a lowercase type: a reader can't know what it lost.
- * Every other `#` row is skipped.
+ * `@S3CAB END`, or holds a type starting with neither `@` nor `#`: a reader
+ * can't know what it lost. Every other `@` or `#` row is skipped (ADR-0103).
  * @param {string} text - A record file's body
  * @returns {{ rows: DeletionRow[], invalid?: string }} `invalid` is the reason, for a file that isn't valid
  */
@@ -101,7 +101,7 @@ export function parseDeletionRecord(text) {
   /** @type {string | undefined} */
   let invalid = isHeadingRow(heading)
     ? undefined
-    : "the first line isn't the #S3CAB heading row";
+    : "the first line isn't the @S3CAB FORMAT heading row";
   let ended = false;
   for (const line of lines) {
     if (line === "") {
@@ -112,7 +112,7 @@ export function parseDeletionRecord(text) {
     const type = col1.trim();
     const [hash, size, instant] = [col2.trim(), col3.trim(), col4.trim()];
     if (ended) {
-      invalid ??= "rows follow the closing #S3CAB END row";
+      invalid ??= "rows follow the closing @S3CAB END row";
     } else if (isEndLine(line)) {
       ended = true;
     } else if (type === DELETED) {
@@ -125,12 +125,12 @@ export function parseDeletionRecord(text) {
       } else {
         invalid ??= `a #deleted row is malformed: ${line}`;
       }
-    } else if (!type.startsWith("#")) {
+    } else if (!type.startsWith("@") && !type.startsWith("#")) {
       invalid ??= `it holds an unknown row type '${type}'`;
     }
   }
   if (!ended) {
-    invalid ??= "the closing #S3CAB END row is missing";
+    invalid ??= "the closing @S3CAB END row is missing";
   }
   return { rows, invalid };
 }

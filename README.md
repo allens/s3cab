@@ -293,26 +293,26 @@ Editing a set _is_ editing these files, and deleting the directory deletes the s
 `env` is unrecoverable — everything else can be pulled back down from the bucket with
 `s3cab reattach`.
 
-Each snapshot file is a tab-separated table with one `object` row per file — its `hash`,
+Each snapshot file is a tab-separated table with one `-` row per file — its `hash`,
 `size`, modified `time` and `path` — fixed-width leading columns so it stays readable, with
 the variable-length (and platform-native, absolute) path last. It opens with rows naming
 the set, its member directories and when the snapshot was taken — so a snapshot file is
-self-describing even found on its own — and closes with `#S3CAB END`, so a truncated one
+self-describing even found on its own — and closes with `@S3CAB END`, so a truncated one
 can be told from a whole one:
 
 ```
-#S3CAB                                size  time                      https://s3cab.plantegral.com/guide/format
-#SET      NAME                                                        photos
-#SET      DIR                                                         C:\Users\me\Photos\
-#SNAPSHOT START                             2025-11-11T08:30:12.418Z  Europe/London
-object    3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
-object    e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
-#SNAPSHOT FILES                                                       2
-#S3CAB    END                               2025-11-11T08:30:13.004Z
+@S3CAB    FORMAT                      size  time                      https://s3cab.plantegral.com/guide/format
+@SET      NAME                                                        photos
+@SET      DIR                                                         C:\Users\me\Photos\
+@SNAPSHOT START                             2025-11-11T08:30:12.418Z  Europe/London
+-         3b8e…c0a1                4915200  2025-06-01T12:00:00.000Z  C:\Users\me\Photos\2025\beach.jpg
+-         e3b0…b855                      0  2024-01-01T00:00:00.000Z  C:\Users\me\Photos\2024\empty.txt
+@SNAPSHOT FILES                                                       2
+@S3CAB    END                               2025-11-11T08:30:13.004Z
 ```
 
-Every line has the same five columns, the first saying what kind of row it is, space-padded
-_and_ separated by tabs, so it reads as a table in an editor, parses as clean TSV in a
+Every line has the same five columns, the first saying what kind of row it is, the rest
+space-padded, all separated by tabs, so it reads as a table in an editor, parses as clean TSV in a
 script, and filters and sums in a spreadsheet. (The example shortens the hashes and leaves
 out some rows.)
 

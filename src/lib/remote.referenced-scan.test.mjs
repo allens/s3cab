@@ -91,10 +91,10 @@ describe("referencedObjects snapshot-read error handling (mocked s3)", () => {
     const text =
       HEADING +
       [
-        "#SET\tDIR\t\t\t/home/me/",
-        `object\t${ok}\t3\t2025-05-01T08:00:00.000Z\t/home/me/ok.txt`,
-        `object\t${"b".repeat(64)}\tx\t2025-05-01T08:00:00.000Z\t/home/me/torn.txt`,
-        "#S3CAB\tEND\t\t2025-05-01T08:00:01.000Z\t",
+        "@SET\tDIR\t\t\t/home/me/",
+        `-\t${ok}\t3\t2025-05-01T08:00:00.000Z\t/home/me/ok.txt`,
+        `-\t${"b".repeat(64)}\tx\t2025-05-01T08:00:00.000Z\t/home/me/torn.txt`,
+        "@S3CAB\tEND\t\t2025-05-01T08:00:01.000Z\t",
         "",
       ].join("\n");
     onGetStream = async () => Readable.from([gzipSync(text)]);

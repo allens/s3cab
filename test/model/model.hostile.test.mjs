@@ -198,7 +198,7 @@ describe("hostile trees: names only the verbatim layer can spell", () => {
 });
 
 describe("hostile trees: links", () => {
-  it("records junctions and symlinks as links, without following or restoring them", async (t) => {
+  it("never follows or restores a link, and makes one leading out an error", async (t) => {
     await using dir = await mkdtempDisposable(join("test", ".tmp"));
     const data = makeSet(dir.path);
     writeFileSync(join(data, "real.txt"), "the real file");
@@ -213,26 +213,29 @@ describe("hostile trees: links", () => {
       return;
     }
 
-    const { restoredData } = await roundtrip(dir.path);
+    const { backupExit, restoredData } = await roundtrip(dir.path);
 
     const restored = captureTree([restoredData]);
-    // The real file comes back; each link gets a `link` row (ADR-0099), is not
-    // followed into the outside directory, and is not recreated.
+    // The real file comes back; no link is followed or recreated (ADR-0103).
+    // The symlink leads inside the backup, so it has no row; the junction
+    // leads out of it, so it is an `#error` row and the backup exits nonzero.
     assert.equal(restored.get("data/real.txt")?.toString(), "the real file");
-    const linkRows = (await manifestText())
-      .split("\n")
-      .filter((line) => line.split("\t")[0]?.trimEnd() === "link");
-    for (const [name, made] of Object.entries({
-      "junction-to-sibling": links.junction,
-      "symlink-to-file": links.symlink,
-    })) {
-      if (made) {
-        assert.ok(
-          // A link to a folder ends with the separator, like any folder.
-          linkRows.some((row) => row.replace(/[\\/]$/, "").endsWith(name)),
-          `${name} must have a link row, got:\n${linkRows.join("\n")}`,
-        );
-      }
+    const rows = (await manifestText()).split("\n");
+    const errorRows = rows.filter((line) => line.startsWith("#error\t"));
+    if (links.junction) {
+      assert.ok(
+        // A link to a folder ends with the separator, like any folder.
+        errorRows.some((row) => /junction-to-sibling[\\/]$/.test(row)),
+        `the junction must have an #error row, got:\n${errorRows.join("\n")}`,
+      );
+      assert.equal(backupExit, 1);
+    }
+    if (links.symlink) {
+      assert.equal(
+        rows.find((row) => row.includes("symlink-to-file")),
+        undefined,
+        "a link inside the backup has no row",
+      );
     }
     assert.equal(
       [...restored.keys()].find((k) => k.includes("junction-to-sibling")),
@@ -356,16 +359,16 @@ describe("hostile trees: mixed-case collisions", () => {
     await fake.putBytes(BUCKET, `objects/${altHash}`, altBytes);
     const rows = (await manifestText()).trimEnd().split("\n");
     const fileRow = /** @type {string} */ (
-      rows.find((row) => row.startsWith("object\t") && row.endsWith("file.txt"))
+      rows.find((row) => row.startsWith("-\t") && row.endsWith("file.txt"))
     );
     /** @param {string} name */
     const withHash = (name) =>
       fileRow
-        .replace(/^(object\t)[0-9a-f]{64}/, `$1${altHash}`)
+        .replace(/^(-\t)[0-9a-f]{64}/, `$1${altHash}`)
         .replace(/file\.txt$/, name);
     // Before the trailer, which a whole snapshot ends with (ADR-0098).
     rows.splice(
-      rows.findIndex((row) => row.startsWith("#SNAPSHOT\tFILES ")),
+      rows.findIndex((row) => row.startsWith("@SNAPSHOT\tFILES ")),
       0,
       withHash("File.txt"),
       withHash("zzz-copy.txt"),

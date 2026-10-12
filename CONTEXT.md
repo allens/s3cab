@@ -105,7 +105,7 @@ A named list of directories that is the unit of snapshot, backup, and restore. I
 local directory under `~/.s3cab/sets/<name>/`, and the remote namespace. Unique within a bucket
 (first-come).
 _Avoid_: profile, job, project, config; folder as a word for the *set* or in format prose (the
-format word is **directory** — `#SET DIR` in the snapshot file is just its abbreviation; "folder"
+format word is **directory** — `@SET DIR` in the snapshot file is just its abbreviation; "folder"
 collides with S3's pseudo-folders). "Folder" *is* used, deliberately, in user-facing prose for
 an on-disk directory the reader browses (a OneDrive folder, `upload --dir`'s "a folder's
 objects") — the reader's Explorer word, earned only by something confirmed to be a real
@@ -119,7 +119,7 @@ _Avoid_: owner, source, origin; `user@machine:set` (the retired form).
 
 **Snapshot**:
 A point-in-time record of every file in a backup set. Recorded on disk as a
-tab-separated (TSV) **snapshot file** — one `object` row per file
+tab-separated (TSV) **snapshot file** — one `-` row (a **file row**) per file
 (`hash` → `size` → `mtime` → `path`).
 A snapshot name is unique only within its set, so anything spanning the whole bucket names one
 as **`set/snapshot`** (`work-laptop/2026-07-30T1400`) — matching its place in the bucket, so the
@@ -166,7 +166,7 @@ _Avoid_: lock file, temp file (each names only half its job).
 **Partial snapshot**:
 A snapshot file holding only the rows a run got through before the user stopped it: the parked
 lookup left by Ctrl+C (`.snapshot.lookup.tsv.gz`), which the next run reads for its hashes. It
-stops after its last `object` row with no `#S3CAB END` (ADR-0098), so it can't pass for a
+stops after its last file row with no `@S3CAB END` (ADR-0098), so it can't pass for a
 finished snapshot; it is never installed as a **snapshot** of the set and never uploaded.
 _Avoid_: incomplete/truncated snapshot (truncation is *damage* — a partial snapshot is
 deliberate, and its filename says so), cancelled snapshot, half-snapshot.

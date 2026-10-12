@@ -94,8 +94,9 @@ export function captureTree(dirs) {
 
 /**
  * The model's own manifest parser, from the format spec: five tab-separated
- * columns per row (type first, the first four space-padded — trim), a type
- * starting `#` is a row only people read bar `#SET NAME`/`#SNAPSHOT NAME`, and
+
+
+ * starting `#` is a row only people read bar `@SET NAME`/`@SNAPSHOT NAME`, and
  * an `object` row is `hash size mtime path`. Anything the spec says can't
  * happen lands in `parseErrors`.
  * @param {string} key - The manifest's bucket key (names its set + snapshot)
@@ -141,20 +142,17 @@ export function parseManifest(key, bytes) {
     const [type, col2, col3, col4, last] = fields.map((field, i) =>
       i < 4 ? field.trim() : field,
     );
-    if (type?.startsWith("#")) {
-      if (type === "#SET" && col2 === "NAME") {
+    if (type?.startsWith("@") || type?.startsWith("#")) {
+      if (type === "@SET" && col2 === "NAME") {
         headerSet = last;
-      } else if (type === "#SNAPSHOT" && col2 === "NAME") {
+      } else if (type === "@SNAPSHOT" && col2 === "NAME") {
         headerName = last;
       }
       continue;
     }
-    if (type === "link") {
-      continue;
-    }
     const size = Number(col3);
     if (
-      type !== "object" ||
+      type !== "-" ||
       !/^[0-9a-f]{64}$/.test(col2 ?? "") ||
       !Number.isInteger(size)
     ) {

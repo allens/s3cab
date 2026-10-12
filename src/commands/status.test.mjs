@@ -86,9 +86,9 @@ const backedUpSet = async (root) => {
 const recordDeleted = (hash, { torn = false } = {}) => {
   keys.push("objects.deleted-1.tsv");
   textByUri["s3://b/objects.deleted-1.tsv"] =
-    "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+    "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
     `#deleted\t${hash}\t5\t2026-10-09T11:04:55.120Z\tallen@DESKTOP\n` +
-    (torn ? "" : "#S3CAB\tEND\t\t2026-10-09T11:04:55.120Z\t\n");
+    (torn ? "" : "@S3CAB\tEND\t\t2026-10-09T11:04:55.120Z\t\n");
 };
 
 describe("status", () => {

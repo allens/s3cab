@@ -74,9 +74,9 @@ describe("scanBucket", () => {
       "objects.deleted-": [{ Key: "objects.deleted-1.tsv" }],
     };
     textByUri["s3://b/objects.deleted-1.tsv"] =
-      "#S3CAB\t\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
+      "@S3CAB\tFORMAT\tsize\ttime\thttps://s3cab.plantegral.com/guide/format\n" +
       `#deleted\t${"b".repeat(64)}\t7\t2026-08-22T11:04:55.120Z\tallen@DESKTOP\n` +
-      "#S3CAB\tEND\t\t2026-08-22T11:04:55.120Z\t\n";
+      "@S3CAB\tEND\t\t2026-08-22T11:04:55.120Z\t\n";
 
     const scan = await scanBucket("b");
 

@@ -7,7 +7,6 @@ import { readExcludePatterns, walkDirs, walkSet } from "./walk.mjs";
 
 /**
  * @import { PathLike } from "node:fs"
- * @import { Mock } from "node:test"
  * @import { BackupSet } from "./sets.mjs"
  */
 
@@ -222,51 +221,37 @@ describe("walkDirs", () => {
   });
 });
 
-/**
- * A walk's warnings that list links leading out of the backup.
- * @param {Mock<typeof console.warn>} warn
- */
-const leadOutWarnings = (warn) =>
-  warn.mock.calls
-    .map(({ arguments: args }) => args.join(" "))
-    .filter((line) => / outside the backup/.test(line));
-
-describe("walkDirs records links and never follows them (ADR-0099)", () => {
+describe("walkDirs never follows or records a link (ADR-0103)", () => {
   it(
-    "records a link to a file or folder inside the backup, with no warning",
+    "records nothing for a link to a file or folder inside the backup, or a broken one",
     symlinks,
-    async (t) => {
+    async () => {
       await using dir = await mkTmpDir();
       const base = dir.path;
       write(base, "regular.txt");
       write(base, "sub/inner.txt");
       symlinkSync("regular.txt", join(base, "link.txt"));
       symlinkSync("sub", join(base, "linkdir"));
+      symlinkSync("missing.txt", join(base, "broken"));
 
-      const warn = t.mock.method(console, "warn", () => {});
       const root = realpathSync.native(base);
-      const { files, excluded, links, errors } = walkDirs([base], []);
+      const { files, excluded, errors } = walkDirs([base], []);
 
       // `linkdir/inner.txt` is absent: the folder link is never descended into.
+      // Its target is saved under its real path already.
       assert.deepStrictEqual(relPaths(root, files), [
         "regular.txt",
         "sub/inner.txt",
       ]);
-      assert.deepStrictEqual(relRecords(root, links), [
-        { path: "link.txt", target: "regular.txt", isDir: false },
-        { path: "linkdir", target: "sub", isDir: true },
-      ]);
       assert.deepStrictEqual(excluded, []);
       assert.deepStrictEqual(errors, []);
-      // Its target is saved under its real path already.
-      assert.deepStrictEqual(leadOutWarnings(warn), []);
     },
   );
 
   it(
-    "warns about each link leading out of the backup, one per line, and not a broken one",
+    "makes each link leading out of the backup an error naming its target",
     symlinks,
-    async (t) => {
+    async () => {
       await using outside = await mkTmpDir();
       write(outside.path, "a.txt");
       write(outside.path, "folder/b.txt");
@@ -277,58 +262,75 @@ describe("walkDirs records links and never follows them (ADR-0099)", () => {
       const root = realpathSync.native(base);
       symlinkSync(join(away, "a.txt"), join(base, "out-file"));
       symlinkSync(join(away, "folder"), join(base, "out-folder"));
-      symlinkSync("missing.txt", join(base, "broken"));
 
-      const warn = t.mock.method(console, "warn", () => {});
-      const { files, links } = walkDirs([base], []);
+      const { files, errors } = walkDirs([base], []);
 
       assert.deepStrictEqual(files, []);
-      assert.deepStrictEqual(relRecords(root, links), [
-        { path: "broken", target: "missing.txt", isDir: false },
-        { path: "out-file", target: join(away, "a.txt"), isDir: false },
-        { path: "out-folder", target: join(away, "folder"), isDir: true },
+      assert.deepStrictEqual(relRecords(root, errors), [
+        {
+          path: "out-file",
+          reason: `link to a file outside the backup: ${join(away, "a.txt")}`,
+          isDir: false,
+        },
+        {
+          path: "out-folder",
+          reason: `link to a folder outside the backup: ${join(away, "folder")}`,
+          isDir: true,
+        },
       ]);
+    },
+  );
 
-      // Listed by path and target, never grouped into a count — and the broken
-      // link, which loses nothing, isn't in it.
-      const [warning, ...more] = leadOutWarnings(warn);
-      assert.deepStrictEqual(more, []);
-      assert.ok(warning);
-      assert.ok(warning.startsWith("These 2 links lead outside the backup"));
-      assert.ok(
-        warning.includes(
-          `\n  ${join(root, "out-file")} → ${join(away, "a.txt")}\n`,
-        ),
+  it(
+    "makes a link whose target is there but won't resolve an error",
+    symlinks,
+    async (t) => {
+      // The unlocked Personal Vault: `stat` says a folder, `realpath` ENOENT.
+      await using dir = await mkTmpDir();
+      const base = dir.path;
+      write(base, "sub/inner.txt");
+      const link = join(realpathSync.native(base), "vault");
+      symlinkSync("sub", link);
+
+      const native = realpathSync.native;
+      t.mock.method(
+        realpathSync,
+        "native",
+        /** @param {PathLike} path */ (path) => {
+          if (path === link) {
+            throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+          }
+          return native(path);
+        },
       );
-      assert.ok(
-        warning.includes(
-          `\n  ${join(root, "out-folder")} → ${join(away, "folder")}\n`,
-        ),
-      );
-      assert.ok(!warning.includes("broken"));
+
+      const { errors } = walkDirs([base], []);
+      assert.deepStrictEqual(errors, [
+        {
+          path: link,
+          reason: "link to a place this computer can't resolve: sub",
+          isDir: true,
+        },
+      ]);
     },
   );
 
   it(
     "excludes a link by pattern, a trailing slash matching only one to a folder",
     symlinks,
-    async (t) => {
+    async () => {
       await using dir = await mkTmpDir();
       const base = dir.path;
       write(base, "sub/inner.txt");
       symlinkSync("sub", join(base, "linkdir"));
       symlinkSync("missing", join(base, "broken"));
 
-      t.mock.method(console, "warn", () => {});
       const root = realpathSync.native(base);
 
       // A broken link has no target, so `broken/` can't say it is a folder.
       const slashed = walkDirs([base], ["linkdir/", "broken/"]);
       assert.deepStrictEqual(relRecords(root, slashed.excluded), [
         { pattern: "linkdir/", path: "linkdir", isDir: true },
-      ]);
-      assert.deepStrictEqual(relRecords(root, slashed.links), [
-        { path: "broken", target: "missing", isDir: false },
       ]);
 
       const bare = walkDirs([base], ["broken"]);
@@ -617,20 +619,16 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
   );
 
   it(
-    "aborts on a link whose name or target offends, naming both",
+    "passes a link whose name or target holds a tab, which has no row to break",
     posixOnly,
     async () => {
       await using dir = await mkTmpDir();
       write(dir.path, "target.txt");
       symlinkSync("target.txt", join(dir.path, "link\tname"));
       symlinkSync("odd\ttarget", join(dir.path, "plain"));
-      assert.throws(
-        () => walkDirs([dir.path], []),
-        (error) =>
-          error instanceof Error &&
-          error.message.includes("link␉name → target.txt") &&
-          error.message.includes("plain → odd␉target"),
-      );
+      const { files, errors } = walkDirs([dir.path], []);
+      assert.equal(files.length, 1);
+      assert.deepStrictEqual(errors, []);
     },
   );
 

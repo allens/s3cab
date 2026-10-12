@@ -3,7 +3,7 @@
 // with no injection hook, and a same-minute snapshot is refused — so a sequence
 // that takes several snapshots needs a clock it can advance. The seam module
 // (seam.mjs) mocks `format.mjs` to route its two clock reads here; everything
-// below the seam then mints names, instants, `#S3CAB END` rows and audit
+// below the seam then mints names, instants, `@S3CAB END` rows and audit
 // timestamps from virtual time. Every export format.mjs reads the clock for
 // needs a twin here *and* an entry in seam.mjs's mock — the mock spreads the
 // real module, so a missing twin falls through to real time silently.
