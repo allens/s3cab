@@ -35,7 +35,7 @@
  *   F7  restore damage       `faults` — an object torn out of the store with NO record,
  *                            so the restore must skip it, report it, and exit nonzero
  *   F8  record grammar       free with F5's delete
- *   F9  metadata field count `#EXCLUDED` (exclude pattern) and `#SKIPPED` (a symlink)
+ *   F9  metadata field count `#excluded` (exclude pattern) and `link` (a symlink)
  *   F10 column padding       a size range wide enough to move the size column's width
  *   F11 metadata payloads    same rows as F9
  *   F12 `info` syntax        free — every set writes one
@@ -43,10 +43,10 @@
  *   F14 cross-OS hazards     two paths differing only in case          [if kept apart]
  *   F15 storage class        NOT TESTABLE — needs a Glacier lifecycle on the bucket
  *   F16 small legalities     `hollow` — a set with no files, so a legal snapshot with
- *                            a header, a trailer and zero file rows
+ *                            whole-snapshot rows, `#S3CAB END` and zero `object` rows
  *
  * And two things run 1 never met, because it ran against a local moto server rather
- * than real S3: the `#END` trailer (new since the audit) and `bulk`, which pushes
+ * than real S3: the last line, `#S3CAB END` (new since the audit), and `bulk`, which pushes
  * `objects/` past 1000 keys. That last is not required by the spec's recovery recipe,
  * which only ever lists `snapshots/<set>/` — but materialising the store listing is a
  * natural implementation choice (s3cab itself does it, ADR-0069) and `ListObjectsV2`
@@ -65,8 +65,8 @@
  *   `corrupt`  an object present under the right key with the wrong bytes — the case
  *              where the spec neither requires re-hashing a download nor says what to
  *              do when it fails. Its files are ordered so the divergence is visible.
- *   damaged    a snapshot with its `#END` trailer removed and the frame recompressed,
- *              published under `faults`. The trailer's whole purpose is detecting a
+ *   damaged    a snapshot with its `#S3CAB END` line removed and the rest recompressed,
+ *              published under `faults`. That line's whole purpose is detecting a
  *              backup killed mid-write, and no corpus had ever staged one missing.
  *
  * [POSIX] fixtures cannot exist on Windows: NTFS forbids control characters in names
@@ -210,7 +210,7 @@ export function buildFixtures(dir) {
   file(join(edge, "mtime-rounds-up.txt"), "x\n", 1_500_000_000.9996);
   file(join(edge, "mtime-2038.txt"), "x\n", 2_147_483_648);
   file(join(edge, "mtime-1970s.txt"), "x\n", 86_400);
-  // F10: sizes spanning the second column's 10-character minimum width.
+  // F10: sizes spanning the size column's 12-character minimum width.
   for (const [name, size] of [
     ["size-1b.bin", 1],
     ["size-1k.bin", 1024],
@@ -243,14 +243,14 @@ export function buildFixtures(dir) {
   // The one fixture that fails by permission rather than by the filesystem's rules:
   // Windows has symlinks, but creating one needs Developer Mode or elevation. So it is
   // attempted everywhere and skipped on the error, not gated on the platform — a
-  // Developer Mode box builds the #SKIPPED row like any POSIX one.
+  // Developer Mode box builds the `link` row like any POSIX one.
   try {
     symlinkSync(join(edge, "plain.txt"), join(edge, "link-to-plain"));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    skipped.push(`a symlink, for the #SKIPPED row (F9/F11) — ${reason}`);
+    skipped.push(`a symlink, for the link row (F9/F11) — ${reason}`);
   }
-  // F9/F11: an #EXCLUDED row needs a file that matches a pattern we then install. Two,
+  // F9/F11: an #excluded row needs a file that matches a pattern we then install. Two,
   // one per line of `edge`'s exclude file (see `excludes`).
   file(join(edge, "ignored.tmp"), "excluded by pattern\n");
   file(join(edge, "ignored.swp"), "excluded by the unterminated last line\n");
@@ -277,12 +277,12 @@ export function buildFixtures(dir) {
   file(join(media, "clip.bin"), randomBytes(40 * 1024 * 1024));
   file(join(media, "poster.bin"), randomBytes(512 * 1024));
 
-  /** `hollow`: no files at all — a legal header-and-trailer-only snapshot (F16). */
+  /** `hollow`: no files at all — a legal snapshot with no `object` rows (F16). */
   mkdirSync(join(dir, "hollow"), { recursive: true });
 
   /**
    * `spread`: the only set with more than one member directory, which is what makes the
-   * restore layout decidable. Run 2 could not tell `<out>/<basename of #DIR>/<relative>`
+   * restore layout decidable. Run 2 could not tell `<out>/<basename of DIR>/<relative>`
    * from `<out>/<set>/<relative>` apart, because every set here had a single member
    * directory whose basename *was* the set name — the corpus made its own Tier 1 finding
    * unanswerable. Two differently-named directories separate them: the first rule
@@ -429,17 +429,18 @@ export function reportFixtures(dir, sets, skipped) {
 }
 
 /**
- * A snapshot with its `#END` trailer cut off: the damage a backup killed mid-write leaves
- * (ADR-0082). Truncating the *compressed* bytes would test gunzip's own check instead, so
- * this decompresses, drops the trailer line, and recompresses — a well-formed gzip stream
- * missing its last line, which is precisely what a reader has to notice. The seed
- * publishes one for every restorer to refuse; the upload build hands one to the upload
- * room, whose program should refuse to publish it.
+ * A snapshot with its last line, `#S3CAB END`, cut off: the damage a backup killed
+ * mid-write leaves. Truncating the *compressed* bytes would test gunzip's own check
+ * instead, so this decompresses, drops the last line, and recompresses — a well-formed
+ * gzip stream missing its last line, which is precisely what a reader has to notice. The
+ * seed publishes one for every restorer to refuse; the upload build hands one to the
+ * upload room, whose program should refuse to publish it.
  * @param {Uint8Array} snapshot a whole `.tsv.gz`
  */
-export function withoutTrailer(snapshot) {
+export function withoutEnd(snapshot) {
   const text = gunzipSync(snapshot).toString("utf8");
-  return gzipSync(Buffer.from(text.slice(0, text.lastIndexOf("#END")), "utf8"));
+  const lastLine = text.lastIndexOf("\n", text.length - 2) + 1;
+  return gzipSync(Buffer.from(text.slice(0, lastLine), "utf8"));
 }
 
 /**

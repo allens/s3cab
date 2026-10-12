@@ -17,7 +17,7 @@
  * - **Snapshots**: each published one is byte-identical to the one handed over, and none
  *   is missing. Two must not be published, as s3cab publishes neither: `corrupt`'s, since
  *   `b-corrupt.txt` changed after it was taken and its bytes are no longer the ones its
- *   row names, and `faults`'s with no `#END` trailer.
+ *   row names, and `faults`'s with no `#S3CAB END`.
  * - **Objects first**: every object a published snapshot names is stored.
  * - **`sets/<set>/`**, for every set: `info` is two `KEY=value` lines, `OWNER` then
  *   `CREATED`; `dirs.txt` is the parsed list with LF endings; `exclude.txt` is a byte copy
@@ -106,15 +106,16 @@ async function get(key) {
 }
 
 /**
- * The hashes a snapshot's file rows name: every line that isn't metadata, first field.
+ * The hashes a snapshot's `object` rows name, from their second column.
  * @param {Buffer} gz
  */
 const namedHashes = (gz) =>
   gunzipSync(gz)
     .toString("utf8")
     .split("\n")
-    .filter((line) => line && !line.split("\t")[0]?.trim().startsWith("#"))
-    .map((line) => line.split("\t")[0]?.trim() ?? "");
+    .map((line) => line.split("\t"))
+    .filter(([type]) => type?.trim() === "object")
+    .map(([, hash]) => hash?.trim() ?? "");
 
 /** @param {string} text a `dirs.txt` as written: trimmed lines, no blanks or comments */
 const parsedLines = (text) =>
@@ -224,7 +225,7 @@ for (const set of new Set([...sets, ...published.keys()])) {
       );
     } else if (set === "faults" && name === faultsDamaged) {
       mismatches.push(
-        `${label} is published, the snapshot handed over with no #END trailer`,
+        `${label} is published, the snapshot handed over with no #S3CAB END`,
       );
     } else if (!original) {
       mismatches.push(

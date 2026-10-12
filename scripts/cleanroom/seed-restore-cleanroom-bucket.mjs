@@ -34,7 +34,7 @@ import {
   oneMinuteBefore,
   reportFixtures,
   setNames,
-  withoutTrailer,
+  withoutEnd,
 } from "./fixtures.mjs";
 import { seedHash, stampSeed } from "./restore-bucket.mjs";
 
@@ -178,7 +178,7 @@ for (const [name, dirs] of sets) {
   mustRun(["setup", "--set", name, "--bucket", bucket, ...dirs]);
 }
 
-// Before the first backup, or the #EXCLUDED row never appears. A set with no patterns
+// Before the first backup, or the #excluded row never appears. A set with no patterns
 // loses setup's starter file, and backup then deletes the remote copy to match.
 for (const [name] of sets) {
   const excludePath = join(home, "sets", name, "exclude.txt");
@@ -250,11 +250,11 @@ await client.send(
   }),
 );
 
-// A snapshot with its `#END` trailer cut off. The trailer is the format's answer to a
-// backup killed mid-write (ADR-0082), and it has only ever been staged *present* — so
+// A snapshot with its last line, `#S3CAB END`, cut off. That line is the format's answer
+// to a backup killed mid-write, and it has only ever been staged *present* — so
 // nothing has tested the one thing it exists for, and run 2 could only note that its
 // own completeness check went unexercised. It is published under `faults` as a second
-// snapshot (`withoutTrailer`, fixtures.mjs), backdated so the intact one stays the set's
+// snapshot (`withoutEnd`, fixtures.mjs), backdated so the intact one stays the set's
 // latest: a *later* name would make the damaged snapshot the newest, and a bare
 // `restore --set faults` would stop there — hiding F7, which is the same set's point.
 const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
@@ -264,7 +264,7 @@ const wholeName = readdirSync(join(home, "sets", "faults", "snapshots"))
 const damagedName = oneMinuteBefore(
   /** @type {string} */ (wholeName).replace(/\.tsv\.gz$/, ""),
 );
-console.log(`publishing snapshots/faults/${damagedName} with no #END trailer`);
+console.log(`publishing snapshots/faults/${damagedName} with no #S3CAB END`);
 const whole = await client.send(
   new GetObjectCommand({
     Bucket: bucket,
@@ -278,7 +278,7 @@ await client.send(
   new PutObjectCommand({
     Bucket: bucket,
     Key: `snapshots/faults/${damagedName}.tsv.gz`,
-    Body: withoutTrailer(wholeBytes),
+    Body: withoutEnd(wholeBytes),
   }),
 );
 

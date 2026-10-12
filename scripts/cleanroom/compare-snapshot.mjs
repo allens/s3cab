@@ -9,17 +9,19 @@
  * destroyed: the trees are the sandbox's, and s3cab's snapshot of them is taken here, in a
  * throwaway home, so s3cab's output never exists while the session could read it.
  *
- * What has to match is ADR-0096's list. File rows are compared as a set, exact in hash,
- * size, mtime and path. The excluded, skipped and unreadable paths must match. Metadata
- * payloads are context, so `#EXCLUDED`, `#SKIPPED` and `#ERROR` rows are compared by path
- * only, and snapshot names and instants differ by run. The brief asks for the snapshot's
- * exact bytes, so the session's file is also held to the column padding, LF endings, the
- * header block and the trailer that guide/format.md describes.
+ * What has to match is ADR-0096's list. `object` rows are compared as a set, exact in
+ * hash, size, mtime and path, and `link` rows exact in path and target. The excluded and
+ * unreadable paths must match, but an `#excluded` row's pattern and an `#error` row's
+ * message are context, so those rows are compared by path only; snapshot names and
+ * instants differ by run. The brief asks for the snapshot's exact bytes, so the session's
+ * file is also held to the five padded columns, LF endings, the heading row, `#S3CAB END`
+ * last, and `FILES` and `SIZE` agreeing with its `object` rows, as guide/format.md
+ * describes them.
  *
  * Two differences are reported as notes, not mismatches, because the spec doesn't decide
- * them yet: the time zone in the header (Python's standard library can't name the local
- * IANA zone, ADR-0096's first expected case), and an excluded directory written as one row
- * where the other side wrote a row per file in it, or the reverse
+ * them yet: the time zone in `#SNAPSHOT START` (Python's standard library can't name the
+ * local IANA zone, ADR-0096's first expected case), and an excluded directory written as
+ * one row where the other side wrote a row per file in it, or the reverse
  * (proposals/cleanroom-fixtures.md). Either one is for the run's report to discuss.
  *
  * Exits 1 if anything mismatched, 0 if only notes or nothing.
@@ -66,13 +68,37 @@ const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const sha256 = /^[0-9a-f]{64}$/;
 
 /**
+ * One line as s3cab lays it out: the type padded to 6, column 2 to 64, the size
+ * right-aligned in 12, the time padded to 24, the last column never padded.
+ * @param {string[]} fields
+ */
+const laidOut = ([type = "", col2 = "", size = "", time = "", last = ""]) =>
+  [
+    type.trim().padEnd(6),
+    col2.trim().padEnd(64),
+    size.trim().padStart(12),
+    time.trim().padEnd(24),
+    last,
+  ].join("\t");
+
+const heading = laidOut([
+  "#S3CAB",
+  "",
+  "size",
+  "time",
+  "https://s3cab.plantegral.com/guide/format",
+]);
+
+/**
  * @typedef {object} Snapshot
- * @property {string} set the header's set name
- * @property {string} name the header's snapshot name
- * @property {string} zone the header's time zone, or "" if it has none
- * @property {string[]} dirs the `#DIR` headers
- * @property {Map<string, { hash: string, size: string, mtime: string }>} files by path
- * @property {Map<string, Set<string>>} metadata paths by row kind (`#EXCLUDED`, …)
+ * @property {string} set `#SET NAME`
+ * @property {string} name `#SNAPSHOT NAME`
+ * @property {string} zone `#SNAPSHOT START`'s time zone, or "" if it has none
+ * @property {string[]} dirs the `#SET DIR` rows
+ * @property {Map<string, { hash: string, size: string, mtime: string }>} files the
+ *   `object` rows, by path
+ * @property {Map<string, string>} links the `link` rows' targets, by path
+ * @property {Map<string, Set<string>>} metadata paths by row type (`#excluded`, …)
  */
 
 /**
@@ -116,101 +142,116 @@ function parse(gz, problems) {
     zone: "",
     dirs: [],
     files: new Map(),
+    links: new Map(),
     metadata: new Map(),
   };
   /** @type {string[]} */
   const unpadded = [];
-  let headerEnds = 1;
+  /** @type {Set<string>} */
+  const paths = new Set();
+  let objects = 0;
+  let bytes = 0;
+  /** @type {Record<string, string>} */
+  const declared = {};
   for (const [index, line] of lines.entries()) {
     const number = index + 1;
     const fields = line.split("\t");
-    const [first = "", second = "", third = ""] = fields;
-    const kind = first.trim();
-    if (fields.length < 4) {
-      problems.push(`line ${number} has fewer than four fields`);
+    if (fields.length !== 5) {
+      problems.push(`line ${number} has ${fields.length} fields, not five`);
       continue;
     }
-    // Every line s3cab writes is four columns, padded to 64, right-aligned in 10 and
-    // padded to 24, the last never padded. A line pushed past four fields by a tab in a
-    // metadata payload has no layout to hold it to.
-    if (fields.length === 4) {
-      const fourth = fields[3] ?? "";
-      const laidOut = [
-        first.trim().padEnd(64),
-        second.trim().padStart(10),
-        third.trim().padEnd(24),
-        fourth,
-      ].join("\t");
-      if (line !== laidOut) {
-        unpadded.push(String(number));
-      }
+    if (line !== laidOut(fields)) {
+      unpadded.push(String(number));
     }
-    const path = fields.at(-1) ?? "";
+    const [type = "", col2 = "", size = "", time = ""] = fields
+      .slice(0, 4)
+      .map((field) => field.trim());
+    const last = fields[4] ?? "";
 
     if (index === 0) {
-      if (kind !== "#SNAPSHOT") {
-        problems.push("doesn't open with a #SNAPSHOT header");
-        continue;
+      if (line !== heading) {
+        problems.push("doesn't open with the heading row");
       }
-      snapshot.set = second.trim();
-      if (!instant.test(third.trim())) {
+      continue;
+    }
+    if (type === "#S3CAB" && col2 === "END") {
+      if (index !== lines.length - 1) {
+        problems.push(`#S3CAB END on line ${number} isn't the last line`);
+      }
+      if (!instant.test(time)) {
+        problems.push(`#S3CAB END's instant '${time}' is malformed`);
+      }
+      continue;
+    }
+    if (type === "#SET" || type === "#SNAPSHOT" || type === "#S3CAB") {
+      const property = `${type} ${col2}`;
+      if (property === "#SET NAME") {
+        snapshot.set = last;
+      } else if (property === "#SET DIR") {
+        snapshot.dirs.push(last);
+      } else if (property === "#SNAPSHOT NAME") {
+        snapshot.name = last;
+      } else if (property === "#SNAPSHOT START") {
+        if (!instant.test(time)) {
+          problems.push(`#SNAPSHOT START's instant '${time}' is malformed`);
+        }
+        snapshot.zone = last;
+      } else if (
+        property === "#SNAPSHOT FILES" ||
+        property === "#SNAPSHOT SIZE"
+      ) {
+        declared[col2] = last;
+      }
+      continue;
+    }
+    if (["object", "link", "#excluded", "#error"].includes(type)) {
+      if (paths.has(last)) {
+        problems.push(`${show(last)} is in a second row, on line ${number}`);
+      }
+      paths.add(last);
+    }
+    if (type === "object") {
+      objects += 1;
+      bytes += Number(size);
+      if (!sha256.test(col2) || !/^\d+$/.test(size)) {
         problems.push(
-          `#SNAPSHOT's start instant '${third.trim()}' is malformed`,
+          `object row on line ${number} has a malformed hash or size`,
         );
       }
-      const [name = "", ...zone] = (fields[3] ?? "").split(" ");
-      snapshot.name = name;
-      snapshot.zone = zone.join(" ");
-      continue;
-    }
-    if (kind === "#DIR") {
-      if (index !== headerEnds) {
-        problems.push(`#DIR on line ${number} isn't in the header block`);
+      if (!instant.test(time)) {
+        problems.push(`object row on line ${number} has a malformed mtime`);
       }
-      headerEnds = index + 1;
-      snapshot.dirs.push(path);
-      continue;
+      snapshot.files.set(last, { hash: col2, size, mtime: time });
+    } else if (type === "link") {
+      snapshot.links.set(last, col2);
+    } else if (type.startsWith("#")) {
+      const rows = snapshot.metadata.get(type) ?? new Set();
+      rows.add(last);
+      snapshot.metadata.set(type, rows);
+    } else {
+      problems.push(
+        `line ${number} has the type '${type}', a lowercase type the spec doesn't name`,
+      );
     }
-    if (kind === "#END") {
-      if (index !== lines.length - 1) {
-        problems.push(`#END on line ${number} isn't the last line`);
-      }
-      if (second.trim() !== "COMPLETE") {
-        problems.push(`#END's status is '${second.trim()}', not COMPLETE`);
-      }
-      if (!instant.test(third.trim())) {
-        problems.push(`#END's instant '${third.trim()}' is malformed`);
-      }
-      continue;
-    }
-    if (kind === "#SNAPSHOT") {
-      problems.push(`a second #SNAPSHOT header, on line ${number}`);
-      continue;
-    }
-    if (kind.startsWith("#")) {
-      const paths = snapshot.metadata.get(kind) ?? new Set();
-      paths.add(path);
-      snapshot.metadata.set(kind, paths);
-      continue;
-    }
-    if (fields.length !== 4) {
-      problems.push(`file row on line ${number} has ${fields.length} fields`);
-      continue;
-    }
-    const row = { hash: kind, size: second.trim(), mtime: third.trim() };
-    if (!sha256.test(row.hash) || !/^\d+$/.test(row.size)) {
-      problems.push(`file row on line ${number} has a malformed hash or size`);
-    }
-    if (!instant.test(row.mtime)) {
-      problems.push(`file row on line ${number} has a malformed mtime`);
-    }
-    if (snapshot.files.has(path)) {
-      problems.push(`${show(path)} has a second row, on line ${number}`);
-    }
-    snapshot.files.set(path, row);
   }
-  if (lines.at(-1)?.split("\t")[0]?.trim() !== "#END") {
-    problems.push("has no #END trailer as its last line");
+  const [endType = "", endProperty = ""] = (lines.at(-1) ?? "").split("\t");
+  if (endType.trim() !== "#S3CAB" || endProperty.trim() !== "END") {
+    problems.push("has no #S3CAB END as its last line");
+  }
+  // Only when present: whether the whole-snapshot rows are commitments at all is
+  // ADR-0096's open question, but the spec says these two are exact.
+  if (declared.FILES !== undefined && declared.FILES !== String(objects)) {
+    problems.push(
+      `#SNAPSHOT FILES says ${declared.FILES}, where there are ${objects} object rows`,
+    );
+  }
+  if (
+    declared.SIZE !== undefined &&
+    declared.SIZE.split(" ")[0] !== String(bytes)
+  ) {
+    problems.push(
+      `#SNAPSHOT SIZE says ${declared.SIZE}, where the size column sums to ${bytes}`,
+    );
   }
   if (unpadded.length > 0) {
     problems.push(
@@ -222,7 +263,7 @@ function parse(gz, problems) {
 }
 
 /**
- * The files an `#EXCLUDED` path covers, read from the sandbox's tree: everything under
+ * The files an `#excluded` path covers, read from the sandbox's tree: everything under
  * it if it's a directory, else the path itself. An empty or unreadable directory, or a
  * path that's gone, covers just itself.
  * @param {string} path
@@ -340,14 +381,14 @@ try {
       if (ours) {
         const name = latest.slice(0, -".tsv.gz".length);
         if (ours.set !== set) {
-          mismatches.push(`#SNAPSHOT names the set '${ours.set}'`);
+          mismatches.push(`#SET NAME names the set '${ours.set}'`);
         }
         if (ours.name !== name) {
-          mismatches.push(`#SNAPSHOT names the snapshot '${ours.name}'`);
+          mismatches.push(`#SNAPSHOT NAME names the snapshot '${ours.name}'`);
         }
         if (ours.zone !== reference.zone) {
           notes.push(
-            `#SNAPSHOT's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
+            `#SNAPSHOT START's zone is ${show(ours.zone)}, where s3cab wrote ${show(reference.zone)}`,
           );
         }
 
@@ -359,7 +400,7 @@ try {
         );
         if (dirsOnlyOurs.length > 0 || dirsOnlyTheirs.length > 0) {
           mismatches.push(
-            `#DIR headers differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
+            `#SET DIR rows differ: only here${some(dirsOnlyOurs.map(show))}\n    only in s3cab's${some(dirsOnlyTheirs.map(show))}`,
           );
         }
 
@@ -390,16 +431,29 @@ try {
         );
         if (missing.length > 0) {
           mismatches.push(
-            `file rows s3cab wrote and this didn't:${some(missing.map(show))}`,
+            `object rows s3cab wrote and this didn't:${some(missing.map(show))}`,
           );
         }
         if (extra.length > 0) {
           mismatches.push(
-            `file rows this wrote and s3cab didn't:${some(extra.map(show))}`,
+            `object rows this wrote and s3cab didn't:${some(extra.map(show))}`,
           );
         }
         if (differing.length > 0) {
-          mismatches.push(`file rows that differ:${some(differing)}`);
+          mismatches.push(`object rows that differ:${some(differing)}`);
+        }
+
+        const links = [
+          ...new Set([...ours.links.keys(), ...reference.links.keys()]),
+        ]
+          .filter((path) => ours.links.get(path) !== reference.links.get(path))
+          .map(
+            (path) =>
+              `${show(path)}: ${ours.links.has(path) ? `to ${show(ours.links.get(path) ?? "")}` : "no row"}, ` +
+              `s3cab ${reference.links.has(path) ? `to ${show(reference.links.get(path) ?? "")}` : "no row"}`,
+          );
+        if (links.length > 0) {
+          mismatches.push(`link rows that differ:${some(links)}`);
         }
 
         const kinds = new Set([
@@ -414,7 +468,7 @@ try {
           if (onlyHere.length === 0 && onlyThere.length === 0) {
             continue;
           }
-          if (!["#EXCLUDED", "#SKIPPED", "#ERROR"].includes(kind)) {
+          if (!["#excluded", "#error"].includes(kind)) {
             notes.push(
               `${kind} rows, a kind the spec doesn't name:${some(onlyHere.map(show))}`,
             );
@@ -425,7 +479,7 @@ try {
           const coveredHere = new Set([...here].flatMap(covered));
           const coveredThere = new Set([...there].flatMap(covered));
           const regrained =
-            kind === "#EXCLUDED" &&
+            kind === "#excluded" &&
             coveredHere.size === coveredThere.size &&
             [...coveredHere].every((path) => coveredThere.has(path));
           (regrained ? notes : mismatches).push(
