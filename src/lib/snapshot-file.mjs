@@ -896,11 +896,12 @@ export async function parseSnapshotStream(input, { tolerant = false } = {}) {
     // on the type in col1, so each earns a real name inside the branch that has
     // read it. The leading four are space-padded so the raw file reads as
     // columns, and readers trim them (guide/format.md); col5 is never padded and
-    // never trimmed, because a filename may begin or end with a space.
-    // Positional, not `parts.pop()`: no field holds a tab (ADR-0100), so a short
-    // line yields empty columns, which the row checks below refuse.
-    const [col1 = "", col2 = "", col3 = "", col4 = "", col5 = ""] =
+    // never trimmed, because a filename may begin or end with a space. col5 is
+    // the whole rest of the line: a tab in a hand-edited path must reach
+    // `pathFault` and be refused, not cut the path short at the tab.
+    const [col1 = "", col2 = "", col3 = "", col4 = "", ...rest] =
       line.split("\t");
+    const col5 = rest.join("\t");
     const type = col1.trim();
     const property = col2.trim();
 
@@ -1072,6 +1073,9 @@ function pathFault(path) {
   }
   if (path.includes("\r")) {
     return "its path holds a carriage return";
+  }
+  if (path.includes("\t")) {
+    return "its path holds a tab";
   }
   const segments = preparePath(path).path.split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) {

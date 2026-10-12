@@ -769,6 +769,37 @@ describe("renderVerify", () => {
     );
   });
 
+  it("spells out the CR an invalid path was refused for, so it can't rewrite the line", () => {
+    const text = renderVerify(
+      {
+        bucket: "b",
+        sets: [
+          report({
+            set: "music",
+            problems: [
+              {
+                path: "/a\r.txt",
+                problem: "invalid",
+                snapshots: ["2026-06-01"],
+                reason: "its path holds a carriage return",
+              },
+              {
+                path: "/bb.txt",
+                problem: "missing",
+                snapshots: ["2026-06-01"],
+              },
+            ],
+          }),
+        ],
+      },
+      { color: false },
+    );
+    assert.doesNotMatch(text, /\r/);
+    // Padded by the spelled-out width, so the columns still line up.
+    assert.match(text, /\n {4}\/a\\x0d\.txt {3}invalid /);
+    assert.match(text, /\n {4}\/bb\.txt {6}missing /);
+  });
+
   it("reports an unreadable snapshot as its own finding line", () => {
     const text = renderVerify(
       {

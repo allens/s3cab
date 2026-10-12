@@ -808,14 +808,19 @@ function setFindings(report, paint) {
 
   const lines = [];
   if (problems.length) {
-    const pathWidth = Math.max(...problems.map((p) => p.path.length));
+    // An invalid row's path may hold the very CR it was refused for.
+    const rows = problems.map((p) => ({
+      p,
+      path: withVisibleControls(p.path),
+    }));
+    const pathWidth = Math.max(...rows.map(({ path }) => path.length));
     const labelWidth = Math.max(
       ...problems.map((p) => problemLabel(p.problem).length),
     );
-    for (const p of problems) {
+    for (const { p, path } of rows) {
       const label = problemLabel(p.problem).padEnd(labelWidth);
       lines.push(
-        `    ${p.path.padEnd(pathWidth)}   ${label}   ${problemDetail(p)}`,
+        `    ${path.padEnd(pathWidth)}   ${label}   ${problemDetail(p)}`,
       );
     }
   }

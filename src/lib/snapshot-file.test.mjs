@@ -307,6 +307,12 @@ describe("parseSnapshotStream", () => {
         /carriage return/,
       ],
       [
+        "a tab in the path, which must not cut it short at the tab",
+        object(hashA, 12, "/home/me/x\ty"),
+        "/home/me/x\ty",
+        /holds a tab/,
+      ],
+      [
         "a path under no #SET DIR",
         object(hashA, 12, "/srv/other/x"),
         "/srv/other/x",
