@@ -1,18 +1,19 @@
 # Clean-room implementations prove the format: s3cab, a clean-room backup, clean-room restorers
 
 **Status:** proposed (2026-10-07; amended 2026-10-09: the clean-room backup's two programs are
-written in separate clean rooms, on every platform). The model is settled. The clean-room
+written in separate clean rooms, on every platform; amended 2026-10-12: the clean-room backup is
+proof only, with no readability goal). The model is settled. The clean-room
 backup is not built, and the restorers exist only as frozen clean-room runs.
 
 **s3cab is the tool.** It both backs up and restores. Beside it sit two kinds of **clean-room
 implementation**, each derived from the spec alone (`guide/format.md` and `guide/exclude.md`,
-plus nothing of s3cab's). Each proves the format in one direction and serves a second goal of its
-own.
+plus nothing of s3cab's). Each proves the format in one direction, and the restorer serves a second
+goal of its own.
 
 | | Clean-room backup | Clean-room restorer |
 |---|---|---|
 | **Proves** | a backup can be *written* from the spec | a backup can be *read* from the spec |
-| **Second goal** | education: shows how s3cab works | a restore path that needs nothing of s3cab's |
+| **Second goal** | none: proof only | a restore path that needs nothing of s3cab's |
 | **Programs** | `s3cab-snapshot.py` and `s3cab-upload.py`, each from its own clean room, one of each per platform; full exclude syntax | one restorer per platform |
 | **Language** | Python everywhere; each program written on its platform and run on all three | the platform's canonical one: C# on Windows, Swift on macOS, C on Linux |
 | **Libraries** | the standard library, plus boto3 for the upload; nothing else | **no AWS SDK**; requests signed by hand |
@@ -21,12 +22,14 @@ own.
 
 ## The clean-room backup
 
-Its readers are people learning how s3cab works, so its brief adds one requirement beyond the
-spec: **someone who can code a little should be able to work out how s3cab fundamentally works
-from it in about half an hour.** That is s3cab's founding readability test, which `src/`
-outgrew as features and robustness were added. It means two programs, `s3cab-snapshot.py` and
-`s3cab-upload.py`, roughly 500 lines between them including comments. The snapshot file is all
-that passes from one to the other, so the format itself is their interface.
+Two programs, `s3cab-snapshot.py` and `s3cab-upload.py`. The snapshot file is all that passes
+from one to the other, so the format itself is their interface.
+
+**They are proof, not teaching.** Not also a half-hour read for someone who codes a little,
+because proof needs the whole spec on every platform, byte for byte: Windows casing, paths past
+`MAX_PATH`, names with no UTF-8 form and the zone lookup are what the proof is for and what a gist
+leaves out, and a line target only packs them tighter. A readable reference is a separate idea,
+which needs no clean room since it proves nothing ([proposals/misc.md](../../proposals/misc.md)).
 
 **Each program is written in its own clean room**, by a session that never sees the other's.
 One session writing both could misread the row grammar the same way in each half: the
@@ -45,8 +48,7 @@ make the spec alone define the interface. The split also fits each room to its j
 - **A failure names one program.** s3cab's snapshot uploaded by the clean-room upload, and the
   clean-room snapshot uploaded by `s3cab upload --snapshot`, each isolate one side.
 
-What it costs is coherence as a teaching pair (two authors, two styles), which the half-hour
-test still has to survive, and one exception to the rule below, for the upload room's input.
+What it costs is one exception to the rule below, for the upload room's input.
 
 **Both are written on every platform, like the restorers.** A session can only test on the
 machine it runs on, so a program written on Linux meets Windows for the first time in CI. A
@@ -77,8 +79,10 @@ right is the point. Correctness covers:
 
 The SDK is allowed, in the upload room, because boto3's `upload_file` hides multipart, retries
 and the credential chain, none of which is the format. The snapshot room needs nothing beyond the
-standard library. Python is chosen because it is the most widely readable
-language for a short program.
+standard library. Python is chosen because it is a different runtime from s3cab's Node, so a
+behaviour both would get from one runtime (how it lists a directory, spells a path or writes
+gzip) can't pass the comparison unseen; and because its standard library is broad and the same
+on all three platforms, so what it can't do portably is a fair finding about the spec.
 
 **It is also the test of what the spec may demand.** Each program, wherever it was written, has
 to run on Linux, macOS and Windows with the standard library alone, and boto3 for the upload. If

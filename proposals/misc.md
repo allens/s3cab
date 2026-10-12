@@ -96,3 +96,10 @@ seed of a future "platform / release" epic).
   Linux) — decide whether the parser mints the brand or a second type is needed. Floated in a
   language-choice discussion (2026-10-07) as the cheapest slice of what a functional language's
   newtypes would buy.
+- **A readable reference: s3cab's core in a program someone who codes a little can read in
+  half an hour.** That was s3cab's founding test, which `src/` outgrew. Snapshot, upload and
+  perhaps restore, plain and unoptimised, saying outright which edges it skips (Windows
+  casing, long paths, odd names). Not a clean-room program: it proves nothing, so it can be
+  written with the code in view. Language open (JavaScript or Python). Split out of the
+  clean-room backup (ADR-0096), whose first run on the full spec came out far past a
+  half-hour read.

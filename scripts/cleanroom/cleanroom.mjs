@@ -315,10 +315,7 @@ program has to run unchanged on Linux, macOS and Windows. If something the spec 
 done portably with the standard library, don't reach for another library: record what the spec
 asked for and what stood in the way. That is one of the things being tested.
 
-**Correct, not fast.** No caching between runs, no parallelism. The program has a second
-audience: someone who can code a little should be able to work out from it, and the upload
-program beside it, how the format works in about half an hour. Aim for roughly 250 lines,
-comments included, and prefer the plain way of doing anything.
+**Correct, not fast.** No caching between runs, no parallelism.
 
 Correct covers everything the spec says a snapshot holds: its exact bytes, padding included;
 exclude patterns in their full syntax; and a row for everything the spec says is recorded, what
@@ -368,10 +365,7 @@ The same program has to run unchanged on Linux, macOS and Windows. If something 
 can't be done portably with those two, don't reach for another library: record what the spec
 asked for and what stood in the way. That is one of the things being tested.
 
-**Correct, not fast.** No caching between runs, no parallelism. The program has a second
-audience: someone who can code a little should be able to work out from it, and the snapshot
-program beside it, how the format works in about half an hour. Aim for roughly 250 lines,
-comments included, and prefer the plain way of doing anything.
+**Correct, not fast.** No caching between runs, no parallelism.
 
 Correct covers everything the spec says a backup writes to the bucket: objects before the
 snapshot that names them, the snapshot itself, and every file the bucket layout documents, each
