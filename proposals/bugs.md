@@ -130,6 +130,18 @@ argument for `compare.py` reading `st_mtime_ns`.</sub>
   each run "takes the lowest index not already in use"; `writeDeletionRecord`
   (`src/lib/deletion-record.mjs`) takes one past the highest, so after `cleanup` leaves only
   `-3`, the next record is `-4`, not `-1`. Readers are unaffected, since they union every record.
+- **A pre-1970 mtime on Windows is recorded as 2106.** A file set to `1969-12-31T23:59:59.0005Z`
+  through .NET's `SetLastWriteTimeUtc` reads back through `statSync` as
+  `2106-02-07T06:28:15.001Z`, `mtimeNs` `4294967295000500000n`: the seconds wrap as an unsigned
+  32-bit value. Measured on NTFS under node 26.10.0; Linux untested. The wrapped value can't be
+  told from a real date past 2038, so the fix may not be possible within builtins.
+- **An mtime just under a half-millisecond tie rounds the wrong way.** `fileProps` formats
+  `stat.mtime`, a `Date` built from the float `mtimeMs`, and near today's dates that float can't
+  hold .4999ms, so it becomes .5 and rounds up: an NTFS mtime of 4999 ticks past the second is
+  stored as `.001`, where [guide/format.md](../guide/format.md)'s nearest millisecond is `.000`.
+  Only values within about one 100ns tick of a tie are affected, but a clean-room writer that
+  rounds exactly disagrees with s3cab on them. Reading `{ bigint: true }` and rounding `mtimeNs`
+  would be exact; its cost on the walk's hot path is unmeasured.
 
 The list must reach zero before release, at which point this file is deleted rather than kept
 empty. Anything found before Issues open goes back in the list here.

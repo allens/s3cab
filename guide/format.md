@@ -31,7 +31,8 @@ needs special handling.
   why. **`exclude.txt` is the one exception, and in the other direction**: it is *yours*, so
   s3cab stores and mirrors it byte-for-byte as you wrote it — a Windows editor's CRLF, or a
   missing final newline, travels into the bucket intact. Harmless, because its lines (and
-  `dirs.txt`'s) are trimmed when read.
+  `dirs.txt`'s) are trimmed when read: of tab, VT, FF, CR, LF, every Unicode space
+  (category Zs), U+2028, U+2029 and a byte-order mark, but not U+0085.
 - **Nothing is quoted or escaped** — that plainness is the whole point. It is what makes a
   naive `split("\t")` safe, and it is why no field in a snapshot holds a real tab, LF or CR
   (a path with one is [refused at backup time](#what-is-deliberately-not-stored), and
@@ -206,7 +207,7 @@ A snapshot is a point-in-time record of every file in a backup set: a plain-text
 tab-separated (TSV) table, gzip-compressed on disk and in the bucket (`.tsv.gz` —
 decompress with any gzip tool: `gunzip`, or the gzip support built into every mainstream
 language). How hard it is compressed is s3cab's choice and may change; what is promised is
-plain, single-stream gzip.
+plain, single-stream gzip. So compare two snapshots decompressed, never as `.gz` bytes.
 
 The [four reading rules](#reading-the-text-four-rules-that-hold-everywhere) apply here in
 full — encoding, LF splitting, no escaping, and never trimming the last field. This section
@@ -264,10 +265,10 @@ For a file row:
 - **path** — absolute, in the OS's native style, last on the line so the padded columns
   stay aligned and so it can hold spaces without ambiguity.
 
-Columns 2 to 4 are space-padded to their widths, and the columns are separated by tabs, so
-the file reads as a table in an editor and parses as clean TSV in a script. Column 1 is
-never padded, so a spreadsheet keeps a file row's type as exactly `-` and
-`=COUNTIF(A:A,"-")` counts them; rows of one type still line up with each other. A value
+Columns 2 to 4 are space-padded to their widths even when blank, and the columns are
+separated by tabs, so the file reads as a table in an editor and parses as clean TSV in a
+script. Column 1 is never padded, so a spreadsheet keeps a file row's type as exactly `-`
+and `=COUNTIF(A:A,"-")` counts them; rows of one type still line up with each other. A value
 longer than its column simply overflows it — an error message can be wider than 64 — so
 these are *minimum* widths, not a fixed-width record layout. The last column is never
 padded. A parser that trims the first four fields can ignore all of this; anyone writing a
@@ -316,14 +317,17 @@ anywhere, including somewhere you never chose to back up.
 
 | Link | Row |
 | --- | --- |
-| To a file or folder inside a member directory | none; the target is saved under its own path |
-| To a file or folder outside every member directory, or somewhere this computer can't resolve | `#error`, naming the target, and the backup exits nonzero |
+| To a file or folder inside a member directory | none; the target is recorded where it lies, saved or `#excluded` |
+| To a file or folder outside every member directory, or somewhere this computer can't resolve | `#error`, the link's own path with the target named in the message, and the backup exits nonzero |
 | Broken, or to a pipe, socket or device | none |
 | Matched by an exclude pattern | `#excluded`, like any excluded entry |
 
 A link out of the backup is an error because its content may look saved and isn't — a
 folder link can hide a whole tree. Add the target's folder to the set, or exclude the link.
 The snapshot is still written, as for any `#error`.
+
+The one link that is followed is a **member directory itself**: you named it in `dirs.txt`,
+so it is walked, and recorded in `@SET DIR`, as the path it resolves to.
 
 ### The whole-snapshot rows
 
@@ -333,24 +337,26 @@ can go stale later without the row being wrong.
 
 | Row | What it records |
 | --- | --- |
-| `@S3CAB VERSION` | the s3cab release that wrote the file |
+| `@S3CAB VERSION` | the s3cab release that wrote the file; s3cab doesn't read it back |
 | `@S3CAB HOME` | the [s3cab home](#the-local-side-s3cab) on that machine |
 | `@SET NAME` | the set's name |
-| `@SET BUCKET` | the bucket, as `s3://<bucket>` |
-| `@SET ENDPOINT` | the S3 endpoint, only for a provider other than AWS, where a bucket name alone doesn't say where it is |
-| `@SET DIR` | a member directory, one row each |
+| `@SET BUCKET` | the bucket, as `s3://<bucket>`; every set has one (`S3CAB_BUCKET`) |
+| `@SET ENDPOINT` | the S3 endpoint (`AWS_ENDPOINT_URL_S3`, else `AWS_ENDPOINT_URL`), only for a provider other than AWS, where a bucket name alone doesn't say where it is |
+| `@SET DIR` | a member directory, one row each, always ending in a separator |
 | `@SET EXCLUDE` | an exclude pattern in force for this run, one row each, including any that matched nothing |
 | `@SNAPSHOT NAME` | the snapshot's name |
-| `@SNAPSHOT BY` | who took it, as `user@machine` |
+| `@SNAPSHOT BY` | who took it, as `user@machine`: the user name and host name the operating system reports |
 | `@SNAPSHOT START` | the instant the run started (column 4), and the time zone the name was minted in |
 | `@SNAPSHOT FILES` | the number of file rows |
-| `@SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses |
+| `@SNAPSHOT SIZE` | the sum of the size column, then a readable form in parentheses: decimal units (`kB`, `MB`, `GB`, …) to one decimal place, bytes as a whole number (`171B`) |
 | `@S3CAB END` | the instant the file was finished (column 4) |
 
 `START` carries the zone because snapshot names are local wall-clock time, so the zone is
 what makes one resolvable to an instant: `0915` in London in June is `08:15Z`. Naming the
 zone (`Europe/London`) rather than just its offset says *where*, which explains a
-daylight-saving shift rather than merely recording one.
+daylight-saving shift rather than merely recording one. The instant and the name come from
+one clock reading, each cut down to its precision rather than rounded, so they can't fall in
+different minutes.
 
 `FILES` and `SIZE` are exact, so each checks something: `FILES` against the count of
 file rows, `SIZE` against the sum of the size column. Its readable form also keeps the
@@ -361,16 +367,18 @@ s3cab writes the rows in this order: the heading; the `@S3CAB`, `@SET` and `@SNA
 rows above; every `#excluded` and `#error` row, so the answer to "why wasn't this backed
 up?" is near the top; one `-` row per file (with an `#error` in among them for
 a file that failed while being read); then `FILES`, `SIZE` and `END`. A reader goes by each
-row's type, not its position — except for `END`, below.
+row's type, not its position — except for `END`, below. Within a block, rows come in the
+order the folders were listed, which differs between filesystems, so compare two snapshots
+as sets of rows, not line by line.
 
 The set's directory and this snapshot's local path follow from `HOME` and the names, and
 its key in the bucket from `BUCKET` and the
 [repository layout](#the-remote-repository-the-keystone), so none of them is recorded. The `exclude.txt` in the bucket is only the latest; the `EXCLUDE` rows say which
 patterns applied to this run.
 
-One omission is silent by design: a directory named `.s3cab` is never walked and gets no
-row — it is s3cab's own, and a member directory containing one would otherwise back up the
-tool's working files. An entry that vanishes between being listed and being checked gets no
+One omission is silent by design: a directory named exactly `.s3cab`, in that case on every
+system, is never walked and gets no row — it is s3cab's own, and a member directory
+containing one would otherwise back up the tool's working files. An entry that vanishes between being listed and being checked gets no
 row either, since there is nothing left to record; a folder that can't be listed stops the
 backup.
 
@@ -433,9 +441,9 @@ looking. Restoring to a chosen directory, it writes each file to
 than merging them. **None of this binds you.** A different layout is a different tool making
 a different decision, not a misreading of the format.
 
-**A stored `mtime` is rounded to the nearest millisecond**, which is coarser than some
-filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds. Two consequences to
-build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
+**A stored `mtime` is rounded to the nearest millisecond**, a tie to the later one, which is
+coarser than some filesystems keep — NTFS records 100-nanosecond ticks, ext4 nanoseconds.
+Two consequences to build against. A restore reproduces the *stored* value **to the millisecond**, so a restored
 tree compares clean against the snapshot it came from and re-backing it up re-uploads
 nothing — and compare at that resolution, not finer. A fraction of a second like `.674` has
 no exact representation in a floating-point count of seconds, which is how some platforms
@@ -584,7 +592,9 @@ whole. That costs one file hashed again.
 
 Editing a set *is* editing these files; deleting the directory deletes the set. In both
 `dirs.txt` and `exclude.txt`, blank lines are ignored and a line starting with `#` is a
-comment — so a directory or pattern can be commented out rather than deleted. Note the
+comment — so a directory or pattern can be commented out rather than deleted. Member
+directories mustn't overlap: a file reached from two of them stops the backup, unless an
+exclude pattern keeps the inner directory out of the outer one's walk. Note the
 deliberate asymmetry of weight: the **bucket is the keystone**. Everything local except
 `env` is recoverable *from* the remote — `reattach` pulls `dirs.txt`/`exclude.txt`
 back down and syncs the snapshot history — whereas nothing can rebuild a lost remote.

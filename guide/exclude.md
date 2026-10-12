@@ -2,7 +2,8 @@
 
 Files and directories to skip are listed in a backup set's exclude file,
 `~/.s3cab/sets/<set>/exclude.txt`, one glob pattern per line. Lines starting with
-`#` are comments; blank lines are ignored.
+`#` are comments, even indented; blank lines are ignored. Each line is trimmed of
+the whitespace around it, so a pattern can't start or end with a space.
 
 A new set starts with a ready-made exclude file: it skips regenerable
 dependency trees (`node_modules`), `.git` directories, and operating-system
@@ -26,24 +27,35 @@ s3cab is built to hold (back up an export of it instead).
 
 ## Globbing
 
-Patterns are matched against the path of each file or directory, relative to
-**each** of the set's member directories (so one pattern applies the same way to
-every directory in the set). Write `/` between directories; on Windows `\` works
-too. A _segment_ is one directory or file name (the text between two separators).
+Patterns are matched against the **whole** path of each file or directory,
+relative to **each** of the set's member directories (so one pattern applies the
+same way to every directory in the set). So `*.log` matches only a `.log` file at
+the top of a member directory; `**/*.log` matches one at any depth. A leading `/`
+changes nothing. Write `/` between directories; on Windows `\` works too. A
+_segment_ is one directory or file name (the text between two separators).
 
 | Token  | Matches                                            |
 | ------ | -------------------------------------------------- |
 | `*`    | one or more characters, within a single segment    |
 | `**/`  | zero or more whole segments                        |
-| `**`   | anything at all, across segments                   |
-| `?`    | exactly one character                              |
+| `**`   | anything at all, across segments, or nothing       |
+| `?`    | exactly one character, within a single segment     |
 
-A pattern ending in `/` matches a directory (and everything inside it, since the
-walker doesn't descend into an excluded directory). It also matches a link whose
-target is a directory, unlike git, where `foo/` never matches a link. A broken link
-has no target, so only a pattern without the `/` matches it.
+Every other character matches only itself: `[`, `]`, `{`, `}` and `!` mean nothing
+special. And `*` needs at least one character, so `*.log` doesn't match a file
+named just `.log`.
 
-Matching is case-insensitive on Windows and case-sensitive elsewhere.
+A directory is matched as its path with a `/` on the end. So a pattern ending in
+`/` matches a directory (and everything inside it, since the walker doesn't
+descend into an excluded directory), a pattern without one never matches a
+directory, and `logs/**` matches the `logs` directory itself, since `**` can match
+nothing. A pattern ending in `/` also matches a link whose target is a directory,
+unlike git, where `foo/` never matches a link. A broken link has no target, so
+only a pattern without the `/` matches it.
+
+Matching is case-insensitive on Windows and case-sensitive elsewhere. When
+several patterns match, the first in the file is the one recorded as leaving the
+path out.
 
 A pattern can't contain a tab or a carriage return: s3cab stops and names it.
 Write `*` in place of the character, which still matches it.
