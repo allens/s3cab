@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
+import {
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempDisposable } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, it } from "node:test";
@@ -648,12 +655,16 @@ describe("walkDirs refuses paths the snapshot TSV can't hold (ADR-0073)", () => 
 });
 
 /**
- * Create a file whose name has no UTF-8 form, as `<prefix>?.txt`. The bytes are
- * a lone surrogate written as WTF-8: Windows stores it as one in the UTF-16
- * name, Linux and macOS as three bytes that aren't UTF-8. Either way `readdir`
- * reads it back with U+FFFD in its place.
+ * Create a file whose name has no UTF-8 form, as `<prefix>???.txt`. The bytes
+ * are a lone surrogate written as WTF-8: Windows stores it as one in the UTF-16
+ * name, Linux as three bytes that aren't UTF-8. Either way it reads back as a
+ * string with three U+FFFD in its place.
+ *
+ * Some filesystems can't hold such a name, so this says whether one now exists:
+ * APFS refuses it (`EILSEQ`), and WSL's `/mnt` drives store something valid.
  * @param {string} base
  * @param {string} prefix
+ * @returns {boolean} Whether the folder now holds a name with no UTF-8 form
  */
 function writeUnencodable(base, prefix) {
   const name = Buffer.concat([
@@ -661,34 +672,61 @@ function writeUnencodable(base, prefix) {
     Buffer.from([0xed, 0xa0, 0x80]),
     Buffer.from(".txt"),
   ]);
-  writeFileSync(name, "x");
+  try {
+    writeFileSync(name, "x");
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === "EILSEQ") {
+      return false;
+    }
+    throw error;
+  }
+  return readdirSync(base, { encoding: "buffer" }).some((n) => !isUtf8(n));
 }
 
 describe("walkDirs refuses a name with no UTF-8 form (ADR-0073)", () => {
-  it("aborts, naming every offender, rather than recording it as missing", async () => {
+  it("aborts, naming every offender, rather than recording it as missing", async (t) => {
     await using dir = await mkTmpDir();
     write(dir.path, "fine.txt");
     // Two in one folder read back as the same string: once a false "overlap".
-    writeUnencodable(dir.path, "one");
+    if (!writeUnencodable(dir.path, "one")) {
+      t.skip("this filesystem can't hold a name with no UTF-8 form");
+      return;
+    }
     writeUnencodable(dir.path, "two");
     assert.throws(
       () => walkDirs([dir.path], []),
       (error) =>
         error instanceof Error &&
         /These 2 files can't be backed up/.test(error.message) &&
-        /one�+\.txt {2}\(not valid Unicode\)/.test(error.message) &&
-        /two�+\.txt {2}\(not valid Unicode\)/.test(error.message) &&
+        /one�{3}\.txt {2}\(not valid Unicode\)/.test(error.message) &&
+        /two�{3}\.txt {2}\(not valid Unicode\)/.test(error.message) &&
         /exclude file/.test(error.message),
     );
   });
 
-  it("leaves it out when a pattern matches it", async () => {
+  it("refuses it beside a valid name that reads the same", async (t) => {
     await using dir = await mkTmpDir();
-    write(dir.path, "keep.txt");
-    writeUnencodable(dir.path, "odd");
+    write(dir.path, "same���.txt");
+    if (!writeUnencodable(dir.path, "same")) {
+      t.skip("this filesystem can't hold a name with no UTF-8 form");
+      return;
+    }
+    assert.throws(
+      () => walkDirs([dir.path], []),
+      /This file can't be backed up[^]*same�{3}\.txt {2}\(not valid Unicode\)/,
+    );
+  });
+
+  it("leaves it out when a pattern matches it, and keeps a real U+FFFD", async (t) => {
+    await using dir = await mkTmpDir();
+    write(dir.path, "keep�.txt");
+    if (!writeUnencodable(dir.path, "odd")) {
+      t.skip("this filesystem can't hold a name with no UTF-8 form");
+      return;
+    }
     const { files, excluded } = walkDirs([dir.path], ["odd*.txt"]);
     assert.deepStrictEqual(relPaths(realpathSync.native(dir.path), files), [
-      "keep.txt",
+      "keep�.txt",
     ]);
     assert.deepStrictEqual(
       excluded.map(({ pattern, isDir }) => ({ pattern, isDir })),

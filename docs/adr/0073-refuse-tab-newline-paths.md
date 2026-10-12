@@ -96,9 +96,10 @@ UTF-8 snapshot faithfully either. Node reads such a name with U+FFFD in place of
 decode, a spelling no file has. Before this, that surfaced as an `#error` row saying the file
 didn't exist, and two in one folder decoded to the same string and aborted the run as a false
 "overlap". They are now refused like a tab, aborting rather than skipping for the reasons above,
-and the same pattern escape works, because `*` matches U+FFFD. The test is cheap: only a name
-containing U+FFFD that `lstat` can't find under that spelling, so a real U+FFFD in a name still
-backs up.
+and the same pattern escape works, because `*` matches U+FFFD. The walk lists names as bytes to
+tell: a lone surrogate reads back as WTF-8, which `isUtf8` rejects, while a real U+FFFD in a name
+is valid and backs up. Not "U+FFFD that `lstat` can't find": a valid name spelled the same way
+answers for the bad one.
 
 ## Consequences
 

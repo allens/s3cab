@@ -21,11 +21,11 @@ import { describe, it, mock } from "node:test";
  * are there, and every one of the seven type predicates answers `false`. That is
  * not a contrivance — it is exactly what Node produces from a `DT_UNKNOWN`
  * directory entry.
- * @param {{ name: string, parentPath: string }} dirent
- * @returns {Dirent}
+ * @param {{ name: Buffer, parentPath: string }} dirent
+ * @returns {Dirent<Buffer>}
  */
 const typeless = (dirent) =>
-  /** @type {Dirent} */ (
+  /** @type {Dirent<Buffer>} */ (
     /** @type {unknown} */ ({
       name: dirent.name,
       parentPath: dirent.parentPath,
@@ -60,16 +60,20 @@ mock.module("node:fs", {
     ...passthrough,
     /**
      * Serves `walk.mjs`'s one call shape — `readdirSync(dir, { withFileTypes:
-     * true })` — since that is the only reader this test drives.
+     * true, encoding: "buffer" })` — since that is the only reader this test
+     * drives.
      * @param {string} dir
-     * @returns {Dirent[]}
+     * @returns {Dirent<Buffer>[]}
      */
     readdirSync: (dir) => {
       const entries = realFs
-        .readdirSync(dir, { withFileTypes: true })
+        .readdirSync(dir, { withFileTypes: true, encoding: "buffer" })
         .map(typeless);
       return dir === phantomIn
-        ? [...entries, typeless({ name: PHANTOM, parentPath: dir })]
+        ? [
+            ...entries,
+            typeless({ name: Buffer.from(PHANTOM), parentPath: dir }),
+          ]
         : entries;
     },
   },

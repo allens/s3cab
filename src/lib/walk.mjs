@@ -6,6 +6,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
+import { isUtf8 } from "node:buffer";
 import { isAbsolute, resolve } from "node:path";
 import { stderr } from "node:process";
 import { isENOENT } from "./error.mjs";
@@ -292,9 +293,9 @@ export function walkDirs(dirs, patterns) {
     // unsupported ones included, so a subtree the walk keeps nothing from still
     // moves the line, and that subtree is the stall `countedPass` exists for.
     /** @type {typeof visit} */
-    const walkCallbackFn = (path, fileType) => {
+    const walkCallbackFn = (path, fileType, unicode) => {
       progress.tick();
-      return visit(path, fileType);
+      return visit(path, fileType, unicode);
     };
 
     for (const path of walkFiles(dir, walkCallbackFn)) {
@@ -379,17 +380,16 @@ export function walkDirs(dirs, patterns) {
  * @param {string} baseDir - Base directory
  * @param {string[]} patterns - Exclude patterns
  * @param {Found} found - Receives what isn't kept
- * @returns {(path: string, fileType: string | Error) => boolean} walk callback function
+ * @returns {WalkCallback} walk callback function
  */
 function createWalkCallbackFn(baseDir, patterns, found) {
   const excludedBy = compileExcludePatterns(baseDir, patterns);
 
-  return (path, fileType) => {
-    // A name with no UTF-8 form (a lone surrogate on Windows, stray bytes on
-    // Linux) arrives with U+FFFD in its place: a spelling no file has, so it
-    // would read as vanished, or as a link that can't be read. Refused like a
-    // tab (ADR-0073), unless a pattern leaves it out.
-    if (path.includes("�") && !lstatSync(path, { throwIfNoEntry: false })) {
+  return (path, fileType, unicode) => {
+    // A name that isn't valid Unicode is spelled here with U+FFFD in its place,
+    // which no file has, so it would read as vanished, or as a link that can't
+    // be read. Refused like a tab (ADR-0073), unless a pattern leaves it out.
+    if (!unicode) {
       const isDir = fileType === DIRECTORY;
       const pattern = excludedBy(path, isDir);
       if (pattern) {
@@ -524,7 +524,7 @@ const UNKNOWN = "Unknown";
  * Get the file type of a directory entry or a stat. Takes either because a
  * `Dirent` and a `Stats` answer the same questions — which is what lets
  * `resolveFileType` fall back from one to the other.
- * @param {Dirent | Stats} entry - Directory entry, or the stat of one
+ * @param {Dirent<Buffer> | Stats} entry - Directory entry, or the stat of one
  * @returns {string} File type
  */
 function getFileType(entry) {
@@ -570,7 +570,7 @@ function getFileType(entry) {
  * change what the walk records and open the door to cycles. An entry that can't
  * be stat-ed comes back as the error, for the callback to judge (ADR-0099:
  * vanished is no row, anything else an `#error`).
- * @param {Dirent} dirent - Directory entry
+ * @param {Dirent<Buffer>} dirent - Directory entry
  * @param {string} path - Its resolved absolute path
  * @returns {string | Error} File type, or why it couldn't be checked
  */
@@ -587,27 +587,43 @@ function resolveFileType(dirent, path) {
 }
 
 /**
+ * Whether to keep a walk entry.
+ * @callback WalkCallback
+ * @param {string} path - The entry's absolute path
+ * @param {string | Error} fileType - Its type, or why it couldn't be checked
+ * @param {boolean} unicode - Whether its name is valid Unicode
+ * @returns {boolean}
+ */
+
+/**
  * Recursively walk through a directory and yield file paths. A folder that
  * can't be listed throws, stopping the walk (ADR-0098).
  *
  * The entry's type is resolved here, once, and passed down — see
  * `resolveFileType` for why it cannot be re-derived per consumer.
+ *
+ * Names are listed as bytes because only the bytes show a name with no UTF-8
+ * form (a lone surrogate on Windows, which reads back as WTF-8, or stray bytes
+ * on Linux): as a string it has U+FFFD in place of what didn't decode, which a
+ * valid name can hold too.
  * @param {string} dir - Directory to walk through
- * @param {(path: string, fileType: string | Error) => boolean} callbackFn - Whether to keep the entry
+ * @param {WalkCallback} callbackFn - Whether to keep the entry
  * @yields {string} File paths
  * @returns {Generator<string>} Generator of file paths
  */
 function* walkFiles(dir, callbackFn) {
-  for (const dirent of readdirSync(dir, { withFileTypes: true })) {
-    const path = resolve(dirent.parentPath, dirent.name);
+  const dirents = readdirSync(dir, { withFileTypes: true, encoding: "buffer" });
+  for (const dirent of dirents) {
+    const name = dirent.name.toString();
+    const path = resolve(dirent.parentPath, name);
     const fileType = resolveFileType(dirent, path);
 
-    if (!callbackFn(path, fileType)) {
+    if (!callbackFn(path, fileType, isUtf8(dirent.name))) {
       continue;
     }
 
     if (fileType === DIRECTORY) {
-      if (dirent.name === ".s3cab") {
+      if (name === ".s3cab") {
         continue;
       }
       yield* walkFiles(path, callbackFn);
