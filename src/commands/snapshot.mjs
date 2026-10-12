@@ -28,10 +28,16 @@ export async function snapshot(setName, options = {}) {
     resume: options.resume,
   });
   const { name: previousName, previous, previousErrors } = baseline;
-  const { name } = await generateSnapshot(set, {
+  const { name, errors } = await generateSnapshot(set, {
     baseline,
     debug: options.debug,
   });
+
+  // Any `#error` row means files the snapshot doesn't hold, so exit 1, as
+  // `backup` does. Not a throw: the snapshot is written and the report prints.
+  if (errors.length > 0) {
+    process.exitCode = 1;
+  }
 
   // Compare with the previous snapshot. `readBaseline` above already read it —
   // regardless of `--rehash`, which only suppresses the hash *lookup* — so hand

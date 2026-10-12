@@ -293,7 +293,8 @@ A row's first character says what it is: `@` a property of the whole file, `-` a
 - **`-`** is a file, and the only row with content to fetch.
 - **`#excluded`** is an entry an exclude pattern matched, and **`#error`** one s3cab couldn't
   check or read, or a [link](#links) leading out of the backup. Neither is in the backup; the
-  row says why.
+  row says why. Any `#error` row makes `backup` and `snapshot` exit 1, after the snapshot is
+  written.
 
 A tool that drops `#` lines as comments keeps exactly what a restore reads: the properties
 and the files.

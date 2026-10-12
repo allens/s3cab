@@ -10,6 +10,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -239,6 +240,29 @@ describe("snapshot", () => {
       }
     },
   );
+
+  it("exits 1 when the snapshot has an #error row, and 0 when it has none", async (t) => {
+    const savedExitCode = process.exitCode;
+    t.after(() => (process.exitCode = savedExitCode));
+    let now = "2025-04-01T12:00:00";
+    t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
+      Temporal.PlainDateTime.from(now).toZonedDateTime("Europe/London"),
+    );
+
+    const workDir = copyFixtureToWorkDir("before", t);
+    useTempHome(workDir());
+    writeSet("photos", { dirs: [realpathSync.native(workDir())], bucket: "b" });
+
+    process.exitCode = 0;
+    await snapshot("photos", { rehash: true });
+    assert.equal(process.exitCode, 0);
+
+    // A junction needs no privilege on Windows, and is a plain symlink elsewhere.
+    symlinkSync(resolve("test/fixtures"), workDir("out"), "junction");
+    now = "2025-04-01T12:01:00";
+    await snapshot("photos", { rehash: true });
+    assert.equal(process.exitCode, 1);
+  });
 
   it("refuses a same-minute snapshot unless overwriting under debug", async (t) => {
     t.mock.method(Temporal.Now, "zonedDateTimeISO", () =>
