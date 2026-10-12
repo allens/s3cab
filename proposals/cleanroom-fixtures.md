@@ -107,10 +107,6 @@ by what a wrong reading costs: **silent** (a restore or backup that looks right 
   - exclude.md never says that pattern characters other than the wildcard tokens are literal.
   - exclude.md never says that a pattern without a trailing `/` never matches a directory.
   - exclude.md never says whether an indented `#` line is a comment.
-- **Are the preserved restorers meant to be rerun?** The ones in
-  [restorers/](../scripts/cleanroom/restorers/) read four-column `.tsv.zst` files, so none of
-  them runs against today's golden set. That's fine if they are a frozen record and a gap if
-  they are meant as a regression check.
 
 ## Rejected
 
