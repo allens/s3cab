@@ -18,11 +18,12 @@ creation, so delete the `.git` pattern if you *do* want repositories backed up.
 ## Files that change during a backup
 
 s3cab backs up each file as it was when the backup started. If a file is still
-being rewritten while the backup runs — a live database, or a file another
-program still has open — s3cab stops and names that file rather than store a
-half-written copy under the wrong fingerprint. For a one-off collision, just run
-the backup again. For something that changes constantly, list it here so it's
-skipped from the start — a file that's always in flux isn't the kind of data
+being rewritten while the backup runs — a live database, say — s3cab stops and
+names that file rather than store a half-written copy under the wrong
+fingerprint. (A file another program has locked is different: s3cab can't read
+it, so it is listed as an error and the backup carries on without it.) For a
+one-off collision, just run the backup again. For something that changes
+constantly, list it here so it's skipped from the start — a file that's always in flux isn't the kind of data
 s3cab is built to hold (back up an export of it instead).
 
 ## Globbing
@@ -45,13 +46,13 @@ Every other character matches only itself: `[`, `]`, `{`, `}` and `!` mean nothi
 special. And `*` needs at least one character, so `*.log` doesn't match a file
 named just `.log`.
 
-A directory is matched as its path with a `/` on the end. So a pattern ending in
-`/` matches a directory (and everything inside it, since the walker doesn't
-descend into an excluded directory), a pattern without one never matches a
-directory, and `logs/**` matches the `logs` directory itself, since `**` can match
-nothing. A pattern ending in `/` also matches a link whose target is a directory,
-unlike git, where `foo/` never matches a link. A broken link has no target, so
-only a pattern without the `/` matches it.
+A directory is matched as its path with a `/` on the end, so only a pattern ending
+in `/` or `**` can match one. A pattern ending in `/` matches a directory (and
+everything inside it, since the walker doesn't descend into an excluded
+directory), and `logs/**` matches the `logs` directory itself, since `**` can
+match nothing. A pattern ending in `/` also matches a link whose target is a
+directory, unlike git, where `foo/` never matches a link. A broken link has no
+target, so only a pattern without the `/` matches it.
 
 Matching is case-insensitive on Windows and case-sensitive elsewhere. When
 several patterns match, the first in the file is the one recorded as leaving the

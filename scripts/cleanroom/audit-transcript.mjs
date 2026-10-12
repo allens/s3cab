@@ -107,7 +107,8 @@ const spellings = (path) =>
 const allowedSpelled = new RegExp(allowed.map(spellings).join("|"), "gi");
 const named = new RegExp(
   watched.map(spellings).join("|") +
-    String.raw`|(^|[\s"'(=])~(?=[\\/\s"']|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
+    // Not `'~'`, a quoted tilde: that is a literal string (a -replace target), not home.
+    String.raw`|(^|[\s"'(=])~(?=[\\/\s]|$)|\$HOME\b|\$env:(USERPROFILE|HOME|TEMP|TMP|LOCALAPPDATA|APPDATA)\b|%(USERPROFILE|TEMP|TMP|LOCALAPPDATA|APPDATA)%`,
   "i",
 );
 const runsS3cab =

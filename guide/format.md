@@ -380,11 +380,11 @@ its key in the bucket from `BUCKET` and the
 [repository layout](#the-remote-repository-the-keystone), so none of them is recorded. The `exclude.txt` in the bucket is only the latest; the `EXCLUDE` rows say which
 patterns applied to this run.
 
-One omission is silent by design: a directory named exactly `.s3cab`, in that case on every
-system, is never walked and gets no row — it is s3cab's own, and a member directory
-containing one would otherwise back up the tool's working files. An entry that vanishes between being listed and being checked gets no
-row either, since there is nothing left to record; a folder that can't be listed stops the
-backup.
+One omission is silent by design: a directory named `.s3cab`, all lowercase even on Windows,
+is never walked and gets no row — it is s3cab's own, and a member directory containing one
+would otherwise back up the tool's working files. An entry that vanishes between being
+listed and being checked gets no row either, since there is nothing left to record; a folder
+that can't be listed stops the backup.
 
 ### No row holds a tab or a line ending
 
