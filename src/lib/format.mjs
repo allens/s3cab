@@ -33,6 +33,8 @@ const byteFormatters = byteUnits.map(
       // "3.0MB", not "3MB"; raw bytes are exact integer counts, so no ".0".
       minimumFractionDigits: i === 0 ? 0 : 1,
       maximumFractionDigits: 1,
+      // No "1,234.6PB": a snapshot's SIZE row carries this form (guide/format.md).
+      useGrouping: false,
     }),
 );
 
@@ -47,7 +49,11 @@ const byteFormatters = byteUnits.map(
 export const formatByteValue = (bytes) => {
   let value = bytes;
   let unit = 0;
-  while (value >= 1000 && unit < byteFormatters.length - 1) {
+  // Judged on the value as it will print, so 999,950 is "1.0MB", not "1000.0kB".
+  while (
+    Math.round(value * 10) / 10 >= 1000 &&
+    unit < byteFormatters.length - 1
+  ) {
     value /= 1000;
     unit++;
   }
